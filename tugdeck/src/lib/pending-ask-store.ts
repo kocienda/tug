@@ -260,13 +260,36 @@ class PendingAskStore {
   /**
    * Answer a question and release the caller. Clearing the session's
    * `pendingAsk` is what unmounts the dialog.
+   *
+   * Returns whether the store still tracked the question. `false` means the
+   * request was already answered on its way out (a reap during a transient
+   * services miss can answer the wire while the session's own `pendingAsk`
+   * survives) — the caller still holds the session and must clear the parked
+   * question itself, or the dialog stands forever and every press on it is a
+   * silent no-op.
    */
-  respond = (requestId: string, choice: string): void => {
+  respond = (requestId: string, choice: string): boolean => {
+    const live = this._live.get(requestId);
+    if (live === undefined) return false;
+    this._commit((next) => next.delete(requestId));
+    this._context?.sessionFor(live.tugSessionId)?.setPendingAsk(null);
+    this.respondOnWire(requestId, choice);
+    this._notify();
+    return true;
+  };
+
+  /**
+   * The server no longer waits for this question's answer — it timed out and
+   * was resolved there. Take the dialog down without answering the wire: the
+   * caller has already been told, and an `ask-response` for a dead request
+   * would say nothing to nobody. Without this, an expired question stands
+   * forever and the session reads Awaiting until reload.
+   */
+  rescind = (requestId: string): void => {
     const live = this._live.get(requestId);
     if (live === undefined) return;
     this._commit((next) => next.delete(requestId));
     this._context?.sessionFor(live.tugSessionId)?.setPendingAsk(null);
-    this.respondOnWire(requestId, choice);
     this._notify();
   };
 
@@ -287,6 +310,10 @@ class PendingAskStore {
       for (const live of doomed) next.delete(live.requestId);
     });
     for (const live of doomed) this.respondOnWire(live.requestId, live.fallback);
+    // Best-effort: when the session can still be reached, take its parked
+    // question down with the answer. On the reap path the lookup misses by
+    // definition — there, the card's own respond fallback is the backstop.
+    this._context?.sessionFor(tugSessionId)?.setPendingAsk(null);
     this._notify();
   };
 

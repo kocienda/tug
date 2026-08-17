@@ -4631,9 +4631,15 @@ export function SessionCardBody({
   const handleAskRespond = useCallback(
     (choice: string) => {
       if (pendingAsk === null) return;
-      pendingAskStore.respond(pendingAsk.requestId, choice);
+      const answered = pendingAskStore.respond(pendingAsk.requestId, choice);
+      // A question the store no longer tracks was already answered on its way
+      // out (a reap during a transient services miss), leaving only the parked
+      // dialog behind. It still has to come down — a press that visibly does
+      // nothing is a refused gesture with no reason, and the session would
+      // read Awaiting forever.
+      if (!answered) codeSessionStore.setPendingAsk(null);
     },
-    [pendingAsk],
+    [pendingAsk, codeSessionStore],
   );
 
   // The bound session's identity, through the one hook every identity surface

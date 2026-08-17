@@ -101,6 +101,8 @@ export interface DashRow {
   stage: string | null;
   /** `step i/N`, only when the server sent both halves. */
   steps: string | null;
+  /** What the current step *is* — the latest declaration's title, or null. */
+  stepTitle: string | null;
   /** Live sessions mated to this dash — empty is how *parked* reads. */
   boundSessions: string[];
   /** True when no live session is working this dash. */
@@ -125,6 +127,7 @@ function rowFromEntry(
       entry.step_current !== undefined && entry.step_total !== undefined
         ? `step ${entry.step_current}/${entry.step_total}`
         : null,
+    stepTitle: entry.step_title ?? null,
     boundSessions,
     // Absence of evidence renders the quiet mark, never a live claim: an older
     // sender omits `bound_sessions` entirely, and that is not a reason to say
@@ -298,6 +301,7 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
         name={row.name}
         stage={row.stage}
         steps={row.steps}
+        stepTitle={row.stepTitle}
         review={row.review}
         markSize={DASH_DOT_SIZE + 2}
         trailing={

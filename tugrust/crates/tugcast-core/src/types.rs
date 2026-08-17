@@ -497,11 +497,15 @@ pub enum ChangesetEntry {
         /// ([Q02]). Empty is how *parked* reads.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         bound_sessions: Vec<String>,
-        /// Phase 3's declared step counters; always absent for now ([P06]).
+        /// Declared step counters, from the latest step declaration ([P06]).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         step_current: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         step_total: Option<u32>,
+        /// What `step_current` *is* — the latest `step-start` declaration's
+        /// title, so a display can say more than a counter.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step_title: Option<String>,
         /// The plan this dash is driving, relative to its **worktree** — the
         /// copy a run edits and whose ledger the step verbs rewrite, which is
         /// what makes it the copy a review of a bound dash has to read. Compose
@@ -1358,6 +1362,7 @@ mod tests {
             bound_sessions: vec!["sess-1".to_string()],
             step_current: None,
             step_total: None,
+            step_title: None,
             plan_path: None,
             review: None,
             base: "main".to_string(),

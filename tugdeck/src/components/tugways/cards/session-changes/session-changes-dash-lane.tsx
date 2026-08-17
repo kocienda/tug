@@ -519,6 +519,11 @@ function DashRow({
               <span className="session-changes-dash-step">{steps}</span>
             </>
           ) : null}
+          {entry.step_title !== undefined ? (
+            <span className="session-changes-dash-step-title">
+              {entry.step_title}
+            </span>
+          ) : null}
           {dashReviewPaints(entry.review) ? (
             <>
               <span className="session-changes-dash-sep">·</span>

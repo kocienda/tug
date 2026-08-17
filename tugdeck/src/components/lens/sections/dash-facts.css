@@ -36,6 +36,18 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+/* The step's title is the long run on the line and the second to give way,
+   after the name: the counters beside it keep the state legible however hard
+   it elides. */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.lens-dashes-step-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
 /* The review mark. Advisory, so it takes the caution tone rather than the
    danger one: nothing is broken, a document has drifted. */
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */

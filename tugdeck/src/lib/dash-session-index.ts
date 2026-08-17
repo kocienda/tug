@@ -34,6 +34,8 @@ export interface DashSessionFact {
   readonly projectDir: string;
   /** `step i/N` as one preformatted run, or null unless both halves arrived. */
   readonly steps: string | null;
+  /** What the current step *is* — the latest declaration's title, or null. */
+  readonly stepTitle: string | null;
 }
 
 /**
@@ -63,6 +65,7 @@ export function buildDashSessionIndex(
           entry.step_current !== undefined && entry.step_total !== undefined
             ? `step ${entry.step_current}/${entry.step_total}`
             : null,
+        stepTitle: entry.step_title ?? null,
       };
       for (const sessionId of sessions) {
         if (index.has(sessionId)) continue;

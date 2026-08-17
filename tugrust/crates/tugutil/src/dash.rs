@@ -415,6 +415,12 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         println!("Dash: {}", data.name);
         println!("Id: {}", data.id);
         println!("Stage: {}", data.stage);
+        if let (Some(current), Some(total)) = (data.step_current, data.step_total) {
+            match &data.step_title {
+                Some(title) => println!("Step: {}/{} — {}", current, total, title),
+                None => println!("Step: {}/{}", current, total),
+            }
+        }
         println!("Branch: {}", data.branch);
         println!("Base: {}", data.base_branch);
         println!("Rounds: {}", data.rounds);

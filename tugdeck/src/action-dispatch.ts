@@ -350,6 +350,14 @@ export function initActionDispatch(
     pendingAskStore.receive(payload);
   });
 
+  // The other end of `ask`'s lifecycle: tugcast resolved the question itself
+  // (its timeout elapsed), so the dialog comes down without an answer frame.
+  registerAction("ask-rescind", (payload) => {
+    const requestId = payload.requestId;
+    if (typeof requestId !== "string" || requestId.length === 0) return;
+    pendingAskStore.rescind(requestId);
+  });
+
   // Gated twice on the tugcast side before an `eval` frame is ever broadcast:
   // loopback callers only, and dev mode only. A release instance answers
   // `forbidden` without consulting the deck at all.

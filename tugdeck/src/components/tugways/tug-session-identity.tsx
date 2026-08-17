@@ -200,17 +200,6 @@ export interface TugSessionIdentityProps
    * @default true
    */
   tooltip?: boolean;
-  /**
-   * Whether the title carries the bound dash's run.
-   *
-   * Off where the mount site states the same fact more fully directly beneath
-   * the title — the Lens Cards rows nest a dash sub-row carrying the stage,
-   * the step counters, and the review mark, and the run above it would be the
-   * same fact twice within one row's height. The default says on, so a surface
-   * that adds nothing of its own inherits it.
-   * @default true
-   */
-  dashRun?: boolean;
 }
 
 /**
@@ -347,7 +336,6 @@ export const TugSessionIdentity = React.forwardRef<
     onOpen,
     hostCardId,
     tooltip = true,
-    dashRun = true,
     className,
     ...rest
   },
@@ -446,9 +434,10 @@ export const TugSessionIdentity = React.forwardRef<
             </span>
           ) : null}
         </span>
-        {isMissing || !dashRun ? null : (
-          <SessionDashMarker sessionId={identity.id} />
-        )}
+        {/* The bound dash is part of the identity wherever the identity is
+            met — a session on a dash is never named without it, so there is
+            deliberately no prop to turn this run off. */}
+        {isMissing ? null : <SessionDashMarker sessionId={identity.id} />}
       </span>
       {isMissing ? null : <SessionPrivacyMarker sessionId={identity.id} />}
     </span>

@@ -78,6 +78,16 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+/* The step's title rides beside its counter and is the run that gives way —
+   the counter keeps the state legible however hard the title elides. */
+.session-changes-dash-step-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
 /* The stale-review mark ([P07]): advisory, so it takes the same caution tone
    as `dirty` rather than the danger one. `never-reviewed` drops to the muted
    run — nothing has drifted there, nothing has vouched either. */

@@ -375,6 +375,8 @@ Table T05, (#op-rename, #fundamental-wall)
 > - After completing a group of related flat steps, add a lightweight **Integration Checkpoint step** that depends on all constituent steps and verifies they work together. Integration checkpoint steps use `Commit: N/A (verification only)` to signal no separate commit.
 >
 > **References are mandatory:** Every step must cite specific plan artifacts ([P01], Spec S01, Table T01, etc.) and anchors (#section-name). Never cite line numbers—add an anchor instead.
+>
+> **Step numbers are identity, not decoration.** Every step heading must read `Step N: <Title>` with an integer `N` — the anchor, the ledger row, the step verbs, and every display key the run's progress by it. An unnumbered step heading fails lint (PL026), and a plan with execution steps but no Step Status Ledger fails lint (PL027): both describe a plan the machinery cannot drive.
 
 #### Step Status Ledger {#step-status-ledger}
 

@@ -113,6 +113,28 @@ describe("buildDashSessionIndex", () => {
       buildDashSessionIndex({ projects: [projectWith([both])] }).get("sess-a")!.steps,
     ).toBe("step 2/5");
   });
+
+  test("the step's title rides the fact, and absence reads as null", () => {
+    const bare: DashChangesetEntry = {
+      ...GOLDEN_DASH,
+      bound_sessions: ["sess-a"],
+    };
+    delete bare.step_title;
+    expect(
+      buildDashSessionIndex({ projects: [projectWith([bare])] }).get("sess-a")!
+        .stepTitle,
+    ).toBeNull();
+    const titled: DashChangesetEntry = {
+      ...bare,
+      step_current: 2,
+      step_total: 5,
+      step_title: "Wire the feed",
+    };
+    expect(
+      buildDashSessionIndex({ projects: [projectWith([titled])] }).get("sess-a")!
+        .stepTitle,
+    ).toBe("Wire the feed");
+  });
 });
 
 describe("dashSessionIndex", () => {

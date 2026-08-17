@@ -296,6 +296,9 @@ pub struct DashDeclarations {
     /// The latest step declaration's `i`/`N`, which outlives a later `built`
     /// or `audited` so a display can still say how far the run got.
     pub step: Option<(u32, u32)>,
+    /// The latest `step-start` note's title — what step `i` *is*, so a display
+    /// can say more than a counter. `None` when the note carried no title.
+    pub step_title: Option<String>,
     /// The latest `replayed` line's note — where this dash's rounds went when
     /// its base last moved under it. Deliberately not a `latest` declaration: a
     /// replay rewrites history, it does not move the dash's stage.
@@ -341,6 +344,19 @@ fn read_step_fields(note: &str) -> Option<(u32, u32)> {
     Some((current.parse().ok()?, total.parse().ok()?))
 }
 
+/// The title a `step-start` note carries after its `i/N` token. The tail is
+/// written as `Step {i}: {title}`, so that spelled-out prefix is stripped back
+/// off; any other tail is kept verbatim. Empty reads as no title.
+fn read_step_title(note: &str, current: u32) -> Option<String> {
+    let (_, tail) = note.split_once(char::is_whitespace)?;
+    let tail = tail.trim();
+    let title = tail
+        .strip_prefix(&format!("Step {current}:"))
+        .map(str::trim)
+        .unwrap_or(tail);
+    (!title.is_empty()).then(|| title.to_owned())
+}
+
 /// The declarations a dash's *current generation* has made ([P02]).
 ///
 /// Lines are filtered to the dash by name, then everything at or before its
@@ -371,6 +387,11 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
                 if let Some((current, total)) = read_step_fields(note) {
                     found.latest = Some(DashDeclaration::Step { current, total });
                     found.step = Some((current, total));
+                    // A done note's tail is the round's sha, not a title — the
+                    // start's title stays current until the next start.
+                    if marker == "step-start" {
+                        found.step_title = read_step_title(note, current);
+                    }
                 }
             }
             "built" => found.latest = Some(DashDeclaration::Built),
@@ -519,6 +540,33 @@ mod tests {
         let found = read_declarations(fixture.root(), "d");
         assert_eq!(found.latest, Some(DashDeclaration::Built));
         assert_eq!(found.step, Some((3, 9)));
+    }
+
+    #[test]
+    #[serial]
+    fn a_step_start_carries_its_title_and_a_done_keeps_it() {
+        let log = format!(
+            "{}{}",
+            log_line("d", "step-start", "3/9 Step 3: Wire the feed"),
+            log_line("d", "step-done", "3/9 a4477d5"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.step, Some((3, 9)));
+        assert_eq!(
+            found.step_title.as_deref(),
+            Some("Wire the feed"),
+            "the start's title survives the done's sha tail"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn a_bare_step_start_reads_as_untitled() {
+        let fixture = log_repo(&log_line("d", "step-start", "4/9"));
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.step, Some((4, 9)));
+        assert_eq!(found.step_title, None);
     }
 
     #[test]

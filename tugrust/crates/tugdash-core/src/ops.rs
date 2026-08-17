@@ -995,6 +995,8 @@ pub struct DashDetail {
     /// How far a stepped run has got, from the latest step declaration.
     pub step_current: Option<u32>,
     pub step_total: Option<u32>,
+    /// What `step_current` *is* — the latest `step-start` declaration's title.
+    pub step_title: Option<String>,
     /// The plan this dash is driving, relative to its *worktree* — the copy a
     /// run edits and whose ledger the step verbs rewrite. `None` when no run
     /// has recorded one.
@@ -1161,6 +1163,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             .to_owned(),
             step_current: declarations.step.map(|(current, _)| current),
             step_total: declarations.step.map(|(_, total)| total),
+            step_title: declarations.step_title.clone(),
             plan_path: dash_plan_path(repo_root, name),
             base_ahead,
             base_overlap,
@@ -1202,6 +1205,8 @@ pub struct DashStatus {
     /// How far a stepped run has got, from the latest step declaration.
     pub step_current: Option<i64>,
     pub step_total: Option<i64>,
+    /// What `step_current` *is* — the latest `step-start` declaration's title.
+    pub step_title: Option<String>,
     /// The plan this dash is driving, relative to its worktree ([P08]).
     pub plan_path: Option<String>,
 }
@@ -1329,6 +1334,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         bound_sessions,
         step_current: declarations.step.map(|(current, _)| current as i64),
         step_total: declarations.step.map(|(_, total)| total as i64),
+        step_title: declarations.step_title.clone(),
         plan_path: dash_plan_path(repo_root, name),
     })
 }

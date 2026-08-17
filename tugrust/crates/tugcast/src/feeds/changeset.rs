@@ -636,6 +636,7 @@ pub(crate) async fn compose_snapshot(
                     rounds,
                     worktree_dirty,
                     draft,
+                    stage,
                     ..
                 } if *rounds > 0 || *worktree_dirty => {
                     *draft = by_owner
@@ -644,6 +645,16 @@ pub(crate) async fn compose_snapshot(
                             dash_by_legacy.get(tugdash_core::ops::legacy_owner_key(owner_id))
                         })
                         .map(|row| draft_from_row(row));
+                    // `dash_detail_entries_in` derives its stage without draft
+                    // visibility; this overlay is the caller that can see one,
+                    // so it discharges the recompute `derive_stage`'s
+                    // precedence assigns it — a draft outranks mere activity,
+                    // and nothing else ([P03]).
+                    if draft.is_some()
+                        && matches!(stage.as_deref(), Some("working") | Some("created"))
+                    {
+                        *stage = Some("draft-ready".to_owned());
+                    }
                 }
                 _ => {}
             }
@@ -1154,6 +1165,7 @@ async fn dash_entries(
             stage: Some(detail.stage),
             step_current: detail.step_current,
             step_total: detail.step_total,
+            step_title: detail.step_title,
             plan_path: detail.plan_path,
             review,
             base: detail.base,
@@ -2481,6 +2493,7 @@ Some context.
             bound_sessions: Vec::new(),
             step_current: None,
             step_total: None,
+            step_title: None,
             plan_path: None,
             review: None,
             base: "main".to_owned(),
@@ -2561,6 +2574,7 @@ Some context.
                     bound_sessions: Vec::new(),
                     step_current: None,
                     step_total: None,
+                    step_title: None,
                     plan_path: None,
                     review: None,
                     base: "main".to_owned(),

@@ -508,6 +508,18 @@ pub fn lint(doc: &PlanDoc) -> Vec<Diagnostic> {
         ));
     }
 
+    // PL027 — a stepped plan with no ledger at all. Step identity is
+    // load-bearing: the step verbs, the dash-log, and every display key a
+    // run's progress by ledger row, so a plan that has steps but no ledger is
+    // one the machinery cannot drive.
+    if !doc.steps.is_empty() && doc.ledger_line.is_none() && doc.ledger_rows.is_empty() {
+        out.push(Diagnostic::whole_doc(
+            "PL027",
+            Severity::Error,
+            "this plan has execution steps but no Step Status Ledger — nothing can track or resume the run",
+        ));
+    }
+
     // PL015 / PL016 / PL017 / PL018 — the ledger.
     if doc.ledger_line.is_some() && doc.ledger_rows.is_empty() {
         out.push(Diagnostic::at(
@@ -601,6 +613,19 @@ pub fn lint(doc: &PlanDoc) -> Vec<Diagnostic> {
             .number
             .map(|n| format!("Step {n}"))
             .unwrap_or_else(|| step.title.clone());
+
+        // PL026 — an unnumbered step. The number is the step's identity: the
+        // anchor, the ledger row, and the step verbs all spell it, so a
+        // heading whose `Step …:` prefix does not parse as an integer is a
+        // step nothing can start, finish, or resume.
+        if step.number.is_none() {
+            out.push(anchor_of(Diagnostic::at(
+                "PL026",
+                Severity::Error,
+                format!("{label} has no step number — a step heading reads `Step N: <title>`"),
+                step.line,
+            )));
+        }
 
         if step.commit.is_none() {
             out.push(anchor_of(Diagnostic::at(
@@ -1685,6 +1710,29 @@ Some context.
         let d = find(&source, "PL014");
         assert_eq!(d.severity, Severity::Error);
         assert!(d.message.contains("later"), "{}", d.message);
+    }
+
+    #[test]
+    fn pl026_unnumbered_step_heading() {
+        let source = MINIMAL.replace(
+            "#### Step 1: The only step {#step-1}",
+            "#### Step One: The only step {#step-1}",
+        );
+        let d = find(&source, "PL026");
+        assert_eq!(d.severity, Severity::Error);
+        assert!(d.message.contains("Step N"), "{}", d.message);
+        assert!(!codes(MINIMAL).contains(&"PL026".to_string()));
+    }
+
+    #[test]
+    fn pl027_stepped_plan_with_no_ledger_at_all() {
+        let source = MINIMAL.replace(
+            "#### Step Status Ledger {#step-status-ledger}\n\n| Step | Title | Status | Commit |\n|---|---|---|---|\n| #step-1 | The only step | pending | — |\n",
+            "",
+        );
+        let d = find(&source, "PL027");
+        assert_eq!(d.severity, Severity::Error);
+        assert!(!codes(MINIMAL).contains(&"PL027".to_string()));
     }
 
     #[test]

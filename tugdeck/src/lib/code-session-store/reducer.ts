@@ -3322,12 +3322,37 @@ function handleControlRequestForward(
     state.phase !== "streaming" &&
     state.phase !== "tool_work" &&
     state.phase !== "awaiting_first_token" &&
-    state.phase !== "submitting"
+    state.phase !== "submitting" &&
+    state.phase !== "awaiting_approval"
   ) {
     return { state, effects: [] };
   }
 
   const forward = extractForward(event);
+  if (state.phase === "awaiting_approval") {
+    // A second dialog while one is already up. Dropping it — the old
+    // behavior — left the CLI blocked on a request no dialog would ever
+    // answer and the session latched `awaiting_approval` forever. Stash it
+    // into its own slot instead, so answering the first dialog reveals it;
+    // the phase and `prevPhase` are already right, and the awaiting clock is
+    // already running. A slot already occupied by an earlier forward of the
+    // same kind keeps the earlier one — swapping mid-decision would orphan
+    // the caller the user is looking at.
+    return {
+      state: {
+        ...state,
+        pendingApproval:
+          event.is_question || state.pendingApproval !== null
+            ? state.pendingApproval
+            : forward,
+        pendingQuestion:
+          event.is_question && state.pendingQuestion === null
+            ? forward
+            : state.pendingQuestion,
+      },
+      effects: [],
+    };
+  }
   if (isReplay) {
     // Stash only; do not move off `replaying`. `replay_complete`
     // checks for a populated pending dialog and lands in
@@ -3443,22 +3468,31 @@ function handleRespondApproval(
     return { state, effects: [] };
   }
 
-  const restored: CodeSessionPhase = state.prevPhase ?? "streaming";
   // The decision is sent out on the wire below and the SDK's
   // tool_use/tool_result for the gated tool IS the durable transcript
   // artifact — there is no client-side record kept here. See
   // `#step-3-5` in `roadmap/archive/dev-interactive-dialogs.md` for why
   // JSONL cannot durably reconstruct a separate permission record.
-  const next: CodeSessionState = {
-    ...state,
-    phase: restored,
-    prevPhase: null,
-    pendingApproval: null,
-    // Close and fold the awaiting-approval interval into the
-    // accumulator. Same fold for permission and question dialogs;
-    // see `closeAwaitingApprovalInterval`.
-    ...closeAwaitingApprovalInterval(state),
-  };
+  //
+  // The phase restores only when this was the LAST dialog up. A question can
+  // be pending beside the approval (a stacked forward, or a replay bracket
+  // that stashed both), and restoring under it would paint the session as
+  // working while a dialog still waits — the stuck state's own recipe. The
+  // awaiting interval stays open for the same reason: the user is still
+  // waiting, just on the other dialog.
+  const stillAwaiting = state.pendingQuestion !== null;
+  const next: CodeSessionState = stillAwaiting
+    ? { ...state, pendingApproval: null }
+    : {
+        ...state,
+        phase: state.prevPhase ?? "streaming",
+        prevPhase: null,
+        pendingApproval: null,
+        // Close and fold the awaiting-approval interval into the
+        // accumulator. Same fold for permission and question dialogs;
+        // see `closeAwaitingApprovalInterval`.
+        ...closeAwaitingApprovalInterval(state),
+      };
   return {
     state: next,
     effects: [
@@ -3485,14 +3519,18 @@ function handleRespondQuestion(
     return { state, effects: [] };
   }
 
-  const restored: CodeSessionPhase = state.prevPhase ?? "streaming";
-  const next: CodeSessionState = {
-    ...state,
-    phase: restored,
-    prevPhase: null,
-    pendingQuestion: null,
-    ...closeAwaitingApprovalInterval(state),
-  };
+  // Mirror of `handleRespondApproval`: restore only when no approval dialog
+  // remains beside this question, else the phase would lie under it.
+  const stillAwaiting = state.pendingApproval !== null;
+  const next: CodeSessionState = stillAwaiting
+    ? { ...state, pendingQuestion: null }
+    : {
+        ...state,
+        phase: state.prevPhase ?? "streaming",
+        prevPhase: null,
+        pendingQuestion: null,
+        ...closeAwaitingApprovalInterval(state),
+      };
   // Two mutually-exclusive outcomes share one frame: answer the questions
   // (`answers`) or decline and reply in prose (`response`, the `Chat about
   // this` path). A decline supersedes — emit `response` when present.

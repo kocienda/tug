@@ -49,19 +49,25 @@ export function DashReviewMark({
   );
 }
 
-/** The name, the stage, the step counters, and the review mark, in that order. */
+/** The name, the stage, the step, its title, and the review mark, in order. */
 export function DashFactsRun({
   name,
   stage,
   steps,
+  stepTitle,
   review,
   markSize,
   trailing,
 }: {
-  name: string;
+  /** The dash's name, or null where the surface already names it — the Cards
+   *  sub-row rides under a title whose identity run carries `#<dash>`, and the
+   *  same name twice within one row's height says nothing new. */
+  name: string | null;
   stage: string | null;
   /** `step i/N`, preformatted, or null when the sender declared no counters. */
   steps: string | null;
+  /** What the current step *is* — the declaration's title, or null. */
+  stepTitle: string | null;
   review: string | null;
   markSize: number;
   /** What the surface adds after the shared run — the roster's project label. */
@@ -69,11 +75,14 @@ export function DashFactsRun({
 }): React.ReactElement {
   return (
     <span className="lens-dashes-facts">
-      <span className="lens-dashes-name">{name}</span>
+      {name !== null ? <span className="lens-dashes-name">{name}</span> : null}
       {stage !== null ? (
         <span className="lens-dashes-stage">{stage}</span>
       ) : null}
       {steps !== null ? <span className="lens-dashes-step">{steps}</span> : null}
+      {stepTitle !== null ? (
+        <span className="lens-dashes-step-title">{stepTitle}</span>
+      ) : null}
       {dashReviewPaints(review) ? (
         <DashReviewMark review={review!} size={markSize} />
       ) : null}

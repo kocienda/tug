@@ -149,6 +149,7 @@ describe("compareDashRows", () => {
       name,
       stage,
       steps: null,
+      stepTitle: null,
       boundSessions: parked ? [] : ["sess-1"],
       parked,
       review: null,

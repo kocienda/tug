@@ -74,7 +74,6 @@ import {
 } from "@/components/lens/lens-section-content";
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
-import { DashFactsRun } from "@/components/lens/sections/dash-facts";
 import { SlotPicker } from "@/components/lens/slot-picker";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";

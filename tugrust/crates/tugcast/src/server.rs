@@ -1010,21 +1010,42 @@ async fn ask_handler(
         }
         // Nobody answered. With an `unattendedChoice` that is itself the
         // answer — the caller said so — and reporting it as a timeout would
-        // turn "nobody was at the keyboard" back into a refusal.
-        Err(_) => match unattended {
-            Some(choice) => (
-                StatusCode::OK,
-                axum::Json(serde_json::json!({"status": "ok", "choice": choice})),
-            )
-                .into_response(),
-            None => (
-                StatusCode::GATEWAY_TIMEOUT,
-                axum::Json(
-                    serde_json::json!({"status": "error", "message": "timeout waiting for answer"}),
-                ),
-            )
-                .into_response(),
-        },
+        // turn "nobody was at the keyboard" back into a refusal. Either way
+        // the question is resolved HERE now, so the deck is told to take its
+        // dialog down — a question that expires silently leaves the dialog
+        // standing and the session reading Awaiting forever, with every press
+        // on it answering a caller that already left.
+        Err(_) => {
+            broadcast_ask_rescind(&router, &request_id);
+            match unattended {
+                Some(choice) => (
+                    StatusCode::OK,
+                    axum::Json(serde_json::json!({"status": "ok", "choice": choice})),
+                )
+                    .into_response(),
+                None => (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    axum::Json(serde_json::json!({
+                        "status": "error",
+                        "message": "timeout waiting for answer",
+                    })),
+                )
+                    .into_response(),
+            }
+        }
+    }
+}
+
+/// Tell the deck a question no longer waits for an answer — its caller has
+/// been answered (or told) by the server, so the dialog must come down.
+/// Best-effort: a deck that is gone has no dialog to take down.
+fn broadcast_ask_rescind(router: &FeedRouter, request_id: &str) {
+    if let Some((broadcast_tx, _)) = router.stream_outputs.get(&FeedId::CONTROL) {
+        let frame = serde_json::json!({"action": "ask-rescind", "requestId": request_id});
+        let _ = broadcast_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&frame).unwrap(),
+        ));
     }
 }
 

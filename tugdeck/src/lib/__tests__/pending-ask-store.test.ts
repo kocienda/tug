@@ -213,8 +213,11 @@ describe("a countdown question", () => {
 });
 
 describe("respond", () => {
-  it("ignores an answer for a request that is not live", () => {
-    pendingAskStore.respond("never-asked", "run-all");
+  it("ignores an answer for a request that is not live, and says so", () => {
+    // `false` is the caller's cue to take its own parked dialog down — the
+    // orphan case, where a reap answered the wire but could not reach the
+    // session's `pendingAsk`.
+    expect(pendingAskStore.respond("never-asked", "run-all")).toBe(false);
     expect(sent).toEqual([]);
   });
 });
@@ -240,7 +243,7 @@ describe("a question that reaches a session", () => {
 
   it("clears the dialog and answers on respond", () => {
     ask("r11");
-    pendingAskStore.respond("r11", "run-all");
+    expect(pendingAskStore.respond("r11", "run-all")).toBe(true);
     expect(sessions.get(SID)?.parked).toBeNull();
     expect(sent).toEqual([
       { action: "ask-response", payload: { requestId: "r11", choice: "run-all" } },
@@ -278,6 +281,29 @@ describe("a question that reaches a session", () => {
     expect(parked).not.toBe(empty);
     pendingAskStore.respond("r15", "run-all");
     expect(pendingAskStore.getSnapshot()).not.toBe(parked);
+  });
+
+  // The dialog must come down WITH the answer when the session can still be
+  // reached — a parked question that outlives its answer is a dialog whose
+  // every press is a silent no-op, and a session latched "Awaiting" forever.
+  it("clears the parked question on sessionClosed while the session is reachable", () => {
+    ask("r17");
+    pendingAskStore.sessionClosed(SID);
+    expect(sessions.get(SID)?.parked).toBeNull();
+    expect(sent).toEqual([
+      { action: "ask-response", payload: { requestId: "r17", choice: "cancel" } },
+    ]);
+  });
+
+  // The server resolved the question itself (timeout). The dialog comes down
+  // with NO answer frame — the caller already left, and an `ask-response`
+  // for a dead request would say nothing to nobody.
+  it("rescind takes the dialog down without answering the wire", () => {
+    ask("r18");
+    pendingAskStore.rescind("r18");
+    expect(sessions.get(SID)?.parked).toBeNull();
+    expect(sent).toEqual([]);
+    expect(pendingAskStore.getSnapshot().size).toBe(0);
   });
 
   it("routes to the focused session when the frame names none", () => {

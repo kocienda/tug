@@ -15,10 +15,11 @@
  * the second half falsifiable rather than incidental — the number of list
  * cells before and after the bind.
  *
- * What the line adds over the title's own dash run is the reason the run above
- * it is suppressed — the stage, the step counters, the review mark — so both
- * halves are pinned: the line appears with its facts, and the title carries NO
- * dash run while it does.
+ * The dash's NAME lives in the title's identity run — `#<dash>`, everywhere a
+ * session is named, with no opt-out — so the line does not repeat it: it
+ * carries what the run cannot, the stage, the step counters, and the review
+ * mark. Both halves are pinned: the line appears carrying no name, and the
+ * title says the dash exactly once while it does.
  *
  * Everything is real. `tugutil dash bind` runs through the card's own `$` shell
  * route (the route that stamps `TUG_SESSION_ID`), and the line appears because
@@ -208,8 +209,8 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
            })()`,
         );
         note("at0424 dash line", JSON.stringify(line));
-        // The grammar's own spelling, and the facts the title's run cannot say.
-        expect(line.text).toContain(`#${DASH_NAME}`);
+        // The name is the title run's to say; the line says only the doing.
+        expect(line.text).not.toContain(`#${DASH_NAME}`);
         // A freshly created dash with no round and no dirt is `created`.
         expect(line.text).toContain("created");
         expect(line.insideSessionRow).toBe(true);
@@ -221,8 +222,10 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
         // redesign, and the half a containment assertion alone would miss.
         expect(await listCellCount(app)).toBe(bareCells);
 
-        // The row says the dash exactly once, and the line is where.
-        expect(await dashRunsOnSessionRow(app)).toBe(0);
+        // The row says the dash's name exactly once, and the title's identity
+        // run is where — the sigil rides the session's name wherever the
+        // session is named.
+        expect(await dashRunsOnSessionRow(app)).toBe(1);
         note("at0424 lens with the dash line", (await app.screenshot()).path);
 
         // ── Unbind, for real ──────────────────────────────────────────────

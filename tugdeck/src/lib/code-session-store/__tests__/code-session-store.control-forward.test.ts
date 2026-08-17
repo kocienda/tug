@@ -318,3 +318,79 @@ describe("CodeSessionStore — synthetic AskUserQuestion (Step 6)", () => {
     expect(conn.recordedFramesExcludingStateChange.length).toBe(framesBefore);
   });
 });
+
+describe("CodeSessionStore — stacked dialogs", () => {
+  /** A question forward landing while a permission dialog is already up. */
+  function raiseBoth(conn: TestFrameChannel, store: CodeSessionStore): void {
+    store.send("do a gated thing", []);
+    drainToStreaming(conn, store, FIXTURE_IDS.MSG_ID);
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "control_request_forward",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      request_id: FIXTURE_IDS.REQUEST_ID,
+      is_question: false,
+      tool_name: "Bash",
+      tool_use_id: FIXTURE_IDS.TOOL_USE_ID,
+      input: { command: "ls" },
+    });
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "control_request_forward",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      request_id: "req-question-2",
+      is_question: true,
+      question: "pick one",
+      options: [{ key: "a", label: "Option A" }],
+    });
+  }
+
+  it("stashes a question that arrives while a permission dialog is up", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    raiseBoth(conn, store);
+
+    const snap = store.getSnapshot();
+    expect(snap.phase).toBe("awaiting_approval");
+    expect(snap.pendingApproval?.request_id).toBe(FIXTURE_IDS.REQUEST_ID);
+    // The old behavior dropped this forward on the floor, leaving the CLI
+    // blocked on an answer no dialog would ever produce.
+    expect(snap.pendingQuestion?.request_id).toBe("req-question-2");
+  });
+
+  it("stays awaiting_approval after the first answer while the second dialog waits", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    raiseBoth(conn, store);
+
+    store.respondApproval(FIXTURE_IDS.REQUEST_ID, { decision: "allow" });
+    let snap = store.getSnapshot();
+    // The question is still up — restoring the phase under it would paint
+    // the session as working while a dialog waits.
+    expect(snap.phase).toBe("awaiting_approval");
+    expect(snap.pendingApproval).toBeNull();
+    expect(snap.pendingQuestion).not.toBeNull();
+
+    store.respondQuestion("req-question-2", { answers: { pick: "a" } });
+    snap = store.getSnapshot();
+    expect(snap.phase).toBe("streaming");
+    expect(snap.pendingQuestion).toBeNull();
+  });
+
+  it("keeps the earlier forward when a same-kind forward stacks on it", () => {
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+    raiseBoth(conn, store);
+
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "control_request_forward",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      request_id: "req-question-3",
+      is_question: true,
+      question: "pick again",
+      options: [{ key: "b", label: "Option B" }],
+    });
+    // Swapping mid-decision would orphan the caller the user is looking at.
+    expect(store.getSnapshot().pendingQuestion?.request_id).toBe(
+      "req-question-2",
+    );
+  });
+});

@@ -142,9 +142,11 @@ export interface DashChangesetEntry {
   stage?: string;
   /** Live sessions mated to this dash. Empty is how *parked* reads. */
   bound_sessions?: string[];
-  /** Declared step counters; not yet emitted. */
+  /** Declared step counters, from the latest step declaration. */
   step_current?: number;
   step_total?: number;
+  /** What `step_current` *is* — the latest `step-start` declaration's title. */
+  step_title?: string;
   /** The plan this dash is driving, relative to its **worktree** — the copy a
    *  run edits and whose ledger the step verbs rewrite. Absolute path is
    *  `worktree` / `plan_path`, and involves no third component. */
@@ -337,6 +339,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       isOptionalStringArray(value.bound_sessions) &&
       (value.step_current === undefined || typeof value.step_current === "number") &&
       (value.step_total === undefined || typeof value.step_total === "number") &&
+      (value.step_title === undefined || typeof value.step_title === "string") &&
       (value.plan_path === undefined || typeof value.plan_path === "string") &&
       (value.base_ahead === undefined || typeof value.base_ahead === "number") &&
       isOptionalStringArray(value.base_overlap) &&

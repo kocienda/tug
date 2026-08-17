@@ -2,14 +2,17 @@
  * cards-session-cell.tsx — the session *monitor* row, as it appears for a
  * single-card session pane in the Lens's Cards section:
  *
- *   [dot] <session name>                         <slot layout>
+ *   [dot] <session name> #<dash>                 <slot layout>
  *   <description>
  *   <latest pulse line>                        <activity sparkline>
- *     #<dash>  <stage>  step i/N  [review mark]
+ *     <stage>  step i/N  <step title>  [review mark]
  *
  * The last line is there only while the session is bound to a dash. It is a
  * line of the row rather than a row of its own, so it takes the row's own band
- * and travels with the session by construction.
+ * and travels with the session by construction. The dash's NAME is not on it —
+ * the identity run in the title carries `#<dash>`, everywhere and always — so
+ * this line spends its width on what the dash is DOING: the stage, the step
+ * counters, and the current step's title.
  *
  * The middle line is the agent's rolling description of the session, with the
  * session's creation date standing in until one is written — so the row is the
@@ -57,20 +60,20 @@ const DASH_LINE_MARK = 14;
  * component is already per-session, so it wakes exactly the row a leaf would.
  *
  * It carries what the title's own dash run cannot: the stage, the step
- * counters, and the review mark. That is why the title suppresses its run
- * below — the same fact twice within one row's height, and the fuller of the
- * two wins. The name is spelled `#<name>`, the identity's own grammar, because
- * this is a dash named inside a SESSION; the Dashes section's rows are dashes
- * themselves and name themselves bare.
+ * counters, the current step's title, and the review mark. The dash's name is
+ * deliberately absent — the identity run above already says `#<dash>`, and the
+ * same name twice within one row's height would crowd out the one fact only
+ * this line can carry: what the run is doing right now.
  */
 function useSessionDashLine(sessionId: string): React.ReactNode {
   const dash = useDashForSession(sessionId);
   if (dash === null) return null;
   return (
     <DashFactsRun
-      name={`#${dash.name}`}
+      name={null}
       stage={dash.stage}
       steps={dash.steps}
+      stepTitle={dash.stepTitle}
       review={dash.review}
       markSize={DASH_LINE_MARK}
     />
@@ -126,10 +129,6 @@ export function CardsSessionRow({
       // somewhere else, and it is the surface with the least room to show the
       // description it holds.
       identityMenu
-      // The dash rides the row's last line, which carries the stage, the
-      // steps, and the review mark the title's run cannot. The same fact twice
-      // within one row's height is what this suppresses.
-      dashRun={false}
       dashLine={dashLine}
       highlight={filterQuery}
       slots={<SlotPicker cardId={cardId} />}
