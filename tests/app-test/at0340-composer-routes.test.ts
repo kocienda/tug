@@ -201,6 +201,22 @@ async function submitLine(app: App, line: string): Promise<void> {
   await app.nativeKey("Enter", ["cmd"]);
 }
 
+/**
+ * Submit a slash command, dismissing the completion popup first.
+ *
+ * {@link submitLine} is enough for a verb the picker does not offer a match
+ * for, but with the popup up ⌘Return accepts the completion instead of
+ * submitting the line — so a command typed that way silently never runs.
+ */
+async function runCommand(app: App, line: string): Promise<void> {
+  await app.nativeClickAtElement(EDITOR);
+  await app.nativeType(line);
+  await new Promise((r) => setTimeout(r, 200));
+  await app.nativeKey("Escape");
+  await new Promise((r) => setTimeout(r, 200));
+  await app.nativeKey("Return", ["cmd"]);
+}
+
 /** Empty the draft, whatever it holds. The emptiness gate is the entry root's
  *  `data-empty` bridge — an empty editor still renders placeholder text. */
 async function clearDraft(app: App): Promise<void> {
@@ -373,6 +389,23 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
         });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
+        // `/dash-bind` sends a real CONTROL frame, and the server resolves the
+        // calling session out of this instance's ledger — `bindSession` above
+        // is a client-side binding the ledger knows nothing about, so without
+        // this row the bind has no session to attach the dash to. After launch,
+        // not before: tugcast demotes every `live` row to `closed` at startup.
+        app.seedLedger({
+          sessions: [
+            {
+              session_id: BOUND_SID,
+              workspace_key: PROJECT_DIR,
+              project_dir: PROJECT_DIR,
+              card_id: "A",
+              name: "at0340 bound",
+            },
+          ],
+        });
+
         // Wait for the dash to reach the aggregate before binding: before the
         // first compose `/dash-bind <name>` misses every snapshot match and
         // falls through to the create path.
@@ -386,7 +419,7 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
           `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
           { timeoutMs: 8000 },
         );
-        await submitLine(app, `/dash-bind ${DASH}`);
+        await runCommand(app, `/dash-bind ${DASH}`);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]')?.textContent.trim() === ${JSON.stringify(`#${DASH}`)}`,
           { timeoutMs: 20000 },

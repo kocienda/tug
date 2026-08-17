@@ -467,7 +467,7 @@ The lane's app-tests build **real dashes in the live repository**. Leave no `tug
 | #step-3 | The discard confirms in a popover | done | `851ed96e3` |
 | #step-4 | Release reaches every dash nobody is holding | done | `bf30362a8` |
 | #step-5 | No landing emits a doubled scope | done | `531572bfc` |
-| #step-6 | Integration checkpoint — the whole lane in one invocation | in progress | — |
+| #step-6 | Integration checkpoint — the whole lane in one invocation | done | `2ddcace0a` |
 
 #### Step 1: One room, one landing — the route group goes invariant {#step-1}
 
