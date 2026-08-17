@@ -153,6 +153,7 @@ import {
   modelCallForBand,
   resolveSubmitDestination,
   ShellVerdictCache,
+  spliceContinuations,
 } from "@/lib/shell-line-classifier";
 import { useSharedAgentReady } from "@/lib/shared-agent-store";
 import type { ShellClassifyStore } from "@/lib/shell-classify-store";
@@ -2242,11 +2243,13 @@ export const TugPromptEntry = React.forwardRef<
           if (
             shellRoutingReadyRef.current &&
             positioned.length === 0 &&
-            doc.lines === 1 &&
             doc.length > 0 &&
             doc.length <= 256
           ) {
-            const text = doc.sliceString(0).trim();
+            // Warmed on the same spliced line submit will grade, so a draft
+            // written across backslash continuations arrives with its answer
+            // already cached rather than paying the round trip at Return.
+            const text = spliceContinuations(doc.sliceString(0).trim()) ?? "";
             if (
               text.length > 0 &&
               verdictCacheRef.current.get(text) === undefined &&
@@ -2684,16 +2687,21 @@ export const TugPromptEntry = React.forwardRef<
     // the empty-input guard and don't send a blank turn.
     if (submitText.length === 0 && sendAtoms.length === 0) return;
 
-    // Shell routing ([P09], Spec S07): an atom-free, single-line draft whose
-    // first word names a real program may route to the shell instead of Claude
-    // — after the slash-command intercepts, before `send`. The agent
-    // makes that call; nothing here reads the line's meaning. The auto-routed
-    // row renders a visible `→ shell` attribution with a one-click "send to
-    // Claude instead", which recovers the answer but cannot un-run the
+    // Shell routing ([P09], Spec S07): an atom-free draft holding one logical
+    // command line whose first word names a real program may route to the shell
+    // instead of Claude — after the slash-command intercepts, before `send`.
+    // The agent makes that call; nothing here reads the line's meaning. The
+    // auto-routed row renders a visible `→ shell` attribution with a one-click
+    // "send to Claude instead", which recovers the answer but cannot un-run the
     // command, so every degraded path below resolves to Claude.
+    //
+    // Backslash continuations are spliced first, and the spliced line is what
+    // gets graded, asked about, and run. A draft with a newline still standing
+    // in it after that is more than one statement and never routes.
+    const shellLine = spliceContinuations(submitText);
     const shellStore = shellSessionStoreRef.current;
-    const routeToShell = (): void => {
-      shellStore?.exec(submitText, { origin: "auto" });
+    const routeToShell = (line: string): void => {
+      shellStore?.exec(line, { origin: "auto" });
       // Auto-routed submissions were typed as prompt input, so record the
       // raw line under the prompt route.
       const sessionId = snapRef.current.tugSessionId;
@@ -2723,12 +2731,12 @@ export const TugPromptEntry = React.forwardRef<
     if (
       shellStore !== undefined &&
       sendAtoms.length === 0 &&
-      !submitText.includes("\n") &&
+      shellLine !== null &&
       // Readiness off ⇒ never route, which is exactly the behavior of a build
       // with no agent at all ([P12]).
       shellRoutingReadyRef.current &&
       isShellCandidate(
-        submitText,
+        shellLine,
         pathCommandsStoreRef.current?.getSnapshot() ?? null,
       )
     ) {
@@ -2752,7 +2760,7 @@ export const TugPromptEntry = React.forwardRef<
         const grade =
           grammarStore === undefined
             ? UNKNOWN_GRADE
-            : await grammarStore.requestWithin(submitText, GRADE_SUBMIT_WAIT_MS);
+            : await grammarStore.requestWithin(shellLine, GRADE_SUBMIT_WAIT_MS);
         modelCall = modelCallForBand(grade.band);
         // Only the two asking bands cost a round trip. `run` and `skip` are
         // already decided — the table below says which way.
@@ -2760,7 +2768,7 @@ export const TugPromptEntry = React.forwardRef<
           const grammar =
             modelCall === "ask-with-grammar" ? grade.synopsis : undefined;
           const withGrammar = grammar !== undefined;
-          verdict = verdictCacheRef.current.get(submitText, withGrammar) ?? null;
+          verdict = verdictCacheRef.current.get(shellLine, withGrammar) ?? null;
           if (verdict === null) {
             // Either the typing debounce already asked and the model hasn't
             // answered, or Return beat the debounce and nobody has asked yet. Both
@@ -2770,7 +2778,7 @@ export const TugPromptEntry = React.forwardRef<
             let asked: Promise<"shell" | "prompt" | null>;
             // The in-flight request the debounce fired carries no documentation,
             // so it cannot stand in for the grammar-bearing question.
-            if (!withGrammar && inFlight !== null && inFlight.text === submitText) {
+            if (!withGrammar && inFlight !== null && inFlight.text === shellLine) {
               asked = inFlight.promise;
             } else {
               // A debounce timer that hasn't fired would ask the same question a
@@ -2783,7 +2791,7 @@ export const TugPromptEntry = React.forwardRef<
               asked =
                 store === undefined
                   ? Promise.resolve(null)
-                  : store.request(submitText, grammar);
+                  : store.request(shellLine, grammar);
             }
             verdict = await new Promise<"shell" | "prompt" | null>((resolve) => {
               // The race timer is retired when the answer wins it [L27].
@@ -2807,7 +2815,7 @@ export const TugPromptEntry = React.forwardRef<
       // record of what the model said and every path into the shell — cached
       // verdict, fresh answer, awaited in-flight one — passes the same gate.
       const destination = resolveSubmitDestination({
-        line: submitText,
+        line: shellLine,
         modelCall,
         verdict,
         withdrawn: arbitrationWithdrawnRef.current,
@@ -2820,7 +2828,7 @@ export const TugPromptEntry = React.forwardRef<
       // instant.
       if (destination === "withdrawn") return;
       if (destination === "shell") {
-        routeToShell();
+        routeToShell(shellLine);
         return;
       }
     }

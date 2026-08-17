@@ -15,8 +15,8 @@
  *      session id (parity with the agent bridge's env export) — the value
  *      `tugutil changes` reads.
  *      `/shell` is the deliberate override; a bare command line reaches the
- *      shell through the auto-router (`shell-line-classifier`), which has
- *      its own coverage.
+ *      shell through the auto-router (`shell-line-classifier`), which is
+ *      at0433's.
  *   2. **Non-context styling hook** — every shell row renders inside
  *      `[data-slot="session-transcript-shell-row"]` with
  *      `[data-participant="shell"]` on its transcript entry (the [P11]

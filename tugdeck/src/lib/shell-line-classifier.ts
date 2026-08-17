@@ -1,6 +1,6 @@
 /**
  * shell-line-classifier — the precondition half of deciding whether an
- * unprefixed, atom-free, single-line draft means the shell or means Claude
+ * unprefixed, atom-free, one-logical-line draft means the shell or means Claude
  * (Spec S03, [P09]).
  *
  * This module does not decide anything about intent. It brackets the model's
@@ -56,7 +56,8 @@
  * line context yet to help it.
  *
  * Pure — no side effects, no store reads. The caller enforces the rest of the
- * precondition (the draft has no atoms; `text` is trimmed and single-line),
+ * precondition (the draft has no atoms; `text` is trimmed, and is the one
+ * logical line {@link spliceContinuations} returned),
  * supplies the command set — the login-PATH names unioned with the session
  * shell's aliases, functions and builtins (null until it loads, which answers
  * Claude — the safety net, not the steady state) — and supplies its own
@@ -121,6 +122,38 @@ export function modelCallForBand(
 
 /** A leading `NAME=value` environment-assignment token (skipped to find the command). */
 const ENV_ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/** A backslash-newline line continuation, with the CRLF a paste can carry. */
+const CONTINUATION = /\\\r?\n/g;
+
+/**
+ * The one logical command line a draft holds, or `null` if it holds more (or
+ * less) than one.
+ *
+ * A command long enough to be worth typing is routinely written across several
+ * physical lines joined by trailing backslashes — which is what a person pastes
+ * back out of their shell history, and what a multi-file `git commit` looks
+ * like written legibly. Reading the raw draft for a newline and stopping there
+ * would send every one of those to Claude, because "does this text contain a
+ * newline" is not the same question as "is this more than one command".
+ *
+ * Splicing answers the second question the way the shell does: a backslash
+ * immediately before a newline joins the two lines and contributes no character
+ * of its own — inside quotes as much as outside, which is why this needs no
+ * quote tracking to be right. What is left is either one line, which is the
+ * caller's candidate, or text with a newline still standing in it, which is two
+ * statements or a paragraph of prose and is `null` either way.
+ *
+ * The spliced form is what must then be graded, classified, cached and run.
+ * Routing has to execute the line it judged, not the bytes that suggested it.
+ *
+ * `tuggram`'s lexer splices identically (`lex.rs`), so a draft admitted here
+ * tokenizes on the grader's side into exactly the command read here.
+ */
+export function spliceContinuations(text: string): string | null {
+  const joined = text.replace(CONTINUATION, "");
+  return joined.includes("\n") || joined.includes("\r") ? null : joined;
+}
 
 /**
  * The longest draft worth putting to the model. Past this the line is prose by

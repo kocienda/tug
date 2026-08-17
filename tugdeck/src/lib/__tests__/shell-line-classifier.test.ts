@@ -5,6 +5,7 @@ import {
   modelCallForBand,
   resolveSubmitDestination,
   ShellVerdictCache,
+  spliceContinuations,
 } from "../shell-line-classifier";
 
 // A representative login-PATH set. The precondition keys the first command token
@@ -166,6 +167,43 @@ describe("isShellCandidate — intent is never decided here", () => {
     // A trailing `?` used to force prose here. It is a strong signal, but it is
     // the model's signal to read — and `git status?` is the model's call.
     expect(isShellCandidate("git status?", COMMANDS)).toBe(true);
+  });
+});
+
+describe("spliceContinuations — one logical line, or nothing", () => {
+  it("joins a command written across backslash continuations", () => {
+    const drafted =
+      'git commit -m "subject" \\\n  a.test.ts \\\n  b.test.ts';
+    expect(spliceContinuations(drafted)).toBe(
+      'git commit -m "subject"   a.test.ts   b.test.ts',
+    );
+  });
+
+  it("leaves a line with no continuation exactly as it was", () => {
+    expect(spliceContinuations("git status")).toBe("git status");
+  });
+
+  it("refuses text whose newlines are not continuations", () => {
+    expect(spliceContinuations("cd /tmp\nls")).toBeNull();
+    // A backslash mid-line is an escape, not a continuation.
+    expect(spliceContinuations("ls a\\ b\nls")).toBeNull();
+  });
+
+  it("refuses prose that happens to carry a continuation", () => {
+    expect(
+      spliceContinuations("explain this \\\nand then\nfix it"),
+    ).toBeNull();
+  });
+
+  it("splices a pasted CRLF continuation", () => {
+    expect(spliceContinuations("ls \\\r\n-la")).toBe("ls -la");
+  });
+
+  it("hands the spliced line to the precondition, which then admits it", () => {
+    const drafted = 'git commit -m "subject" \\\n  a.test.ts';
+    const line = spliceContinuations(drafted);
+    expect(line).not.toBeNull();
+    expect(isShellCandidate(line!, COMMANDS)).toBe(true);
   });
 });
 

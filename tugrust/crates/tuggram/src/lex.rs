@@ -94,6 +94,12 @@ pub fn lex(line: &str) -> Option<Vec<Segment>> {
                     '$' if chars.get(i + 1) == Some(&'(') => return None,
                     '\\' => {
                         let next = *chars.get(i + 1)?;
+                        // A continuation splices inside double quotes too, and
+                        // leaves nothing behind in the string.
+                        if next == '\n' {
+                            i += 2;
+                            continue;
+                        }
                         // Only these four are escapes inside double quotes;
                         // any other backslash is a literal backslash.
                         if matches!(next, '"' | '\\' | '$' | '`') {
@@ -119,9 +125,18 @@ pub fn lex(line: &str) -> Option<Vec<Segment>> {
                     i += 1;
                 }
                 '\\' => {
-                    // A line ending in a backslash is a continuation of
-                    // something this lexer never sees.
+                    // A backslash at the very end is a continuation waiting on
+                    // input that never arrived: the line is incomplete, so it
+                    // is refused rather than graded.
                     let next = *chars.get(i + 1)?;
+                    // Backslash-newline is a line continuation. It joins the
+                    // two lines into one command word-for-word and contributes
+                    // no character of its own — it does not even open a token,
+                    // so `a \<newline> b` is two tokens, not three.
+                    if next == '\n' {
+                        i += 2;
+                        continue;
+                    }
                     lx.push(next);
                     i += 2;
                 }
@@ -135,7 +150,10 @@ pub fn lex(line: &str) -> Option<Vec<Segment>> {
                     lx.end_segment();
                     i += if chars.get(i + 1) == Some(&'|') { 2 } else { 1 };
                 }
-                ';' => {
+                // A newline that survived continuation-splicing separates two
+                // statements, exactly as `;` does. Every segment it opens has
+                // to resolve on its own for the line to grade at all.
+                ';' | '\n' => {
                     lx.end_segment();
                     i += 1;
                 }
@@ -354,6 +372,27 @@ mod tests {
         assert_eq!(lex("echo $(date)"), None);
         assert_eq!(lex("echo \"$(date)\""), None);
         assert_eq!(lex("diff <(a) <(b)"), None);
+    }
+
+    #[test]
+    fn splices_a_backslash_continuation_into_one_command() {
+        assert_eq!(
+            tokens("git commit -m \"subject\" \\\n  a.ts \\\n  b.ts"),
+            vec![vec!["git", "commit", "-m", "subject", "a.ts", "b.ts"]]
+        );
+        // The continuation contributes no character and opens no token, so a
+        // spliced line tokenizes identically to the joined one.
+        assert_eq!(tokens("ls \\\n-la"), tokens("ls -la"));
+        // Inside double quotes it splices too, leaving nothing in the string.
+        assert_eq!(tokens("echo \"a\\\nb\""), vec![vec!["echo", "ab"]]);
+    }
+
+    #[test]
+    fn a_surviving_newline_separates_statements() {
+        assert_eq!(heads("cd /tmp\nls"), Some(vec!["cd".into(), "ls".into()]));
+        // A newline inside quotes is a literal newline in the word, not a
+        // separator.
+        assert_eq!(tokens("echo 'a\nb'"), vec![vec!["echo", "a\nb"]]);
     }
 
     #[test]
