@@ -130,7 +130,7 @@
 .overview-transcript .tug-transcript-entry__icon svg {
   width: 1.2em;
   height: 1.2em;
-  margin-block-start: 1px;
+  margin-block-start: var(--tugx-transcript-icon-nudge, 1px);
 }
 
 /* Optical corrections to that one box, per voice.
@@ -156,6 +156,8 @@
   svg {
   width: 1.08em;
   height: 1.08em;
+  /* Vertical offset from the header's text top; larger reads lower. */
+  --tugx-transcript-icon-nudge: 2px;
 }
 
 .overview-transcript
@@ -164,6 +166,8 @@
   svg {
   width: 1.34em;
   height: 1.34em;
+  /* Vertical offset from the header's text top; smaller reads higher. */
+  --tugx-transcript-icon-nudge: 0.25px;
 }
 
 /* Per-entry control-row icons (the copy button's glyph) scale with the row,

@@ -199,11 +199,9 @@ body {
 }
 .tug-transcript-entry[data-participant="observer"] {
   --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-observer);
-  --tugx-transcript-icon-nudge: 0.25em;
 }
 .tug-transcript-entry[data-participant="operator"] {
   --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-operator);
-  --tugx-transcript-icon-nudge: 0.0625em;
 }
 
 /* Trailing header slot — per-row chrome that belongs with the attribution
