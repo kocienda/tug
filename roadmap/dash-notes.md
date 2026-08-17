@@ -1,3 +1,9 @@
+Notes:
+- Lens Session row needs more spacing above dash line
+- Lens session row titlwe must take on `#[session-name]. All instances of the session name must reflect the dash name when one is is progress, and lost the dash name when the dash is done/released.
+- Dash row in `Dashes` section should show the session this dash is bound to
+
+
 OK. Consider the roadmap/dash-integration-plan.md. I want to insert a new Phase 2.1. Here's the rub. The current workflow to create a plan that is suitable for `/implement` to work on goes like this:
 - I develop an idea interactively in a session. This is good.
 - We often produce a brief from this discussion. This is fine too.
