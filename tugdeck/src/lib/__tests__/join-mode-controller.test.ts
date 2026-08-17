@@ -33,6 +33,7 @@ import {
   attachChangesetVerbStore,
 } from "@/lib/changeset-verb-store";
 import { _resetChangesetJoinStoreForTest } from "@/lib/changeset-join-store";
+import { CHANGES_SERVICE_DISCONNECTED } from "@/lib/landing-mode";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
@@ -65,6 +66,13 @@ describe("joinDisabledReason", () => {
     expect(joinDisabledReason("unreviewed", "conflicted")).toBe(
       "Review what the ladder resolved first",
     );
+  });
+
+  it("names the missing message rather than falling through to the outcome", () => {
+    // Without its own arm this reason lands in the outcome switch and, over a
+    // clean preview, reads "This join cannot land yet" — which names nothing
+    // the user can do about a message they simply have not typed.
+    expect(joinDisabledReason("empty-message", "clean")).toBe("Write a join message");
   });
 
   it("distinguishes conflicted, empty, and never-previewed", () => {
@@ -238,14 +246,38 @@ interface Sent {
 }
 
 const sent: Sent[] = [];
+/** Every CONTROL handler the attached stores registered, so `reply` reaches them. */
+const controlHandlers: ((payload: Uint8Array) => void)[] = [];
 
 function fakeConnection(): never {
   return {
-    onFrame: () => () => {},
+    onFrame: (_feed: number, cb: (payload: Uint8Array) => void) => {
+      controlHandlers.push(cb);
+      return () => {};
+    },
     sendControlFrame: (action: string, body: Record<string, unknown>) => {
       sent.push({ action, body });
     },
   } as never;
+}
+
+/** Deliver a server frame to the attached stores, the way the verb suites do. */
+function reply(body: Record<string, unknown>): void {
+  const payload = new TextEncoder().encode(JSON.stringify(body));
+  for (const handler of [...controlHandlers]) handler(payload);
+}
+
+/** Settle the mode's opening preview as clean, so the land gate passes. */
+function replyCleanPreview(): void {
+  reply({
+    action: "changeset_join_ok",
+    project_dir: "/p",
+    dash: "join-lane",
+    previewed: true,
+    conflicts: [],
+    commit_hash: null,
+    blockers: [],
+  });
 }
 
 const DASH_ENTRY: DashChangesetEntry = {
@@ -294,11 +326,19 @@ function fakeChangesController(): ChangesRouteController {
   return controller as unknown as ChangesRouteController;
 }
 
-function fakeCodeSessionStore(canInterrupt: boolean): CodeSessionStore {
-  return {
+function fakeCodeSessionStore(canInterrupt: boolean): CodeSessionStore & {
+  _setTurn: (running: boolean) => void;
+} {
+  let running = canInterrupt;
+  const store = {
     subscribe: () => () => {},
-    getSnapshot: () => ({ canInterrupt }),
-  } as unknown as CodeSessionStore;
+    getSnapshot: () => ({ canInterrupt: running }),
+    /** Test hook: start or end a turn between two presses. */
+    _setTurn: (next: boolean): void => {
+      running = next;
+    },
+  };
+  return store as unknown as CodeSessionStore & { _setTurn: (running: boolean) => void };
 }
 
 function fakeCommitMode(): CommitModeController & { exits: number } {
@@ -315,6 +355,7 @@ const TARGET: JoinTarget = joinTargetFromEntry(DASH_ENTRY);
 
 beforeEach(() => {
   sent.length = 0;
+  controlHandlers.length = 0;
   _resetChangesetDraftStoreForTest();
   _resetChangesetVerbStoreForTest();
   _resetChangesetJoinStoreForTest();
@@ -332,12 +373,13 @@ describe("JoinModeController", () => {
   function build(canInterrupt = false) {
     const commitMode = fakeCommitMode();
     const changesController = fakeChangesController();
+    const codeSessionStore = fakeCodeSessionStore(canInterrupt);
     const controller = new JoinModeController({
       changesController,
-      codeSessionStore: fakeCodeSessionStore(canInterrupt),
+      codeSessionStore,
       commitModeController: commitMode,
     });
-    return { controller, commitMode, changesController };
+    return { controller, commitMode, changesController, codeSessionStore };
   }
 
   it("enter seeds an edited dash draft and exits commit mode", () => {
@@ -388,14 +430,142 @@ describe("JoinModeController", () => {
     controller.dispose();
   });
 
-  it("land is a no-op when the gate fails, and the mode stays up", () => {
-    // Mid-turn: the gate's first reason, so nothing is sent.
+  it("a refused land speaks its reason and sends nothing ([L31])", () => {
+    // Mid-turn: the gate's first reason. Nothing goes on the wire, and the
+    // press produces a sentence rather than the silence that made the
+    // dead-button incident unreproducible for days.
     const { controller } = build(true);
     controller.enter(TARGET);
     sent.length = 0;
-    controller.land("land it");
+    const outcome = controller.land("land it");
+    expect(outcome).toEqual({ kind: "refused", sentence: "Wait for the turn to finish" });
     expect(sent.filter((s) => s.action === "changeset_join")).toHaveLength(0);
-    expect(controller.getSnapshot().active).toBe(true);
+    const snapshot = controller.getSnapshot();
+    expect(snapshot.active).toBe(true);
+    expect(snapshot.landRefusal).toEqual({
+      sentence: "Wait for the turn to finish",
+      kind: "gate",
+      seq: 1,
+    });
+    controller.dispose();
+  });
+
+  it("a second refused press speaks again, with a fresh seq", () => {
+    // The two sentences are word for word identical; only `seq` distinguishes
+    // them, which is what lets a notice surface re-post for the second press.
+    const { controller } = build(true);
+    controller.enter(TARGET);
+    let fires = 0;
+    controller.subscribe(() => {
+      fires += 1;
+    });
+    controller.land("land it");
+    const first = controller.getSnapshot().landRefusal;
+    controller.land("land it");
+    const second = controller.getSnapshot().landRefusal;
+    expect(first?.seq).toBe(1);
+    expect(second?.seq).toBe(2);
+    expect(second?.sentence).toBe(first?.sentence);
+    expect(fires).toBe(2);
+    controller.dispose();
+  });
+
+  it("exiting the mode drops the published refusal", () => {
+    const { controller } = build(true);
+    controller.enter(TARGET);
+    controller.land("land it");
+    expect(controller.getSnapshot().landRefusal).not.toBe(null);
+    controller.exit();
+    expect(controller.getSnapshot().landRefusal).toBe(null);
+    controller.dispose();
+  });
+
+  it("an accepted land clears a refusal the same press answered", () => {
+    // Refuse once mid-turn, then land over a clean preview: the stale sentence
+    // must not outlive the press that answered it.
+    const { controller, codeSessionStore } = build();
+    controller.enter(TARGET);
+    replyCleanPreview();
+    codeSessionStore._setTurn(true);
+    controller.land("land it");
+    expect(controller.getSnapshot().landRefusal?.seq).toBe(1);
+
+    codeSessionStore._setTurn(false);
+    const outcome = controller.land("land it");
+    expect(outcome).toEqual({ kind: "fired" });
+    expect(controller.getSnapshot().landRefusal).toBe(null);
+    expect(sent.some((s) => s.action === "changeset_join" && s.body.preview === false)).toBe(
+      true,
+    );
+    controller.dispose();
+  });
+
+  it("the staged re-check refuses out loud and re-enters the mode ([L31])", () => {
+    // The staged path fires a beat after the shade dismissed the mode. A
+    // refusal there used to re-enter the mode and say nothing at all — the
+    // exact shape that made the dead Join press unreadable.
+    const { controller, codeSessionStore } = build();
+    controller.enter(TARGET);
+    replyCleanPreview();
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+      controller.exit();
+    });
+    const outcome = controller.land("land it");
+    expect(outcome).toEqual({ kind: "staged" });
+    expect(controller.getSnapshot().active).toBe(false);
+
+    // A turn starts between the press and the beat.
+    codeSessionStore._setTurn(true);
+    (staged as unknown as () => void)();
+    const snapshot = controller.getSnapshot();
+    expect(snapshot.active).toBe(true);
+    expect(snapshot.landRefusal?.kind).toBe("gate");
+    expect(snapshot.landRefusal?.sentence).toBe("Wait for the turn to finish");
+    controller.dispose();
+  });
+
+  it("a staged land still reaches the wire after the host exits the mode", () => {
+    // The host stages a landing by exiting the mode, and exiting clears the
+    // target. A staged join that re-read `this.target` on the later beat found
+    // null and returned — the press produced no frame, no error, and no trace,
+    // which is the dead-Join-button failure exactly.
+    const { controller } = build();
+    controller.enter(TARGET);
+    replyCleanPreview();
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+      controller.exit();
+    });
+    controller.land("land it");
+    sent.length = 0;
+    (staged as unknown as () => void)();
+
+    const lands = sent.filter((s) => s.action === "changeset_join" && s.body.preview === false);
+    expect(lands).toHaveLength(1);
+    expect(lands[0]?.body).toMatchObject({ dash: "join-lane", message: "land it" });
+    expect(controller.getSnapshot().landRefusal).toBe(null);
+    controller.dispose();
+  });
+
+  it("a missing changes service is a spoken fault, not a no-op ([L31])", () => {
+    const { controller } = build();
+    controller.enter(TARGET);
+    replyCleanPreview();
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+    });
+    controller.land("land it");
+    _resetChangesetVerbStoreForTest();
+    (staged as unknown as () => void)();
+    expect(controller.getSnapshot().landRefusal).toEqual({
+      sentence: CHANGES_SERVICE_DISCONNECTED,
+      kind: "fault",
+      seq: 1,
+    });
     controller.dispose();
   });
 

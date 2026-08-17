@@ -2463,14 +2463,19 @@ export const TugPromptEntry = React.forwardRef<
     const snap = snapRef.current;
     if (editor === null || view === null) return;
 
-    // Commit mode ([P03]): submit lands the commit instead of sending to
-    // Claude. The message is the document verbatim. `land` re-checks the gate
-    // (turn / pending / empty), so an empty message or a running turn no-ops
-    // here and the draft is left intact; success clears the draft and exits
-    // the mode (the active-transition effect clears the editor). Nothing else
-    // in this function runs.
+    // Landing mode: submit lands the commit or the join instead of sending to
+    // Claude. The message is the document verbatim; success clears the draft
+    // and exits the mode (the active-transition effect clears the editor).
+    // Nothing else in this function runs.
+    //
+    // A refused land leaves the draft intact and surfaces its own sentence
+    // ([L31]) — the outcome is read here so the refusal is a value this path
+    // received rather than a branch it never saw.
     if (inLandingModeRef.current) {
-      landingModeRef.current?.land(view.state.doc.toString());
+      const outcome = landingModeRef.current?.land(view.state.doc.toString());
+      if (outcome?.kind === "refused") {
+        tugDevLogStore.debug("prompt-entry", "land refused", { sentence: outcome.sentence });
+      }
       return;
     }
 

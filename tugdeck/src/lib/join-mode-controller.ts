@@ -27,8 +27,11 @@ import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
 import type { DashChangesetEntry } from "@/lib/changeset-types";
 import type { JoinBlocker, JoinPhase } from "@/lib/changeset-verb-store";
-import type { LandingMode, LandingSnapshot } from "@/lib/landing-mode";
+import type { LandOutcome, LandingMode, LandingRefusal, LandingSnapshot } from "@/lib/landing-mode";
+import { CHANGES_SERVICE_DISCONNECTED, sameRefusal } from "@/lib/landing-mode";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
+import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+import { sendLandingReceipt } from "@/lib/landing-press-receipt";
 import { getChangesetDraftStore, type DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
 
@@ -133,6 +136,10 @@ export function joinDisabledReason(
 ): string {
   if (reason === "turn") return "Wait for the turn to finish";
   if (reason === "pending") return "Previewing…";
+  // Without its own arm this falls to the outcome switch and, on a clean
+  // preview, reads "This join cannot land yet" — which names nothing the user
+  // can act on when all that is missing is the message.
+  if (reason === "empty-message") return "Write a join message";
   // Named as the act that clears it, and it says *where*: the composer's Join
   // shows this sentence too, and the diffs it points at live on the dash row.
   if (reason === "unreviewed") return "Review what the ladder resolved first";
@@ -150,6 +157,26 @@ export function joinDisabledReason(
     default:
       return "This join cannot land yet";
   }
+}
+
+/**
+ * The gate's inputs, reduced to what may be written down ([L31]). The message
+ * is carried as a length: the join draft's words are the user's, and a refusal
+ * record that quoted them would put a private document into a log line.
+ *
+ * Exported because the dev-log line and the durable receipt must describe the
+ * same press — one value, two consumers, so a receipt cannot disagree with the
+ * sentence it accompanies.
+ */
+export function joinGateFacts(input: JoinLandGateInput): Record<string, unknown> {
+  return {
+    turnInProgress: input.turnInProgress,
+    joinPhase: input.joinPhase,
+    outcome: input.outcome,
+    candidateCommit: input.candidateCommit,
+    unreviewedResolution: input.unreviewedResolution,
+    messageLen: input.message.trim().length,
+  };
 }
 
 /** The controller's subscribable snapshot — the shared half plus join's own. */
@@ -190,6 +217,8 @@ export class JoinModeController implements LandingMode {
   private snapshot: JoinModeSnapshot;
   private landHook: ((runJoin: () => void) => void) | null = null;
   private messageProvider: (() => string) | null = null;
+  private landRefusal: LandingRefusal | null = null;
+  private refusalSeq = 0;
 
   constructor(deps: JoinModeControllerDeps) {
     this.deps = deps;
@@ -309,6 +338,7 @@ export class JoinModeController implements LandingMode {
       landReady: this.active && gate.ok && messagePresent,
       landPhase: joinPhase,
       landError,
+      landRefusal: this.landRefusal,
       draftPhase,
       draftText,
       persistedMessage,
@@ -440,6 +470,7 @@ export class JoinModeController implements LandingMode {
     this.active = false;
     this.seedMessage = null;
     this.target = null;
+    this.landRefusal = null;
     this.snapshot = this.derive();
     this.fire();
   }
@@ -482,34 +513,102 @@ export class JoinModeController implements LandingMode {
   /**
    * Land the join ([P05]): re-check the gate against live state, then either
    * hand it to the host's land hook (staged behind the shade's dismissal) or
-   * fire it inline.
+   * fire it inline. A refusal is surfaced here and reported by type ([L31]) —
+   * this path has no outcome where nothing happens and nothing is said.
    */
-  land(message: string): void {
+  land(message: string): LandOutcome {
     const text = message.trim();
-    if (!this.liveGate(text).ok) return;
-    const runJoin = () => this.performJoin(text);
-    if (this.landHook !== null) this.landHook(runJoin);
-    else runJoin();
+    // The dash is captured at press time and carried into the staged callback,
+    // never re-read from `this.target` when it runs. The host stages a landing
+    // by exiting the mode, and exiting clears the target — so a staged join
+    // that looked its dash up on the later beat would find nothing to land.
+    const target = this.target;
+    if (target === null) {
+      return this.refuse(
+        "fault",
+        "No dash is aimed for this join — reopen the dash row",
+        "no-target",
+        null,
+      );
+    }
+    const input = this.liveGateInput(text, target);
+    const gate = evaluateJoinLandGate(input);
+    if (!gate.ok) {
+      return this.refuse(
+        "gate",
+        joinDisabledReason(gate.reason, input.outcome),
+        gate.reason,
+        input,
+      );
+    }
+    this.clearRefusal();
+    sendLandingReceipt({ kind: "join", verdict: "ok", gate: joinGateFacts(input) });
+    const runJoin = () => this.performJoin(text, target);
+    if (this.landHook !== null) {
+      this.landHook(runJoin);
+      return { kind: "staged" };
+    }
+    runJoin();
+    return { kind: "fired" };
   }
 
-  /** The gate against live state — the same read the affordance's disable uses. */
-  private liveGate(message: string): JoinLandGate {
+  /**
+   * Publish and log a refused land press ([L31]).
+   *
+   * Every refusing branch on the land route ends here, which is what makes the
+   * silence structurally unavailable: there is one exit from a refusal and it
+   * writes to three places — the snapshot a notice surface subscribes to, the
+   * dev log, and the caller's return value.
+   */
+  private refuse(
+    kind: "gate" | "fault",
+    sentence: string,
+    reason: string,
+    input: JoinLandGateInput | null,
+  ): LandOutcome {
+    this.refusalSeq += 1;
+    this.landRefusal = { sentence, kind, seq: this.refusalSeq };
+    const gate = input !== null ? joinGateFacts(input) : {};
+    tugDevLogStore.warn("landing", `join land refused: ${sentence}`, { kind, ...gate });
+    sendLandingReceipt({ kind: "join", verdict: "refused", reason, sentence, gate });
+    this.snapshot = this.derive();
+    this.fire();
+    return { kind: "refused", sentence };
+  }
+
+  /** Drop a published refusal — an accepted press answers the last refused one. */
+  private clearRefusal(): void {
+    if (this.landRefusal === null) return;
+    this.landRefusal = null;
+    this.snapshot = this.derive();
+    this.fire();
+  }
+
+  /**
+   * The gate's inputs against live state — the same read the affordance's
+   * disable uses. Built separately from the verdict so a refusal can record
+   * exactly what it judged, rather than a reconstruction of it.
+   */
+  private liveGateInput(message: string, target: JoinTarget): JoinLandGateInput {
     const { changesController, codeSessionStore } = this.deps;
     const snapshot = this.snapshot;
     // The review is read live, not off the snapshot: the land path fires a beat
     // after the shade dismisses, and an unreviewed resolution must not slip
-    // through that gap.
-    const resolve = this.target
-      ? getChangesetJoinStore()?.state(changesController.projectDir, this.target.name) ?? null
-      : null;
-    return evaluateJoinLandGate({
+    // through that gap. The dash comes from the caller for the same reason the
+    // staged land carries it — by that beat the mode has already exited.
+    const resolve =
+      getChangesetJoinStore()?.state(changesController.projectDir, target.name) ?? null;
+    return {
       turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
       joinPhase: getChangesetVerbStore()?.joinState(changesController.entryKey).phase ?? "idle",
       outcome: snapshot.outcome,
-      candidateCommit: snapshot.candidateCommit,
+      // From the resolve store rather than the snapshot: a mode the host has
+      // already exited derives a null candidate, and a staged landing must
+      // still carry the commit the ladder built.
+      candidateCommit: resolve?.candidateCommit ?? null,
       unreviewedResolution: resolve !== null ? resolutionAwaitsReview(resolve) : false,
       message,
-    });
+    };
   }
 
   /**
@@ -519,24 +618,26 @@ export class JoinModeController implements LandingMode {
    * the staged path already dismissed it. The gate is re-checked because the
    * staged path fires a beat later, after the shade animates out.
    */
-  private performJoin(text: string): void {
-    const target = this.target;
-    if (target === null) return;
+  private performJoin(text: string, target: JoinTarget): void {
     const { changesController } = this.deps;
-    const gate = this.liveGate(text);
+    const input = this.liveGateInput(text, target);
+    const gate = evaluateJoinLandGate(input);
     if (!gate.ok) {
       if (!this.active) this.enter(target);
+      this.refuse("gate", joinDisabledReason(gate.reason, input.outcome), gate.reason, input);
       return;
     }
     const verbStore = getChangesetVerbStore();
-    if (verbStore === null) return;
+    if (verbStore === null) {
+      if (!this.active) this.enter(target);
+      this.refuse("fault", CHANGES_SERVICE_DISCONNECTED, "no-verb-store", input);
+      return;
+    }
     verbStore.join(changesController.entryKey, changesController.projectDir, target.name, {
       preview: false,
       message: text,
       sessionId: changesController.tugSessionId,
-      ...(this.snapshot.candidateCommit !== null
-        ? { candidate: this.snapshot.candidateCommit }
-        : {}),
+      ...(input.candidateCommit !== null ? { candidate: input.candidateCommit } : {}),
     });
     const unsubscribe = verbStore.subscribe(() => {
       const phase = verbStore.joinState(changesController.entryKey).phase;
@@ -593,6 +694,7 @@ function snapshotsEqual(a: JoinModeSnapshot, b: JoinModeSnapshot): boolean {
     a.landReady === b.landReady &&
     a.landPhase === b.landPhase &&
     a.landError === b.landError &&
+    sameRefusal(a.landRefusal, b.landRefusal) &&
     a.draftPhase === b.draftPhase &&
     a.draftText === b.draftText &&
     a.persistedMessage === b.persistedMessage &&

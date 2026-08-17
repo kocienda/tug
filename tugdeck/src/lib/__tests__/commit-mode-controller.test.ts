@@ -4,6 +4,7 @@ import {
   CommitModeController,
   evaluateCommitLandGate,
 } from "@/lib/commit-mode-controller";
+import { CHANGES_SERVICE_DISCONNECTED } from "@/lib/landing-mode";
 import { _resetChangesetDraftStoreForTest } from "@/lib/changeset-draft-store";
 import { _resetChangesetVerbStoreForTest } from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
@@ -143,6 +144,82 @@ describe("CommitModeController", () => {
     expect(empty.getSnapshot().fileCount).toBe(0);
     expect(empty.getSnapshot().claimableCount).toBe(0);
     empty.dispose();
+  });
+
+  it("a refused land speaks its reason and reports it by type ([L31])", () => {
+    const controller = new CommitModeController({
+      changesController: fakeChangesController(2),
+      codeSessionStore: fakeCodeSessionStore(true),
+    });
+    controller.enter();
+    const outcome = controller.land("fix the thing");
+    expect(outcome).toEqual({ kind: "refused", sentence: "Wait for the turn to finish" });
+    expect(controller.getSnapshot().landRefusal).toEqual({
+      sentence: "Wait for the turn to finish",
+      kind: "gate",
+      seq: 1,
+    });
+    expect(controller.getSnapshot().active).toBe(true);
+    controller.dispose();
+  });
+
+  it("an empty message refuses with the sentence that names the fix", () => {
+    const controller = new CommitModeController({
+      changesController: fakeChangesController(2),
+      codeSessionStore: fakeCodeSessionStore(false),
+    });
+    controller.enter();
+    expect(controller.land("   ")).toEqual({
+      kind: "refused",
+      sentence: "Write a commit message",
+    });
+    controller.dispose();
+  });
+
+  it("a second refused press speaks again, with a fresh seq", () => {
+    const controller = new CommitModeController({
+      changesController: fakeChangesController(0),
+      codeSessionStore: fakeCodeSessionStore(false),
+    });
+    controller.enter();
+    controller.land("fix the thing");
+    controller.land("fix the thing");
+    expect(controller.getSnapshot().landRefusal?.seq).toBe(2);
+    expect(controller.getSnapshot().landRefusal?.sentence).toBe(
+      "Nothing to commit — this session has claimed no changes",
+    );
+    controller.dispose();
+  });
+
+  it("exiting the mode drops the published refusal", () => {
+    const controller = new CommitModeController({
+      changesController: fakeChangesController(0),
+      codeSessionStore: fakeCodeSessionStore(false),
+    });
+    controller.enter();
+    controller.land("fix the thing");
+    expect(controller.getSnapshot().landRefusal).not.toBe(null);
+    controller.exit();
+    expect(controller.getSnapshot().landRefusal).toBe(null);
+    controller.dispose();
+  });
+
+  it("a missing changes service is a spoken fault, not a no-op ([P04], [L31])", () => {
+    // No verb store is attached in these tests, so the commit goes out with
+    // nothing to settle its round trip. That used to be a bare `return`, which
+    // left the mode waiting on a phase that could never arrive.
+    const controller = new CommitModeController({
+      changesController: fakeChangesController(2),
+      codeSessionStore: fakeCodeSessionStore(false),
+    });
+    controller.enter();
+    expect(controller.land("fix the thing")).toEqual({ kind: "fired" });
+    expect(controller.getSnapshot().landRefusal).toEqual({
+      sentence: CHANGES_SERVICE_DISCONNECTED,
+      kind: "fault",
+      seq: 1,
+    });
+    controller.dispose();
   });
 
   it("sums unattributed + orphaned into claimableCount — the chip's pointer", () => {

@@ -2026,6 +2026,47 @@ fn parse_changeset_release_payload(
     })
 }
 
+/// One land press, as the deck reported it, ready to be written down.
+///
+/// The deck's own log dies with a reload, and the 2026-08-17 incident contained
+/// one — so the only durable record an instance has of a landing gesture is
+/// this crate's log. What lands here is what the deck's land gate actually
+/// judged: the press, its verdict, and the inputs behind it.
+struct LandingReceiptPayload {
+    kind: String,
+    verdict: String,
+    reason: String,
+    gate: String,
+}
+
+/// Read a receipt without ever refusing one.
+///
+/// Every field is optional and a missing one logs as `-`. A receipt that could
+/// be rejected would be a diagnostic with a failure mode of its own, and the
+/// press it describes has already happened either way.
+fn parse_landing_receipt_payload(payload: &[u8]) -> LandingReceiptPayload {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).unwrap_or(serde_json::Value::Null);
+    let field = |name: &str| {
+        value
+            .get(name)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("-")
+            .to_string()
+    };
+    let gate = value
+        .get("gate")
+        .map(|g| g.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    LandingReceiptPayload {
+        kind: field("kind"),
+        verdict: field("verdict"),
+        reason: field("reason"),
+        gate,
+    }
+}
+
 fn parse_session_id_payload(payload: &[u8]) -> Result<String, ControlError> {
     let value: serde_json::Value =
         serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
@@ -2884,6 +2925,17 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            "landing_receipt" => {
+                let receipt = parse_landing_receipt_payload(payload);
+                tracing::info!(
+                    kind = %receipt.kind,
+                    verdict = %receipt.verdict,
+                    reason = %receipt.reason,
+                    gate = %receipt.gate,
+                    "landing-receipt"
+                );
+                Ok(())
+            }
             "changeset_join" => match parse_changeset_join_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_join(&parsed).await;
@@ -7776,6 +7828,41 @@ mod tests {
         assert!(parsed.continue_join);
         assert_eq!(parsed.session_id.as_deref(), Some("sess-1"));
         assert!(parsed.preview);
+    }
+
+    #[test]
+    fn landing_receipt_reads_a_well_formed_press() {
+        let payload = br#"{"kind":"join","verdict":"refused","reason":"turn","sentence":"Wait for the turn to finish","gate":{"turnInProgress":true,"messageLen":214}}"#;
+        let parsed = parse_landing_receipt_payload(payload);
+        assert_eq!(parsed.kind, "join");
+        assert_eq!(parsed.verdict, "refused");
+        assert_eq!(parsed.reason, "turn");
+        assert!(parsed.gate.contains("messageLen"));
+    }
+
+    /// A receipt is a diagnostic, and a diagnostic that can be refused has a
+    /// failure mode of its own. Everything missing reads `-`; nothing panics,
+    /// and no shape of payload — including one that is not JSON at all —
+    /// produces an error the way the verb payloads do.
+    #[test]
+    fn landing_receipt_never_refuses_a_payload() {
+        let accepted = parse_landing_receipt_payload(br#"{"kind":"commit","verdict":"ok"}"#);
+        assert_eq!(accepted.kind, "commit");
+        assert_eq!(accepted.reason, "-");
+        assert_eq!(accepted.gate, "-");
+
+        let empty = parse_landing_receipt_payload(b"{}");
+        assert_eq!(empty.kind, "-");
+        assert_eq!(empty.verdict, "-");
+
+        let garbage = parse_landing_receipt_payload(b"not json at all");
+        assert_eq!(garbage.kind, "-");
+        assert_eq!(garbage.gate, "-");
+
+        // A field of the wrong type is a missing field, not a panic.
+        let wrong_type = parse_landing_receipt_payload(br#"{"kind":42,"verdict":null}"#);
+        assert_eq!(wrong_type.kind, "-");
+        assert_eq!(wrong_type.verdict, "-");
     }
 
     #[test]

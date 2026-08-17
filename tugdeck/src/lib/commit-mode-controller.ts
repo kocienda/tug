@@ -26,7 +26,10 @@
 
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
-import type { LandingMode, LandingSnapshot } from "@/lib/landing-mode";
+import type { LandOutcome, LandingMode, LandingRefusal, LandingSnapshot } from "@/lib/landing-mode";
+import { CHANGES_SERVICE_DISCONNECTED, sameRefusal } from "@/lib/landing-mode";
+import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+import { sendLandingReceipt } from "@/lib/landing-press-receipt";
 import {
   getChangesetVerbStore,
   type CommitPhase,
@@ -88,6 +91,20 @@ export function commitDisabledReason(
 }
 
 /**
+ * The gate's inputs, reduced to what may be written down ([L31]) — commit's
+ * half of the shape `joinGateFacts` produces for join. The message is carried
+ * as a length: the draft's words are the user's and do not belong in a log.
+ */
+export function commitGateFacts(input: CommitLandGateInput): Record<string, unknown> {
+  return {
+    turnInProgress: input.turnInProgress,
+    commitPhase: input.commitPhase,
+    fileCount: input.fileCount,
+    messageLen: input.message.trim().length,
+  };
+}
+
+/**
  * The controller's subscribable snapshot — everything the composer + Z5 read.
  * The shared half is {@link LandingSnapshot} ([P01]); the fields below it are
  * commit's own.
@@ -123,6 +140,8 @@ export class CommitModeController implements LandingMode {
   private snapshot: CommitModeSnapshot;
   private landHook: ((runCommit: () => void) => void) | null = null;
   private messageProvider: (() => string) | null = null;
+  private landRefusal: LandingRefusal | null = null;
+  private refusalSeq = 0;
 
   constructor(deps: CommitModeControllerDeps) {
     this.deps = deps;
@@ -225,6 +244,7 @@ export class CommitModeController implements LandingMode {
       edited: changes.entry?.draft?.edited === true,
       landPhase: commitPhase,
       landError: commitError,
+      landRefusal: this.landRefusal,
       draftError,
     };
   }
@@ -305,6 +325,7 @@ export class CommitModeController implements LandingMode {
     if (!this.active) return;
     this.active = false;
     this.seedMessage = null;
+    this.landRefusal = null;
     this.snapshot = this.derive();
     this.fire();
   }
@@ -342,22 +363,69 @@ export class CommitModeController implements LandingMode {
    * Land the commit ([P09]): re-check the gates against live state, then either
    * hand the commit to the host's land-hook (staged behind the shade dismissal)
    * or fire it inline. The up-front gate keeps an empty message / running turn
-   * from ever dismissing the shade.
+   * from ever dismissing the shade. A refusal is surfaced here and reported by
+   * type ([L31]) — never a silent no-op.
    */
-  land(message: string): void {
-    const { changesController, codeSessionStore } = this.deps;
-    const verbStore = getChangesetVerbStore();
+  land(message: string): LandOutcome {
     const text = message.trim();
-    const gate = evaluateCommitLandGate({
-      turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
-      commitPhase: verbStore?.commitState(changesController.entryKey).phase ?? "idle",
-      message: text,
-      fileCount: changesController.getSnapshot().committedPaths.size,
-    });
-    if (!gate.ok) return;
+    const input = this.landGateInput(text);
+    const gate = evaluateCommitLandGate(input);
+    if (!gate.ok) {
+      return this.refuse("gate", commitDisabledReason(gate.reason), gate.reason, input);
+    }
+    this.clearRefusal();
+    sendLandingReceipt({ kind: "commit", verdict: "ok", gate: commitGateFacts(input) });
     const runCommit = () => this.performCommit(text);
-    if (this.landHook !== null) this.landHook(runCommit);
-    else runCommit();
+    if (this.landHook !== null) {
+      this.landHook(runCommit);
+      return { kind: "staged" };
+    }
+    runCommit();
+    return { kind: "fired" };
+  }
+
+  /**
+   * The gate's inputs against live state. Built separately from the verdict so
+   * a refusal can record exactly what it judged rather than a reconstruction.
+   */
+  private landGateInput(message: string): CommitLandGateInput {
+    const { changesController, codeSessionStore } = this.deps;
+    return {
+      turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
+      commitPhase:
+        getChangesetVerbStore()?.commitState(changesController.entryKey).phase ?? "idle",
+      message,
+      fileCount: changesController.getSnapshot().committedPaths.size,
+    };
+  }
+
+  /**
+   * Publish and log a refused land press ([L31]) — commit's half of the funnel
+   * join's `refuse` fills. One exit from a refusal, writing to the snapshot a
+   * notice surface subscribes to, the dev log, and the caller's return value.
+   */
+  private refuse(
+    kind: "gate" | "fault",
+    sentence: string,
+    reason: string,
+    input: CommitLandGateInput | null,
+  ): LandOutcome {
+    this.refusalSeq += 1;
+    this.landRefusal = { sentence, kind, seq: this.refusalSeq };
+    const gate = input !== null ? commitGateFacts(input) : {};
+    tugDevLogStore.warn("landing", `commit land refused: ${sentence}`, { kind, ...gate });
+    sendLandingReceipt({ kind: "commit", verdict: "refused", reason, sentence, gate });
+    this.snapshot = this.derive();
+    this.fire();
+    return { kind: "refused", sentence };
+  }
+
+  /** Drop a published refusal — an accepted press answers the last refused one. */
+  private clearRefusal(): void {
+    if (this.landRefusal === null) return;
+    this.landRefusal = null;
+    this.snapshot = this.derive();
+    this.fire();
   }
 
   /**
@@ -368,20 +436,24 @@ export class CommitModeController implements LandingMode {
    * so live state may have drifted (a turn started, the changeset emptied).
    */
   private performCommit(text: string): void {
-    const { changesController, codeSessionStore } = this.deps;
+    const { changesController } = this.deps;
     const verbStore = getChangesetVerbStore();
-    const gate = evaluateCommitLandGate({
-      turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
-      commitPhase: verbStore?.commitState(changesController.entryKey).phase ?? "idle",
-      message: text,
-      fileCount: changesController.getSnapshot().committedPaths.size,
-    });
+    const input = this.landGateInput(text);
+    const gate = evaluateCommitLandGate(input);
     if (!gate.ok) {
       if (!this.active) this.enter();
+      this.refuse("gate", commitDisabledReason(gate.reason), gate.reason, input);
       return;
     }
     changesController.commit(text);
-    if (verbStore === null) return;
+    if (verbStore === null) {
+      // The commit went out with nothing to settle it: no phase to read, so the
+      // mode would sit in a landing that never resolves. That is a fault, and
+      // the user needs to be told they are stranded rather than left waiting.
+      if (!this.active) this.enter();
+      this.refuse("fault", CHANGES_SERVICE_DISCONNECTED, "no-verb-store", input);
+      return;
+    }
     const unsubscribe = verbStore.subscribe(() => {
       const phase = verbStore.commitState(changesController.entryKey).phase;
       if (phase === "pending") return;
@@ -424,6 +496,7 @@ function snapshotsEqual(a: CommitModeSnapshot, b: CommitModeSnapshot): boolean {
     a.edited === b.edited &&
     a.landPhase === b.landPhase &&
     a.landError === b.landError &&
+    sameRefusal(a.landRefusal, b.landRefusal) &&
     a.draftError === b.draftError
   );
 }

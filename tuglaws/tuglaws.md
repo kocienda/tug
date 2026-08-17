@@ -211,6 +211,20 @@ Two spellings of the same directory that skip the gateway silently fail to match
 
 ---
 
+## Refusals and Failure Surfaces
+
+### L31. A user gesture produces either the act or a visible reason — never silence. {#l31}
+
+Every control that can refuse must route its refusal to a surface the user is already looking at. A tooltip on the control is the *before* affordance and does not discharge this obligation: by the time someone has pressed, they are looking at the result, not the hover. The refusal reaches a bulletin, a notice, an inline message — something that appears without being hunted for — and it says why, in the wording the code already computed. Where a gate function produces a reason string, delivering that string to the user is mandatory, not optional; a reason computed and discarded is worse than one never computed, because it proves the information was in hand.
+
+Three shapes are violations, and they are violations even when the surrounding code is otherwise correct. A **bare `return` on a gesture path**: the gate refuses, the function exits, nothing is said and nothing happens. A **swallowed internal fault**: a missing store, a null connection, an absent dependency treated as a no-op, which tells the user they mistyped something when in fact the app is broken and they are stranded with no remediation. A **callback parked on an event that may never fire**: the gesture is accepted, deferred to a beat that is not guaranteed to arrive, and lost with no error, no timeout, and no trace. Deferred work carries a deadline; when the deadline passes the work runs anyway, or the failure speaks.
+
+A comment blessing any of these is a defect in the comment as much as in the code, because it converts an oversight into a decision and tells the next reader not to look. Types are the structural half of the enforcement: an action that can refuse returns its verdict rather than `void`, so a caller cannot ignore the refusal without the compiler seeing it, and the control's own surfacing means no caller has to remember.
+
+This law was written from an incident, and the incident is its grounding: a landing button that did nothing when pressed was unreproducible for days purely because its failure mode was silence — two silent `return`s with no error, no log line, and no rendered state, so every investigation had nothing to read. The record is in [../roadmap/continuing-dash-join-failures.md](../roadmap/continuing-dash-join-failures.md). Silence is not a neutral outcome; it is the one outcome that cannot be diagnosed. [L22, L28]
+
+---
+
 ## Licensing
 
 ### L21. Third-party code and patterns require license compliance before use. {#l21}

@@ -24,10 +24,68 @@ import type { CommitPhase, JoinPhase } from "@/lib/changeset-verb-store";
 export type LandingKind = "commit" | "join";
 
 /**
+ * What a land press did — the verdict `land` hands back to whoever pressed
+ * ([L31]).
+ *
+ * A `void` land is a door held open for silence: a caller that discards the
+ * outcome looks identical to a caller that never had one, and the compiler
+ * cannot tell the difference. Reporting by type is the structural half of the
+ * no-silent-refusals contract; the controller surfacing its own refusals is the
+ * other half, so a caller that ignores this still cannot lose the reason.
+ */
+export type LandOutcome =
+  /** Handed to the host's land hook — it fires on the host's beat. */
+  | { kind: "staged" }
+  /** Ran inline; no hook was installed. */
+  | { kind: "fired" }
+  /** Refused, with the sentence the mode surfaced. */
+  | { kind: "refused"; sentence: string };
+
+/**
+ * The fault sentence both landing modes use when the changeset service is
+ * absent. A missing store means the app is broken rather than that the user did
+ * something wrong, so the sentence names the remediation instead of a hint
+ * ([L31]).
+ */
+export const CHANGES_SERVICE_DISCONNECTED =
+  "The changes service isn't connected — reload the card and try again";
+
+/**
+ * A refusal the mode has surfaced, published so a notice surface can speak it
+ * ([L31]).
+ */
+export interface LandingRefusal {
+  /** The human sentence, from the mode's own disabled-reason producer. */
+  sentence: string;
+  /**
+   * `gate` — the mode's land gate refused, which is the user's to clear.
+   * `fault` — a dependency is missing, which is the app being broken and needs
+   * a remediation rather than a hint.
+   */
+  kind: "gate" | "fault";
+  /**
+   * Monotonic per-controller counter. Pressing a refusing button twice must
+   * speak twice, and the second refusal is usually word-for-word the first, so
+   * a surface that keyed on the sentence would go quiet exactly when the user
+   * is asking again.
+   */
+  seq: number;
+}
+
+/**
  * The land verb's round-trip phase. Commit and join share `idle` / `pending` /
  * `done` / `error`; join adds the two beats commit has no analogue for.
  */
 export type LandingPhase = CommitPhase | JoinPhase;
+
+/**
+ * Refusal equality for the controllers' `snapshotsEqual` — `seq` carries the
+ * identity, so a repeat of the same sentence is a different refusal.
+ */
+export function sameRefusal(a: LandingRefusal | null, b: LandingRefusal | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.seq === b.seq && a.sentence === b.sentence && a.kind === b.kind;
+}
 
 /** What every landing mode publishes; each kind adds its own fields. */
 export interface LandingSnapshot {
@@ -71,6 +129,11 @@ export interface LandingSnapshot {
   landPhase: LandingPhase;
   /** Land error detail to surface, or null. */
   landError: string | null;
+  /**
+   * The most recent refused land press, or null when none has been refused
+   * since the mode last exited or landed ([L31]).
+   */
+  landRefusal: LandingRefusal | null;
   /** Draft error detail to surface, or null. */
   draftError: string | null;
 }
@@ -97,8 +160,11 @@ export interface LandingMode {
   requestDraft: (force?: boolean) => void;
   /** Cancel an in-flight auto-message draft; a no-op when nothing is drafting. */
   cancelDraft: () => void;
-  /** Land, subject to the mode's gate. */
-  land: (message: string) => void;
+  /**
+   * Land, subject to the mode's gate. A refusal is surfaced by the mode itself
+   * and reported here by type ([L31]) — never a silent no-op.
+   */
+  land: (message: string) => LandOutcome;
   /** The user leaving the route: persist what is typed, then exit. */
   leave: () => void;
   /** Exit the mode without persisting (the land path's own way out). */

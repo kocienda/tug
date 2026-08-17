@@ -163,7 +163,11 @@ import type { PendingContextStore } from "@/lib/pending-context-store";
 import { deriveSessionCardBannerSpec, humanizeErrorSummary } from "./session-card-banner-spec";
 import { TransientNoticeController } from "./transient-notice-controller";
 import { ClaimErrorNoticeController } from "./claim-error-notice-controller";
-import { CommitErrorNoticeController } from "./commit-error-notice-controller";
+import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+
+import { createStagedLanding, type StagedLanding } from "./staged-landing";
+import { LandingNoticeController } from "./landing-notice-controller";
+import { ReleaseErrorNoticeController } from "./release-error-notice-controller";
 import { DashBindErrorNoticeController } from "./dash-bind-error-notice-controller";
 import { deriveColdRestoreActive } from "./session-card-restore-gate";
 import { REPLAY_SOFT_BUDGET_MS } from "@/lib/code-session-store";
@@ -2752,11 +2756,28 @@ export function SessionCardBody({
   // runs the parked callback once the exit animation completes.
   // A join stages the same way, for the same reason ([P01]) — one hook shape,
   // installed on both controllers.
-  const stagedCommitRef = useRef<(() => void) | null>(null);
+  //
+  // The park carries a deadline ([L31]): the hide it waits on rides an effect
+  // keyed on whether a landing is active, and a landing stranded on a hide that
+  // never comes is the user's gesture lost in silence. `createStagedLanding`
+  // holds both beats and the exactly-once swap.
+  const stagedLandingRef = useRef<StagedLanding | null>(null);
+  if (stagedLandingRef.current === null) {
+    stagedLandingRef.current = createStagedLanding({
+      onFault: () => {
+        tugDevLogStore.warn(
+          "landing",
+          "sheetDidHide never fired — the watchdog landed the staged callback",
+        );
+      },
+    });
+  }
   useEffect(() => {
+    const staging = stagedLandingRef.current;
+    if (staging === null) return;
     const stage = (mode: { getSnapshot: () => { active: boolean }; exit: () => void }) =>
       (runLand: () => void) => {
-        stagedCommitRef.current = runLand;
+        staging.stage(runLand);
         if (mode.getSnapshot().active) mode.exit();
         else shadeViewController.hide();
       };
@@ -2765,15 +2786,12 @@ export function SessionCardBody({
     return () => {
       commitModeController.setLandHook(null);
       joinModeController.setLandHook(null);
+      staging.dispose();
     };
   }, [commitModeController, joinModeController, shadeViewController]);
   useSheetDelegate(cardId, {
     sheetDidHide: () => {
-      const staged = stagedCommitRef.current;
-      if (staged !== null) {
-        stagedCommitRef.current = null;
-        window.setTimeout(staged, 150);
-      }
+      stagedLandingRef.current?.sheetDidHide();
     },
   });
   // Captured by the JSX's composed ref below for the first-mount
@@ -4872,7 +4890,9 @@ export function SessionCardBody({
               className="session-card-notice-host"
             >
             <TransientNoticeController store={codeSessionStore} />
-            <CommitErrorNoticeController controller={commitModeController} />
+            <LandingNoticeController controller={commitModeController} />
+            <LandingNoticeController controller={joinModeController} />
+            <ReleaseErrorNoticeController entryKey={changesController.entryKey} />
             <ClaimErrorNoticeController entryKey={changesController.entryKey} />
             {boundSessionId !== null ? (
               <DashBindErrorNoticeController tugSessionId={boundSessionId} />
