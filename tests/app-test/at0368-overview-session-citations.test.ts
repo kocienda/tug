@@ -1,5 +1,5 @@
 /**
- * at0368-gazette-session-citations.test.ts — a session named in prose becomes
+ * at0368-overview-session-citations.test.ts — a session named in prose becomes
  * the live citation chip, and the run it occupies is never claimed by the
  * wrong scan.
  *
@@ -47,8 +47,8 @@
  * in that header now, so the clock reads on one line no matter how long a name
  * the user chose; the assertion stays because that is the regression.
  *
- * @covers tugdeck/src/components/gazette/gazette-card.tsx
- * @covers tugdeck/src/components/gazette/gazette-card.css
+ * @covers tugdeck/src/components/overview/overview-card.tsx
+ * @covers tugdeck/src/components/overview/overview-card.css
  * @covers tugdeck/src/lib/annotator/detect-session-ref.ts
  * @covers tugdeck/src/lib/annotator/session-resolution.ts
  * @covers tugdeck/src/lib/annotator/annotate-content.ts
@@ -67,8 +67,8 @@ import { launchTugApp, note } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const CARD = '[data-testid="gazette-card"]';
-const BODY = `${CARD} .gazette-post-body`;
+const CARD = '[data-testid="overview-card"]';
+const BODY = `${CARD} .overview-post-body`;
 
 /** This checkout — so the post's paths resolve through the real chain. */
 const REPO_ROOT = resolve(import.meta.dir, "../..");
@@ -125,7 +125,7 @@ const RUNS_JS = `(function () {
   return {
     held: classify(${JSON.stringify(`${PROJECT}/${HELD}`)}),
     missing: classify(${JSON.stringify(`${PROJECT}/${MISSING}`)}),
-    path: classify("tugdeck/src/lib/gazette-store.ts"),
+    path: classify("tugdeck/src/lib/overview-store.ts"),
     text: (body.textContent || "").replace(/\\s+/g, " ").trim(),
     awaiting: body.querySelector("[data-tugx-awaiting]") !== null
       || (body.firstElementChild !== null
@@ -157,7 +157,7 @@ const SHORT_NAME = "dash-integration-1";
 /**
  * A name past the strip's own width, so the run that carries it has to elide
  * even with the whole row to itself. The strip measures ~500px at the
- * Gazette's registered width and this spells to half again that, so the claim
+ * Overview's registered width and this spells to half again that, so the claim
  * does not rest on the rail being any exact size.
  */
 const LONG_NAME =
@@ -213,14 +213,14 @@ function resolveNamedSessions(): string {
  * whole name either way.
  */
 const POSTS_JS = `Array.from(
-  document.querySelectorAll(${JSON.stringify(`${CARD} .gazette-cell`)}),
+  document.querySelectorAll(${JSON.stringify(`${CARD} .overview-cell`)}),
 )
   .filter(function (cell) {
-    return cell.querySelector(".gazette-post-refs .tug-session-identity") !== null;
+    return cell.querySelector(".overview-post-refs .tug-session-identity") !== null;
   })
   .map(function (cell) {
     var clock = cell.querySelector(".tug-transcript-entry__timestamp time");
-    var strip = cell.querySelector(".gazette-post-refs");
+    var strip = cell.querySelector(".overview-post-refs");
     var chip = strip.querySelector(".tug-session-identity");
     var name = chip.querySelector(".tug-session-identity-name");
     var callsign = chip.querySelector(".tug-session-identity-callsign");
@@ -249,12 +249,12 @@ interface Post {
   callsignElided: boolean;
 }
 
-describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Gazette prose", () => {
+describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () => {
   test(
     "a reserved run is claimed by neither scan, then becomes a citation or plain text",
     async () => {
       const app = await launchTugApp({
-        testName: "at0368-gazette-session-citations",
+        testName: "at0368-overview-session-citations",
       });
       try {
         await app.nativeKey("g", ["cmd", "ctrl"]);
@@ -269,18 +269,18 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Gazette prose", () =>
         const post = {
           id: 9201,
           at_ms: 1_754_600_000_000,
-          author: "reporter",
-          body: `Session ${PROJECT}/${HELD} finished its turn while ${PROJECT}/${MISSING} sat idle; both touched tugdeck/src/lib/gazette-store.ts today.`,
+          author: "observer",
+          body: `Session ${PROJECT}/${HELD} finished its turn while ${PROJECT}/${MISSING} sat idle; both touched tugdeck/src/lib/overview-store.ts today.`,
           // A ref is what makes the card acquire this post's workspace
-          // (`useGazetteRefRoots`), and the workspace is what mints the path
+          // (`useOverviewRefRoots`), and the workspace is what mints the path
           // and commit resolvers the annotation context runs on. Without one
           // the post's prose has nothing to resolve against.
-          refs: [{ kind: "file", target: "tugdeck/src/lib/gazette-store.ts" }],
+          refs: [{ kind: "file", target: "tugdeck/src/lib/overview-store.ts" }],
           project_dir: REPO_ROOT,
         };
         expect(
           await app.evalJS<boolean>(
-            `window.__tug.publishGazettePost(${JSON.stringify(JSON.stringify(post))})`,
+            `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
           ),
         ).toBe(true);
 
@@ -348,7 +348,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Gazette prose", () =>
   test(
     "the narrated citation leads the provenance strip and compresses to it, and the clock never wraps",
     async () => {
-      const app = await launchTugApp({ testName: "at0368-gazette-post-atom" });
+      const app = await launchTugApp({ testName: "at0368-overview-post-atom" });
       try {
         await app.nativeKey("g", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
@@ -365,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Gazette prose", () =>
           {
             id: 9301,
             at_ms: 1_754_600_000_000,
-            author: "reporter",
+            author: "observer",
             body: "A short custom name, on a session whose minted handle is long.",
             refs: [],
             session_id: NAMED_SHORT,
@@ -374,7 +374,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Gazette prose", () =>
           {
             id: 9302,
             at_ms: 1_754_600_060_000,
-            author: "reporter",
+            author: "observer",
             body: "A name long enough that nothing else on the row could fit beside it.",
             refs: [],
             session_id: NAMED_LONG,
@@ -383,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Gazette prose", () =>
         ]) {
           expect(
             await app.evalJS<boolean>(
-              `window.__tug.publishGazettePost(${JSON.stringify(JSON.stringify(post))})`,
+              `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
             ),
           ).toBe(true);
         }
@@ -392,14 +392,14 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Gazette prose", () =>
         // answering, through the production handler.
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(
-            ${JSON.stringify(`${CARD} .gazette-post-refs .tug-session-identity`)}).length === 2`,
+            ${JSON.stringify(`${CARD} .overview-post-refs .tug-session-identity`)}).length === 2`,
           { timeoutMs: 15_000 },
         );
         await app.evalJS<unknown>(resolveNamedSessions());
         await app.waitForCondition<boolean>(
           `(function () {
             var runs = document.querySelectorAll(
-              ${JSON.stringify(`${CARD} .gazette-post-refs .tug-session-identity-name`)});
+              ${JSON.stringify(`${CARD} .overview-post-refs .tug-session-identity-name`)});
             return runs.length === 2 && (runs[1].textContent || "").length > 0;
           })()`,
           { timeoutMs: 15_000 },

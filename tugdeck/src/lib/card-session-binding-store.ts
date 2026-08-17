@@ -123,7 +123,7 @@ export const cardSessionBindingStore = new CardSessionBindingStore();
  * The store is keyed by card because that is the direction the feed plumbing
  * reads it; a session reference needs the other direction, and the walk is
  * cheap (a deck holds a handful of cards). Every "go to that session" gesture
- * in the app — a Gazette ref, a citation chip — asks this, so it answers once
+ * in the app — a Overview ref, a citation chip — asks this, so it answers once
  * rather than in each caller.
  */
 export function cardIdForSession(sessionId: string): string | null {

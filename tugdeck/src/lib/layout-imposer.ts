@@ -1430,7 +1430,7 @@ function chooseRailTotal(
   // Both of the lower tiers are the chain failing to read as arranged, and
   // both are repaired by the same few pixels of rail, which is why the rule
   // cannot turn on occlusion alone: on a three-up deck of slim cards with the
-  // Gazette's rail on one edge, the total that tiles can land a handful of
+  // Overview's rail on one edge, the total that tiles can land a handful of
   // pixels BELOW the comfort floors. Nothing occludes there, so an
   // overlap-only rule holds the measure and paints every interior seam at 2px
   // instead of 5 — cramped rhythm bought for six pixels of width nobody was

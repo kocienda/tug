@@ -1,6 +1,6 @@
-//! reporter_wake — the Reporter's decision core, with no IO in it.
+//! observer_wake — the Observer's decision core, with no IO in it.
 //!
-//! Rust decides *when* to wake the Reporter; the model decides *whether and
+//! Rust decides *when* to wake the Observer; the model decides *whether and
 //! what* to post. This module is the whole of the first half plus the parsing
 //! of the second, and it is deliberately pure: buffers, wake reasons, the
 //! composition of a wake's input, and the strict read of the envelope that
@@ -25,14 +25,14 @@
 use std::collections::HashSet;
 
 use serde::Deserialize;
-use tugcast_core::{GazetteRef, GazetteRefKind};
+use tugcast_core::{OverviewRef, OverviewRefKind};
 
-use super::gazette_agent::{BUFFER_MAX_BYTES, DEFAULT_BUFFER_MAX_FRAMES};
+use super::overview_agent::{BUFFER_MAX_BYTES, DEFAULT_BUFFER_MAX_FRAMES};
 use super::payload_inspector::InspectedPayload;
 
 // MARK: - The tap
 
-/// Frame types that reach the Reporter's buffer.
+/// Frame types that reach the Observer's buffer.
 ///
 /// Starts from the Pulse allowlist — the narratable subset of tugcode's
 /// outbound vocabulary — because the two subsystems want the same evidence:
@@ -41,10 +41,10 @@ use super::payload_inspector::InspectedPayload;
 /// brackets and never forwarded, so a reconnect flood cannot re-narrate
 /// history.
 ///
-/// The Reporter additionally keeps `turn_complete` for its usage numbers,
+/// The Observer additionally keeps `turn_complete` for its usage numbers,
 /// which is what a token-threshold wake reads and what lets a post say what a
 /// stretch of work cost.
-pub const REPORTER_FORWARD_ALLOWLIST: &[&str] = &[
+pub const OBSERVER_FORWARD_ALLOWLIST: &[&str] = &[
     "tool_use",
     "tool_result",
     "tool_input_progress",
@@ -87,7 +87,7 @@ pub fn forwardable_session(payload: &[u8], muted: &mut HashSet<String>) -> Optio
             }
             None
         }
-        t if REPORTER_FORWARD_ALLOWLIST.contains(&t) => {
+        t if OBSERVER_FORWARD_ALLOWLIST.contains(&t) => {
             let session = session?;
             if muted.contains(&session) {
                 None
@@ -120,7 +120,7 @@ pub fn counts_as_assistant_activity(msg_type: &str) -> bool {
 
 // MARK: - Wake reasons
 
-/// Why the Reporter is being asked now.
+/// Why the Observer is being asked now.
 ///
 /// The reason rides the job input because the model uses it well — a
 /// session-end wake produces a wrap-up, a turn-end wake produces "here is what
@@ -307,7 +307,7 @@ pub struct FactLine {
 }
 
 /// The header the facts section prints. Pinned by the instructions' contract
-/// test — the Reporter is told about this exact heading.
+/// test — the Observer is told about this exact heading.
 pub const FACTS_SECTION_HEADER: &str = "SETTLED FACTS SINCE YOUR LAST POST:";
 
 /// What the facts section prints in place of facts it dropped — the frame
@@ -369,7 +369,7 @@ pub fn render_facts_section(facts: &[FactLine]) -> String {
 /// Build the self-contained turn for one wake.
 ///
 /// Every wake is independent: the reason, the session, the frames, and the
-/// Reporter's own last few posts about this session all ride the message, so
+/// Observer's own last few posts about this session all ride the message, so
 /// any turn can be a worker's first. The prior posts are the entire dedup
 /// mechanism — nothing compares text, the model simply sees what it already
 /// said and declines to repeat itself.
@@ -379,7 +379,7 @@ pub fn render_facts_section(facts: &[FactLine]) -> String {
 /// actually settled — SHAs, test totals, the prompt in full — which is what the
 /// rubric wants to cite. It is returned alongside the composed input because the
 /// caller needs its exact rendered text as a ref-validation corpus.
-pub fn compose_reporter_input(
+pub fn compose_observer_input(
     reason: WakeReason,
     session_id: &str,
     buffer: &FrameBuffer,
@@ -416,25 +416,25 @@ pub fn compose_reporter_input(
 
 // MARK: - The envelope
 
-/// What `reporter-post` answers with.
+/// What `observer-post` answers with.
 ///
 /// `deny_unknown_fields` throughout: the contract is narrow on purpose, and a
 /// model that invented a field has drifted from it in a way worth noticing at
 /// the parse rather than absorbing.
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct ReporterEnvelope {
+pub struct ObserverEnvelope {
     /// `None` is a real answer — the model read the work and judged it not
     /// worth telling.
-    pub post: Option<ReporterPost>,
+    pub post: Option<ObserverPost>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct ReporterPost {
+pub struct ObserverPost {
     pub body: String,
     #[serde(default)]
-    pub refs: Vec<GazetteRef>,
+    pub refs: Vec<OverviewRef>,
 }
 
 /// Read the envelope, or decide to post nothing.
@@ -474,7 +474,7 @@ pub struct ReporterPost {
 /// object is a candidate and they are tried newest-first: a correction
 /// supersedes what it corrects, and picking the last is reading the model's
 /// final answer rather than reassembling one.
-pub fn parse_envelope(raw: &str) -> Option<ReporterEnvelope> {
+pub fn parse_envelope(raw: &str) -> Option<ObserverEnvelope> {
     // Newest-first: the model's last word on the matter is its answer.
     for span in json_object_spans(raw.trim()).into_iter().rev() {
         if let Some(envelope) = parse_one_envelope(span) {
@@ -485,8 +485,8 @@ pub fn parse_envelope(raw: &str) -> Option<ReporterEnvelope> {
 }
 
 /// Parse one candidate span, tolerating a single `{"post": <envelope>}` wrap.
-fn parse_one_envelope(span: &str) -> Option<ReporterEnvelope> {
-    if let Ok(envelope) = serde_json::from_str::<ReporterEnvelope>(span) {
+fn parse_one_envelope(span: &str) -> Option<ObserverEnvelope> {
+    if let Ok(envelope) = serde_json::from_str::<ObserverEnvelope>(span) {
         return Some(envelope);
     }
     let value: serde_json::Value = serde_json::from_str(span).ok()?;
@@ -494,7 +494,7 @@ fn parse_one_envelope(span: &str) -> Option<ReporterEnvelope> {
     if !inner.as_object()?.contains_key("post") {
         return None;
     }
-    serde_json::from_value::<ReporterEnvelope>(inner.clone()).ok()
+    serde_json::from_value::<ObserverEnvelope>(inner.clone()).ok()
 }
 
 /// Every balanced top-level `{…}` in `text`, in the order they appear.
@@ -545,10 +545,10 @@ pub(crate) fn json_object_spans(text: &str) -> Vec<&str> {
 
 /// Outcome of checking a post's refs against what the model was actually shown.
 pub struct ValidatedRefs {
-    pub kept: Vec<GazetteRef>,
+    pub kept: Vec<OverviewRef>,
     /// Dropped targets, for the log — a rising drop rate means the wording is
     /// drifting or the buffer is too small, and both are worth seeing.
-    pub dropped: Vec<GazetteRef>,
+    pub dropped: Vec<OverviewRef>,
 }
 
 /// Keep only the refs whose targets appear verbatim in something the model was
@@ -568,11 +568,11 @@ pub struct ValidatedRefs {
 /// `Session` refs are exempt: the bridge stamps the session id itself from the
 /// wake, so it is ground truth rather than something the model recalled, and it
 /// legitimately may not appear in any frame's text.
-pub fn validate_refs(refs: Vec<GazetteRef>, corpora: &[&str]) -> ValidatedRefs {
+pub fn validate_refs(refs: Vec<OverviewRef>, corpora: &[&str]) -> ValidatedRefs {
     let mut kept = Vec::new();
     let mut dropped = Vec::new();
     for r in refs {
-        let ok = matches!(r.kind, GazetteRefKind::Session)
+        let ok = matches!(r.kind, OverviewRefKind::Session)
             || (!r.target.is_empty() && corpora.iter().any(|c| c.contains(&r.target)));
         if ok {
             kept.push(r);
@@ -585,13 +585,13 @@ pub fn validate_refs(refs: Vec<GazetteRef>, corpora: &[&str]) -> ValidatedRefs {
 
 // MARK: - The prose budget
 
-/// The Reporter's body budget, in characters of prose.
+/// The Observer's body budget, in characters of prose.
 ///
 /// The instructions state the same number, so this clamp is the backstop for a
 /// model that ignored them, not the working limit. It is a *prose* budget:
 /// tokens that name something exactly — paths, commit shas, session ids — are
 /// excluded from the count, so precision is never what the clamp squeezes out.
-pub const REPORTER_PROSE_LIMIT: usize = 200;
+pub const OBSERVER_PROSE_LIMIT: usize = 200;
 
 /// How far past the budget a sentence already underway may run to finish.
 ///
@@ -603,16 +603,16 @@ pub const REPORTER_PROSE_LIMIT: usize = 200;
 /// save forty characters. The grace lets that sentence end.
 ///
 /// It is +20%, not the ten or twenty characters that would look tidier: a
-/// Reporter sentence runs 60–100 characters of prose, so a fragment in flight
+/// Observer sentence runs 60–100 characters of prose, so a fragment in flight
 /// at the budget typically needs 30–60 more to close, and a grace too small to
 /// close it buys a backward cut anyway. It only ever extends to a **sentence
 /// end** — never to more room. Prose that simply runs on is still cut at
-/// [`REPORTER_PROSE_LIMIT`].
+/// [`OBSERVER_PROSE_LIMIT`].
 ///
 /// The instructions do not state this number and must not: a limit the model is
 /// told about is the limit it composes toward, and a stated 240 would overshoot
 /// to 280. The model aims at 200 and this catches where it lands.
-pub const REPORTER_PROSE_GRACE: usize = 240;
+pub const OBSERVER_PROSE_GRACE: usize = 240;
 
 /// Characters of prose in `body` — every character except those of tokens that
 /// read as exact names rather than prose.
@@ -828,12 +828,12 @@ mod tests {
 
     /// `clamp_post_body` under the shipping budgets.
     fn clamp(body: &str) -> String {
-        clamp_post_body(body, REPORTER_PROSE_LIMIT, REPORTER_PROSE_GRACE)
+        clamp_post_body(body, OBSERVER_PROSE_LIMIT, OBSERVER_PROSE_GRACE)
     }
 
     #[test]
     fn clamp_post_body_passes_short_bodies_and_cuts_long_ones() {
-        let short = "Fixed the flaky test in tugrust/crates/tugcast/src/feeds/reporter.rs.";
+        let short = "Fixed the flaky test in tugrust/crates/tugcast/src/feeds/observer.rs.";
         assert_eq!(clamp(short), short);
 
         // A body whose prose is long, and holds no sentence end to fall back
@@ -846,7 +846,7 @@ mod tests {
             clamped.ends_with("word…"),
             "cut lands between tokens, not inside one"
         );
-        assert!(prose_len(&clamped) <= REPORTER_PROSE_LIMIT + 1);
+        assert!(prose_len(&clamped) <= OBSERVER_PROSE_LIMIT + 1);
 
         // A body long only because of its paths is not cut at all.
         let path_heavy = format!(
@@ -876,8 +876,8 @@ mod tests {
         // characters; the grace keeps it, and the post still ends on a period.
         let second = format!("Then {} closed the loop.", "a fix ".repeat(26));
         let body = format!("The suite is green again. {second}");
-        assert!(prose_len(&body) > REPORTER_PROSE_LIMIT);
-        assert!(prose_len(&body) <= REPORTER_PROSE_GRACE);
+        assert!(prose_len(&body) > OBSERVER_PROSE_LIMIT);
+        assert!(prose_len(&body) <= OBSERVER_PROSE_GRACE);
 
         let clamped = clamp(&body);
         assert_eq!(clamped, body.trim_end());
@@ -886,14 +886,14 @@ mod tests {
 
     #[test]
     fn clamp_post_body_keeps_the_tally_sentence_a_real_post_lost() {
-        // A real Reporter post, cut mid-clause at "6 skipped;" — the tally is
+        // A real Observer post, cut mid-clause at "6 skipped;" — the tally is
         // the most useful thing in it and the budget landed inside it. The
         // first sentence ends at ~180 characters of prose, so a cut back to
         // the budget would have kept only that; the grace keeps both.
         let body = "`just ci` is green: refactored shell_fact into a ShellFact struct to clear \
              clippy's too-many-arguments, fixed two let-and-return warnings in session_ledger.rs, \
              and ran cargo fmt. Full suite now 2310 passed, 6 skipped; clippy clean.";
-        assert!(prose_len(body) > REPORTER_PROSE_LIMIT, "over the budget");
+        assert!(prose_len(body) > OBSERVER_PROSE_LIMIT, "over the budget");
         let clamped = clamp(body);
         assert!(
             clamped.ends_with("6 skipped; clippy clean."),
@@ -913,7 +913,7 @@ mod tests {
         // Same body with no earlier sentence to fall back to: the ellipsis cut
         // still lands at the budget rather than the grace.
         let runs_on = "word ".repeat(80);
-        assert!(prose_len(&clamp(&runs_on)) <= REPORTER_PROSE_LIMIT + 1);
+        assert!(prose_len(&clamp(&runs_on)) <= OBSERVER_PROSE_LIMIT + 1);
     }
 
     #[test]
@@ -935,7 +935,7 @@ mod tests {
             clamped.ends_with('…'),
             "an abbreviation is not a sentence end: {clamped}"
         );
-        assert!(prose_len(&clamped) <= REPORTER_PROSE_LIMIT + 1);
+        assert!(prose_len(&clamped) <= OBSERVER_PROSE_LIMIT + 1);
     }
 
     fn frame(session: &str, msg_type: &str, extra: &str) -> String {
@@ -1110,7 +1110,7 @@ mod tests {
             at_ms: 1_700_000_000_000,
             body: "Started on the bridge".to_string(),
         }];
-        let input = compose_reporter_input(WakeReason::SitrepTimer, "s1", &buffer, &priors, &[]);
+        let input = compose_observer_input(WakeReason::SitrepTimer, "s1", &buffer, &priors, &[]);
 
         assert!(input.contains("WAKE REASON: sitrep-timer"));
         assert!(input.contains("SESSION: s1"));
@@ -1128,7 +1128,7 @@ mod tests {
     fn a_first_wake_says_there_are_no_prior_posts() {
         let mut buffer = FrameBuffer::default();
         buffer.push("something happened");
-        let input = compose_reporter_input(WakeReason::TurnEnd, "s1", &buffer, &[], &[]);
+        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &buffer, &[], &[]);
         assert!(input.contains("(none"));
     }
 
@@ -1150,7 +1150,7 @@ mod tests {
                 "tests: cargo nextest — passed (1574 passed, 0 failed)",
             ),
         ];
-        let input = compose_reporter_input(WakeReason::TurnEnd, "s1", &buffer, &[], &facts);
+        let input = compose_observer_input(WakeReason::TurnEnd, "s1", &buffer, &[], &facts);
 
         assert!(input.contains(FACTS_SECTION_HEADER));
         assert!(input.contains("- [1700000000000] $ cargo nextest run -p tugcast → ok"));
@@ -1237,7 +1237,7 @@ mod tests {
         let post = parsed.post.expect("a post");
         assert_eq!(post.body, "Landed it");
         assert_eq!(post.refs.len(), 1);
-        assert_eq!(post.refs[0].kind, GazetteRefKind::Commit);
+        assert_eq!(post.refs[0].kind, OverviewRefKind::Commit);
 
         // refs may be omitted entirely.
         let bare = parse_envelope(r#"{"post": {"body": "Just prose"}}"#).expect("parses");
@@ -1350,23 +1350,23 @@ mod tests {
 {"type":"tool_result","output":"tugdeck/styles/themes/brio.css | 3 +-"}"#;
         let result = validate_refs(
             vec![
-                GazetteRef {
-                    kind: GazetteRefKind::Commit,
+                OverviewRef {
+                    kind: OverviewRefKind::Commit,
                     target: "4fe4d3fcd".to_string(),
                 },
-                GazetteRef {
-                    kind: GazetteRefKind::File,
+                OverviewRef {
+                    kind: OverviewRefKind::File,
                     target: "tugdeck/styles/themes/brio.css".to_string(),
                 },
                 // Plausible, never shown — exactly the shape that would make a
                 // dead chip.
-                GazetteRef {
-                    kind: GazetteRefKind::File,
+                OverviewRef {
+                    kind: OverviewRefKind::File,
                     target: "tugdeck/styles/themes/nocturne.css".to_string(),
                 },
                 // A shortened sha cannot be matched, so it cannot be linked.
-                GazetteRef {
-                    kind: GazetteRefKind::Commit,
+                OverviewRef {
+                    kind: OverviewRefKind::Commit,
                     target: "4fe4d3fcdaaaa".to_string(),
                 },
             ],
@@ -1382,8 +1382,8 @@ mod tests {
     #[test]
     fn session_refs_are_exempt_from_the_verbatim_check() {
         let result = validate_refs(
-            vec![GazetteRef {
-                kind: GazetteRefKind::Session,
+            vec![OverviewRef {
+                kind: OverviewRefKind::Session,
                 target: "a-session-id-in-no-frame".to_string(),
             }],
             &["frames that never name the session"],
@@ -1395,8 +1395,8 @@ mod tests {
     #[test]
     fn an_empty_target_is_dropped() {
         let result = validate_refs(
-            vec![GazetteRef {
-                kind: GazetteRefKind::File,
+            vec![OverviewRef {
+                kind: OverviewRefKind::File,
                 target: String::new(),
             }],
             &["anything"],
@@ -1415,14 +1415,14 @@ mod tests {
         )]);
         let result = validate_refs(
             vec![
-                GazetteRef {
-                    kind: GazetteRefKind::Commit,
+                OverviewRef {
+                    kind: OverviewRefKind::Commit,
                     target: "03fcaa08712a".to_string(),
                 },
                 // In neither corpus: still dropped. The facts section widens
                 // what can be proved, it does not stop refs being checked.
-                GazetteRef {
-                    kind: GazetteRefKind::Commit,
+                OverviewRef {
+                    kind: OverviewRefKind::Commit,
                     target: "deadbeefcafe".to_string(),
                 },
             ],
@@ -1438,8 +1438,8 @@ mod tests {
     #[test]
     fn a_target_spanning_two_corpora_is_not_a_match() {
         let result = validate_refs(
-            vec![GazetteRef {
-                kind: GazetteRefKind::File,
+            vec![OverviewRef {
+                kind: OverviewRefKind::File,
                 target: "tugdeck/styles".to_string(),
             }],
             &["...tugdeck/", "styles/themes/brio.css..."],

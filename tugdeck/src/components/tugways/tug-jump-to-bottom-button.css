@@ -21,7 +21,7 @@
 .tug-jump-to-bottom-button {
   /* Floats over the transcript viewport, pinned bottom-center. The host
      supplies the positioned ancestor — `.tug-control-bar-region` in the
-     session card, `.gazette-transcript-region` in the Gazette. */
+     session card, `.overview-transcript-region` in the Overview. */
   position: absolute;
   --tugx-jump-bottom: 16px;
   bottom: var(--tugx-jump-bottom);

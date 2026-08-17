@@ -225,17 +225,17 @@ describe("trailing punctuation is trimmed from the query", () => {
   });
 
   test("a mention written mid-sentence queries the path, not the clause", () => {
-    // The reported flow: "@roadmap/gazette-plan.md; Phase F …". The token
+    // The reported flow: "@roadmap/overview-plan.md; Phase F …". The token
     // ends at whitespace, so without the trim the query carries the
     // semicolon and matches no file.
-    const typed = makeState("roadmap/gazette-plan.md; Phase F", 0).update({
+    const typed = makeState("roadmap/overview-plan.md; Phase F", 0).update({
       changes: { from: 0, insert: "@" },
       selection: EditorSelection.cursor(1),
       userEvent: "input.type",
     }).state;
     const field = typed.field(completionField);
     expect(field.active).toBe(true);
-    expect(field.query).toBe("roadmap/gazette-plan.md");
+    expect(field.query).toBe("roadmap/overview-plan.md");
   });
 
   test("the session stays open with the caret parked after the punctuation", () => {

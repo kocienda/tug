@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn letter_digit_boundaries_split() {
-        assert_eq!(subword_tokens(&["at0365-gazette-card.test.ts"]), "at 0365");
+        assert_eq!(subword_tokens(&["at0365-overview-card.test.ts"]), "at 0365");
     }
 
     #[test]

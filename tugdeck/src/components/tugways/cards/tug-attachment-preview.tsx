@@ -29,7 +29,7 @@
  * re-renders from the shrunken atom array the responder produces.
  *
  * Density: `compact` steps both faces down for a surface a few hundred pixels
- * wide (the Gazette rail) — smaller tiles, a sheet that opens at the narrow
+ * wide (the Overview rail) — smaller tiles, a sheet that opens at the narrow
  * width tier short of the host card's edges, and that sheet's chrome (Copy,
  * Delete, Done) at the smaller button scale, since three card-scale buttons
  * are most of what a rail-width footer holds. It is a size, never a different

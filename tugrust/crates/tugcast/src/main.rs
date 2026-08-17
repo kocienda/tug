@@ -154,9 +154,9 @@ async fn main() {
     // ever meeting.
     if let Some(command) = cli.command.as_ref() {
         let code = match command {
-            cli::Command::GazetteReplay(args) => {
-                let opts = feeds::gazette_replay::ReplayOptions::from_args(args);
-                feeds::gazette_replay::run(&args.jsonl, &opts).await
+            cli::Command::OverviewReplay(args) => {
+                let opts = feeds::overview_replay::ReplayOptions::from_args(args);
+                feeds::overview_replay::run(&args.jsonl, &opts).await
             }
             cli::Command::OperatorAsk(args) => feeds::operator_ask::run(args).await,
         };
@@ -1408,22 +1408,25 @@ async fn main() {
         Arc::new(shared_agent::ClaudeAgentWorkerSpawner),
     );
 
-    // The Gazette's Sonnet agent: a second `AgentSpec` on the same pool
-    // machinery, carrying the Reporter's digests and both halves of the
+    // The Overview's Sonnet agent: a second `AgentSpec` on the same pool
+    // machinery, carrying the Observer's digests and both halves of the
     // Operator. Like the Haiku pool, building it spawns nothing — the first
     // job of a class spawns that class's worker, so an instance where nobody
-    // opens the Gazette never pays for one.
+    // opens the Overview never pays for one.
     //
-    // Model and worker cap are read per spawn from the `dev.tugtool.gazette`
+    // Model and worker cap are read per spawn from the `dev.tugtool.overview`
     // defaults, so both apply without a restart.
-    let gazette_model: Arc<dyn Fn() -> String + Send + Sync> = {
+    if let Some(bank) = bank_client.as_ref() {
+        feeds::overview_agent::carry_legacy_defaults_forward(bank);
+    }
+    let overview_model: Arc<dyn Fn() -> String + Send + Sync> = {
         let bank = bank_client.clone();
         Arc::new(move || {
             bank.as_ref()
                 .and_then(|b| {
                     b.get(
-                        feeds::gazette_agent::GAZETTE_DOMAIN,
-                        feeds::gazette_agent::MODEL_KEY,
+                        feeds::overview_agent::OVERVIEW_DOMAIN,
+                        feeds::overview_agent::MODEL_KEY,
                     )
                     .ok()
                     .flatten()
@@ -1432,15 +1435,15 @@ async fn main() {
                     tugbank_core::Value::String(s) if !s.trim().is_empty() => Some(s),
                     _ => None,
                 })
-                .unwrap_or_else(|| feeds::gazette_agent::DEFAULT_MODEL.to_string())
+                .unwrap_or_else(|| feeds::overview_agent::DEFAULT_MODEL.to_string())
         })
     };
-    let gazette_max_workers = bank_client
+    let overview_max_workers = bank_client
         .as_ref()
         .and_then(|b| {
             b.get(
-                feeds::gazette_agent::GAZETTE_DOMAIN,
-                feeds::gazette_agent::MAX_WORKERS_KEY,
+                feeds::overview_agent::OVERVIEW_DOMAIN,
+                feeds::overview_agent::MAX_WORKERS_KEY,
             )
             .ok()
             .flatten()
@@ -1449,26 +1452,26 @@ async fn main() {
             tugbank_core::Value::I64(n) if n > 0 => Some(n as usize),
             _ => None,
         })
-        .unwrap_or(feeds::gazette_agent::DEFAULT_MAX_WORKERS);
-    let gazette_agent = feeds::gazette_agent::build_pool(gazette_model, gazette_max_workers);
+        .unwrap_or(feeds::overview_agent::DEFAULT_MAX_WORKERS);
+    let overview_agent = feeds::overview_agent::build_pool(overview_model, overview_max_workers);
 
-    // GAZETTE — the Reporter's live bridge. It taps the same CODE_OUTPUT
+    // OVERVIEW — the Observer's live bridge. It taps the same CODE_OUTPUT
     // frames the Pulse narrates from plus the submission wire and
     // SESSION_STATE, buffers them per session, and wakes the Sonnet pool at
-    // structural moments. What a wake *means* lives in `reporter_wake`, the
+    // structural moments. What a wake *means* lives in `observer_wake`, the
     // pure core the offline replay harness drives too — which is what makes
     // the cadence tuned against real transcripts the cadence that ships.
     //
     // Every knob is a closure read at the moment it is used, so turning one
     // in tugbank reaches the next wake with no restart.
-    let gazette_knob = {
+    let overview_knob = {
         let bank = bank_client.clone();
         move |key: &'static str, fallback: i64| -> Arc<dyn Fn() -> i64 + Send + Sync> {
             let bank = bank.clone();
             Arc::new(move || {
                 bank.as_ref()
                     .and_then(|b| {
-                        b.get(feeds::gazette_agent::GAZETTE_DOMAIN, key)
+                        b.get(feeds::overview_agent::OVERVIEW_DOMAIN, key)
                             .ok()
                             .flatten()
                     })
@@ -1480,33 +1483,33 @@ async fn main() {
             })
         }
     };
-    let gazette_sitrep = gazette_knob(
-        feeds::gazette_agent::SITREP_SECS_KEY,
-        feeds::gazette_agent::DEFAULT_SITREP_SECS,
+    let overview_sitrep = overview_knob(
+        feeds::overview_agent::SITREP_SECS_KEY,
+        feeds::overview_agent::DEFAULT_SITREP_SECS,
     );
-    let gazette_token_wake = gazette_knob(
-        feeds::gazette_agent::TOKEN_WAKE_TOKENS_KEY,
-        feeds::gazette_agent::DEFAULT_TOKEN_WAKE_TOKENS,
+    let overview_token_wake = overview_knob(
+        feeds::overview_agent::TOKEN_WAKE_TOKENS_KEY,
+        feeds::overview_agent::DEFAULT_TOKEN_WAKE_TOKENS,
     );
-    let gazette_last_k = gazette_knob(
-        feeds::gazette_agent::LAST_K_POSTS_KEY,
-        feeds::gazette_agent::DEFAULT_LAST_K_POSTS as i64,
+    let overview_last_k = overview_knob(
+        feeds::overview_agent::LAST_K_POSTS_KEY,
+        feeds::overview_agent::DEFAULT_LAST_K_POSTS as i64,
     );
-    let gazette_buffer_frames = gazette_knob(
-        feeds::gazette_agent::BUFFER_MAX_FRAMES_KEY,
-        feeds::gazette_agent::DEFAULT_BUFFER_MAX_FRAMES as i64,
+    let overview_buffer_frames = overview_knob(
+        feeds::overview_agent::BUFFER_MAX_FRAMES_KEY,
+        feeds::overview_agent::DEFAULT_BUFFER_MAX_FRAMES as i64,
     );
-    let reporter_bridge =
-        feeds::reporter::ReporterBridge::new(feeds::reporter::ReporterBridgeConfig {
+    let observer_bridge =
+        feeds::observer::ObserverBridge::new(feeds::observer::ObserverBridgeConfig {
             code_tx: code_output_feed.sender(),
             submission_tx: code_submission_tx.clone(),
             session_state_tx: session_state_feed.sender(),
             ledger: Some(Arc::clone(&ledger)),
-            agent: Some(Arc::clone(&gazette_agent)),
-            sitrep_secs: gazette_sitrep,
-            token_wake_tokens: gazette_token_wake,
-            last_k_posts: Arc::new(move || gazette_last_k().max(0) as usize),
-            buffer_max_frames: Arc::new(move || gazette_buffer_frames().max(1) as usize),
+            agent: Some(Arc::clone(&overview_agent)),
+            sitrep_secs: overview_sitrep,
+            token_wake_tokens: overview_token_wake,
+            last_k_posts: Arc::new(move || overview_last_k().max(0) as usize),
+            buffer_max_frames: Arc::new(move || overview_buffer_frames().max(1) as usize),
         });
 
     // PULSE — app-wide color commentary. One bridge per process: it
@@ -1635,14 +1638,14 @@ async fn main() {
     // a reconnecting deck needs comes from the `list_pulse_lines`
     // CONTROL read, not feed replay ([P09]).
     let pulse_tx = feed_router.register_stream_feed(Box::new(pulse_bridge), cancel.clone());
-    // GAZETTE posts fan out to every connected deck; the tail a reconnecting
-    // deck needs comes from the `list_gazette_posts` CONTROL read. This call's
-    // return value is the only source of the GAZETTE sender, so the Operator
+    // OVERVIEW posts fan out to every connected deck; the tail a reconnecting
+    // deck needs comes from the `list_overview_posts` CONTROL read. This call's
+    // return value is the only source of the OVERVIEW sender, so the Operator
     // adapter — which publishes user questions and answers on the same feed —
     // is constructed after it.
-    let gazette_tx = feed_router.register_stream_feed(Box::new(reporter_bridge), cancel.clone());
+    let overview_tx = feed_router.register_stream_feed(Box::new(observer_bridge), cancel.clone());
 
-    // Adapter: router sends raw Frames on GAZETTE_INPUT. Parse `{body,
+    // Adapter: router sends raw Frames on OVERVIEW_INPUT. Parse `{body,
     // requestId}` and run the Operator pipeline — user post persisted and
     // broadcast first ([P08]), then retrieve → verbs → answer, then the
     // answer post with the request id echoed so the card's pending row can
@@ -1659,19 +1662,19 @@ async fn main() {
             bootstrap_project_dir: bootstrap.project_dir.clone(),
             // Beside the ledger the posts live in, so an instance's history
             // and the pictures in it are one thing to keep or to throw away.
-            attachments_dir: tugcore::instance::data_dir().join("gazette-attachments"),
+            attachments_dir: tugcore::instance::data_dir().join("overview-attachments"),
             // The search ladder's last rung ([P09]). The same pool the shell
             // classifier and the session headlines use — warm workers, one
             // reviewed job table, and nothing spawned until a search actually
             // comes back empty twice.
             haiku: Some(Arc::clone(&haiku_agent)),
         }),
-        pool: Arc::clone(&gazette_agent),
-        gazette_tx: gazette_tx.clone(),
+        pool: Arc::clone(&overview_agent),
+        overview_tx: overview_tx.clone(),
     });
     tokio::spawn(async move {
         #[derive(serde::Deserialize)]
-        struct RawGazetteInput {
+        struct RawOverviewInput {
             body: Option<String>,
             #[serde(rename = "requestId", alias = "request_id")]
             request_id: Option<String>,
@@ -1686,13 +1689,13 @@ async fn main() {
             refs: Vec<feeds::operator::QuestionRef>,
         }
         while let Some(frame) = gz_input_rx.recv().await {
-            let raw = match serde_json::from_slice::<RawGazetteInput>(&frame.payload) {
+            let raw = match serde_json::from_slice::<RawOverviewInput>(&frame.payload) {
                 Ok(raw) => raw,
                 Err(e) => {
                     warn!(
                         error = %e,
                         payload_len = frame.payload.len(),
-                        "GAZETTE_INPUT: malformed JSON payload"
+                        "OVERVIEW_INPUT: malformed JSON payload"
                     );
                     continue;
                 }
@@ -1702,7 +1705,7 @@ async fn main() {
             // malformed when nothing was attached either.
             let body = raw.body.unwrap_or_default();
             if body.trim().is_empty() && raw.attachments.is_empty() {
-                warn!("GAZETTE_INPUT: payload carried no body");
+                warn!("OVERVIEW_INPUT: payload carried no body");
                 continue;
             }
             let pipeline = Arc::clone(&operator_pipeline);
@@ -1793,7 +1796,7 @@ async fn main() {
     feed_router.register_input(FeedId::GIT_LOG_QUERY, gl_input_tx);
     feed_router.register_input(FeedId::GIT_COMMIT_FILES_QUERY, gcf_input_tx);
     feed_router.register_input(FeedId::USAGE_QUERY, usage_input_tx);
-    feed_router.register_input(FeedId::GAZETTE_INPUT, gz_input_tx);
+    feed_router.register_input(FeedId::OVERVIEW_INPUT, gz_input_tx);
 
     // Attach the supervisor to the router so `handle_client` can intercept
     // session-lifecycle CONTROL frames and cross-check CODE_INPUT P5

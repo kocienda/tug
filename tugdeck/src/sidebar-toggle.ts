@@ -1,6 +1,6 @@
 /**
  * sidebar-toggle.ts — what a sidebar card's shortcut means (⌃⌘L Lens,
- * ⌃⌘J Jots, ⌃⌘G Gazette).
+ * ⌃⌘J Jots, ⌃⌘O Overview).
  *
  * One key, three states, read off the deck:
  *
@@ -14,7 +14,7 @@
  * keyboard to it and only the second press takes the rail away.
  *
  * Both doors run this one performer: the Swift View-menu items dispatching
- * `toggle-lens` / `toggle-jots` / `toggle-gazette` through `action-dispatch`,
+ * `toggle-lens` / `toggle-jots` / `toggle-overview` through `action-dispatch`,
  * and the deck-canvas key handlers. A tier sited at one door is a gesture that
  * means something different from the other one.
  *

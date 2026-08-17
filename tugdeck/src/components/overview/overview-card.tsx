@@ -1,9 +1,9 @@
 /**
- * gazette-card.tsx — the **Gazette** card: the app's narration channel, read as
+ * overview-card.tsx — the **Overview** card: the app's narration channel, read as
  * a transcript.
  *
  * One scrolling column of posts, oldest at the top, newest at the bottom, in
- * the order they were written. Three voices share it — the Reporter, which
+ * the order they were written. Three voices share it — the Observer, which
  * digests session work as it happens; the Operator, which answers questions;
  * and the user, who asks them. The channel is app-wide, not per-session: a
  * post names the session it narrates through its refs rather than by living
@@ -36,7 +36,7 @@
  * two different things. The annotator has no such blind spot.
  *
  * A trailing ref is the app's own {@link TugAtomRef} — the read-only atom
- * skin, glyph plus a name — resolved through {@link resolveGazetteRef} and
+ * skin, glyph plus a name — resolved through {@link resolveOverviewRef} and
  * wrapped in the full annotation payload so the registry's click and context
  * menu are its gesture; an unconfirmed ref is inert with the reason on its
  * tooltip. A commit ref names itself — `Commit <8ch>` — because unlike an
@@ -64,14 +64,14 @@
  * transcript's height moves for reasons no render reports — markdown settling,
  * an annotator verdict landing, the composer growing a row under the typing.
  *
- * Laws: [L02] the channel enters through `useGazette`'s
+ * Laws: [L02] the channel enters through `useOverview`'s
  * `useSyncExternalStore`; [L06] the follow-the-bottom scroll and the
  * composer's `data-empty` bridge are DOM writes, never React state; [L12] the
  * card's selection boundary is `CardHost`'s per-card registration — the
  * transcript needs no second entry; [L19]/[L20] module docstring, exported
  * props, `data-slot`, tokens scoped to the card's own slot.
  *
- * @module components/gazette/gazette-card
+ * @module components/overview/overview-card
  */
 
 import React, {
@@ -150,35 +150,35 @@ import {
 } from "@/lib/atom-bytes-store";
 import { EditorSettingsStore } from "@/lib/editor-settings-store";
 import {
-  gazetteAttachmentBytesStore,
-  hydrateGazetteAttachments,
-} from "@/lib/gazette-attachment-bytes";
+  overviewAttachmentBytesStore,
+  hydrateOverviewAttachments,
+} from "@/lib/overview-attachment-bytes";
 import { FeedStore } from "@/lib/feed-store";
 import { FileTreeStore } from "@/lib/filetree-store";
 import { getConnection } from "@/lib/connection-singleton";
-import { unmentionedRefs } from "@/lib/gazette-body-segments";
+import { unmentionedRefs } from "@/lib/overview-body-segments";
 import {
-  resolveGazetteRef,
-  type GazetteRefResolution,
-  type GazetteRefRoot,
-} from "@/lib/gazette-ref-resolve";
+  resolveOverviewRef,
+  type OverviewRefResolution,
+  type OverviewRefRoot,
+} from "@/lib/overview-ref-resolve";
 import {
-  getGazetteStore,
-  useGazette,
+  getOverviewStore,
+  useOverview,
   LOAD_OLDER_PX,
-  type GazettePostEntry,
-} from "@/lib/gazette-store";
+  type OverviewPostEntry,
+} from "@/lib/overview-store";
 import { selectionToTranscriptMarkdown } from "@/lib/markdown/serialize-selection";
 import { buildSlashCommandLine } from "@/lib/slash-commands";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import type { CompletionProvider } from "@/lib/tug-text-types";
 import {
   FeedId,
-  type GazetteAuthor,
-  type GazetteInputAttachment,
-  type GazetteRef,
+  type OverviewAuthor,
+  type OverviewInputAttachment,
+  type OverviewRef,
 } from "@/protocol";
-import "./gazette-card.css";
+import "./overview-card.css";
 
 /** How close to the bottom still counts as "following", in px. Slack for a
  *  sub-pixel scroll height and for the reader who nudged the wheel once. */
@@ -189,24 +189,24 @@ const FOLLOW_SLACK_PX = 24;
  * in the order the eye reads them. The composer's two controls (field, then
  * submit) are the stops; the transcript's posts are not stops yet.
  */
-const GAZETTE_FOCUS_GROUP = "gazette-card";
+const OVERVIEW_FOCUS_GROUP = "overview-card";
 
-/** Props for {@link GazetteContent}. */
-export interface GazetteContentProps {
+/** Props for {@link OverviewContent}. */
+export interface OverviewContentProps {
   /** The host card's id — the card's own identity, stamped for tests. */
   cardId: string;
 }
 
 /** Human-readable name of each voice — the row's identifier. */
-const AUTHOR_LABEL: Record<GazetteAuthor, string> = {
-  reporter: "Reporter",
+const AUTHOR_LABEL: Record<OverviewAuthor, string> = {
+  observer: "Observer",
   operator: "Operator",
   user: "You",
 };
 
-/** The transcript participant each Gazette voice renders as. */
-const AUTHOR_PARTICIPANT: Record<GazetteAuthor, Participant> = {
-  reporter: "reporter",
+/** The transcript participant each Overview voice renders as. */
+const AUTHOR_PARTICIPANT: Record<OverviewAuthor, Participant> = {
+  observer: "observer",
   operator: "operator",
   user: "user",
 };
@@ -215,7 +215,7 @@ const AUTHOR_PARTICIPANT: Record<GazetteAuthor, Participant> = {
  * A post's time, in the reader's locale — {@link formatTranscriptTimestamp},
  * the Session transcript's own stamp, down to the seconds and the U+2236
  * separator. A post from today shows its clock alone, an older post names its
- * day, which matters more here than there: the Gazette spans days. The full
+ * day, which matters more here than there: the Overview spans days. The full
  * stamp always rides the `title`.
  */
 function useTimeFormats(): {
@@ -243,12 +243,12 @@ function useTimeFormats(): {
  * reader treats those as misses — the bug this stamping replaced.
  */
 function annotationProps(
-  ref: GazetteRef,
-  resolution: GazetteRefResolution,
+  ref: OverviewRef,
+  resolution: OverviewRefResolution,
 ): Record<string, unknown> {
   const marks = {
-    "data-gazette-ref-kind": ref.kind,
-    "data-gazette-ref-target": ref.target,
+    "data-overview-ref-kind": ref.kind,
+    "data-overview-ref-target": ref.target,
   };
   if (resolution.state === "actionable") {
     return {
@@ -274,8 +274,8 @@ function annotationProps(
  * same one every other hint in the app uses.
  */
 function refTip(
-  ref: GazetteRef,
-  resolution: GazetteRefResolution,
+  ref: OverviewRef,
+  resolution: OverviewRefResolution,
 ): { content: React.ReactNode; variant: "label" | "entity" } {
   if (resolution.state === "pending") {
     return {
@@ -333,8 +333,8 @@ function RefAtom({
   chipRef,
   root,
 }: {
-  chipRef: GazetteRef;
-  root: GazetteRefRoot | null;
+  chipRef: OverviewRef;
+  root: OverviewRefRoot | null;
 }): React.ReactElement {
   // A session ref is a CITATION, and it renders as one: the session atom, the
   // callsign, the same chip every foreign surface shows. The chip owns the
@@ -342,7 +342,7 @@ function RefAtom({
   if (chipRef.kind === "session") {
     return <TugSessionCitation citedId={chipRef.target} />;
   }
-  const resolution = resolveGazetteRef(chipRef, root);
+  const resolution = resolveOverviewRef(chipRef, root);
   const isDir =
     resolution.state === "actionable" &&
     resolution.payload.kind === "directory";
@@ -382,7 +382,7 @@ function RefAtom({
  * The annotator's inputs for one post, bound to that post's OWN repository.
  *
  * The Session transcript's {@link useAnnotationContext} reads its project
- * from the card's session binding, which the Gazette has none of: the card
+ * from the card's session binding, which the Overview has none of: the card
  * is app-wide and each post narrates a different session. So the root is the
  * post's, acquired from its `projectDir`, and every post gets a context
  * pointing at the repo its prose was written about — which is what lets a
@@ -392,7 +392,7 @@ function RefAtom({
  * and an unconfirmable command stays plain text, which is the right answer
  * rather than a missing one.
  */
-function useGazetteAnnotation(root: GazetteRefRoot | null): AnnotationContext {
+function useOverviewAnnotation(root: OverviewRefRoot | null): AnnotationContext {
   const projectDir = root?.projectDir ?? null;
   const workspaceKey = root?.workspaceKey ?? null;
   const names = fileNameResolverFor(projectDir, workspaceKey);
@@ -431,7 +431,7 @@ function useGazetteAnnotation(root: GazetteRefRoot | null): AnnotationContext {
       isKnownSlashCommand: () => false,
       resolvePath,
       resolveCommit,
-      // The Gazette is where sessions are named in prose — a post's whole
+      // The Overview is where sessions are named in prose — a post's whole
       // subject is which session did what — so it scans for them.
       resolveSession: resolveSessionRef,
       commitRoot: projectDir,
@@ -475,11 +475,11 @@ function useGazetteAnnotation(root: GazetteRefRoot | null): AnnotationContext {
  * root's delegated listener, reading the same dataset every annotated
  * element in the app carries.
  */
-function GazettePostBody({
+function OverviewPostBody({
   post,
   bodyRef,
 }: {
-  post: GazettePostEntry;
+  post: OverviewPostEntry;
   bodyRef?: React.MutableRefObject<HTMLElement | null>;
 }): React.ReactElement {
   // A session named in the prose becomes the live citation chip, and a
@@ -489,7 +489,7 @@ function GazettePostBody({
   const { onAnnotated, portals } = useAnnotationPortals();
   return (
     <div
-      className="gazette-post-body"
+      className="overview-post-body"
       ref={(el) => {
         if (bodyRef !== undefined) bodyRef.current = el;
       }}
@@ -500,7 +500,7 @@ function GazettePostBody({
         onAnnotated={onAnnotated}
       />
       {portals}
-      <GazettePostAttachments post={post} />
+      <OverviewPostAttachments post={post} />
     </div>
   );
 }
@@ -515,9 +515,9 @@ function GazettePostBody({
  * are declarations rather than a second implementation.
  *
  * Where the bytes come from: a session card's attachment lives in that card's
- * in-memory bytes store from the moment it was dropped; a Gazette post is
+ * in-memory bytes store from the moment it was dropped; a Overview post is
  * history, read back days later, so its bytes rest on disk and are fetched
- * from there ({@link hydrateGazetteAttachments}) into the channel's own store,
+ * from there ({@link hydrateOverviewAttachments}) into the channel's own store,
  * keyed by the path itself.
  *
  * And how much room the surface has: `compact`, because this is a rail. A tile
@@ -531,15 +531,15 @@ function GazettePostBody({
  * needs it ([L03]) — the strip is already subscribed to the store, so a tile
  * with no pixels yet is a reserved slot that fills in when the read lands.
  */
-function GazettePostAttachments({
+function OverviewPostAttachments({
   post,
 }: {
-  post: GazettePostEntry;
+  post: OverviewPostEntry;
 }): React.ReactElement | null {
-  const bytesStore = gazetteAttachmentBytesStore();
+  const bytesStore = overviewAttachmentBytesStore();
   const attachments = post.attachments;
   useLayoutEffect(() => {
-    hydrateGazetteAttachments(attachments);
+    hydrateOverviewAttachments(attachments);
   }, [attachments]);
   // The path is the atom id — it is what the bytes are keyed by, and it is
   // stable for the life of the post. The caption is the same contiguous
@@ -562,14 +562,14 @@ function GazettePostAttachments({
       atoms={atoms}
       bytesStore={bytesStore}
       density="compact"
-      className="gazette-post-attachments"
-      data-testid="gazette-post-attachments"
+      className="overview-post-attachments"
+      data-testid="overview-post-attachments"
     />
   );
 }
 
 /**
- * The Gazette's Z1B — the end-state row under a post's body, built from the
+ * The Overview's Z1B — the end-state row under a post's body, built from the
  * Session card's own parts at the Session card's own sizes: the `OK` badge
  * (`endStateBadgeFor`, so the word and the role are the transcript's, not a
  * second vocabulary), the `•` separators, an elapsed reading where there is
@@ -580,26 +580,26 @@ function GazettePostAttachments({
  *
  * Elapsed is reported for the Operator alone. The Operator's post is an ANSWER
  * — the reader asked for it and waited on it, so how long it took is part of
- * what happened. A Reporter post was never waited on: it arrives unbidden, and
+ * what happened. A Observer post was never waited on: it arrives unbidden, and
  * its clock is the writing machinery's, not the reader's, so a duration on it
  * is a number about nobody. This is not the header stamp's rule: every post is
  * stamped, because WHEN a post arrived is a fact about all of them. How long
  * one took to write is a fact about an answer. A user's question was typed
  * rather than run and carries no elapsed at all, so its row reads
  * `[OK] • [COPY]` — exactly as the Session transcript's user half does, and now
- * the Reporter's does too.
+ * the Observer's does too.
  */
-function GazettePostZ1B({
+function OverviewPostZ1B({
   post,
   children,
 }: {
-  post: GazettePostEntry;
+  post: OverviewPostEntry;
   children?: React.ReactNode;
 }): React.ReactElement {
   const badge = endStateBadgeFor("complete");
   const elapsedMs = post.author === "operator" ? post.elapsedMs : null;
   return (
-    <div className="gazette-post-z1b" data-slot="gazette-post-z1b">
+    <div className="overview-post-z1b" data-slot="overview-post-z1b">
       <TugBadge
         size="md"
         emphasis="ghost"
@@ -621,19 +621,19 @@ function GazettePostZ1B({
         size="xs"
         emphasis="calm"
         aria-hidden
-        className="gazette-post-z1b-separator"
+        className="overview-post-z1b-separator"
       >
         •
       </TugLabel>
       {/* The wrapper is the Session Z1B's: it cancels the button's intrinsic
           padding so COPY sits at the row's own gap from the `•` rather than
           a gap plus a button's worth of air. */}
-      <span className="gazette-post-z1b-copy">
+      <span className="overview-post-z1b-copy">
         <BlockCopyButton
           size="xs"
           getText={() => post.body}
           aria-label="Copy post"
-          data-slot="gazette-post-copy"
+          data-slot="overview-post-copy"
         />
       </span>
       {children}
@@ -653,9 +653,9 @@ function GazettePostZ1B({
  * of the stores' monotonic versions — a probe's answer bumps a version,
  * the sum moves, the waiting atoms re-render.
  */
-function useGazetteRefRoots(
-  posts: readonly GazettePostEntry[],
-): (projectDir: string | null) => GazetteRefRoot | null {
+function useOverviewRefRoots(
+  posts: readonly OverviewPostEntry[],
+): (projectDir: string | null) => OverviewRefRoot | null {
   const dirs = useMemo(() => {
     const set = new Set<string>();
     for (const post of posts) {
@@ -719,7 +719,7 @@ function useGazetteRefRoots(
   useSyncExternalStore(subscribe, getSnapshot);
 
   return useCallback(
-    (projectDir: string | null): GazetteRefRoot | null => {
+    (projectDir: string | null): OverviewRefRoot | null => {
       if (projectDir === null) return null;
       const ws = getWorkspace(projectDir);
       return ws === null
@@ -730,13 +730,13 @@ function useGazetteRefRoots(
   );
 }
 
-function GazettePostRow({
+function OverviewPostRow({
   post,
   root,
   formats,
 }: {
-  post: GazettePostEntry;
-  root: GazetteRefRoot | null;
+  post: OverviewPostEntry;
+  root: OverviewRefRoot | null;
   formats: ReturnType<typeof useTimeFormats>;
 }): React.ReactElement {
   const at = new Date(post.atMs);
@@ -760,7 +760,7 @@ function GazettePostRow({
     post.wakeReason !== null
       ? `${authorLabel} — ${post.wakeReason}`
       : undefined;
-  const annotation = useGazetteAnnotation(root);
+  const annotation = useOverviewAnnotation(root);
   // A ref the prose already names is already clickable where the reader is
   // reading — the annotator marked it in the sentence — so a chip for it
   // would be the same thing twice. What is left is provenance the sentence
@@ -785,24 +785,24 @@ function GazettePostRow({
   }, [post]);
   return (
     <ResponderScope>
-      {/* Per POST, not per card: the Gazette is app-wide and each post
+      {/* Per POST, not per card: the Overview is app-wide and each post
           narrates a different session, so the root a copy carries is the one
           that post's prose was written against — the same root its own
           annotator resolves paths with. `closest()` takes the nearest stamp,
           so this wins for its own subtree without anyone coordinating. */}
       <div
-        className="gazette-cell"
+        className="overview-cell"
         data-author={post.author}
         {...clipboardOriginProps(root?.projectDir ?? null)}
         {...cellProps}
       >
         <AnnotationScope value={annotation}>
           <TugTranscriptEntry
-            className="gazette-post"
+            className="overview-post"
             participant={AUTHOR_PARTICIPANT[post.author]}
             identifier={<span title={identifierTitle}>{authorLabel}</span>}
             timestamp={
-              // Every voice is stamped, the Reporter included. A post's place
+              // Every voice is stamped, the Observer included. A post's place
               // in the column says what came before it; the clock says WHEN,
               // which is the question a rail of narration is most often asked
               // — "was that just now, or this morning?" — and the sequence
@@ -812,7 +812,7 @@ function GazettePostRow({
                 {formats.short(at)}
               </time>
             }
-            body={<GazettePostBody post={post} bodyRef={bodyRef} />}
+            body={<OverviewPostBody post={post} bodyRef={bodyRef} />}
             controls={
               <>
                 {chipRefs.length > 0 ? (
@@ -827,7 +827,7 @@ function GazettePostRow({
                   // flex: sharing it queued the atoms after OK / elapsed / COPY
                   // and wrapped them wherever the width ran out, so where a chip
                   // landed said nothing about what it was.
-                  <div className="gazette-post-refs">
+                  <div className="overview-post-refs">
                     {chipRefs.map((r) => (
                       <RefAtom
                         key={`${r.kind}:${r.target}`}
@@ -837,7 +837,7 @@ function GazettePostRow({
                     ))}
                   </div>
                 ) : null}
-                <GazettePostZ1B post={post} />
+                <OverviewPostZ1B post={post} />
               </>
             }
           />
@@ -849,15 +849,15 @@ function GazettePostRow({
 }
 
 /**
- * The Gazette card's content ([L25]: the pane owns geometry and chrome; this
+ * The Overview card's content ([L25]: the pane owns geometry and chrome; this
  * owns the surface inside it).
  */
-export function GazetteContent({
+export function OverviewContent({
   cardId,
-}: GazetteContentProps): React.ReactElement {
-  const { posts, status, pendingRequestId } = useGazette();
+}: OverviewContentProps): React.ReactElement {
+  const { posts, status, pendingRequestId } = useOverview();
   const formats = useTimeFormats();
-  const rootFor = useGazetteRefRoots(posts);
+  const rootFor = useOverviewRefRoots(posts);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Whether the reader is at the bottom, sampled BEFORE the new post is laid
   // out — reading it afterwards would always say "no", since the arriving row
@@ -962,7 +962,7 @@ export function GazetteContent({
     // that owns the observer — one place that decides what is watched.
     const sync = (): void => {
       for (const cell of el.querySelectorAll<HTMLElement>(
-        ":scope > .gazette-cell",
+        ":scope > .overview-cell",
       )) {
         observer.observe(cell);
       }
@@ -1010,7 +1010,7 @@ export function GazetteContent({
   // an opening press from moving DOM focus. The atoms are FULLY stamped
   // (payload dataset, not just a kind), so `annotationFromEvent` reads a
   // real payload back off whatever element the press lands on. No
-  // codeSessionStore in the context: the Gazette has no live session, and a
+  // codeSessionStore in the context: the Overview has no live session, and a
   // kind that needs one declines on its own. [L03] — live before any click
   // it services.
   useLayoutEffect(() => {
@@ -1051,7 +1051,7 @@ export function GazetteContent({
     // Near the top, ask for the page before this one. The store owns every
     // guard — nothing to ask for, nothing to anchor on, a request already
     // out — because this fires many times per scroll gesture.
-    if (el.scrollTop < LOAD_OLDER_PX) getGazetteStore()?.loadOlder();
+    if (el.scrollTop < LOAD_OLDER_PX) getOverviewStore()?.loadOlder();
   };
 
   /**
@@ -1086,7 +1086,7 @@ export function GazetteContent({
    * reason the list view reads them: the column's `row-gap` and the first
    * row's margin belong to no cell's box, so a sum drifts by a gap per post.
    *
-   * The scroll is a plain `scrollTop` write ([L06]) — the Gazette's column is
+   * The scroll is a plain `scrollTop` write ([L06]) — the Overview's column is
    * an ordinary scroller, not a `SmartScroll`-driven list view — and the
    * follow-bottom intent is this card's `followingRef`, which `onScroll`
    * re-reads from the landing position either way; setting it here states the
@@ -1096,7 +1096,7 @@ export function GazetteContent({
     const el = scrollRef.current;
     if (el === null) return;
     const cells = Array.from(
-      el.querySelectorAll<HTMLElement>(":scope > .gazette-cell"),
+      el.querySelectorAll<HTMLElement>(":scope > .overview-cell"),
     );
     const portTop = el.getBoundingClientRect().top;
     const result = computePageNavigation({
@@ -1124,7 +1124,7 @@ export function GazetteContent({
   // it works from anywhere focus sits in the rail, the composer included.
   //
   // Their menu items are the Session menu's and validate on a session card
-  // being frontmost, so with the Gazette frontmost those rows dim. That is
+  // being frontmost, so with the Overview frontmost those rows dim. That is
   // exactly what `disabledChord: "detach"` is for: the dimmed item releases
   // the key equivalent, the chord reaches the web view, and the key card —
   // this one — is asked. The registry's own comment calls that the shadowable
@@ -1149,10 +1149,10 @@ export function GazetteContent({
     <CardContentResponderScope>
       <div
         ref={cardContentResponderRef as (el: HTMLDivElement | null) => void}
-        className="gazette-card"
-        data-slot="gazette-card"
-        data-testid="gazette-card"
-        data-gazette-card-id={cardId}
+        className="overview-card"
+        data-slot="overview-card"
+        data-testid="overview-card"
+        data-overview-card-id={cardId}
         // Focusable root so `transferFocusForActivation` → `applyBagFocus` has a
         // target to land the ring on when the card is focused.
         tabIndex={-1}
@@ -1162,21 +1162,21 @@ export function GazetteContent({
             does not scroll with what it floats over. The session card's
             `.tug-control-bar-region` plays the same part for the same
             reason. */}
-        <div className="gazette-transcript-region">
+        <div className="overview-transcript-region">
           <div
-            className="gazette-transcript"
-            data-testid="gazette-transcript"
-            data-tug-scroll-key="gazette-transcript"
+            className="overview-transcript"
+            data-testid="overview-transcript"
+            data-tug-scroll-key="overview-transcript"
             ref={scrollRef}
             onScroll={onScroll}
           >
             {posts.length === 0 ? (
-              <div className="gazette-empty" role="status">
+              <div className="overview-empty" role="status">
                 {status === "ready" ? "Nothing reported yet." : "Loading…"}
               </div>
             ) : (
               posts.map((post) => (
-                <GazettePostRow
+                <OverviewPostRow
                   key={post.key}
                   post={post}
                   root={rootFor(post.projectDir)}
@@ -1190,27 +1190,27 @@ export function GazetteContent({
               // row built where it stood.
               <div
                 key={`req:operator:${pendingRequestId}`}
-                className="gazette-cell"
+                className="overview-cell"
                 data-author="operator"
                 data-pending=""
-                data-testid="gazette-pending-row"
+                data-testid="overview-pending-row"
               >
                 <TugTranscriptEntry
-                  className="gazette-post"
+                  className="overview-post"
                   participant="operator"
                   identifier={AUTHOR_LABEL.operator}
                   // The transcript's in-flight wave, not a sentence: "working" is
                   // said in the Session card's language, the same three bars its
                   // own Z1C paints while a turn runs.
                   body={
-                    <div className="gazette-post-pending">
+                    <div className="overview-post-pending">
                       <TugProgressIndicator
                         variant="wave"
                         state="running"
                         role="inherit"
                         aria-label="Working…"
                         aria-live="polite"
-                        data-testid="gazette-pending-wave"
+                        data-testid="overview-pending-wave"
                       />
                     </div>
                   }
@@ -1225,10 +1225,10 @@ export function GazetteContent({
           <TugJumpToBottomButton ref={jumpButtonRef} onClick={jumpToBottom} />
         </div>
         <div
-          className="gazette-composer-slot"
-          data-testid="gazette-composer-slot"
+          className="overview-composer-slot"
+          data-testid="overview-composer-slot"
         >
-          <GazetteComposer pending={pendingRequestId !== null} />
+          <OverviewComposer pending={pendingRequestId !== null} />
         </div>
       </div>
     </CardContentResponderScope>
@@ -1237,13 +1237,13 @@ export function GazetteContent({
 
 /**
  * `@` file completion for the composer, against the bootstrap workspace: the
- * Gazette is app-wide, so it has no per-card project binding; an unrooted
+ * Overview is app-wide, so it has no per-card project binding; an unrooted
  * FILETREE query falls through to tugcast's bootstrap workspace, which is the
  * right default for a channel that narrates the whole app. Lazy singleton —
  * one feed subscription however many times the card mounts.
  */
 let _fileCompletionProvider: CompletionProvider | null = null;
-function gazetteFileCompletionProvider(): CompletionProvider {
+function overviewFileCompletionProvider(): CompletionProvider {
   if (_fileCompletionProvider !== null) return _fileCompletionProvider;
   const conn = getConnection();
   if (conn === null) return ((_q: string) => []) as CompletionProvider;
@@ -1263,7 +1263,7 @@ function gazetteFileCompletionProvider(): CompletionProvider {
  * however many times the card mounts.
  */
 let _editorStore: EditorSettingsStore | null = null;
-function gazetteEditorStore(): EditorSettingsStore {
+function overviewEditorStore(): EditorSettingsStore {
   _editorStore ??= new EditorSettingsStore();
   return _editorStore;
 }
@@ -1274,14 +1274,14 @@ function gazetteEditorStore(): EditorSettingsStore {
  *
  * A lazy app-scoped singleton for the reason the completion provider and the
  * editor settings are ones: the card is app-wide and single-instance. It is
- * NOT the transcript's store ({@link gazetteAttachmentBytesStore}): these are
+ * NOT the transcript's store ({@link overviewAttachmentBytesStore}): these are
  * bytes on their way up, keyed by the atom ids the drop pipeline minted, and
  * those are bytes on their way back down, keyed by the paths tugcast rested
  * them at. Two directions, two keyspaces, and a send hands off from one to
  * the other by clearing its entry.
  */
 let _composerBytesStore: AtomBytesStore | null = null;
-function gazetteComposerBytesStore(): AtomBytesStore {
+function overviewComposerBytesStore(): AtomBytesStore {
   _composerBytesStore ??= createAtomBytesStore();
   return _composerBytesStore;
 }
@@ -1324,7 +1324,7 @@ function gazetteComposerBytesStore(): AtomBytesStore {
  * disabled and says so. The store enforces the same rule — this is the
  * affordance, not the guarantee.
  */
-function GazetteComposer({
+function OverviewComposer({
   pending,
 }: {
   pending: boolean;
@@ -1333,7 +1333,7 @@ function GazetteComposer({
   const shellRef = useRef<HTMLDivElement | null>(null);
   // The user's editor settings — the same store the Session card's composer
   // reads, so Return means here whatever it means there ([L02]).
-  const editorStore = gazetteEditorStore();
+  const editorStore = overviewEditorStore();
   const editorSettings = useSyncExternalStore(
     editorStore.subscribe,
     editorStore.getSnapshot,
@@ -1358,7 +1358,7 @@ function GazetteComposer({
   const returnAction = editorSettings.returnKeyAction;
   const submitChord = returnAction === "newline" ? "shift" : undefined;
 
-  const bytesStore = gazetteComposerBytesStore();
+  const bytesStore = overviewComposerBytesStore();
   // The image atoms currently in the document — external state (CodeMirror's
   // atom field) crossing into React so the strip below the field reflects
   // every drop, paste and delete ([L02]: the update listener is the bridge,
@@ -1407,14 +1407,14 @@ function GazetteComposer({
   );
 
   const completionProviders = useMemo<Record<string, CompletionProvider>>(
-    () => ({ "@": gazetteFileCompletionProvider() }),
+    () => ({ "@": overviewFileCompletionProvider() }),
     [],
   );
 
   // An image that could not be attached says so where the question is being
   // asked — in the field's own placeholder-adjacent notice row — and clears
   // on the next document change. The Session card raises a pane bulletin for
-  // this; the Gazette has no pane chrome of its own to raise one in, and a
+  // this; the Overview has no pane chrome of its own to raise one in, and a
   // notice inside the composer is where the reader is already looking.
   const [attachmentError, setAttachmentError] = React.useState<string | null>(
     null,
@@ -1442,7 +1442,7 @@ function GazetteComposer({
     [bytesStore],
   );
   const { ResponderScope: ComposerResponderScope, responderRef } = useResponder({
-    id: "gazette-composer",
+    id: "overview-composer",
     actions: {
       [TUG_ACTIONS.REMOVE_ATTACHMENT]: (event) => {
         if (typeof event.value !== "string") return;
@@ -1453,7 +1453,7 @@ function GazetteComposer({
 
   const submit = (): void => {
     if (pending) return;
-    const store = getGazetteStore();
+    const store = getOverviewStore();
     if (store === null) return;
     const state = editorRef.current?.captureState();
     if (state === undefined) return;
@@ -1472,7 +1472,7 @@ function GazetteComposer({
     // the order the post's own strip will draw them. An atom whose bytes are
     // gone contributes nothing rather than an empty image block.
     const sent: string[] = [];
-    const attachments: GazetteInputAttachment[] = [];
+    const attachments: OverviewInputAttachment[] = [];
     for (const atom of state.atoms) {
       if (atom.type !== "image" || atom.id === undefined) continue;
       const bytes = bytesStore.get(atom.id);
@@ -1485,7 +1485,7 @@ function GazetteComposer({
     // check against the tree before it looks anything up. `file` is the only
     // non-image atom this composer can make — its sole completion source is the
     // `@` file provider — so the type test and "non-image" are the same set.
-    const refs: GazetteRef[] = state.atoms
+    const refs: OverviewRef[] = state.atoms
       .filter((a) => a.type === "file" && a.value !== "")
       .map((a) => ({ kind: "file" as const, target: a.value }));
     if (text === "" && attachments.length === 0) return;
@@ -1509,15 +1509,15 @@ function GazetteComposer({
         shellRef.current = el;
         responderRef(el);
       }}
-      className="gazette-composer"
-      data-slot="gazette-composer"
-      data-testid="gazette-composer"
+      className="overview-composer"
+      data-slot="overview-composer"
+      data-testid="overview-composer"
       data-empty="true"
       accessoryRow={
         composeImageAtoms.length > 0 || attachmentError !== null ? (
           <div
-            className="gazette-composer-attachments"
-            data-slot="gazette-composer-attachments"
+            className="overview-composer-attachments"
+            data-slot="overview-composer-attachments"
             // Chrome, like the toolbar: a click on a tile or its ✕ must not
             // take the keyboard away from the field being typed in.
             data-tug-focus="refuse"
@@ -1530,8 +1530,8 @@ function GazetteComposer({
                 // The rail's tier, the same one the posts above wear — a
                 // picture must not change size when it is sent.
                 density="compact"
-                data-testid="gazette-composer-attachment-strip"
-                focusGroup={GAZETTE_FOCUS_GROUP}
+                data-testid="overview-composer-attachment-strip"
+                focusGroup={OVERVIEW_FOCUS_GROUP}
                 // After the field and the send button, which are the two
                 // stops a question is asked with.
                 focusOrderBase={2}
@@ -1541,8 +1541,8 @@ function GazetteComposer({
               <TugLabel
                 size="xs"
                 role="danger"
-                className="gazette-composer-attachment-error"
-                data-testid="gazette-composer-attachment-error"
+                className="overview-composer-attachment-error"
+                data-testid="overview-composer-attachment-error"
                 aria-live="polite"
               >
                 {attachmentError}
@@ -1560,12 +1560,12 @@ function GazetteComposer({
           size="sm"
           emphasis="filled"
           role="action"
-          className="gazette-composer-send"
-          data-testid="gazette-composer-send"
+          className="overview-composer-send"
+          data-testid="overview-composer-send"
           data-tug-entry-default=""
           data-default-chord={submitChord}
           aria-label="Ask the Operator"
-          focusGroup={GAZETTE_FOCUS_GROUP}
+          focusGroup={OVERVIEW_FOCUS_GROUP}
           focusOrder={1}
           disabled={pending}
           onClick={submit}
@@ -1577,8 +1577,8 @@ function GazetteComposer({
         ref={(delegate) => {
           editorRef.current = delegate;
         }}
-        className="gazette-composer-field"
-        data-testid="gazette-composer-field"
+        className="overview-composer-field"
+        data-testid="overview-composer-field"
         borderless
         lineWrap
         markdownTextStyling
@@ -1592,7 +1592,7 @@ function GazetteComposer({
             : "Ask Tug about your work, recent or historical"
         }
         aria-label="Ask the Operator"
-        focusGroup={GAZETTE_FOCUS_GROUP}
+        focusGroup={OVERVIEW_FOCUS_GROUP}
         focusOrder={0}
         disabled={pending}
         completionProviders={completionProviders}

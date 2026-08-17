@@ -1,6 +1,6 @@
 //! `tugcast operator-ask` — the Operator, asked one question from a terminal.
 //!
-//! The Gazette's answers are only as good as what the ledger lets the Operator
+//! The Overview's answers are only as good as what the ledger lets the Operator
 //! find, and until now the only way to test that was to type into the card and
 //! read prose. This runs the same pipeline against a ledger you name, prints
 //! every verb it chose and what came back, and exits on whether it answered —
@@ -20,7 +20,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::cli::OperatorAskArgs;
-use crate::feeds::{gazette_agent, operator};
+use crate::feeds::{operator, overview_agent};
 use crate::session_ledger::SessionLedger;
 use crate::shared_agent;
 use crate::shell_ledger::ShellLedger;
@@ -61,7 +61,7 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
         bootstrap_project_dir: args.project_dir.clone(),
         // Nothing here attaches an image, so this directory is never created.
         // It is beside the ledger anyway, where a running instance keeps it.
-        attachments_dir: parent_of(&args.db).join("gazette-attachments"),
+        attachments_dir: parent_of(&args.db).join("overview-attachments"),
         // The instrument carries the expansion pool for the same reason it
         // runs the real pipeline: a question that only the [P09] rung can
         // answer is exactly the kind this command exists to try. Building the
@@ -81,10 +81,10 @@ pub async fn run(args: &OperatorAskArgs) -> i32 {
     let model = args
         .model
         .clone()
-        .unwrap_or_else(|| gazette_agent::DEFAULT_MODEL.to_string());
+        .unwrap_or_else(|| overview_agent::DEFAULT_MODEL.to_string());
     println!("model: {model}");
     println!("question: {}\n", args.question);
-    let pool = gazette_agent::build_pool(Arc::new(move || model.clone()), MAX_WORKERS);
+    let pool = overview_agent::build_pool(Arc::new(move || model.clone()), MAX_WORKERS);
 
     let show_rounds = args.show_rounds;
     let observer = move |round: usize,

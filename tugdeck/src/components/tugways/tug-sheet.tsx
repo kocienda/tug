@@ -1078,7 +1078,7 @@ export function TugSheetContent({
         // a slit. It is not a claim about how wide the sheet may be — so on a
         // host too narrow to hold it, the floor is the thing that yields. Left
         // outranking the cap it was smashing the card it nests in: on a rail
-        // (a Gazette a few hundred pixels wide) `max(460, cap)` is always 460,
+        // (a Overview a few hundred pixels wide) `max(460, cap)` is always 460,
         // whatever fraction the caller asked for, and the panel comes out
         // wider than the column it opened in. Capped by the same fraction, the
         // floor still does its job on every host wide enough to have one.

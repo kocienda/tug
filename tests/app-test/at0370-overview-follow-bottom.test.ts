@@ -1,5 +1,5 @@
 /**
- * at0370-gazette-follow-bottom.test.ts — the Gazette follows its live edge,
+ * at0370-overview-follow-bottom.test.ts — the Overview follows its live edge,
  * and says so.
  *
  * Two claims, and they are one mechanism seen from both sides.
@@ -30,8 +30,8 @@
  * real rendered markdown at real measured heights, real typing in the real
  * field, and the button clicked where it actually paints.
  *
- * @covers tugdeck/src/components/gazette/gazette-card.tsx
- * @covers tugdeck/src/components/gazette/gazette-card.css
+ * @covers tugdeck/src/components/overview/overview-card.tsx
+ * @covers tugdeck/src/components/overview/overview-card.css
  * @covers tugdeck/src/components/tugways/tug-jump-to-bottom-button.tsx
  * @covers tugdeck/src/components/tugways/tug-jump-to-bottom-button.css
  */
@@ -43,13 +43,13 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
-const CARD = '[data-testid="gazette-card"]';
-const TRANSCRIPT = '[data-testid="gazette-transcript"]';
-const POST = `${CARD} .gazette-cell`;
+const CARD = '[data-testid="overview-card"]';
+const TRANSCRIPT = '[data-testid="overview-transcript"]';
+const POST = `${CARD} .overview-cell`;
 const JUMP = `${CARD} .tug-jump-to-bottom-button`;
-const COMPOSER = '[data-testid="gazette-composer-field"]';
+const COMPOSER = '[data-testid="overview-composer-field"]';
 
-/** The composer's floor and ceiling, in rows — `gazette-card.css` / `.tsx`. */
+/** The composer's floor and ceiling, in rows — `overview-card.css` / `.tsx`. */
 const COMPOSER_MIN_ROWS = 3;
 const COMPOSER_MAX_ROWS = 8;
 
@@ -58,7 +58,7 @@ const AT_MS = 1_754_600_000_000;
 interface WirePost {
   id: number;
   at_ms: number;
-  author: "reporter";
+  author: "observer";
   body: string;
   refs: never[];
 }
@@ -67,7 +67,7 @@ function wirePost(id: number): WirePost {
   return {
     id,
     at_ms: AT_MS + id * 1_000,
-    author: "reporter",
+    author: "observer",
     body: `Post ${id}: the session finished a turn and left a note about what it did, which is enough prose to give this row a height a reader has to scroll past.`,
     refs: [],
   };
@@ -75,7 +75,7 @@ function wirePost(id: number): WirePost {
 
 async function publish(app: App, post: WirePost): Promise<boolean> {
   return app.evalJS<boolean>(
-    `window.__tug.publishGazettePost(${JSON.stringify(JSON.stringify(post))})`,
+    `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
   );
 }
 
@@ -136,7 +136,7 @@ const COMPOSER_AT_CAP_JS = `(function () {
 
 /**
  * Fill the composer to its `maxRows` ceiling and wait for the height to
- * settle. Grown by RETURNS rather than by wrapped text: the Gazette's send
+ * settle. Grown by RETURNS rather than by wrapped text: the Overview's send
  * chord is ⇧⏎, so a bare Return is a newline, and a row count is exact where a
  * character count would depend on how wide the rail happens to be today.
  */
@@ -161,12 +161,12 @@ async function clearComposer(app: App): Promise<void> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("at0370 — the Gazette's live edge", () => {
+describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
   test(
     "the column follows the edge, and the jump button says when it does not",
     async () => {
       const app = await launchTugApp({
-        testName: "at0370-gazette-follow-bottom",
+        testName: "at0370-overview-follow-bottom",
       });
       try {
         await app.nativeKey("g", ["cmd", "ctrl"]);

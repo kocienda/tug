@@ -194,7 +194,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   reload: "command",
   "toggle-lens": "command",
   "toggle-jots": "command",
-  "toggle-gazette": "command",
+  "toggle-overview": "command",
   "new-jot": "command",
   "focus-lens": "command",
   "zoom-actual": "command",
@@ -397,7 +397,7 @@ const RETIRED_SINCE_THE_MAP: ReadonlySet<string> = new Set(["cycle-card"]);
 const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: string]> = [
   ["⌘J", TUG_ACTIONS.NEW_JOT],
   ["⌃⌘J", TUG_ACTIONS.TOGGLE_JOTS],
-  ["⌃⌘G", TUG_ACTIONS.TOGGLE_GAZETTE],
+  ["⌃⌘O", TUG_ACTIONS.TOGGLE_OVERVIEW],
   ["⌥⌘[", TUG_ACTIONS.PREVIOUS_STACK_CARD],
   ["⌥⌘]", TUG_ACTIONS.NEXT_STACK_CARD],
   // The slash bridges that earned a chord. The family is reachable by typing
@@ -514,7 +514,7 @@ describe("every registry-routed command has a body to run", () => {
   // action-dispatch registry — a handler declared nowhere else. A command
   // with the routing and no `registerAction` is a chord and a menu item that
   // both warn and do nothing, which is exactly the drift that happened when
-  // the Gazette toggle shipped with only its chain handler: the deck-canvas
+  // the Overview toggle shipped with only its chain handler: the deck-canvas
   // actions map serves the responder chain, and registry routing never
   // consults it.
   //

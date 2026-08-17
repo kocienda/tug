@@ -1,7 +1,7 @@
-//! gazette_agent — the Gazette's model traffic: one Sonnet [`AgentSpec`] on
+//! overview_agent — the Overview's model traffic: one Sonnet [`AgentSpec`] on
 //! the SharedAgent pool, operated against three fixed jobs.
 //!
-//! The whole feature's model usage is `reporter-post`, `operator-retrieve`,
+//! The whole feature's model usage is `observer-post`, `operator-retrieve`,
 //! and `operator-answer`. That is exactly the extension `shared_agent`
 //! anticipates — "standing up a second agent on a different model means
 //! constructing a second `AgentSpec`, not writing new machinery" — so there is
@@ -9,7 +9,7 @@
 //!
 //! ## The division of labor
 //!
-//! Rust decides *when* to wake the Reporter; the model decides *whether and
+//! Rust decides *when* to wake the Observer; the model decides *whether and
 //! what* to post. Half the moments worth posting about are semantic
 //! ("investigation results came back", "a plan step landed"), and hard-coding
 //! detectors for those would be brittle and forever behind the skills'
@@ -24,12 +24,12 @@
 //! it is used, never cached at startup, so turning one applies without a
 //! restart — the `pulse_enabled` / `scribe_model` pattern in `main.rs`.
 //!
-//! One-way isolation, inherited from Pulse's law: nothing in the Gazette
+//! One-way isolation, inherited from Pulse's law: nothing in the Overview
 //! subsystem writes toward any work session.
 
 // The knob surface is authored ahead of the bridge and the Operator pipeline
 // that read it: the model and worker-cap keys have consumers today, the
-// cadence and window keys are read when the Reporter bridge lands. Suppress
+// cadence and window keys are read when the Observer bridge lands. Suppress
 // dead-code for the phased rollout, the same way `session_ledger.rs` and
 // `path_resolver.rs` do. Declaring the whole table in one place is the point —
 // a knob invented later next to its reader is a knob nobody knows exists.
@@ -43,9 +43,44 @@ use crate::shared_agent::{AgentSpec, JobSpec, SharedAgentPool};
 
 // MARK: - Configuration
 
-/// Tugbank domain for every Gazette default. Mirrored deck-side by the
-/// Gazette store, which reads `card_rows` off the DEFAULTS feed.
-pub const GAZETTE_DOMAIN: &str = "dev.tugtool.gazette";
+/// Tugbank domain for every Overview default. Mirrored deck-side by the
+/// Overview store, which reads `card_rows` off the DEFAULTS feed.
+pub const OVERVIEW_DOMAIN: &str = "dev.tugtool.overview";
+
+/// The domain these defaults lived in before the channel was renamed.
+const LEGACY_OVERVIEW_DOMAIN: &str = "dev.tugtool.gazette";
+
+/// Carry the channel's defaults across the rename, once, at startup.
+///
+/// Every key the old domain holds that the new one does not is copied
+/// forward. A key already present in the new domain wins — a value written
+/// since the rename is never overwritten by the world before it.
+///
+/// This sits at the domain rather than at each read because the domain has
+/// two very different readers: the knobs below, and the card's own rail
+/// width, which tugdeck reads over the defaults API and which Rust never
+/// names. One copy at the source reaches both; a per-read fallback here
+/// would reach only half of them.
+///
+/// Deletable once no installation predates the rename.
+pub fn carry_legacy_defaults_forward(bank: &tugbank_core::TugbankClient) {
+    let Ok(legacy) = bank.read_domain(LEGACY_OVERVIEW_DOMAIN) else {
+        return;
+    };
+    for (key, value) in legacy.iter() {
+        match bank.get(OVERVIEW_DOMAIN, key) {
+            Ok(None) => {
+                if let Err(err) = bank.set(OVERVIEW_DOMAIN, key, value.clone()) {
+                    tracing::warn!(%key, error = %err, "overview defaults: carry-forward failed");
+                }
+            }
+            Ok(Some(_)) => {}
+            Err(err) => {
+                tracing::warn!(%key, error = %err, "overview defaults: carry-forward read failed");
+            }
+        }
+    }
+}
 
 /// Full model id or alias for all three jobs.
 pub const MODEL_KEY: &str = "model";
@@ -54,10 +89,10 @@ pub const MODEL_KEY: &str = "model";
 pub const MAX_WORKERS_KEY: &str = "max_workers";
 
 /// Seconds of continuous session activity, since that session's last post,
-/// after which the Reporter wakes with `sitrep-timer`.
+/// after which the Observer wakes with `sitrep-timer`.
 pub const SITREP_SECS_KEY: &str = "sitrep_secs";
 
-/// How many of the Reporter's own prior posts for a session ride each wake.
+/// How many of the Observer's own prior posts for a session ride each wake.
 pub const LAST_K_POSTS_KEY: &str = "last_k_posts";
 
 /// Cumulative turn-usage tokens since the last post that trigger a wake.
@@ -72,7 +107,7 @@ pub const BUFFER_MAX_FRAMES_KEY: &str = "buffer_max_frames";
 ///
 /// It was a render window until the card learned to scroll back; now the
 /// reader can page past it, and what bounds the list is the deck's own
-/// `GAZETTE_MAX_ROWS` ceiling. Never a deletion in either reading — the
+/// `OVERVIEW_MAX_ROWS` ceiling. Never a deletion in either reading — the
 /// ledger keeps everything and the Operator searches all of it. The name
 /// outlives the change, which is why the meaning is written down here.
 pub const CARD_ROWS_KEY: &str = "card_rows";
@@ -84,12 +119,12 @@ pub const CARD_ROWS_KEY: &str = "card_rows";
 /// current Sonnet is what we want, and the knob is there for pinning.
 pub const DEFAULT_MODEL: &str = "sonnet";
 
-/// Room for a Reporter post, an Operator retrieve, and an Operator answer to
+/// Room for a Observer post, an Operator retrieve, and an Operator answer to
 /// be in flight at once.
 ///
 /// Three rather than the Haiku pool's two because `JobClass::of` maps every
 /// non-classify job to one lane, so all three of these share it. A
-/// `reporter-post` may hold a worker for its full two-minute ceiling, and a
+/// `observer-post` may hold a worker for its full two-minute ceiling, and a
 /// user waiting on an answer must not queue behind narration nobody is
 /// waiting for.
 pub const DEFAULT_MAX_WORKERS: usize = 3;
@@ -105,11 +140,11 @@ pub const DEFAULT_MAX_WORKERS: usize = 3;
 ///
 /// A faster value is worth trying if this proves too quiet in practice — the
 /// number is a tugbank default, so turning it needs no rebuild and no restart,
-/// and `gazette-replay --sitrep-secs` reads any candidate against a real
+/// and `overview-replay --sitrep-secs` reads any candidate against a real
 /// transcript first.
 pub const DEFAULT_SITREP_SECS: i64 = 90;
 
-/// How much of its own recent voice the Reporter sees per wake.
+/// How much of its own recent voice the Observer sees per wake.
 ///
 /// This is the entire dedup mechanism: the model is shown what it already
 /// said about this session and declines to repeat it. Nothing compares text.
@@ -132,10 +167,10 @@ pub const DEFAULT_CARD_ROWS: usize = 50;
 
 // MARK: - The job table
 
-/// Nothing user-blocking waits on a Reporter post, so its ceiling is a
+/// Nothing user-blocking waits on a Observer post, so its ceiling is a
 /// quality bound rather than a latency budget: a digest that needs two
 /// minutes may take them.
-const REPORTER_POST_TIMEOUT: Duration = Duration::from_secs(120);
+const OBSERVER_POST_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Retrieval is a short structured answer — a list of verb calls — so a long
 /// wait here means something is wrong rather than something is thorough.
@@ -145,16 +180,16 @@ const OPERATOR_RETRIEVE_TIMEOUT: Duration = Duration::from_secs(30);
 /// product; the card shows pending state rather than racing a deadline.
 const OPERATOR_ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
 
-const REPORTER_POST_SLOW: Duration = Duration::from_secs(60);
+const OBSERVER_POST_SLOW: Duration = Duration::from_secs(60);
 const OPERATOR_RETRIEVE_SLOW: Duration = Duration::from_secs(10);
 const OPERATOR_ANSWER_SLOW: Duration = Duration::from_secs(45);
 
-pub static GAZETTE_AGENT_JOBS: &[JobSpec] = &[
+pub static OVERVIEW_AGENT_JOBS: &[JobSpec] = &[
     JobSpec {
-        name: "reporter-post",
-        timeout: REPORTER_POST_TIMEOUT,
-        slow: Some(REPORTER_POST_SLOW),
-        instructions: REPORTER_POST_INSTRUCTIONS,
+        name: "observer-post",
+        timeout: OBSERVER_POST_TIMEOUT,
+        slow: Some(OBSERVER_POST_SLOW),
+        instructions: OBSERVER_POST_INSTRUCTIONS,
     },
     JobSpec {
         name: "operator-retrieve",
@@ -171,16 +206,16 @@ pub static GAZETTE_AGENT_JOBS: &[JobSpec] = &[
 ];
 
 /// Build the pool. Spawns nothing — the first job of a class is what spawns
-/// its worker, so an instance where nobody opens the Gazette pays nothing.
+/// its worker, so an instance where nobody opens the Overview pays nothing.
 pub fn build_pool(
     model: Arc<dyn Fn() -> String + Send + Sync>,
     max_workers: usize,
 ) -> Arc<SharedAgentPool> {
     SharedAgentPool::new(
         AgentSpec {
-            name: "gazette",
+            name: "overview",
             model,
-            jobs: GAZETTE_AGENT_JOBS,
+            jobs: OVERVIEW_AGENT_JOBS,
             max_workers,
         },
         Arc::new(crate::shared_agent::ClaudeAgentWorkerSpawner),
@@ -189,7 +224,7 @@ pub fn build_pool(
 
 // MARK: - Instructions
 
-/// The Reporter's wording.
+/// The Observer's wording.
 ///
 /// The rubric is carried verbatim from the brief because it is the editorial
 /// contract, not a paraphrase of one: these are the moments a person working
@@ -203,10 +238,10 @@ pub fn build_pool(
 /// ending IS the news — the person stepped away and this is how they learn what
 /// came back — so the wording now names the two cases silence is for (an empty
 /// window, or a repeat of the last post) and requires a post outside them.
-/// Whether the work was worth doing is not the Reporter's call; whether it
+/// Whether the work was worth doing is not the Observer's call; whether it
 /// happened is.
 ///
-/// The first repair overshot into the opposite failure. Telling the Reporter to
+/// The first repair overshot into the opposite failure. Telling the Observer to
 /// post "even when the subject is nothing to do with their code" handed it the
 /// contrast, and it performed it: the next post opened "Answered a physics
 /// question, not code:". Defining the beat by what it is not guarantees that
@@ -235,7 +270,7 @@ pub fn build_pool(
 /// sentences, ending sooner as the budget nears. What it cannot get is the last
 /// sentence landing exactly on 200, because a model emits tokens and cannot
 /// count the characters in them as it composes. That residual overshoot is
-/// answered Rust-side by `REPORTER_PROSE_GRACE`, not by more insistent wording
+/// answered Rust-side by `OBSERVER_PROSE_GRACE`, not by more insistent wording
 /// — and the grace is deliberately absent from these instructions, since a
 /// number the model is told is a number it composes toward.
 ///
@@ -252,8 +287,8 @@ pub fn build_pool(
 /// And refs must quote their targets **verbatim** from the frames, because a
 /// path or sha the buffered context never contained is validated away Rust-side
 /// rather than rendered as a chip that goes nowhere.
-const REPORTER_POST_INSTRUCTIONS: &str = "\
-You are the Reporter for the Gazette, a channel that narrates the work happening across a developer's coding sessions. You are shown one session's recent activity and decide whether it is worth posting about, and if so, what to say.
+const OBSERVER_POST_INSTRUCTIONS: &str = "\
+You are the Observer for the Overview, a channel that narrates the work happening across a developer's coding sessions. You are shown one session's recent activity and decide whether it is worth posting about, and if so, what to say.
 
 Your rubric: tell the human things about their sessions they are worrying about anyway. These are examples of moments, not a list of subjects — whatever the session was doing is what you report:
 
@@ -292,7 +327,7 @@ SETTLED FACTS SINCE YOUR LAST POST: is the durable record of what actually happe
 
 REFS are the clickable provenance on your post. Include one for each file, commit, plan, brief, or session that the post is genuinely about — not everything mentioned. Every ref target MUST be copied EXACTLY as it appears in the activity you were shown: a path spelled differently, or a commit sha you shortened or reconstructed, cannot be linked and will be discarded. If you cannot copy it exactly, leave it out.
 
-Spell a path the way the activity spells it. If the activity says roadmap/gazette-plan.md, the target is roadmap/gazette-plan.md — do not expand it to a full path from the root of the disk, and do not shorten a full path the activity gave you. Copy the characters you were shown. Ref kinds are: session, file, commit, plan, brief.
+Spell a path the way the activity spells it. If the activity says roadmap/overview-plan.md, the target is roadmap/overview-plan.md — do not expand it to a full path from the root of the disk, and do not shorten a full path the activity gave you. Copy the characters you were shown. Ref kinds are: session, file, commit, plan, brief.
 
 Answer with JSON and nothing else — no prose before it, no code fence around it.
 
@@ -310,7 +345,7 @@ An empty refs list is fine. Answer only from the material below.";
 /// them read-only. That keeps the job table the whole audit surface and makes
 /// read-only-ness structural rather than promised.
 const OPERATOR_RETRIEVE_INSTRUCTIONS: &str = "\
-You are the Operator for the Gazette. Someone has asked a question about the work that has happened in their coding sessions, and your job right now is ONLY to decide what to look up.
+You are the Operator for the Overview. Someone has asked a question about the work that has happened in their coding sessions, and your job right now is ONLY to decide what to look up.
 
 You cannot run commands or read files. You name verbs; the system runs them for you, read-only, and hands you the results. Choose the verbs that will actually answer the question.
 
@@ -322,8 +357,8 @@ When the asker points at a file, a FILES NAMED BY THE QUESTION (verified to exis
 
 Available verbs and their arguments:
 
-- gazette.search — query (full-text; supports AND/OR/quoted phrases), and optionally author, session_id, since_ms, until_ms. Finds posts in the channel's whole history.
-- gazette.window — post_id, n. The posts either side of a hit, to read the narrative around it.
+- overview.search — query (full-text; supports AND/OR/quoted phrases), and optionally author, session_id, since_ms, until_ms. Finds posts in the channel's whole history.
+- overview.window — post_id, n. The posts either side of a hit, to read the narrative around it.
 - facts.search — query (full-text), and optionally kind, session_id, since_ms, until_ms. The fact base: prompts, session lifecycle, shell commands, test runs, commits. Kinds are prompt, session.spawned, session.resumed, session.closed, session.errored, session.reset, session.renamed, session.compacted, commit, shell, test_run.
 - facts.list — all optional: kind, session_id, since_ms, until_ms. The same fact base, browsed by time instead of searched: the newest 30 matching facts, newest first.
 - facts.window — fact_id, n. What else was happening around a fact.
@@ -339,7 +374,7 @@ Available verbs and their arguments:
 - repo.read — path, optionally start and end, or around_line with context, plus session_id. A file's actual lines, numbered. This is how you find out what a file SAYS.
 - repo.outline — path, optionally session_id. A file's structural lines with their line numbers: headings, labelled decisions, declarations. Ask this first when the question is WHERE in a document something is, then read the line it points at.
 
-Strategy that works: the channel's prose is good at locating WHEN something happened and WHICH session did it; the ledgers and git are what CONFIRM the specific fact. So narrow with gazette.search, facts.list, or changes.for_path, then confirm. Never rely on a post's wording as the final answer when a ledger can settle it.
+Strategy that works: the channel's prose is good at locating WHEN something happened and WHICH session did it; the ledgers and git are what CONFIRM the specific fact. So narrow with overview.search, facts.list, or changes.for_path, then confirm. Never rely on a post's wording as the final answer when a ledger can settle it.
 
 Confirm with the cheapest source that actually settles it. A fact result carries a detail object — a commit's files and message line, a test run's totals, a command's exit code — and those are exact, so a question about WHICH FILES a commit touched is already answered and needs no second lookup. git.show is the confirming source for what detail does not carry: the diff itself, and the body of a commit message below its first line. repo.grep answers what the tree says NOW, which is a different question from what any commit did.
 
@@ -349,7 +384,7 @@ facts.search answers \"find facts about X\" (best matches first); facts.list ans
 
 A search query is AND-ed term by term: \"tooltip colors\" finds only records that contain BOTH words, and a phrase that reads naturally to a person often matches nothing at all. Search with ONE distinctive word and let the results narrow you. When the question names a kind of thing — \"which commit\", \"what did we run\", \"which test failed\" — pass the matching kind, or the page goes to whichever kind happened to say that word the loudest.
 
-Names are findable by their parts: tooltip finds TugTooltip, sync finds useSyncExternalStore, 0365 finds at0365-gazette-card.test.ts. Search the plain word rather than the spelling you would type in code.
+Names are findable by their parts: tooltip finds TugTooltip, sync finds useSyncExternalStore, 0365 finds at0365-overview-card.test.ts. Search the plain word rather than the spelling you would type in code.
 
 A path argument is a real path. path and path_scope take a repo-relative path or a git glob — tuglaws/design-decisions.md, docs/, *.css — and NEVER a SQL LIKE pattern. changes.for_path is the only verb that speaks LIKE, and its % grammar must not travel: a path_scope of \"%design-decisions.md\" matches no file at all, and asking for both verbs in one round is exactly how that mistake gets made. If you are unsure how a file is spelled, spend one repo.ls on it.
 
@@ -363,7 +398,7 @@ A term the asker coined rarely appears verbatim in any file: \"the Z-zone drawin
 
 Fact text looks like this — compose your queries against these words:
 
-$ just app-test at0365-gazette-card.test.ts → ok
+$ just app-test at0365-overview-card.test.ts → ok
 tests: cargo nextest — passed (1614 passed, 0 failed)
 commit 3f16971b \"tugways(transcript-copy): route native ⌘C through onCopy substitution\" — 4 file(s)
 
@@ -388,11 +423,11 @@ Answer only from the material below.";
 /// the answer is prose, so the conversion is the model's to make. Display-side
 /// session annotation is a backstop for the ids that slip through, not the fix.
 const OPERATOR_ANSWER_INSTRUCTIONS: &str = "\
-You are the Operator for the Gazette. Someone asked a question about the work in their coding sessions, verbs were run on your behalf, and their results are below. Answer the question.
+You are the Operator for the Overview. Someone asked a question about the work in their coding sessions, verbs were run on your behalf, and their results are below. Answer the question.
 
 Answer like a colleague who just looked it up: lead with the answer, then the evidence for it. Be specific — name the file, the commit, the session, the date. If the results settle the question, say so plainly. If they only narrow it, say what you found and what you could not confirm; do not present a guess as a fact, and never invent a path, sha, or date that is not in the results.
 
-The channel's own posts are prose written by the Reporter and are good for locating when something happened and which session did it. The ledger and git results are ground truth. When they disagree, trust the ledgers.
+The channel's own posts are prose written by the Observer and are good for locating when something happened and which session did it. The ledger and git results are ground truth. When they disagree, trust the ledgers.
 
 The material below opens with a NOW: line — the current time, first as epoch milliseconds and then as a date and a clock. Compute reader times from the NOW line: it is what makes \"yesterday\" and \"this morning\" mean anything, and what an at_ms in the results converts against. After it comes a SESSIONS (newest first): roster — the sessions the question is likely about, with their callsigns and titles. Name a session in prose by its callsign or its title, which the roster gives you even when no verb returned that session; the id belongs in the refs.
 
@@ -404,7 +439,7 @@ Spell a commit sha exactly as the result gives it, in backticks, and let the app
 
 REFS are the clickable provenance on your answer. Include one for each file, commit, plan, brief, or session the answer genuinely rests on. Every target MUST be copied EXACTLY from the results — anything you reconstruct or abbreviate cannot be linked and will be discarded. Ref kinds are: session, file, commit, plan, brief.
 
-Before you write that something could not be looked up, read this list again — it is every verb you may ask for: gazette.search, gazette.window, facts.search, facts.list, facts.window, shell.history, sessions.list, session.prompts, changes.for_session, changes.for_path, git.log, git.show, repo.grep, repo.ls, repo.read, repo.outline. git.log takes a grep argument, so \"which commit was about X\" is always reachable. If one of them could have answered it, ask for that verb rather than describing the gap — and if this is your last round, name the lookup plainly as the follow-up the reader could ask for, instead of leaving them thinking the system has no way to reach it.
+Before you write that something could not be looked up, read this list again — it is every verb you may ask for: overview.search, overview.window, facts.search, facts.list, facts.window, shell.history, sessions.list, session.prompts, changes.for_session, changes.for_path, git.log, git.show, repo.grep, repo.ls, repo.read, repo.outline. git.log takes a grep argument, so \"which commit was about X\" is always reachable. If one of them could have answered it, ask for that verb rather than describing the gap — and if this is your last round, name the lookup plainly as the follow-up the reader could ask for, instead of leaving them thinking the system has no way to reach it.
 
 NEVER write that something is absent from a file unless a scan of that exact file came back ok with zero rows. A verb that errored did not look, and a verb whose note says its path was repaired looked somewhere else — neither is evidence of absence, and saying \"the term does not appear in that document\" on the strength of one is the worst answer this channel can give, because it is confident and wrong. When a lookup failed, say the lookup failed.
 
@@ -427,10 +462,10 @@ mod tests {
     use super::*;
 
     fn job(name: &str) -> &'static JobSpec {
-        GAZETTE_AGENT_JOBS
+        OVERVIEW_AGENT_JOBS
             .iter()
             .find(|j| j.name == name)
-            .unwrap_or_else(|| panic!("{name} missing from the gazette job table"))
+            .unwrap_or_else(|| panic!("{name} missing from the overview job table"))
     }
 
     /// The contracts Rust enforces downstream have to be the ones the model
@@ -438,74 +473,74 @@ mod tests {
     /// other code path depends on the model having read.
     #[test]
     fn the_job_table_carries_every_contract_the_gates_depend_on() {
-        assert_eq!(GAZETTE_AGENT_JOBS.len(), 3);
+        assert_eq!(OVERVIEW_AGENT_JOBS.len(), 3);
 
         // Silence is a first-class output, and the parser accepts exactly this
         // shape — a model that was never told so would answer prose.
-        let reporter = job("reporter-post").instructions;
-        assert!(reporter.contains(r#"{"post": null}"#));
-        assert!(reporter.contains(r#""refs""#));
+        let observer = job("observer-post").instructions;
+        assert!(observer.contains(r#"{"post": null}"#));
+        assert!(observer.contains(r#""refs""#));
         // …but bounded to the two cases it is for. An open-ended "posting
         // nothing is often right" let the model treat a finished turn whose
         // subject was not code as unremarkable, which is the opposite of the
         // channel's job. Both halves are pinned: the two uses, and the
         // requirement to post outside them.
-        assert!(reporter.contains("Silence is a real answer, and it has exactly two uses"));
-        assert!(reporter.contains("Outside those two cases, POST."));
-        assert!(reporter.contains("ALWAYS summarize what the turn did"));
+        assert!(observer.contains("Silence is a real answer, and it has exactly two uses"));
+        assert!(observer.contains("Outside those two cases, POST."));
+        assert!(observer.contains("ALWAYS summarize what the turn did"));
         assert!(
-            !reporter.contains("often the right one"),
+            !observer.contains("often the right one"),
             "the open-ended silence license is what made a finished turn go unreported",
         );
         // Voice: one register for every subject. The rule is pinned, and so is
-        // the absence of the framing that provoked it — telling the Reporter to
+        // the absence of the framing that provoked it — telling the Observer to
         // post "even when it isn't code" is what produced a post opening
         // "Answered a physics question, not code:". The prompt must not name
         // code as the baseline the work is measured against.
-        assert!(reporter.contains("Report the work; never your view of it"));
-        assert!(reporter.contains("never define it by what it was not"));
+        assert!(observer.contains("Report the work; never your view of it"));
+        assert!(observer.contains("never define it by what it was not"));
         // Length is a budget, not an adjective. "A few sentences at most" drew
         // 100-plus-word posts that reproduced the answer the session had
         // already given; a countable limit and the summary-not-content rule
         // are what actually bind.
-        assert!(reporter.contains("200 characters of prose at the outside"));
-        assert!(reporter.contains("The post is the summary, never the content"));
+        assert!(observer.contains("200 characters of prose at the outside"));
+        assert!(observer.contains("The post is the summary, never the content"));
         assert!(
-            !reporter.contains("nothing to do with their code"),
-            "naming code as the baseline is what the Reporter then narrated",
+            !observer.contains("nothing to do with their code"),
+            "naming code as the baseline is what the Observer then narrated",
         );
         // The budget's size was never what truncated posts mid-clause —
         // nothing asked for sentences that FIT it. `clamp_post_body` is the
         // backstop for a model that ignores this, not a substitute for it.
-        assert!(reporter.contains("Every sentence you write must be COMPLETE"));
-        assert!(reporter.contains("end the sentence sooner"));
+        assert!(observer.contains("Every sentence you write must be COMPLETE"));
+        assert!(observer.contains("end the sentence sooner"));
         // Backticks are asked for, not hoped for: the body renders as
         // markdown, and a backticked name is a code span the annotator
         // resolves — clickable BECAUSE it was written that way. Bounded
         // deliberately; the rest of markdown would only decorate a notice in
         // a narrow rail.
-        assert!(reporter.contains("Wrap exact names in backticks"));
-        assert!(reporter.contains("no lists, no headings, no emphasis"));
+        assert!(observer.contains("Wrap exact names in backticks"));
+        assert!(observer.contains("no lists, no headings, no emphasis"));
         // The facts section: the header string the composer prints has to be the
         // string the model was told about, or the paragraph explains a section
         // it never sees under that name. The dedup clause is pinned too — the
         // section carries facts that are settled rather than new, so without it
         // a commit already posted about would be announced on every wake for as
         // long as it stayed in the window.
-        assert!(reporter.contains(crate::feeds::reporter_wake::FACTS_SECTION_HEADER));
-        assert!(reporter.contains("It is ground truth"));
-        assert!(reporter.contains("is not news twice"));
+        assert!(observer.contains(crate::feeds::observer_wake::FACTS_SECTION_HEADER));
+        assert!(observer.contains("It is ground truth"));
+        assert!(observer.contains("is not news twice"));
         // Ref targets are validated verbatim against the buffered context, so
         // the instruction to copy exactly is what keeps the drop rate down.
         // The path clause is the specific fix for the one drop the offline
         // sweep actually produced: a repo-relative path expanded to an
         // absolute one, which no window contains and no chip can link.
-        assert!(reporter.contains("EXACTLY"));
-        assert!(reporter.contains("Spell a path the way the activity spells it"));
+        assert!(observer.contains("EXACTLY"));
+        assert!(observer.contains("Spell a path the way the activity spells it"));
         // Every wake reason the bridge can send is explained.
         for reason in ["turn-end", "sitrep-timer", "session-end", "token-threshold"] {
             assert!(
-                reporter.contains(reason),
+                observer.contains(reason),
                 "wake reason {reason} unexplained"
             );
         }
@@ -518,15 +553,15 @@ mod tests {
             "commit landed",
             "sitrep",
         ] {
-            assert!(reporter.contains(beat), "rubric lost {beat:?}");
+            assert!(observer.contains(beat), "rubric lost {beat:?}");
         }
 
         // Retrieval names every verb the executor implements; a verb the model
         // never hears about is a verb that is never called.
         let retrieve = job("operator-retrieve").instructions;
         for verb in [
-            "gazette.search",
-            "gazette.window",
+            "overview.search",
+            "overview.window",
             "sessions.list",
             "session.prompts",
             "changes.for_session",
@@ -683,7 +718,7 @@ mod tests {
     /// silent no-post.
     #[test]
     fn every_job_demands_bare_json() {
-        for spec in GAZETTE_AGENT_JOBS {
+        for spec in OVERVIEW_AGENT_JOBS {
             assert!(
                 spec.instructions.contains("no code fence around it"),
                 "{} may answer with a fenced block",
@@ -704,8 +739,8 @@ mod tests {
     #[test]
     fn job_ceilings_match_what_each_one_keeps_someone_waiting_for() {
         assert!(job("operator-retrieve").timeout < job("operator-answer").timeout);
-        assert_eq!(job("reporter-post").timeout, Duration::from_secs(120));
-        for spec in GAZETTE_AGENT_JOBS {
+        assert_eq!(job("observer-post").timeout, Duration::from_secs(120));
+        for spec in OVERVIEW_AGENT_JOBS {
             let slow = spec.slow.expect("every job marks drift");
             assert!(
                 slow < spec.timeout,

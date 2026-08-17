@@ -1278,14 +1278,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // through to the web view.
         mMenu.addItem(NSMenuItem(title: "Show DevTools", action: #selector(showDevTools(_:)), keyEquivalent: "").identified("maker.devTools"))
         mMenu.addItem(NSMenuItem(title: "Focus Lens", action: #selector(focusLens(_:)), keyEquivalent: "l").identified("maker.focusLens"))
-        // Show Lens (⌃⌘L), Show Jots (⌃⌘J), and Show Gazette (⌃⌘G) — the
+        // Show Lens (⌃⌘L), Show Jots (⌃⌘J), and Show Overview (⌃⌘O) — the
         // sidebar toggles, built without key equivalents so the registry's
         // sweep supplies them and each stays rebindable. Same Maker-menu
         // placement reasoning as Show DevTools above: hidden outside maker
         // mode, so the chords fall through to the web view there.
         mMenu.addItem(NSMenuItem(title: "Show Lens", action: #selector(showLens(_:)), keyEquivalent: "").identified("maker.lens"))
         mMenu.addItem(NSMenuItem(title: "Show Jots", action: #selector(showJots(_:)), keyEquivalent: "").identified("maker.jots"))
-        mMenu.addItem(NSMenuItem(title: "Show Gazette", action: #selector(showGazette(_:)), keyEquivalent: "").identified("maker.gazette"))
+        mMenu.addItem(NSMenuItem(title: "Show Overview", action: #selector(showOverview(_:)), keyEquivalent: "").identified("maker.overview"))
         if BuildInfo.profile == "debug" {
             // Debug-only card creators, relocated from the flattened
             // File ▸ New submenu. Compile-time gated so release bundles
@@ -1421,9 +1421,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("toggle-jots")
     }
 
-    /// Show or hide the Gazette rail — the third of the sidebar toggles.
-    @objc private func showGazette(_ sender: Any) {
-        sendControl("toggle-gazette")
+    /// Show or hide the Overview rail — the third of the sidebar toggles.
+    @objc private func showOverview(_ sender: Any) {
+        sendControl("toggle-overview")
     }
 
     /// Create a jot and land the caret in it, revealing the Jots rail if it is

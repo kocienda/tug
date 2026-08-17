@@ -20,7 +20,7 @@
  *
  * Both layouts come in two DENSITIES, keyed on `[data-density]`: the
  * comfortable default sized for a card, and `compact` for a rail (the
- * Gazette). The density is expressed purely as the tile slots both layouts
+ * Overview). The density is expressed purely as the tile slots both layouts
  * already read, plus the width tier the sheet opens at — never as a third
  * layout.
  *

@@ -1,4 +1,4 @@
-/* The Gazette card. Tokens only — no literal colors. */
+/* The Overview card. Tokens only — no literal colors. */
 
 /* @tug-pairings: none — the rows are `TugTranscriptEntry` (its own pair owns
    the attribution colors), the chips are `TugPushButton`/`TugSessionCitation`,
@@ -6,7 +6,7 @@
    arranges them and tunes the reading measure ([L20]). */
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.gazette-card {
+.overview-card {
   display: grid;
   /* Two tracks: the transcript takes the height, the composer's track is
      reserved at content height. */
@@ -17,19 +17,19 @@
   font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-global-text-normal-default-rest);
   /* Post rhythm — TUNE HERE. */
-  --tugx-gazette-post-gap: var(--tug-space-md);
+  --tugx-overview-post-gap: var(--tug-space-md);
   /* The space below the LAST post, above the composer's rule. Wider than the
      gap between two posts on purpose: the last row is often the in-flight
      wave, and a working animation needs room under it to read as motion
      rather than as something pressed against the bottom of the column. */
-  --tugx-gazette-transcript-end-space: var(--tug-space-2xl);
+  --tugx-overview-transcript-end-space: var(--tug-space-2xl);
   /* The rail's side insets — TUNE HERE. Named apart from `--tug-space-md`
      because the two sides answer different questions: the start side is how
      far the icon column stands off the card edge, the end side is how much
      air the prose keeps off the scrollbar. The rail is a narrow column read
      at 13px, so both run tighter than a full card's inset would. */
-  --tugx-gazette-transcript-inset-start: 3px;
-  --tugx-gazette-transcript-inset-end: 8px;
+  --tugx-overview-transcript-inset-start: 3px;
+  --tugx-overview-transcript-inset-end: 8px;
 }
 
 /* The transcript's region — the card's `1fr` track, and the positioned
@@ -38,22 +38,22 @@
    lets it be shorter than its content and actually scroll. The button is an
    absolute sibling of the scroller rather than a child of it, so it stays put
    while the column moves under it. */
-.gazette-transcript-region {
+.overview-transcript-region {
   position: relative;
   display: grid;
   min-block-size: 0;
 }
 
-.gazette-transcript {
+.overview-transcript {
   overflow-y: auto;
   overflow-x: hidden;
   min-block-size: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--tugx-gazette-post-gap);
+  gap: var(--tugx-overview-post-gap);
   padding-block-end: var(--tug-space-md);
-  padding-inline-start: var(--tugx-gazette-transcript-inset-start);
-  padding-inline-end: var(--tugx-gazette-transcript-inset-end);
+  padding-inline-start: var(--tugx-overview-transcript-inset-start);
+  padding-inline-end: var(--tugx-overview-transcript-inset-end);
   /* START SIDE ZEROED — this is what plugs the sticky header's leak. A
      `position: sticky` header resolves `top: 0` against the scrollport, which
      is the scroller's PADDING box: with padding here, the pinned attribution
@@ -92,7 +92,7 @@
    attribution design, and there is one.
    ------------------------------------------------------------------------ */
 
-.gazette-transcript .tug-transcript-entry {
+.overview-transcript .tug-transcript-entry {
   --tugx-transcript-controls-margin-top: var(--tug-space-2xs);
   /* TUNE HERE — see the gutter note above. */
   --tugx-transcript-icon-column-width: 2.2em;
@@ -107,27 +107,27 @@
 /* The breathing room the scroller's zeroed start-side padding gave up. On the
    first row, so it scrolls away with the content rather than standing open
    above a pinned header. */
-.gazette-transcript > :first-child {
+.overview-transcript > :first-child {
   margin-block-start: var(--tug-space-md);
 }
 
 /* Breathing room at the end, on the last row for the symmetry of it. Without
    it the last row — often the in-flight post, whose body is a working wave —
    sits flush on the composer's border with nothing under it. */
-.gazette-transcript > :last-child {
-  margin-block-end: var(--tugx-gazette-transcript-end-space);
+.overview-transcript > :last-child {
+  margin-block-end: var(--tugx-overview-transcript-end-space);
 }
 
-.gazette-transcript .tug-transcript-entry__identifier {
+.overview-transcript .tug-transcript-entry__identifier {
   font-size: 0.95em;
 }
 
-.gazette-transcript .tug-transcript-entry__timestamp {
+.overview-transcript .tug-transcript-entry__timestamp {
   font-size: 0.85em;
   font-variant-numeric: tabular-nums;
 }
 
-.gazette-transcript .tug-transcript-entry__icon svg {
+.overview-transcript .tug-transcript-entry__icon svg {
   width: 1.2em;
   height: 1.2em;
   margin-block-start: 1px;
@@ -150,15 +150,15 @@
 
    Judged by eye, because "reads the same size" is a perceptual claim and
    nothing computes it. `at0365` measures that the pair is applied at all. */
-.gazette-transcript
-  .tug-transcript-entry[data-participant="reporter"]
+.overview-transcript
+  .tug-transcript-entry[data-participant="observer"]
   .tug-transcript-entry__icon
   svg {
   width: 1.08em;
   height: 1.08em;
 }
 
-.gazette-transcript
+.overview-transcript
   .tug-transcript-entry[data-participant="operator"]
   .tug-transcript-entry__icon
   svg {
@@ -168,14 +168,14 @@
 
 /* Per-entry control-row icons (the copy button's glyph) scale with the row,
    exactly as they do in the Session transcript. */
-.gazette-transcript .tug-transcript-entry__controls .lucide {
+.overview-transcript .tug-transcript-entry__controls .lucide {
   width: 1em;
   height: 1em;
 }
 
-.gazette-post-body {
+.overview-post-body {
   margin: 0;
-  /* TUNE HERE — the reading size. `lib/gazette-measure.ts` derives the rail's
+  /* TUNE HERE — the reading size. `lib/overview-measure.ts` derives the rail's
      comfort floor and preferred width from it (52ch and 64ch of this face),
      and an app-test measures the real render against those constants, so a
      change here fails loudly rather than leaving a stale width behind. */
@@ -192,12 +192,12 @@
    icon column already provides the gutter here, so cancel it — the [L20]
    cascade-override pattern, the same cancel `.session-card-transcript-code-body`
    makes. The block's own blocks anchor their type to the wrapper's 13px. */
-.gazette-post-body .tug-markdown-block {
+.overview-post-body .tug-markdown-block {
   --tugx-md-block-padding-x: 0;
   width: 100%;
 }
 
-.gazette-post-body .tugx-md-block {
+.overview-post-body .tugx-md-block {
   font-size: 1em;
 }
 
@@ -208,7 +208,7 @@
    pictures read as the end of the post rather than as something parked after
    it. The `max-inline-size` above governs the prose; the strip wraps to the
    rail's real width, because a row of thumbnails has no measure to keep. */
-.gazette-post-attachments {
+.overview-post-attachments {
   margin-block-start: var(--tug-space-sm);
   max-inline-size: none;
 }
@@ -218,11 +218,11 @@
    member (badge, each `•`, elapsed, COPY, the atoms), which is
    `session-card-z1b.css`'s single knob restated as this card's. Wraps,
    because a post may name several files and the rail is narrow. */
-.gazette-post-z1b {
+.overview-post-z1b {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--tugx-gazette-z1b-gap, 14px);
+  gap: var(--tugx-overview-z1b-gap, 14px);
   margin-top: 2px;
 }
 
@@ -233,14 +233,14 @@
    reads a full button's worth of air away from the `•` — the gap the row
    otherwise has nowhere. The vertical nudge lands COPY's text-middle on the
    badge's, which is 2px taller. */
-.gazette-post-z1b-copy {
+.overview-post-z1b-copy {
   display: inline-flex;
-  --tugx-gazette-z1b-copy-baseline-nudge: 0.5px;
-  --tugx-gazette-z1b-copy-pad-cancel: -0.75rem;
-  --tugx-gazette-z1b-copy-snug: -9px;
-  transform: translateY(var(--tugx-gazette-z1b-copy-baseline-nudge));
+  --tugx-overview-z1b-copy-baseline-nudge: 0.5px;
+  --tugx-overview-z1b-copy-pad-cancel: -0.75rem;
+  --tugx-overview-z1b-copy-snug: -9px;
+  transform: translateY(var(--tugx-overview-z1b-copy-baseline-nudge));
   margin-left: calc(
-    var(--tugx-gazette-z1b-copy-pad-cancel) + var(--tugx-gazette-z1b-copy-snug)
+    var(--tugx-overview-z1b-copy-pad-cancel) + var(--tugx-overview-z1b-copy-snug)
   );
 }
 
@@ -251,11 +251,11 @@
    no JS ([L06]) — and it is an ancestor-scoped read of a DESCENDANT'S
    PSEUDO-CLASS, which WebKit does invalidate, unlike the attribute case.
    Opacity, not `display`, so the `•` keeps its box and COPY never reflows. */
-.gazette-post-z1b:has(
-    .gazette-post-z1b-copy
+.overview-post-z1b:has(
+    .overview-post-z1b-copy
       .tug-button:is(:hover, :focus-visible, [data-tug-confirming="true"])
   )
-  .gazette-post-z1b-separator {
+  .overview-post-z1b-separator {
   opacity: 0;
 }
 
@@ -264,7 +264,7 @@
    row (`tug-transcript-entry.css`), which is right for a card whose Z1B is
    the whole slot; per [D12] a consumer that needs otherwise says so in its
    own sheet. */
-.gazette-transcript .tug-transcript-entry__controls {
+.overview-transcript .tug-transcript-entry__controls {
   flex-direction: column;
   align-items: stretch;
   gap: 0;
@@ -307,7 +307,7 @@
    bare code-set refs alone.
 
    @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.gazette-post-refs {
+.overview-post-refs {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -322,13 +322,13 @@
    session chip's own ellipsis rule never gets a deficit to act on — it would
    simply overflow, which on a row that wraps looks like the wrap failed.
    The ceiling is the row: an atom alone on its line may take all of it. */
-.gazette-post-refs > * {
+.overview-post-refs > * {
   min-width: 0;
   max-width: 100%;
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.gazette-empty {
+.overview-empty {
   padding: var(--tug-space-sm);
   /* The empty state is read at the same size as a post. */
   font-size: 13px;
@@ -351,26 +351,26 @@
 
    The top border is the separator between the transcript and the entry, the
    Session card's rule restated: there it is the Z2 status bar's `border-top`
-   (`session-card.css`), here the composer's own, since the Gazette has no
+   (`session-card.css`), here the composer's own, since the Overview has no
    status strip between the two. Same token, same 1px, so the two cards divide
    reading from writing with one line. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.gazette-composer-slot {
+.overview-composer-slot {
   min-block-size: 0;
   inline-size: 100%;
   border-block-start: 1px solid
     var(--tug7-element-global-border-normal-default-rest);
-  --tugx-gazette-editor-base: var(--tug-font-size-editor, 14px);
+  --tugx-overview-editor-base: var(--tug-font-size-editor, 14px);
 }
 
-/* The Gazette's field reads one pixel smaller than the Session composer's:
+/* The Overview's field reads one pixel smaller than the Session composer's:
    this is a question typed into a narrow rail, not a prompt composed in a
    full card. TUNE HERE — the delta, not an absolute size, so the user's own
    editor font-size setting still moves this field with it. */
-.gazette-composer-field {
-  --tugx-gazette-composer-font-delta: 1px;
+.overview-composer-field {
+  --tugx-overview-composer-font-delta: 1px;
   --tug-font-size-editor: calc(
-    var(--tugx-gazette-editor-base) - var(--tugx-gazette-composer-font-delta)
+    var(--tugx-overview-editor-base) - var(--tugx-overview-composer-font-delta)
   );
   /* The field opens at three lines rather than one. A question to the Operator
      is a sentence, not a search term, and an empty one-line slot reads as a
@@ -380,23 +380,23 @@
      line lands inside the field the composer opened, and the fourth is what
      grows it. Growth past the floor is the editor's own, up to the `maxRows`
      the composer passes. TUNE HERE — the row count. */
-  --tugx-gazette-composer-min-rows: 3;
+  --tugx-overview-composer-min-rows: 3;
   --tug-text-editor-min-height: calc(
-    var(--tugx-gazette-composer-min-rows) *
+    var(--tugx-overview-composer-min-rows) *
       var(--tug-text-editor-row-height, 1lh) + 16px
   );
 }
 
 /* The compose-phase attachment zone — the entry shell's `accessoryRow`, which
    sits between the field and the toolbar and grows the composer's height the
-   way added text rows do. It is the Session composer's Z4C, at the Gazette's
+   way added text rows do. It is the Session composer's Z4C, at the Overview's
    scale: a fixed slot so the space is held the instant an image drops rather
    than hopping when its pixels arrive, and the editor's own surface tint so a
    picture reads as draft content in the same block as the words above it —
    not as a stranded band under them. Shorter than the Session card's 84px
    because this composer lives in a rail. TUNE HERE — the zone height. */
 /* @tug-renders-on: --tugx-entry-shell-rest */
-.gazette-composer-attachments {
+.overview-composer-attachments {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
@@ -410,14 +410,14 @@
   overflow: hidden;
 }
 
-.gazette-composer:focus-within .gazette-composer-attachments {
+.overview-composer:focus-within .overview-composer-attachments {
   background-color: var(--tugx-entry-shell-focus);
 }
 
 /* An image that could not be attached, said where the question is being
    asked. It wraps: the reason names the file, and a truncated reason is a
    notice that explains nothing. */
-.gazette-composer-attachment-error {
+.overview-composer-attachment-error {
   white-space: normal;
 }
 
@@ -425,7 +425,7 @@
    inside its own box — 16px is the largest mark that still reads as a button,
    and it is the size the Find bar's controls settled on (`tug-find-bar.css`),
    so the two entry surfaces carry one glyph size. */
-.gazette-composer .tug-button-icon-sm svg {
+.overview-composer .tug-button-icon-sm svg {
   width: 16px;
   height: 16px;
 }
@@ -434,17 +434,17 @@
    emptiness onto the shell root as `data-empty`; this is the CSS half — the
    functional half is the submit handler's own empty check. The prompt
    entry's exact rule, scoped to this card's send button. */
-.gazette-composer[data-empty="true"] .gazette-composer-send {
+.overview-composer[data-empty="true"] .overview-composer-send {
   opacity: var(--tugx-control-disabled-opacity, 0.45);
   pointer-events: none;
   cursor: not-allowed;
 }
 
 /* A post still being written. The row is the answer's row already ([L26]);
-   its body is the transcript's own in-flight wave, so the Gazette says
+   its body is the transcript's own in-flight wave, so the Overview says
    "working" in the language the Session card says it in — no prose stand-in.
    The body sits on the wave's own line box; the margin is the entry's. */
-.gazette-post-pending {
+.overview-post-pending {
   display: flex;
   align-items: center;
 }

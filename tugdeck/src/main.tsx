@@ -20,7 +20,7 @@ import { restoreSessions } from "./lib/session-restore";
 import { attachSessionLedgerStore } from "./lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "./lib/session-state-changes-store";
 import { attachPulseStore } from "./lib/pulse-store";
-import { attachGazetteStore } from "./lib/gazette-store";
+import { attachOverviewStore } from "./lib/overview-store";
 import { attachSessionActivityStore } from "./lib/session-activity-store";
 import { attachChangesetAllStore } from "./lib/changeset-all-store";
 import { attachChangesetVerbStore } from "./lib/changeset-verb-store";
@@ -52,7 +52,7 @@ import { registerKeyboardCard } from "./components/tugways/cards/keyboard-card";
 import { registerDevtoolsCard } from "./components/devtools/devtools-card";
 import { registerLensCard } from "./components/lens/lens-register-card";
 import { registerJotsCard } from "./components/jots/jots-card-registration";
-import { registerGazetteCard } from "./components/gazette/gazette-card-registration";
+import { registerOverviewCard } from "./components/overview/overview-card-registration";
 import { registerCardsSection } from "./components/lens/sections/cards-section";
 import { registerLayoutsSection } from "./components/lens/sections/layouts-section";
 import { registerDashesSection } from "./components/lens/sections/dashes-section";
@@ -333,8 +333,8 @@ if (!container) {
   // Same unconditional-and-early rule as the Lens: Jots is a sidebar card, and
   // a pane whose only card is unregistered at load is dropped.
   registerJotsCard();
-  // Same unconditional-and-early rule again: the Gazette is a sidebar card.
-  registerGazetteCard();
+  // Same unconditional-and-early rule again: the Overview is a sidebar card.
+  registerOverviewCard();
   // Registration order is the DEFAULT Lens section order — the fallback
   // `resolveSectionRenderOrder` uses when nothing is persisted.
   registerCardsSection();
@@ -533,10 +533,10 @@ if (!container) {
   // The Z2 strip reads it via `usePulse`.
   attachPulseStore(connection);
 
-  // Wire the app-scoped GAZETTE store: one `list_gazette_posts` tail
-  // fetch on first observation, live `GAZETTE` frames folded after.
-  // The Gazette card reads it via `useGazette`.
-  attachGazetteStore(connection);
+  // Wire the app-scoped OVERVIEW store: one `list_overview_posts` tail
+  // fetch on first observation, live `OVERVIEW` frames folded after.
+  // The Overview card reads it via `useOverview`.
+  attachOverviewStore(connection);
 
   // Wire the app-scoped ACTIVITY store: one subscription to the
   // per-session activity feed ([P01]), routed by each frame's own

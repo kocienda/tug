@@ -1,6 +1,6 @@
 /* @tug-pairings:
    - (currentColor) | --tugx-block-strip-bg   (tool-call header: glyph + label inherit the header detail's muted code tone)
-   - (currentColor) | --tug7-surface-1        (Gazette trailing refs row)
+   - (currentColor) | --tug7-surface-1        (Overview trailing refs row)
    - (currentColor) | --tug7-surface-1        (commit receipt header, History rows)
    `TugAtomRef` paints no surface of its own — it inherits its host's size
    and colour and contributes the code font, the leading glyph's size, and
@@ -15,10 +15,10 @@
  * is a glyph and a name, seated in its host's own tone.
  *
  * **The code font is the component's, not the consumer's.** Size and colour
- * inherit — a tool header sizes this like a command, the Gazette's refs row
+ * inherit — a tool header sizes this like a command, the Overview's refs row
  * sizes it to the post body — but the family is pinned here. Inheriting it
  * landed as mono in a tool header (that slot is already mono) and as prose
- * font in the Gazette's trailing row, which made the same atom read as two
+ * font in the Overview's trailing row, which made the same atom read as two
  * different things depending on who rendered it. Decided once, here.
  *
  * Laws: [L06] appearance via CSS + inheritance; [L19] file pair, module

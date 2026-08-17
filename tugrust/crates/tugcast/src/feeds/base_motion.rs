@@ -29,7 +29,7 @@
 //!
 //! [`decide_for_dash`] is pure — the gate and the choice of action expressed
 //! over plain inputs, with no channels, no git, and no clock — following
-//! `reporter_wake.rs`. Every case in the gate is then a table test rather than a
+//! `observer_wake.rs`. Every case in the gate is then a table test rather than a
 //! server that has to be stood up and driven into the right state.
 
 use std::collections::HashMap;

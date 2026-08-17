@@ -6,7 +6,7 @@
  * the reader has scrolled away from the live edge. Modeled on the down-arrow
  * button chat clients surface when the conversation is scrolled up.
  *
- * Card-agnostic: the Session card's transcript and the Gazette's column both
+ * Card-agnostic: the Session card's transcript and the Overview's column both
  * mount it, and neither owns it. What a host supplies is the positioned
  * ancestor it floats in, the click that jumps, and the attribute that shows
  * it — nothing about the button knows which transcript it is over.

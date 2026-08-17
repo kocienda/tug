@@ -28,7 +28,7 @@
  * never converges. The one thing this must never do is manufacture a link.
  *
  * **A "no" expires; a "yes" does not.** `missing` and `unknown` are answers
- * about a moment, and the moment passes: a Gazette post narrates a plan file
+ * about a moment, and the moment passes: a Overview post narrates a plan file
  * minutes before it is written, a probe is lost while the server restarts.
  * Cached for the app's life, either one leaves a reference permanently dead
  * on a surface that is still open, and no amount of scrolling back can

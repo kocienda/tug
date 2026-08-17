@@ -237,7 +237,7 @@ export interface CardRegistration {
    *
    * `true` for the cards whose whole content is engine focus stops the
    * keyboard walks: the Lens, Jots, Settings and its bodies, Keyboard, About,
-   * Gazette, Pulse, DevTools. Their rings and arrow movement are the interface,
+   * Overview, Pulse, DevTools. Their rings and arrow movement are the interface,
    * so the mode is on the moment the card is key and no ⌥⇥ is needed.
    *
    * Omit (the default) for a card whose resting state is a caret in a text
@@ -251,7 +251,7 @@ export interface CardRegistration {
    * out the deck: **lower is greedier** — fed first when there is surplus,
    * drained last when there is a deficit.
    *
-   * The Gazette is 1, the Lens 2, Jots 3; anything else takes
+   * The Overview is 1, the Lens 2, Jots 3; anything else takes
    * {@link DEFAULT_GREED_RANK}. A rail carrying several cards is as greedy as
    * its greediest member (`deck-manager.ts` folds the members with `Math.min`),
    * so a prose reader stacked with a modest card keeps the prose reader's
@@ -269,7 +269,7 @@ export interface CardRegistration {
    * The two floors answer different questions. The hard floor is a fact about
    * rendering — below it the card's contents clip — and it is what the user's
    * own resize drag clamps to (`tug-pane.tsx`). The comfort floor is a
-   * preference about quality — for the Gazette, the narrowest measure a post
+   * preference about quality — for the Overview, the narrowest measure a post
    * still reads as prose. The space allocator respects the comfort floor
    * unless surrendering it removes overlap from the deck's chain entirely:
    * showing the user's cards un-occluded outranks a rail's comfortable

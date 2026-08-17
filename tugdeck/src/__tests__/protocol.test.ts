@@ -13,7 +13,7 @@ import {
   encodeCloseSession,
   encodeCodeInput,
   encodeFrame,
-  encodeGazetteInput,
+  encodeOverviewInput,
   encodeResetSession,
   encodeSpawnSession,
   isControlFrame,
@@ -548,17 +548,17 @@ describe("parsePulseFrame — the overview kind", () => {
   });
 });
 
-describe("encodeGazetteInput", () => {
+describe("encodeOverviewInput", () => {
   const body = (frame: { payload: Uint8Array }): string =>
     new TextDecoder().decode(frame.payload);
 
   test("a question with no pictures and no atoms is the payload it always was", () => {
-    expect(body(encodeGazetteInput("what landed", "req-1"))).toBe(
+    expect(body(encodeOverviewInput("what landed", "req-1"))).toBe(
       JSON.stringify({ body: "what landed", requestId: "req-1" }),
     );
     // Explicit empties are the same frame — a composer that always passes both
     // arrays must not widen the wire.
-    expect(body(encodeGazetteInput("what landed", "req-1", [], []))).toBe(
+    expect(body(encodeOverviewInput("what landed", "req-1", [], []))).toBe(
       JSON.stringify({ body: "what landed", requestId: "req-1" }),
     );
   });
@@ -566,7 +566,7 @@ describe("encodeGazetteInput", () => {
   test("the files the asker pointed at ride beside the body", () => {
     const payload = JSON.parse(
       body(
-        encodeGazetteInput("what does it say", "req-2", [], [
+        encodeOverviewInput("what does it say", "req-2", [], [
           { kind: "file", target: "tuglaws/design-decisions.md" },
         ]),
       ),
@@ -580,7 +580,7 @@ describe("encodeGazetteInput", () => {
   test("pictures and atoms travel together without displacing each other", () => {
     const payload = JSON.parse(
       body(
-        encodeGazetteInput(
+        encodeOverviewInput(
           "what is this",
           "req-3",
           [{ mediaType: "image/png", data: "AAAA" }],

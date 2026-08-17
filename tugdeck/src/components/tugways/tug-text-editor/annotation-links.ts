@@ -86,7 +86,7 @@ export interface AnnotationLinkOptions {
   /**
    * Bring the host's own card forward before the gesture opens another.
    * Defaults to doing nothing — the card a reference opens claims
-   * activation itself, which is what the Gazette's listener relies on too.
+   * activation itself, which is what the Overview's listener relies on too.
    */
   activateCard?: () => void;
 }

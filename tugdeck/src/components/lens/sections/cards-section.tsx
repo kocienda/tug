@@ -237,7 +237,7 @@ function registrationGlyph(identity: CardIdentity): React.ReactNode {
 /**
  * The row's content column, hovered when the card it stands for has a path.
  *
- * A pathless card (a Session, the Gazette) has nothing the hover would add,
+ * A pathless card (a Session, the Overview) has nothing the hover would add,
  * so it renders the bare headline rather than an empty bubble.
  */
 function RowHeadlineHover({

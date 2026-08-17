@@ -314,7 +314,7 @@ export function GalleryCardChrome(): React.ReactElement {
             flush means — and the stripes carry the state instead.
           </TugLabel>
 
-          {/* Lens, Jots and Gazette register no icon today — adopting this
+          {/* Lens, Jots and Overview register no icon today — adopting this
               means adding one to those three registrations. */}
           <SpikeRow caption="Focused and unfocused, together — the pair is the point, not either alone">
             <SpikePane focused body="Cards · Layouts · Sessions">

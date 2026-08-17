@@ -13,7 +13,7 @@
  *  - {@link rehydrateDraftAttachments} is the return trip: a restored entry
  *    that carries a path and no bytes is read back through `/api/fs/blob`,
  *    run through the downsample pipeline, and put whole. This is the same
- *    fetch-decode-put shape the Gazette's attachment strip has shipped, down
+ *    fetch-decode-put shape the Overview's attachment strip has shipped, down
  *    to the in-flight interlock and the chunked base64 conversion, which both
  *    callers now share from here.
  *  - {@link uploadDocAttachment} is the document tier: a file dropped on a

@@ -20,7 +20,7 @@
  * element, the selection's anchor. {@link clipboardOriginFor} walks up.
  *
  * **Nesting is the point, not a hazard.** `closest()` finds the NEAREST
- * stamp, so a surface inside a surface wins for its own subtree — a Gazette
+ * stamp, so a surface inside a surface wins for its own subtree — a Overview
  * post narrating a different project than the card around it stamps itself and
  * is correct without anyone coordinating.
  *

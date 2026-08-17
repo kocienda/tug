@@ -1,33 +1,33 @@
 /**
- * `GazetteStore` — app-scoped snapshot cache for the Gazette narration channel.
+ * `OverviewStore` — app-scoped snapshot cache for the Overview narration channel.
  *
- * Hydrates from tugcast's `gazette_posts` ledger on first observation (one
- * `list_gazette_posts` CONTROL round-trip — the `pulse-store` pattern), then
- * folds live `GAZETTE` feed frames as the Reporter, the Operator, and the user
+ * Hydrates from tugcast's `overview_posts` ledger on first observation (one
+ * `list_overview_posts` CONTROL round-trip — the `pulse-store` pattern), then
+ * folds live `OVERVIEW` feed frames as the Observer, the Operator, and the user
  * speak. Both wires carry the same post shape, so one parse serves both and the
  * merge dedupes on ledger identity.
  *
- * **The write path** is one verb: {@link GazetteStore.submitQuestion} mints a
- * request id, sends it up `GAZETTE_INPUT`, and holds a pending marker until the
+ * **The write path** is one verb: {@link OverviewStore.submitQuestion} mints a
+ * request id, sends it up `OVERVIEW_INPUT`, and holds a pending marker until the
  * Operator's post carrying that id lands — or until the wait times out, which
  * ends the wait with a locally-authored transient post rather than a spinner
  * nobody will ever take away.
  *
- * **Scrollback.** {@link GazetteStore.loadOlder} asks for the page immediately
+ * **Scrollback.** {@link OverviewStore.loadOlder} asks for the page immediately
  * older than the oldest post held (keyset by ledger rowid — posts keep
  * arriving while a reader pages backwards, and an offset would slide under
  * them). `card_rows` sizes the OPENING request rather than a render window,
- * and {@link GAZETTE_MAX_ROWS} is what bounds the accumulated list.
+ * and {@link OVERVIEW_MAX_ROWS} is what bounds the accumulated list.
  *
  * **Laws.** [L02] — wire frames, the CONTROL response, and the `card_rows`
- * tugbank default all enter React through {@link useGazette}'s
+ * tugbank default all enter React through {@link useOverview}'s
  * `useSyncExternalStore`; snapshots are referentially stable between folds.
  * [L26] — a post's `key` is its request id where it has one, so the pending
  * row and the answer that resolves it are the same row to React rather than a
  * teardown and a rebuild. [L27] — the three acquisitions this store makes (the
- * `GAZETTE` frame registration, the DEFAULTS-domain watch, and the pending
+ * `OVERVIEW` frame registration, the DEFAULTS-domain watch, and the pending
  * question's timeout) each hand back a release, all of which are held and
- * invoked by {@link GazetteStore.dispose}.
+ * invoked by {@link OverviewStore.dispose}.
  */
 
 import { useSyncExternalStore } from "react";
@@ -35,16 +35,16 @@ import { useSyncExternalStore } from "react";
 import type { TugConnection } from "@/connection";
 import {
   FeedId,
-  encodeGazetteInput,
-  encodeListGazettePosts,
-  parseGazetteFrame,
-  parseGazettePost,
-  type GazetteAttachmentWire,
-  type GazetteAuthor,
-  type GazetteInputAttachment,
-  type GazetteRef,
-  type GazettePostWire,
-  type ListGazettePostsOk,
+  encodeOverviewInput,
+  encodeListOverviewPosts,
+  parseOverviewFrame,
+  parseOverviewPost,
+  type OverviewAttachmentWire,
+  type OverviewAuthor,
+  type OverviewInputAttachment,
+  type OverviewRef,
+  type OverviewPostWire,
+  type ListOverviewPostsOk,
 } from "@/protocol";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 
@@ -54,44 +54,44 @@ import { getTugbankClient } from "@/lib/tugbank-singleton";
  * Read as the `limit` on the mount-time tail request, not as a render window:
  * the card used to truncate its list to this number, and it no longer does,
  * because the reader can now page backwards past it. What bounds the list is
- * {@link GAZETTE_MAX_ROWS}. The knob's name outlives the change, so its
+ * {@link OVERVIEW_MAX_ROWS}. The knob's name outlives the change, so its
  * meaning is stated here rather than inferred from it.
  */
-export const GAZETTE_DOMAIN = "dev.tugtool.gazette";
-export const GAZETTE_CARD_ROWS_KEY = "card_rows";
+export const OVERVIEW_DOMAIN = "dev.tugtool.overview";
+export const OVERVIEW_CARD_ROWS_KEY = "card_rows";
 
 /** Mirror of tugcast's tail length — the opening request when the knob is unset. */
-export const DEFAULT_GAZETTE_CARD_ROWS = 50;
+export const DEFAULT_OVERVIEW_CARD_ROWS = 50;
 
 /**
  * The ceiling on the accumulated list.
  *
- * Paging with no bound would make the Gazette an unbounded column of live
+ * Paging with no bound would make the Overview an unbounded column of live
  * markdown blocks, each with its own annotation subscriptions and portal
  * hosts, under a memo that walks every post on every change — the shape the
- * transcript has a whole DOM-eviction project for. The Gazette must not
+ * transcript has a whole DOM-eviction project for. The Overview must not
  * acquire that problem while importing none of the remedy, so the walk stops
  * here: ten times the default opening tail.
  *
  * Reaching it ends paging. A reader 500 posts deep wants search, not another
  * page, and the card says nothing about it.
  */
-export const GAZETTE_MAX_ROWS = 500;
+export const OVERVIEW_MAX_ROWS = 500;
 
 /** How close to the top starts loading older history, in px. */
 export const LOAD_OLDER_PX = 200;
 
 /** One displayable post. `key` is stable identity for React and for dedupe. */
-export interface GazettePostEntry {
+export interface OverviewPostEntry {
   key: string;
   /** Ledger rowid; null on a transient post, which is never persisted. */
   id: number | null;
   atMs: number;
-  author: GazetteAuthor;
+  author: OverviewAuthor;
   sessionId: string | null;
   wakeReason: string | null;
   body: string;
-  refs: readonly GazetteRef[];
+  refs: readonly OverviewRef[];
   /** How long the agent turn that wrote this post took, or null when nobody
    *  clocked it (a user question; a row older than the column). */
   elapsedMs: number | null;
@@ -100,22 +100,22 @@ export interface GazettePostEntry {
   projectDir: string | null;
   /** Images the user attached to this question, in composition order. Empty
    *  on every post nobody attached anything to. */
-  attachments: readonly GazetteAttachmentWire[];
+  attachments: readonly OverviewAttachmentWire[];
   requestId: string | null;
   transient: boolean;
 }
 
-export interface GazetteSnapshot {
+export interface OverviewSnapshot {
   /** Ledger-tail load state; live folds work in any state. */
   status: "idle" | "pending" | "ready";
-  /** The channel, oldest-first, capped at {@link GAZETTE_MAX_ROWS}. */
-  posts: readonly GazettePostEntry[];
+  /** The channel, oldest-first, capped at {@link OVERVIEW_MAX_ROWS}. */
+  posts: readonly OverviewPostEntry[];
   /** The live `card_rows` default — how much history the card opened with. */
   cardRows: number;
   /**
    * Whether the ledger holds history older than the oldest post here. False
    * once the walk reaches the beginning, and also once the list reaches
-   * {@link GAZETTE_MAX_ROWS} — a page the store would only throw away is a
+   * {@link OVERVIEW_MAX_ROWS} — a page the store would only throw away is a
    * page it does not ask for.
    */
   hasMore: boolean;
@@ -141,11 +141,11 @@ export interface GazetteSnapshot {
  */
 export const PENDING_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
 
-const EMPTY_POSTS: readonly GazettePostEntry[] = Object.freeze([]);
-const IDLE_SNAPSHOT: GazetteSnapshot = Object.freeze({
+const EMPTY_POSTS: readonly OverviewPostEntry[] = Object.freeze([]);
+const IDLE_SNAPSHOT: OverviewSnapshot = Object.freeze({
   status: "idle" as const,
   posts: EMPTY_POSTS,
-  cardRows: DEFAULT_GAZETTE_CARD_ROWS,
+  cardRows: DEFAULT_OVERVIEW_CARD_ROWS,
   hasMore: false,
   loadingOlder: false,
   pendingRequestId: null,
@@ -155,15 +155,15 @@ const IDLE_SNAPSHOT: GazetteSnapshot = Object.freeze({
 // CONTROL response bus — action-dispatch publishes, the store consumes.
 // ---------------------------------------------------------------------------
 
-type OkListener = (payload: ListGazettePostsOk) => void;
+type OkListener = (payload: ListOverviewPostsOk) => void;
 const okListeners = new Set<OkListener>();
 
-/** Called by `action-dispatch.ts` when `list_gazette_posts_ok` lands. */
-export function publishListGazettePostsOk(payload: ListGazettePostsOk): void {
+/** Called by `action-dispatch.ts` when `list_overview_posts_ok` lands. */
+export function publishListOverviewPostsOk(payload: ListOverviewPostsOk): void {
   for (const listener of [...okListeners]) listener(payload);
 }
 
-function subscribeToListGazettePostsOk(listener: OkListener): () => void {
+function subscribeToListOverviewPostsOk(listener: OkListener): () => void {
   okListeners.add(listener);
   return () => okListeners.delete(listener);
 }
@@ -172,11 +172,11 @@ function subscribeToListGazettePostsOk(listener: OkListener): () => void {
 // The store
 // ---------------------------------------------------------------------------
 
-export class GazetteStore {
+export class OverviewStore {
   private readonly conn: TugConnection;
   private readonly listeners = new Set<() => void>();
   private readonly disposers: Array<() => void> = [];
-  private snapshot: GazetteSnapshot = IDLE_SNAPSHOT;
+  private snapshot: OverviewSnapshot = IDLE_SNAPSHOT;
   private tailRequested = false;
   /** Distinguishes transient posts, which carry no ledger id to dedupe on. */
   private transientSeq = 0;
@@ -200,16 +200,16 @@ export class GazetteStore {
     // Live posts fold as they are written — including while the tail load is
     // still in flight; the merge dedupes on ledger identity.
     this.disposers.push(
-      this.conn.onFrame(FeedId.GAZETTE, (payload) => this._onGazette(payload)),
+      this.conn.onFrame(FeedId.OVERVIEW, (payload) => this._onOverview(payload)),
     );
     this.disposers.push(
-      subscribeToListGazettePostsOk((payload) => this.onTail(payload)),
+      subscribeToListOverviewPostsOk((payload) => this.onTail(payload)),
     );
     const client = getTugbankClient();
     if (client) {
       this.disposers.push(
         client.onDomainChanged((domain) => {
-          if (domain !== GAZETTE_DOMAIN) return;
+          if (domain !== OVERVIEW_DOMAIN) return;
           this.commit(
             this.snapshot.posts,
             this.snapshot.status,
@@ -257,15 +257,15 @@ export class GazetteStore {
    */
   submitQuestion(
     body: string,
-    attachments: readonly GazetteInputAttachment[] = [],
-    refs: readonly GazetteRef[] = [],
+    attachments: readonly OverviewInputAttachment[] = [],
+    refs: readonly OverviewRef[] = [],
   ): string | null {
     const question = body.trim();
     if (question === "" && attachments.length === 0) return null;
     if (this.snapshot.pendingRequestId !== null) return null;
 
     const requestId = mintRequestId();
-    const frame = encodeGazetteInput(question, requestId, attachments, refs);
+    const frame = encodeOverviewInput(question, requestId, attachments, refs);
     this.conn.send(frame.feedId, frame.payload);
 
     this.clearPendingTimer();
@@ -299,7 +299,7 @@ export class GazetteStore {
    * Current snapshot. The first call kicks the one-shot ledger-tail CONTROL
    * request; live folds keep working regardless of its fate.
    */
-  getSnapshot = (): GazetteSnapshot => {
+  getSnapshot = (): OverviewSnapshot => {
     if (!this.tailRequested) {
       this.tailRequested = true;
       const cardRows = readCardRows();
@@ -310,28 +310,28 @@ export class GazetteStore {
       });
       // `card_rows` sizes the OPENING request now — how much history the card
       // opens with, rather than how many rows it will ever show.
-      const frame = encodeListGazettePosts({ limit: cardRows });
+      const frame = encodeListOverviewPosts({ limit: cardRows });
       this.conn.send(frame.feedId, frame.payload);
     }
     return this.snapshot;
   };
 
   /**
-   * One GAZETTE frame off the wire.
+   * One OVERVIEW frame off the wire.
    *
    * Named rather than inlined at the subscription so the app-test surface can
    * reach it with bytes the wire would otherwise have supplied
-   * ({@link _ingestGazetteFrameForTest}) — the parse and the fold are then
+   * ({@link _ingestOverviewFrameForTest}) — the parse and the fold are then
    * exactly the production ones.
    */
-  private _onGazette(payload: Uint8Array): void {
-    const post = parseGazetteFrame(payload);
+  private _onOverview(payload: Uint8Array): void {
+    const post = parseOverviewFrame(payload);
     if (post === null) return;
     this.fold([this.entry(post)]);
   }
 
   /**
-   * A `list_gazette_posts_ok` response — a tail or a page, told apart by the
+   * A `list_overview_posts_ok` response — a tail or a page, told apart by the
    * echoed `before_id`.
    *
    * The response is a CONTROL **broadcast**, not a reply: every subscriber
@@ -343,10 +343,10 @@ export class GazetteStore {
    * dropped. One field, one comparison, and a stale page crossing a
    * reconnect-driven tail becomes a no-op instead of a double prepend.
    */
-  private onTail(payload: ListGazettePostsOk): void {
-    const incoming: GazettePostEntry[] = [];
+  private onTail(payload: ListOverviewPostsOk): void {
+    const incoming: OverviewPostEntry[] = [];
     for (const raw of payload.posts) {
-      const post = parseGazettePost(raw);
+      const post = parseOverviewPost(raw);
       if (post === null) continue;
       incoming.push(this.entry(post));
     }
@@ -385,7 +385,7 @@ export class GazetteStore {
     );
   }
 
-  private entry(post: GazettePostWire): GazettePostEntry {
+  private entry(post: OverviewPostWire): OverviewPostEntry {
     const id = post.id ?? null;
     // [L26]: a post answering a question is keyed by that question's request
     // id, so the pending row and the answer that replaces it are one row to
@@ -408,18 +408,18 @@ export class GazetteStore {
       sessionId: post.session_id ?? null,
       wakeReason: post.wake_reason ?? null,
       body: post.body,
-      refs: Object.freeze([...post.refs]) as readonly GazetteRef[],
+      refs: Object.freeze([...post.refs]) as readonly OverviewRef[],
       elapsedMs: post.elapsed_ms ?? null,
       projectDir: post.project_dir ?? null,
       attachments: Object.freeze([
         ...(post.attachments ?? []),
-      ]) as readonly GazetteAttachmentWire[],
+      ]) as readonly OverviewAttachmentWire[],
       requestId: post.request_id ?? null,
       transient: post.transient,
     });
   }
 
-  private fold(incoming: GazettePostEntry[]): void {
+  private fold(incoming: OverviewPostEntry[]): void {
     const seenKeys = new Set(this.snapshot.posts.map((p) => p.key));
     const seenIds = new Set(
       this.snapshot.posts.flatMap((p) => (p.id !== null ? [p.id] : [])),
@@ -445,8 +445,8 @@ export class GazetteStore {
   }
 
   private commit(
-    posts: readonly GazettePostEntry[],
-    status: GazetteSnapshot["status"],
+    posts: readonly OverviewPostEntry[],
+    status: OverviewSnapshot["status"],
     pendingRequestId: string | null,
     opts?: { keepOldest?: boolean },
   ): void {
@@ -455,17 +455,17 @@ export class GazetteStore {
     // the newest go, because those are the ones the reader has scrolled away
     // from and the page just arrived is what they are reading.
     const capped =
-      posts.length > GAZETTE_MAX_ROWS
+      posts.length > OVERVIEW_MAX_ROWS
         ? opts?.keepOldest === true
-          ? posts.slice(0, GAZETTE_MAX_ROWS)
-          : posts.slice(-GAZETTE_MAX_ROWS)
+          ? posts.slice(0, OVERVIEW_MAX_ROWS)
+          : posts.slice(-OVERVIEW_MAX_ROWS)
         : posts;
     this.snapshot = Object.freeze({
       status,
-      posts: Object.freeze([...capped]) as readonly GazettePostEntry[],
+      posts: Object.freeze([...capped]) as readonly OverviewPostEntry[],
       cardRows: readCardRows(),
       // A list at the ceiling stops asking, whatever the ledger still holds.
-      hasMore: this.hasMore && capped.length < GAZETTE_MAX_ROWS,
+      hasMore: this.hasMore && capped.length < OVERVIEW_MAX_ROWS,
       loadingOlder: this.pendingBefore !== null,
       pendingRequestId,
     });
@@ -483,11 +483,11 @@ export class GazetteStore {
     const snap = this.snapshot;
     if (snap.status !== "ready" || !snap.hasMore) return;
     if (this.pendingBefore !== null) return;
-    if (snap.posts.length >= GAZETTE_MAX_ROWS) return;
+    if (snap.posts.length >= OVERVIEW_MAX_ROWS) return;
     const oldest = snap.posts.find((p) => p.id !== null);
     if (oldest === undefined || oldest.id === null) return;
     this.pendingBefore = oldest.id;
-    const frame = encodeListGazettePosts({
+    const frame = encodeListOverviewPosts({
       beforeId: oldest.id,
       limit: snap.cardRows,
     });
@@ -508,10 +508,10 @@ export class GazetteStore {
  * arrives keyed by that id live and by its rowid from history — and only the
  * rowid is the same on both wires.
  */
-function dedupe(posts: readonly GazettePostEntry[]): GazettePostEntry[] {
+function dedupe(posts: readonly OverviewPostEntry[]): OverviewPostEntry[] {
   const keys = new Set<string>();
   const ids = new Set<number>();
-  const out: GazettePostEntry[] = [];
+  const out: OverviewPostEntry[] = [];
   for (const post of posts) {
     if (keys.has(post.key)) continue;
     if (post.id !== null && ids.has(post.id)) continue;
@@ -536,11 +536,11 @@ function mintRequestId(): string {
 /** The `card_rows` tugbank default; absent or nonsense reads as the mirror. */
 function readCardRows(): number {
   const client = getTugbankClient();
-  if (!client) return DEFAULT_GAZETTE_CARD_ROWS;
-  const entry = client.get(GAZETTE_DOMAIN, GAZETTE_CARD_ROWS_KEY);
+  if (!client) return DEFAULT_OVERVIEW_CARD_ROWS;
+  const entry = client.get(OVERVIEW_DOMAIN, OVERVIEW_CARD_ROWS_KEY);
   const value = entry?.value;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
-    return DEFAULT_GAZETTE_CARD_ROWS;
+    return DEFAULT_OVERVIEW_CARD_ROWS;
   }
   return Math.floor(value);
 }
@@ -549,46 +549,46 @@ function readCardRows(): number {
 // Singleton + hook
 // ---------------------------------------------------------------------------
 
-let _activeStore: GazetteStore | null = null;
+let _activeStore: OverviewStore | null = null;
 
-export function attachGazetteStore(conn: TugConnection): GazetteStore {
+export function attachOverviewStore(conn: TugConnection): OverviewStore {
   if (_activeStore !== null) return _activeStore;
-  _activeStore = new GazetteStore(conn);
+  _activeStore = new OverviewStore(conn);
   return _activeStore;
 }
 
-export function getGazetteStore(): GazetteStore | null {
+export function getOverviewStore(): OverviewStore | null {
   return _activeStore;
 }
 
 /** Test-only: detach the singleton between cases. */
-export function _resetGazetteStoreForTest(): void {
+export function _resetOverviewStoreForTest(): void {
   _activeStore?.dispose();
   _activeStore = null;
 }
 
 /**
- * Test-only: feed a GAZETTE frame body as if it arrived over the wire.
+ * Test-only: feed a OVERVIEW frame body as if it arrived over the wire.
  *
- * Not a mock — the bytes go through the production `parseGazetteFrame` and the
+ * Not a mock — the bytes go through the production `parseOverviewFrame` and the
  * production fold, so what the card sees is what the wire would have produced.
  * The parse rejects a malformed body silently, so a caller must assert on
  * rendered output rather than on having called this.
  */
-export function _ingestGazetteFrameForTest(body: unknown): void {
+export function _ingestOverviewFrameForTest(body: unknown): void {
   if (_activeStore === null) return;
   const bytes = new TextEncoder().encode(JSON.stringify(body));
   // Reach the private handler through the same path onFrame would.
   (
-    _activeStore as unknown as { _onGazette(p: Uint8Array): void }
-  )._onGazette(bytes);
+    _activeStore as unknown as { _onOverview(p: Uint8Array): void }
+  )._onOverview(bytes);
 }
 
 /**
- * Test-only: deliver a `list_gazette_posts_ok` body through the production
+ * Test-only: deliver a `list_overview_posts_ok` body through the production
  * response bus, arming the page correlation first when the body is a page.
  *
- * Not a mock — {@link publishListGazettePostsOk} is the same function
+ * Not a mock — {@link publishListOverviewPostsOk} is the same function
  * `action-dispatch` calls with a wire response, so the branch, the dedupe, the
  * prepend, and the ceiling are all production.
  *
@@ -596,25 +596,25 @@ export function _ingestGazetteFrameForTest(body: unknown): void {
  * only when its echoed `before_id` matches an outstanding request, which is
  * the whole defense against a broadcast page prepending twice — so a page
  * published out of nowhere is correctly dropped. Calling the real
- * {@link GazetteStore.loadOlder} instead would put a request on the wire and
+ * {@link OverviewStore.loadOlder} instead would put a request on the wire and
  * race tugcast's own answer for it. This arms exactly what `loadOlder` arms,
  * and leaves the correlation logic itself to the store's unit tests.
  */
-export function _ingestGazettePageForTest(payload: ListGazettePostsOk): void {
+export function _ingestOverviewPageForTest(payload: ListOverviewPostsOk): void {
   const store = _activeStore;
   if (store === null) return;
   if (payload.before_id !== undefined) {
     (store as unknown as { pendingBefore: number | null }).pendingBefore =
       payload.before_id;
   }
-  publishListGazettePostsOk(payload);
+  publishListOverviewPostsOk(payload);
 }
 
 /**
- * React hook: the app-wide Gazette snapshot. Returns the idle snapshot when no
+ * React hook: the app-wide Overview snapshot. Returns the idle snapshot when no
  * store is attached (gallery / fixtures).
  */
-export function useGazette(): GazetteSnapshot {
+export function useOverview(): OverviewSnapshot {
   return useSyncExternalStore(
     (listener) => {
       const store = _activeStore;

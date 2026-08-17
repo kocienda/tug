@@ -2,7 +2,7 @@
  * `TugAtomRef` — the read-only atom skin.
  *
  * An **atom** is the rendering of a value somebody *placed*: an `@`-mention,
- * a tool call's `file_path` field, an entry in a Gazette post's `refs` array,
+ * a tool call's `file_path` field, an entry in a Overview post's `refs` array,
  * the sha in a commit receipt's header. An atom has exactly two skins and
  * never a third. The **editable skin** is the boxed chip (`TugAtomChip`), and
  * the box means one thing: *this object can be selected, deleted, or dragged
@@ -30,7 +30,7 @@
  * written in prose gets, so there is one interaction path for every file
  * reference rather than a parallel implementation. In presentational mode
  * it stamps nothing, for hosts that already carry the full contract: the
- * Gazette's `annotationProps` wrapper span, which also owns the pending and
+ * Overview's `annotationProps` wrapper span, which also owns the pending and
  * unresolvable tooltip states, and `CommitShaText`, which owns every pointer
  * gesture on a sha. A commit skin never stamps its own — a commit
  * annotation needs the repo root and the commit's touched paths, which only
@@ -44,7 +44,7 @@
  * (`entity-tips.tsx`); an OS-drawn box in the system font is not that
  * answer, and it cannot be themed, delayed, or dismissed with the chain.
  * In presentational mode the skin mounts nothing, because the host that
- * owns the contract owns the hover with it — the Gazette has a pending and
+ * owns the contract owns the hover with it — the Overview has a pending and
  * an unresolvable state to say, and a tip here would shadow them.
  *
  * Born confirmed. A placed value arrived in a field: the tool this header
@@ -54,7 +54,7 @@
  * The link affordance rides the annotation contract rather than a modifier
  * class — an annotated skin, or a skin inside an annotated wrapper, is
  * clickable, and an unresolvable ref carries no annotation and invites
- * nothing. That is what keeps a dead Gazette ref honest with no prop
+ * nothing. That is what keeps a dead Overview ref honest with no prop
  * threading (see `tug-atom-ref.css`).
  *
  * Focus discipline (`data-tug-focus="refuse"`, `data-no-activate`) rides the
@@ -108,7 +108,7 @@ export type TugAtomRefEntity =
        * Stamp the annotation dataset and focus-refuse marks on the skin
        * itself. Defaults to `true`, which is the tool-header and pulse
        * case. Pass `false` when a host wrapper already carries the contract
-       * (the Gazette's `annotationProps` span) — stamping inside it would
+       * (the Overview's `annotationProps` span) — stamping inside it would
        * duplicate the contract and nest a mark in a mark.
        */
       annotate?: boolean;

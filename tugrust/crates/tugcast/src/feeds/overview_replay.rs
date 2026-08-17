@@ -1,5 +1,5 @@
-//! gazette_replay — read a real session transcript, run it through the
-//! Reporter's wake core, and print the gazette it would have produced.
+//! overview_replay — read a real session transcript, run it through the
+//! Observer's wake core, and print the overview it would have produced.
 //!
 //! Cadence is a question about feel, and feel is not answerable from a desk.
 //! This is the instrument that answers it: point it at a session that actually
@@ -10,11 +10,11 @@
 //! ## What makes it trustworthy
 //!
 //! It runs the **production** wake core. Segmentation is
-//! [`reporter_wake::FrameBuffer`] under the real caps, the tap is
-//! [`reporter_wake::forwardable_session`], the input is
-//! [`reporter_wake::compose_reporter_input`], the job is the real
-//! `reporter-post` with the real instructions, and refs are validated by the
-//! real [`reporter_wake::validate_refs`]. Nothing here re-implements a
+//! [`observer_wake::FrameBuffer`] under the real caps, the tap is
+//! [`observer_wake::forwardable_session`], the input is
+//! [`observer_wake::compose_observer_input`], the job is the real
+//! `observer-post` with the real instructions, and refs are validated by the
+//! real [`observer_wake::validate_refs`]. Nothing here re-implements a
 //! decision the bridge will make. That is the whole mitigation for tuning a
 //! prompt the shipped code does not run.
 //!
@@ -40,7 +40,7 @@
 //! ## Why it lives on the tugcast binary
 //!
 //! `tugcast` is a binary-only crate: a `src/bin/` sibling would be its own
-//! crate root and could not import `feeds::reporter_wake`, which is the entire
+//! crate root and could not import `feeds::observer_wake`, which is the entire
 //! point. So this is a hidden subcommand, dispatched before any listener binds
 //! or ledger writer is claimed — a replay never contends with a live tugcast.
 
@@ -50,14 +50,14 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 
-use crate::cli::GazetteReplayArgs;
+use crate::cli::OverviewReplayArgs;
 
-use super::gazette_agent::{BUFFER_MAX_BYTES, DEFAULT_MODEL};
-use super::reporter_wake::{
-    FactLine, FrameBuffer, PriorPost, WakeReason, compose_reporter_input,
+use super::observer_wake::{
+    FactLine, FrameBuffer, PriorPost, WakeReason, compose_observer_input,
     counts_as_assistant_activity, forwardable_session, parse_envelope, render_facts_section,
     validate_refs,
 };
+use super::overview_agent::{BUFFER_MAX_BYTES, DEFAULT_MODEL};
 
 // MARK: - Options
 
@@ -65,7 +65,7 @@ use super::reporter_wake::{
 /// flags exist so a sweep can vary one without writing to tugbank.
 #[derive(Debug, Clone)]
 pub struct ReplayOptions {
-    /// Seconds of continuous activity after which the Reporter wakes.
+    /// Seconds of continuous activity after which the Observer wakes.
     /// Zero disables the sitrep timer, leaving turn-end and session-end.
     pub sitrep_secs: i64,
     /// How many prior posts ride each wake — the dedup mechanism.
@@ -75,13 +75,13 @@ pub struct ReplayOptions {
     /// Cumulative non-cached tokens since the last post that force a wake.
     /// Zero is off, matching the shipped default.
     pub token_wake_tokens: i64,
-    /// Model for the `reporter-post` job.
+    /// Model for the `observer-post` job.
     pub model: String,
     /// Segment and report, but never call the model. The mode the unit tests
     /// and a quick cadence read both use — it costs nothing and is
     /// deterministic.
     pub no_model: bool,
-    /// Print the composed job input for each wake — the bytes the Reporter is
+    /// Print the composed job input for each wake — the bytes the Observer is
     /// actually shown. A silence is only diagnosable against its material.
     pub show_input: bool,
     /// Compose with an empty facts section — the pre-facts diet, for reading a
@@ -92,10 +92,10 @@ pub struct ReplayOptions {
 impl Default for ReplayOptions {
     fn default() -> Self {
         Self {
-            sitrep_secs: super::gazette_agent::DEFAULT_SITREP_SECS,
-            last_k: super::gazette_agent::DEFAULT_LAST_K_POSTS,
-            max_frames: super::gazette_agent::DEFAULT_BUFFER_MAX_FRAMES,
-            token_wake_tokens: super::gazette_agent::DEFAULT_TOKEN_WAKE_TOKENS,
+            sitrep_secs: super::overview_agent::DEFAULT_SITREP_SECS,
+            last_k: super::overview_agent::DEFAULT_LAST_K_POSTS,
+            max_frames: super::overview_agent::DEFAULT_BUFFER_MAX_FRAMES,
+            token_wake_tokens: super::overview_agent::DEFAULT_TOKEN_WAKE_TOKENS,
             model: DEFAULT_MODEL.to_string(),
             no_model: false,
             show_input: false,
@@ -107,7 +107,7 @@ impl Default for ReplayOptions {
 impl ReplayOptions {
     /// Build from the parsed CLI flags, defaulting each absent one to its
     /// shipped value so a bare run reflects what a user would actually get.
-    pub fn from_args(args: &GazetteReplayArgs) -> Self {
+    pub fn from_args(args: &OverviewReplayArgs) -> Self {
         let d = Self::default();
         Self {
             sitrep_secs: args.sitrep_secs.unwrap_or(d.sitrep_secs),
@@ -541,7 +541,7 @@ pub struct WakeWindow {
     pub rendered: String,
 }
 
-/// Decide where the Reporter would have woken.
+/// Decide where the Observer would have woken.
 ///
 /// Pure and deterministic over `(frames, options)`, which is what makes a
 /// cadence sweep comparable: the only thing that changes between two runs at
@@ -677,7 +677,7 @@ pub fn segment_wakes(frames: &[ReplayFrame], opts: &ReplayOptions) -> Vec<WakeWi
 
 // MARK: - Running one replay
 
-/// Replay `path` and print the gazette it produces to stdout.
+/// Replay `path` and print the overview it produces to stdout.
 ///
 /// Returns a process exit code: non-zero only when the transcript could not be
 /// read or held nothing to narrate, since a run whose model declined every
@@ -686,7 +686,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
     let jsonl = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) => {
-            eprintln!("gazette-replay: cannot read {}: {error}", path.display());
+            eprintln!("overview-replay: cannot read {}: {error}", path.display());
             return 1;
         }
     };
@@ -694,7 +694,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
     let frames = translate_transcript(&jsonl);
     if frames.is_empty() {
         eprintln!(
-            "gazette-replay: {} holds no session activity",
+            "overview-replay: {} holds no session activity",
             path.display()
         );
         return 1;
@@ -717,7 +717,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
             if opts.show_input {
                 // No model ran, so there are no prior posts to carry — the
                 // material is the window alone.
-                print_input(&compose_reporter_input(
+                print_input(&compose_observer_input(
                     window.reason,
                     &window.session_id,
                     &window_buffer(window),
@@ -738,7 +738,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
     let model = opts.model.clone();
     // One worker: a replay is serial by construction, and a second would only
     // interleave output.
-    let pool = super::gazette_agent::build_pool(Arc::new(move || model.clone()), 1);
+    let pool = super::overview_agent::build_pool(Arc::new(move || model.clone()), 1);
 
     let mut prior: Vec<PriorPost> = Vec::new();
     let mut tally = Tally::default();
@@ -755,7 +755,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
             )
         };
         let facts_section = render_facts_section(&facts);
-        let input = compose_reporter_input(
+        let input = compose_observer_input(
             window.reason,
             &window.session_id,
             &window_buffer(window),
@@ -765,7 +765,7 @@ pub async fn run(path: &Path, opts: &ReplayOptions) -> i32 {
         if opts.show_input {
             print_input(&input);
         }
-        match pool.run("reporter-post", input).await {
+        match pool.run("observer-post", input).await {
             Err(error) => {
                 tally.failed += 1;
                 println!("**job failed:** {error}\n");
@@ -826,7 +826,7 @@ struct Tally {
 /// Print one post as the channel would show it, with its provenance beneath.
 fn print_post(
     body: &str,
-    refs: Vec<tugcast_core::GazetteRef>,
+    refs: Vec<tugcast_core::OverviewRef>,
     buffered_context: &str,
     facts_section: &str,
 ) {
@@ -838,7 +838,7 @@ fn print_post(
     // that checked only the window would drop a fact-backed sha the live path
     // would keep, and report the diet as worse than it is.
     let refs = validate_refs(refs, &[buffered_context, facts_section]);
-    let label = |list: &[tugcast_core::GazetteRef]| {
+    let label = |list: &[tugcast_core::OverviewRef]| {
         list.iter()
             .map(|r| format!("{} `{}`", r.kind.as_str(), r.target))
             .collect::<Vec<_>>()
@@ -878,7 +878,7 @@ fn print_header(
         .file_name()
         .map(|n| n.to_string_lossy())
         .unwrap_or_default();
-    println!("# Gazette replay — {name}\n");
+    println!("# Overview replay — {name}\n");
     println!(
         "- span: {} of session activity ({} frames, {} wakes)",
         elapsed_label(end_ms - start_ms),
@@ -918,7 +918,7 @@ pub fn synthesize_facts(frames: &[ReplayFrame]) -> crate::feeds::facts_library::
 ///
 /// The upper bound is not decoration. A replay knows every fact the transcript
 /// will ever produce, and a wake shown facts from after its own moment would
-/// read as the Reporter citing the future — the one way a harness can flatter a
+/// read as the Observer citing the future — the one way a harness can flatter a
 /// diet the live bridge could never serve.
 fn facts_for_window(
     facts: &[crate::session_ledger::NewFact],

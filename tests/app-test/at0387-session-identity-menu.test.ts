@@ -33,7 +33,7 @@
  * The second test gates the item the menu LEADS with: a way to the session
  * itself. It reads `Show Session` while a card holds it and raises that card;
  * once no card does, the same item reads `Resume Session` and opens one. Both
- * halves are driven through the menu on a Gazette atom — a citation in foreign
+ * halves are driven through the menu on a Overview atom — a citation in foreign
  * context, which is the surface the item exists for.
  *
  * @covers tugdeck/src/components/tugways/session-identity-menu.tsx
@@ -71,9 +71,9 @@ const TITLE = `${MASTHEAD} .session-masthead-title`;
 const DESCRIPTION = `${MASTHEAD} .tug-session-row-description`;
 const MENU = '[data-slot="tug-editor-context-menu"]';
 const TOOLTIP = '[data-slot="tug-tooltip"]';
-const GAZETTE = '[data-testid="gazette-card"]';
-/** The session atom inside a Gazette post — a citation in foreign context. */
-const GAZETTE_CHIP = `${GAZETTE} .gazette-post [data-slot="tug-session-identity"]`;
+const OVERVIEW = '[data-testid="overview-card"]';
+/** The session atom inside a Overview post — a citation in foreign context. */
+const OVERVIEW_CHIP = `${OVERVIEW} .overview-post [data-slot="tug-session-identity"]`;
 
 function setPasteboard(text: string): void {
   Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(text) });
@@ -140,14 +140,14 @@ function hoverTitle(): string {
 }
 
 /**
- * A right press on the Gazette's atom. Dispatched rather than driven from the
+ * A right press on the Overview's atom. Dispatched rather than driven from the
  * mouse: the trusted press is what the first test gates (it is the half a
  * synthetic event cannot see), and this test is about what the menu SAYS, on a
  * chip inside a portaled rail.
  */
 function rightClickChip(): string {
   return `(function(){
-     var chip = document.querySelector(${JSON.stringify(GAZETTE_CHIP)});
+     var chip = document.querySelector(${JSON.stringify(OVERVIEW_CHIP)});
      var r = chip.getBoundingClientRect();
      chip.dispatchEvent(new MouseEvent("contextmenu", {
        bubbles: true,
@@ -298,23 +298,23 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         );
         expect(await app.evalJS<boolean>(publishSession())).toBe(true);
 
-        // A citation in FOREIGN context — a Gazette ref — which is the surface
+        // A citation in FOREIGN context — a Overview ref — which is the surface
         // the go-to item exists for: an atom in a post has no row under it and
         // no card around it, so the menu is the only way from the name to the
         // session. The ref resolves through the real `resolve_sessions` round
         // trip against the ledger row `bindSession` recorded.
         await app.nativeKey("g", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(GAZETTE)}) !== null`,
+          `document.querySelector(${JSON.stringify(OVERVIEW)}) !== null`,
           { timeoutMs: 10_000 },
         );
         expect(
           await app.evalJS<boolean>(
-            `window.__tug.publishGazettePost(${JSON.stringify(
+            `window.__tug.publishOverviewPost(${JSON.stringify(
               JSON.stringify({
                 id: 1,
                 at_ms: 1_754_600_000_000,
-                author: "reporter",
+                author: "observer",
                 body: "Gave the session atom a way back to its session.",
                 refs: [{ kind: "session", target: SESSION_ID }],
               }),
@@ -323,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         ).toBe(true);
         await app.waitForCondition<boolean>(
           `(function(){
-             var chip = document.querySelector(${JSON.stringify(GAZETTE_CHIP)});
+             var chip = document.querySelector(${JSON.stringify(OVERVIEW_CHIP)});
              return chip !== null && chip.getAttribute("data-missing") !== "true";
            })()`,
           { timeoutMs: 10_000 },
@@ -331,10 +331,10 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
 
         // ---- A. A card holds it, so the item is Show — and it raises. ------
         //
-        // The Gazette is a rail of its own, so the raise is a real one: the
-        // key view is in the Gazette when the item fires and has to land on
+        // The Overview is a rail of its own, so the raise is a real one: the
+        // key view is in the Overview when the item fires and has to land on
         // the session's card.
-        await app.click(GAZETTE);
+        await app.click(OVERVIEW);
         await app.evalJS<null>(rightClickChip());
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
@@ -370,9 +370,9 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           `document.querySelector(${JSON.stringify(MASTHEAD)}) === null`,
           { timeoutMs: 10_000 },
         );
-        // The closed card took the key view with it; the Gazette is the surface
+        // The closed card took the key view with it; the Overview is the surface
         // the next press lands in, so it takes it back first.
-        await app.click(GAZETTE);
+        await app.click(OVERVIEW);
         await app.evalJS<null>(rightClickChip());
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
@@ -404,14 +404,14 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // that spawn lands afterwards is the restore tests' subject, not this
         // one's: an app-test ledger row has no JSONL behind it, so the card is
         // rightly on its way to the picker.
-        const gazetteCards = await app.evalJS<number>(
+        const overviewCards = await app.evalJS<number>(
           `document.querySelectorAll('.tug-pane [data-card-host]').length`,
         );
         await app.nativeClickAtElement(
           `${MENU} [data-item-action="resume-session"]`,
         );
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll('.tug-pane [data-card-host]').length > ${gazetteCards}`,
+          `document.querySelectorAll('.tug-pane [data-card-host]').length > ${overviewCards}`,
           { timeoutMs: 15_000 },
         );
         note(

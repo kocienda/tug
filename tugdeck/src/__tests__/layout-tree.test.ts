@@ -1747,7 +1747,7 @@ describe("imposition rails", () => {
             shares: {
               lens: 2,
               jots: -1,
-              gazette: 0,
+              overview: 0,
               a: Number.NaN,
               b: "3",
               c: null,

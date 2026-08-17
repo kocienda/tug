@@ -1,7 +1,7 @@
 /**
- * gazette-body-segments.ts — does the prose already name this ref?
+ * overview-body-segments.ts — does the prose already name this ref?
  *
- * A Gazette post carries refs the model listed beside its prose. Those two
+ * A Overview post carries refs the model listed beside its prose. Those two
  * are written independently, so they overlap only by accident: a post can
  * mention three files and list a fourth. The prose's own mentions are
  * atomized by the **content annotator** — the same pass that marks paths
@@ -38,10 +38,10 @@
  *
  * Pure.
  *
- * @module lib/gazette-body-segments
+ * @module lib/overview-body-segments
  */
 
-import type { GazetteRef } from "@/protocol";
+import type { OverviewRef } from "@/protocol";
 
 /** Characters that continue a path or name token — a match that touches one
  *  of these on either side is a fragment of something else, not a mention. */
@@ -96,7 +96,7 @@ function mentionsCommit(body: string, target: string): boolean {
  * Whether the post's prose already names `ref`, and the annotator has
  * therefore already made it clickable where the reader is reading.
  */
-export function bodyMentionsRef(body: string, ref: GazetteRef): boolean {
+export function bodyMentionsRef(body: string, ref: OverviewRef): boolean {
   const target = ref.target;
   if (target.length === 0) return false;
   // A session citation is its own surface with its own gesture; the prose
@@ -111,7 +111,7 @@ export function bodyMentionsRef(body: string, ref: GazetteRef): boolean {
 /** The refs whose targets the prose has *not* already named — the chips. */
 export function unmentionedRefs(
   body: string,
-  refs: readonly GazetteRef[],
-): GazetteRef[] {
+  refs: readonly OverviewRef[],
+): OverviewRef[] {
   return refs.filter((ref) => !bodyMentionsRef(body, ref));
 }

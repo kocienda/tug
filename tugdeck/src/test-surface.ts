@@ -47,10 +47,10 @@ import { transferFocusForActivation } from "./focus-transfer";
 import { getFocusManager } from "./components/tugways/focus-manager";
 import { currentGesture } from "./gesture-interpreter";
 import {
-  _ingestGazetteFrameForTest,
-  _ingestGazettePageForTest,
-  getGazetteStore,
-} from "./lib/gazette-store";
+  _ingestOverviewFrameForTest,
+  _ingestOverviewPageForTest,
+  getOverviewStore,
+} from "./lib/overview-store";
 import { _ingestPulseFrameForTest, getPulseStore } from "./lib/pulse-store";
 import {
   ACTIVITY_DESCRIPTORS,
@@ -74,7 +74,7 @@ import { writeSessionAtomToClipboard } from "./lib/session-atom";
 import { resolveSessionIdentity } from "./lib/session-identity";
 import { readClipboardViaNative } from "./lib/tug-native-clipboard";
 import { parseClipboardSidecar } from "./components/tugways/tug-text-editor/clipboard-filters";
-import type { ListGazettePostsOk, RateLimitInfo } from "./protocol";
+import type { ListOverviewPostsOk, RateLimitInfo } from "./protocol";
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import type { TaggedValue } from "./lib/tugbank-client";
 import type {
@@ -257,9 +257,9 @@ import {
  * consumer gates on this constant, and the harness's own surface version
  * (`_harness/index.ts`) is a separate number that does not move.
  *
- * `2.1.0`: adds {@link TugTestSurface.publishGazettePost} — delivers a GAZETTE
- * frame body as if it arrived over the wire, so a test can put a Reporter post
- * with its refs on the card without a live Reporter behind it. Additive; major
+ * `2.1.0`: adds {@link TugTestSurface.publishOverviewPost} — delivers a OVERVIEW
+ * frame body as if it arrived over the wire, so a test can put a Observer post
+ * with its refs on the card without a live Observer behind it. Additive; major
  * stays `2`.
  *
  * `2.2.0`: adds {@link TugTestSurface.recordActivity} — records units on a
@@ -287,10 +287,10 @@ import {
  * pinned against the real render instead of against a fallback. Additive;
  * major stays `2`.
  *
- * `2.7.0`: adds {@link TugTestSurface.publishGazettePostsPage} — hands a
- * `list_gazette_posts_ok` body to the production CONTROL-response bus, the
- * page sibling of `publishGazettePost`'s feed frame. It exists because
- * `publishGazettePost` cannot reach paging at all: it routes to the client
+ * `2.7.0`: adds {@link TugTestSurface.publishOverviewPostsPage} — hands a
+ * `list_overview_posts_ok` body to the production CONTROL-response bus, the
+ * page sibling of `publishOverviewPost`'s feed frame. It exists because
+ * `publishOverviewPost` cannot reach paging at all: it routes to the client
  * store's fold and never touches the wire, so nothing it publishes is ever
  * persisted and no amount of it seeds a ledger to page through. This enters
  * the production chain one function later than a wire response does, and
@@ -863,11 +863,11 @@ export interface TugTestSurface {
   publishPulseFrame(payloadJson: string): boolean;
 
   /**
-   * Deliver a GAZETTE frame body as if it had arrived over the wire
+   * Deliver a OVERVIEW frame body as if it had arrived over the wire
    * (SURFACE_VERSION 2.1.0).
    *
-   * `payloadJson` is the post the Reporter or the Operator writes —
-   * `{"id":…,"at_ms":…,"author":"reporter"|"operator"|"user","body":…,"refs":[…]}`.
+   * `payloadJson` is the post the Observer or the Operator writes —
+   * `{"id":…,"at_ms":…,"author":"observer"|"operator"|"user","body":…,"refs":[…]}`.
    * The bytes go through the production parser and the production fold, so what
    * the card renders is what a live author would have produced.
    *
@@ -875,16 +875,16 @@ export interface TugTestSurface {
    * `true` return only means the bytes were handed over: the frame parser drops
    * a malformed post silently, so assert on what rendered, never on this alone.
    */
-  publishGazettePost(payloadJson: string): boolean;
+  publishOverviewPost(payloadJson: string): boolean;
 
   /**
-   * Deliver a `list_gazette_posts_ok` response as if tugcast had broadcast it
+   * Deliver a `list_overview_posts_ok` response as if tugcast had broadcast it
    * (SURFACE_VERSION 2.7.0).
    *
    * `payloadJson` is the response body —
    * `{"posts":[…],"has_more":true,"before_id":123}`. A body with a
    * `before_id` is a PAGE and prepends; one without is a tail and replaces.
-   * The bytes go through `publishListGazettePostsOk`, the same bus
+   * The bytes go through `publishListOverviewPostsOk`, the same bus
    * `action-dispatch` publishes a wire response on, so the store's branch,
    * its dedupe, and the card's prepend compensation are all the production
    * ones. A page body additionally arms the store's page correlation, the way
@@ -892,14 +892,14 @@ export interface TugTestSurface {
    * and calling the real `loadOlder` instead would put a request on the wire
    * and race tugcast's own answer for it.
    *
-   * The sibling of {@link TugTestSurface.publishGazettePost}, and necessary
+   * The sibling of {@link TugTestSurface.publishOverviewPost}, and necessary
    * for the same reason it is insufficient: that verb routes to the client
    * store's fold and never reaches tugcast, so nothing it publishes is
    * persisted and no amount of it builds a ledger to page through.
    *
    * Returns `false` when the JSON does not parse or carries no `posts` array.
    */
-  publishGazettePostsPage(payloadJson: string): boolean;
+  publishOverviewPostsPage(payloadJson: string): boolean;
 
   /**
    * Deliver a `session_updated` ledger row as if it had arrived over the wire
@@ -990,7 +990,7 @@ export interface TugTestSurface {
    * a test that measured on its own would be reporting the fallback's metrics
    * whenever it ran early, which is the trap `lib/font-metrics.ts` exists to
    * close. This is how a width constant derived from a type size (the
-   * Gazette's `ch`-derived rail widths) is pinned against the real render.
+   * Overview's `ch`-derived rail widths) is pinned against the real render.
    */
   measureFaceAdvance(selector: string, text: string): Promise<number | null>;
 
@@ -2018,18 +2018,18 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return textMeasurer(el)?.(text) ?? null;
     },
 
-    publishGazettePost(payloadJson: string): boolean {
-      if (getGazetteStore() === null) return false;
+    publishOverviewPost(payloadJson: string): boolean {
+      if (getOverviewStore() === null) return false;
       try {
-        _ingestGazetteFrameForTest(JSON.parse(payloadJson));
+        _ingestOverviewFrameForTest(JSON.parse(payloadJson));
       } catch {
         return false;
       }
       return true;
     },
 
-    publishGazettePostsPage(payloadJson: string): boolean {
-      if (getGazetteStore() === null) return false;
+    publishOverviewPostsPage(payloadJson: string): boolean {
+      if (getOverviewStore() === null) return false;
       let body: unknown;
       try {
         body = JSON.parse(payloadJson);
@@ -2039,11 +2039,11 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       if (
         body === null ||
         typeof body !== "object" ||
-        !Array.isArray((body as ListGazettePostsOk).posts)
+        !Array.isArray((body as ListOverviewPostsOk).posts)
       ) {
         return false;
       }
-      _ingestGazettePageForTest(body as ListGazettePostsOk);
+      _ingestOverviewPageForTest(body as ListOverviewPostsOk);
       return true;
     },
 

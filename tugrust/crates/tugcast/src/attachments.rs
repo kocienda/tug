@@ -9,7 +9,7 @@
 //!
 //! - `POST /api/attachments` — the composer's draft tier. The server picks
 //!   the location: `data_dir()/draft-attachments/<uuid>.<ext>`, one directory
-//!   over from the Gazette's `gazette-attachments`. The caller names only a
+//!   over from the Overview's `overview-attachments`. The caller names only a
 //!   media type; the response is the absolute path. Files here are transient
 //!   by nature and are reclaimed by the startup sweep in `draft_gc`.
 //! - `POST /api/fs/attach` — the document tier. The caller names the markdown

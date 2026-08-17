@@ -70,9 +70,9 @@ import "./tug-transcript-entry.css";
 import React from "react";
 import {
   Bot,
+  Eye,
   GitCommitHorizontal,
   ListTree,
-  Newspaper,
   Shell,
   User,
 } from "lucide-react";
@@ -96,7 +96,7 @@ export type Participant =
   | "shell"
   | "refs"
   | "git"
-  | "reporter"
+  | "observer"
   | "operator";
 
 /**
@@ -134,10 +134,10 @@ const PARTICIPANT_ICONS: Record<Participant, React.ReactNode> = {
   shell: <Shell size={ICON_PIXEL_SIZE} />,
   refs: <ListTree size={ICON_PIXEL_SIZE} />,
   git: <GitCommitHorizontal size={ICON_PIXEL_SIZE} />,
-  // The Gazette's two voices: the Reporter narrates sessions, the Operator
+  // The Overview's two voices: the Observer narrates sessions, the Operator
   // answers questions. Both read at transcript scale, so they live in the
-  // shared registry rather than in a Gazette-only fork of the row.
-  reporter: <Newspaper size={ICON_PIXEL_SIZE} />,
+  // shared registry rather than in an Overview-only fork of the row.
+  observer: <Eye size={ICON_PIXEL_SIZE} />,
   operator: <Operator size={ICON_PIXEL_SIZE} />,
 };
 

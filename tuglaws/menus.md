@@ -167,13 +167,13 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘B | `toggle-bullseye` | Bullseye | menu bar (swept) |
 | ⌃⌘C | `toggle-changes-view` | Show Session Changes | JS, global |
 | ⌃⌘F | `toggle-full-screen` | Enter Full Screen | menu bar (AppKit's own) |
-| ⌃⌘G | `toggle-gazette` | Show Gazette | menu bar (swept) |
 | ⌃⌘H | `toggle-history-view` | Show Commit History | JS, global |
 | ⌃⌘I | `run-slash-command:ai` | AI… | menu bar (swept) |
 | ⌃⌘J | `toggle-jots` | Show Jots | menu bar (swept) |
 | ⌃⌘K | `show-keyboard-shortcuts` | Keyboard Shortcuts… | menu bar (swept) |
 | ⌃⌘L | `toggle-lens` | Show Lens | menu bar (swept) |
 | ⌃⌘M | `commit-auto-message` | Generate a Commit Message | JS, responder |
+| ⌃⌘O | `toggle-overview` | Show Overview | menu bar (swept) |
 | ⌃⌘P | `select-composer-route:prompt` | Prompt Route | JS, global |
 | ⌃⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
@@ -292,10 +292,10 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `maker.devTools` | `show-devtools` | first responder | registry gate |
 | `maker.focusLens` | `focus-lens` | first responder | host tier |
 | `maker.galleryCard` | `show-component-gallery` | first responder | host tier |
-| `maker.gazette` | `toggle-gazette` | registered handler | host tier |
 | `maker.jots` | `toggle-jots` | registered handler | host tier |
 | `maker.lens` | `toggle-lens` | registered handler | host tier |
 | `maker.newCardInPane` | `add-card-to-active-pane` | first responder | registry gate |
+| `maker.overview` | `toggle-overview` | registered handler | host tier |
 | `maker.reload` | `reload` | registered handler | host tier |
 | `session.addDir` | `run-slash-command:add-dir` | key card | registry gate |
 | `session.agents` | `run-slash-command:agents` | key card | registry gate |

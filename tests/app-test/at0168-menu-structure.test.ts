@@ -147,7 +147,7 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // The three sidebar toggles, all swept: ⌃⌘L, ⌃⌘J, ⌃⌘G.
   { id: "maker.lens", key: "l", mods: MOD.command | MOD.control },
   { id: "maker.jots", key: "j", mods: MOD.command | MOD.control },
-  { id: "maker.gazette", key: "g", mods: MOD.command | MOD.control },
+  { id: "maker.overview", key: "g", mods: MOD.command | MOD.control },
   { id: "maker.sourceTree" },
   // Help
   { id: "help.shortcuts", key: "" },

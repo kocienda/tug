@@ -48,10 +48,10 @@ import {
   type SidebarSide,
 } from "@/lib/layout-imposer";
 import {
-  COMFORT_GAZETTE_WIDTH_PX,
-  DEFAULT_GAZETTE_WIDTH_PX,
-  MIN_GAZETTE_WIDTH_PX,
-} from "@/lib/gazette-measure";
+  COMFORT_OVERVIEW_WIDTH_PX,
+  DEFAULT_OVERVIEW_WIDTH_PX,
+  MIN_OVERVIEW_WIDTH_PX,
+} from "@/lib/overview-measure";
 
 const GAP = IMPOSITION_GAP_PX;
 /** The ceiling the deck passes, for every rail. */
@@ -73,13 +73,13 @@ interface RailFixture {
   memberFloors: { left?: readonly number[]; right?: readonly number[] };
 }
 
-/** The Gazette's real registered policy — the widths this plan derives from
+/** The Overview's real registered policy — the widths this plan derives from
  *  its type, imported rather than re-hardcoded so a retune of the measure
  *  moves this sweep with it. */
-const GAZETTE: RailPolicy = {
-  preferredWidth: DEFAULT_GAZETTE_WIDTH_PX,
-  minWidth: MIN_GAZETTE_WIDTH_PX,
-  comfortWidth: COMFORT_GAZETTE_WIDTH_PX,
+const OVERVIEW: RailPolicy = {
+  preferredWidth: DEFAULT_OVERVIEW_WIDTH_PX,
+  minWidth: MIN_OVERVIEW_WIDTH_PX,
+  comfortWidth: COMFORT_OVERVIEW_WIDTH_PX,
   greedRank: 1,
 };
 /** A rail with no comfort band — comfort sits on the hard floor, which is what
@@ -107,7 +107,7 @@ const DRAGGED: RailPolicy = bare({
 });
 
 /**
- * The Gazette after its owner has dragged it NARROWER than its comfort
+ * The Overview after its owner has dragged it NARROWER than its comfort
  * measure — which the hard floor lets them do, and which the allocator must
  * honor. The comfort floor may never grow this rail back toward 512: doing so
  * would widen it against an explicit choice and deepen the very overlap the
@@ -115,8 +115,8 @@ const DRAGGED: RailPolicy = bare({
  */
 const DRAGGED_UNDER_COMFORT: RailPolicy = {
   preferredWidth: 450,
-  minWidth: MIN_GAZETTE_WIDTH_PX,
-  comfortWidth: COMFORT_GAZETTE_WIDTH_PX,
+  minWidth: MIN_OVERVIEW_WIDTH_PX,
+  comfortWidth: COMFORT_OVERVIEW_WIDTH_PX,
   greedRank: 1,
 };
 
@@ -132,9 +132,9 @@ function foldRail(members: readonly RailPolicy[]): RailPolicy {
 
 const RAIL_FIXTURES: readonly RailFixture[] = [
   {
-    name: "gazette-right",
-    rails: { right: GAZETTE },
-    memberFloors: { right: [GAZETTE.minWidth] },
+    name: "overview-right",
+    rails: { right: OVERVIEW },
+    memberFloors: { right: [OVERVIEW.minWidth] },
   },
   {
     name: "lens-left",
@@ -147,19 +147,19 @@ const RAIL_FIXTURES: readonly RailFixture[] = [
     memberFloors: { right: [JOTS.minWidth] },
   },
   {
-    name: "gazette-jots-stacked-right",
-    rails: { right: foldRail([GAZETTE, JOTS]) },
-    memberFloors: { right: [GAZETTE.minWidth, JOTS.minWidth] },
+    name: "overview-jots-stacked-right",
+    rails: { right: foldRail([OVERVIEW, JOTS]) },
+    memberFloors: { right: [OVERVIEW.minWidth, JOTS.minWidth] },
   },
   {
-    name: "lens-left+gazette-right",
-    rails: { left: LENS, right: GAZETTE },
-    memberFloors: { left: [LENS.minWidth], right: [GAZETTE.minWidth] },
+    name: "lens-left+overview-right",
+    rails: { left: LENS, right: OVERVIEW },
+    memberFloors: { left: [LENS.minWidth], right: [OVERVIEW.minWidth] },
   },
   {
-    name: "jots-left+gazette-right",
-    rails: { left: JOTS, right: GAZETTE },
-    memberFloors: { left: [JOTS.minWidth], right: [GAZETTE.minWidth] },
+    name: "jots-left+overview-right",
+    rails: { left: JOTS, right: OVERVIEW },
+    memberFloors: { left: [JOTS.minWidth], right: [OVERVIEW.minWidth] },
   },
   {
     name: "equal-rank-pair",
@@ -170,12 +170,12 @@ const RAIL_FIXTURES: readonly RailFixture[] = [
     memberFloors: { left: [320], right: [320] },
   },
   {
-    name: "dragged-left+gazette-right",
-    rails: { left: DRAGGED, right: GAZETTE },
-    memberFloors: { left: [DRAGGED.minWidth], right: [GAZETTE.minWidth] },
+    name: "dragged-left+overview-right",
+    rails: { left: DRAGGED, right: OVERVIEW },
+    memberFloors: { left: [DRAGGED.minWidth], right: [OVERVIEW.minWidth] },
   },
   {
-    name: "gazette-dragged-under-comfort-right",
+    name: "overview-dragged-under-comfort-right",
     rails: { right: DRAGGED_UNDER_COMFORT, left: LENS },
     memberFloors: {
       left: [LENS.minWidth],

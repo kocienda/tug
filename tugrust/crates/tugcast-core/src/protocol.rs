@@ -136,22 +136,22 @@ impl FeedId {
     /// Search requests (tugdeck → tugcast): `match`, `search`, `cancel`.
     pub const REFS_INPUT: Self = Self(0x63);
 
-    // -- Gazette (app-wide narration channel) --
-    /// Gazette posts (tugcast → tugdeck): one `GazettePost` per frame, from
-    /// any of the channel's three authors — the Reporter's session digests,
+    // -- Overview (app-wide narration channel) --
+    /// Overview posts (tugcast → tugdeck): one `OverviewPost` per frame, from
+    /// any of the channel's three authors — the Observer's session digests,
     /// the Operator's answers, and the user's own questions echoed back
     /// after they are persisted.
     ///
     /// The byte was long reserved under the name `TUG_FEED` for a planned
     /// "tug surface feed" that was never built and whose needs were met
-    /// elsewhere; the Gazette is closer to that original meaning than the
+    /// elsewhere; the Overview is closer to that original meaning than the
     /// archived plan was, so it takes the id rather than opening a new one.
-    pub const GAZETTE: Self = Self(0x70);
-    /// Gazette questions (tugdeck → tugcast): the card's composer submitting
+    pub const OVERVIEW: Self = Self(0x70);
+    /// Overview questions (tugdeck → tugcast): the card's composer submitting
     /// `{body, request_id}` for the Operator. A sibling upstream id rather
-    /// than bidirectional traffic on `GAZETTE`, following the
+    /// than bidirectional traffic on `OVERVIEW`, following the
     /// `SHELL_OUTPUT`/`SHELL_INPUT` and `USAGE`/`USAGE_QUERY` pairs.
-    pub const GAZETTE_INPUT: Self = Self(0x71);
+    pub const OVERVIEW_INPUT: Self = Self(0x71);
 
     // -- Pulse (app-wide color commentary) --
     /// Commentator lines (tugcast → tugdeck)
@@ -217,8 +217,8 @@ impl FeedId {
             Self::SHELL_INPUT => Some("ShellInput"),
             Self::REFS_OUTPUT => Some("RefsOutput"),
             Self::REFS_INPUT => Some("RefsInput"),
-            Self::GAZETTE => Some("Gazette"),
-            Self::GAZETTE_INPUT => Some("GazetteInput"),
+            Self::OVERVIEW => Some("Overview"),
+            Self::OVERVIEW_INPUT => Some("OverviewInput"),
             Self::CONTROL => Some("Control"),
             Self::HEARTBEAT => Some("Heartbeat"),
             _ => None,
@@ -525,10 +525,10 @@ mod tests {
         assert_eq!(FeedId::USAGE.as_byte(), 0x90);
         assert_eq!(FeedId::USAGE_QUERY.as_byte(), 0x91);
         assert_eq!(FeedId::USAGE.name(), Some("Usage"));
-        assert_eq!(FeedId::GAZETTE.as_byte(), 0x70);
-        assert_eq!(FeedId::GAZETTE_INPUT.as_byte(), 0x71);
-        assert_eq!(FeedId::GAZETTE.name(), Some("Gazette"));
-        assert_eq!(FeedId::GAZETTE_INPUT.name(), Some("GazetteInput"));
+        assert_eq!(FeedId::OVERVIEW.as_byte(), 0x70);
+        assert_eq!(FeedId::OVERVIEW_INPUT.as_byte(), 0x71);
+        assert_eq!(FeedId::OVERVIEW.name(), Some("Overview"));
+        assert_eq!(FeedId::OVERVIEW_INPUT.name(), Some("OverviewInput"));
         assert_eq!(FeedId::CONTROL.as_byte(), 0xC0);
         assert_eq!(FeedId::HEARTBEAT.as_byte(), 0xFF);
     }

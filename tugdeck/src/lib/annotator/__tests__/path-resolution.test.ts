@@ -206,7 +206,7 @@ describe("the version moves exactly when the ink would need re-marking", () => {
 
 /**
  * A verdict cached for the app's life is a reference that can never come
- * back, and a Gazette post routinely names a file minutes before it exists.
+ * back, and a Overview post routinely names a file minutes before it exists.
  * The clock and the probe are injected — the clock so a minute can pass
  * without waiting one, the probe so the test can read WHICH paths the store
  * chose to ask about, which is the decision the expiry rule makes. That is

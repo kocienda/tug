@@ -54,7 +54,7 @@ import {
 } from "@/card-registry";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
-import { GAZETTE_CARD_ID } from "@/lib/gazette-card-id";
+import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { getJotsStore } from "@/lib/jots-store";
 import {
   bullseyePaneIdOf,
@@ -625,7 +625,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.FOCUS_LENS,
   TUG_ACTIONS.TOGGLE_LENS,
   TUG_ACTIONS.TOGGLE_JOTS,
-  TUG_ACTIONS.TOGGLE_GAZETTE,
+  TUG_ACTIONS.TOGGLE_OVERVIEW,
   TUG_ACTIONS.NEW_JOT,
   TUG_ACTIONS.SHOW_COMPONENT_GALLERY,
   TUG_ACTIONS.ADD_CARD_TO_ACTIVE_PANE,
@@ -1235,8 +1235,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       [TUG_ACTIONS.TOGGLE_JOTS]: (_event: ActionEvent) => {
         toggleSidebarCard(store, JOTS_CARD_ID);
       },
-      [TUG_ACTIONS.TOGGLE_GAZETTE]: (_event: ActionEvent) => {
-        toggleSidebarCard(store, GAZETTE_CARD_ID);
+      [TUG_ACTIONS.TOGGLE_OVERVIEW]: (_event: ActionEvent) => {
+        toggleSidebarCard(store, OVERVIEW_CARD_ID);
       },
       // ⌘J — capture in one gesture: reveal the Jots rail if it is hidden,
       // then open a fresh jot's editor. The reveal takes the same

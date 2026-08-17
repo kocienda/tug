@@ -1,5 +1,5 @@
 /**
- * at0369-gazette-post-navigation.test.ts — ⌥⌘↑ / ⌥⌘↓ step the Gazette one
+ * at0369-overview-post-navigation.test.ts — ⌥⌘↑ / ⌥⌘↓ step the Overview one
  * post at a time.
  *
  * The chord is the Session transcript's, read on this card's column, and it
@@ -12,7 +12,7 @@
  * releases the key equivalent for exactly that case), land in the web view,
  * resolve against the registry, and find this card's handler.
  *
- * The second claim is the step itself. The Gazette shares the transcript's
+ * The second claim is the step itself. The Overview shares the transcript's
  * selection rule (`computePageNavigation`), so a press lands a post's TOP
  * flush with the top of the column — not a fixed pixel amount, not a viewport
  * page. The assertion is therefore geometric: after each press, some post's
@@ -24,7 +24,7 @@
  * the surface most likely to swallow an arrow. A CM6 editor holding focus and
  * the column still stepping is the routing working.
  *
- * @covers tugdeck/src/components/gazette/gazette-card.tsx
+ * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/src/components/tugways/internal/list-view-page-navigation.ts
  */
 
@@ -35,17 +35,17 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
-const CARD = '[data-testid="gazette-card"]';
-const TRANSCRIPT = '[data-testid="gazette-transcript"]';
-const POST = `${CARD} .gazette-cell`;
-const FIELD = '[data-testid="gazette-composer-field"]';
+const CARD = '[data-testid="overview-card"]';
+const TRANSCRIPT = '[data-testid="overview-transcript"]';
+const POST = `${CARD} .overview-cell`;
+const FIELD = '[data-testid="overview-composer-field"]';
 
 const AT_MS = 1_754_600_000_000;
 
 interface WirePost {
   id: number;
   at_ms: number;
-  author: "reporter";
+  author: "observer";
   body: string;
   refs: never[];
 }
@@ -55,7 +55,7 @@ function wirePost(id: number): WirePost {
   return {
     id,
     at_ms: AT_MS + id * 1_000,
-    author: "reporter",
+    author: "observer",
     body: `Post ${id}: the session finished a turn and left a note about what it did, which is enough prose to give this row a height a reader has to scroll past.`,
     refs: [],
   };
@@ -88,12 +88,12 @@ async function standing(app: App): Promise<Standing> {
   return app.evalJS<Standing>(STANDING_JS);
 }
 
-describe.skipIf(!SHOULD_RUN)("at0369 — the Gazette steps by post", () => {
+describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
   test(
     "⌥⌘↑ / ⌥⌘↓ land a post's top flush at the top of the column",
     async () => {
       const app = await launchTugApp({
-        testName: "at0369-gazette-post-navigation",
+        testName: "at0369-overview-post-navigation",
       });
       try {
         await app.nativeKey("g", ["cmd", "ctrl"]);
@@ -105,7 +105,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Gazette steps by post", () => {
         for (let id = 20; id <= 31; id++) {
           expect(
             await app.evalJS<boolean>(
-              `window.__tug.publishGazettePost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
+              `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
             ),
           ).toBe(true);
         }

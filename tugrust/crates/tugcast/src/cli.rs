@@ -91,19 +91,19 @@ pub struct Cli {
 /// Tools that share the binary but not its job.
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Replay a session transcript through the Reporter's wake core and print
-    /// the gazette it would have produced.
+    /// Replay a session transcript through the Observer's wake core and print
+    /// the overview it would have produced.
     ///
     /// Hidden because it is a calibration instrument, not part of running
     /// tugcast: it exists so the channel's cadence can be set by reading real
     /// output at two or three values rather than by guessing one.
     #[command(hide = true)]
-    GazetteReplay(GazetteReplayArgs),
+    OverviewReplay(OverviewReplayArgs),
 
-    /// Ask the Gazette's Operator a question against a named ledger and print
+    /// Ask the Overview's Operator a question against a named ledger and print
     /// what it answers, with every verb it ran on the way.
     ///
-    /// Hidden for the same reason as `gazette-replay`: it is a verification and
+    /// Hidden for the same reason as `overview-replay`: it is a verification and
     /// calibration instrument. It runs the real pipeline — real ledger, real
     /// verbs, real model — which is the only way a question that once failed
     /// can be shown to answer now.
@@ -114,7 +114,7 @@ pub enum Command {
 /// Flags for `tugcast operator-ask`.
 #[derive(Args, Debug)]
 pub struct OperatorAskArgs {
-    /// The question, exactly as someone would type it into the Gazette card.
+    /// The question, exactly as someone would type it into the Overview card.
     pub question: String,
 
     /// Session ledger to read. POINT THIS AT A COPY: `just db-inspect` makes
@@ -142,18 +142,18 @@ pub struct OperatorAskArgs {
     pub show_rounds: bool,
 
     /// A file the asker pointed at with an `@` atom, repeatable — the same
-    /// gesture the Gazette composer sends as a question ref. Without it this
+    /// gesture the Overview composer sends as a question ref. Without it this
     /// instrument cannot reach the seeded half of the pipeline, and a replay
     /// would silently measure the unseeded path.
     #[arg(long = "ref", value_name = "PATH")]
     pub refs: Vec<String>,
 }
 
-/// Flags for `tugcast gazette-replay`. Each one overrides a `dev.tugtool.gazette`
+/// Flags for `tugcast overview-replay`. Each one overrides a `dev.tugtool.overview`
 /// default for the length of the run without writing to tugbank, so a sweep
 /// never disturbs a live instance's settings.
 #[derive(Args, Debug)]
-pub struct GazetteReplayArgs {
+pub struct OverviewReplayArgs {
     /// Claude Code session transcript (`~/.claude/projects/<slug>/<id>.jsonl`).
     pub jsonl: PathBuf,
 
@@ -174,7 +174,7 @@ pub struct GazetteReplayArgs {
     #[arg(long)]
     pub token_wake_tokens: Option<i64>,
 
-    /// Model for the `reporter-post` job.
+    /// Model for the `observer-post` job.
     #[arg(long)]
     pub model: Option<String>,
 
@@ -184,7 +184,7 @@ pub struct GazetteReplayArgs {
     pub no_model: bool,
 
     /// Print the composed job input for each wake — exactly the bytes the
-    /// Reporter is shown. The answer to "why did it stay silent?", which
+    /// Observer is shown. The answer to "why did it stay silent?", which
     /// cannot be read off the post that was not written. Combines with
     /// `--no-model` to inspect the material for free.
     #[arg(long)]
@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(args.question, "what was the recent commit about tooltips?");
         assert!(args.show_rounds);
         // Both are genuinely optional: no shell ledger reads as "no command
-        // history", and no model means the Gazette's own default.
+        // history", and no model means the Overview's own default.
         assert!(args.shell_db.is_none());
         assert!(args.model.is_none());
 
@@ -285,7 +285,7 @@ mod tests {
             .render_help()
             .to_string();
         assert!(!help.contains("operator-ask"), "{help}");
-        assert!(!help.contains("gazette-replay"), "{help}");
+        assert!(!help.contains("overview-replay"), "{help}");
     }
 
     #[test]

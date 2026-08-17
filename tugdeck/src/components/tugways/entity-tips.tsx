@@ -2,7 +2,7 @@
  * Entity tips — what hovering a commit, a session, or a file says.
  *
  * An entity can be pointed at from many places: a sha appears in transcript
- * prose, in a History row, on a receipt, in a Gazette ref. Before this module
+ * prose, in a History row, on a receipt, in a Overview ref. Before this module
  * each of those surfaces answered the hover its own way, so the same commit
  * described itself five different ways depending on which one you happened to
  * be looking at — and four of those answers were the OS `title` attribute,

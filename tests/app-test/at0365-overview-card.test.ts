@@ -1,7 +1,7 @@
 /**
- * at0365-gazette-card.test.ts — the Gazette rail, from the chord to the answer.
+ * at0365-overview-card.test.ts — the Overview rail, from the chord to the answer.
  *
- * The Gazette is the app's narration channel: a sidebar card reading one
+ * The Overview is the app's narration channel: a sidebar card reading one
  * scrolling column of posts, oldest at the top, written by three voices. Nothing
  * about it is per-session, so there is no session card to stand it up beside and
  * no transcript to seed — the whole surface is the rail, the posts in it, and
@@ -9,19 +9,19 @@
  *
  * Three claims, in the order a user meets them:
  *
- *  1. **The chord opens the rail.** ⌃⌘G, posted as a real keystroke, brings up
+ *  1. **The chord opens the rail.** ⌃⌘O, posted as a real keystroke, brings up
  *     the card; a second press puts it away. The binding is registry-routed and
  *     menu-eligible, so this exercises the chord table and the menu item's
  *     handler at once — the two places a sidebar toggle can be wired wrong.
  *     Arriving also engages keyboard-focus mode, because the card registers
  *     `kbfAtRest` — and a card that engages the mode has to have a stop to put
- *     the keyboard on. Gazette's first stop is its composer, a text stop the
+ *     the keyboard on. Overview's first stop is its composer, a text stop the
  *     engagement seeds, so the arrival state is a granted caret with the
  *     mode's paint standing down ([#kbf-paint-route]), asserted alongside.
  *  2. **A post renders as its author wrote it.** Frames go in through
- *     `publishGazettePost`, which hands the bytes to the production parser and
+ *     `publishOverviewPost`, which hands the bytes to the production parser and
  *     the production fold, so what lands on screen came off the same code path a
- *     live Reporter's would. Asserted: one row per post, in arrival order, each
+ *     live Observer's would. Asserted: one row per post, in arrival order, each
  *     carrying its author's glyph, and a post's unmentioned refs rendering
  *     as the app's own read-only atom skin, labelled by the target's last
  *     segment.
@@ -41,7 +41,7 @@
  *     literal backticks left in the reader's text, and the span is annotated
  *     because it is a code span; a bare URL renders as a real anchor.
  *  3. **The composer completes a round trip.** Typing a question and pressing
- *     the send button sends GAZETTE_INPUT; the Operator echoes the question as a user post
+ *     the send button sends OVERVIEW_INPUT; the Operator echoes the question as a user post
  *     and then answers. Under the app-test gate the agent pool answers nothing
  *     by design, so what comes back is the transient "couldn't answer" post —
  *     which is the assertion that matters here. The question left the card,
@@ -54,7 +54,7 @@
  *     two jobs there — it flattens into the sentence, and it rides the wire as
  *     a structured ref tugcast verifies against the tree before the first verb
  *     runs. The wire itself is covered by tugcast's own tests and the deck's
- *     `encodeGazetteInput` tests; what only the app can prove is that the
+ *     `encodeOverviewInput` tests; what only the app can prove is that the
  *     gesture a person makes reaches the post.
  *
  * One further claim, on its own app because it is a whole second round trip:
@@ -63,27 +63,27 @@
  *     composer previews where it was dropped — the Session composer's own
  *     attachment strip, tiles and ✕ and all — and then renders in the post it
  *     was sent with. Nothing along that path is stubbed: the drop runs the
- *     substrate's real downsample pipeline, the bytes ride GAZETTE_INPUT, the
+ *     substrate's real downsample pipeline, the bytes ride OVERVIEW_INPUT, the
  *     Operator writes them beside the ledger and records the paths on the
  *     question's row, and the strip in the transcript reads them back through
  *     `/api/fs/blob`. A tile with `naturalWidth > 0` at each end is the
  *     assertion, because pixels are the only evidence that every link in that
- *     chain held. And it is the RAIL'S tier of that strip: the Gazette asks
+ *     chain held. And it is the RAIL'S tier of that strip: the Overview asks
  *     the Session card's own component for `compact`, so the tiles step down
  *     a size and the sheet opens as a panel on the rail — with real margin at
  *     both edges — rather than a lid over it.
  *
- * @covers tugdeck/src/components/gazette/gazette-card.tsx
- * @covers tugdeck/src/components/gazette/gazette-card.css
- * @covers tugdeck/src/components/gazette/gazette-card-registration.tsx
- * @covers tugdeck/src/lib/gazette-store.ts
+ * @covers tugdeck/src/components/overview/overview-card.tsx
+ * @covers tugdeck/src/components/overview/overview-card.css
+ * @covers tugdeck/src/components/overview/overview-card-registration.tsx
+ * @covers tugdeck/src/lib/overview-store.ts
  * @covers tugdeck/src/protocol.ts
- * @covers tugdeck/src/lib/gazette-attachment-bytes.ts
+ * @covers tugdeck/src/lib/overview-attachment-bytes.ts
  * @covers tugdeck/src/components/tugways/cards/tug-attachment-preview.tsx
  * @covers tugdeck/src/components/tugways/cards/tug-attachment-preview.css
  * @covers tugdeck/src/components/tugways/tug-sheet.tsx
- * @covers tugdeck/src/lib/gazette-ref-resolve.ts
- * @covers tugdeck/src/lib/gazette-body-segments.ts
+ * @covers tugdeck/src/lib/overview-ref-resolve.ts
+ * @covers tugdeck/src/lib/overview-body-segments.ts
  * @covers tugdeck/src/components/tugways/entity-tips.tsx
  * @covers tugdeck/src/lib/contextual-stamp.ts
  * @covers tugdeck/src/components/tugways/tug-transcript-entry.css
@@ -101,18 +101,18 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const CARD = '[data-testid="gazette-card"]';
-const POST = `${CARD} .gazette-cell`;
-const PENDING = '[data-testid="gazette-pending-row"]';
-const BODY = `${CARD} .gazette-post-body`;
-const FIELD = '[data-testid="gazette-composer-field"]';
-const SEND = '[data-testid="gazette-composer-send"]';
+const CARD = '[data-testid="overview-card"]';
+const POST = `${CARD} .overview-cell`;
+const PENDING = '[data-testid="overview-pending-row"]';
+const BODY = `${CARD} .overview-post-body`;
+const FIELD = '[data-testid="overview-composer-field"]';
+const SEND = '[data-testid="overview-composer-send"]';
 
 /** One post as the wire carries it. `id` is the ledger rowid a real post has. */
 interface WirePost {
   id: number;
   at_ms: number;
-  author: "reporter" | "operator" | "user";
+  author: "observer" | "operator" | "user";
   body: string;
   refs: { kind: string; target: string }[];
   session_id?: string;
@@ -137,7 +137,7 @@ const HEAD_SUBJECT = execSync("git log -1 --format=%s HEAD", { cwd: REPO_ROOT })
 
 async function publish(app: App, post: WirePost): Promise<boolean> {
   return app.evalJS<boolean>(
-    `window.__tug.publishGazettePost(${JSON.stringify(JSON.stringify(post))})`,
+    `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
   );
 }
 
@@ -145,11 +145,11 @@ async function publish(app: App, post: WirePost): Promise<boolean> {
 const ROWS_JS = `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
   .filter(function (el) { return !el.hasAttribute("data-pending"); })
   .map(function (el) {
-    var body = el.querySelector(".gazette-post-body");
+    var body = el.querySelector(".overview-post-body");
     return {
       author: el.getAttribute("data-author"),
       body: (body === null ? "" : body.textContent || "").trim(),
-      chips: Array.from(el.querySelectorAll(".gazette-post-refs .tug-atom-ref"))
+      chips: Array.from(el.querySelectorAll(".overview-post-refs .tug-atom-ref"))
         .map(function (c) { return (c.textContent || "").trim(); }),
       glyph: el.querySelector(".tug-transcript-entry__icon svg") !== null,
       glyphPx: (function () {
@@ -161,7 +161,7 @@ const ROWS_JS = `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
         return t === null ? null : (t.textContent || "").trim();
       })(),
       z1b: (function () {
-        var z = el.querySelector(".gazette-post-z1b");
+        var z = el.querySelector(".overview-post-z1b");
         return z === null ? null : (z.textContent || "").replace(/\\s+/g, " ").trim();
       })(),
     };
@@ -179,40 +179,51 @@ interface Row {
 
 const AT_MS = 1_754_600_000_000;
 
-describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
+describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
   test(
-    "⌃⌘G raises the rail, posts render with their glyphs and chips, and the composer round-trips",
+    "⌃⌘O raises the rail, posts render with their glyphs and chips, and the composer round-trips",
     async () => {
-      const app = await launchTugApp({ testName: "at0365-gazette-card" });
+      const app = await launchTugApp({ testName: "at0365-overview-card" });
       try {
         // ── 1. The chord opens the rail. ──────────────────────────────────
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
 
         // And puts it away again — a toggle, not an open.
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) === null`,
           { timeoutMs: 10_000 },
         );
 
-        // Back up for the rest of the test.
+        // The chord this card used to answer to is now nobody's, and driving
+        // it has to leave the rail shut. Asserting that directly would race
+        // the keystroke — "still absent" is true a moment before the app has
+        // even read the event. So the NEXT chord carries the proof: the rail
+        // is down, ⌃⌘G runs, and ⌃⌘O is expected to bring it UP. Had ⌃⌘G
+        // opened it, ⌃⌘O would put it away and the wait below would time out
+        // rather than pass. This is also what makes the claim about the
+        // binding MOVING rather than gaining a second spelling — the positive
+        // claim above passes either way.
         await app.nativeKey("g", ["cmd", "ctrl"]);
+
+        // Back up for the rest of the test.
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
 
         // ── 1b. The rail engages KBF, and it has somewhere to put the caret. ─
-        // Gazette registers `kbfAtRest` (Class B): arriving here engages
+        // Overview registers `kbfAtRest` (Class B): arriving here engages
         // keyboard-focus mode with no gesture at all. A card that engages the
         // mode owes it a stop — "an empty group never holds the keyboard" at
-        // card scale — and Gazette's first stop is its composer, a text stop
+        // card scale — and Overview's first stop is its composer, a text stop
         // the engagement SEEDS: a seed is a placement, so it grants rather
-        // than parks ([P12]), the caret lands in the field, and the mode's
+        // than parks, the caret lands in the field, and the mode's
         // paint stands down for it (`data-kbf` keys on the route —
         // [#kbf-paint-route]). So the assertion is all three halves together:
         // the mode is ON (`kbfEngaged`), the paint is DOWN, and the caret is
@@ -222,7 +233,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
           `window.__tug.kbfEngaged() === true &&
            !document.documentElement.hasAttribute("data-kbf") &&
            (function () {
-             var field = document.querySelector(${JSON.stringify(`${CARD} [data-testid="gazette-composer-field"]`)});
+             var field = document.querySelector(${JSON.stringify(`${CARD} [data-testid="overview-composer-field"]`)});
              return field !== null && document.activeElement !== null &&
                field.contains(document.activeElement);
            })()`,
@@ -248,7 +259,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         // The transcript is the surface the folds land on; wait for it to
         // mount before feeding the store anything.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${CARD} .gazette-transcript`)}) !== null`,
+          `document.querySelector(${JSON.stringify(`${CARD} .overview-transcript`)}) !== null`,
           { timeoutMs: 10_000 },
         );
 
@@ -258,15 +269,15 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         // the unmentioned ref has to ride the trailing strip. Under the old
         // ref-matching placement the sentence stayed dead text and only the
         // unrelated chip appeared.
-        const reporterPost: WirePost = {
+        const observerPost: WirePost = {
           id: 9001,
           at_ms: AT_MS,
-          author: "reporter",
-          body: "Reworked gazette-ref-resolve.ts and left the imposer alone.",
+          author: "observer",
+          body: "Reworked overview-ref-resolve.ts and left the imposer alone.",
           refs: [{ kind: "file", target: "tugdeck/src/lib/layout-imposer.ts" }],
           wake_reason: "sitrep",
           // Clocked on the wire — tugcast times every agent run — but a
-          // Reporter's row must not READ it out. See the assertion below.
+          // Observer's row must not READ it out. See the assertion below.
           elapsed_ms: 4_200,
           project_dir: REPO_ROOT,
         };
@@ -287,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         const commitPost: WirePost = {
           id: 9003,
           at_ms: AT_MS + 120_000,
-          author: "reporter",
+          author: "observer",
           body: `Commit ${HEAD_SHA.slice(0, 12)} landed the sticky-header fixes; verified against ${HEAD_SHA.slice(0, 12)}; see commit \`${HEAD_SHA.slice(0, 12)}\`.`,
           refs: [],
           wake_reason: "turn-end",
@@ -295,7 +306,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         };
 
         expect(
-          await publish(app, reporterPost),
+          await publish(app, observerPost),
           "the store is attached, so the frame was accepted",
         ).toBe(true);
         expect(await publish(app, operatorPost)).toBe(true);
@@ -312,11 +323,11 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         expect(rows.length, "one row per published post").toBe(3);
 
         // Arrival order, oldest first — the channel is read as a running feed.
-        expect(rows[0]!.author).toBe("reporter");
-        expect(rows[0]!.body).toBe(reporterPost.body);
+        expect(rows[0]!.author).toBe("observer");
+        expect(rows[0]!.body).toBe(observerPost.body);
         expect(rows[1]!.author).toBe("operator");
         expect(rows[1]!.body).toBe(operatorPost.body);
-        expect(rows[2]!.author).toBe("reporter");
+        expect(rows[2]!.author).toBe("observer");
         expect(rows[2]!.body).toContain("landed the sticky-header fixes");
 
         // Every row leads with its author's glyph — the only thing on the row
@@ -325,9 +336,9 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
           expect(row.glyph, `${row.author}'s row carries a glyph`).toBe(true);
         }
 
-        // And the two Gazette voices are OPTICALLY sized rather than sharing
+        // And the two Overview voices are OPTICALLY sized rather than sharing
         // the row's one box. A glyph's size is the side of its square, not how
-        // large it reads: the Reporter's newspaper inks nearly the whole
+        // large it reads: the Observer's newspaper inks nearly the whole
         // square and the Operator sprite carries margin inside its viewBox, so
         // at one shared number the first out-weighed the row above it and the
         // second read a size below.
@@ -340,7 +351,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         // the render.
         expect(
           rows[0]!.glyphPx,
-          "the Reporter is drawn under the box",
+          "the Observer is drawn under the box",
         ).toBeLessThan(17);
         expect(
           rows[1]!.glyphPx,
@@ -367,7 +378,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
           expect(row.z1b, `${row.author}'s row carries a Z1B`).toContain("OK");
           expect(row.z1b, `${row.author}'s COPY is text+icon`).toContain("Copy");
         }
-        // EVERY voice is stamped — the Reporter's narration included. "When
+        // EVERY voice is stamped — the Observer's narration included. "When
         // did this arrive?" is a fact about all three posts, and the column's
         // order cannot answer it.
         for (const row of rows) {
@@ -380,7 +391,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         // Elapsed, though, is the OPERATOR'S alone, and both of these posts are
         // clocked at 4.2s on the wire — so the two rows differ only by who is
         // speaking. The Operator's post is an answer the reader waited on, so
-        // how long it took is part of what happened; the Reporter's arrived
+        // how long it took is part of what happened; the Observer's arrived
         // unbidden, and a duration on it is a number about nobody. That is a
         // different question from WHEN, which is why the stamp above is on both.
         expect(
@@ -389,19 +400,19 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         ).toContain("4.2s");
         expect(
           rows[0]!.z1b,
-          "the Reporter's post reads no elapsed, clocked or not",
+          "the Observer's post reads no elapsed, clocked or not",
         ).not.toContain("4.2s");
 
         // ── 2b. The PROSE is annotated, by the app's own annotator. ───────
         // This is the claim the card exists to keep: a file named in a
         // sentence becomes clickable because it is in the sentence. Post 1's
-        // body names `gazette-ref-resolve.ts` and its ref list does NOT —
+        // body names `overview-ref-resolve.ts` and its ref list does NOT —
         // under the ref-matching placement this replaced, that mention could
         // never be found, because the matcher only ever looked for targets
         // the model had already listed. The mark is the annotator's own
         // (`data-tugx-wrapped` + the payload dataset), so the click, the
         // menu and the hover are the same ones every annotated surface has.
-        const INLINE_FILE = `${POST} .gazette-post-body [data-tugx-wrapped][data-tug-annotation="file-path"]`;
+        const INLINE_FILE = `${POST} .overview-post-body [data-tugx-wrapped][data-tug-annotation="file-path"]`;
         // Both halves in the SAME condition. The mark lands in two beats —
         // the wrapper carries `data-path` from the resolver before the run's
         // text is back under it — so waiting on the path alone and then
@@ -413,7 +424,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
             if (el === null) return false;
             var path = el.getAttribute("data-path");
             return path !== null
-              && path.indexOf("gazette-ref-resolve.ts") !== -1
+              && path.indexOf("overview-ref-resolve.ts") !== -1
               && (el.textContent || "").trim() !== "";
           })()`,
           { timeoutMs: 20_000 },
@@ -434,14 +445,14 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         note("inline file mention", JSON.stringify(inlineFile));
         // Marked in place: the run is the words the model wrote, and the
         // payload is the absolute path the resolver confirmed.
-        expect(inlineFile?.text).toBe("gazette-ref-resolve.ts");
+        expect(inlineFile?.text).toBe("overview-ref-resolve.ts");
         expect(inlineFile?.path?.startsWith("/")).toBe(true);
 
         // The commit half, same claim: a sha spelled in the prose with no ref
         // behind it at all. Git confirms it, and the answer that verifies it
         // also describes it — the hover carries the subject and the file
         // count, because eight characters of hex name nothing on their own.
-        const INLINE_COMMIT = `${POST} .gazette-post-body [data-tugx-wrapped][data-tug-annotation="commit-sha"]`;
+        const INLINE_COMMIT = `${POST} .overview-post-body [data-tugx-wrapped][data-tug-annotation="commit-sha"]`;
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(INLINE_COMMIT)}) !== null`,
           { timeoutMs: 25_000 },
@@ -536,7 +547,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
           path: string | null;
         } | null>(
           `(function () {
-            var wrap = document.querySelector('[data-gazette-ref-kind="file"]');
+            var wrap = document.querySelector('[data-overview-ref-kind="file"]');
             if (wrap === null) return null;
             return {
               title: wrap.getAttribute("title"),
@@ -549,7 +560,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         // …and it sits at the END OF THE CONTENT, above the Z1B — the rest
         // of what the post rests on, not debris after the footer. Asserted
         // as DOM order within the controls slot, which is what the reading
-        // order follows (the slot stacks; see `gazette-card.css`).
+        // order follows (the slot stacks; see `overview-card.css`).
         const stripOrder = await app.evalJS<{
           strip: number;
           z1b: number;
@@ -562,10 +573,10 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
             var kids = Array.from(controls.children);
             return {
               strip: kids.findIndex(function (k) {
-                return k.classList.contains("gazette-post-refs");
+                return k.classList.contains("overview-post-refs");
               }),
               z1b: kids.findIndex(function (k) {
-                return k.classList.contains("gazette-post-z1b");
+                return k.classList.contains("overview-post-z1b");
               }),
             };
           })()`,
@@ -594,8 +605,8 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         const markdownPost: WirePost = {
           id: 9004,
           at_ms: AT_MS + 180_000,
-          author: "reporter",
-          body: "Touched `gazette-body-segments.ts` while reading https://example.com/gazette for context.",
+          author: "observer",
+          body: "Touched `overview-body-segments.ts` while reading https://example.com/overview for context.",
           refs: [],
           wake_reason: "turn-end",
           project_dir: REPO_ROOT,
@@ -647,12 +658,12 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         // The backticks are gone from the reader's text — they were syntax,
         // and syntax is what a renderer consumes.
         expect(markdown?.text).not.toContain("`");
-        expect(markdown?.code).toBe("gazette-body-segments.ts");
+        expect(markdown?.code).toBe("overview-body-segments.ts");
         // And the span the backticks made is annotated, against this repo.
         expect(markdown?.codePath?.startsWith("/")).toBe(true);
-        expect(markdown?.codePath).toContain("gazette-body-segments.ts");
+        expect(markdown?.codePath).toContain("overview-body-segments.ts");
         // The bare URL is a real anchor, marked as one.
-        expect(markdown?.href).toBe("https://example.com/gazette");
+        expect(markdown?.href).toBe("https://example.com/overview");
         expect(markdown?.anchorKind).toBe("url");
 
         // ── 3. The composer round-trips through the Operator. ─────────────
@@ -791,7 +802,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
           `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
             .filter(function (el) { return !el.hasAttribute("data-pending"); })
             .some(function (el) {
-              var body = el.querySelector(".gazette-post-body");
+              var body = el.querySelector(".overview-post-body");
               return el.getAttribute("data-author") === "operator"
                 // Matched from the apostrophe onward: the body renders as
                 // markdown, and pulldown-cmark's smart punctuation turns the
@@ -913,7 +924,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
               .filter(function (el) { return el.getAttribute("data-author") === "user"; });
             var el = rows[rows.length - 1];
             if (el === undefined) return null;
-            var body = el.querySelector(".gazette-post-body");
+            var body = el.querySelector(".overview-post-body");
             return {
               body: (body === null ? "" : body.textContent || "").trim(),
               atoms: Array.from(el.querySelectorAll("img[data-atom-label]")).map(
@@ -937,7 +948,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
   test(
     "an attached image previews while it is composed and renders in the post it was sent with",
     async () => {
-      const app = await launchTugApp({ testName: "at0365-gazette-attachments" });
+      const app = await launchTugApp({ testName: "at0365-overview-attachments" });
       try {
         await app.nativeKey("g", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
@@ -983,11 +994,11 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         });
 
         // ── The compose-phase preview. This is the miss the whole feature is
-        // about: an image dropped into the Gazette used to leave nothing to
+        // about: an image dropped into the Overview used to leave nothing to
         // look at. The strip is the Session composer's own component, so what
         // is asserted is its own DOM — a tile with pixels in it, its `image-1`
         // caption, and the ✕ that only a compose-phase tile carries.
-        const COMPOSE_STRIP = '[data-testid="gazette-composer-attachment-strip"]';
+        const COMPOSE_STRIP = '[data-testid="overview-composer-attachment-strip"]';
         await app.waitForCondition<boolean>(
           `(function () {
             var img = document.querySelector(${JSON.stringify(
@@ -1020,7 +1031,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         note("composer tile", JSON.stringify(composeTile));
         expect(composeTile?.tiles, "one image, one tile").toBe(1);
         // The rail's tier. The strip is the Session card's component and the
-        // Gazette asks it for `compact`, so the tile is the rail's size —
+        // Overview asks it for `compact`, so the tile is the rail's size —
         // measured against the comfortable slot the component declares at its
         // own root, which is what a card gets. Reading BOTH is the point: a
         // number alone would pass just as happily if the option stopped
@@ -1052,7 +1063,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
           })()`,
         );
         note("compose density", JSON.stringify(density));
-        expect(density?.stamped, "the Gazette asks for the rail's tier").toBe(
+        expect(density?.stamped, "the Overview asks for the rail's tier").toBe(
           "compact",
         );
         expect(
@@ -1071,7 +1082,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         expect(
           await app.evalJS<string | null>(
             `document.querySelector(${JSON.stringify(
-              '[data-testid="gazette-composer"]',
+              '[data-testid="overview-composer"]',
             )}).getAttribute("data-empty")`,
           ),
           "an attached image is not an empty composer",
@@ -1087,7 +1098,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         await app.waitForCondition<boolean>(
           `(function () {
             var img = document.querySelector(${JSON.stringify(
-              '[data-testid="gazette-post-attachments"] .tug-attachment-preview__thumb-img',
+              '[data-testid="overview-post-attachments"] .tug-attachment-preview__thumb-img',
             )});
             return img !== null && img.complete && img.naturalWidth > 0;
           })()`,
@@ -1101,10 +1112,10 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
         } | null>(
           `(function () {
             var strip = document.querySelector(${JSON.stringify(
-              '[data-testid="gazette-post-attachments"]',
+              '[data-testid="overview-post-attachments"]',
             )});
             if (strip === null) return null;
-            var cell = strip.closest(".gazette-cell");
+            var cell = strip.closest(".overview-cell");
             var img = strip.querySelector(".tug-attachment-preview__thumb-img");
             return {
               author: cell === null ? null : cell.getAttribute("data-author"),
@@ -1126,9 +1137,9 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Gazette card", () => {
 
         // A tile opens the full-resolution sheet, the way it does on a
         // Session transcript — the strip owns that gesture, so what this
-        // proves is that the Gazette's rail can host the sheet it opens.
+        // proves is that the Overview's rail can host the sheet it opens.
         await app.nativeClickAtElement(
-          '[data-testid="gazette-post-attachments"] .tug-attachment-preview__tile',
+          '[data-testid="overview-post-attachments"] .tug-attachment-preview__tile',
         );
         await app.waitForCondition<boolean>(
           `(function () {

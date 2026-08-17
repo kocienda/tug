@@ -2995,8 +2995,8 @@ impl AgentSupervisor {
                 self.do_list_pulse_lines().await;
                 Ok(())
             }
-            "list_gazette_posts" => {
-                // App-scoped read — the Gazette card's tail on mount, and
+            "list_overview_posts" => {
+                // App-scoped read — the Overview card's tail on mount, and
                 // each older page as the reader scrolls back. Both arguments
                 // are optional, and absent means "the tail", so a client that
                 // sends neither is the pre-paging client and is served
@@ -3011,7 +3011,7 @@ impl AgentSupervisor {
                     .and_then(|v| v.get("limit"))
                     .and_then(serde_json::Value::as_u64)
                     .map(|n| n as usize);
-                self.do_list_gazette_posts(before_id, limit).await;
+                self.do_list_overview_posts(before_id, limit).await;
                 Ok(())
             }
             "list_shell_exchanges" => {
@@ -3783,7 +3783,7 @@ impl AgentSupervisor {
             // does: a resumed card must not sit on an empty line waiting for
             // the next listing.
             "synopsis": row_synopsis,
-            // Gazette privacy rides the ack for the same reason: a resumed card
+            // Overview privacy rides the ack for the same reason: a resumed card
             // must show the marker immediately, not wait for the next push.
             "private": row_private,
             // The dash this session is working on, or null when unbound.
@@ -6087,17 +6087,17 @@ impl AgentSupervisor {
         ));
     }
 
-    /// Handle a `list_gazette_posts` CONTROL request — the Gazette card's
+    /// Handle a `list_overview_posts` CONTROL request — the Overview card's
     /// history read, both the mount-time tail and each older page the reader
     /// scrolls back for. App-scoped: the channel belongs to the app, not to a
-    /// session, even though a Reporter post names the session it narrates.
+    /// session, even though a Observer post names the session it narrates.
     ///
     /// Request: `{ before_id?, limit? }`. No `before_id` is the tail (the
     /// original behavior, so an older client asking for nothing gets exactly
     /// what it always got); a `before_id` is the page immediately older than
     /// that row. `limit` defaults to the standard tail length.
     ///
-    /// Broadcasts `list_gazette_posts_ok { posts, has_more, before_id? }`,
+    /// Broadcasts `list_overview_posts_ok { posts, has_more, before_id? }`,
     /// posts oldest-first; a missing ledger yields an empty array — the "no
     /// history yet" state, same conduct as the pulse read.
     ///
@@ -6107,31 +6107,31 @@ impl AgentSupervisor {
     /// idempotent tail that replaced the list with itself. A page is not
     /// idempotent: applied twice it prepends twice. The echo is what lets the
     /// client tell a tail from a page, and its own page from anyone else's.
-    async fn do_list_gazette_posts(&self, before_id: Option<i64>, limit: Option<usize>) {
+    async fn do_list_overview_posts(&self, before_id: Option<i64>, limit: Option<usize>) {
         let limit = limit
             .filter(|n| *n > 0)
-            .unwrap_or(crate::feeds::reporter::GAZETTE_TAIL_LEN);
+            .unwrap_or(crate::feeds::observer::OVERVIEW_TAIL_LEN);
         let (posts, has_more) = self
             .session_ledger
             .as_ref()
             .map(|ledger| {
                 ledger
-                    .list_gazette_posts_page(before_id, limit)
+                    .list_overview_posts_page(before_id, limit)
                     .unwrap_or_else(|err| {
-                        warn!(error = %err, "list_gazette_posts failed");
+                        warn!(error = %err, "list_overview_posts failed");
                         (Vec::new(), false)
                     })
             })
             .unwrap_or_default();
         let body = serde_json::json!({
-            "action": "list_gazette_posts_ok",
+            "action": "list_overview_posts_ok",
             "posts": posts,
             "has_more": has_more,
             "before_id": before_id,
         });
         let _ = self.control_tx.send(Frame::new(
             FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_gazette_posts_ok serializes"),
+            serde_json::to_vec(&body).expect("list_overview_posts_ok serializes"),
         ));
     }
 
@@ -12957,19 +12957,19 @@ mod tests {
         assert!(empty["run"].is_null());
     }
 
-    /// `list_gazette_posts` broadcasts `list_gazette_posts_ok { posts: [...] }`
-    /// oldest-first — the Gazette card's mount-time tail, after which it stays
-    /// live off the GAZETTE feed. App-scoped: the channel belongs to the app,
+    /// `list_overview_posts` broadcasts `list_overview_posts_ok { posts: [...] }`
+    /// oldest-first — the Overview card's mount-time tail, after which it stays
+    /// live off the OVERVIEW feed. App-scoped: the channel belongs to the app,
     /// not to a session, so the request carries no session id.
     #[tokio::test]
-    async fn list_gazette_posts_returns_the_channel_tail() {
+    async fn list_overview_posts_returns_the_channel_tail() {
         let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
         for body in ["the older post", "the newer post"] {
             ledger
-                .record_gazette_post(&tugcast_core::GazettePost {
+                .record_overview_post(&tugcast_core::OverviewPost {
                     id: None,
                     at_ms: 1,
-                    author: tugcast_core::GazetteAuthor::Reporter,
+                    author: tugcast_core::OverviewAuthor::Observer,
                     session_id: Some("s1".to_string()),
                     wake_reason: Some("turn-end".to_string()),
                     body: body.to_string(),
@@ -13007,19 +13007,19 @@ mod tests {
         tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
 
         let payload = serde_json::to_vec(&serde_json::json!({
-            "action": "list_gazette_posts",
+            "action": "list_overview_posts",
         }))
         .unwrap();
-        sup.handle_control("list_gazette_posts", &payload, 10)
+        sup.handle_control("list_overview_posts", &payload, 10)
             .await
             .expect_handled();
 
-        let response = drain_until_action(&mut rx, "list_gazette_posts_ok");
+        let response = drain_until_action(&mut rx, "list_overview_posts_ok");
         let posts = response["posts"].as_array().expect("posts array");
         assert_eq!(posts.len(), 2);
         assert_eq!(posts[0]["body"], "the older post");
         assert_eq!(posts[1]["body"], "the newer post");
-        assert_eq!(posts[1]["author"], "reporter");
+        assert_eq!(posts[1]["author"], "observer");
         assert_eq!(posts[1]["wake_reason"], "turn-end");
         assert!(
             posts[1]["id"].is_i64(),

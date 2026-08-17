@@ -1,17 +1,17 @@
-//! reporter — the live GAZETTE bridge: taps the wires a session's work
-//! travels on, decides when to wake the Reporter, and turns what the model
+//! observer — the live OVERVIEW bridge: taps the wires a session's work
+//! travels on, decides when to wake the Observer, and turns what the model
 //! answers into a ledger row and a broadcast frame.
 //!
 //! Topology:
 //!
 //!   CODE_OUTPUT ──allowlist tap──▶ per-session FrameBuffer ─┐
-//!   CODE_INPUT submissions ──────▶ (same buffers)           ├─ wake ──▶ reporter-post
+//!   CODE_INPUT submissions ──────▶ (same buffers)           ├─ wake ──▶ observer-post
 //!   SESSION_STATE ───────────────▶ session-end wake ────────┘              │
 //!                                                    silence ◀── envelope ─┤
 //!                                                                          ▼
-//!                                              gazette_posts row + GAZETTE broadcast
+//!                                              overview_posts row + OVERVIEW broadcast
 //!
-//! Everything about *what* a wake means lives in [`super::reporter_wake`],
+//! Everything about *what* a wake means lives in [`super::observer_wake`],
 //! which the offline replay harness drives too — that shared core is why the
 //! cadence tuned against real transcripts is the cadence that ships. This
 //! module is the tokio half: subscriptions, timers, the pool call, the ledger,
@@ -30,7 +30,7 @@
 //! model choosing silence either, and it says so in the log.
 //!
 //! One-way isolation ([P12]): nothing here writes toward any work session, and
-//! the Gazette's own frames travel on `GAZETTE`, a feed this module never
+//! the Overview's own frames travel on `OVERVIEW`, a feed this module never
 //! subscribes to — a post can therefore never become evidence for the next
 //! post.
 
@@ -43,27 +43,27 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
-use tugcast_core::{FeedId, Frame, GazetteAuthor, GazettePost, StreamFeed};
+use tugcast_core::{FeedId, Frame, OverviewAuthor, OverviewPost, StreamFeed};
 
 use crate::session_ledger::SessionLedger;
 use crate::shared_agent::SharedAgentPool;
 
-use super::gazette_agent::DEFAULT_CARD_ROWS;
-use super::payload_inspector::InspectedPayload;
-use super::reporter_wake::{
-    FactLine, FrameBuffer, PriorPost, REPORTER_PROSE_GRACE, REPORTER_PROSE_LIMIT, WakeReason,
-    clamp_post_body, compose_reporter_input, counts_as_assistant_activity, forwardable_session,
+use super::observer_wake::{
+    FactLine, FrameBuffer, OBSERVER_PROSE_GRACE, OBSERVER_PROSE_LIMIT, PriorPost, WakeReason,
+    clamp_post_body, compose_observer_input, counts_as_assistant_activity, forwardable_session,
     parse_envelope, prose_len, render_facts_section, validate_refs,
 };
+use super::overview_agent::DEFAULT_CARD_ROWS;
+use super::payload_inspector::InspectedPayload;
 
 /// How many posts the card's CONTROL tail read answers with when it asks for
 /// no particular number. Matches the opening request `card_rows` sizes, so a
 /// deck that has not yet read that default off the DEFAULTS feed still fills
 /// its first screen exactly once.
-pub const GAZETTE_TAIL_LEN: usize = DEFAULT_CARD_ROWS;
+pub const OVERVIEW_TAIL_LEN: usize = DEFAULT_CARD_ROWS;
 
-/// The job the Reporter's wake runs.
-const REPORTER_POST_JOB: &str = "reporter-post";
+/// The job the Observer's wake runs.
+const OBSERVER_POST_JOB: &str = "observer-post";
 
 /// How long a raw answer may be in the log line that reports it unparseable.
 /// Enough to see what shape the model produced, short enough not to dump a
@@ -84,7 +84,7 @@ const FACTS_FETCH_LIMIT: usize = 64;
 /// is used, so turning one in tugbank applies to the next wake with no restart
 /// — the `pulse_enabled` posture, and the reason the cadence is tunable
 /// against lived experience rather than only against replayed transcripts.
-pub struct ReporterBridgeConfig {
+pub struct ObserverBridgeConfig {
     /// The shared CODE_OUTPUT broadcast — subscribed inside the task.
     pub code_tx: broadcast::Sender<Frame>,
     /// The CODE_INPUT submission broadcast: what the human actually asked.
@@ -96,7 +96,7 @@ pub struct ReporterBridgeConfig {
     /// Where posts are persisted and where a wake reads its own prior posts.
     /// Absent in a build with no ledger, which reads as "post nothing".
     pub ledger: Option<Arc<SessionLedger>>,
-    /// The Gazette's Sonnet pool. Absent means no model, and no wake ever runs.
+    /// The Overview's Sonnet pool. Absent means no model, and no wake ever runs.
     pub agent: Option<Arc<SharedAgentPool>>,
     pub sitrep_secs: Arc<dyn Fn() -> i64 + Send + Sync>,
     pub last_k_posts: Arc<dyn Fn() -> usize + Send + Sync>,
@@ -104,37 +104,37 @@ pub struct ReporterBridgeConfig {
     pub buffer_max_frames: Arc<dyn Fn() -> usize + Send + Sync>,
 }
 
-/// The GAZETTE feed. A [`StreamFeed`] like `PulseBridge`: the router creates
+/// The OVERVIEW feed. A [`StreamFeed`] like `PulseBridge`: the router creates
 /// the channel, records the `Warn` lag policy, and spawns the loop.
-pub struct ReporterBridge {
-    config: ReporterBridgeConfig,
+pub struct ObserverBridge {
+    config: ObserverBridgeConfig,
 }
 
-impl ReporterBridge {
-    pub fn new(config: ReporterBridgeConfig) -> Self {
+impl ObserverBridge {
+    pub fn new(config: ObserverBridgeConfig) -> Self {
         Self { config }
     }
 }
 
 #[async_trait]
-impl StreamFeed for ReporterBridge {
+impl StreamFeed for ObserverBridge {
     fn feed_id(&self) -> FeedId {
-        FeedId::GAZETTE
+        FeedId::OVERVIEW
     }
 
     fn name(&self) -> &str {
-        "gazette"
+        "overview"
     }
 
     /// Posts are rare and small; the tail a reconnecting deck needs comes from
-    /// the `list_gazette_posts` CONTROL read rather than feed replay, so a
+    /// the `list_overview_posts` CONTROL read rather than feed replay, so a
     /// small channel and the default `Warn` policy are right.
     fn channel_capacity(&self) -> usize {
         64
     }
 
     async fn run(self: Box<Self>, tx: broadcast::Sender<Frame>, cancel: CancellationToken) {
-        reporter_bridge_task(self.config, tx, cancel).await;
+        observer_bridge_task(self.config, tx, cancel).await;
     }
 }
 
@@ -176,7 +176,7 @@ struct SessionWindow {
 impl SessionWindow {
     fn new(max_frames: usize) -> Self {
         Self {
-            buffer: FrameBuffer::new(max_frames, super::gazette_agent::BUFFER_MAX_BYTES),
+            buffer: FrameBuffer::new(max_frames, super::overview_agent::BUFFER_MAX_BYTES),
             armed_at: None,
             tokens: 0,
             assistant_activity: false,
@@ -197,9 +197,9 @@ struct WakeOutcome {
 
 // MARK: - The loop
 
-async fn reporter_bridge_task(
-    config: ReporterBridgeConfig,
-    gazette_tx: broadcast::Sender<Frame>,
+async fn observer_bridge_task(
+    config: ObserverBridgeConfig,
+    overview_tx: broadcast::Sender<Frame>,
     cancel: CancellationToken,
 ) {
     let mut code_rx = config.code_tx.subscribe();
@@ -229,7 +229,7 @@ async fn reporter_bridge_task(
 
         tokio::select! {
             _ = cancel.cancelled() => {
-                info!("gazette reporter: cancelled");
+                info!("overview observer: cancelled");
                 return;
             }
             recv = code_rx.recv() => {
@@ -237,11 +237,11 @@ async fn reporter_bridge_task(
                     Ok(frame) => frame,
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         // Narration never backpressures work.
-                        warn!(skipped, "gazette reporter: code broadcast lagged");
+                        warn!(skipped, "overview observer: code broadcast lagged");
                         continue;
                     }
                     Err(broadcast::error::RecvError::Closed) => {
-                        info!("gazette reporter: code broadcast closed");
+                        info!("overview observer: code broadcast closed");
                         return;
                     }
                 };
@@ -251,7 +251,7 @@ async fn reporter_bridge_task(
                 let frame = match recv {
                     Ok(frame) => frame,
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        warn!(skipped, "gazette reporter: submission broadcast lagged");
+                        warn!(skipped, "overview observer: submission broadcast lagged");
                         continue;
                     }
                     Err(broadcast::error::RecvError::Closed) => continue,
@@ -262,7 +262,7 @@ async fn reporter_bridge_task(
                 let frame = match recv {
                     Ok(frame) => frame,
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        warn!(skipped, "gazette reporter: session-state broadcast lagged");
+                        warn!(skipped, "overview observer: session-state broadcast lagged");
                         continue;
                     }
                     Err(broadcast::error::RecvError::Closed) => continue,
@@ -272,7 +272,7 @@ async fn reporter_bridge_task(
                 }
             }
             Some(outcome) = outcome_rx.recv() => {
-                settle(&config, &gazette_tx, &mut sessions, outcome);
+                settle(&config, &overview_tx, &mut sessions, outcome);
             }
             _ = sleep_until_opt(next_deadline) => {
                 let now = Instant::now();
@@ -303,7 +303,7 @@ async fn sleep_until_opt(deadline: Option<Instant>) {
 // MARK: - The taps
 
 fn handle_code_frame(
-    config: &ReporterBridgeConfig,
+    config: &ObserverBridgeConfig,
     sessions: &mut HashMap<String, SessionWindow>,
     muted: &mut HashSet<String>,
     frame: &Frame,
@@ -348,7 +348,7 @@ fn handle_code_frame(
         } else {
             debug!(
                 session_id,
-                "gazette reporter: turn ended with no assistant activity; not waking"
+                "overview observer: turn ended with no assistant activity; not waking"
             );
         }
         return;
@@ -368,7 +368,7 @@ fn handle_code_frame(
 /// what the person asked for. It is not assistant activity, so a turn that
 /// holds only a prompt still counts as empty for the turn-end skip.
 fn handle_submission_frame(
-    config: &ReporterBridgeConfig,
+    config: &ObserverBridgeConfig,
     sessions: &mut HashMap<String, SessionWindow>,
     frame: &Frame,
 ) {
@@ -386,7 +386,7 @@ fn handle_submission_frame(
 }
 
 fn window_for<'a>(
-    config: &ReporterBridgeConfig,
+    config: &ObserverBridgeConfig,
     sessions: &'a mut HashMap<String, SessionWindow>,
     session_id: &str,
 ) -> &'a mut SessionWindow {
@@ -408,7 +408,7 @@ fn push(window: &mut SessionWindow, payload: &str) {
 ///
 /// `errored` counts alongside `closed`: a session that died mid-work is
 /// exactly the thing someone wants to be told about, and the wrap-up the
-/// Reporter writes for it is the record of how far it got.
+/// Observer writes for it is the record of how far it got.
 fn ended_session(payload: &[u8]) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_slice(payload).ok()?;
     let state = parsed.get("state")?.as_str()?;
@@ -443,7 +443,7 @@ fn turn_cost(payload: &[u8]) -> Option<(String, i64)> {
     Some((session_id, total))
 }
 
-fn sitrep_secs(config: &ReporterBridgeConfig) -> i64 {
+fn sitrep_secs(config: &ObserverBridgeConfig) -> i64 {
     (config.sitrep_secs)()
 }
 
@@ -451,11 +451,11 @@ fn sitrep_secs(config: &ReporterBridgeConfig) -> i64 {
 
 /// Take a session's window and run the job off-thread.
 ///
-/// Off-thread is load-bearing: a `reporter-post` may hold a worker for its
+/// Off-thread is load-bearing: a `observer-post` may hold a worker for its
 /// full two-minute ceiling, and the tap loop cannot stop reading the wire for
 /// that long without lagging its own subscriptions.
 fn wake(
-    config: &ReporterBridgeConfig,
+    config: &ObserverBridgeConfig,
     sessions: &mut HashMap<String, SessionWindow>,
     session_id: &str,
     reason: WakeReason,
@@ -491,7 +491,7 @@ fn wake(
                 // An unreadable flag is not a licence to narrate: a failed read
                 // reads as private, because the cost of being wrong the other
                 // way is publishing what the user asked to keep out.
-                warn!(error = %err, "gazette reporter: privacy read failed; treating as private");
+                warn!(error = %err, "overview observer: privacy read failed; treating as private");
                 true
             })
         })
@@ -514,9 +514,9 @@ fn wake(
         .as_ref()
         .map(|ledger| {
             ledger
-                .list_gazette_posts_for_session(session_id, (config.last_k_posts)())
+                .list_overview_posts_for_session(session_id, (config.last_k_posts)())
                 .unwrap_or_else(|err| {
-                    warn!(error = %err, "gazette reporter: prior-post read failed");
+                    warn!(error = %err, "overview observer: prior-post read failed");
                     Vec::new()
                 })
         })
@@ -539,7 +539,7 @@ fn wake(
             ledger
                 .list_facts_for_session_since(session_id, None, since, FACTS_FETCH_LIMIT)
                 .unwrap_or_else(|err| {
-                    warn!(error = %err, "gazette reporter: facts read failed");
+                    warn!(error = %err, "overview observer: facts read failed");
                     Vec::new()
                 })
         })
@@ -552,7 +552,7 @@ fn wake(
         .collect::<Vec<_>>();
     let facts_section = render_facts_section(&facts);
 
-    let input = compose_reporter_input(reason, session_id, &taken, &priors, &facts);
+    let input = compose_observer_input(reason, session_id, &taken, &priors, &facts);
     window.in_flight = Some(taken);
     window.in_flight_facts = Some(facts_section);
 
@@ -560,7 +560,7 @@ fn wake(
     let session_id = session_id.to_string();
     tokio::spawn(async move {
         let started = Instant::now();
-        let result = agent.run(REPORTER_POST_JOB, input).await;
+        let result = agent.run(OBSERVER_POST_JOB, input).await;
         let _ = outcome_tx
             .send(WakeOutcome {
                 session_id,
@@ -574,8 +574,8 @@ fn wake(
 
 /// Turn a finished job into a post, a silence, or a returned window.
 fn settle(
-    config: &ReporterBridgeConfig,
-    gazette_tx: &broadcast::Sender<Frame>,
+    config: &ObserverBridgeConfig,
+    overview_tx: &broadcast::Sender<Frame>,
     sessions: &mut HashMap<String, SessionWindow>,
     outcome: WakeOutcome,
 ) {
@@ -605,7 +605,7 @@ fn settle(
                 session_id,
                 reason = reason.as_str(),
                 error = %err,
-                "gazette reporter: wake job failed; window returned to the buffer",
+                "overview observer: wake job failed; window returned to the buffer",
             );
             window.buffer.restore_front(sent);
             if !window.buffer.is_empty() && window.armed_at.is_none() {
@@ -623,7 +623,7 @@ fn settle(
             session_id,
             reason = reason.as_str(),
             raw = %raw.chars().take(RAW_LOG_CHARS).collect::<String>(),
-            "gazette reporter: unparseable envelope; posting nothing",
+            "overview observer: unparseable envelope; posting nothing",
         );
         return;
     };
@@ -631,7 +631,7 @@ fn settle(
         debug!(
             session_id,
             reason = reason.as_str(),
-            "gazette reporter: nothing worth posting"
+            "overview observer: nothing worth posting"
         );
         return;
     };
@@ -645,7 +645,7 @@ fn settle(
             session_id,
             dropped = validated.dropped.len(),
             targets = ?validated.dropped.iter().map(|r| r.target.as_str()).collect::<Vec<_>>(),
-            "gazette reporter: refs dropped — target in neither the window nor the facts verbatim",
+            "overview observer: refs dropped — target in neither the window nor the facts verbatim",
         );
     }
 
@@ -654,21 +654,21 @@ fn settle(
     // are the same clamped text. Logged because a rising clamp rate means the
     // prompt has stopped binding — and an overshoot the grace absorbed says
     // that too, so it is logged rather than passing silently.
-    let body = clamp_post_body(&post.body, REPORTER_PROSE_LIMIT, REPORTER_PROSE_GRACE);
+    let body = clamp_post_body(&post.body, OBSERVER_PROSE_LIMIT, OBSERVER_PROSE_GRACE);
     if body != post.body {
         warn!(
             session_id,
             reason = reason.as_str(),
             chars = post.body.chars().count(),
             prose = prose_len(&post.body),
-            "gazette reporter: body over the prose budget; clamped",
+            "overview observer: body over the prose budget; clamped",
         );
-    } else if prose_len(&body) > REPORTER_PROSE_LIMIT {
+    } else if prose_len(&body) > OBSERVER_PROSE_LIMIT {
         debug!(
             session_id,
             reason = reason.as_str(),
             prose = prose_len(&body),
-            "gazette reporter: body over the prose budget; within grace, kept whole",
+            "overview observer: body over the prose budget; within grace, kept whole",
         );
     }
 
@@ -682,34 +682,34 @@ fn settle(
         .and_then(|ledger| ledger.get(&session_id).ok().flatten())
         .map(|row| row.project_dir);
 
-    let mut record = GazettePost {
+    let mut record = OverviewPost {
         id: None,
         at_ms: now_ms(),
-        author: GazetteAuthor::Reporter,
+        author: OverviewAuthor::Observer,
         session_id: Some(session_id.clone()),
         wake_reason: Some(reason.as_str().to_string()),
         body,
         refs: validated.kept,
         elapsed_ms: Some(elapsed_ms),
         project_dir,
-        // The Reporter narrates in words.
+        // The Observer narrates in words.
         attachments: Vec::new(),
         request_id: None,
         transient: false,
     };
     if let Some(ledger) = config.ledger.as_ref() {
-        match ledger.record_gazette_post(&record) {
+        match ledger.record_overview_post(&record) {
             Ok(id) => record.id = Some(id),
             Err(err) => {
-                warn!(error = %err, "gazette reporter: ledger write failed");
+                warn!(error = %err, "overview observer: ledger write failed");
             }
         }
     }
     match serde_json::to_vec(&record) {
         Ok(bytes) => {
-            let _ = gazette_tx.send(Frame::new(FeedId::GAZETTE, bytes));
+            let _ = overview_tx.send(Frame::new(FeedId::OVERVIEW, bytes));
         }
-        Err(err) => warn!(error = %err, "gazette reporter: post did not serialize"),
+        Err(err) => warn!(error = %err, "overview observer: post did not serialize"),
     }
 }
 
@@ -733,9 +733,9 @@ mod tests {
     fn pool(spawner: Arc<dyn AgentWorkerSpawner>) -> Arc<SharedAgentPool> {
         SharedAgentPool::new(
             AgentSpec {
-                name: "gazette",
+                name: "overview",
                 model: Arc::new(|| "sonnet".to_string()),
-                jobs: super::super::gazette_agent::GAZETTE_AGENT_JOBS,
+                jobs: super::super::overview_agent::OVERVIEW_AGENT_JOBS,
                 max_workers: 3,
             },
             spawner,
@@ -746,7 +746,7 @@ mod tests {
         code_tx: broadcast::Sender<Frame>,
         submission_tx: broadcast::Sender<Frame>,
         state_tx: broadcast::Sender<Frame>,
-        gazette_rx: broadcast::Receiver<Frame>,
+        overview_rx: broadcast::Receiver<Frame>,
         ledger: Arc<SessionLedger>,
         cancel: CancellationToken,
         sitrep: Arc<AtomicI64>,
@@ -764,12 +764,12 @@ mod tests {
         let (code_tx, keep_code) = broadcast::channel(64);
         let (submission_tx, keep_sub) = broadcast::channel(64);
         let (state_tx, keep_state) = broadcast::channel(64);
-        let (gazette_tx, gazette_rx) = broadcast::channel(64);
+        let (overview_tx, overview_rx) = broadcast::channel(64);
         let ledger = Arc::new(SessionLedger::open_in_memory().expect("in-memory ledger"));
         let cancel = CancellationToken::new();
         let sitrep = Arc::new(AtomicI64::new(sitrep_secs));
 
-        let bridge = ReporterBridge::new(ReporterBridgeConfig {
+        let bridge = ObserverBridge::new(ObserverBridgeConfig {
             code_tx: code_tx.clone(),
             submission_tx: submission_tx.clone(),
             session_state_tx: state_tx.clone(),
@@ -785,14 +785,14 @@ mod tests {
         });
         // The loop's own subscriptions are taken inside `run`, so nothing sent
         // before the task first polls would reach it.
-        tokio::spawn(Box::new(bridge).run(gazette_tx, cancel.clone()));
+        tokio::spawn(Box::new(bridge).run(overview_tx, cancel.clone()));
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         Harness {
             code_tx,
             submission_tx,
             state_tx,
-            gazette_rx,
+            overview_rx,
             ledger,
             cancel,
             sitrep,
@@ -826,13 +826,13 @@ mod tests {
         serde_json::json!({ "post": { "body": body } }).to_string()
     }
 
-    async fn next_post(rx: &mut broadcast::Receiver<Frame>) -> GazettePost {
+    async fn next_post(rx: &mut broadcast::Receiver<Frame>) -> OverviewPost {
         let frame = tokio::time::timeout(Duration::from_secs(3), rx.recv())
             .await
-            .expect("a GAZETTE frame arrived in time")
+            .expect("a OVERVIEW frame arrived in time")
             .expect("frame");
-        assert_eq!(frame.feed_id, FeedId::GAZETTE);
-        serde_json::from_slice(&frame.payload).expect("a GazettePost on the wire")
+        assert_eq!(frame.feed_id, FeedId::OVERVIEW);
+        serde_json::from_slice(&frame.payload).expect("a OverviewPost on the wire")
     }
 
     async fn expect_no_post(rx: &mut broadcast::Receiver<Frame>) {
@@ -856,15 +856,15 @@ mod tests {
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
 
-        let post = next_post(&mut h.gazette_rx).await;
-        assert_eq!(post.author, GazetteAuthor::Reporter);
+        let post = next_post(&mut h.overview_rx).await;
+        assert_eq!(post.author, OverviewAuthor::Observer);
         assert_eq!(post.session_id.as_deref(), Some("s1"));
         assert_eq!(post.wake_reason.as_deref(), Some("turn-end"));
         assert_eq!(post.body, "Vendored the light faces.");
         assert!(post.id.is_some(), "a persisted post carries its rowid");
         assert!(!post.transient);
 
-        let stored = h.ledger.list_gazette_posts_tail(10).unwrap();
+        let stored = h.ledger.list_overview_posts_tail(10).unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].body, "Vendored the light faces.");
 
@@ -881,8 +881,8 @@ mod tests {
         h.code_tx.send(assistant_text("s1", "some work")).unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
 
-        expect_no_post(&mut h.gazette_rx).await;
-        assert!(h.ledger.list_gazette_posts_tail(10).unwrap().is_empty());
+        expect_no_post(&mut h.overview_rx).await;
+        assert!(h.ledger.list_overview_posts_tail(10).unwrap().is_empty());
         h.cancel.cancel();
     }
 
@@ -898,7 +898,7 @@ mod tests {
             .send(assistant_text("s1", "a long tool loop"))
             .unwrap();
 
-        let post = next_post(&mut h.gazette_rx).await;
+        let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.wake_reason.as_deref(), Some("sitrep-timer"));
         h.cancel.cancel();
     }
@@ -918,7 +918,7 @@ mod tests {
             })))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(1_500)).await;
-        expect_no_post(&mut h.gazette_rx).await;
+        expect_no_post(&mut h.overview_rx).await;
         h.cancel.cancel();
     }
 
@@ -948,18 +948,18 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         h.code_tx.send(turn_complete("s1")).unwrap();
 
-        expect_no_post(&mut h.gazette_rx).await;
+        expect_no_post(&mut h.overview_rx).await;
 
         // The window is not lost — the moment real work lands, the next turn
         // end narrates both it and the prompt that asked for it.
         h.code_tx.send(assistant_text("s1", "real work")).unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
-        let post = next_post(&mut h.gazette_rx).await;
+        let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.wake_reason.as_deref(), Some("turn-end"));
         h.cancel.cancel();
     }
 
-    /// [P10]: the wake reads the facts library and hands the Reporter the facts
+    /// [P10]: the wake reads the facts library and hands the Observer the facts
     /// recorded since its newest prior post — and a sha carried only by a fact
     /// survives ref validation, which is the whole point of the second corpus.
     ///
@@ -991,14 +991,14 @@ mod tests {
 
         h.code_tx.send(assistant_text("s1", "landed it")).unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
-        let post = next_post(&mut h.gazette_rx).await;
+        let post = next_post(&mut h.overview_rx).await;
 
         let input = fake
             .turns_seen()
             .last()
             .cloned()
             .expect("the pool saw a turn");
-        assert!(input.contains(crate::feeds::reporter_wake::FACTS_SECTION_HEADER));
+        assert!(input.contains(crate::feeds::observer_wake::FACTS_SECTION_HEADER));
         assert!(
             input.contains("03fcaa08"),
             "the commit fact reached the wake input: {input}"
@@ -1028,8 +1028,8 @@ mod tests {
             .send(assistant_text("s1", "private work"))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
-        expect_no_post(&mut h.gazette_rx).await;
-        assert!(h.ledger.list_gazette_posts_tail(10).unwrap().is_empty());
+        expect_no_post(&mut h.overview_rx).await;
+        assert!(h.ledger.list_overview_posts_tail(10).unwrap().is_empty());
 
         // Public again: the dropped window is gone, but the next turn narrates.
         h.ledger
@@ -1037,7 +1037,7 @@ mod tests {
             .expect("marked public");
         h.code_tx.send(assistant_text("s1", "public work")).unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
-        let post = next_post(&mut h.gazette_rx).await;
+        let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.session_id.as_deref(), Some("s1"));
         h.cancel.cancel();
     }
@@ -1059,29 +1059,29 @@ mod tests {
             .send(assistant_text("s1", "replayed history"))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
-        expect_no_post(&mut h.gazette_rx).await;
+        expect_no_post(&mut h.overview_rx).await;
         h.cancel.cancel();
     }
 
-    /// [P12]: the Gazette's own posts travel on GAZETTE, a feed this bridge
+    /// [P12]: the Overview's own posts travel on OVERVIEW, a feed this bridge
     /// never subscribes to. A post can never become evidence for the next
     /// post, and there is no wire on which it could.
     #[tokio::test]
-    async fn a_gazette_frame_never_enters_the_buffer() {
+    async fn a_overview_frame_never_enters_the_buffer() {
         let spawner = FakeSpawner::always(Ok(envelope("should never be asked for")));
         let mut h = start(spawner, 0).await;
 
-        // Even smuggled onto the tapped wire, a GAZETTE-shaped payload is not
+        // Even smuggled onto the tapped wire, a OVERVIEW-shaped payload is not
         // an allowlisted frame type and cannot reach a buffer.
         h.code_tx
             .send(code_frame(serde_json::json!({
                 "tug_session_id": "s1",
-                "type": "gazette_post",
+                "type": "overview_post",
                 "body": "an earlier post",
             })))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
-        expect_no_post(&mut h.gazette_rx).await;
+        expect_no_post(&mut h.overview_rx).await;
         h.cancel.cancel();
     }
 
@@ -1139,9 +1139,9 @@ mod tests {
             .send(assistant_text("s1", "the work the failed job never read"))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
-        expect_no_post(&mut h.gazette_rx).await;
+        expect_no_post(&mut h.overview_rx).await;
         assert!(
-            h.ledger.list_gazette_posts_tail(10).unwrap().is_empty(),
+            h.ledger.list_overview_posts_tail(10).unwrap().is_empty(),
             "a failure is not a post",
         );
 
@@ -1152,7 +1152,7 @@ mod tests {
             .send(assistant_text("s1", "and what came after"))
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
-        let post = next_post(&mut h.gazette_rx).await;
+        let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.body, "Caught up.");
 
         let turns = seen.lock().unwrap().clone();
@@ -1193,7 +1193,7 @@ mod tests {
             .unwrap();
         h.code_tx.send(turn_complete("s1")).unwrap();
 
-        let post = next_post(&mut h.gazette_rx).await;
+        let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.refs.len(), 1);
         assert_eq!(post.refs[0].target, "9a9051001");
         h.cancel.cancel();
@@ -1223,7 +1223,7 @@ mod tests {
             ))
             .unwrap();
 
-        let post = next_post(&mut h.gazette_rx).await;
+        let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.wake_reason.as_deref(), Some("session-end"));
         h.cancel.cancel();
     }
@@ -1238,12 +1238,12 @@ mod tests {
 
         h.code_tx.send(assistant_text("s1", "some work")).unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        expect_no_post(&mut h.gazette_rx).await;
+        expect_no_post(&mut h.overview_rx).await;
 
         h.sitrep.store(1, Ordering::SeqCst);
         // A frame nudges the loop so the new deadline is computed.
         h.code_tx.send(assistant_text("s1", "more work")).unwrap();
-        let post = next_post(&mut h.gazette_rx).await;
+        let post = next_post(&mut h.overview_rx).await;
         assert_eq!(post.wake_reason.as_deref(), Some("sitrep-timer"));
         h.cancel.cancel();
     }

@@ -2561,12 +2561,7 @@ pub(crate) fn integrate_message(
         .unwrap_or_else(|| "Dash work".to_string());
     let body = strip_dash_scope(&body);
     // Subject stays `tugdash(<name>): …`; the trailers ride the body ([P08]).
-    with_dash_trailers(
-        repo,
-        name,
-        branch,
-        &format!("tugdash({}): {}", name, body),
-    )
+    with_dash_trailers(repo, name, branch, &format!("tugdash({}): {}", name, body))
 }
 
 /// Strip one leading `tugdash(<anything>): `, or return the body unchanged.

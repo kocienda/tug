@@ -1,5 +1,5 @@
 /**
- * session-private-store.ts — per-session Gazette-privacy cache.
+ * session-private-store.ts — per-session Overview-privacy cache.
  *
  * `sessions.private` lives authoritatively in tugcast's ledger. The `/private`
  * command needs to know the current value to toggle it, and the session atom
@@ -28,7 +28,7 @@
  * {@link SessionPrivateStore.awaitSettle} waiter the `/private` command arms
  * before it sends, resolved by whichever ack comes back. The marker can afford
  * to be optimistic because it is reconciled either way; the bulletin cannot,
- * because a claim that the Gazette has stopped listening is not something to
+ * because a claim that the Overview has stopped listening is not something to
  * make on a request that may still be refused. A session is bound to exactly
  * one card (`card_id` is 1:1 on the ledger row), so the session id addresses
  * the waiter as precisely as a card id would.
@@ -59,7 +59,7 @@ class SessionPrivateStore {
     };
   };
 
-  /** Whether `tugSessionId` is currently out of the Gazette. */
+  /** Whether `tugSessionId` is currently out of the Overview. */
   isPrivate = (tugSessionId: string): boolean =>
     this.privateIds.has(tugSessionId);
 

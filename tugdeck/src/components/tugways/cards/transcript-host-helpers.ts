@@ -211,7 +211,7 @@ export function useAnnotationContext(
       resolvePath,
       resolveCommit,
       // Parity cuts both ways: a session spelled in assistant prose is the
-      // same reference it is in a Gazette post, and gets the same chip.
+      // same reference it is in a Overview post, and gets the same chip.
       resolveSession: resolveSessionRef,
       commitRoot: projectDir,
       atomPathRoots,

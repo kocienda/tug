@@ -137,13 +137,13 @@ describe("sessionTitleParts", () => {
   test("a recorded project fills the prefix for display without resolving", () => {
     const cited = identity({
       projectDir: null,
-      recordedProject: "gazette",
+      recordedProject: "broadsheet",
       ledgerKnown: false,
       tag: null,
       recordedTag: "kooky-taper",
     });
     expect(sessionTitleParts(cited)).toEqual({
-      name: "gazette/kooky-taper",
+      name: "broadsheet/kooky-taper",
       callsign: null,
     });
     expect(cited.resolved).toBe(false);

@@ -67,8 +67,8 @@ const encodeProjectDir = (absDir: string): string =>
 const SEEDED = [
   {
     id: "a7c04220-0000-4000-8000-0000000000b1",
-    prompt: "gazette provenance links",
-    title: "gazette provenance links",
+    prompt: "overview provenance links",
+    title: "overview provenance links",
   },
   {
     id: "a7c04220-0000-4000-8000-0000000000b2",

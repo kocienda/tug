@@ -16,7 +16,7 @@ import {
   PulseStore,
   groupPulseHistory,
   latestLineForScope,
-  latestOverviewForScope,
+  latestPulseOverviewForScope,
   publishListPulseLinesOk,
   type PulseLineEntry,
 } from "@/lib/pulse-store";
@@ -204,15 +204,15 @@ describe("PulseStore", () => {
         { scope: "s2", at_ms: 2_000, beat: 2, text: "restored: pulse ledger" },
       ],
     });
-    const { overviews } = store.getSnapshot();
-    expect(latestOverviewForScope(overviews, "s1")?.text).toBe(
+    const { pulseOverviews } = store.getSnapshot();
+    expect(latestPulseOverviewForScope(pulseOverviews, "s1")?.text).toBe(
       "live: rewiring the responder chain",
     );
-    expect(latestOverviewForScope(overviews, "s2")?.text).toBe(
+    expect(latestPulseOverviewForScope(pulseOverviews, "s2")?.text).toBe(
       "restored: pulse ledger",
     );
     // A card with no overview of its own and no app-wide one stays bare.
-    expect(latestOverviewForScope(overviews, "s3")).toBeNull();
+    expect(latestPulseOverviewForScope(pulseOverviews, "s3")).toBeNull();
   });
 
   it("latestLineForScope shows own-session, app-wide, and woven lines only", () => {
@@ -374,7 +374,7 @@ describe("PulseStore — overviews", () => {
     expect(snap.lines.length).toBe(1);
     expect(snap.lines[0].text).toBe("a beat");
     expect(snap.latest?.text).toBe("a beat");
-    expect(latestOverviewForScope(snap.overviews, "s1")?.text).toBe(
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s1")?.text).toBe(
       "Hardening the watch loop.",
     );
   });
@@ -386,8 +386,8 @@ describe("PulseStore — overviews", () => {
     conn.pushPulseFrame(overviewFrame("First goal.", ["s1"], 1));
     conn.pushPulseFrame(overviewFrame("Second goal.", ["s1"], 2));
     const snap = store.getSnapshot();
-    expect(snap.overviews.size).toBe(1);
-    expect(latestOverviewForScope(snap.overviews, "s1")?.text).toBe("Second goal.");
+    expect(snap.pulseOverviews.size).toBe(1);
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s1")?.text).toBe("Second goal.");
   });
 
   it("a card only sees its own session's overview", () => {
@@ -396,8 +396,8 @@ describe("PulseStore — overviews", () => {
     store.getSnapshot();
     conn.pushPulseFrame(overviewFrame("s1 goal.", ["s1"]));
     const snap = store.getSnapshot();
-    expect(latestOverviewForScope(snap.overviews, "s1")?.text).toBe("s1 goal.");
-    expect(latestOverviewForScope(snap.overviews, "s2")).toBeNull();
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s1")?.text).toBe("s1 goal.");
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s2")).toBeNull();
   });
 
   it("an app-wide overview shows everywhere the session has none", () => {
@@ -406,11 +406,11 @@ describe("PulseStore — overviews", () => {
     store.getSnapshot();
     conn.pushPulseFrame(overviewFrame("app-wide.", ["app"]));
     let snap = store.getSnapshot();
-    expect(latestOverviewForScope(snap.overviews, "s2")?.text).toBe("app-wide.");
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s2")?.text).toBe("app-wide.");
     // The session's own always wins over the app-wide fallback.
     conn.pushPulseFrame(overviewFrame("s2 goal.", ["s2"]));
     snap = store.getSnapshot();
-    expect(latestOverviewForScope(snap.overviews, "s2")?.text).toBe("s2 goal.");
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s2")?.text).toBe("s2 goal.");
   });
 
   it("an unscoped overview files as app-wide", () => {
@@ -419,7 +419,7 @@ describe("PulseStore — overviews", () => {
     store.getSnapshot();
     conn.pushPulseFrame(overviewFrame("unscoped.", []));
     const snap = store.getSnapshot();
-    expect(latestOverviewForScope(snap.overviews, "anything")?.text).toBe("unscoped.");
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "anything")?.text).toBe("unscoped.");
   });
 
   it("clearing a scope does not clear its overview — it is not news", () => {
@@ -429,14 +429,14 @@ describe("PulseStore — overviews", () => {
     conn.pushPulseFrame(overviewFrame("Standing goal."));
     store.clearScope("s1");
     const snap = store.getSnapshot();
-    expect(latestOverviewForScope(snap.overviews, "s1")?.text).toBe("Standing goal.");
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s1")?.text).toBe("Standing goal.");
   });
 
   it("an empty scope has no overview", () => {
     const { store } = makeStore();
     stores.push(store);
     const snap = store.getSnapshot();
-    expect(latestOverviewForScope(snap.overviews, "")).toBeNull();
-    expect(snap.overviews.size).toBe(0);
+    expect(latestPulseOverviewForScope(snap.pulseOverviews, "")).toBeNull();
+    expect(snap.pulseOverviews.size).toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-//! operator — the Gazette's read-only verb executor.
+//! operator — the Overview's read-only verb executor.
 //!
 //! The Operator model never touches the machine. It emits verb *requests*
 //! (Spec S02) and this module runs them: ledger reads over the session ledger,
@@ -40,12 +40,12 @@ use crate::feeds::facts_library;
 use crate::feeds::repo_files;
 use crate::search_tokens::{expand_subwords, relax_or, sanitize_fts_query};
 use crate::session_ledger::{
-    FactRow, FactSearchFilter, FactSearchHit, GazetteSearchFilter, SessionLedger, SessionRow,
+    FactRow, FactSearchFilter, FactSearchHit, OverviewSearchFilter, SessionLedger, SessionRow,
 };
 use crate::shared_agent::TurnImage;
 use crate::shell_ledger::ShellLedger;
 use tugcast_core::types::{
-    GazetteAttachment, GazetteAuthor, GazettePost, GazetteRef, GazetteRefKind,
+    OverviewAttachment, OverviewAuthor, OverviewPost, OverviewRef, OverviewRefKind,
 };
 
 // MARK: - Caps
@@ -109,7 +109,7 @@ pub struct OperatorContext {
     /// The Haiku pool, for the search ladder's last rung ([P09]).
     ///
     /// `Option` because most construction sites have no pool and want none:
-    /// the verb fixtures, and `operator-ask`, which builds only the Gazette's
+    /// the verb fixtures, and `operator-ask`, which builds only the Overview's
     /// own pool. `None` means the rung is skipped and an unanswerable search
     /// returns empty exactly as it did before — the degradation is the
     /// default, not the exception.
@@ -120,8 +120,8 @@ pub struct OperatorContext {
 /// thirteen; a test pins the two lists against each other so a verb can never
 /// be offered to the model without an executor behind it.
 pub const VERB_NAMES: &[&str] = &[
-    "gazette.search",
-    "gazette.window",
+    "overview.search",
+    "overview.window",
     "facts.search",
     "facts.list",
     "facts.window",
@@ -159,8 +159,8 @@ pub async fn run_verb(ctx: &OperatorContext, name: &str, args: &Value) -> Result
 
 async fn dispatch(ctx: &OperatorContext, name: &str, args: &Value) -> Result<Value, String> {
     match name {
-        "gazette.search" => gazette_search(ctx, args).await,
-        "gazette.window" => gazette_window(ctx, args),
+        "overview.search" => overview_search(ctx, args).await,
+        "overview.window" => overview_window(ctx, args),
         "facts.search" => facts_search(ctx, args).await,
         "facts.list" => facts_list(ctx, args),
         "facts.window" => facts_window(ctx, args),
@@ -296,7 +296,7 @@ fn truncate(text: &str, max_chars: usize) -> String {
     out
 }
 
-fn post_json(post: &tugcast_core::types::GazettePost) -> Value {
+fn post_json(post: &tugcast_core::types::OverviewPost) -> Value {
     json!({
         "id": post.id,
         "at_ms": post.at_ms,
@@ -386,11 +386,11 @@ async fn expand_via_model(ctx: &OperatorContext, question: &str) -> Option<Strin
     let raw = match pool.run("expand_query", question.to_string()).await {
         Ok(raw) => raw,
         Err(err) => {
-            warn!(error = %err, "gazette operator: query expansion unavailable");
+            warn!(error = %err, "overview operator: query expansion unavailable");
             return None;
         }
     };
-    let terms = crate::feeds::reporter_wake::json_object_spans(raw.trim())
+    let terms = crate::feeds::observer_wake::json_object_spans(raw.trim())
         .into_iter()
         .rev()
         .find_map(|span| serde_json::from_str::<TermsEnvelope>(span).ok())
@@ -421,16 +421,16 @@ async fn expand_via_model(ctx: &OperatorContext, question: &str) -> Option<Strin
     Some(expressions.join(" OR "))
 }
 
-async fn gazette_search(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
+async fn overview_search(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let query = req_str(args, "query")?;
     let author = match opt_str(args, "author")? {
         Some(raw) => Some(
-            GazetteAuthor::parse(raw)
-                .ok_or_else(|| format!("author {raw:?} is not reporter, operator, or user"))?,
+            OverviewAuthor::parse(raw)
+                .ok_or_else(|| format!("author {raw:?} is not observer, operator, or user"))?,
         ),
         None => None,
     };
-    let filter = GazetteSearchFilter {
+    let filter = OverviewSearchFilter {
         author,
         session_id: opt_str(args, "session_id")?.map(str::to_string),
         since_ms: opt_i64(args, "since_ms")?,
@@ -438,12 +438,12 @@ async fn gazette_search(ctx: &OperatorContext, args: &Value) -> Result<Value, St
     };
     let search = |expr: &str| {
         ctx.ledger
-            .search_gazette_posts(expr, &filter, SEARCH_LIMIT)
+            .search_overview_posts(expr, &filter, SEARCH_LIMIT)
             // An unbalanced quote or a bare `AND` is the model's error to see,
             // not a failure to hide: FTS5 says exactly what it disliked. Only a
             // query the model wrote in FTS5 can reach here — a sanitized one
             // cannot syntax-error.
-            .map_err(|err| format!("gazette.search: {err}"))
+            .map_err(|err| format!("overview.search: {err}"))
     };
     let (mut hits, mut query_used, mut note) = search_with_recovery(query, "posts", search)?;
     if hits.is_empty()
@@ -471,15 +471,15 @@ async fn gazette_search(ctx: &OperatorContext, args: &Value) -> Result<Value, St
     Ok(out)
 }
 
-fn gazette_window(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
+fn overview_window(ctx: &OperatorContext, args: &Value) -> Result<Value, String> {
     let post_id = opt_i64(args, "post_id")?.ok_or("argument \"post_id\" is required")?;
     let n = opt_i64(args, "n")?
         .unwrap_or(3)
         .clamp(0, WINDOW_MAX_N as i64) as usize;
     let posts = ctx
         .ledger
-        .gazette_posts_window(post_id, n)
-        .map_err(|err| format!("gazette.window: {err}"))?;
+        .overview_posts_window(post_id, n)
+        .map_err(|err| format!("overview.window: {err}"))?;
     let rows: Vec<Value> = posts.iter().map(post_json).collect();
     Ok(json!({ "posts": rows, "count": rows.len() }))
 }
@@ -506,7 +506,7 @@ fn refuse_if_private(ctx: &OperatorContext, verb: &str, session_id: &str) -> Res
 /// follow-up question would name, and the depth behind the line.
 ///
 /// `text` remains the one canonical rendering — the string FTS indexes and the
-/// Reporter prints, so every surface describes a fact the same way ([P02]).
+/// Observer prints, so every surface describes a fact the same way ([P02]).
 /// The raw payload is still absent, and deliberately: it is the recorder's
 /// structured form, and a prompt's runs to kilobytes. What crosses instead is
 /// `detail`, the curated per-kind projection composed beside `render_text`
@@ -553,7 +553,7 @@ async fn facts_search(ctx: &OperatorContext, args: &Value) -> Result<Value, Stri
     let search = |expr: &str| {
         ctx.ledger
             .search_facts(expr, &filter, fetch)
-            // Same posture as `gazette.search`: FTS5 says what it disliked
+            // Same posture as `overview.search`: FTS5 says what it disliked
             // about the query, and the model reads its own mistake.
             .map_err(|err| format!("facts.search: {err}"))
     };
@@ -1418,7 +1418,7 @@ pub const MAX_RETRIEVAL_ROUNDS: usize = 2;
 
 /// One verb the model asked for.
 ///
-/// **Not `deny_unknown_fields`, unlike the Reporter's envelope.** There the
+/// **Not `deny_unknown_fields`, unlike the Observer's envelope.** There the
 /// strictness is the contract: a drifted field means a post nobody wrote on
 /// purpose, and silence is the safe failure. Here the failure mode is the
 /// opposite — somebody is waiting, and refusing a whole exchange because the
@@ -1481,7 +1481,7 @@ struct AnswerEnvelope {
 pub struct AnswerPost {
     pub body: String,
     #[serde(default)]
-    pub refs: Vec<tugcast_core::types::GazetteRef>,
+    pub refs: Vec<tugcast_core::types::OverviewRef>,
 }
 
 /// What `operator-answer` said: the answer, or a request for one more round.
@@ -1492,11 +1492,11 @@ enum AnswerTurn {
 
 /// Read a `{"verbs": […]}` envelope out of a model turn.
 ///
-/// The same newest-first span scan the Reporter uses ([P06] as amended): the
+/// The same newest-first span scan the Observer uses ([P06] as amended): the
 /// models preface, double-wrap, and correct themselves the same way whichever
 /// job they are answering, so there is one scanner rather than two.
 fn parse_verbs(raw: &str) -> Option<Vec<VerbRequest>> {
-    for span in crate::feeds::reporter_wake::json_object_spans(raw.trim())
+    for span in crate::feeds::observer_wake::json_object_spans(raw.trim())
         .into_iter()
         .rev()
     {
@@ -1517,7 +1517,7 @@ fn parse_verbs(raw: &str) -> Option<Vec<VerbRequest>> {
 /// request for more when both somehow appear: the model has said the thing
 /// someone is waiting for.
 fn parse_answer_turn(raw: &str) -> Option<AnswerTurn> {
-    let spans = crate::feeds::reporter_wake::json_object_spans(raw.trim());
+    let spans = crate::feeds::observer_wake::json_object_spans(raw.trim());
     for span in spans.iter().rev() {
         if let Ok(envelope) = serde_json::from_str::<AnswerEnvelope>(span) {
             return Some(AnswerTurn::Answer(envelope.answer));
@@ -1531,7 +1531,7 @@ fn parse_answer_turn(raw: &str) -> Option<AnswerTurn> {
     None
 }
 
-fn render_scrollback(posts: &[tugcast_core::types::GazettePost]) -> String {
+fn render_scrollback(posts: &[tugcast_core::types::OverviewPost]) -> String {
     if posts.is_empty() {
         return "(the channel is empty)\n".to_string();
     }
@@ -1725,7 +1725,7 @@ fn render_question_files(mentions: &[VerifiedMention]) -> String {
             }
             Ok(_) => None,
             Err(err) => {
-                warn!(path = %mention.path, error = %err, "gazette operator: named file would not read; seeded by name only");
+                warn!(path = %mention.path, error = %err, "overview operator: named file would not read; seeded by name only");
                 None
             }
         };
@@ -1771,7 +1771,7 @@ fn compose_retrieve_input(
     question_files: &str,
 ) -> String {
     format!(
-        "{}\n\n{roster}\nQUESTION:\n{question}\n{}{question_files}\nRECENT GAZETTE POSTS:\n{scrollback}",
+        "{}\n\n{roster}\nQUESTION:\n{question}\n{}{question_files}\nRECENT OVERVIEW POSTS:\n{scrollback}",
         render_now_line(now_ms),
         render_attached_line(attached),
     )
@@ -1803,7 +1803,7 @@ fn compose_answer_input(
     out.push_str(question);
     out.push('\n');
     out.push_str(&render_attached_line(attached));
-    out.push_str("\nRECENT GAZETTE POSTS:\n");
+    out.push_str("\nRECENT OVERVIEW POSTS:\n");
     out.push_str(scrollback);
     out.push_str("\nVERB RESULTS:\n");
     out.push_str(results);
@@ -1828,10 +1828,10 @@ fn compose_answer_input(
 /// leave the post unattributed. A ref that fails these gates is still KEPT —
 /// it renders in the provenance strip, inert if it resolves to nothing. This
 /// governs only what is promoted to the row's identity.
-fn sole_ledger_session(ctx: &OperatorContext, refs: &[GazetteRef]) -> Option<String> {
+fn sole_ledger_session(ctx: &OperatorContext, refs: &[OverviewRef]) -> Option<String> {
     let mut sessions = refs
         .iter()
-        .filter(|r| matches!(r.kind, GazetteRefKind::Session));
+        .filter(|r| matches!(r.kind, OverviewRefKind::Session));
     let only = sessions.next()?;
     if sessions.next().is_some() {
         return None;
@@ -1843,7 +1843,7 @@ fn sole_ledger_session(ctx: &OperatorContext, refs: &[GazetteRef]) -> Option<Str
         Ok(Some(_)) => Some(only.target.clone()),
         Ok(None) => None,
         Err(err) => {
-            tracing::warn!(error = %err, "gazette operator: session lookup failed; not stamping");
+            tracing::warn!(error = %err, "overview operator: session lookup failed; not stamping");
             None
         }
     }
@@ -1858,7 +1858,7 @@ fn is_session_uuid(id: &str) -> bool {
         })
 }
 
-/// One image as it arrives on `GAZETTE_INPUT` — the deck's downsampled bytes,
+/// One image as it arrives on `OVERVIEW_INPUT` — the deck's downsampled bytes,
 /// base64, plus the media type it decoded them as. The same pair an Anthropic
 /// image block takes, which is why nothing re-encodes on the way to the model.
 #[derive(Debug, Clone, Deserialize)]
@@ -1870,9 +1870,9 @@ pub struct QuestionAttachment {
 }
 
 /// One file the asker pointed at with an `@` atom, as it arrives on
-/// `GAZETTE_INPUT` beside the flattened body.
+/// `OVERVIEW_INPUT` beside the flattened body.
 ///
-/// `kind` is a plain string rather than a [`GazetteRefKind`] deliberately: an
+/// `kind` is a plain string rather than a [`OverviewRefKind`] deliberately: an
 /// unrecognized spelling from a drifted deck must cost that one ref, not the
 /// deserialization of the whole question. Only `file` is acted on today, which
 /// is the only kind the composer's single completion source can produce.
@@ -1910,12 +1910,12 @@ pub struct VerifiedMention {
 pub(crate) async fn verify_question_refs(dir: &Path, refs: &[QuestionRef]) -> Vec<VerifiedMention> {
     let mut verified: Vec<VerifiedMention> = Vec::new();
     for raw in refs {
-        if raw.kind != GazetteRefKind::File.as_str() {
-            warn!(kind = %raw.kind, "gazette operator: question ref of an unhandled kind; dropped");
+        if raw.kind != OverviewRefKind::File.as_str() {
+            warn!(kind = %raw.kind, "overview operator: question ref of an unhandled kind; dropped");
             continue;
         }
         if path_arg(&raw.target, "ref").is_err() {
-            warn!(target = %raw.target, "gazette operator: question ref is not a repo-relative path; dropped");
+            warn!(target = %raw.target, "overview operator: question ref is not a repo-relative path; dropped");
             continue;
         }
         match repo_files::resolve_readable_path(dir, &raw.target).await {
@@ -1929,10 +1929,10 @@ pub(crate) async fn verify_question_refs(dir: &Path, refs: &[QuestionRef]) -> Ve
                 });
             }
             Ok(resolved) => {
-                warn!(target = %resolved.used, "gazette operator: question ref is not a file; dropped");
+                warn!(target = %resolved.used, "overview operator: question ref is not a file; dropped");
             }
             Err(err) => {
-                warn!(target = %raw.target, error = %err, "gazette operator: question ref did not resolve; dropped");
+                warn!(target = %raw.target, error = %err, "overview operator: question ref did not resolve; dropped");
             }
         }
     }
@@ -1945,13 +1945,13 @@ pub(crate) async fn verify_question_refs(dir: &Path, refs: &[QuestionRef]) -> Ve
 /// create, a write that fails — costs that one image and nothing else. The
 /// question was still asked and the rest of it is still history, so a dropped
 /// image is a warning in the log, not an exception on the way out.
-fn store_attachments(dir: &Path, attachments: &[QuestionAttachment]) -> Vec<GazetteAttachment> {
+fn store_attachments(dir: &Path, attachments: &[QuestionAttachment]) -> Vec<OverviewAttachment> {
     use base64::Engine as _;
     if attachments.is_empty() {
         return Vec::new();
     }
     if let Err(err) = std::fs::create_dir_all(dir) {
-        warn!(error = %err, "gazette operator: attachments dir unavailable; images dropped");
+        warn!(error = %err, "overview operator: attachments dir unavailable; images dropped");
         return Vec::new();
     }
     let mut stored = Vec::new();
@@ -1959,24 +1959,24 @@ fn store_attachments(dir: &Path, attachments: &[QuestionAttachment]) -> Vec<Gaze
         let bytes = match base64::engine::general_purpose::STANDARD.decode(&attachment.data) {
             Ok(bytes) => bytes,
             Err(err) => {
-                warn!(error = %err, "gazette operator: attachment was not base64; dropped");
+                warn!(error = %err, "overview operator: attachment was not base64; dropped");
                 continue;
             }
         };
         let path = dir.join(format!(
             "{}.{}",
             uuid::Uuid::new_v4(),
-            // Gazette keeps its long-standing `.img` fallback for a media
+            // Overview keeps its long-standing `.img` fallback for a media
             // type outside the servable set. Such a file cannot be read back
             // through `/api/fs/blob` — a pre-existing gap on this path, left
             // exactly as it was rather than changed under a passing refactor.
             crate::attachments::attachment_extension(&attachment.media_type).unwrap_or("img"),
         ));
         if let Err(err) = std::fs::write(&path, &bytes) {
-            warn!(error = %err, "gazette operator: attachment write failed; dropped");
+            warn!(error = %err, "overview operator: attachment write failed; dropped");
             continue;
         }
-        stored.push(GazetteAttachment {
+        stored.push(OverviewAttachment {
             path: path.to_string_lossy().into_owned(),
             media_type: attachment.media_type.clone(),
         });
@@ -1984,15 +1984,15 @@ fn store_attachments(dir: &Path, attachments: &[QuestionAttachment]) -> Vec<Gaze
     stored
 }
 
-/// The Operator side of the Gazette: a question in, a post out.
+/// The Operator side of the Overview: a question in, a post out.
 pub struct OperatorPipeline {
     pub ctx: Arc<OperatorContext>,
     pub pool: Arc<crate::shared_agent::SharedAgentPool>,
-    pub gazette_tx: tokio::sync::broadcast::Sender<tugcast_core::protocol::Frame>,
+    pub overview_tx: tokio::sync::broadcast::Sender<tugcast_core::protocol::Frame>,
 }
 
 impl OperatorPipeline {
-    /// Handle one `GAZETTE_INPUT` submission end to end.
+    /// Handle one `OVERVIEW_INPUT` submission end to end.
     ///
     /// The user's post is persisted and broadcast **first** ([P08]): the
     /// question is history whatever happens next, and the Operator's own
@@ -2038,10 +2038,10 @@ impl OperatorPipeline {
             })
             .collect();
         self.publish(
-            GazettePost {
+            OverviewPost {
                 id: None,
                 at_ms: now_ms(),
-                author: GazetteAuthor::User,
+                author: OverviewAuthor::User,
                 session_id: None,
                 wake_reason: None,
                 body: question.clone(),
@@ -2049,8 +2049,8 @@ impl OperatorPipeline {
                 // channel whose targets came from a person rather than a model.
                 refs: mentions
                     .iter()
-                    .map(|m| GazetteRef {
-                        kind: GazetteRefKind::File,
+                    .map(|m| OverviewRef {
+                        kind: OverviewRefKind::File,
                         target: m.path.clone(),
                     })
                     .collect(),
@@ -2079,11 +2079,11 @@ impl OperatorPipeline {
         let started = std::time::Instant::now();
         match self.answer(&question, &images, &mentions).await {
             Ok((post, context)) => {
-                let validated = crate::feeds::reporter_wake::validate_refs(post.refs, &[&context]);
+                let validated = crate::feeds::observer_wake::validate_refs(post.refs, &[&context]);
                 if !validated.dropped.is_empty() {
                     tracing::warn!(
                         dropped = validated.dropped.len(),
-                        "gazette operator: refs dropped — target not in the results verbatim",
+                        "overview operator: refs dropped — target not in the results verbatim",
                     );
                 }
                 // An answer that rests on exactly one session IS about that
@@ -2094,7 +2094,7 @@ impl OperatorPipeline {
                 // Gated, because `validate_refs` vets nothing here.  It
                 // exempts Session refs from its verbatim-corpus check
                 // outright — sound where it was written, since the
-                // Reporter's session id is stamped by the bridge from the
+                // Observer's session id is stamped by the bridge from the
                 // wake and legitimately appears in no frame's text, but the
                 // Operator's session refs are model-recalled from verb
                 // results and reach this point entirely unchecked. Promoting
@@ -2102,10 +2102,10 @@ impl OperatorPipeline {
                 // hallucinated id a header citation and a raise target.
                 let session_id = sole_ledger_session(&self.ctx, &validated.kept);
                 self.publish(
-                    GazettePost {
+                    OverviewPost {
                         id: None,
                         at_ms: now_ms(),
-                        author: GazetteAuthor::Operator,
+                        author: OverviewAuthor::Operator,
                         session_id,
                         wake_reason: None,
                         body: post.body,
@@ -2128,12 +2128,12 @@ impl OperatorPipeline {
                 );
             }
             Err(err) => {
-                tracing::warn!(error = %err, "gazette operator: question went unanswered");
+                tracing::warn!(error = %err, "overview operator: question went unanswered");
                 self.publish(
-                    GazettePost {
+                    OverviewPost {
                         id: None,
                         at_ms: now_ms(),
-                        author: GazetteAuthor::Operator,
+                        author: OverviewAuthor::Operator,
                         session_id: None,
                         wake_reason: None,
                         body: format!("Couldn't answer that: {err}"),
@@ -2152,21 +2152,21 @@ impl OperatorPipeline {
     }
 
     /// Persist (unless transient) and broadcast one post.
-    fn publish(&self, mut post: GazettePost, persist: bool) {
+    fn publish(&self, mut post: OverviewPost, persist: bool) {
         if persist {
-            match self.ctx.ledger.record_gazette_post(&post) {
+            match self.ctx.ledger.record_overview_post(&post) {
                 Ok(id) => post.id = Some(id),
-                Err(err) => tracing::warn!(error = %err, "gazette operator: ledger write failed"),
+                Err(err) => tracing::warn!(error = %err, "overview operator: ledger write failed"),
             }
         }
         match serde_json::to_vec(&post) {
             Ok(bytes) => {
-                let _ = self.gazette_tx.send(tugcast_core::protocol::Frame::new(
-                    tugcast_core::protocol::FeedId::GAZETTE,
+                let _ = self.overview_tx.send(tugcast_core::protocol::Frame::new(
+                    tugcast_core::protocol::FeedId::OVERVIEW,
                     bytes,
                 ));
             }
-            Err(err) => tracing::warn!(error = %err, "gazette operator: post did not serialize"),
+            Err(err) => tracing::warn!(error = %err, "overview operator: post did not serialize"),
         }
     }
 
@@ -2192,7 +2192,7 @@ pub type RoundObserver<'a> =
 /// what its refs are then validated against.
 ///
 /// This is a free function rather than a method because the pipeline has two
-/// callers with nothing else in common: the Gazette feed, which broadcasts and
+/// callers with nothing else in common: the Overview feed, which broadcasts and
 /// persists what comes back, and `tugcast operator-ask`, which prints it. A
 /// verification instrument that ran a *reimplementation* of the pipeline would
 /// verify nothing, so both callers enter here.
@@ -2206,7 +2206,7 @@ pub async fn run_question(
 ) -> Result<(AnswerPost, String), String> {
     let scrollback = render_scrollback(
         &ctx.ledger
-            .list_gazette_posts_tail(SCROLLBACK_POSTS)
+            .list_overview_posts_tail(SCROLLBACK_POSTS)
             .unwrap_or_default(),
     );
 
@@ -2221,7 +2221,7 @@ pub async fn run_question(
     {
         Ok(rows) => render_session_roster(&rows),
         Err(err) => {
-            warn!(error = %err, "gazette operator: session roster unavailable");
+            warn!(error = %err, "overview operator: session roster unavailable");
             format!("{SESSIONS_HEADER}\n(sessions unavailable)\n")
         }
     };
@@ -2257,7 +2257,7 @@ pub async fn run_question(
         None => {
             warn!(
                 raw = %raw.chars().take(RAW_LOG_CHARS).collect::<String>(),
-                "gazette operator: retrieval named no verbs; answering from the channel alone",
+                "overview operator: retrieval named no verbs; answering from the channel alone",
             );
             Vec::new()
         }
@@ -2324,11 +2324,11 @@ pub async fn run_question(
                 // one still errors.
                 let trimmed = raw.trim();
                 if !trimmed.is_empty()
-                    && crate::feeds::reporter_wake::json_object_spans(trimmed).is_empty()
+                    && crate::feeds::observer_wake::json_object_spans(trimmed).is_empty()
                 {
                     warn!(
                         raw = %trimmed.chars().take(RAW_LOG_CHARS).collect::<String>(),
-                        "gazette operator: prose answer salvaged — the model skipped the envelope",
+                        "overview operator: prose answer salvaged — the model skipped the envelope",
                     );
                     let context = format!("{scrollback}{rendered}");
                     return Ok((
@@ -2343,7 +2343,7 @@ pub async fn run_question(
                 // read off the post that was not written.
                 warn!(
                     raw = %raw.chars().take(RAW_LOG_CHARS).collect::<String>(),
-                    "gazette operator: unreadable answer envelope",
+                    "overview operator: unreadable answer envelope",
                 );
                 return Err("the answering step did not produce a readable answer".to_string());
             }
@@ -2389,7 +2389,7 @@ fn log_verb(
                 outcome = "ok",
                 elapsed_ms,
                 size = %size,
-                "gazette operator verb",
+                "overview operator verb",
             );
         }
         Err(err) => info!(
@@ -2399,7 +2399,7 @@ fn log_verb(
             outcome = "err",
             elapsed_ms,
             error = %err,
-            "gazette operator verb",
+            "overview operator verb",
         ),
     }
 }
@@ -2416,7 +2416,7 @@ mod tests {
     use super::*;
     use crate::feeds::facts_library;
     use crate::session_ledger::SessionLedger;
-    use tugcast_core::types::{GazettePost, GazetteRef, GazetteRefKind};
+    use tugcast_core::types::{OverviewPost, OverviewRef, OverviewRefKind};
 
     struct Fixture {
         ctx: OperatorContext,
@@ -2449,7 +2449,7 @@ mod tests {
             );
         };
         run(&["init", "-q", "-b", "main"]);
-        std::fs::write(dir.path().join("alpha.txt"), "hello gazette\n").unwrap();
+        std::fs::write(dir.path().join("alpha.txt"), "hello overview\n").unwrap();
         // The incident's shape, reproduced: a document in a subdirectory whose
         // text contains `zone`, so `%design-notes.md` — the LIKE-contaminated
         // scope that made a scan silently search nothing — has a real file to
@@ -2487,7 +2487,7 @@ mod tests {
                     ShellLedger::open_in_memory().expect("in-memory shell ledger"),
                 )),
                 bootstrap_project_dir: repo.path().to_path_buf(),
-                attachments_dir: dir.path().join("gazette-attachments"),
+                attachments_dir: dir.path().join("overview-attachments"),
                 haiku,
             },
             _dir: dir,
@@ -2497,15 +2497,15 @@ mod tests {
 
     fn seed_post(ctx: &OperatorContext, body: &str, session_id: Option<&str>) -> i64 {
         ctx.ledger
-            .record_gazette_post(&GazettePost {
+            .record_overview_post(&OverviewPost {
                 id: None,
                 at_ms: 1_700_000_000_000,
-                author: GazetteAuthor::Reporter,
+                author: OverviewAuthor::Observer,
                 session_id: session_id.map(str::to_string),
                 wake_reason: Some("turn-end".to_string()),
                 body: body.to_string(),
-                refs: vec![GazetteRef {
-                    kind: GazetteRefKind::File,
+                refs: vec![OverviewRef {
+                    kind: OverviewRefKind::File,
                     target: "tugdeck/styles/themes/brio.css".to_string(),
                 }],
                 elapsed_ms: None,
@@ -2530,19 +2530,19 @@ mod tests {
     #[tokio::test]
     async fn a_missing_required_argument_is_an_error_not_a_panic() {
         let f = fixture();
-        let err = run_verb(&f.ctx, "gazette.search", &json!({}))
+        let err = run_verb(&f.ctx, "overview.search", &json!({}))
             .await
             .expect_err("missing query");
         assert!(err.contains("query"));
     }
 
     #[tokio::test]
-    async fn gazette_search_caps_at_twenty_posts() {
+    async fn overview_search_caps_at_twenty_posts() {
         let f = fixture();
         for i in 0..30 {
             seed_post(&f.ctx, &format!("theme token work number {i}"), None);
         }
-        let out = run_verb(&f.ctx, "gazette.search", &json!({"query": "token"}))
+        let out = run_verb(&f.ctx, "overview.search", &json!({"query": "token"}))
             .await
             .expect("search ran");
         assert_eq!(out["posts"].as_array().unwrap().len(), SEARCH_LIMIT);
@@ -2550,7 +2550,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gazette_window_clamps_n_to_ten_each_side() {
+    async fn overview_window_clamps_n_to_ten_each_side() {
         let f = fixture();
         let mut ids = Vec::new();
         for i in 0..40 {
@@ -2559,7 +2559,7 @@ mod tests {
         let middle = ids[20];
         let out = run_verb(
             &f.ctx,
-            "gazette.window",
+            "overview.window",
             &json!({"post_id": middle, "n": 500}),
         )
         .await
@@ -3136,7 +3136,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_gazette_search_walks_the_same_ladder() {
+    async fn the_overview_search_walks_the_same_ladder() {
         let f = fixture();
         seed_post(
             &f.ctx,
@@ -3145,7 +3145,7 @@ mod tests {
         );
         let out = run_verb(
             &f.ctx,
-            "gazette.search",
+            "overview.search",
             &json!({"query": "tooltip presentation"}),
         )
         .await
@@ -3266,12 +3266,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_gazette_search_gets_the_same_rung() {
+    async fn the_overview_search_gets_the_same_rung() {
         let f = fixture_with_haiku(scripted(Ok(r#"{"terms": ["flicker"]}"#.to_string())));
         seed_post(&f.ctx, "Stopped the repaint flicker on theme switch.", None);
         let out = run_verb(
             &f.ctx,
-            "gazette.search",
+            "overview.search",
             &json!({"query": "cards blinking"}),
         )
         .await
@@ -3555,7 +3555,7 @@ mod tests {
     #[tokio::test]
     async fn repo_grep_finds_a_match_and_reports_its_line() {
         let f = fixture();
-        let out = run_verb(&f.ctx, "repo.grep", &json!({"pattern": "gazette"}))
+        let out = run_verb(&f.ctx, "repo.grep", &json!({"pattern": "overview"}))
             .await
             .expect("grep ran");
         let matches = out["matches"].as_array().unwrap();
@@ -3582,12 +3582,12 @@ mod tests {
     #[tokio::test]
     async fn repo_grep_recovers_a_case_mismatch_and_says_so() {
         let f = fixture();
-        let out = run_verb(&f.ctx, "repo.grep", &json!({"pattern": "GAZETTE"}))
+        let out = run_verb(&f.ctx, "repo.grep", &json!({"pattern": "OVERVIEW"}))
             .await
             .expect("grep ran");
         assert_eq!(out["count"], 1);
         assert_eq!(out["matches"][0]["path"], "alpha.txt");
-        assert_eq!(out["pattern_used"], "GAZETTE");
+        assert_eq!(out["pattern_used"], "OVERVIEW");
         assert_eq!(
             out["note"],
             "no case-sensitive match; showing case-insensitive matches"
@@ -3601,12 +3601,12 @@ mod tests {
     #[tokio::test]
     async fn repo_grep_decomposes_a_coinage_into_its_pieces() {
         let f = fixture();
-        let out = run_verb(&f.ctx, "repo.grep", &json!({"pattern": "Z-gazette"}))
+        let out = run_verb(&f.ctx, "repo.grep", &json!({"pattern": "Z-overview"}))
             .await
             .expect("grep ran");
         assert_eq!(out["count"], 1);
         assert_eq!(out["matches"][0]["path"], "alpha.txt");
-        assert_eq!(out["pattern_used"], "gazette");
+        assert_eq!(out["pattern_used"], "overview");
         assert_eq!(
             out["note"],
             "no literal match; showing case-insensitive matches for the pattern's pieces"
@@ -3617,10 +3617,10 @@ mod tests {
     #[tokio::test]
     async fn repo_grep_exact_hit_carries_no_note() {
         let f = fixture();
-        let out = run_verb(&f.ctx, "repo.grep", &json!({"pattern": "gazette"}))
+        let out = run_verb(&f.ctx, "repo.grep", &json!({"pattern": "overview"}))
             .await
             .expect("grep ran");
-        assert_eq!(out["pattern_used"], "gazette");
+        assert_eq!(out["pattern_used"], "overview");
         assert!(out.get("note").is_none());
     }
 
@@ -4213,14 +4213,14 @@ mod tests {
     use tokio::sync::broadcast;
     use tugcast_core::protocol::{FeedId, Frame};
 
-    /// A pool on the **real** gazette job table, answering a script — so the
+    /// A pool on the **real** overview job table, answering a script — so the
     /// timeouts and instructions under test are the shipped ones.
     fn scripted_pool(answers: Vec<Result<String, String>>) -> Arc<SharedAgentPool> {
         SharedAgentPool::new(
             AgentSpec {
-                name: "gazette",
+                name: "overview",
                 model: Arc::new(|| "sonnet".to_string()),
-                jobs: super::super::gazette_agent::GAZETTE_AGENT_JOBS,
+                jobs: super::super::overview_agent::OVERVIEW_AGENT_JOBS,
                 max_workers: 3,
             },
             FakeSpawner::new(answers) as Arc<dyn AgentWorkerSpawner>,
@@ -4230,9 +4230,9 @@ mod tests {
     fn dead_pool() -> Arc<SharedAgentPool> {
         SharedAgentPool::new(
             AgentSpec {
-                name: "gazette",
+                name: "overview",
                 model: Arc::new(|| "sonnet".to_string()),
-                jobs: super::super::gazette_agent::GAZETTE_AGENT_JOBS,
+                jobs: super::super::overview_agent::OVERVIEW_AGENT_JOBS,
                 max_workers: 3,
             },
             FakeSpawner::failing() as Arc<dyn AgentWorkerSpawner>,
@@ -4256,11 +4256,11 @@ mod tests {
                     ledger: Arc::clone(&ledger),
                     shell_ledger: None,
                     bootstrap_project_dir: repo.path().to_path_buf(),
-                    attachments_dir: repo.path().join("gazette-attachments"),
+                    attachments_dir: repo.path().join("overview-attachments"),
                     haiku: None,
                 }),
                 pool,
-                gazette_tx: tx,
+                overview_tx: tx,
             },
             rx,
             ledger,
@@ -4268,10 +4268,10 @@ mod tests {
         }
     }
 
-    fn next_post(rx: &mut broadcast::Receiver<Frame>) -> GazettePost {
-        let frame = rx.try_recv().expect("a GAZETTE frame was broadcast");
-        assert_eq!(frame.feed_id, FeedId::GAZETTE);
-        serde_json::from_slice(&frame.payload).expect("a GazettePost on the wire")
+    fn next_post(rx: &mut broadcast::Receiver<Frame>) -> OverviewPost {
+        let frame = rx.try_recv().expect("a OVERVIEW frame was broadcast");
+        assert_eq!(frame.feed_id, FeedId::OVERVIEW);
+        serde_json::from_slice(&frame.payload).expect("a OverviewPost on the wire")
     }
 
     fn verbs_turn() -> Result<String, String> {
@@ -4301,9 +4301,9 @@ mod tests {
         ]);
         let pool = SharedAgentPool::new(
             AgentSpec {
-                name: "gazette",
+                name: "overview",
                 model: Arc::new(|| "sonnet".to_string()),
-                jobs: super::super::gazette_agent::GAZETTE_AGENT_JOBS,
+                jobs: super::super::overview_agent::OVERVIEW_AGENT_JOBS,
                 max_workers: 3,
             },
             Arc::clone(&fake) as Arc<dyn AgentWorkerSpawner>,
@@ -4368,11 +4368,11 @@ mod tests {
             .await;
 
         let question = next_post(&mut h.rx);
-        assert_eq!(question.author, GazetteAuthor::User);
+        assert_eq!(question.author, OverviewAuthor::User);
         assert_eq!(question.body, "");
         assert_eq!(question.attachments.len(), 1);
         let answer = next_post(&mut h.rx);
-        assert_eq!(answer.author, GazetteAuthor::Operator);
+        assert_eq!(answer.author, OverviewAuthor::Operator);
         assert_eq!(answer.body, "A pixel.");
     }
 
@@ -4383,9 +4383,9 @@ mod tests {
         let fake = FakeSpawner::new(vec![verbs_turn(), answer_turn("Nothing to see.")]);
         let pool = SharedAgentPool::new(
             AgentSpec {
-                name: "gazette",
+                name: "overview",
                 model: Arc::new(|| "sonnet".to_string()),
-                jobs: super::super::gazette_agent::GAZETTE_AGENT_JOBS,
+                jobs: super::super::overview_agent::OVERVIEW_AGENT_JOBS,
                 max_workers: 3,
             },
             Arc::clone(&fake) as Arc<dyn AgentWorkerSpawner>,
@@ -4421,18 +4421,18 @@ mod tests {
             .await;
 
         let question = next_post(&mut h.rx);
-        assert_eq!(question.author, GazetteAuthor::User);
+        assert_eq!(question.author, OverviewAuthor::User);
         assert_eq!(question.body, "what landed recently");
         assert_eq!(question.request_id.as_deref(), Some("req-1"));
         assert!(question.id.is_some(), "the question is history");
 
         let answer = next_post(&mut h.rx);
-        assert_eq!(answer.author, GazetteAuthor::Operator);
+        assert_eq!(answer.author, OverviewAuthor::Operator);
         assert!(answer.body.contains("alpha.txt"));
         assert_eq!(answer.request_id.as_deref(), Some("req-1"));
         assert!(!answer.transient);
         assert_eq!(
-            h.ledger.list_gazette_posts_tail(10).unwrap().len(),
+            h.ledger.list_overview_posts_tail(10).unwrap().len(),
             2,
             "both the question and the answer are persisted",
         );
@@ -4487,7 +4487,7 @@ mod tests {
         assert!(post.transient, "the exchange ended, and not with an answer");
         assert_eq!(post.request_id.as_deref(), Some("req-9"));
         assert_eq!(
-            h.ledger.list_gazette_posts_tail(10).unwrap().len(),
+            h.ledger.list_overview_posts_tail(10).unwrap().len(),
             1,
             "only the question is history",
         );
@@ -4506,7 +4506,7 @@ mod tests {
             .await;
 
         let question = next_post(&mut h.rx);
-        assert_eq!(question.author, GazetteAuthor::User);
+        assert_eq!(question.author, OverviewAuthor::User);
         assert!(
             question.id.is_some(),
             "the question is persisted before any model call — it is history whatever happens next",
@@ -4518,14 +4518,14 @@ mod tests {
         );
 
         let failure = next_post(&mut h.rx);
-        assert_eq!(failure.author, GazetteAuthor::Operator);
+        assert_eq!(failure.author, OverviewAuthor::Operator);
         assert!(failure.transient);
         assert!(failure.id.is_none());
         assert_eq!(failure.request_id.as_deref(), Some("req-2"));
 
-        let persisted = h.ledger.list_gazette_posts_tail(10).unwrap();
+        let persisted = h.ledger.list_overview_posts_tail(10).unwrap();
         assert_eq!(persisted.len(), 1, "the hiccup did not enter the history");
-        assert_eq!(persisted[0].author, GazetteAuthor::User);
+        assert_eq!(persisted[0].author, OverviewAuthor::User);
     }
 
     /// Salvage holds after a real verb round too, not only when retrieval
@@ -4590,9 +4590,9 @@ mod tests {
             .await;
 
         let question = next_post(&mut h.rx);
-        assert_eq!(question.author, GazetteAuthor::User);
+        assert_eq!(question.author, OverviewAuthor::User);
         assert_eq!(question.refs.len(), 1);
-        assert_eq!(question.refs[0].kind, GazetteRefKind::File);
+        assert_eq!(question.refs[0].kind, OverviewRefKind::File);
         assert_eq!(question.refs[0].target, "docs/design-notes.md");
     }
 
@@ -4650,7 +4650,7 @@ mod tests {
     /// A payload from a deck that never heard of refs — the overwhelmingly
     /// common case — behaves exactly as it did, field absent and all.
     #[test]
-    fn a_gazette_input_payload_without_refs_still_deserializes() {
+    fn a_overview_input_payload_without_refs_still_deserializes() {
         #[derive(serde::Deserialize)]
         struct Raw {
             #[serde(default)]
@@ -4693,7 +4693,7 @@ mod tests {
         assert_eq!(verbs[0].verb, "git.log");
     }
 
-    /// A model that annotates its verbs still gets them run. The Reporter's
+    /// A model that annotates its verbs still gets them run. The Observer's
     /// `deny_unknown_fields` is a contract about what may enter the channel;
     /// applying it here would have spent a user's answer on tidiness.
     #[test]
@@ -4701,7 +4701,7 @@ mod tests {
         let raw = json!({
             "reasoning": "the channel probably has it",
             "verbs": [{
-                "verb": "gazette.search",
+                "verb": "overview.search",
                 "args": {"query": "physics"},
                 "why": "the posts mention it",
             }],
@@ -4709,7 +4709,7 @@ mod tests {
         .to_string();
         let verbs = parse_verbs(&raw).expect("verbs parsed");
         assert_eq!(verbs.len(), 1);
-        assert_eq!(verbs[0].verb, "gazette.search");
+        assert_eq!(verbs[0].verb, "overview.search");
     }
 
     /// Observed against the real model: it wrote the arguments flat on the
@@ -4718,7 +4718,7 @@ mod tests {
     #[test]
     fn arguments_written_flat_on_the_verb_are_still_arguments() {
         let raw = r#"{"verbs": [
-            {"verb": "gazette.search", "query": "contrast"},
+            {"verb": "overview.search", "query": "contrast"},
             {"verb": "facts.search", "query": "contrast", "kind": "shell"}
         ]}"#;
         let verbs = parse_verbs(raw).expect("verbs parsed");
@@ -4733,7 +4733,7 @@ mod tests {
     fn a_well_formed_request_is_not_rewritten_by_its_annotations() {
         let raw = json!({
             "verbs": [{
-                "verb": "gazette.search",
+                "verb": "overview.search",
                 "args": {"query": "physics"},
                 "why": "the posts mention it",
             }],
@@ -4877,7 +4877,7 @@ mod tests {
     /// reach.
     #[test]
     fn the_verb_table_matches_the_instructions() {
-        let instructions = super::super::gazette_agent::GAZETTE_AGENT_JOBS
+        let instructions = super::super::overview_agent::OVERVIEW_AGENT_JOBS
             .iter()
             .find(|j| j.name == "operator-retrieve")
             .expect("operator-retrieve in the job table")
@@ -4941,7 +4941,7 @@ mod tests {
         assert_eq!(
             composed,
             format!(
-                "{}\n\n{roster}\nQUESTION:\nwhat landed\n\nRECENT GAZETTE POSTS:\n(the channel is empty)\n",
+                "{}\n\n{roster}\nQUESTION:\nwhat landed\n\nRECENT OVERVIEW POSTS:\n(the channel is empty)\n",
                 render_now_line(FIXED_NOW),
             ),
         );
@@ -5005,9 +5005,9 @@ mod tests {
         let fake = FakeSpawner::new(vec![verbs_turn(), answer_turn("Zones, line 3.")]);
         let pool = SharedAgentPool::new(
             AgentSpec {
-                name: "gazette",
+                name: "overview",
                 model: Arc::new(|| "sonnet".to_string()),
-                jobs: super::super::gazette_agent::GAZETTE_AGENT_JOBS,
+                jobs: super::super::overview_agent::OVERVIEW_AGENT_JOBS,
                 max_workers: 3,
             },
             Arc::clone(&fake) as Arc<dyn AgentWorkerSpawner>,
@@ -5274,7 +5274,7 @@ mod tests {
                 NOW_HEADER,
                 SESSIONS_HEADER,
                 "QUESTION:",
-                "RECENT GAZETTE POSTS:",
+                "RECENT OVERVIEW POSTS:",
             ],
         );
 
@@ -5293,7 +5293,7 @@ mod tests {
                 NOW_HEADER,
                 SESSIONS_HEADER,
                 "QUESTION:",
-                "RECENT GAZETTE POSTS:",
+                "RECENT OVERVIEW POSTS:",
                 "VERB RESULTS:",
             ],
         );
@@ -5428,16 +5428,16 @@ mod tests {
     const HELD: &str = "123e4567-e89b-42d3-a456-426614174000";
     const UNHELD: &str = "99999999-9999-4999-a999-999999999999";
 
-    fn session_ref(target: &str) -> GazetteRef {
-        GazetteRef {
-            kind: GazetteRefKind::Session,
+    fn session_ref(target: &str) -> OverviewRef {
+        OverviewRef {
+            kind: OverviewRefKind::Session,
             target: target.to_string(),
         }
     }
 
-    fn file_ref() -> GazetteRef {
-        GazetteRef {
-            kind: GazetteRefKind::File,
+    fn file_ref() -> OverviewRef {
+        OverviewRef {
+            kind: OverviewRefKind::File,
             target: "tugdeck/src/main.tsx".to_string(),
         }
     }
@@ -5504,7 +5504,7 @@ mod tests {
         // renders inert. `validate_refs` is what decides that, and it exempts
         // Session refs from the corpus check outright — which is exactly why
         // the stamp needs its own gate.
-        let validated = crate::feeds::reporter_wake::validate_refs(
+        let validated = crate::feeds::observer_wake::validate_refs(
             vec![session_ref(UNHELD)],
             &["no mention of any session here"],
         );

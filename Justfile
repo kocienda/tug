@@ -2019,21 +2019,21 @@ app-test-grant:
 # Fast smoke: bridge + handshake + one AT scenario (~20-30s).
 app-test-smoke: (app-test "harness-smoke/smoke.test.ts" "harness-smoke/version-handshake.test.ts" "at0001-tab-switch-fc.test.ts")
 
-# Read the Gazette a real session would have produced, at a cadence you choose.
+# Read the Overview a real session would have produced, at a cadence you choose.
 #
 # Cadence is a question about feel, and feel is not answerable from a desk.
 # This replays a Claude Code transcript through the production wake core and
-# the real `reporter-post` job, then prints the channel as markdown: one
+# the real `observer-post` job, then prints the channel as markdown: one
 # section per wake, its reason and window size, and the post — or the silence.
 #
 # Read two or three cadences side by side rather than validating one:
 #
-#   just gazette-replay ~/.claude/projects/<slug>/<id>.jsonl --no-model
-#   just gazette-replay ~/.claude/projects/<slug>/<id>.jsonl --sitrep-secs 120
-#   just gazette-replay ~/.claude/projects/<slug>/<id>.jsonl --sitrep-secs 180
+#   just overview-replay ~/.claude/projects/<slug>/<id>.jsonl --no-model
+#   just overview-replay ~/.claude/projects/<slug>/<id>.jsonl --sitrep-secs 120
+#   just overview-replay ~/.claude/projects/<slug>/<id>.jsonl --sitrep-secs 180
 #
 # `--no-model` segments and reports without calling anything: free, instant,
-# and the right first look — it answers how OFTEN the Reporter would be asked,
+# and the right first look — it answers how OFTEN the Observer would be asked,
 # which is half the question, before you spend tokens on what it would say.
 # A run without it spawns a real `claude` per wake, so it is deliberate work,
 # not something to leave running.
@@ -2041,7 +2041,7 @@ app-test-smoke: (app-test "harness-smoke/smoke.test.ts" "harness-smoke/version-h
 # Other flags: --last-k, --max-frames, --token-wake-tokens, --model.
 # Nothing here reads or writes tugbank, and the subcommand returns before any
 # listener binds — a replay never contends with a live tugcast.
-gazette-replay JSONL *FLAGS:
+overview-replay JSONL *FLAGS:
     #!/usr/bin/env bash
     set -euo pipefail
     # Resolve before the cd, and expand a leading ~ ourselves: just substitutes
@@ -2051,7 +2051,7 @@ gazette-replay JSONL *FLAGS:
     JSONL="$(cd "$(dirname "$JSONL")" && pwd)/$(basename "$JSONL")"
     cd tugrust
     cargo build -p tugcast
-    ./target/debug/tugcast gazette-replay "$JSONL" {{FLAGS}}
+    ./target/debug/tugcast overview-replay "$JSONL" {{FLAGS}}
 
 # Remove the interactive debug build's per-variant DerivedData (matches
 # `app-debug` — the cwd-derived debug variant, e.g. Tug-debug / Tug-worktree).

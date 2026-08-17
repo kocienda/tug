@@ -925,7 +925,7 @@ export function GallerySessionIdentity(): React.ReactElement {
             reads the session&apos;s phase this second, and a rename
             repaints every mounted atom. So the atom is a component with
             subscriptions, never a static string or a baked image — pasted
-            atoms, Gazette refs, and History chips all stay current for as
+            atoms, Overview refs, and History chips all stay current for as
             long as they are on screen. The ink is <strong>text color</strong>:
             the theme&apos;s session tint leaves the pill, and the dot is
             its only color channel. Right-click any atom for Copy.
@@ -1134,7 +1134,7 @@ export function GallerySessionIdentity(): React.ReactElement {
                 "dev.tug.prompt-atoms",
                 "the Tug-private sidecar (one session segment; whether it should also carry the short id is open)",
                 `{"version":1,"text":"￼","atoms":[{"position":0,"segment":{"kind":"atom","type":"session","label":"${LIVE.project}/${LIVE.tag}","value":"${LIVE.project}/${LIVE.tag}"}}]}`,
-                "Paste into a Tug composer, a Jot, a Gazette reply → the live atom re-materializes.",
+                "Paste into a Tug composer, a Jot, a Overview reply → the live atom re-materializes.",
               ],
               [
                 "text/plain",

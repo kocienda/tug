@@ -1,12 +1,12 @@
 /**
- * `gazette-attachment-bytes` — the bytes behind the pictures in the Gazette's
+ * `overview-attachment-bytes` — the bytes behind the pictures in the Overview's
  * transcript, read back from where tugcast rested them.
  *
  * ## Why a store at all
  *
- * The Gazette's post attachments are files: a question's images went up once,
+ * The Overview's post attachments are files: a question's images went up once,
  * tugcast wrote them beside the ledger, and the post says only where they are
- * ({@link GazetteAttachmentWire}). The strip that draws them is the app's own
+ * ({@link OverviewAttachmentWire}). The strip that draws them is the app's own
  * {@link TugAttachmentPreview} — the same tiles, the same captions, the same
  * click-to-enlarge sheet the Session card's transcript shows — and that
  * component's substrate is an {@link AtomBytesStore} keyed by atom id. So the
@@ -19,7 +19,7 @@
  *
  * ## Lazily, exactly once
  *
- * {@link hydrateGazetteAttachments} is called from the row that renders the
+ * {@link hydrateOverviewAttachments} is called from the row that renders the
  * strip, which means the read happens for a post somebody is looking at rather
  * than for the whole ledger tail. Each path is fetched at most once: the
  * in-flight set is the interlock, so the twenty renders a settling column
@@ -33,21 +33,21 @@
  * through `useSyncExternalStore`; the fetch is a side effect the row asks for,
  * never a render.
  *
- * @module lib/gazette-attachment-bytes
+ * @module lib/overview-attachment-bytes
  */
 
 import { createAtomBytesStore, type AtomBytesStore } from "@/lib/atom-bytes-store";
 import { toBase64 } from "@/lib/attachment-upload";
-import type { GazetteAttachmentWire } from "@/protocol";
+import type { OverviewAttachmentWire } from "@/protocol";
 
 /**
  * The channel's bytes, app-scoped. Lazy so a deck that never opens the
- * Gazette allocates nothing.
+ * Overview allocates nothing.
  */
 let _store: AtomBytesStore | null = null;
 
-/** The one store every Gazette attachment strip reads from. */
-export function gazetteAttachmentBytesStore(): AtomBytesStore {
+/** The one store every Overview attachment strip reads from. */
+export function overviewAttachmentBytesStore(): AtomBytesStore {
   _store ??= createAtomBytesStore();
   return _store;
 }
@@ -64,10 +64,10 @@ const inFlight = new Set<string>();
  * subscribed and a tile that has no pixels yet paints a reserved slot. When
  * the read lands, `put` notifies and the tile paints.
  */
-export function hydrateGazetteAttachments(
-  attachments: readonly GazetteAttachmentWire[],
+export function hydrateOverviewAttachments(
+  attachments: readonly OverviewAttachmentWire[],
 ): void {
-  const store = gazetteAttachmentBytesStore();
+  const store = overviewAttachmentBytesStore();
   for (const attachment of attachments) {
     const id = attachment.path;
     if (store.get(id) !== null || inFlight.has(id)) continue;

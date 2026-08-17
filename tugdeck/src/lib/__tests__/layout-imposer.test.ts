@@ -726,7 +726,7 @@ describe("railSeamFractions", () => {
 
   test("absent shares divide equally", () => {
     expect(railSeamFractions(["lens", "jots"], undefined)).toEqual([0.5]);
-    const thirds = railSeamFractions(["lens", "jots", "gazette"], undefined);
+    const thirds = railSeamFractions(["lens", "jots", "overview"], undefined);
     expect(thirds[0]).toBeCloseTo(1 / 3, 10);
     expect(thirds[1]).toBeCloseTo(2 / 3, 10);
   });
@@ -744,8 +744,8 @@ describe("railSeamFractions", () => {
   test("renormalizes over the members actually standing", () => {
     // Jots closed: the record still names it, but the rail divides what it has
     // between the two that are there ([P06]).
-    const shares = { lens: 1, jots: 2, gazette: 1 };
-    expect(railSeamFractions(["lens", "gazette"], shares)).toEqual([0.5]);
+    const shares = { lens: 1, jots: 2, overview: 1 };
+    expect(railSeamFractions(["lens", "overview"], shares)).toEqual([0.5]);
   });
 
   test("a degenerate weight reads as 1 rather than as an error", () => {
@@ -771,7 +771,7 @@ describe("railSharesFromFractions", () => {
   test("round-trips against railSeamFractions", () => {
     for (const order of [
       ["lens", "jots"],
-      ["lens", "jots", "gazette"],
+      ["lens", "jots", "overview"],
     ]) {
       for (const shares of [
         undefined,
@@ -790,7 +790,7 @@ describe("railSharesFromFractions", () => {
   });
 
   test("an equal division comes back as the all-ones record an absent one means", () => {
-    const order = ["lens", "jots", "gazette"];
+    const order = ["lens", "jots", "overview"];
     const recovered = railSharesFromFractions(
       order,
       railSeamFractions(order, undefined),
@@ -802,8 +802,8 @@ describe("railSharesFromFractions", () => {
     // The [P02] property, and the reason this is a function rather than a line
     // of gesture code: dragging the top seam of a three-member rail must not
     // move the bottom member's share of the run.
-    const order = ["lens", "jots", "gazette"];
-    const shares = { lens: 1, jots: 2, gazette: 3 };
+    const order = ["lens", "jots", "overview"];
+    const shares = { lens: 1, jots: 2, overview: 3 };
     const before = railSeamFractions(order, shares);
     const after = [before[0] + 0.1, before[1]];
     const recovered = railSharesFromFractions(order, after);
@@ -813,7 +813,7 @@ describe("railSharesFromFractions", () => {
   });
 
   test("every weight is positive, even from degenerate fractions", () => {
-    const order = ["lens", "jots", "gazette"];
+    const order = ["lens", "jots", "overview"];
     for (const fractions of [
       [0, 0],
       [1, 1],
@@ -912,13 +912,13 @@ describe("effectiveRailOrder", () => {
       {
         lens: { side: "right" },
         jots: { side: "right" },
-        gazette: { side: "right" },
+        overview: { side: "right" },
       },
       { right: { mode: "split", order: ["jots"] } },
     );
     expect(
-      effectiveRailOrder(state, "right", ["lens", "jots", "gazette"]),
-    ).toEqual(["jots", "lens", "gazette"]);
+      effectiveRailOrder(state, "right", ["lens", "jots", "overview"]),
+    ).toEqual(["jots", "lens", "overview"]);
   });
 
   test("a returning member lands back where the order says, not at the end", () => {
@@ -1390,13 +1390,13 @@ describe("the space allocator", () => {
 
 describe("the total is chosen by the picture it paints", () => {
   // The crowded deck the picture-directed chooser exists for: three comfy
-  // cards side by side in three-up, the Gazette holding the right at its
+  // cards side by side in three-up, the Overview holding the right at its
   // 56ch comfort measure over a 400px hard floor, the Lens on the left.
   //
   // A least-squares total is flat across ~1800px of canvas here, because it
   // saturates against the floors — which is why the deck looked, from the
   // outside, as though the allocator did not run on a window resize at all.
-  const GAZETTE = rail({
+  const OVERVIEW = rail({
     preferredWidth: 580,
     minWidth: 400,
     comfortWidth: 512,
@@ -1408,7 +1408,7 @@ describe("the total is chosen by the picture it paints", () => {
     canvasWidth,
     kind: "three-up" as const,
     occupied: THREE_COMFY,
-    rails: { left: LENS, right: GAZETTE },
+    rails: { left: LENS, right: OVERVIEW },
     maxRailWidth: CONTENT_WIDTH_SLIM_PX,
   });
   const answerAt = (canvasWidth: number) =>
@@ -1430,7 +1430,7 @@ describe("the total is chosen by the picture it paints", () => {
     // Three 800px cards genuinely do not fit on a 2000–3000px canvas at any
     // rail total, so there is nothing to buy. The rails sit on their comfort
     // floors having reduced the occlusion as far as comfort allows, and the
-    // Gazette stays readable — cramping it would buy overlap the user still
+    // Overview stays readable — cramping it would buy overlap the user still
     // sees at the cost of a rail they no longer can read.
     for (const canvasWidth of [2000, 3000]) {
       expect(answerAt(canvasWidth)).toEqual({ left: 320, right: 512 });
@@ -1471,7 +1471,7 @@ describe("the total is chosen by the picture it paints", () => {
   });
 
   test("comfort never re-inflates a width the user dragged", () => {
-    // The Gazette dragged to 450 — below its 512 comfort measure, which the
+    // The Overview dragged to 450 — below its 512 comfort measure, which the
     // user is entitled to do. On a crowded deck the comfort floor must not
     // grow it back: that would widen the rail against an explicit choice AND
     // deepen the overlap by the same pixels.
@@ -1498,8 +1498,8 @@ describe("the total is chosen by the picture it paints", () => {
 
   test("a deficit drains comfort before it drains the hard floor", () => {
     // Both tiers, in reverse greed order within each: the Lens gives up its
-    // whole range before the Gazette gives up a pixel of measure, and the
-    // Gazette reaches its hard floor last of all.
+    // whole range before the Overview gives up a pixel of measure, and the
+    // Overview reaches its hard floor last of all.
     const drained = answerAt(3200);
     expect(drained.left).toBe(320);
     expect(drained.right).toBeGreaterThan(400);
@@ -1517,16 +1517,16 @@ describe("greed order decides which rail is the wide one", () => {
   /** The canvas whose fit wants the two rails to total `total`. */
   const canvasFor = (total: number): number => total + GAP * 4 + 1605;
 
-  /** The Gazette: the greediest rail, at the ch-derived magnitudes the plan's
+  /** The Overview: the greediest rail, at the ch-derived magnitudes the plan's
    *  example uses. Fed first, drained last. */
-  const GAZETTE = rail({ preferredWidth: 560, minWidth: 496, greedRank: 1 });
-  /** The Lens: greedier than Jots, less greedy than the Gazette. */
+  const OVERVIEW = rail({ preferredWidth: 560, minWidth: 496, greedRank: 1 });
+  /** The Lens: greedier than Jots, less greedy than the Overview. */
   const LENS = rail({ preferredWidth: 420, minWidth: 320, greedRank: 2 });
 
   const solve = (
     canvasWidth: number,
     left = LENS,
-    right = GAZETTE,
+    right = OVERVIEW,
     occupied: readonly { slot: number; width: number }[] = TWO_CARDS,
   ) =>
     allocateSidebarWidths({
@@ -1546,10 +1546,10 @@ describe("greed order decides which rail is the wide one", () => {
 
   test("a deficit drains the least greedy rail first, to its floor", () => {
     // 100px short: the Lens gives all of it and lands on its floor while the
-    // Gazette does not move. The greediest rail gives width only after every
+    // Overview does not move. The greediest rail gives width only after every
     // other rail is standing on its floor.
     expect(solve(canvasFor(880))).toEqual({ left: 320, right: 560 });
-    // 164px short: the Lens is already spent, so the Gazette gives the rest —
+    // 164px short: the Lens is already spent, so the Overview gives the rest —
     // exactly down to its own floor, and no further.
     expect(solve(canvasFor(816))).toEqual({ left: 320, right: 496 });
   });
@@ -1566,7 +1566,7 @@ describe("greed order decides which rail is the wide one", () => {
         canvasWidth,
         kind: "three-up",
         occupied: TWO_CARDS,
-        rails: { left: LENS, right: GAZETTE },
+        rails: { left: LENS, right: OVERVIEW },
         maxRailWidth: CONTENT_WIDTH_SLIM_PX,
       },
       { left: 320, right: 496 },
@@ -1575,7 +1575,7 @@ describe("greed order decides which rail is the wide one", () => {
   });
 
   test("a surplus feeds the greediest rail first, to its ceiling", () => {
-    // 200px spare: the Gazette takes the 115 that carries it to the slim
+    // 200px spare: the Overview takes the 115 that carries it to the slim
     // ceiling before the Lens grows a pixel, and the Lens takes the rest.
     // BOTH rails end above their preferences — the fill is bounded by the
     // target and the ceiling, never by a preference.
@@ -1596,7 +1596,7 @@ describe("greed order decides which rail is the wide one", () => {
 
   test("reversing the sides reverses the answer, not the order", () => {
     // Greed is the rail's, not the side's.
-    expect(solve(canvasFor(880), GAZETTE, LENS)).toEqual({
+    expect(solve(canvasFor(880), OVERVIEW, LENS)).toEqual({
       left: 560,
       right: 320,
     });
@@ -1630,11 +1630,11 @@ describe("greed order decides which rail is the wide one", () => {
     // Fewer than two occupied slots is no seam and nothing to solve. Each
     // rail answers with its preference, held between its own bounds — not
     // with a shared number, and not with a refusal.
-    expect(solve(2605, LENS, GAZETTE, [{ slot: 0, width: 800 }])).toEqual({
+    expect(solve(2605, LENS, OVERVIEW, [{ slot: 0, width: 800 }])).toEqual({
       left: 420,
       right: 560,
     });
-    expect(solve(2605, LENS, GAZETTE, [])).toEqual({ left: 420, right: 560 });
+    expect(solve(2605, LENS, OVERVIEW, [])).toEqual({ left: 420, right: 560 });
   });
 
   test("the answer tiles the chain measured through both rails", () => {
@@ -1664,7 +1664,7 @@ describe("greed order decides which rail is the wide one", () => {
       canvasWidth,
       kind: "three-up" as const,
       occupied: TWO_CARDS,
-      rails: { left: LENS, right: GAZETTE },
+      rails: { left: LENS, right: OVERVIEW },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     };
     const even = seamPicture(input, { left: 490, right: 490 });
@@ -1686,7 +1686,7 @@ describe("the stacking folds a rail is built from", () => {
     greedRank: Math.min(...members.map((m) => m.greedRank)),
   });
 
-  const GAZETTE = rail({
+  const OVERVIEW = rail({
     preferredWidth: 560,
     minWidth: 440,
     comfortWidth: 496,
@@ -1699,7 +1699,7 @@ describe("the stacking folds a rail is built from", () => {
     // Both floors fold the same way, and independently: the rail must satisfy
     // its most demanding member's hard floor AND its most demanding member's
     // comfort floor.
-    expect(fold([GAZETTE, JOTS])).toEqual({
+    expect(fold([OVERVIEW, JOTS])).toEqual({
       preferredWidth: 560,
       minWidth: 440,
       comfortWidth: 496,
@@ -1708,7 +1708,7 @@ describe("the stacking folds a rail is built from", () => {
   });
 
   test("a rail carrying the greediest card is greedy wherever it stands", () => {
-    // Gazette + Jots on the left against the Lens on the right: the left rail
+    // Overview + Jots on the left against the Lens on the right: the left rail
     // is rank 1, so the Lens drains first even though Jots alone would not
     // outrank it.
     const widths = allocateSidebarWidths({
@@ -1718,7 +1718,7 @@ describe("the stacking folds a rail is built from", () => {
         { slot: 0, width: 800 },
         { slot: 2, width: 800 },
       ],
-      rails: { left: fold([GAZETTE, JOTS]), right: LENS },
+      rails: { left: fold([OVERVIEW, JOTS]), right: LENS },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     });
     expect(widths).toEqual({ left: 560, right: 320 });
@@ -1732,10 +1732,10 @@ describe("the stacking folds a rail is built from", () => {
         { slot: 0, width: 800 },
         { slot: 2, width: 800 },
       ],
-      rails: { left: fold([GAZETTE, JOTS]), right: LENS },
+      rails: { left: fold([OVERVIEW, JOTS]), right: LENS },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     });
-    expect(widths?.left).toBeGreaterThanOrEqual(GAZETTE.minWidth);
+    expect(widths?.left).toBeGreaterThanOrEqual(OVERVIEW.minWidth);
     expect(widths?.left).toBeGreaterThanOrEqual(JOTS.minWidth);
   });
 });

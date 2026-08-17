@@ -88,10 +88,10 @@ body {
   --tugx-transcript-icon-color-assistant:    var(--tug7-element-tone-icon-normal-active-rest);
   --tugx-transcript-icon-color-shell:   var(--tug7-element-tone-icon-normal-data-rest);
   --tugx-transcript-icon-color-git:     var(--tug7-element-tone-icon-normal-success-rest);
-  /* The Gazette's voices: the Reporter narrates (data — it reports records),
+  /* The Overview's voices: the Observer narrates (data — it reports records),
      the Operator answers as the resident agent (the active hue the assistant
      wears — both are the AI speaking). */
-  --tugx-transcript-icon-color-reporter: var(--tug7-element-tone-icon-normal-data-rest);
+  --tugx-transcript-icon-color-observer: var(--tug7-element-tone-icon-normal-data-rest);
   --tugx-transcript-icon-color-operator: var(--tug7-element-tone-icon-normal-active-rest);
 
   /* Icon legibility halo — grounds the colored speaker icon against the
@@ -193,8 +193,8 @@ body {
 .tug-transcript-entry[data-participant="git"] {
   --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-git);
 }
-.tug-transcript-entry[data-participant="reporter"] {
-  --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-reporter);
+.tug-transcript-entry[data-participant="observer"] {
+  --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-observer);
 }
 .tug-transcript-entry[data-participant="operator"] {
   --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-operator);

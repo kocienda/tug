@@ -14,7 +14,7 @@ The rule's value is that it is never a judgment call: **placed things arrive in 
 |---|---|---|
 | `U+FFFC` plus an entry in the `atoms` array | the user picked it from `@`-completion | **Atom** |
 | a tool call's `file_path` JSON field | the system placed it in a field | **Atom** |
-| an entry in a Gazette post's `refs` array | the model placed it in a list | **Atom** |
+| an entry in a Overview post's `refs` array | the model placed it in a list | **Atom** |
 | a commit record's sha, in a receipt header or a History row | the record placed it in a field | **Atom** |
 | characters inside a markdown string | somebody wrote a word | **Mention** |
 
@@ -28,7 +28,7 @@ Four words, used precisely. A change that renames them is fine; a change that bl
 
 - **Atom** — the rendering of a *placed* value. Shows a **name**, never the raw value. Two skins, never more.
 - **Editable skin** — the boxed chip (`TugAtomChip`, and the CM6 `createAtomImgElement`). Only where the object can be selected, deleted, or dragged **in place**: the composer, and its echo in the submitted message.
-- **Read-only skin** — glyph plus label, transparent, no border (`TugAtomRef`). Everywhere else a placed value appears: tool-call headers, pulse beats, Gazette trailing refs, commit receipts, History rows.
+- **Read-only skin** — glyph plus label, transparent, no border (`TugAtomRef`). Everywhere else a placed value appears: tool-call headers, pulse beats, Overview trailing refs, commit receipts, History rows.
 - **Mention** — the rendering of a *written* value: the characters exactly as written, plus the resting rule when a resolver confirms them. One kind is normalized rather than as-written: a confirmed commit sha displays as `Commit <8ch>` (see below), because a sha's spelling is git's output, not the author's prose.
 
 There is no third form. "Chip", "ref", and "citation" are legacy words for one of the two skins and are not separate concepts.
@@ -97,7 +97,7 @@ An atom's label is a **name**, never the raw value. A file atom shows its basena
 
 The word is part of the label because an atom stands with no sentence around it. Eight bare hex characters name nothing a reader can act on, and a small glyph does not rescue them.
 
-**A confirmed commit mention takes the same label.** The as-written rule protects authorship, and a sha's spelling has none to protect: the author pasted whatever short form git happened to emit, and git's short form lengthens with the repository, so raw shas drift between 7 and 12 characters from one post to the next. That variance is machine noise wearing the costume of prose. So a commit sha the resolver confirms displays as `Commit <8ch>` wherever it was written — Gazette posts, session transcripts — via the tip portal that already owns the span (`useCommitTipPortals`), with the written characters preserved on `data-tugx-commit-text` for re-scan and for the unwrap path. When the prose immediately before the run already ends with the word — `Commit abc123def`, `commit: abc123def` — the label yields it and shows the hash alone, so the sentence never reads `Commit Commit`. An *unconfirmed* hex run stays exactly as written: normalization is earned by the verdict, and prose that merely looks sha-shaped is never rewritten.
+**A confirmed commit mention takes the same label.** The as-written rule protects authorship, and a sha's spelling has none to protect: the author pasted whatever short form git happened to emit, and git's short form lengthens with the repository, so raw shas drift between 7 and 12 characters from one post to the next. That variance is machine noise wearing the costume of prose. So a commit sha the resolver confirms displays as `Commit <8ch>` wherever it was written — Overview posts, session transcripts — via the tip portal that already owns the span (`useCommitTipPortals`), with the written characters preserved on `data-tugx-commit-text` for re-scan and for the unwrap path. When the prose immediately before the run already ends with the word — `Commit abc123def`, `commit: abc123def` — the label yields it and shows the hash alone, so the sentence never reads `Commit Commit`. An *unconfirmed* hex run stays exactly as written: normalization is earned by the verdict, and prose that merely looks sha-shaped is never rewritten.
 
 This is deliberately narrower than it looks. File paths, commands, and session refs stay as-written — their spelling *is* authorship (a relative vs. absolute path, a flag order, a nickname). The commit sha is the one entity whose written form carries zero authorial intent, which is why it is the one entity that normalizes.
 
@@ -117,7 +117,7 @@ The counter-evidence, recorded so it is not re-discovered as an objection: we al
 
 `tugdeck/src/lib/annotator/registry.ts` owns what a gesture *does*: nine kinds, one delegated listener, one context-menu provider. A file path opens in a Text card whatever painted it. None of the above changes any of that, and a presentation change that needs to touch `registry.ts` is a sign the change is not a presentation change.
 
-The read-only skin has two stamping modes for exactly this reason. It stamps the annotation contract on itself where nothing else does (tool headers, pulse beats), and stamps nothing where a host already owns the contract — the Gazette's wrapper span, which also owns the pending and unresolvable tooltip states, and `CommitShaText`, which owns every pointer gesture on a sha so a right-click cannot fold the History row out from under its own menu.
+The read-only skin has two stamping modes for exactly this reason. It stamps the annotation contract on itself where nothing else does (tool headers, pulse beats), and stamps nothing where a host already owns the contract — the Overview's wrapper span, which also owns the pending and unresolvable tooltip states, and `CommitShaText`, which owns every pointer gesture on a sha so a right-click cannot fold the History row out from under its own menu.
 
 The link affordance rides the annotation contract rather than a modifier class: an annotated skin, or a skin inside an annotated wrapper, is clickable. A ref nothing could resolve carries no annotation anywhere and so invites nothing, with no prop threaded to say so. "Annotated" and "actionable" are the same fact.
 
@@ -127,9 +127,9 @@ Each was considered and rejected with a reason, and each is the obvious next ide
 
 - **A resting colour or tint for a resolved entity.** Failed on the bench. Colour is not an affordance, and it collides with the code tone, which already uses that channel to mean something else.
 - **Token / Ref / Mention as three peer forms.** The box is a *skin*, not a form. Treating it as a third form is what let two components drift into being the same thing.
-- **Unboxing every placed value on the theory that boxes mean "editing".** Half right. Boxes mean *manipulable in place*. The Gazette's trailing refs row is read-only, so it unboxes — but its entries stay **atoms**, because `refs` is a placed array. The row was never the defect; the prose beside it was, for looking like nothing.
+- **Unboxing every placed value on the theory that boxes mean "editing".** Half right. Boxes mean *manipulable in place*. The Overview's trailing refs row is read-only, so it unboxes — but its entries stay **atoms**, because `refs` is a placed array. The row was never the defect; the prose beside it was, for looking like nothing.
 - **Atoms (chips) for actionable entities in prose.** The measurable cost is the line-height floor spreading to every paragraph; the principled cost is that a chip replaces text the author wrote.
 - **Folding a commit sha into the Mention form.** A sha in a receipt header is a field, not a sentence.
 - **Stripping the code tone from a confirmed path so backticked and bare look identical.** That overrides the author's own emphasis, which is the same violation as replacing prose with a box.
-- **Suppressing the Gazette's `unmentionedRefs` rule.** A ref the prose already named should still not also appear in the trailing row. The suppression was never the bug.
+- **Suppressing the Overview's `unmentionedRefs` rule.** A ref the prose already named should still not also appear in the trailing row. The suppression was never the bug.
 - **A theme token for the rule's colour.** It is `currentColor`-derived by construction. A token would let it drift.

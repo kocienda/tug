@@ -1,7 +1,7 @@
 /**
- * at0366-gazette-copy.test.ts — the Gazette's COPY reconstructs markdown.
+ * at0366-overview-copy.test.ts — the Overview's COPY reconstructs markdown.
  *
- * A Gazette post is markdown now, rendered by the Session transcript's own
+ * A Overview post is markdown now, rendered by the Session transcript's own
  * `TugMarkdownBlock`, so a selection across it has to come back as the
  * markdown that produced it rather than as the words a reader sees. That is
  * what `resolveCopyMarkdown` buys: `selectionToTranscriptMarkdown` walks the
@@ -26,11 +26,11 @@
  *
  * ⌘C is deliberately NOT the vehicle. Its chord is Edit ▸ Copy's key
  * equivalent, resolved by AppKit against the main menu and delivered to the
- * first responder — and at rest in the Gazette that is the composer's editor,
+ * first responder — and at rest in the Overview that is the composer's editor,
  * not the post under the pointer. The menu is the gesture a reader actually
  * has for copying a post, so it is the one asserted here.
  *
- * @covers tugdeck/src/components/gazette/gazette-card.tsx
+ * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/src/lib/markdown/serialize-selection.ts
  * @covers tugdeck/src/lib/copy-as-plain-text.ts
  * @covers tugdeck/src/components/tugways/tug-atom-ref.tsx
@@ -54,8 +54,8 @@ const HEAD_SHA = execSync("git rev-parse HEAD", { cwd: REPO_ROOT })
   .trim();
 const TEST_TIMEOUT_MS = 90_000;
 
-const CARD = '[data-testid="gazette-card"]';
-const BODY = `${CARD} .gazette-post-body`;
+const CARD = '[data-testid="overview-card"]';
+const BODY = `${CARD} .overview-post-body`;
 const COPY_ITEM = '[data-slot="tug-editor-context-menu"] [data-item-action="copy"]';
 
 /**
@@ -139,11 +139,11 @@ const OPEN_MENU_OVER_SELECTION = `(function(){
   return "ok";
 })()`;
 
-describe.skipIf(!SHOULD_RUN)("at0366 — the Gazette copies markdown", () => {
+describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
   test(
     "the row's Copy reconstructs a selection's markdown, in two clipboard flavors",
     async () => {
-      const app = await launchTugApp({ testName: "at0366-gazette-copy" });
+      const app = await launchTugApp({ testName: "at0366-overview-copy" });
       try {
         await app.nativeKey("g", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
@@ -157,13 +157,13 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Gazette copies markdown", () => {
         const post = {
           id: 9101,
           at_ms: 1_754_600_000_000,
-          author: "reporter",
+          author: "observer",
           body: "Rebuilt the **imposer** pass in `layout-imposer.ts` today.",
           refs: [],
         };
         expect(
           await app.evalJS<boolean>(
-            `window.__tug.publishGazettePost(${JSON.stringify(JSON.stringify(post))})`,
+            `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
           ),
         ).toBe(true);
 
@@ -213,7 +213,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Gazette copies markdown", () => {
   test(
     "a placed commit has one spelling — what the row shows is what a selection carries",
     async () => {
-      const app = await launchTugApp({ testName: "at0366-gazette-copy-commit" });
+      const app = await launchTugApp({ testName: "at0366-overview-copy-commit" });
       try {
         await app.nativeKey("g", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
@@ -226,18 +226,18 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Gazette copies markdown", () => {
         const post = {
           id: 9102,
           at_ms: 1_754_600_000_000,
-          author: "reporter",
+          author: "observer",
           body: "Landed the sticky-header fixes.",
           refs: [{ kind: "commit", target: HEAD_SHA }],
           project_dir: REPO_ROOT,
         };
         expect(
           await app.evalJS<boolean>(
-            `window.__tug.publishGazettePost(${JSON.stringify(JSON.stringify(post))})`,
+            `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
           ),
         ).toBe(true);
 
-        const REF = `${CARD} .gazette-post-refs .tug-atom-ref`;
+        const REF = `${CARD} .overview-post-refs .tug-atom-ref`;
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REF)}) !== null`,
           { timeoutMs: 10_000 },
@@ -261,7 +261,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Gazette copies markdown", () => {
         // *prose* row's gesture and is covered by the test above.
         const selected = await app.evalJS<string>(
           `(function(){
-            var row = document.querySelector(${JSON.stringify(`${CARD} .gazette-post-refs`)});
+            var row = document.querySelector(${JSON.stringify(`${CARD} .overview-post-refs`)});
             if (row === null) return "__NO_ROW__";
             var range = document.createRange();
             range.selectNodeContents(row);

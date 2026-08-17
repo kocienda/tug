@@ -6,7 +6,7 @@
 //!
 //! **One rendering per fact.** [`render_text`] is the only place a fact
 //! becomes a sentence. Its output is stored in `facts.text`, which is what the
-//! FTS index covers *and* what the Reporter's SETTLED FACTS wake section
+//! FTS index covers *and* what the Observer's SETTLED FACTS wake section
 //! prints. Search and narration cannot disagree about what a fact says,
 //! because there is nothing for them to disagree with.
 //!
@@ -16,7 +16,7 @@
 //! like a real one and is worse than an honest refusal — the `shell_ops`
 //! posture, applied to test output.
 //!
-//! **Harness parity.** The live recorders and `gazette_replay`'s harness both
+//! **Harness parity.** The live recorders and `overview_replay`'s harness both
 //! compose their facts here. A calibration read is only meaningful if the
 //! facts the harness synthesizes are the facts production records, and the way
 //! to guarantee that is to have one implementation rather than two that agree
@@ -62,7 +62,7 @@ pub const DETAIL_FILES_CAP: usize = 40;
 ///
 /// The agents that read these sentences copy a sha verbatim into their prose
 /// and into their refs, so this number is not an internal formatting choice —
-/// it is the length a sha appears at in the Gazette. It matches the deck's
+/// it is the length a sha appears at in the Overview. It matches the deck's
 /// `COMMIT_LABEL_LENGTH`, which every placed commit atom is labelled with, so
 /// a sha reads the same width whether a model wrote it in a sentence or a
 /// record placed it in a field. Eight is git's own abbreviation.
@@ -839,7 +839,7 @@ fn parse_app_test(tail: &str) -> Option<TestRunFact> {
 // MARK: - Harness synthesis ([P09])
 
 /// One frame as the synthesis walk sees it — the wire's own shape, which is
-/// also what `gazette_replay`'s translator emits. Borrowed rather than owned
+/// also what `overview_replay`'s translator emits. Borrowed rather than owned
 /// so the harness hands over its existing frames without copying them.
 #[derive(Debug, Clone, Copy)]
 pub struct SynthFrame<'a> {
@@ -1179,7 +1179,7 @@ mod tests {
             1,
             Some("s1"),
             &ShellFact {
-                command: "just app-test at0365-gazette-card.test.ts",
+                command: "just app-test at0365-overview-card.test.ts",
                 route: ShellRoute::User,
                 ok: false,
                 exit_code: Some(2),
@@ -1190,7 +1190,7 @@ mod tests {
         let detail = detail_of(&shell);
         assert_eq!(
             detail["command"],
-            "just app-test at0365-gazette-card.test.ts"
+            "just app-test at0365-overview-card.test.ts"
         );
         assert_eq!(detail["route"], "user");
         assert_eq!(detail["ok"], false);

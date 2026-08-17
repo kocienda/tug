@@ -1,11 +1,11 @@
 /**
- * Pin the `GazetteStore` external-store contract:
+ * Pin the `OverviewStore` external-store contract:
  *
- *   - First `getSnapshot` kicks the one-shot `list_gazette_posts` tail
+ *   - First `getSnapshot` kicks the one-shot `list_overview_posts` tail
  *     request and returns pending.
- *   - `list_gazette_posts_ok` settles to ready, oldest-first.
- *   - Live GAZETTE frames fold (including while pending), dedupe against
- *     the tail by ledger id, and the channel caps at `GAZETTE_MAX_ROWS` —
+ *   - `list_overview_posts_ok` settles to ready, oldest-first.
+ *   - Live OVERVIEW frames fold (including while pending), dedupe against
+ *     the tail by ledger id, and the channel caps at `OVERVIEW_MAX_ROWS` —
  *     from whichever end the reader is not at.
  *   - Scrollback: `loadOlder` asks for the page before the oldest post held;
  *     a page prepends behind the dedupe; a page whose echoed `before_id` is
@@ -15,7 +15,7 @@
  *     at the ceiling.
  *   - A transient post is its own occurrence — it has no rowid to dedupe on.
  *   - Snapshots are referentially stable between folds.
- *   - The write path: `submitQuestion` sends `GAZETTE_INPUT` and holds a
+ *   - The write path: `submitQuestion` sends `OVERVIEW_INPUT` and holds a
  *     pending marker until the answer — or the transient failure — carrying
  *     that request id lands; one question at a time; the timeout ends the wait
  *     with a post rather than a spinner.
@@ -27,13 +27,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import {
-  DEFAULT_GAZETTE_CARD_ROWS,
-  GAZETTE_MAX_ROWS,
-  GazetteStore,
-  publishListGazettePostsOk,
-} from "@/lib/gazette-store";
+  DEFAULT_OVERVIEW_CARD_ROWS,
+  OVERVIEW_MAX_ROWS,
+  OverviewStore,
+  publishListOverviewPostsOk,
+} from "@/lib/overview-store";
 import type { TugConnection } from "@/connection";
-import { FeedId, type FeedIdValue, type GazettePostWire } from "@/protocol";
+import { FeedId, type FeedIdValue, type OverviewPostWire } from "@/protocol";
 
 type FrameCallback = (payload: Uint8Array) => void;
 
@@ -56,65 +56,65 @@ class FakeConnection {
   liveCallbacks(feedId: number): number {
     return (this.frameSubscribers.get(feedId) ?? []).length;
   }
-  pushGazetteFrame(post: Record<string, unknown>): void {
+  pushOverviewFrame(post: Record<string, unknown>): void {
     const payload = new TextEncoder().encode(JSON.stringify(post));
-    for (const cb of this.frameSubscribers.get(FeedId.GAZETTE) ?? []) {
+    for (const cb of this.frameSubscribers.get(FeedId.OVERVIEW) ?? []) {
       cb(payload);
     }
   }
 }
 
-function makeStore(): { store: GazetteStore; conn: FakeConnection } {
+function makeStore(): { store: OverviewStore; conn: FakeConnection } {
   const conn = new FakeConnection();
-  const store = new GazetteStore(conn as unknown as TugConnection);
+  const store = new OverviewStore(conn as unknown as TugConnection);
   return { store, conn };
 }
 
-/** A persisted Reporter post as tugcast serializes it. */
+/** A persisted Observer post as tugcast serializes it. */
 function post(id: number, body: string): Record<string, unknown> {
   return {
     id,
     at_ms: 1_700_000_000_000 + id,
-    author: "reporter",
+    author: "observer",
     session_id: "sess-a",
     wake_reason: "turn-end",
     body,
   };
 }
 
-const stores: GazetteStore[] = [];
+const stores: OverviewStore[] = [];
 afterEach(() => {
   for (const s of stores.splice(0)) s.dispose();
 });
 
-describe("GazetteStore", () => {
+describe("OverviewStore", () => {
   it("first snapshot kicks exactly one tail request and reads pending", () => {
     const { store, conn } = makeStore();
     stores.push(store);
     const first = store.getSnapshot();
     expect(first.status).toBe("pending");
     expect(first.posts.length).toBe(0);
-    expect(first.cardRows).toBe(DEFAULT_GAZETTE_CARD_ROWS);
+    expect(first.cardRows).toBe(DEFAULT_OVERVIEW_CARD_ROWS);
     store.getSnapshot();
     expect(conn.frames.length).toBe(1);
     expect(conn.frames[0].feedId).toBe(FeedId.CONTROL);
     const decoded = JSON.parse(new TextDecoder().decode(conn.frames[0].payload));
-    expect(decoded.action).toBe("list_gazette_posts");
+    expect(decoded.action).toBe("list_overview_posts");
   });
 
   it("the tail response settles to ready, oldest-first, fields decoded", () => {
     const { store } = makeStore();
     stores.push(store);
     store.getSnapshot();
-    publishListGazettePostsOk({
-      posts: [post(1, "first"), post(2, "second")] as unknown as GazettePostWire[],
+    publishListOverviewPostsOk({
+      posts: [post(1, "first"), post(2, "second")] as unknown as OverviewPostWire[],
     });
     const snap = store.getSnapshot();
     expect(snap.status).toBe("ready");
     expect(snap.posts.map((p) => p.body)).toEqual(["first", "second"]);
     const newest = snap.posts[1];
     expect(newest.id).toBe(2);
-    expect(newest.author).toBe("reporter");
+    expect(newest.author).toBe("observer");
     expect(newest.sessionId).toBe("sess-a");
     expect(newest.wakeReason).toBe("turn-end");
     expect(newest.transient).toBe(false);
@@ -126,19 +126,19 @@ describe("GazetteStore", () => {
     stores.push(store);
     store.getSnapshot();
     // A live post lands while the tail load is still pending…
-    conn.pushGazetteFrame(post(2, "second"));
+    conn.pushOverviewFrame(post(2, "second"));
     expect(store.getSnapshot().posts.map((p) => p.body)).toEqual(["second"]);
     // …then the tail arrives carrying the SAME post plus history.
-    publishListGazettePostsOk({
-      posts: [post(1, "first"), post(2, "second")] as unknown as GazettePostWire[],
+    publishListOverviewPostsOk({
+      posts: [post(1, "first"), post(2, "second")] as unknown as OverviewPostWire[],
     });
     expect(store.getSnapshot().posts.map((p) => p.body)).toEqual([
       "first",
       "second",
     ]);
     // A fresh live post appends; a re-delivery of the same rowid does not.
-    conn.pushGazetteFrame(post(3, "third"));
-    conn.pushGazetteFrame(post(3, "third"));
+    conn.pushOverviewFrame(post(3, "third"));
+    conn.pushOverviewFrame(post(3, "third"));
     expect(store.getSnapshot().posts.map((p) => p.body)).toEqual([
       "first",
       "second",
@@ -158,8 +158,8 @@ describe("GazetteStore", () => {
       body: "The Operator could not answer.",
       transient: true,
     };
-    conn.pushGazetteFrame(transient);
-    conn.pushGazetteFrame(transient);
+    conn.pushOverviewFrame(transient);
+    conn.pushOverviewFrame(transient);
     const snap = store.getSnapshot();
     expect(snap.posts.length).toBe(2);
     expect(snap.posts[0].id).toBeNull();
@@ -180,8 +180,8 @@ describe("GazetteStore", () => {
     };
     // Redelivered by a reconnect: the request id says it is the same answer
     // to the same question, so it lands once ([L26]).
-    conn.pushGazetteFrame(transient);
-    conn.pushGazetteFrame(transient);
+    conn.pushOverviewFrame(transient);
+    conn.pushOverviewFrame(transient);
     const snap = store.getSnapshot();
     expect(snap.posts.length).toBe(1);
     expect(snap.posts[0].requestId).toBe("req-1");
@@ -195,11 +195,11 @@ describe("GazetteStore", () => {
     // The knob is what the card ASKS for now — it no longer truncates what
     // the card holds, because the reader can page past it.
     const decoded = JSON.parse(new TextDecoder().decode(conn.frames[0].payload));
-    expect(decoded.limit).toBe(DEFAULT_GAZETTE_CARD_ROWS);
-    for (let id = 1; id <= DEFAULT_GAZETTE_CARD_ROWS + 5; id++) {
-      conn.pushGazetteFrame(post(id, `post ${id}`));
+    expect(decoded.limit).toBe(DEFAULT_OVERVIEW_CARD_ROWS);
+    for (let id = 1; id <= DEFAULT_OVERVIEW_CARD_ROWS + 5; id++) {
+      conn.pushOverviewFrame(post(id, `post ${id}`));
     }
-    expect(store.getSnapshot().posts.length).toBe(DEFAULT_GAZETTE_CARD_ROWS + 5);
+    expect(store.getSnapshot().posts.length).toBe(DEFAULT_OVERVIEW_CARD_ROWS + 5);
   });
 
   it("the accumulated list stops at the ceiling, dropping the end the reader left", () => {
@@ -207,14 +207,14 @@ describe("GazetteStore", () => {
     stores.push(store);
     store.getSnapshot();
     // Following the bottom: the OLDEST rows go, exactly as they always did.
-    for (let id = 1; id <= GAZETTE_MAX_ROWS + 5; id++) {
-      conn.pushGazetteFrame(post(id, `post ${id}`));
+    for (let id = 1; id <= OVERVIEW_MAX_ROWS + 5; id++) {
+      conn.pushOverviewFrame(post(id, `post ${id}`));
     }
     const followed = store.getSnapshot();
-    expect(followed.posts.length).toBe(GAZETTE_MAX_ROWS);
+    expect(followed.posts.length).toBe(OVERVIEW_MAX_ROWS);
     expect(followed.posts[0].body).toBe("post 6");
     expect(followed.posts[followed.posts.length - 1].body).toBe(
-      `post ${GAZETTE_MAX_ROWS + 5}`,
+      `post ${OVERVIEW_MAX_ROWS + 5}`,
     );
   });
 
@@ -222,7 +222,7 @@ describe("GazetteStore", () => {
     const { store, conn } = makeStore();
     stores.push(store);
     store.getSnapshot();
-    conn.pushGazetteFrame({
+    conn.pushOverviewFrame({
       ...post(1, "with refs"),
       refs: [
         { kind: "file", target: "tugdeck/src/x.css" },
@@ -245,13 +245,13 @@ describe("GazetteStore", () => {
     const a = store.getSnapshot();
     const b = store.getSnapshot();
     expect(a).toBe(b);
-    conn.pushGazetteFrame(post(1, "one"));
+    conn.pushOverviewFrame(post(1, "one"));
     const c = store.getSnapshot();
     expect(c).not.toBe(b);
     expect(store.getSnapshot()).toBe(c);
     // Malformed bodies and unknown authors change nothing.
-    conn.pushGazetteFrame({ nonsense: true });
-    conn.pushGazetteFrame({ ...post(9, "who?"), author: "columnist" });
+    conn.pushOverviewFrame({ nonsense: true });
+    conn.pushOverviewFrame({ ...post(9, "who?"), author: "columnist" });
     expect(store.getSnapshot()).toBe(c);
   });
 
@@ -275,13 +275,13 @@ describe("GazetteStore", () => {
     };
   }
 
-  it("submitQuestion sends GAZETTE_INPUT and goes pending", () => {
+  it("submitQuestion sends OVERVIEW_INPUT and goes pending", () => {
     const { store, conn } = makeStore();
     stores.push(store);
     store.getSnapshot();
     const requestId = store.submitQuestion("  what landed today?  ");
     expect(requestId).not.toBeNull();
-    const sent = conn.frames.filter((f) => f.feedId === FeedId.GAZETTE_INPUT);
+    const sent = conn.frames.filter((f) => f.feedId === FeedId.OVERVIEW_INPUT);
     expect(sent.length).toBe(1);
     const decoded = JSON.parse(new TextDecoder().decode(sent[0].payload));
     expect(decoded.body).toBe("what landed today?");
@@ -294,12 +294,12 @@ describe("GazetteStore", () => {
     stores.push(store);
     store.getSnapshot();
     expect(store.submitQuestion("   ")).toBeNull();
-    expect(conn.frames.filter((f) => f.feedId === FeedId.GAZETTE_INPUT).length)
+    expect(conn.frames.filter((f) => f.feedId === FeedId.OVERVIEW_INPUT).length)
       .toBe(0);
     expect(store.submitQuestion("first")).not.toBeNull();
     expect(store.submitQuestion("second, while the first is in flight"))
       .toBeNull();
-    expect(conn.frames.filter((f) => f.feedId === FeedId.GAZETTE_INPUT).length)
+    expect(conn.frames.filter((f) => f.feedId === FeedId.OVERVIEW_INPUT).length)
       .toBe(1);
   });
 
@@ -312,7 +312,7 @@ describe("GazetteStore", () => {
       { mediaType: "image/png", data: "aGVsbG8=" },
     ]);
     expect(requestId).not.toBeNull();
-    const sent = conn.frames.filter((f) => f.feedId === FeedId.GAZETTE_INPUT);
+    const sent = conn.frames.filter((f) => f.feedId === FeedId.OVERVIEW_INPUT);
     const decoded = JSON.parse(new TextDecoder().decode(sent[0]!.payload));
     expect(decoded.body).toBe("");
     expect(decoded.attachments).toEqual([
@@ -325,7 +325,7 @@ describe("GazetteStore", () => {
     stores.push(store);
     store.getSnapshot();
     store.submitQuestion("what landed today?");
-    const sent = conn.frames.filter((f) => f.feedId === FeedId.GAZETTE_INPUT);
+    const sent = conn.frames.filter((f) => f.feedId === FeedId.OVERVIEW_INPUT);
     const decoded = JSON.parse(new TextDecoder().decode(sent[0]!.payload));
     expect("attachments" in decoded).toBe(false);
   });
@@ -334,7 +334,7 @@ describe("GazetteStore", () => {
     const { store, conn } = makeStore();
     stores.push(store);
     store.getSnapshot();
-    conn.pushGazetteFrame({
+    conn.pushOverviewFrame({
       id: 11,
       at_ms: 1,
       author: "user",
@@ -358,7 +358,7 @@ describe("GazetteStore", () => {
     stores.push(store);
     store.getSnapshot();
     const requestId = store.submitQuestion("why is the wash pale")!;
-    conn.pushGazetteFrame(answer(7, requestId, "Because the tint is low."));
+    conn.pushOverviewFrame(answer(7, requestId, "Because the tint is low."));
     const snap = store.getSnapshot();
     expect(snap.pendingRequestId).toBeNull();
     expect(snap.posts.length).toBe(1);
@@ -374,7 +374,7 @@ describe("GazetteStore", () => {
     stores.push(store);
     store.getSnapshot();
     const requestId = store.submitQuestion("something unanswerable")!;
-    conn.pushGazetteFrame(answer(null, requestId, "Couldn't answer that."));
+    conn.pushOverviewFrame(answer(null, requestId, "Couldn't answer that."));
     const snap = store.getSnapshot();
     expect(snap.pendingRequestId).toBeNull();
     expect(snap.posts[0].transient).toBe(true);
@@ -386,7 +386,7 @@ describe("GazetteStore", () => {
     stores.push(store);
     store.getSnapshot();
     const requestId = store.submitQuestion("mine")!;
-    conn.pushGazetteFrame(answer(7, "req-someone-else", "not yours"));
+    conn.pushOverviewFrame(answer(7, "req-someone-else", "not yours"));
     expect(store.getSnapshot().pendingRequestId).toBe(requestId);
   });
 
@@ -397,14 +397,14 @@ describe("GazetteStore", () => {
     const requestId = store.submitQuestion("what landed")!;
     // tugcast persists and broadcasts the question first ([P08]) — it carries
     // the same request id as the answer that follows it.
-    conn.pushGazetteFrame({
+    conn.pushOverviewFrame({
       id: 6,
       at_ms: 1_700_000_099_000,
       author: "user",
       body: "what landed",
       request_id: requestId,
     });
-    conn.pushGazetteFrame(answer(7, requestId, "Two commits."));
+    conn.pushOverviewFrame(answer(7, requestId, "Two commits."));
     const snap = store.getSnapshot();
     expect(snap.posts.map((p) => p.author)).toEqual(["user", "operator"]);
     expect(snap.posts[0].key).not.toBe(snap.posts[1].key);
@@ -415,10 +415,10 @@ describe("GazetteStore", () => {
     stores.push(store);
     store.getSnapshot();
     const requestId = store.submitQuestion("what landed")!;
-    conn.pushGazetteFrame(answer(7, requestId, "Two commits."));
+    conn.pushOverviewFrame(answer(7, requestId, "Two commits."));
     // The ledger does not persist a request id, so the tail's copy of that
     // same post keys differently — only the rowid is the same on both wires.
-    publishListGazettePostsOk({
+    publishListOverviewPostsOk({
       posts: [
         {
           id: 7,
@@ -426,22 +426,22 @@ describe("GazetteStore", () => {
           author: "operator",
           body: "Two commits.",
         },
-      ] as unknown as GazettePostWire[],
+      ] as unknown as OverviewPostWire[],
     });
     expect(store.getSnapshot().posts.length).toBe(1);
   });
 
   it("dispose unwires the frame registration, leaving no live callback", () => {
     const { store, conn } = makeStore();
-    expect(conn.liveCallbacks(FeedId.GAZETTE)).toBe(1);
+    expect(conn.liveCallbacks(FeedId.OVERVIEW)).toBe(1);
     store.getSnapshot();
     store.dispose();
     // [L27]: the acquisition is released, not merely guarded — the
     // connection is left holding nothing.
-    expect(conn.liveCallbacks(FeedId.GAZETTE)).toBe(0);
+    expect(conn.liveCallbacks(FeedId.OVERVIEW)).toBe(0);
     // And the CONTROL bus no longer reaches a disposed store.
-    publishListGazettePostsOk({
-      posts: [post(1, "after dispose")] as unknown as GazettePostWire[],
+    publishListOverviewPostsOk({
+      posts: [post(1, "after dispose")] as unknown as OverviewPostWire[],
     });
     expect(store.getSnapshot().posts.length).toBe(0);
   });
@@ -498,7 +498,7 @@ describe("GazetteStore", () => {
       store.getSnapshot();
       const requestId = store.submitQuestion("answered promptly")!;
       expect(live.size).toBe(1);
-      conn.pushGazetteFrame(answer(7, requestId, "Here you go."));
+      conn.pushOverviewFrame(answer(7, requestId, "Here you go."));
       expect(live.size).toBe(0);
     } finally {
       globalThis.setTimeout = realSetTimeout;
@@ -509,20 +509,20 @@ describe("GazetteStore", () => {
   // ---- Scrollback ----------------------------------------------------
 
   /** A store holding posts 11..20 with older history behind them. */
-  function paged(): { store: GazetteStore; conn: FakeConnection } {
+  function paged(): { store: OverviewStore; conn: FakeConnection } {
     const made = makeStore();
     stores.push(made.store);
     made.store.getSnapshot();
-    publishListGazettePostsOk({
+    publishListOverviewPostsOk({
       posts: Array.from({ length: 10 }, (_, i) =>
         post(11 + i, `post ${11 + i}`),
-      ) as unknown as GazettePostWire[],
+      ) as unknown as OverviewPostWire[],
       has_more: true,
     });
     return made;
   }
 
-  /** The `list_gazette_posts` request bodies the store has sent. */
+  /** The `list_overview_posts` request bodies the store has sent. */
   function requests(conn: FakeConnection): Array<Record<string, unknown>> {
     return conn.frames
       .map(
@@ -532,7 +532,7 @@ describe("GazetteStore", () => {
             unknown
           >,
       )
-      .filter((body) => body.action === "list_gazette_posts");
+      .filter((body) => body.action === "list_overview_posts");
   }
 
   it("loadOlder asks for the page before the oldest post held", () => {
@@ -542,7 +542,7 @@ describe("GazetteStore", () => {
     const sent = requests(conn);
     expect(sent.length).toBe(2);
     expect(sent[1].before_id).toBe(11);
-    expect(sent[1].limit).toBe(DEFAULT_GAZETTE_CARD_ROWS);
+    expect(sent[1].limit).toBe(DEFAULT_OVERVIEW_CARD_ROWS);
     // And says so, so the card's scroll handler stops asking.
     expect(store.getSnapshot().loadingOlder).toBe(true);
   });
@@ -550,14 +550,14 @@ describe("GazetteStore", () => {
   it("a page prepends behind the same dedupe, oldest-first", () => {
     const { store } = paged();
     store.loadOlder();
-    publishListGazettePostsOk({
+    publishListOverviewPostsOk({
       posts: [
         // The seam row repeats what is already held — a page whose boundary
         // moved under it, which the dedupe absorbs rather than duplicating.
         post(9, "post 9"),
         post(10, "post 10"),
         post(11, "post 11"),
-      ] as unknown as GazettePostWire[],
+      ] as unknown as OverviewPostWire[],
       has_more: true,
       before_id: 11,
     });
@@ -577,8 +577,8 @@ describe("GazetteStore", () => {
     store.loadOlder();
     // Somebody else's page — the response bus is a broadcast, and applying
     // this one would prepend history the store never asked for.
-    publishListGazettePostsOk({
-      posts: [post(500, "not mine")] as unknown as GazettePostWire[],
+    publishListOverviewPostsOk({
+      posts: [post(500, "not mine")] as unknown as OverviewPostWire[],
       has_more: true,
       before_id: 999,
     });
@@ -592,14 +592,14 @@ describe("GazetteStore", () => {
     const { store } = paged();
     store.loadOlder();
     // A reconnect re-reads the tail while the page is out.
-    publishListGazettePostsOk({
-      posts: [post(21, "post 21")] as unknown as GazettePostWire[],
+    publishListOverviewPostsOk({
+      posts: [post(21, "post 21")] as unknown as OverviewPostWire[],
       has_more: true,
     });
     expect(store.getSnapshot().loadingOlder).toBe(false);
     // The page that arrives afterwards is now nobody's, and is dropped.
-    publishListGazettePostsOk({
-      posts: [post(10, "post 10")] as unknown as GazettePostWire[],
+    publishListOverviewPostsOk({
+      posts: [post(10, "post 10")] as unknown as OverviewPostWire[],
       has_more: true,
       before_id: 11,
     });
@@ -616,8 +616,8 @@ describe("GazetteStore", () => {
     store.loadOlder();
     expect(requests(conn).length).toBe(1);
 
-    publishListGazettePostsOk({
-      posts: [post(1, "only")] as unknown as GazettePostWire[],
+    publishListOverviewPostsOk({
+      posts: [post(1, "only")] as unknown as OverviewPostWire[],
       has_more: false,
     });
     // Ready, but the ledger says this is the beginning.
@@ -637,8 +637,8 @@ describe("GazetteStore", () => {
   it("hasMore goes false at the beginning of history and stays there", () => {
     const { store } = paged();
     store.loadOlder();
-    publishListGazettePostsOk({
-      posts: [post(10, "post 10")] as unknown as GazettePostWire[],
+    publishListOverviewPostsOk({
+      posts: [post(10, "post 10")] as unknown as OverviewPostWire[],
       has_more: false,
       before_id: 11,
     });
@@ -649,20 +649,20 @@ describe("GazetteStore", () => {
     const { store, conn } = paged();
     // Fill to the ceiling with one enormous page.
     store.loadOlder();
-    publishListGazettePostsOk({
-      posts: Array.from({ length: GAZETTE_MAX_ROWS }, (_, i) =>
+    publishListOverviewPostsOk({
+      posts: Array.from({ length: OVERVIEW_MAX_ROWS }, (_, i) =>
         post(i + 1, `old ${i + 1}`),
-      ) as unknown as GazettePostWire[],
+      ) as unknown as OverviewPostWire[],
       has_more: true,
       before_id: 11,
     });
     const snap = store.getSnapshot();
-    expect(snap.posts.length).toBe(GAZETTE_MAX_ROWS);
+    expect(snap.posts.length).toBe(OVERVIEW_MAX_ROWS);
     // Paging keeps what the reader is reading — the OLD end — and drops the
     // newest rows, the opposite of what following does.
     expect(snap.posts[0].body).toBe("old 1");
     expect(snap.posts[snap.posts.length - 1].body).toBe(
-      `old ${GAZETTE_MAX_ROWS}`,
+      `old ${OVERVIEW_MAX_ROWS}`,
     );
     // The ledger still holds more, but a page the store would only throw
     // away is a page it does not ask for.

@@ -286,7 +286,7 @@ impl SharedAgentPool {
 
     /// Run one named job with images shown alongside its input.
     ///
-    /// The Gazette's Operator is what this exists for: a question can arrive
+    /// The Overview's Operator is what this exists for: a question can arrive
     /// with a screenshot attached, and an answer about a screenshot has to be
     /// written by a model that saw it. Every other property of `run` holds —
     /// same job table, same ceilings, same degradation.
@@ -1476,7 +1476,7 @@ DIGEST:";
 
 /// Search terms for a question whose own words are nowhere in the record.
 ///
-/// The Gazette's index is lexical: it finds a record by the words that record
+/// The Overview's index is lexical: it finds a record by the words that record
 /// contains. "Where did we fix the thing that made the cards flash" shares no
 /// token with any commit, command, or post about that work, and no amount of
 /// splitting or OR-relaxing manufactures one — this job is what turns the
@@ -1486,13 +1486,13 @@ DIGEST:";
 /// It is asked only when a search has already come back empty twice, so an
 /// empty answer costs nothing: the alternative was returning nothing anyway.
 /// That is why `{"terms": []}` is a first-class reply rather than a failure —
-/// the same silence-is-an-answer posture the Reporter's `{"post": null}` has.
+/// the same silence-is-an-answer posture the Observer's `{"post": null}` has.
 const EXPAND_QUERY_INSTRUCTIONS: &str = "\
 You generate SEARCH TERMS. Someone asked a question about their own coding work, a full-text search of the record found nothing, and your job is to guess the words that record would actually contain.
 
 The record is a fact library: every prompt the person typed, every shell command run, every test run, every commit, and session lifecycle events. Fact text reads like this:
 
-$ just app-test at0365-gazette-card.test.ts → ok
+$ just app-test at0365-overview-card.test.ts → ok
 tests: cargo nextest — passed (1614 passed, 0 failed)
 commit 3f16971b \"tugways(transcript-copy): route native ⌘C through onCopy substitution\" — 4 file(s)
 
@@ -1714,7 +1714,7 @@ mod tests {
 
     /// A job run with images shows them WITH the turn rather than instead of
     /// it: the composed text is still the composed text, and the pictures ride
-    /// beside it. This is the whole contract the Gazette's Operator rests on —
+    /// beside it. This is the whole contract the Overview's Operator rests on —
     /// an answer about a screenshot is written by a model that was handed the
     /// screenshot.
     #[tokio::test]

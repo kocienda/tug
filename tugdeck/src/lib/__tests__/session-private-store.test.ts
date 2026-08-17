@@ -1,5 +1,5 @@
 /**
- * session-private-store.test.ts — the per-session Gazette-privacy cache and the
+ * session-private-store.test.ts — the per-session Overview-privacy cache and the
  * CONTROL payload `/private` sends.
  *
  * The notify contract is the load-bearing part: the atom's marker is a leaf

@@ -128,7 +128,7 @@ A Pane's title bar wears one of three tiers, and which one is not a style choice
 |---|---|---|---|
 | **Utility** | 36px | tinted title band | the default: Settings, Keyboard, About, Pulse, the gallery cards |
 | **Document** | 72px masthead | tinted title band | a card that IS a document and says its own name: Text, File viewer, Diff — and the Session card, whose masthead is its own ([D132]) |
-| **Rail** | 32px | flush, on the pane's own surface | a tool pinned to a deck edge: Lens, Jots, Gazette |
+| **Rail** | 32px | flush, on the pane's own surface | a tool pinned to a deck edge: Lens, Jots, Overview |
 
 A **document masthead** carries three lines. The Session card's are `project/callsign` with the Pane controls, the session's description, the PULSE line, and a trailing telemetry popover; every other document card's are a name, where the document lives, and one quieter fact about it — the Text card's save state, the File viewer's kind and page count, the Diff's file and line counts. The two mount the same `TugSessionRow` on the same `masthead-frame.css` tier, which is what keeps them the same object rather than two ladders that resemble each other. Each line above the last reserves the control cluster back for itself, because the frame deliberately pulls out from under it so the third line can run the full width.
 

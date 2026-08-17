@@ -1,8 +1,8 @@
 /**
- * at0367-gazette-scrollback.test.ts — older history prepends without moving
+ * at0367-overview-scrollback.test.ts — older history prepends without moving
  * the reader's line.
  *
- * The Gazette pages backwards through its own ledger: near the top of the
+ * The Overview pages backwards through its own ledger: near the top of the
  * transcript the store asks for the posts immediately older than the oldest
  * it holds, and they go in ABOVE what is on screen. Inserting rows above the
  * viewport moves everything below them down by exactly their height, so the
@@ -14,16 +14,16 @@
  * can reach: it is a layout effect reading real measured heights of real
  * rendered markdown.
  *
- * The page is delivered through `publishGazettePostsPage`, which hands a
- * `list_gazette_posts_ok` body to the production CONTROL-response bus — the
+ * The page is delivered through `publishOverviewPostsPage`, which hands a
+ * `list_overview_posts_ok` body to the production CONTROL-response bus — the
  * same function `action-dispatch` calls with a wire response, entered one
  * step later. So the correlation (the echoed `before_id`), the dedupe, the
  * prepend, and the compensation are all production. Seeding the real ledger
- * was considered and is impossible: `publishGazettePost` routes to the client
+ * was considered and is impossible: `publishOverviewPost` routes to the client
  * store and never reaches tugcast, so nothing it publishes is ever persisted.
  *
- * @covers tugdeck/src/lib/gazette-store.ts
- * @covers tugdeck/src/components/gazette/gazette-card.tsx
+ * @covers tugdeck/src/lib/overview-store.ts
+ * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/src/test-surface.ts
  */
 
@@ -34,14 +34,14 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
-const CARD = '[data-testid="gazette-card"]';
-const TRANSCRIPT = '[data-testid="gazette-transcript"]';
-const POST = `${CARD} .gazette-cell`;
+const CARD = '[data-testid="overview-card"]';
+const TRANSCRIPT = '[data-testid="overview-transcript"]';
+const POST = `${CARD} .overview-cell`;
 
 interface WirePost {
   id: number;
   at_ms: number;
-  author: "reporter";
+  author: "observer";
   body: string;
   refs: never[];
 }
@@ -53,7 +53,7 @@ function wirePost(id: number): WirePost {
   return {
     id,
     at_ms: AT_MS + id * 1_000,
-    author: "reporter",
+    author: "observer",
     body: `Post ${id}: the session finished a turn and left a note about what it did, which is enough prose to give this row a height worth compensating for.`,
     refs: [],
   };
@@ -70,7 +70,7 @@ interface Geometry {
 
 const GEOMETRY_JS = `(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
-  var first = document.querySelector(${JSON.stringify(`${POST} .gazette-post-body`)});
+  var first = document.querySelector(${JSON.stringify(`${POST} .overview-post-body`)});
   return {
     scrollTop: el === null ? -1 : el.scrollTop,
     scrollHeight: el === null ? -1 : el.scrollHeight,
@@ -83,11 +83,11 @@ async function geometry(app: App): Promise<Geometry> {
   return app.evalJS<Geometry>(GEOMETRY_JS);
 }
 
-describe.skipIf(!SHOULD_RUN)("at0367 — the Gazette pages backwards", () => {
+describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
   test(
     "an older page prepends above the reader and the reading line holds",
     async () => {
-      const app = await launchTugApp({ testName: "at0367-gazette-scrollback" });
+      const app = await launchTugApp({ testName: "at0367-overview-scrollback" });
       try {
         await app.nativeKey("g", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
@@ -104,7 +104,7 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Gazette pages backwards", () => {
         for (let id = 20; id <= 31; id++) {
           expect(
             await app.evalJS<boolean>(
-              `window.__tug.publishGazettePost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
+              `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
             ),
           ).toBe(true);
         }
@@ -143,7 +143,7 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Gazette pages backwards", () => {
         };
         expect(
           await app.evalJS<boolean>(
-            `window.__tug.publishGazettePostsPage(${JSON.stringify(JSON.stringify(page))})`,
+            `window.__tug.publishOverviewPostsPage(${JSON.stringify(JSON.stringify(page))})`,
           ),
         ).toBe(true);
 

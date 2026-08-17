@@ -96,7 +96,7 @@ export interface MiddleEllipsisPathProps {
    * the hover exists to un-elide a header line.
    *
    * `"file"` — the house file hover, the same `fileTip` bubble a path in
-   * prose, a commit roster, or a Gazette ref gets. Always opens, because it
+   * prose, a commit roster, or a Overview ref gets. Always opens, because it
    * states the whole location of a file the row NAMES, which is a fact the
    * row withholds whether or not its glyphs happen to fit.
    *

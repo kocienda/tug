@@ -1468,17 +1468,17 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
   },
 
-  // ---- Gazette ----
+  // ---- Overview ----
   {
-    // ⌃⌘G — the third rail in the sidebar-toggle grammar (⌃⌘L Lens,
+    // ⌃⌘O — the third rail in the sidebar-toggle grammar (⌃⌘L Lens,
     // ⌃⌘J Jots), so the set keeps teaching itself.
-    id: TUG_ACTIONS.TOGGLE_GAZETTE,
-    title: "Show Gazette",
+    id: TUG_ACTIONS.TOGGLE_OVERVIEW,
+    title: "Show Overview",
     routing: "registry",
-    menuItemId: "maker.gazette",
+    menuItemId: "maker.overview",
     bindings: [
       chord(
-        { key: "KeyG", ctrl: true, meta: true, label: "g" },
+        { key: "KeyO", ctrl: true, meta: true, label: "o" },
         { preventDefault: true, menuEligible: true },
       ),
     ],

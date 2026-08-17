@@ -710,28 +710,28 @@ pub struct StatSnapshot {
     pub timestamp: String,
 }
 
-// MARK: - Gazette
+// MARK: - Overview
 
-/// Who wrote a Gazette post. The channel has exactly three authors and no
+/// Who wrote a Overview post. The channel has exactly three authors and no
 /// mechanism for a fourth, so this is an enum rather than a string: an
 /// unknown author is a parse failure at the edge instead of a row nobody
 /// renders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum GazetteAuthor {
+pub enum OverviewAuthor {
     /// The summarizer, posting digests of session work as it happens.
-    Reporter,
+    Observer,
     /// The question-answering agent. Speaks only when spoken to.
     Operator,
     /// The human, asking through the card's composer.
     User,
 }
 
-impl GazetteAuthor {
+impl OverviewAuthor {
     /// The wire/storage spelling — what the `author` column holds.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Reporter => "reporter",
+            Self::Observer => "observer",
             Self::Operator => "operator",
             Self::User => "user",
         }
@@ -742,7 +742,7 @@ impl GazetteAuthor {
     /// post silently attributed to the wrong voice.
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
-            "reporter" => Some(Self::Reporter),
+            "observer" => Some(Self::Observer),
             "operator" => Some(Self::Operator),
             "user" => Some(Self::User),
             _ => None,
@@ -755,7 +755,7 @@ impl GazetteAuthor {
 /// at parse rather than rendered inert.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum GazetteRefKind {
+pub enum OverviewRefKind {
     /// A session id — raises that Session card.
     Session,
     /// A repo-relative file path.
@@ -768,7 +768,7 @@ pub enum GazetteRefKind {
     Brief,
 }
 
-impl GazetteRefKind {
+impl OverviewRefKind {
     /// The wire/storage spelling — what the `refs` JSON holds, and what a
     /// diagnostic prints when it names the kind of a ref it kept or dropped.
     pub fn as_str(self) -> &'static str {
@@ -789,8 +789,8 @@ impl GazetteRefKind {
 /// that never appeared in the frames the model was shown cannot be linked,
 /// so it is dropped rather than rendered as a chip that goes nowhere.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GazetteRef {
-    pub kind: GazetteRefKind,
+pub struct OverviewRef {
+    pub kind: OverviewRefKind,
     pub target: String,
 }
 
@@ -801,18 +801,18 @@ pub struct GazetteRef {
 /// megabyte of base64, the channel is permanent history that nothing prunes,
 /// and the deck already has a route that streams a file by absolute path
 /// (`/api/fs/blob`, the viewer cards' own). So the row holds the path and the
-/// bytes rest beside the ledger under `gazette-attachments/`, which is also
+/// bytes rest beside the ledger under `overview-attachments/`, which is also
 /// what lets the same file be handed to the model as an image block without a
 /// second copy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GazetteAttachment {
+pub struct OverviewAttachment {
     /// Absolute path to the stored image.
     pub path: String,
     /// The media type the deck decoded it as — `image/png`, `image/jpeg`, …
     pub media_type: String,
 }
 
-/// One post on the Gazette channel, as it travels on `FeedId::GAZETTE` and
+/// One post on the Overview channel, as it travels on `FeedId::OVERVIEW` and
 /// as the CONTROL tail read returns it.
 ///
 /// `id` is the ledger rowid, absent on a transient post — an Operator error
@@ -821,22 +821,22 @@ pub struct GazetteAttachment {
 /// present only on an Operator post answering a specific question, and is
 /// what the card matches to clear its pending state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GazettePost {
+pub struct OverviewPost {
     /// Ledger rowid. `None` on a transient post ([P08]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<i64>,
     pub at_ms: i64,
-    pub author: GazetteAuthor,
-    /// The session a Reporter digest narrates. `None` for Operator answers
+    pub author: OverviewAuthor,
+    /// The session a Observer digest narrates. `None` for Operator answers
     /// and user questions, which belong to the channel rather than a session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    /// Which structural moment woke the Reporter. `None` for the other authors.
+    /// Which structural moment woke the Observer. `None` for the other authors.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wake_reason: Option<String>,
     pub body: String,
     #[serde(default)]
-    pub refs: Vec<GazetteRef>,
+    pub refs: Vec<OverviewRef>,
     /// How long the agent turn that wrote this post took, in milliseconds.
     ///
     /// The post's own cost, the way a session turn's elapsed is that turn's:
@@ -846,7 +846,7 @@ pub struct GazettePost {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<i64>,
     /// The project directory the post's refs are spelled relative to — the
-    /// narrated session's for a Reporter post, the bootstrap workspace's for
+    /// narrated session's for a Observer post, the bootstrap workspace's for
     /// an Operator answer (its verbs' own default repo). A ref target is a
     /// verbatim quote from session activity, so this is the only root it can
     /// honestly resolve against; the deck stats/indexes under it before a
@@ -856,9 +856,9 @@ pub struct GazettePost {
     pub project_dir: Option<String>,
     /// Images the user attached to this question, in the order they were
     /// composed. Empty on every post nobody attached anything to, which is
-    /// every post the Reporter and the Operator write.
+    /// every post the Observer and the Operator write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attachments: Vec<GazetteAttachment>,
+    pub attachments: Vec<OverviewAttachment>,
     /// Correlation id, on an Operator post answering a question.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
@@ -1076,7 +1076,7 @@ mod tests {
             workspace_key: "/work/repo".to_string(),
             sha: "0123456789abcdef0123456789abcdef01234567".to_string(),
             no_repo: false,
-            subject: "gazette(ref-annotation): summarize commits on hover".to_string(),
+            subject: "overview(ref-annotation): summarize commits on hover".to_string(),
             author: "Ken Kocienda".to_string(),
             date: "2026-08-12".to_string(),
             files: vec![

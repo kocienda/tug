@@ -2,7 +2,7 @@
  * session-citation-store.ts — does the ledger hold the session this citation
  * names? ([D132])
  *
- * A citation surface — a History commit row, a Gazette ref, the Changes card's
+ * A citation surface — a History commit row, a Overview ref, the Changes card's
  * orphan hint — holds an id and nothing else, and it has one question to answer
  * before it can render: is that session *findable*? The answer decides between
  * the session atom and [P13]'s slashed inert one, and it must be a fact about

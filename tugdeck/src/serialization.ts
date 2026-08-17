@@ -78,12 +78,25 @@ function parseAcceptsFamilies(raw: unknown): readonly string[] {
 /**
  * Map a persisted card `componentId` through the kind-rename history so a deck
  * saved before a registry-kind rename still resolves to a registered card.
- * The Session card shipped as componentId `"dev"`; decks saved then carry
- * `"dev"`, which is no longer registered and would be dropped by
- * `filterDeckStateByRegistration`. Rewrite it to the current `"session"` kind.
+ * An id no longer registered is dropped by `filterDeckStateByRegistration`,
+ * taking any pane it was alone in with it — so a rename without an entry here
+ * silently deletes the card from a layout somebody arranged.
+ *
+ * The Session card shipped as componentId `"dev"`; the Overview card shipped
+ * as `"gazette"` before the channel was renamed. Both are rewritten to the
+ * kind that is registered now.
+ *
+ * This table only grows. Unlike a data migration it has no end condition: a
+ * layout blob written years ago is still a valid layout blob, and the entry
+ * that resolves it is what keeps it one.
  */
+const RENAMED_COMPONENT_IDS: Readonly<Record<string, string>> = {
+  dev: "session",
+  gazette: "overview",
+};
+
 function migrateComponentId(componentId: string): string {
-  return componentId === "dev" ? "session" : componentId;
+  return RENAMED_COMPONENT_IDS[componentId] ?? componentId;
 }
 
 // ---- Geometry fitting ----
@@ -291,12 +304,15 @@ function parseSidebars(
     if (value === null || typeof value !== "object") continue;
     const entry = value as Record<string, unknown>;
     if (!isSidebarSide(entry["side"])) continue;
+    // The key is a componentId, so it runs through the rename history the
+    // same way the card table's and the rails' do. Without this a renamed
+    // card keeps its pane but loses the side it was standing on.
     // Built field by field rather than spread, so a blob carrying something
     // this build does not know about cannot smuggle it into the record. The
     // split build wrote an `order` here (a member's position in a rail that
     // divided vertically); same-side sidebars stand front-to-back now, so
     // there is no such position and the field is dropped on read.
-    out[componentId] = {
+    out[migrateComponentId(componentId)] = {
       side: entry["side"],
       ...(entry["pinned"] === false ? { pinned: false } : {}),
     };

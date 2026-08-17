@@ -89,7 +89,7 @@ export interface PulseSnapshot {
    */
   cleared: ReadonlyMap<string, ReadonlySet<string>>;
   /** Latest overview per scope. Empty until the agent produces one. */
-  overviews: ReadonlyMap<string, PulseOverviewEntry>;
+  pulseOverviews: ReadonlyMap<string, PulseOverviewEntry>;
 }
 
 /**
@@ -99,12 +99,12 @@ export interface PulseSnapshot {
  * overview, and an `"app"`-scoped one (which is also where an unscoped frame
  * files) shows everywhere. The session's own always wins.
  */
-export function latestOverviewForScope(
-  overviews: ReadonlyMap<string, PulseOverviewEntry>,
+export function latestPulseOverviewForScope(
+  pulseOverviews: ReadonlyMap<string, PulseOverviewEntry>,
   scope: string,
 ): PulseOverviewEntry | null {
   if (scope.length === 0) return null;
-  return overviews.get(scope) ?? overviews.get(OVERVIEW_APP_SCOPE) ?? null;
+  return pulseOverviews.get(scope) ?? pulseOverviews.get(OVERVIEW_APP_SCOPE) ?? null;
 }
 
 /** Where an unscoped or explicitly app-wide overview files. */
@@ -221,14 +221,14 @@ export function groupPulseHistory(
 
 const EMPTY_LINES: readonly PulseLineEntry[] = Object.freeze([]);
 const EMPTY_CLEARED: ReadonlyMap<string, ReadonlySet<string>> = new Map();
-const EMPTY_OVERVIEWS: ReadonlyMap<string, PulseOverviewEntry> = new Map();
+const EMPTY_PULSE_OVERVIEWS: ReadonlyMap<string, PulseOverviewEntry> = new Map();
 const IDLE_SNAPSHOT: PulseSnapshot = Object.freeze({
   enabled: true,
   status: "idle",
   lines: EMPTY_LINES,
   latest: null,
   cleared: EMPTY_CLEARED,
-  overviews: EMPTY_OVERVIEWS,
+  pulseOverviews: EMPTY_PULSE_OVERVIEWS,
 });
 
 // ---------------------------------------------------------------------------
@@ -346,7 +346,7 @@ export class PulseStore {
     const line = parsePulseFrame(payload);
     if (line === null) return;
     if (line.kind === "overview") {
-      this.foldOverview(line);
+      this.foldPulseOverview(line);
       return;
     }
     this.fold([
@@ -378,12 +378,12 @@ export class PulseStore {
     // that landed while the load was in flight is NEWER than what the
     // ledger holds, so it wins — the tail seeds a scope, never overwrites
     // a fresher statement about it.
-    const overviews = new Map(this.snapshot.overviews);
+    const pulseOverviews = new Map(this.snapshot.pulseOverviews);
     for (const row of payload.overviews) {
       if (typeof row.scope !== "string" || row.scope.length === 0) continue;
-      const held = overviews.get(row.scope);
+      const held = pulseOverviews.get(row.scope);
       if (held !== undefined && held.atMs >= row.at_ms) continue;
-      overviews.set(
+      pulseOverviews.set(
         row.scope,
         Object.freeze({
           text: row.text,
@@ -393,7 +393,7 @@ export class PulseStore {
         }),
       );
     }
-    this.snapshot = Object.freeze({ ...this.snapshot, overviews });
+    this.snapshot = Object.freeze({ ...this.snapshot, pulseOverviews });
     // Tail (history) first, then any live lines that landed while the
     // load was in flight; dedupe on line identity.
     const live = this.snapshot.lines;
@@ -412,7 +412,7 @@ export class PulseStore {
    * standing statement, so the newest one wins outright — there is no log to
    * append to and nothing to dedupe against.
    */
-  private foldOverview(line: {
+  private foldPulseOverview(line: {
     text: string;
     scopes: string[];
     beat: number;
@@ -425,9 +425,9 @@ export class PulseStore {
       atMs: line.at,
     });
     const scopes = line.scopes.length > 0 ? line.scopes : [OVERVIEW_APP_SCOPE];
-    const overviews = new Map(this.snapshot.overviews);
-    for (const scope of scopes) overviews.set(scope, entry);
-    this.snapshot = Object.freeze({ ...this.snapshot, overviews });
+    const pulseOverviews = new Map(this.snapshot.pulseOverviews);
+    for (const scope of scopes) pulseOverviews.set(scope, entry);
+    this.snapshot = Object.freeze({ ...this.snapshot, pulseOverviews });
     this.tick();
   }
 
@@ -449,7 +449,7 @@ export class PulseStore {
       lines: Object.freeze(capped) as readonly PulseLineEntry[],
       latest: capped.length > 0 ? capped[capped.length - 1] : null,
       cleared: this.snapshot.cleared,
-      overviews: this.snapshot.overviews,
+      pulseOverviews: this.snapshot.pulseOverviews,
     });
     this.tick();
   }
@@ -541,8 +541,8 @@ export function usePulseOverview(scope: string): PulseOverviewEntry | null {
       return store.subscribe(listener);
     },
     () =>
-      latestOverviewForScope(
-        _activeStore?.getSnapshot().overviews ?? EMPTY_OVERVIEWS,
+      latestPulseOverviewForScope(
+        _activeStore?.getSnapshot().pulseOverviews ?? EMPTY_PULSE_OVERVIEWS,
         scope,
       ),
     () => null,

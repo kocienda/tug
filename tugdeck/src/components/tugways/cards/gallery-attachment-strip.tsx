@@ -156,7 +156,7 @@ export function GalleryAttachmentStrip(): React.ReactElement {
         <TugLabel>Compact density — the rail's tier</TugLabel>
         <p style={descStyle}>
           One declaration, <code>density=&quot;compact&quot;</code>, for a
-          surface a few hundred pixels wide (the Gazette). The tiles step down
+          surface a few hundred pixels wide (the Overview). The tiles step down
           a size and the preview sheet opens at the narrow width tier well
           short of the card&apos;s edges — everything else is identical, both
           phases included.

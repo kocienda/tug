@@ -25,8 +25,8 @@ import { registerLensCard } from "@/components/lens/lens-register-card";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { registerJotsCard } from "@/components/jots/jots-card-registration";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
-import { registerGazetteCard } from "@/components/gazette/gazette-card-registration";
-import { GAZETTE_CARD_ID } from "@/lib/gazette-card-id";
+import { registerOverviewCard } from "@/components/overview/overview-card-registration";
+import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { registerSettingsCard } from "@/components/tugways/cards/settings-card";
 import { registerKeyboardCard } from "@/components/tugways/cards/keyboard-card";
 import { registerDevtoolsCard } from "@/components/devtools/devtools-card";
@@ -277,14 +277,14 @@ describe("Class-B declarations on the real registrations ([P10])", () => {
     registerJotsCard();
     registerSettingsCard();
     registerKeyboardCard();
-    registerGazetteCard();
+    registerOverviewCard();
     registerDevtoolsCard();
     for (const componentId of [
       LENS_CARD_ID,
       JOTS_CARD_ID,
       "settings",
       "keyboard",
-      GAZETTE_CARD_ID,
+      OVERVIEW_CARD_ID,
       "devtools",
     ]) {
       expect(getRegistration(componentId)?.kbfAtRest).toBe(true);

@@ -3794,14 +3794,14 @@ export function SessionCardBody({
       );
       sendCloseSessionKeepingBinding(connection, cardId, binding.tugSessionId);
     },
-    // `/private` — toggle this session out of the Gazette ([P05], [Q01]).
+    // `/private` — toggle this session out of the Overview.
     // Deliberately a composer command and nothing else: no menu row, no chord.
     // The store write is optimistic so the atom's marker turns over with the
     // gesture; the `set_session_private_ok` / `_err` acks reconcile it either
     // way. The bulletin confirms the TRANSITION — the marker is the record of
     // the STATE, which is why both exist — and it waits for the ack, because a
     // refused write would otherwise leave the user holding a promise that the
-    // Gazette has stopped listening when it has not. The wait is a local socket
+    // Overview has stopped listening when it has not. The wait is a local socket
     // and one row's UPDATE. Reads the binding live at invoke time ([L07]).
     private: () => {
       const binding = cardSessionBindingStore.getBinding(cardId);
@@ -3814,15 +3814,15 @@ export function SessionCardBody({
         if (settle.ok) {
           notify?.success(
             next
-              ? "This session is now private — nothing new reaches the Gazette"
-              : "This session is public again — the Gazette resumes from here",
+              ? "This session is now private — nothing new reaches the Overview"
+              : "This session is public again — the Overview resumes from here",
           );
           return;
         }
         notify?.danger(
           next
-            ? "This session is still public — the Gazette is still listening"
-            : "This session is still private — the Gazette is still skipping it",
+            ? "This session is still public — the Overview is still listening"
+            : "This session is still private — the Overview is still skipping it",
           { description: privateRefusalDetail(settle.reason), sticky: true },
         );
       });

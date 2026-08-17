@@ -1,7 +1,7 @@
 /**
- * gazette-ref-resolve.ts — is this ref something a click can honestly open?
+ * overview-ref-resolve.ts — is this ref something a click can honestly open?
  *
- * A Gazette ref is a verbatim quote from session activity: a path as the
+ * A Overview ref is a verbatim quote from session activity: a path as the
  * wire spelled it, a sha as the model saw it. Quoting is not existing — the
  * spelling may be relative, differently-cased, or stale — so a ref becomes
  * actionable the way every reference in a transcript does: the annotator's
@@ -22,7 +22,7 @@
  * The decision is a pure function of its inputs; the resolver stores are
  * injected with production defaults, which is what the unit tests replace.
  *
- * @module lib/gazette-ref-resolve
+ * @module lib/overview-ref-resolve
  */
 
 import {
@@ -36,10 +36,10 @@ import {
   type PathVerdict,
 } from "./annotator/path-resolution";
 import type { AnnotationPayload } from "./annotator/payloads";
-import type { GazetteRef } from "@/protocol";
+import type { OverviewRef } from "@/protocol";
 
 /** The workspace a post's refs resolve inside. */
-export interface GazetteRefRoot {
+export interface OverviewRefRoot {
   /** Absolute project directory — the post's own `projectDir`. */
   projectDir: string;
   /** The tugcast workspace key holding that directory's index. */
@@ -47,7 +47,7 @@ export interface GazetteRefRoot {
 }
 
 /** What the card should render for one ref right now. */
-export type GazetteRefResolution =
+export type OverviewRefResolution =
   /** Confirmed. The payload is the annotation contract's own — stamped on
    *  the atom, it makes the registry's click and menu the atom's gesture.
    *  `facts` is what a chip that cannot describe itself (a commit hash) says
@@ -60,15 +60,15 @@ export type GazetteRefResolution =
   | { state: "inert"; reason: string };
 
 /** The resolver seams, injectable for tests. */
-export interface GazetteRefResolvers {
+export interface OverviewRefResolvers {
   lookupPath(raw: string, cwd: string | null): PathVerdict;
   /** `null` when there is no index to ask (no workspace, no connection). */
-  lookupName(root: GazetteRefRoot, name: string): PathVerdict | null;
+  lookupName(root: OverviewRefRoot, name: string): PathVerdict | null;
   /** `null` when there is no repository to ask. */
-  lookupCommit(root: GazetteRefRoot, sha: string): CommitVerdict | null;
+  lookupCommit(root: OverviewRefRoot, sha: string): CommitVerdict | null;
 }
 
-const PRODUCTION_RESOLVERS: GazetteRefResolvers = {
+const PRODUCTION_RESOLVERS: OverviewRefResolvers = {
   lookupPath: (raw, cwd) => pathResolutionStore.lookup(raw, cwd),
   lookupName: (root, name) =>
     fileNameResolverFor(root.projectDir, root.workspaceKey)?.lookup(name) ??
@@ -77,17 +77,17 @@ const PRODUCTION_RESOLVERS: GazetteRefResolvers = {
     commitResolverFor(root.projectDir, root.workspaceKey)?.lookup(sha) ?? null,
 };
 
-const NO_ROOT: GazetteRefResolution = {
+const NO_ROOT: OverviewRefResolution = {
   state: "inert",
   reason: "This post recorded no project to resolve against.",
 };
 
-const PENDING: GazetteRefResolution = { state: "pending" };
+const PENDING: OverviewRefResolution = { state: "pending" };
 
 function pathResolution(
   verdict: PathVerdict,
   target: string,
-): GazetteRefResolution {
+): OverviewRefResolution {
   switch (verdict.state) {
     case "confirmed":
       return {
@@ -109,11 +109,11 @@ function pathResolution(
  * Resolve one ref against its post's root. Session refs never come here —
  * the session citation owns its own gesture, verdicts and all.
  */
-export function resolveGazetteRef(
-  ref: GazetteRef,
-  root: GazetteRefRoot | null,
-  resolvers: GazetteRefResolvers = PRODUCTION_RESOLVERS,
-): GazetteRefResolution {
+export function resolveOverviewRef(
+  ref: OverviewRef,
+  root: OverviewRefRoot | null,
+  resolvers: OverviewRefResolvers = PRODUCTION_RESOLVERS,
+): OverviewRefResolution {
   const target = ref.target;
   if (target.length === 0) {
     return { state: "inert", reason: "This ref names nothing." };

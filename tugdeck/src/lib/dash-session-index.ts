@@ -4,7 +4,7 @@
  * Two reads answered a dash question before this one and neither fits an
  * identity surface. `cardSessionBindingStore.getBinding(cardId)?.dash` is
  * keyed by *card*; `DashChangesetEntry.bound_sessions` is keyed by *dash*. A
- * session atom, a Gazette citation, or a Lens row holds a session id and
+ * session atom, a Overview citation, or a Lens row holds a session id and
  * nothing else, so it needs the inverse: session → dash.
  *
  * The inverse is derived, never stored ([D138]). The account-global

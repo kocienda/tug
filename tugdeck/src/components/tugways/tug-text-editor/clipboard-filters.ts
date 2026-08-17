@@ -720,7 +720,7 @@ function handlePaste(
   // consequence is that a DOM `paste` event's `clipboardData` cannot see it:
   // `getData(TUG_ATOMS_MIME)` above comes back empty for a clipboard that
   // demonstrably carries an atom, and the paste falls through to plain text.
-  // That is a session atom copied from the Session Summary panel, a Gazette
+  // That is a session atom copied from the Session Summary panel, a Overview
   // ref, or a History line landing in the composer as its citation string.
   //
   // The editor's own ⌘V responder action reads the native bridge and does the

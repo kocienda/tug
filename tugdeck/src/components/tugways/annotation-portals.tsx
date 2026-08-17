@@ -28,7 +28,7 @@ import type { AnnotationContext } from "@/lib/annotator/types";
  * A commit tip has to ask what its sha resolved to, so the hook needs the
  * surface's {@link AnnotationContext}. Pass it when the surface threads one
  * as a prop (the Session transcript); omit it and the hook reads the
- * {@link AnnotationScope} the row already mounts, which is how the Gazette
+ * {@link AnnotationScope} the row already mounts, which is how the Overview
  * hands its context to the markdown block too.
  */
 export function useAnnotationPortals(

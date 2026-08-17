@@ -43,7 +43,7 @@ import {
 } from "@/lib/layout-imposer";
 import { JOTS_CARD_ID } from "@/lib/jots-card-id";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
-import { GAZETTE_CARD_ID } from "@/lib/gazette-card-id";
+import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { PERMISSION_MODE_CYCLE } from "./lib/permission-mode";
 import {
   cardIdForSession,
@@ -71,13 +71,13 @@ import {
 } from "./protocol";
 import type {
   CardBinding,
-  GazettePostWire,
+  OverviewPostWire,
   PulseLineWireRow,
   PulseOverviewWireRow,
   SessionStateChangeWireRow,
 } from "./protocol";
 import { publishListPulseLinesOk } from "./lib/pulse-store";
-import { publishListGazettePostsOk } from "./lib/gazette-store";
+import { publishListOverviewPostsOk } from "./lib/overview-store";
 import { cardServicesStore } from "./lib/card-services-store";
 import { pendingAskStore } from "./lib/pending-ask-store";
 import { applyRestoredRefs } from "./lib/refs-session-store";
@@ -483,10 +483,10 @@ export function initActionDispatch(
     }
   });
 
-  // toggle-lens / toggle-jots / toggle-gazette: the three-state sidebar
+  // toggle-lens / toggle-jots / toggle-overview: the three-state sidebar
   // shortcut — show-and-activate, activate, hide ({@link toggleSidebarCard}).
   // Fired by the Swift menu's "Show Lens" (⌃⌘L), "Show Jots" (⌃⌘J), and "Show
-  // Gazette" (⌃⌘G) items and the browser-dev keybindings; the deck-canvas key
+  // Overview" (⌃⌘O) items and the browser-dev keybindings; the deck-canvas key
   // handlers run the same performer.
   registerAction("toggle-lens", () => {
     toggleSidebarCard(deckManager, LENS_CARD_ID);
@@ -496,8 +496,8 @@ export function initActionDispatch(
     toggleSidebarCard(deckManager, JOTS_CARD_ID);
   });
 
-  registerAction("toggle-gazette", () => {
-    toggleSidebarCard(deckManager, GAZETTE_CARD_ID);
+  registerAction("toggle-overview", () => {
+    toggleSidebarCard(deckManager, OVERVIEW_CARD_ID);
   });
 
   // next/previous-keyboard-focus: move the keyboard focus ring one stop, the
@@ -731,7 +731,7 @@ export function initActionDispatch(
     const origin =
       typeof payload.originCardId === "string" ? payload.originCardId : null;
     // The named host first, the first responder second: a menu mounted in a
-    // rail — the Gazette, the Lens — names a card that holds no slot of its
+    // rail — the Overview, the Lens — names a card that holds no slot of its
     // own and so has no neighbour to offer, and the reader's focused card is
     // the better answer than the head of the arrangement.
     const slot =
@@ -1040,7 +1040,7 @@ export function initActionDispatch(
         decoded.session_id,
         decoded.fields.synopsis,
       );
-      // Gazette privacy is authoritative on every push: the row is the only
+      // Overview privacy is authoritative on every push: the row is the only
       // truth, and a push carrying `false` means the session really is public.
       sessionPrivateStore.setPrivate(
         decoded.session_id,
@@ -1332,16 +1332,16 @@ export function initActionDispatch(
     });
   });
 
-  // list_gazette_posts_ok: response to the gazette-store's app-scoped
+  // list_overview_posts_ok: response to the overview-store's app-scoped
   // ledger-tail request. Posts are oldest-first; an empty channel is a
   // valid empty array.
-  registerAction("list_gazette_posts_ok", (payload) => {
+  registerAction("list_overview_posts_ok", (payload) => {
     const posts = payload.posts;
     if (!Array.isArray(posts)) {
-      console.warn("list_gazette_posts_ok: missing or invalid posts", payload);
+      console.warn("list_overview_posts_ok: missing or invalid posts", payload);
       return;
     }
-    publishListGazettePostsOk({ posts: posts as GazettePostWire[] });
+    publishListOverviewPostsOk({ posts: posts as OverviewPostWire[] });
   });
 
   // list_shell_exchanges_ok ([P07]): the shell-restore tail for one session.

@@ -207,7 +207,7 @@ function FilePathLink({
   );
 
   // The hover is the house file tip — the same bubble this path gets in a
-  // tool header, a Gazette ref, or a commit roster. A row elides its path,
+  // tool header, a Overview ref, or a commit roster. A row elides its path,
   // so the whole one belongs on the hover; a deleted file says so, since
   // that is the fact its unclickable name cannot carry.
   const deleted = isDeleted(op, gitStatus);

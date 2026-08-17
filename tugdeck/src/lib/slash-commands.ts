@@ -203,7 +203,7 @@ export const LOCAL_SLASH_COMMANDS = [
   },
   {
     name: "private",
-    description: "Keep this session out of the Gazette (toggle; from now on)",
+    description: "Keep this session out of the Overview (toggle; from now on)",
   },
   {
     name: "compact",

@@ -56,10 +56,10 @@ export const FeedId = {
   // rows down, search requests up)
   REFS_OUTPUT: 0x62,
   REFS_INPUT: 0x63,
-  // Gazette (app-wide narration channel: Reporter/Operator/user posts down,
+  // Overview (app-wide narration channel: Observer/Operator/user posts down,
   // the card's questions up)
-  GAZETTE: 0x70,
-  GAZETTE_INPUT: 0x71,
+  OVERVIEW: 0x70,
+  OVERVIEW_INPUT: 0x71,
   // Pulse (app-wide color commentary)
   PULSE: 0x80,
   // Usage (subscription usage panel: `claude -p "/usage"` response + request)
@@ -186,7 +186,7 @@ export interface SessionRow {
    */
   file_size?: number | null;
   /**
-   * Whether this session is out of the Gazette: no facts recorded, no posts
+   * Whether this session is out of the Overview: no facts recorded, no posts
    * written, excluded from the Operator's answers. Toggled by `/private`.
    *
    * It rides the row because privacy is a **resting** state — the atom's marker
@@ -733,7 +733,7 @@ export function encodeRenameSession(sessionId: string, name: string): Frame {
 }
 
 /**
- * Mark a session in or out of the Gazette ([P05], [Q01]).
+ * Mark a session in or out of the Overview ([P05], [Q01]).
  *
  * From-now-on semantics: tugcast stops recording facts and writing posts for a
  * private session and excludes it from the Operator's reads; marking it public
@@ -933,21 +933,21 @@ export interface ListSessionStateChangesOk {
 }
 
 /**
- * Who wrote a Gazette post. The channel has exactly three authors; an
+ * Who wrote a Overview post. The channel has exactly three authors; an
  * unrecognized spelling is a parse failure at the edge rather than a row
  * rendered in the wrong voice.
  */
-export type GazetteAuthor = "reporter" | "operator" | "user";
+export type OverviewAuthor = "observer" | "operator" | "user";
 
-const GAZETTE_AUTHORS: readonly string[] = ["reporter", "operator", "user"];
+const OVERVIEW_AUTHORS: readonly string[] = ["observer", "operator", "user"];
 
 /**
  * What a ref chip points at. Each kind has its own chip action, so a kind
  * with no action to offer is dropped at parse instead of rendered inert.
  */
-export type GazetteRefKind = "session" | "file" | "commit" | "plan" | "brief";
+export type OverviewRefKind = "session" | "file" | "commit" | "plan" | "brief";
 
-const GAZETTE_REF_KINDS: readonly string[] = [
+const OVERVIEW_REF_KINDS: readonly string[] = [
   "session",
   "file",
   "commit",
@@ -956,14 +956,14 @@ const GAZETTE_REF_KINDS: readonly string[] = [
 ];
 
 /** One clickable provenance chip on a post. */
-export interface GazetteRef {
-  kind: GazetteRefKind;
+export interface OverviewRef {
+  kind: OverviewRefKind;
   target: string;
 }
 
 /**
- * One Gazette post as it travels on `FeedId.GAZETTE` and as the
- * `list_gazette_posts_ok` tail returns it — the same shape on both wires,
+ * One Overview post as it travels on `FeedId.OVERVIEW` and as the
+ * `list_overview_posts_ok` tail returns it — the same shape on both wires,
  * so one parse serves both.
  *
  * `id` is the ledger rowid, absent on a transient post (broadcast so the
@@ -980,19 +980,19 @@ export interface GazetteRef {
  * and came to rest beside the ledger; the card reads them back through
  * `/api/fs/blob`, the same route the viewer cards stream a file with.
  */
-export interface GazetteAttachmentWire {
+export interface OverviewAttachmentWire {
   path: string;
   media_type: string;
 }
 
-export interface GazettePostWire {
+export interface OverviewPostWire {
   id?: number;
   at_ms: number;
-  author: GazetteAuthor;
+  author: OverviewAuthor;
   session_id?: string;
   wake_reason?: string;
   body: string;
-  refs: GazetteRef[];
+  refs: OverviewRef[];
   /** How long the agent turn that wrote the post took; absent on a user
    *  question and on rows written before tugcast recorded it. */
   elapsed_ms?: number;
@@ -1004,14 +1004,14 @@ export interface GazettePostWire {
    *  a guessed root. */
   project_dir?: string;
   /** Images composed with a user's question. Absent on every other post. */
-  attachments?: GazetteAttachmentWire[];
+  attachments?: OverviewAttachmentWire[];
   request_id?: string;
   transient: boolean;
 }
 
-/** Decoded `list_gazette_posts_ok` response payload (app-scoped). */
-export interface ListGazettePostsOk {
-  posts: GazettePostWire[];
+/** Decoded `list_overview_posts_ok` response payload (app-scoped). */
+export interface ListOverviewPostsOk {
+  posts: OverviewPostWire[];
   /** Whether history continues past the oldest post in `posts`. */
   has_more?: boolean;
   /**
@@ -1021,13 +1021,13 @@ export interface ListGazettePostsOk {
    * its own, which cost nothing while the only read was an idempotent tail.
    * A page is not idempotent: applied twice it prepends twice. So the echo
    * is how a client tells a tail from a page, and its own page from anyone
-   * else's — see `GazetteStore`'s `pendingBefore`.
+   * else's — see `OverviewStore`'s `pendingBefore`.
    */
   before_id?: number;
 }
 
 /**
- * Request a page of Gazette history. App-scoped — no session id.
+ * Request a page of Overview history. App-scoped — no session id.
  *
  * No `beforeId` is the TAIL: the newest posts, which is what the store asks
  * for on mount and after a reconnect. A `beforeId` is the page immediately
@@ -1035,21 +1035,21 @@ export interface ListGazettePostsOk {
  * keep arriving while a reader pages backwards and an offset would slide
  * under them. `limit` defaults server-side to the standard tail length.
  *
- * The response is `list_gazette_posts_ok { posts, has_more, before_id }`,
+ * The response is `list_overview_posts_ok { posts, has_more, before_id }`,
  * posts oldest-first within the page.
  */
-export function encodeListGazettePosts(opts?: {
+export function encodeListOverviewPosts(opts?: {
   beforeId?: number;
   limit?: number;
 }): Frame {
   const params: Record<string, number> = {};
   if (opts?.beforeId !== undefined) params.before_id = opts.beforeId;
   if (opts?.limit !== undefined) params.limit = opts.limit;
-  return controlFrame("list_gazette_posts", params);
+  return controlFrame("list_overview_posts", params);
 }
 
 /**
- * A question for the Operator, on `GAZETTE_INPUT`. `requestId` correlates the
+ * A question for the Operator, on `OVERVIEW_INPUT`. `requestId` correlates the
  * answer: tugcast echoes it on the answer post (and on a transient failure
  * post), which is how the card knows which pending row to clear. App-scoped —
  * a question is asked of the channel, not of a session.
@@ -1060,17 +1060,17 @@ export function encodeListGazettePosts(opts?: {
  * Anthropic image block takes, so nothing between here and the model
  * re-encodes it.
  */
-export interface GazetteInputAttachment {
+export interface OverviewInputAttachment {
   mediaType: string;
   /** Base64, no `data:` prefix. */
   data: string;
 }
 
-export function encodeGazetteInput(
+export function encodeOverviewInput(
   body: string,
   requestId: string,
-  attachments: readonly GazetteInputAttachment[] = [],
-  refs: readonly GazetteRef[] = [],
+  attachments: readonly OverviewInputAttachment[] = [],
+  refs: readonly OverviewRef[] = [],
 ): Frame {
   // Both optional arrays are omitted rather than sent empty, so the frame a
   // question typed without a picture and without an `@` atom produces stays
@@ -1079,7 +1079,7 @@ export function encodeGazetteInput(
   if (attachments.length > 0) payload.attachments = attachments;
   if (refs.length > 0) payload.refs = refs;
   return {
-    feedId: FeedId.GAZETTE_INPUT,
+    feedId: FeedId.OVERVIEW_INPUT,
     flags: FrameFlags.DATA,
     payload: new TextEncoder().encode(JSON.stringify(payload)),
   };
@@ -1091,19 +1091,19 @@ export function encodeGazetteInput(
  * a chip nobody can act on is worse than no chip — but the post itself
  * survives, since its body is the news.
  */
-export function parseGazettePost(value: unknown): GazettePostWire | null {
+export function parseOverviewPost(value: unknown): OverviewPostWire | null {
   if (typeof value !== "object" || value === null) return null;
   const p = value as Record<string, unknown>;
   if (typeof p.body !== "string") return null;
-  if (typeof p.author !== "string" || !GAZETTE_AUTHORS.includes(p.author)) {
+  if (typeof p.author !== "string" || !OVERVIEW_AUTHORS.includes(p.author)) {
     return null;
   }
   // An attachment the card cannot point at is no attachment: a tile whose
   // `src` is a relative path or an empty media type paints a broken image
   // where a picture was promised, so a malformed entry is dropped and the
   // rest of the post still renders.
-  const attachments: GazetteAttachmentWire[] = Array.isArray(p.attachments)
-    ? p.attachments.flatMap((raw): GazetteAttachmentWire[] => {
+  const attachments: OverviewAttachmentWire[] = Array.isArray(p.attachments)
+    ? p.attachments.flatMap((raw): OverviewAttachmentWire[] => {
         if (typeof raw !== "object" || raw === null) return [];
         const a = raw as Record<string, unknown>;
         if (typeof a.path !== "string" || !a.path.startsWith("/")) return [];
@@ -1113,21 +1113,21 @@ export function parseGazettePost(value: unknown): GazettePostWire | null {
         return [{ path: a.path, media_type: a.media_type }];
       })
     : [];
-  const refs: GazetteRef[] = Array.isArray(p.refs)
-    ? p.refs.flatMap((raw): GazetteRef[] => {
+  const refs: OverviewRef[] = Array.isArray(p.refs)
+    ? p.refs.flatMap((raw): OverviewRef[] => {
         if (typeof raw !== "object" || raw === null) return [];
         const r = raw as Record<string, unknown>;
-        if (typeof r.kind !== "string" || !GAZETTE_REF_KINDS.includes(r.kind)) {
+        if (typeof r.kind !== "string" || !OVERVIEW_REF_KINDS.includes(r.kind)) {
           return [];
         }
         if (typeof r.target !== "string" || r.target.length === 0) return [];
-        return [{ kind: r.kind as GazetteRefKind, target: r.target }];
+        return [{ kind: r.kind as OverviewRefKind, target: r.target }];
       })
     : [];
   return {
     ...(typeof p.id === "number" ? { id: p.id } : {}),
     at_ms: typeof p.at_ms === "number" ? p.at_ms : 0,
-    author: p.author as GazetteAuthor,
+    author: p.author as OverviewAuthor,
     ...(typeof p.session_id === "string" ? { session_id: p.session_id } : {}),
     ...(typeof p.wake_reason === "string"
       ? { wake_reason: p.wake_reason }
@@ -1146,10 +1146,10 @@ export function parseGazettePost(value: unknown): GazettePostWire | null {
   };
 }
 
-/** Parse a GAZETTE feed frame's payload; null on malformed/foreign shapes. */
-export function parseGazetteFrame(payload: Uint8Array): GazettePostWire | null {
+/** Parse a OVERVIEW feed frame's payload; null on malformed/foreign shapes. */
+export function parseOverviewFrame(payload: Uint8Array): OverviewPostWire | null {
   try {
-    return parseGazettePost(JSON.parse(new TextDecoder().decode(payload)));
+    return parseOverviewPost(JSON.parse(new TextDecoder().decode(payload)));
   } catch {
     return null;
   }

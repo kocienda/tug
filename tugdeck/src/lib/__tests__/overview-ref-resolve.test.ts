@@ -1,5 +1,5 @@
 /**
- * Unit tests for `resolveGazetteRef` — the pure decision from a ref, a
+ * Unit tests for `resolveOverviewRef` — the pure decision from a ref, a
  * root, and the resolver verdicts to what the card should render. The
  * resolver seams are injected; nothing here touches a network or a store.
  */
@@ -7,23 +7,23 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  resolveGazetteRef,
-  type GazetteRefResolvers,
-  type GazetteRefRoot,
-} from "@/lib/gazette-ref-resolve";
+  resolveOverviewRef,
+  type OverviewRefResolvers,
+  type OverviewRefRoot,
+} from "@/lib/overview-ref-resolve";
 import type { PathVerdict } from "@/lib/annotator/path-resolution";
 import type { CommitVerdict } from "@/lib/annotator/commit-resolution";
-import type { GazetteRef } from "@/protocol";
+import type { OverviewRef } from "@/protocol";
 
-const ROOT: GazetteRefRoot = {
+const ROOT: OverviewRefRoot = {
   projectDir: "/repo",
   workspaceKey: "ws1",
 };
 
-const file = (target: string): GazetteRef => ({ kind: "file", target });
-const commit = (target: string): GazetteRef => ({ kind: "commit", target });
+const file = (target: string): OverviewRef => ({ kind: "file", target });
+const commit = (target: string): OverviewRef => ({ kind: "commit", target });
 
-function resolvers(overrides: Partial<GazetteRefResolvers>): GazetteRefResolvers {
+function resolvers(overrides: Partial<OverviewRefResolvers>): OverviewRefResolvers {
   return {
     lookupPath: () => ({ state: "unknown" }),
     lookupName: () => null,
@@ -32,10 +32,10 @@ function resolvers(overrides: Partial<GazetteRefResolvers>): GazetteRefResolvers
   };
 }
 
-describe("resolveGazetteRef", () => {
+describe("resolveOverviewRef", () => {
   test("a confirmed relative path is actionable at its canonical path", () => {
     const seen: Array<[string, string | null]> = [];
-    const r = resolveGazetteRef(
+    const r = resolveOverviewRef(
       file("src/x.ts"),
       ROOT,
       resolvers({
@@ -53,7 +53,7 @@ describe("resolveGazetteRef", () => {
   });
 
   test("a confirmed directory earns the directory gesture", () => {
-    const r = resolveGazetteRef(
+    const r = resolveOverviewRef(
       file("tugdeck/styles"),
       ROOT,
       resolvers({
@@ -71,7 +71,7 @@ describe("resolveGazetteRef", () => {
   });
 
   test("an absolute path resolves with no root at all", () => {
-    const r = resolveGazetteRef(
+    const r = resolveOverviewRef(
       file("/etc/hosts"),
       null,
       resolvers({
@@ -86,7 +86,7 @@ describe("resolveGazetteRef", () => {
   });
 
   test("a bare name asks the file index, not the stat endpoint", () => {
-    const r = resolveGazetteRef(
+    const r = resolveOverviewRef(
       file("justfile"),
       ROOT,
       resolvers({
@@ -105,19 +105,19 @@ describe("resolveGazetteRef", () => {
   });
 
   test("missing and pending and unknown each render honestly", () => {
-    const missing = resolveGazetteRef(
+    const missing = resolveOverviewRef(
       file("gone.ts"),
       ROOT,
       resolvers({ lookupName: (): PathVerdict => ({ state: "missing" }) }),
     );
     expect(missing.state).toBe("inert");
-    const pending = resolveGazetteRef(
+    const pending = resolveOverviewRef(
       file("src/x.ts"),
       ROOT,
       resolvers({ lookupPath: (): PathVerdict => ({ state: "pending" }) }),
     );
     expect(pending.state).toBe("pending");
-    const unknown = resolveGazetteRef(
+    const unknown = resolveOverviewRef(
       file("src/x.ts"),
       ROOT,
       resolvers({ lookupPath: (): PathVerdict => ({ state: "unknown" }) }),
@@ -126,12 +126,12 @@ describe("resolveGazetteRef", () => {
   });
 
   test("a relative ref with no root is inert, never guessed", () => {
-    const r = resolveGazetteRef(file("src/x.ts"), null, resolvers({}));
+    const r = resolveOverviewRef(file("src/x.ts"), null, resolvers({}));
     expect(r.state).toBe("inert");
   });
 
   test("a confirmed commit carries the diff descriptor's root and paths", () => {
-    const r = resolveGazetteRef(
+    const r = resolveOverviewRef(
       commit("957d2350b422"),
       ROOT,
       resolvers({
@@ -170,7 +170,7 @@ describe("resolveGazetteRef", () => {
   });
 
   test("a sha git cannot show is inert with the repo named", () => {
-    const r = resolveGazetteRef(
+    const r = resolveOverviewRef(
       commit("deadbeef1"),
       ROOT,
       resolvers({ lookupCommit: (): CommitVerdict => ({ state: "missing" }) }),

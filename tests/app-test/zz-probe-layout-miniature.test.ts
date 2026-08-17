@@ -50,7 +50,7 @@ function deckShape(): Record<string, unknown> {
       sidebars: {
         lens: { side: "right" },
         jots: { side: "left" },
-        gazette: { side: "left" },
+        overview: { side: "left" },
       },
       rails: { left: { mode: "split" }, right: { mode: "split" } },
     },

@@ -70,7 +70,7 @@ export interface AnnotationDispatchContext {
   /** Bring the annotation's own card forward before acting on it. */
   activateCard: () => void;
   /** The prompt/transcript store a command or snippet is seeded into.
-   *  Absent on a surface with no live session (the Gazette): such a surface
+   *  Absent on a surface with no live session (the Overview): such a surface
    *  can't seed a prompt, so a command's click is a no-op there — the same
    *  rule its menu already follows by dropping Insert into Prompt. */
   codeSessionStore?: CodeSessionStore;

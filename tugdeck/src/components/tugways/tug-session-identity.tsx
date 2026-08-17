@@ -195,7 +195,7 @@ export interface TugSessionIdentityProps
    * every fact it added — the citation, the lineage — was a thing the reader
    * wanted to ACT on, which a tooltip cannot offer because it is by law
    * non-interactive. The menu can, so where there is a menu the hover is
-   * silence. The chip tier keeps it: a citation in a commit line or a Gazette
+   * silence. The chip tier keeps it: a citation in a commit line or a Overview
    * post has no row under it to say any of this.
    * @default true
    */
@@ -214,7 +214,7 @@ export interface TugSessionIdentityProps
 }
 
 /**
- * The Gazette-privacy marker: a leaf subscription, composed in beside the runs.
+ * The Overview-privacy marker: a leaf subscription, composed in beside the runs.
  *
  * A leaf for the same reason the phase dot is one — privacy is not identity, it
  * is a mode the session is in, and folding it into the identity record would
@@ -239,7 +239,7 @@ function SessionPrivacyMarker({
   );
   if (!isPrivate) return null;
   return (
-    <TugTooltip content="Private — kept out of the Gazette">
+    <TugTooltip content="Private — kept out of the Overview">
       <span className="tug-session-identity-private" data-slot="session-private">
         <EyeOff aria-label="Private session" />
       </span>
@@ -479,7 +479,7 @@ export const TugSessionIdentity = React.forwardRef<
  * A citation chip resolved from a session **id** — the shape every foreign
  * surface wants.
  *
- * The Gazette's refs, the Changes card's orphan hint, and the History card's
+ * The Overview's refs, the Changes card's orphan hint, and the History card's
  * commit line all hold an id and nothing else, and all three have to answer
  * the same question before they can render: does the ledger hold that session?
  * Answering it three times would mean three answers, so it is answered once,
@@ -506,7 +506,7 @@ export const TugSessionIdentity = React.forwardRef<
  * lives here rather than being re-passed by each surface, and it is *offered*
  * only when there is a card to raise. A resolved session with no card open is a
  * real and ordinary state; a chip that looked clickable and did nothing in it
- * would be the failure the Gazette's disabled refs were written to avoid.
+ * would be the failure the Overview's disabled refs were written to avoid.
  */
 export function TugSessionCitation({
   citedId,

@@ -1,5 +1,5 @@
 /**
- * Unit tests for the Gazette's mention filter — the predicate that decides
+ * Unit tests for the Overview's mention filter — the predicate that decides
  * whether a ref is already named in the prose (and therefore already
  * clickable there, marked by the content annotator) or needs a trailing
  * chip of its own.
@@ -10,12 +10,12 @@ import { describe, expect, test } from "bun:test";
 import {
   bodyMentionsRef,
   unmentionedRefs,
-} from "@/lib/gazette-body-segments";
-import type { GazetteRef } from "@/protocol";
+} from "@/lib/overview-body-segments";
+import type { OverviewRef } from "@/protocol";
 
-const file = (target: string): GazetteRef => ({ kind: "file", target });
-const commit = (target: string): GazetteRef => ({ kind: "commit", target });
-const session = (target: string): GazetteRef => ({ kind: "session", target });
+const file = (target: string): OverviewRef => ({ kind: "file", target });
+const commit = (target: string): OverviewRef => ({ kind: "commit", target });
+const session = (target: string): OverviewRef => ({ kind: "session", target });
 
 describe("bodyMentionsRef", () => {
   test("a body that never names the ref does not mention it", () => {
