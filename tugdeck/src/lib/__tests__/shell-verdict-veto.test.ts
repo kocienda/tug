@@ -47,7 +47,7 @@ describe("vetoesShellVerdict", () => {
     expect(vetoesShellVerdict("rg -n --hidden --glob '!target' TODO src tests")).toBe(false);
     expect(vetoesShellVerdict('FOO=1 make test ARGS="--nocapture"')).toBe(false);
     expect(vetoesShellVerdict("docker run -it --rm -v /tmp:/tmp alpine sh")).toBe(false);
-    expect(vetoesShellVerdict("cargo nextest run -p tugcast session_overview")).toBe(false);
+    expect(vetoesShellVerdict("cargo nextest run -p tugcast session_synopsis")).toBe(false);
   });
 
   it("does not read a path, a dotfile, or a bare dot as a sentence break", () => {

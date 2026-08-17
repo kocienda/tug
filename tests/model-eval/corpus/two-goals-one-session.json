@@ -7,6 +7,5 @@
   "Edit(tugcast/src/local_model.rs)",
   "Bash(cargo nextest run download)",
   "Edit(tugcast/src/feeds/shell.rs)"
- ],
- "recent_tools": 2
+ ]
 }

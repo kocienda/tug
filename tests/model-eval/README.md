@@ -1,17 +1,17 @@
 # model-eval — what the SharedAgent writes, and what it costs
 
-The Haiku SharedAgent does two jobs: it writes the **session headline** on the PULSE strip's bright leading run, and it decides whether an unprefixed line in the composer means the **shell** or means Claude. This directory asks four questions about those two jobs against a running Tug instance, sharing one piece of plumbing (`harness.py`: send the input over the control socket, read the answer back out of the log).
+The Haiku SharedAgent does two jobs: it writes the **session description** — the one sentence under a session's name saying what that session is about — and it decides whether an unprefixed line in the composer means the **shell** or means Claude. This directory asks four questions about those two jobs against a running Tug instance, sharing one piece of plumbing (`harness.py`: send the input over the control socket, read the answer back out of the log).
 
 | Question | Command | Answers |
 |---|---|---|
-| Is the headline in **register**? | `just model-eval` | Are the headlines headlines — verb-first, inside 56 characters, no articles? Scored over twelve frozen digests. |
+| Is the description in **register**? | `just model-eval` | Are the descriptions descriptions — verb-first, inside 72 characters, sentence case? Scored over twelve frozen digests. |
 | Does routing **run the wrong thing**? | `just model-classify` | Over 71 labeled lines: how often a line meant for Claude was executed. |
-| Is it **alive**? | `just model-liveness` | Does one digest come back at all, non-empty, inside the `summarize` ceiling? Skips with exit 0 without a running instance. |
-| Is it **fast enough**? | `just model-stats` | Over accumulated logs: per-task outcomes, duration percentiles, normalizer work rate, headline change rate. |
+| Is it **alive**? | `just model-liveness` | Does one digest come back at all, non-empty, inside the `synopsis` ceiling? Skips with exit 0 without a running instance. |
+| Is it **fast enough**? | `just model-stats` | Over accumulated logs: per-task outcomes, duration percentiles, normalizer work rate, grounding refusal rate. |
 
 Register is the standing answer to "did that prompt edit make things better or worse?", which no unit test can tell you. Liveness is a smoke test. Stats is a batch read over real usage and says nothing useful until there is some.
 
-Only one of the four is a **gate**, and only in one direction: `model-classify` is the sole harness here with ground truth, and it fails on a line that was wrongly executed while merely reporting a command that was wrongly sent to Claude. The asymmetry is the feature's, not the harness's — see `shell-line-classifier.ts`. Everything about the headline is a rate, because there is no ground truth for "what is this session working on".
+Only one of the four is a **gate**, and only in one direction: `model-classify` is the sole harness here with ground truth, and it fails on a line that was wrongly executed while merely reporting a command that was wrongly sent to Claude. The asymmetry is the feature's, not the harness's — see `shell-line-classifier.ts`. Everything about the description is a rate, because there is no ground truth for "what is this session about".
 
 ```bash
 just app-debug        # then, once it is up:
@@ -19,73 +19,70 @@ just model-eval       # against debug-main
 just model-eval release-main
 ```
 
-Run it after touching either half of what produces a headline:
+Run it after touching either half of what produces a description:
 
-- `SUMMARIZE_INSTRUCTIONS` in `tugrust/crates/tugcast/src/shared_agent.rs` — what the model is asked for
-- `headline_register` / `trim_tail_to_char_budget` in `tugrust/crates/tugcast/src/feeds/session_overview.rs` — what is imposed on the answer
+- `SYNOPSIS_INSTRUCTIONS` in `tugrust/crates/tugcast/src/shared_agent.rs` — what the model is asked for
+- `synopsis_register_report` in `tugrust/crates/tugcast/src/feeds/session_synopsis.rs` — what is imposed on the answer
 
 It is deliberately **not** part of `just test`. It needs an instance up, and it spends subscription tokens.
 
 ## What it actually drives
 
-Nothing here re-implements anything. A frozen digest goes over the control socket to the live app via `tugutil host tell shared_agent_summarize`; the SharedAgent's own `SUMMARIZE_INSTRUCTIONS` prompt and its Haiku worker answer; tugcast normalizes through `headline_register` and logs both strings. The score is taken from the normalized one — the string the strip would really wear.
+Nothing here re-implements anything. A frozen digest goes over the control socket to the live app via `tugutil host tell shared_agent_synopsis`; the SharedAgent's own `SYNOPSIS_INSTRUCTIONS` prompt and its Haiku worker answer; tugcast normalizes through `synopsis_register_report` and logs both strings. The score is taken from the normalized one — the string a session row would really wear.
 
-That last part matters and was got wrong once already: the verb used to log the *raw* answer, so a run could report a headline that never ships. It now logs `raw=` beside `headline=`, and the runner reports every case where they differ. **Divergence is a signal, not a success**: it means the prompt is drifting out of register and the normalizer is quietly covering. A run where nothing diverges is a healthier run than one scoring the same rate with three rescues.
+That last part matters and was got wrong once already: the verb used to log the *raw* answer, so a run could report a line that never ships. It now logs `raw=` beside `line=`, and the runner reports every case where they differ. **Divergence is a signal, not a success**: it means the prompt is drifting out of register and the normalizer is quietly covering. A run where nothing diverges is a healthier run than one scoring the same rate with three rescues.
 
 ## The corpus
 
-`corpus/<name>.json` holds the inputs — `prompts`, `tools`, and `recent_tools`, the three arguments to `compose_digest`. `corpus/<name>.digest.txt` holds the frozen digest built from them.
-
-`recent_tools` is how many of the trailing `tools` entries arrived since the emitter's last committed tick. It splits the tool half into two labeled sections, and the prompt half splits into two more, so the digest is at most four:
+`corpus/<name>.json` holds the inputs — `prompts` and `tools`. `corpus/<name>.digest.txt` holds the frozen digest built from them by `compose_synopsis_digest`, whose sections are the session's own history rather than a stretch's:
 
 ```
-The standing goal:                   ← prompts[0], the pinned first
-The current ask:                     ← prompts[-1], when it differs
-What the session has been doing:     ← tools[..len - recent_tools]
-What it is doing right now:          ← tools[len - recent_tools..]
+What the session was most recently asked to do:   ← prompts[-1], the subject
+What it worked on before that, newest first:      ← prompts[1..-1]
+What the session set out to do at the start:      ← prompts[0]
+Where it stands right now (background…):          ← the newest activity lines
+The description you are revising:                 ← the row's current text
 ```
 
-A section with no entries is omitted heading and all: `recent_tools == 0` yields no *right now* section, `recent_tools == tools.len()` — a session's first overview — yields no background section, and a session whose newest prompt still is its first has no current-ask section. Both splits exist for the same reason: the prompt asks the model what the session is doing about what it was most recently told, which is unanswerable if the digest marks neither which lines are now nor which ask is current.
+A section with no entries is omitted heading and all, and the composer refuses a digest with no prompts at all: activity alone never asks, because a session with no human act has nothing to describe.
 
-The frozen file is **generated by the shipping Rust function and pinned by a Rust test** (`corpus_digests_are_what_compose_digest_produces`). Change `compose_digest`'s wording and that test fails, naming the file to regenerate:
+The frozen file is **generated by the shipping Rust function and pinned by a Rust test** (`corpus_digests_are_what_compose_digest_produces`). Change the composer's wording and that test fails, naming the file to regenerate:
 
 ```bash
 cd tugrust && TUG_REGENERATE_DIGESTS=1 cargo nextest run -p tugcast corpus_digests
 ```
 
-This exists because the corpus that came before it — six real digests under `~/bonsai-eval/digests` — silently went stale: it was written against `The user asked:` while the shipping code moved to `What the user asked for:`. Scoring a model on bytes it will never see is worse than not scoring it. Living in the repo and being pinned to the real function is what stops that recurring.
+This exists because the corpus that came before it — six real digests under `~/bonsai-eval/digests` — silently went stale: it was written against `The user asked:` while the shipping code moved on. Scoring a model on bytes it will never see is worse than not scoring it. Living in the repo and being pinned to the real function is what stops that recurring.
 
-Six entries are real sessions from this project, re-rendered into today's shape. Six are synthetic, each pinned to a defect this feature actually shipped with — `parts-list-tail` is the label headline that started all this, `conversation-only` is the tool-free session that couldn't get a headline at all, `tools-without-prompts` is an unresolved identity.
+Six entries are real sessions from this project, re-rendered into today's shape. Six are synthetic, each pinned to a defect this feature actually shipped with — `parts-list-tail` is the label line that started all this, `conversation-only` is the tool-free session that couldn't get a description at all.
 
-**The corpus and the prompt's examples must stay disjoint.** They were not, for as long as both existed: six of the eight examples in the then-shipping summarize prompt had been drafted from these digests, so five of the twelve carried their own expected answer in the instructions. A model could score the whole rubric by copying, and one did — `Author command-line calculator` and `Explain Maxwell's equations` came back against exactly the digests they were drawn from, while production was emitting the same strings against sessions that had nothing to do with either. That is why a harness reporting 13/13 sat over a feature the strip was visibly getting wrong. `run.py` now refuses to score a contaminated pair: if an example's words all appear in one digest, it names both and exits without spending inference. Adding a corpus entry means checking that no example in `SUMMARIZE_INSTRUCTIONS` (`shared_agent.rs`) describes it, and the check is the run.
+**The corpus and the prompt's examples must stay disjoint.** They were not, for as long as both existed: six of the eight examples in the then-shipping prompt had been drafted from these digests, so five of the twelve carried their own expected answer in the instructions. A model could score the whole rubric by copying, and one did — `Author command-line calculator` and `Explain Maxwell's equations` came back against exactly the digests they were drawn from, while production was writing the same strings about sessions that had nothing to do with either. That is why a harness reporting 13/13 sat over a feature users could see was wrong. `run.py` now refuses to score a contaminated pair: if an example's words all appear in one digest, it names both and exits without spending inference. Adding a corpus entry means checking that no example in `SYNOPSIS_INSTRUCTIONS` (`shared_agent.rs`) describes it, and the check is the run.
 
 ## The rubric
 
-`score.py` checks five things, each a rule of newspaper headline register:
+`score.py` checks the three rules the normalizer does **not** repair:
 
 | check | rule |
 |---|---|
-| `verb_first` | A headline needs a verb. A noun phrase without one is a **label**, the failure this whole harness exists to catch. |
-| `within_budget` | Six words. |
-| `no_article` | No "a", "an", "the". |
-| `no_and` | "and" gives way to a comma, or the second half is cut. |
+| `verb_first` | A description needs a verb. A noun phrase without one is a **label**, the failure this whole harness exists to catch. |
+| `within_budget` | `MAX_SYNOPSIS_CHARS` — 72. The instruction asks for less; this is the edge past which the normalizer clips mid-thought. |
 | `sentence_case` | First word and proper names only. |
 
-Grounding: [Headlinese](https://en.wikipedia.org/wiki/Headlinese) · [Cambridge Grammar](https://dictionary.cambridge.org/us/grammar/british-grammar/newspaper-headlines) · [Spartan Newsroom](https://news.jrn.msu.edu/student-journalist-resources/writing-a-headline/) · [Wylie Communications on label headlines](https://www.wyliecomm.com/2021/04/avoid-writing-label-headlines/)
+Articles and conjunctions are deliberately unscored. This is the one line in the product that gets to read as English, and `SYNOPSIS_INSTRUCTIONS` says so outright — scoring them was the headline's rule, and it would fail every correct description.
 
-`verbs.txt` is a closed list. A headline opening with a word not on it scores as a miss so a human reads it — a model reaching for a plausible new verb should cost a look, not pass silently. When it earns a good one, add it; that is how the file is meant to grow.
+Nor is anything the normalizer repairs scored: a leading article, a filler opener (`working on …`), a trailing period, wrapping quotes. Those come back already fixed, so a check on them would pass unconditionally. They surface instead in the drift report, which compares the raw answer against the normalized one.
+
+`verbs.txt` is a closed list. A description opening with a word not on it scores as a miss so a human reads it — a model reaching for a plausible new verb should cost a look, not pass silently. When it earns a good one, add it; that is how the file is meant to grow.
 
 ## What it cannot tell you
 
-**The rubric scores form, not truth.** There is no ground truth for "what is this session working on" — two correct headlines can share no words — so a headline can pass all five rules and still describe the session wrongly. The summary is a rate, not a gate. Read the lines.
+**The rubric scores form, not truth.** There is no ground truth for "what is this session about" — two correct descriptions can share no words — so a description can pass all three rules and still describe the session wrongly. The summary is a rate, not a gate. Read the lines.
 
-The known weakness it will not catch: a digest carries up to 40 tool lines against as few as one or two prompts, and the model can let recent tool shape outweigh the stated goal. `app-self-update` is the live example — the session asked for DMG self-update and the headline lands elsewhere. Fixing that is a digest-composition question, not a prompt one.
+**The grounding gate is out of this harness's reach.** `ground_synopsis` in `tugrust/crates/tugcast/src/feeds/session_synopsis.rs` refuses a description the digest does not support, and nothing about that refusal is visible here. There are two log lines from two different places: the requester's — `shared agent synopsis answered`, in `shared_agent.rs` — which is what `harness.py` scrapes and therefore what these scores are computed from, and `session synopsis: written`, in `session_synopsis.rs`, which is inside the feed's own path where the gate lives. The gate fires strictly after the line this harness reads.
 
-**The grounding gate is out of this harness's reach.** `ground_headline` in `tugrust/crates/tugcast/src/feeds/session_overview.rs` refuses a headline the digest does not support, and nothing about that refusal is visible here. There are two summarize log lines from two different files: the requester's — `shared agent summarize answered`, in `shared_agent.rs` — which is what `harness.py` scrapes and therefore what these scores are computed from, and `session overview: summarized`, in `session_overview.rs`, which is inside the emit path where the gate lives. The gate fires strictly after the line this harness reads.
+That split is deliberate rather than unfortunate. Reimplementing the gate's rules in `run.py` would put a second copy of them next to the first, and the copy is what goes stale while reporting that all is well — the same failure that once left this corpus scoring bytes the shipping code no longer produced. So the gate is verified in two places instead: **correctness** by Rust unit tests over these same digests plus every real defective answer (`cargo nextest run -p tugcast session_synopsis`), and **live behavior** by `just model-stats`, which reports a grounding refusal rate broken down by rule.
 
-That split is deliberate rather than unfortunate. Reimplementing the gate's rules in `run.py` would put a second copy of them next to the first, and the copy is what goes stale while reporting that all is well — the same failure that once left this corpus scoring bytes the shipping code no longer produced. So the gate is verified in two places instead: **correctness** by Rust unit tests over these same thirteen digests plus every real defective answer (`cargo nextest run -p tugcast session_overview`), and **live behavior** by `just model-stats`, which reports a grounding refusal rate broken down by rule and a re-ask rescue rate.
-
-What this harness still tells you about the gate is the one thing it is best placed to: `copied examples N/13` measures how often the model lifts a prompt example, which is upstream of the gate and is exactly the signal for whether the gate is being asked to work hard.
+What this harness still tells you about the gate is the one thing it is best placed to: `copied examples N/12` measures how often the model lifts a prompt example, which is upstream of the gate and is exactly the signal for whether the gate is being asked to work hard.
 
 The same asymmetry applied to `classify.py` until it was fixed differently — see [Routing](#routing).
 
@@ -103,21 +100,16 @@ What this does **not** measure: the deck refuses to ask about a line whose first
 
 ## Liveness
 
-`liveness.py` sends one digest through the real path and fails only on the three facts that mean the feature is not working: no answer within the timeout, an empty headline, or an answer slower than the `summarize` ceiling. It reports the normalizer's verdict without failing on it — that is register drift, which `model-eval` is the instrument for.
+`liveness.py` sends one digest through the real path and fails only on the three facts that mean the feature is not working: no answer within the timeout, an empty description, or an answer slower than the `synopsis` ceiling. It reports the normalizer's verdict without failing on it — that is register drift, which `model-eval` is the instrument for.
 
 A missing precondition **skips with exit 0** and names the remedy: no running instance means `just app-debug`. A check that fails wherever the precondition is missing is one people learn to ignore. Instance detection goes through `tugutil host instance list` and never the raw `$TMPDIR/tug-instances.json`, whose stale entries for crashed instances only the library-mediated read prunes.
 
 ## Stats
 
-`analyze.py` reads every `tugapp.log.*` and `tugcast.log.*` in an instance's `Logs/` directory. Both files carry one structured line per inference request in the same format, from two perspectives that cannot see each other's facts: the app's line knows what inference cost, and tugcast's knows whether the caller gave up — from the service's side a slow success and a timeout look identical.
+`analyze.py` reads every `tugapp.log.*` and `tugcast.log.*` in an instance's `Logs/` directory. Both files carry one structured line per inference request in the same format. There is one perspective now and it is the honest one — the caller-side `shared agent call` line, which knows what the caller waited for and whether it gave up. When inference ran on-device there was a second, service-side line; a remote worker has none to offer, since a turn that times out finishes somewhere else and never reports back.
 
-It reports per-task outcomes and duration percentiles against the slow thresholds and ceilings, how many bridge classifies answered past the deck's 2000ms give-up (which the deck does not log itself), the normalizer's work rate, and the **headline change rate** — emitted overviews over summarized ones. That last number is the standing read on whether the headline is still tracking the work: it was 16/47 when the headline was frozen by a prompt asking for the session's lifetime goal, and a return toward that ratio means the subject has drifted back.
+It reports per-task outcomes and duration percentiles against the slow thresholds and ceilings, how many bridge classifies answered past the deck's 2000ms give-up (which the deck does not log itself), the normalizer's work rate over written descriptions, and the **grounding refusal rate**, broken down by which rule fired. A gate that never fires is not protecting anything; one that fires constantly is refusing the model's ordinary work, and the answer to that is the threshold, not more refusals.
 
-It also reports the two numbers that make the grounding gate observable:
+The refusal rate's denominator is every answer the model returned — written plus refused. An ask that never reached the model at all is counted apart, because a refusal rate that fell because the worker was down is a different failure from one that fell because the gate went quiet.
 
-- **grounding refusal rate**, broken down by which rule fired. A gate that never fires is not protecting anything; one that fires constantly is refusing the model's ordinary work, and the answer to that is the threshold, not more refusals.
-- **re-ask rescue rate**. A refusal re-asks once with the rejected answer named — but only when no other session is waiting for the emit slot, since one emit runs at a time and an unconditional re-ask would let one refusing session hold the slot while every queued session went stale. The denominator is therefore re-asks *reached*, not refusals: a skipped one never ran and must not count as a failure.
-
-Because a refusal is a third reason not to emit, the change-rate line breaks out how much of its shortfall was refusals. A rate that fell because the gate went quiet is a different failure from one that fell because the model repeated itself, and only the second is the drift the number was invented to watch.
-
-Parsed-line counts are printed per file, so a format drift shows as a zero rather than as silence. `python3 tests/model-eval/analyze.py --self-test` checks the parser against lines of every shape it depends on. The gate's two lines are additionally pinned on the Rust side by `the_refusal_log_lines_carry_analyzer_readable_fields`, which captures what the call site actually emits — a field the analyzer counts has to be space-free, and a headline carrying spaces has to arrive quoted, or it would parse as its first word and silently report a plausible number.
+Parsed-line counts are printed per file, so a format drift shows as a zero rather than as silence. `python3 tests/model-eval/analyze.py --self-test` checks the parser against lines of every shape it depends on. The feed's two outcome lines are additionally pinned on the Rust side by `the_outcome_lines_carry_analyzer_readable_fields`, which captures what the call sites actually emit — a field the analyzer counts has to survive a split on whitespace, or it would parse as its first word and silently report a plausible number.

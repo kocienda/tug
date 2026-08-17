@@ -19,9 +19,9 @@
  *
  * **The positive path cannot be covered here, by design.** No app-test may spend
  * subscription tokens, so no app-test can ever see a real verdict or a real
- * headline. That path is covered by the on-demand real-claude worker test and by
+ * description. That path is covered by the on-demand real-claude worker test and by
  * the Rust fake-spawner suites (`shared_agent.rs`, `feeds/shell.rs`,
- * `feeds/session_overview.rs`); the submit-time routing logic is covered as pure
+ * `feeds/session_synopsis.rs`); the submit-time routing logic is covered as pure
  * logic in `shell-line-classifier.test.ts` and the deck's parking and
  * correlation in `shell-classify-store.test.ts`.
  *
@@ -38,7 +38,7 @@
  *      atom of any kind. Routing is a submit-time decision over the whole
  *      line, so nothing may materialize in the document while the user types.
  *   3. The Lens's row for the same session shows no goal line either. The
- *      card's strip and the Lens row read the same overview through two
+ *      card's strip and the Lens row read the same PULSE state through two
  *      separate call sites, so absence has to be pinned on both.
  *
  * **Typing only — this test never submits a turn.** A real send into a
@@ -215,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await mastheadText(app)).not.toContain("PULSE");
 
           // 3. The Lens says the same thing. The strip and the Lens row are
-          //    two separate readers of the same overview, so a regression can
+          //    two separate readers of the same PULSE state, so a regression can
           //    land in one and not the other — the claim is only pinned where
           //    it is asserted.
           await app.dispatchControlAction("toggle-lens");

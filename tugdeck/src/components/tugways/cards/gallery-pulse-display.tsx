@@ -78,7 +78,7 @@ const PAIRS: readonly PulsePair[] = [
   },
   {
     intent: "Wiring overview emitter cadence gate",
-    activity: "cargo nextest run session_overview",
+    activity: "cargo nextest run session_synopsis",
   },
   {
     intent: "Pinning slot-assign focus via app-test",
@@ -128,8 +128,8 @@ const DOCTRINE: ReadonlyArray<{ before: string; after: string }> = [
     after: "Fixing download resume restart-from-zero",
   },
   {
-    before: "Running the test suite for the session overview module",
-    after: "Testing session overview",
+    before: "Running the test suite for the session synopsis module",
+    after: "Testing session synopsis",
   },
   {
     before: "Making some updates to the release recipes roadmap document",

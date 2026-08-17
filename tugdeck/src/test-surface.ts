@@ -188,8 +188,8 @@ import {
  * stays `1`.
  *
  * `1.17.0`: adds {@link TugTestSurface.publishPulseFrame} — delivers a PULSE
- * frame body as if it arrived over the wire, so a test can put a session
- * overview or a beat on screen without a live commentator behind it.
+ * frame body as if it arrived over the wire, so a test can put a beat on
+ * screen without a live commentator behind it.
  *
  * `1.16.0`: adds {@link TugTestSurface.currentGesture} — the live pointer
  * gesture's classification record, so a test can assert what the interpreter
@@ -851,10 +851,9 @@ export interface TugTestSurface {
    * (SURFACE_VERSION 1.17.0).
    *
    * `payloadJson` is the emitter's own shape —
-   * `{"type":"pulse","kind":"overview","text":…,"scopes":[…],"beat":N,"at":ms}`
-   * for a standing overview, the same without `kind` for a beat. The bytes go
-   * through the production parser and folds, so this puts a real overview on
-   * the strip and in the Lens without an agent or a live commentator.
+   * `{"type":"pulse","text":…,"scopes":[…],"beat":N,"at":ms}`. The bytes go
+   * through the production parser and fold, so this puts a real beat on the
+   * strip without a live commentator.
    *
    * Returns `false` when no store is attached. A `true` return only means the
    * bytes were handed over: the parser drops a malformed body silently, so

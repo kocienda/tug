@@ -580,26 +580,6 @@ pub struct PulseLineRow {
     pub scopes: Vec<String>,
 }
 
-/// One row of the `pulse_overviews` table — a session's standing answer to
-/// "what is this working on", as opposed to a beat's "what just happened".
-///
-/// Keyed by scope and replaced in place: an overview is a latest-per-scope
-/// fact, never a log, so there is nothing to cap and nothing to append to.
-/// That is also why it does not live in `pulse_lines` — a standing statement
-/// would otherwise compete with the beats for the rolling log's cap and come
-/// back from the tail misfiled as a beat.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct PulseOverviewRow {
-    pub scope: String,
-    pub at_ms: i64,
-    pub beat: i64,
-    pub text: String,
-    /// `"done"` on a retrospective (a settled stretch), absent on a live
-    /// intent — the same optional field the live overview frame carries.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub phase: Option<String>,
-}
-
 /// The canonical turn-rule version stamped on every freshly-written
 /// `external_scan_cache` row. Bump this whenever the scanner's turn rule
 /// changes: existing rows (stamped a lower epoch, or the `DEFAULT 0` of a
@@ -1514,6 +1494,7 @@ impl SessionLedger {
         // the triggers below to name.
         Self::migrate_facts_add_tokens(conn)?;
         Self::migrate_overview_posts_add_tokens(conn)?;
+        Self::migrate_drop_pulse_overviews(conn)?;
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS sessions (
@@ -1833,32 +1814,6 @@ impl SessionLedger {
                 intent TEXT,
                 scopes TEXT NOT NULL
             );
-
-            -- Standing PULSE overviews — one row per scope, replaced in
-            -- place as the agent revises what a session is working on. The
-            -- deck restores them alongside the beat tail through
-            -- `list_pulse_lines`, which is what lets a card come back from
-            -- a relaunch still wearing its headline.
-            --
-            -- Separate from `pulse_lines` because an overview is a fact,
-            -- not an event: it has no place in a capped rolling log, and a
-            -- log row restored without its `kind` would come back as a beat.
-            -- Unlike `pulse_lines` this DOES cascade — an overview is about
-            -- exactly one session, so it dies with the session row.
-            CREATE TABLE IF NOT EXISTS pulse_overviews (
-                scope  TEXT PRIMARY KEY,
-                at_ms  INTEGER NOT NULL,
-                beat   INTEGER NOT NULL,
-                text   TEXT NOT NULL,
-                phase  TEXT
-            );
-
-            CREATE TRIGGER IF NOT EXISTS pulse_overviews_cascade_delete_on_session
-            AFTER DELETE ON sessions
-            FOR EACH ROW
-            BEGIN
-                DELETE FROM pulse_overviews WHERE scope = OLD.session_id;
-            END;
 
             -- App-scoped Overview channel — every post by any of its three
             -- authors ('observer' | 'operator' | 'user'). `session_id` is
@@ -2521,6 +2476,31 @@ impl SessionLedger {
         if !cols.iter().any(|(n, _)| n == "intent") {
             conn.execute("ALTER TABLE pulse_lines ADD COLUMN intent TEXT", [])?;
         }
+        Ok(())
+    }
+
+    /// Drop the `pulse_overviews` cache and its cascade trigger.
+    ///
+    /// The table held one latest-per-scope row so a card could come back from
+    /// a relaunch still wearing the sentence it had been given. Neither that
+    /// sentence nor the deck map it restored into exists any more, so what is
+    /// left on disk is a cache with no writer and no reader.
+    ///
+    /// A drop rather than a rename, and with no write-lock guard: both
+    /// statements are idempotent, and the concurrent-open hazard
+    /// {@link migrate_gazette_posts_to_overview_posts} takes `BEGIN IMMEDIATE`
+    /// for belongs to a rename carrying permanent history. Nothing here was
+    /// worth carrying — the cost of losing a row was always one blank line
+    /// until the next write.
+    ///
+    /// Deletable once no installation predates this release.
+    fn migrate_drop_pulse_overviews(conn: &Connection) -> Result<(), LedgerError> {
+        conn.execute_batch(
+            "
+            DROP TRIGGER IF EXISTS pulse_overviews_cascade_delete_on_session;
+            DROP TABLE IF EXISTS pulse_overviews;
+            ",
+        )?;
         Ok(())
     }
 
@@ -6059,51 +6039,6 @@ impl SessionLedger {
         Ok(kept)
     }
 
-    /// Write one scope's standing overview, replacing whatever it held.
-    pub fn record_pulse_overview(
-        &self,
-        scope: &str,
-        at_ms: i64,
-        beat: i64,
-        text: &str,
-        phase: Option<&str>,
-    ) -> Result<(), LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
-        conn.execute(
-            "INSERT INTO pulse_overviews (scope, at_ms, beat, text, phase)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(scope) DO UPDATE SET
-                 at_ms = excluded.at_ms,
-                 beat  = excluded.beat,
-                 text  = excluded.text,
-                 phase = excluded.phase",
-            params![scope, at_ms, beat, text, phase],
-        )?;
-        Ok(())
-    }
-
-    /// Every standing overview, newest-written first. Small by construction
-    /// — one row per session that has ever earned a headline.
-    pub fn list_pulse_overviews(&self) -> Result<Vec<PulseOverviewRow>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT scope, at_ms, beat, text, phase
-             FROM pulse_overviews ORDER BY at_ms DESC",
-        )?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(PulseOverviewRow {
-                    scope: row.get(0)?,
-                    at_ms: row.get(1)?,
-                    beat: row.get(2)?,
-                    text: row.get(3)?,
-                    phase: row.get(4)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
-    }
-
     // MARK: - Overview posts
 
     /// Append one Overview post and return its rowid.
@@ -8440,6 +8375,65 @@ mod tests {
         SessionLedger::migrate_sessions_add_synopsis(&empty).expect("no-op");
     }
 
+    #[test]
+    fn a_ledger_carrying_the_pulse_overviews_cache_drops_it() {
+        fn has_trigger(conn: &Connection) -> bool {
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'trigger'
+                   AND name = 'pulse_overviews_cascade_delete_on_session'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("read sqlite_master")
+                > 0
+        }
+        fn has_table(conn: &Connection) -> bool {
+            !SessionLedger::table_columns(conn, "pulse_overviews")
+                .expect("columns")
+                .is_empty()
+        }
+
+        // The cache as it shipped — table, cascade trigger, and a row in it.
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE sessions (session_id TEXT PRIMARY KEY);
+             CREATE TABLE pulse_overviews (
+                 scope  TEXT PRIMARY KEY,
+                 at_ms  INTEGER NOT NULL,
+                 beat   INTEGER NOT NULL,
+                 text   TEXT NOT NULL,
+                 phase  TEXT
+             );
+             CREATE TRIGGER pulse_overviews_cascade_delete_on_session
+             AFTER DELETE ON sessions
+             FOR EACH ROW
+             BEGIN
+                 DELETE FROM pulse_overviews WHERE scope = OLD.session_id;
+             END;
+             INSERT INTO pulse_overviews (scope, at_ms, beat, text, phase)
+             VALUES ('s1', 1000, 1, 'a standing take', NULL);",
+        )
+        .expect("legacy schema");
+        assert!(has_table(&conn) && has_trigger(&conn));
+
+        SessionLedger::migrate_drop_pulse_overviews(&conn).expect("migrate");
+        assert!(!has_table(&conn), "the cache survived the drop");
+        assert!(!has_trigger(&conn), "the cascade trigger survived the drop");
+        // Idempotent: a second open of the same database must not fail.
+        SessionLedger::migrate_drop_pulse_overviews(&conn).expect("re-migrate");
+        assert!(!has_table(&conn));
+
+        // A database that never had it is untouched, and a ledger opened the
+        // ordinary way never grows one — the DDL is gone and the migration is
+        // wired into the bootstrap.
+        let empty = Connection::open_in_memory().expect("in-memory db");
+        SessionLedger::migrate_drop_pulse_overviews(&empty).expect("no-op");
+        let ledger = fresh();
+        let conn = ledger.db.lock().expect("ledger mutex");
+        assert!(!has_table(&conn) && !has_trigger(&conn));
+    }
+
     // ── pulse_lines: capped rolling log + tail read ──────────────────────────
 
     #[test]
@@ -8533,45 +8527,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["woven"],
         );
-    }
-
-    // ── pulse_overviews: latest-per-scope, replaced in place ─────────────────
-
-    #[test]
-    fn pulse_overviews_replace_in_place_and_cascade() {
-        let ledger = fresh();
-        assert!(ledger.list_pulse_overviews().unwrap().is_empty());
-
-        ledger
-            .record_spawn("s1", WS_A, "/proj", "card-1", millis(0), None)
-            .unwrap();
-        ledger
-            .record_pulse_overview("s1", 1_000, 1, "first take", None)
-            .unwrap();
-        ledger
-            .record_pulse_overview("s2", 1_100, 1, "other session", None)
-            .unwrap();
-        // The same scope speaking again replaces, never accumulates.
-        ledger
-            .record_pulse_overview("s1", 2_000, 2, "revised take", Some("done"))
-            .unwrap();
-
-        let rows = ledger.list_pulse_overviews().unwrap();
-        assert_eq!(rows.len(), 2);
-        let s1 = rows.iter().find(|r| r.scope == "s1").expect("s1 overview");
-        assert_eq!(s1.text, "revised take");
-        assert_eq!(s1.beat, 2);
-        assert_eq!(s1.at_ms, 2_000);
-        assert_eq!(s1.phase.as_deref(), Some("done"));
-        let s2 = rows.iter().find(|r| r.scope == "s2").expect("s2 overview");
-        assert_eq!(s2.phase, None);
-
-        // An overview is about exactly one session, so it dies with it.
-        ledger.mark_closed("s1").unwrap();
-        ledger.trash("s1").unwrap();
-        let rows = ledger.list_pulse_overviews().unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].scope, "s2");
     }
 
     // MARK: - Overview posts

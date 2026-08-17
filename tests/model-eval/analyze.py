@@ -3,7 +3,8 @@
 Reads every `tugapp.log.*` and `tugcast.log.*` in one instance's `Logs/`
 directory and reports the questions nobody can answer by reading a log
 directly — per-task outcome counts, duration percentiles, how often the register
-normalizer had to step in, and how often the headline actually changed.
+normalizer had to step in, and how often the grounding gate refused a
+description.
 
     just model-stats
     just model-stats release-main
@@ -47,14 +48,19 @@ LINE = re.compile(
 # spanning that change still parse.
 FIELD = re.compile(r'(\w+)=("[^"]*"|\S+)')
 
-# Kept in step with `Table T01` in the plan and the constants it names:
-# `CLASSIFY_SLOW`/`CLASSIFY_TIMEOUT`/`SUMMARIZE_SLOW`/`SUMMARIZE_TIMEOUT` in
+# Kept in step with the job table's constants —
+# `CLASSIFY_SLOW`/`CLASSIFY_TIMEOUT`/`SENTENCE_SLOW`/`SENTENCE_TIMEOUT` in
 # `tugrust/crates/tugcast/src/shared_agent.rs`. All provisional — moving them
 # from this report's own output is the reason it exists. The classify slow-mark
 # is 1500ms because a warm remote turn measured just under a second, and a 1s
 # mark would fire on roughly half of all calls.
+#
+# `summarize` is history: the job was renamed, and an accumulated log spans the
+# rename, so its bounds stay here to keep the older half of a series readable.
 BOUNDS = {
     "classify": (1_500, 2_000),
+    "synopsis": (3_000, 6_000),
+    "expand_query": (3_000, 6_000),
     "summarize": (3_000, 6_000),
 }
 
@@ -163,91 +169,43 @@ def main() -> int:
     report_turnaround("caller side (what the caller waited for)", caller)
 
     # The normalizer's work rate: how often the register had to be imposed
-    # rather than written. A trim means the model wrote a parts list; a clip
-    # means it wrote prose.
-    normalized = [f for _, rest, f in parsed if "normalized" in f and "summar" in rest]
-    print("\nnormalizer work rate over summarize answers")
-    if not normalized:
-        print("  (no answers carrying the report fields yet)")
+    # rather than written. A clip means the model wrote past the budget the
+    # instruction asks for.
+    written = [f for _, rest, f in parsed if "session synopsis: written" in rest]
+    print("\nnormalizer work rate over written descriptions")
+    if not written:
+        print("  (no descriptions written in this window)")
     else:
-        n = len(normalized)
-        for flag in ("normalized", "trimmed", "clipped"):
-            hits = sum(1 for f in normalized if f.get(flag) == "true")
+        n = len(written)
+        for flag in ("normalized", "clipped"):
+            hits = sum(1 for f in written if f.get(flag) == "true")
             print(f"  {flag:11s} {hits}/{n}  ({100 * hits / n:.0f}%)")
 
-    # How often the grounding gate refused a headline the digest did not support,
-    # and by which rule. A gate that never fires is not protecting anything; one
-    # that fires constantly is refusing the model's ordinary work, and the answer
-    # to that is the threshold, not more refusals.
-    summarized = sum(1 for _, rest, _ in parsed if "session overview: summarized" in rest)
-    refused = [f for _, rest, f in parsed if "session overview: headline refused" in rest]
-    print("\ngrounding refusal rate over summarize answers")
-    if not summarized:
-        print("  (no overviews in this window)")
+    # How often the grounding gate refused a description the digest did not
+    # support, and by which rule. A gate that never fires is not protecting
+    # anything; one that fires constantly is refusing the model's ordinary work,
+    # and the answer to that is the threshold, not more refusals.
+    #
+    # The denominator is every answer the model returned — written plus refused.
+    # An ask that never reached the model (`ask failed`) is counted apart: a
+    # refusal rate that fell because the worker was down is a different failure
+    # from one that fell because the gate went quiet.
+    refused = [f for _, rest, f in parsed if "session synopsis: refused" in rest]
+    failed = sum(1 for _, rest, _ in parsed if "session synopsis: ask failed" in rest)
+    answered = len(written) + len(refused)
+    print("\ngrounding refusal rate over answers")
+    if not answered:
+        print("  (no answers in this window)")
     else:
         n = len(refused)
-        print(f"  refused     {n}/{summarized}  ({100 * n / summarized:.0f}%)")
+        print(f"  refused     {n}/{answered}  ({100 * n / answered:.0f}%)")
         rules: dict[str, int] = {}
         for f in refused:
             rules[f.get("rule", "?")] = rules.get(f.get("rule", "?"), 0) + 1
         for rule, hits in sorted(rules.items(), key=lambda kv: -kv[1]):
             print(f"    {rule:22s} {hits}")
-
-    # What the one corrective re-ask bought. The denominator is re-asks *reached*,
-    # not refusals: a re-ask skipped because another session was waiting for the
-    # emit slot did not fail, it never ran, and counting it as a failure would
-    # make a busy emitter look like a broken correction.
-    reasks = [f for _, rest, f in parsed if "session overview: headline reask" in rest]
-    attempted = [f for f in reasks if f.get("reask") in ("rescued", "failed")]
-    skipped = sum(1 for f in reasks if f.get("reask") == "skipped")
-    rescued = sum(1 for f in attempted if f.get("reask") == "rescued")
-    print("\nre-ask rescue rate")
-    if not reasks:
-        print("  (no refusals to re-ask about in this window)")
-    else:
-        if attempted:
-            print(f"  rescued     {rescued}/{len(attempted)}  ({100 * rescued / len(attempted):.0f}%)")
-        else:
-            print("  rescued     0/0  (every refusal was on a contended emit slot)")
-        print(f"  skipped     {skipped}   — the emit slot was contended")
-
-    # The standing read on whether the headline is still tracking the work: a
-    # summarize whose answer repeated the last one is discarded before it is
-    # emitted, so a low ratio means the headline has gone constant again. It was
-    # 16/47 when the headline was frozen by its own prompt.
-    #
-    # A refusal is now a third reason not to emit, so the shortfall is broken out:
-    # a rate that fell because the gate went quiet is a different failure from one
-    # that fell because the model repeated itself.
-    emits = [f for _, rest, f in parsed if "session overview: emitted" in rest]
-    # Retrospectives emit on the same line and would inflate a rate about live
-    # intents, so the two are counted apart by the flag the emit carries.
-    emitted = sum(1 for f in emits if f.get("retrospective") != "true")
-    print("\nheadline change rate (emitted / summarized)")
-    if summarized:
-        print(f"  {emitted}/{summarized}  ({100 * emitted / summarized:.0f}%)"
-              f"   — 16/47 (34%) is the frozen-headline baseline")
-        held = len(refused) - rescued
-        if held:
-            print(f"  of the {summarized - emitted} not emitted, {held} were refused by the gate")
-    else:
-        print("  (no overviews in this window)")
-
-    # How often a settled session's retrospective survived to the strip.
-    #
-    # The denominator is retrospectives *attempted*, not collapse-due ticks:
-    # a stretch is attempted exactly once whatever the gate then rules, so
-    # attempts already count the stretches, and a rate below 1 is the gate
-    # refusing what the model said the session did. That is the number worth
-    # watching — a session that goes quiet with a stale intent still up is the
-    # failure the collapse exists to remove.
-    collapsed = sum(1 for _, rest, _ in parsed if "session overview: collapsed" in rest)
-    published = sum(1 for f in emits if f.get("retrospective") == "true")
-    print("\nidle collapse rate (published / attempted)")
-    if not collapsed:
-        print("  (no session settled long enough to collapse in this window)")
-    else:
-        print(f"  {published}/{collapsed}  ({100 * published / collapsed:.0f}%)")
+    if failed:
+        print(f"  never asked  {failed}   — the ask itself failed or timed out")
 
     return 0
 
@@ -256,9 +214,10 @@ def main() -> int:
 # present and one with it absent, and the older quoted-value form the caller side
 # used before it moved to display formatting.
 #
-# The caller-side lines are captured from real log files. The grounding-gate lines
-# are captured from the emitting call site by a Rust test, which is the stronger
-# pin: it re-derives the bytes on every run, so a field that stopped being
+# The caller-side lines are captured from real log files. The refusal line's
+# field shape is additionally pinned on the Rust side by
+# `the_refusal_line_carries_analyzer_readable_fields`, which is the stronger
+# pin: it re-derives the bytes on every run, so a `rule` that stopped being
 # countable fails there rather than turning into a zero here.
 SAMPLES = [
     ("2026-07-29T02:55:53.336913Z  INFO tugapp::local_model: local model request "
@@ -291,58 +250,38 @@ SAMPLES = [
      "task=summarize outcome=failed elapsed_ms=6001 slow=true",
      "tugcast::shared_agent",
      {"task": "summarize", "outcome": "failed", "elapsed_ms": "6001", "slow": "true"}),
-    ("2026-07-29T03:05:47.853487Z  INFO tugcast::local_model: local model summarize "
-     "answered raw=Fix just app-debug stalls at splash screen headline=Fix just "
-     "app-debug stalls at splash normalized=true trimmed=true clipped=false",
-     "tugcast::local_model",
-     {"normalized": "true", "trimmed": "true", "clipped": "false"}),
-    ("2026-07-29T03:08:08.468238Z  INFO tugcast::feeds::session_overview: session "
-     "overview: summarized session=4eb21996-9a77-4528-a854-53081ec7bc66 "
-     "elapsed_ms=1461 raw=Fix command-line calculator with Makefile and README "
-     "headline=Fix command-line calculator",
-     "tugcast::feeds::session_overview",
-     {"session": "4eb21996-9a77-4528-a854-53081ec7bc66", "elapsed_ms": "1461"}),
-    ("2026-07-29T03:08:08.468251Z  INFO tugcast::feeds::session_overview: session "
-     "overview: emitted session=4eb21996-9a77-4528-a854-53081ec7bc66 beat=51 receivers=1",
-     "tugcast::feeds::session_overview",
-     {"beat": "51", "receivers": "1"}),
-    # The two grounding-gate lines. Their field shapes are pinned on the Rust
-    # side by `the_refusal_log_lines_carry_analyzer_readable_fields`, which
-    # captures what the call site actually emits — `rule` and `reask` space-free
-    # so they can be counted, the headline quoted so its spaces survive the split.
-    ("2026-07-30T03:24:11.100200Z  INFO tugcast::feeds::session_overview: session "
-     "overview: headline refused session=s1 rule=ungrounded "
-     'headline="Wire schema migration backfill" detail="backfill migration schema"',
-     "tugcast::feeds::session_overview",
+    ("2026-08-17T09:20:02.118004Z  INFO tugcast::shared_agent: shared agent call "
+     "task=synopsis outcome=ok elapsed_ms=1842",
+     "tugcast::shared_agent",
+     {"task": "synopsis", "outcome": "ok", "elapsed_ms": "1842"}),
+    # The socket verb's own answer, which `run.py` reads back.
+    ("2026-08-17T09:20:02.118210Z  INFO tugcast::shared_agent: shared agent synopsis "
+     'answered task="synopsis" raw=Repair the download resume offset. '
+     "line=Repair the download resume offset normalized=true clipped=false",
+     "tugcast::shared_agent",
+     {"task": "synopsis", "normalized": "true", "clipped": "false"}),
+    # The feed's own write. `raw` and `synopsis` are both unquoted, so a field
+    # split recovers only their first word — which is why the flags this report
+    # counts sit behind them rather than in front.
+    ("2026-08-17T09:22:09.957764Z  INFO tugcast::feeds::session_synopsis: session "
+     "synopsis: written session=s1 row=claude-1 elapsed_ms=2720 raw=Repair the "
+     "download resume offset. synopsis=Repair the download resume offset "
+     "normalized=true clipped=false",
+     "tugcast::feeds::session_synopsis",
+     {"session": "s1", "row": "claude-1", "elapsed_ms": "2720",
+      "normalized": "true", "clipped": "false"}),
+    # The grounding gate's refusal — `rule` space-free so it can be counted.
+    ("2026-08-17T09:24:11.100200Z  INFO tugcast::feeds::session_synopsis: session "
+     "synopsis: refused session=s1 rule=ungrounded "
+     'synopsis="Harvest the mango orchard" detail="harvest mango orchard"',
+     "tugcast::feeds::session_synopsis",
      {"session": "s1", "rule": "ungrounded",
-      "headline": "Wire schema migration backfill",
-      "detail": "backfill migration schema"}),
-    ("2026-07-30T03:24:11.100310Z  INFO tugcast::feeds::session_overview: session "
-     'overview: headline reask session=s1 reask=failed headline=""',
-     "tugcast::feeds::session_overview",
-     {"session": "s1", "reask": "failed", "headline": ""}),
-    ("2026-07-30T03:24:11.100420Z  INFO tugcast::feeds::session_overview: session "
-     'overview: headline reask session=s2 reask=rescued headline="Harden the watch loop"',
-     "tugcast::feeds::session_overview",
-     {"session": "s2", "reask": "rescued", "headline": "Harden the watch loop"}),
-    ("2026-07-30T03:24:11.100530Z  INFO tugcast::feeds::session_overview: session "
-     "overview: headline reask session=s3 reask=skipped",
-     "tugcast::feeds::session_overview",
-     {"session": "s3", "reask": "skipped"}),
-    # The idle collapse. `raw` is unquoted and `headline` quoted, exactly as the
-    # intent path formats them, so the retrospective's spaces survive the split.
-    ("2026-07-30T19:22:09.957764Z  INFO tugcast::feeds::session_overview: session "
-     "overview: collapsed session=s1 elapsed_ms=2720 raw=Fixed download resume "
-     'from zero offset headline="Fixed download resume from zero offset"',
-     "tugcast::feeds::session_overview",
-     {"session": "s1", "elapsed_ms": "2720",
-      "headline": "Fixed download resume from zero offset"}),
-    # The emit line carries which lane it came from — without it, a retrospective
-    # would be counted as a live headline change.
-    ("2026-07-30T19:22:09.958000Z  INFO tugcast::feeds::session_overview: session "
-     "overview: emitted session=s1 beat=52 receivers=1 retrospective=true",
-     "tugcast::feeds::session_overview",
-     {"beat": "52", "receivers": "1", "retrospective": "true"}),
+      "synopsis": "Harvest the mango orchard",
+      "detail": "harvest mango orchard"}),
+    ("2026-08-17T09:26:41.220000Z  WARN tugcast::feeds::session_synopsis: session "
+     "synopsis: ask failed error=agent unavailable session=s2 elapsed_ms=6001",
+     "tugcast::feeds::session_synopsis",
+     {"session": "s2", "elapsed_ms": "6001"}),
 ]
 
 

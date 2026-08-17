@@ -1171,25 +1171,9 @@ export interface PulseLineWireRow {
   scopes: string[];
 }
 
-/**
- * One row of the `list_pulse_lines_ok` response's `overviews` array — a
- * scope's standing "what is this session working on", persisted keyed by
- * scope rather than appended to the rolling log. This is what lets a card
- * come back from a relaunch still wearing its headline.
- */
-export interface PulseOverviewWireRow {
-  scope: string;
-  at_ms: number;
-  beat: number;
-  text: string;
-  /** `"done"` on a retrospective (a settled stretch); absent on a live one. */
-  phase?: string;
-}
-
 /** Decoded `list_pulse_lines_ok` response payload (app-scoped). */
 export interface ListPulseLinesOk {
   lines: PulseLineWireRow[];
-  overviews: PulseOverviewWireRow[];
 }
 
 /**
@@ -1210,14 +1194,6 @@ export interface PulseFramePayload {
   /** Retained high-level thought behind a low-level `text` beat;
    *  absent when `text` is itself the monologue or a turn marker. */
   intent?: string;
-  /**
-   * What kind of line this is. Absent means a beat — the live "what just
-   * happened" commentary tugpulse emits, which is every frame that existed
-   * before overviews. `"overview"` marks the agent's standing answer to
-   * "what is this session working on", which the strip pins above the beat
-   * instead of threading into the beat stream.
-   */
-  kind?: "overview";
   scopes: string[];
   beat: number;
   at: number;
@@ -1237,7 +1213,6 @@ export function parsePulseFrame(payload: Uint8Array): PulseFramePayload | null {
       ...(typeof p.intent === "string" && p.intent.length > 0
         ? { intent: p.intent }
         : {}),
-      ...(p.kind === "overview" ? { kind: "overview" as const } : {}),
       scopes: Array.isArray(p.scopes)
         ? p.scopes.filter((s): s is string => typeof s === "string")
         : [],

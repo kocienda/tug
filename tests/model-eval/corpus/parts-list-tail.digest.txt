@@ -1,14 +1,15 @@
-The standing goal:
-- write a command line calculator in c
-
-The current ask:
+What the session was most recently asked to do:
 - write a readme
 
-What the session has been doing:
+What it worked on before that, newest first:
+- add a makefile
+
+What the session set out to do at the start (context, not the subject):
+- write a command line calculator in c
+
+Where it stands right now (background, not the subject):
 - Write(/tmp/calc/calc.c)
 - Write(/tmp/calc/Makefile)
-
-What it is doing right now:
 - Bash(make)
 - Write(/tmp/calc/README.md)
 - Bash(./calc 2 + 2)

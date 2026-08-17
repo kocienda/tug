@@ -1885,37 +1885,23 @@ hooks-test:
 app-test-foreground-check:
     @cd tests/app-test && bun scripts/select-tests.ts --foreground-check
 
-# Score the SharedAgent's PULSE session headlines against a RUNNING instance.
+# Score the SharedAgent's session descriptions against a RUNNING instance.
 #
 # Frozen digests go over the control socket to the live app, so what gets
-# scored is the shipped prompt + the Haiku worker + tugcast's
-# `headline_register` together. On-demand, not part of `just test`: it needs an
-# instance up, and it spends subscription tokens.
+# scored is the shipped prompt + the Haiku worker + the synopsis register
+# together — the one sentence a session row actually wears. On-demand, not part
+# of `just test`: it needs an instance up, and it spends subscription tokens.
 #
-# Run it after touching `SUMMARIZE_INSTRUCTIONS` in
-# `tugrust/crates/tugcast/src/shared_agent.rs` or `headline_register` — both
-# change what lands on the strip, and neither has a unit test that can tell
-# you whether the wording got better.
+# Run it after touching `SYNOPSIS_INSTRUCTIONS` in
+# `tugrust/crates/tugcast/src/shared_agent.rs` or `synopsis_register_report` in
+# `feeds/session_synopsis.rs` — both change what a session says about itself,
+# and neither has a unit test that can tell you whether the wording got better.
 #
 #   just app-debug          # then, once it is up:
 #   just model-eval
 #   just model-eval release-main
 model-eval INSTANCE="debug-main":
     @python3 tests/model-eval/run.py {{INSTANCE}}
-
-# The same scoring for the idle collapse's past-tense lane.
-#
-# A separate recipe rather than a flag because it is a separate measurement:
-# different fixtures (`corpus/*.done.txt`), a different task on the wire
-# (`summarize_done`, prompted by `SUMMARIZE_DONE_INSTRUCTIONS` in
-# `tugrust/crates/tugcast/src/shared_agent.rs`), and a different half of
-# `verbs.txt` deciding whether the opener is a verb. A model can be fine at
-# one and bad at the other, so a run that reported one number for both would
-# hide exactly the difference worth seeing.
-#
-#   just model-eval-done
-model-eval-done INSTANCE="debug-main":
-    @python3 tests/model-eval/run.py {{INSTANCE}} --retrospective
 
 # Score shell routing against a RUNNING instance: did that line mean the shell?
 #
@@ -1936,7 +1922,7 @@ model-classify INSTANCE="debug-main":
 #
 # On-demand, not CI: it needs a running instance and it spends subscription
 # tokens. Without an instance it skips with exit 0 and names the remedy. Asks
-# nothing about what the headline says — that is `just model-eval`'s question.
+# nothing about what the description says — that is `just model-eval`'s question.
 #
 #   just model-liveness
 #   just model-liveness release-main
@@ -1945,8 +1931,8 @@ model-liveness INSTANCE="debug-main":
 
 # What accumulated logs say about the SharedAgent: how fast, how often it
 # fails, how often the register normalizer had to step in, and how often the
-# headline actually changed. Reads both log files in the instance's Logs
-# directory; the numbers are only as good as the usage behind them.
+# grounding gate refused a description. Reads both log files in the instance's
+# Logs directory; the numbers are only as good as the usage behind them.
 #
 #   just model-stats
 #   just model-stats release-main

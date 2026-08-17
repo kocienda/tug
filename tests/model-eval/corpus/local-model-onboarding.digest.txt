@@ -1,25 +1,18 @@
-The standing goal:
-- OK. Now, I want to add a new feature that we investigated last week, and has implications for TugSetup: `@roadmap/local-model-investigations.md`. I want to bring the `ternary-2bit-8B on stock MLX` into the TugSetup process. Make it a user o…
-
-The current ask:
+What the session was most recently asked to do:
 - OK. Rewrite this @roadmap/local-model-bringup.md plan around **Apple’s Foundation Models framework**. We're not going to
 
-What the session has been doing:
-- Bash(sed -n '37,46p;101,120p;323,367p' roadmap/local-model-bringu)
-- Bash(ls -la ~/bonsai-eval/ 2>&1 | head -40; echo "---MODELS---"; )
-- Bash(cat ~/bonsai-eval/classify_8b.py)
-- Bash(cat ~/bonsai-eval/pulse_8b.py)
-- Bash(tugutil dash create local-model --description "Local-model i)
-- ToolSearch(select:TaskCreate,TaskUpdate)
-- Bash(which swift xcrun huggingface-cli hf python3 2>&1; echo "---)
-- TaskCreate(Build a scratch SwiftPM CLI harness in ~/bonsai-eval/ agains)
-- TaskUpdate
-- Bash(cd ~/bonsai-eval && mkdir -p mlxspike/Sources/mlxspike && ls)
-- Bash(curl -sL "https://api.github.com/repos/ml-explore/mlx-swift/)
-- Bash(echo "=== mlx-swift 0.31.6 platforms ==="; curl -sL "https:/)
+What it worked on before that, newest first:
+- OK. I get it. Your take is the same as mine. Haiku is too slow for the shell disambiguation, and uses too much traffic for the pulse. My issue remains that *the…
+- OK. Now that you've looked at this thoroughly, I want your honest opinion: to deliver an improved model-informed pulse and shell disambiguation for commands in …
+- do the fixups!
+- nicer/better pulse output
+So, let's figure out what we'll really need to make this happen. Study the `Bringing Bonsai onto main` section in `@roadmap/local-mode…
+- The shell disambiguation feature that is triggered when the first word in the prompt-entry is also a program in their PATH.
 
-What it is doing right now:
-- Bash(for v in 0.29.1 0.29.5 0.30.0 0.31.6; do echo "=== mlx-swift)
+What the session set out to do at the start (context, not the subject):
+- OK. Now, I want to add a new feature that we investigated last week, and has implications for TugSetup: `@roadmap/local-model-investigations.md`. I want to bring the `ternary-2bit-8B on stock MLX` into the TugSetup process. Make it a user o…
+
+Where it stands right now (background, not the subject):
 - Write(Package.swift)
 - Bash(cd ~/bonsai-eval/mlxspike && printf 'print("hello")\n' > Sou)
 - Bash(cd ~/bonsai-eval/mlxspike/.build/checkouts/mlx-swift-example)

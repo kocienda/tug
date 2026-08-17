@@ -1,9 +1,7 @@
-The standing goal:
+What the session was most recently asked to do:
 - audit the theme token contrast budgets across every shipped theme
 
-What the session has been doing:
+Where it stands right now (background, not the subject):
 - Read(tugdeck/styles/themes/nocturne.css)
-
-What it is doing right now:
 - Bash(bun run audit:theme-contrast)
 - Edit(tugdeck/styles/themes/aria.css)

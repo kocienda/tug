@@ -378,13 +378,13 @@ async fn main() {
     let (code_input_tx, code_input_rx) = mpsc::channel(256);
 
     // CODE_INPUT relay: the router's registered sink is the relay sender; the
-    // relay tees every frame to the session overview's submission broadcast
+    // relay tees every frame to the session synopsis's submission broadcast
     // before forwarding it verbatim to the supervisor's dispatcher. The relay
     // channel matches the dispatcher channel's capacity — a hop, not a buffer
     // cliff.
     let (code_submission_tx, _) = broadcast::channel::<Frame>(64);
     let (code_input_relay_tx, code_input_relay_rx) = mpsc::channel::<Frame>(256);
-    tokio::spawn(feeds::session_overview::relay_code_input(
+    tokio::spawn(feeds::session_synopsis::relay_code_input(
         code_input_relay_rx,
         code_submission_tx.clone(),
         code_input_tx.clone(),
@@ -1637,7 +1637,7 @@ async fn main() {
     // PULSE commentary lines fan out to every connected deck; the tail
     // a reconnecting deck needs comes from the `list_pulse_lines`
     // CONTROL read, not feed replay ([P09]).
-    let pulse_tx = feed_router.register_stream_feed(Box::new(pulse_bridge), cancel.clone());
+    feed_router.register_stream_feed(Box::new(pulse_bridge), cancel.clone());
     // OVERVIEW posts fan out to every connected deck; the tail a reconnecting
     // deck needs comes from the `list_overview_posts` CONTROL read. This call's
     // return value is the only source of the OVERVIEW sender, so the Operator
@@ -1717,20 +1717,23 @@ async fn main() {
         }
     });
 
-    // Session overview ([P11]) — the SharedAgent's second tenant: one sentence
-    // per session saying what it is working on, published on PULSE above the
-    // beat line. Its own tap on CODE_OUTPUT, its own cadence, and no path back
-    // into anything — the digest and the sentence are the whole feature. Every
-    // missing precondition (no model, tenant off, PULSE off, an unresolvable
-    // session identity) ends the tick silently.
+    // Session synopsis — the SharedAgent's second tenant: one sentence per
+    // session saying what it is about, written to the session's ledger row and
+    // pushed to every surface showing it. Its own tap on CODE_OUTPUT, its own
+    // pacing, and no path back into anything — the digest and the sentence are
+    // the whole feature. Every missing precondition (no model, tenant off, an
+    // unresolvable session identity) ends the tick silently.
     {
-        let overview_tenant: Arc<dyn Fn() -> bool + Send + Sync> = {
+        if let Some(bank) = bank_client.as_ref() {
+            shared_agent::carry_synopsis_tenant_forward(bank);
+        }
+        let synopsis_tenant: Arc<dyn Fn() -> bool + Send + Sync> = {
             let bank = bank_client.clone();
             Arc::new(move || {
-                shared_agent::tenant_enabled(bank.as_deref(), shared_agent::PULSE_OVERVIEW_KEY)
+                shared_agent::tenant_enabled(bank.as_deref(), shared_agent::SYNOPSIS_KEY)
             })
         };
-        let identity = feeds::session_overview::SessionIdentity {
+        let identity = feeds::session_synopsis::SessionIdentity {
             resolver: supervisor.session_resolver(),
             project_dir: {
                 let ledger = Arc::clone(&ledger);
@@ -1740,22 +1743,20 @@ async fn main() {
             },
             claude_projects_root: ledger.claude_projects_root().to_path_buf(),
         };
-        let overview_config = feeds::session_overview::SessionOverviewConfig {
+        let synopsis_config = feeds::session_synopsis::SessionSynopsisConfig {
             code_tx: code_output_feed.sender(),
             shell_tx: shell_output_feed.sender(),
             submission_tx: code_submission_tx.clone(),
-            pulse_tx,
             ledger: Some(Arc::clone(&ledger)),
             control_tx: Some(client_action_tx.clone()),
-            tenant_enabled: overview_tenant,
-            pulse_enabled: Arc::clone(&pulse_enabled),
+            tenant_enabled: synopsis_tenant,
             shared_agent: feed_router.shared_agent.clone(),
             identity,
-            cadence: feeds::session_overview::Cadence::default(),
+            clocks: feeds::session_synopsis::Clocks::default(),
         };
-        let overview_cancel = cancel.clone();
+        let synopsis_cancel = cancel.clone();
         tokio::spawn(async move {
-            feeds::session_overview::session_overview_task(overview_config, overview_cancel).await;
+            feeds::session_synopsis::session_synopsis_task(synopsis_config, synopsis_cancel).await;
         });
     }
 

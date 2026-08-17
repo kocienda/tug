@@ -1,26 +1,17 @@
-The standing goal:
-- `just app-debug` stalls at the splash screen. Diagnose and fix.
-
-The current ask:
+What the session was most recently asked to do:
 - LOOK. STOP. INSTRUMENT THIS. Some condition is blocking the tear down of the splash screen. WHAT CONDITION?
 
-What the session has been doing:
-- Bash(cd /Users/kocienda/Mounts/u/src/tugtool
-- Bash(grep -vE "^2026-07-27 09" /tmp/tug-m-1.log | grep -v "^$"; e)
-- Bash(cd /Users/kocienda/Mounts/u/src/tugtool
-- Bash(grep -v "^2026-07-27" /tmp/tug-d-1.log | grep -v "^$" | head)
-- Bash(grep -n "plugins\|export default\|defineConfig" /Users/kocie)
-- Read(vite.config.ts)
-- Edit(vite.config.ts)
-- Bash(cd /Users/kocienda/Mounts/u/src/tugtool
-- Bash(grep -rn "kill\|osascript\|terminate" /Users/kocienda/Mounts)
-- Edit(vite.config.ts)
-- Bash(sed -n '760,776p' /Users/kocienda/Mounts/u/src/tugtool/tugde)
-- Bash(grep -n "^import\|from \"vite\"" /Users/kocienda/Mounts/u/sr)
+What it worked on before that, newest first:
+- [Request interrupted by user]
+- FUCK. CUT THE CRAP HERE WHY IS SO HARD. STOP DICKING AROUND. THIS IS A ***RECENT RESGRESSION*
+- [Request interrupted by user]
+- OK. Stop here a sec. The debug instance is up and running now, but sometimes it stalls. WHY? Do some zombie/resource-leak checks. What could cause the slash scr…
+- [Request interrupted by user]
 
-What it is doing right now:
-- Edit(vite.config.ts)
-- Edit(index.html)
+What the session set out to do at the start (context, not the subject):
+- `just app-debug` stalls at the splash screen. Diagnose and fix.
+
+Where it stands right now (background, not the subject):
 - Bash(rm -rf ~/Library/Caches/dev.tugtool.app.debug/WebKit; cd /Us)
 - Bash(tugutil file rm -r "$HOME/Library/Caches/dev.tugtool.app.deb)
 - Bash(tugutil file rm --help 2>&1 | head -20)

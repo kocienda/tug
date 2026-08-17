@@ -1,24 +1,12 @@
-The standing goal:
-- The debug instance of the app is *stuck* on the launch screen.
-
-The current ask:
+What the session was most recently asked to do:
 - [Request interrupted by user]
 
-What the session has been doing:
-- Bash(ps -Ao pid,command | grep -iE "vite|bun.*dev" | grep -v grep)
-- said: The splash never clears because the bundle request hangs before the first frame.
-- Bash(cd /Users/kocienda/Mounts/u/src/tugtool && git diff --stat &)
-- Bash(git status --porcelain | head -30; echo "=== HEAD ==="; git )
-- Bash(B=/Users/kocienda/Library/Developer/Xcode/DerivedData/Tug/Bu)
-- Bash(grep -nE "debug|Debug" justfile | head -40)
-- Bash(sed -n '215,300p' justfile)
-- Bash(D="/Users/kocienda/Library/Application Support/Tug/instances)
-- Bash(grep -rn "5173\|vite" tugrust/crates/tugcast/src --include=*)
-- Bash(grep -rn "5173" tugrust/crates tugapp/Sources 2>/dev/null | )
+What the session set out to do at the start (context, not the subject):
+- The debug instance of the app is *stuck* on the launch screen.
+
+Where it stands right now (background, not the subject):
 - Bash(grep -rni "vite" tugapp/Sources | head -30)
 - Bash(sed -n 344,430p tugapp/Sources/ProcessManager.swift)
-
-What it is doing right now:
 - Bash(ls -l /Users/kocienda/Mounts/u/src/tugtool/tugdeck/node_modu)
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool/tugdeck && ls -l nod)
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool && just launch-debug)

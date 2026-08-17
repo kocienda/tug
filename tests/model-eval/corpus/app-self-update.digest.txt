@@ -1,24 +1,15 @@
-The standing goal:
-- OK. We need to come up with a way for the release version of Tug.app that a user installs from the downloaded DMG can update itself. I *do not* want to invent anything new to make this feature happen. Between Swift, Rust, and Typescript, th…
-
-The current ask:
+What the session was most recently asked to do:
 - Indeed. I joined this work back to main. Now, I'd like
 
-What the session has been doing:
-- Bash(just instances 2>&1 | tail -3)
-- Bash(tugutil draft set --owner dash:quit-hardening --message "qui)
-- TaskUpdate(Two of four passes run with log evidence (tugcast-outage ret)
-- Bash(ls && echo "--- justfiles ---" && ls -la justfile* 2>/dev/nu)
-- Bash(echo "=== scripts ===" && ls scripts/ 2>/dev/null; echo "===)
-- Bash(wc -l Justfile .github/workflows/release.yml .github/workflo)
-- Bash(echo "=== MARKETING_VERSION / CURRENT_PROJECT ===" && grep -)
-- Read(version.sh)
-- Read(release.yml)
-- Read(make-appcast.sh)
-- Bash(echo "=== Cargo.toml version ===" && grep -m1 '^version = ' )
-- Bash(grep -n "^[a-z][a-z0-9-]*:\|^# " Justfile | sed -n '1,240p')
+What it worked on before that, newest first:
+- OK. If we're going to allow Sparkle to quit a running version of Tug, then we must *significantly harden* the auto-interrupt/auto-save on app termination featur…
+- got interrupted. please continue.
+- do the fixups!
 
-What it is doing right now:
+What the session set out to do at the start (context, not the subject):
+- OK. We need to come up with a way for the release version of Tug.app that a user installs from the downloaded DMG can update itself. I *do not* want to invent anything new to make this feature happen. Between Swift, Rust, and Typescript, th…
+
+Where it stands right now (background, not the subject):
 - Bash(echo "=== tags ===" && git tag | tail -20 && echo "=== recen)
 - Bash(echo "=== tag count / latest ===" && git tag | wc -l && git )
 - Bash(grep -n "version\|VERSION" Justfile | head -40)

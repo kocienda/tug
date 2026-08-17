@@ -2,7 +2,7 @@
 
 One digest through the real thing — control socket, running app, a warm Haiku
 worker, normalizer, log — and three questions about the answer: did it arrive,
-does it say anything, and did it take longer than `summarize` is allowed.
+does it say anything, and did it take longer than `synopsis` is allowed.
 
     just model-liveness              # against debug-main
     just model-liveness release-main
@@ -12,8 +12,8 @@ instance. Without one it **skips with exit 0** and names the remedy, because a
 check that fails wherever the precondition is missing is one people learn to
 ignore.
 
-It asserts nothing about *what* the headline says. There is no ground truth for
-"what is this session working on", and inventing one is what the fixed-corpus
+It asserts nothing about *what* the description says. There is no ground truth
+for "what is this session about", and inventing one is what the fixed-corpus
 quality eval was retired for. Register is `run.py`'s question; this one is
 liveness.
 """
@@ -27,10 +27,10 @@ from harness import ask, instance_is_running, log_path  # noqa: E402
 
 CORPUS = Path(__file__).parent / "corpus"
 
-# Kept in step with the `summarize` JobSpec ceiling in
+# Kept in step with the `synopsis` JobSpec ceiling in
 # `tugrust/crates/tugcast/src/shared_agent.rs`. Provisional, like every number
 # in that table — the batch analyzer is what eventually sets it.
-SUMMARIZE_CEILING_MS = 6_000
+SYNOPSIS_CEILING_MS = 6_000
 
 SKIP, PASS, FAIL = 0, 0, 1
 
@@ -53,28 +53,28 @@ def main() -> int:
         return SKIP
 
     digest = (CORPUS / "one-line-goal.digest.txt").read_text()
-    print(f"asking {args.instance} to summarize one digest ({len(digest)} chars)")
+    print(f"asking {args.instance} to describe one digest ({len(digest)} chars)")
 
     answer = ask(digest, args.instance, path, args.timeout)
     if answer is None:
         print(f"FAIL: no answer within {args.timeout:.0f}s.")
         return FAIL
 
-    raw, headline, ms = answer
-    print(f"answered in {ms}ms: {headline!r}")
+    raw, line, ms = answer
+    print(f"answered in {ms}ms: {line!r}")
 
-    if not headline:
-        print("FAIL: the answer normalized to an empty headline.")
+    if not line:
+        print("FAIL: the answer normalized to an empty description.")
         return FAIL
 
-    if ms > SUMMARIZE_CEILING_MS:
-        print(f"FAIL: {ms}ms is over the {SUMMARIZE_CEILING_MS}ms summarize ceiling.")
+    if ms > SYNOPSIS_CEILING_MS:
+        print(f"FAIL: {ms}ms is over the {SYNOPSIS_CEILING_MS}ms synopsis ceiling.")
         return FAIL
 
     # Reported, never failed on: the normalizer having had to step in says the
     # prompt is drifting out of register, which is worth seeing and is not a
     # liveness fact.
-    if raw != headline:
+    if raw != line:
         print(f"note: the normalizer changed the answer — raw was {raw!r}")
 
     print("PASS")

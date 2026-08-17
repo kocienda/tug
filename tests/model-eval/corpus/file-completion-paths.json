@@ -44,6 +44,5 @@
   "Bash(cargo nextest run -p tugcast 2>&1 | tail -12)",
   "Bash(cargo build 2>&1 | tail -5; cd /Users/kocienda/Mounts/u/src/)",
   "Bash(just app-test-changed 2>&1 | tail -25)"
- ],
- "recent_tools": 7
+ ]
 }

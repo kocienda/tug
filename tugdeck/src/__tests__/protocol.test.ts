@@ -511,35 +511,20 @@ describe("session ledger CONTROL encoders / decoders", () => {
   });
 });
 
-describe("parsePulseFrame — the overview kind", () => {
+describe("parsePulseFrame", () => {
   const encode = (body: Record<string, unknown>): Uint8Array =>
     new TextEncoder().encode(JSON.stringify(body));
 
-  test("a beat carries no kind at all — the field is absent, not null", () => {
+  test("a beat decodes with its scopes and counters", () => {
     const line = parsePulseFrame(
       encode({ type: "pulse", text: "reading files", scopes: ["s1"], beat: 3, at: 9 }),
     );
     expect(line?.text).toBe("reading files");
-    expect(line && "kind" in line).toBe(false);
-  });
-
-  test("an overview frame carries its kind through", () => {
-    const line = parsePulseFrame(
-      encode({
-        type: "pulse",
-        kind: "overview",
-        text: "Hardening the watch loop.",
-        scopes: ["s1"],
-        beat: 1,
-        at: 9,
-      }),
-    );
-    expect(line?.kind).toBe("overview");
-    expect(line?.text).toBe("Hardening the watch loop.");
     expect(line?.scopes).toEqual(["s1"]);
+    expect(line?.beat).toBe(3);
   });
 
-  test("an unrecognized kind reads as a beat rather than being dropped", () => {
+  test("a field the deck does not know is ignored, not fatal", () => {
     const line = parsePulseFrame(
       encode({ type: "pulse", kind: "prophecy", text: "hm", scopes: [], beat: 0, at: 0 }),
     );

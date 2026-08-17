@@ -30,6 +30,5 @@
   "Bash(sed -n 330,372p /Users/kocienda/Mounts/u/src/tugtool/justfil)",
   "Bash(ps -Ao pid,command | grep -iE \"Tug-debug|vite\" | grep -v gre)",
   "Bash(curl -s -o /dev/null -w \"index:%{http_code}\\n\" http://127.0.)"
- ],
- "recent_tools": 6
+ ]
 }

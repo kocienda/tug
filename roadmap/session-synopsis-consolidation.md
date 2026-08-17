@@ -410,13 +410,13 @@ The deck work is pure deletion — no new state enters the deck. The surviving d
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The synopsis becomes the module's only ask | pending | — |
-| #step-2 | The ledger cache drops | pending | — |
-| #step-3 | The SharedAgent sheds the summarize lanes | pending | — |
-| #step-4 | The deck deletes the dead chain | pending | — |
-| #step-5 | model-eval scores the sentence users read | pending | — |
-| #step-6 | The laws and the stragglers | pending | — |
-| #step-7 | Integration checkpoint | pending | — |
+| #step-1 | The synopsis becomes the module's only ask | done | `43c5fa87e` |
+| #step-2 | The ledger cache drops | done | `cbc770663` |
+| #step-3 | The SharedAgent sheds the summarize lanes | done | `aa939a0f5` |
+| #step-4 | The deck deletes the dead chain | done | `d1d498a4e` |
+| #step-5 | model-eval scores the sentence users read | done | `04ab4fe53` |
+| #step-6 | The laws and the stragglers | done | `31538680e` |
+| #step-7 | Integration checkpoint | done | `dc70c5bea` |
 
 #### Step 1: The synopsis becomes the module's only ask {#step-1}
 

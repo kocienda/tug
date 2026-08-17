@@ -8,6 +8,5 @@
   "Bash(bash scripts/fetch-tmux.sh --verify)",
   "Edit(scripts/fetch-tmux.sh)",
   "said: The checksum step failed because the mirror serves a gzip, not an xz."
- ],
- "recent_tools": 2
+ ]
 }

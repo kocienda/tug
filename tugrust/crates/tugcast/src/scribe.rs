@@ -560,7 +560,7 @@ pub fn session_prompts_since(
 /// The whole filter chain lives here — `type == "user"`, the timestamp floor,
 /// the `isMeta` / `isCompactSummary` / `permissionMode` exclusions, the
 /// submission classifier, the per-prompt char clip — shared by the batch
-/// reader above and the session overview's incremental cache, so the two
+/// reader above and the session synopsis's incremental cache, so the two
 /// readers cannot drift.
 pub fn prompt_from_jsonl_line(line: &str, since_ms: i64, max_chars: usize) -> Option<String> {
     let line = line.trim();

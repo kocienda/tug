@@ -1,12 +1,13 @@
-The standing goal:
-- list out maxwell's equations in derivative form
-
-The current ask:
+What the session was most recently asked to do:
 - walk me through whether 2027 is a prime number or not
 
-What the session has been doing:
+What it worked on before that, newest first:
+- render the quadratic formula, along with a description of the terms
+
+What the session set out to do at the start (context, not the subject):
+- list out maxwell's equations in derivative form
+
+Where it stands right now (background, not the subject):
 - said: Maxwell's equations in differential form relate the fields to their sources.
 - said: The quadratic formula gives both roots of any second-degree polynomial.
-
-What it is doing right now:
 - said: To test 2027 for primality, check divisibility up to its square root.

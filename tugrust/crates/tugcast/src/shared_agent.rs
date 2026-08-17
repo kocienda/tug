@@ -52,9 +52,9 @@ const MAX_TURNS_PER_WORKER: u64 = 40;
 /// on-device backend used. A machine nobody is working on carries no worker at
 /// all.
 ///
-/// Per class, because the two lanes pay a respawn differently. A summarize is
-/// asked on the session overview's own cadence and its 6 s ceiling absorbs a
-/// cold spawn, so a reaped summarize worker costs nothing anyone sees. A
+/// Per class, because the two lanes pay a respawn differently. A sentence job
+/// is asked on the session synopsis's own cadence and its 6 s ceiling absorbs a
+/// cold spawn, so a reaped sentence worker costs nothing anyone sees. A
 /// classify is asked by somebody who is mid-keystroke and its 2 s ceiling
 /// cannot cover a spawn at all, so a reaped classify worker costs the next
 /// typed command its routing. The classify window is therefore long enough to
@@ -63,7 +63,7 @@ const MAX_TURNS_PER_WORKER: u64 = 40;
 fn idle_reap(class: JobClass) -> Duration {
     match class {
         JobClass::Classify => Duration::from_secs(1800),
-        JobClass::Summarize => Duration::from_secs(300),
+        JobClass::Sentence => Duration::from_secs(300),
     }
 }
 
@@ -133,14 +133,14 @@ impl AgentSpec {
 /// A worker is assigned the class of the job that spawned it and only ever
 /// answers jobs of that class. The two lanes have incompatible latency
 /// contracts — 2 s against 6 s — and reactive growth cannot rescue a classify
-/// that arrives while the only worker is mid-summarize: the rescue spawn alone
-/// costs more than classify's entire budget. Since summarize occupancy is
+/// that arrives while the only worker is mid-sentence: the rescue spawn alone
+/// costs more than classify's entire budget. Since sentence occupancy is
 /// routine rather than rare, without affinity shell routing would simply "not
 /// work sometimes".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobClass {
     Classify,
-    Summarize,
+    Sentence,
 }
 
 impl JobClass {
@@ -151,7 +151,7 @@ impl JobClass {
     fn of(job: &str) -> Self {
         match job {
             "classify" | "classify_with_grammar" => Self::Classify,
-            _ => Self::Summarize,
+            _ => Self::Sentence,
         }
     }
 }
@@ -279,7 +279,7 @@ impl SharedAgentPool {
     /// failure, a dead worker, a timeout — comes back as `Err`, because every
     /// caller degrades identically on one ([P06]). An unknown job name is a
     /// programming error, so it panics where a test would catch it and errors
-    /// where a user would rather have a missing headline than a dead process.
+    /// where a user would rather have a missing description than a dead process.
     pub async fn run(self: &Arc<Self>, job: &str, input: String) -> Result<String, String> {
         self.run_seeing(job, input, Vec::new()).await
     }
@@ -386,7 +386,7 @@ impl SharedAgentPool {
                 return Err(UNAVAILABLE.to_string());
             }
             // A ceiling that covers a cold start waits for one: a first
-            // headline is worth the spawn, and there is no earlier caller to
+            // description is worth the spawn, and there is no earlier caller to
             // have paid it.
             Acquired::Cold { worker, .. } => worker,
         };
@@ -564,7 +564,7 @@ impl SharedAgentPool {
     /// spawning a second child for a lane that has one buys a cold start
     /// nobody can spend. Only a class with no usable worker at all grows the
     /// pool, and that is exactly what [P12] is about: a classify must never
-    /// queue behind a *summarize*, whose ceiling is three times its own.
+    /// queue behind a *sentence job*, whose ceiling is three times its own.
     fn acquire(&self, class: JobClass) -> Result<Acquired, String> {
         let mut workers = self.workers.lock().unwrap();
         self.sweep(&mut workers);
@@ -786,8 +786,8 @@ async fn one_turn(
 fn warmup_input(class: JobClass) -> &'static str {
     match class {
         JobClass::Classify => "pwd",
-        JobClass::Summarize => {
-            "The standing goal:\n- warm up\nWhat it is doing right now:\n- nothing\n"
+        JobClass::Sentence => {
+            "What the session was most recently asked to do:\nwarm up\n\nWhere it stands right now (background, not the subject):\n- nothing\n"
         }
     }
 }
@@ -1063,24 +1063,19 @@ fn send_control(cat: &broadcast::Sender<Frame>, body: serde_json::Value) {
     }
 }
 
-/// Run one summarize job and broadcast the headline.
+/// Run one synopsis job and broadcast the description it wrote.
 ///
-/// The socket-reachable form of the question the session overview asks on its
+/// The socket-reachable form of the question the session synopsis asks on its
 /// own cadence, so what the model actually says about a given digest can be
-/// read without waiting for a strip to update. The raw answer rides alongside
-/// the normalized one: the two differing is the signal that the prompt is
-/// drifting and the normalizer is covering for it.
-pub fn request_summary(
+/// read without waiting for a session row to update. The raw answer rides
+/// alongside the normalized one: the two differing is the signal that the
+/// prompt is drifting and the normalizer is covering for it.
+pub fn request_synopsis(
     agent: SharedAgentHandle,
     cat: Option<broadcast::Sender<Frame>>,
     prompt: String,
-    retrospective: bool,
 ) {
-    let task = if retrospective {
-        "summarize_done"
-    } else {
-        "summarize"
-    };
+    let task = "synopsis";
     tokio::spawn(async move {
         let result = match agent {
             Some(pool) => pool.run(task, prompt).await,
@@ -1088,20 +1083,19 @@ pub fn request_summary(
         };
         let (ok, text, error) = match result {
             Ok(raw) => {
-                let report = crate::feeds::session_overview::headline_register_report(&raw);
+                let report = crate::feeds::session_synopsis::synopsis_register_report(&raw);
                 info!(
                     task,
                     %raw,
-                    headline = %report.text,
+                    line = %report.text,
                     normalized = report.normalized,
-                    trimmed = report.trimmed,
                     clipped = report.clipped,
-                    "shared agent summarize answered",
+                    "shared agent synopsis answered",
                 );
                 (true, Some(report.text), None)
             }
             Err(error) => {
-                warn!(task, %error, "shared agent summarize failed");
+                warn!(task, %error, "shared agent synopsis failed");
                 (false, None, Some(error))
             }
         };
@@ -1109,7 +1103,7 @@ pub fn request_summary(
         send_control(
             &cat,
             serde_json::json!({
-                "action": "shared_agent_summarize_result",
+                "action": "shared_agent_synopsis_result",
                 "task": task,
                 "ok": ok,
                 "text": text,
@@ -1174,12 +1168,16 @@ pub fn request_classification(
 /// `tugdeck/src/lib/shared-agent-store.ts`.
 pub const SHARED_AGENT_DOMAIN: &str = "dev.tugtool.shared-agent";
 
-/// Per-tenant kill switch for the session-overview intent line.
+/// Per-tenant kill switch for the session description.
 ///
 /// The shell-routing switch under the same domain has no Rust consumer — that
 /// tenant lives entirely in the deck — so its key is declared only in
 /// `shared-agent-store.ts`.
-pub const PULSE_OVERVIEW_KEY: &str = "pulse-overview";
+pub const SYNOPSIS_KEY: &str = "synopsis";
+
+/// What [`SYNOPSIS_KEY`] used to be called, read once at startup by
+/// [`carry_synopsis_tenant_forward`] and never again.
+const LEGACY_PULSE_OVERVIEW_KEY: &str = "pulse-overview";
 
 /// Full model id override, read per spawn.
 pub const MODEL_KEY: &str = "model";
@@ -1188,13 +1186,47 @@ pub const MODEL_KEY: &str = "model";
 pub const MAX_WORKERS_KEY: &str = "max_workers";
 
 /// Room for one worker per job class in steady state ([P12]), which is what the
-/// measured traffic asks for: session overview holds one emit in flight
+/// measured traffic asks for: the session synopsis holds one ask in flight
 /// process-wide, and classify is serialized by typing.
 pub const DEFAULT_MAX_WORKERS: usize = 2;
 
 /// The Haiku agent's pinned model ([P03]). A full id, never a bare alias:
 /// aliases drift, and a drifting aux model is a silent behavior change.
 pub const HAIKU_MODEL: &str = "claude-haiku-4-5";
+
+/// Carry the description tenant's kill switch across the key rename, once, at
+/// startup.
+///
+/// The switch is a live user setting and absent reads as *enabled*, so a silent
+/// rename would turn the description back on for everyone who had turned it
+/// off. The copy runs only when [`SYNOPSIS_KEY`] is unset: a value written
+/// since the rename is never overwritten by the world before it.
+///
+/// Copy-only. The stale [`LEGACY_PULSE_OVERVIEW_KEY`] entry is left where it
+/// sits — an unread key in a defaults store costs nothing, and growing a delete
+/// API to tidy one would cost more than it saves. Both this function and that
+/// orphan are deletable once no installation predates this release.
+pub fn carry_synopsis_tenant_forward(bank: &tugbank_core::TugbankClient) {
+    match bank.get(SHARED_AGENT_DOMAIN, SYNOPSIS_KEY) {
+        Ok(None) => {}
+        Ok(Some(_)) => return,
+        Err(err) => {
+            warn!(error = %err, "synopsis tenant: carry-forward read failed");
+            return;
+        }
+    }
+    let legacy = match bank.get(SHARED_AGENT_DOMAIN, LEGACY_PULSE_OVERVIEW_KEY) {
+        Ok(Some(value)) => value,
+        Ok(None) => return,
+        Err(err) => {
+            warn!(error = %err, "synopsis tenant: legacy read failed");
+            return;
+        }
+    };
+    if let Err(err) = bank.set(SHARED_AGENT_DOMAIN, SYNOPSIS_KEY, legacy) {
+        warn!(error = %err, "synopsis tenant: carry-forward failed");
+    }
+}
 
 /// Read a tenant kill switch. Absent — and any non-bool — reads as enabled, so
 /// a tenant is never accidentally dark because a value was never written.
@@ -1214,15 +1246,15 @@ pub fn tenant_enabled(bank: Option<&tugbank_core::TugbankClient>, key: &str) -> 
 /// need propping up.
 ///
 /// What is kept verbatim is everything the Rust gates downstream depend on: the
-/// two labels, and the headline register rules that `headline_register_report`
-/// and `ground_headline` enforce. What is dropped is scaffolding that existed
-/// only because a 4-bit 4B pack over-read whatever came first — long example
-/// ladders teaching one distinction at a time.
+/// two labels, and the register rules that `synopsis_register_report` and
+/// `ground_synopsis` enforce. What is dropped is scaffolding that existed only
+/// because a 4-bit 4B pack over-read whatever came first — long example ladders
+/// teaching one distinction at a time.
 ///
-/// The summarize wording is deliberately **extractive**: a fluent model
-/// paraphrases where a weak one copies, and `ground_headline` refuses any
-/// headline whose words are not in the digest, so the instruction to reuse the
-/// digest's own words is what keeps the refusal rate down ([R01]).
+/// The sentence wordings are deliberately **extractive**: a fluent model
+/// paraphrases where a weak one copies, and `ground_synopsis` refuses any line
+/// whose words are not in the digest, so the instruction to reuse the digest's
+/// own words is what keeps the refusal rate down ([R01]).
 pub static HAIKU_AGENT_JOBS: &[JobSpec] = &[
     JobSpec {
         name: "classify",
@@ -1237,27 +1269,15 @@ pub static HAIKU_AGENT_JOBS: &[JobSpec] = &[
         instructions: CLASSIFY_WITH_GRAMMAR_INSTRUCTIONS,
     },
     JobSpec {
-        name: "summarize",
-        timeout: SUMMARIZE_TIMEOUT,
-        slow: Some(SUMMARIZE_SLOW),
-        instructions: SUMMARIZE_INSTRUCTIONS,
-    },
-    JobSpec {
-        name: "summarize_done",
-        timeout: SUMMARIZE_TIMEOUT,
-        slow: Some(SUMMARIZE_SLOW),
-        instructions: SUMMARIZE_DONE_INSTRUCTIONS,
-    },
-    JobSpec {
         name: "synopsis",
-        timeout: SUMMARIZE_TIMEOUT,
-        slow: Some(SUMMARIZE_SLOW),
+        timeout: SENTENCE_TIMEOUT,
+        slow: Some(SENTENCE_SLOW),
         instructions: SYNOPSIS_INSTRUCTIONS,
     },
     JobSpec {
         name: "expand_query",
-        timeout: SUMMARIZE_TIMEOUT,
-        slow: Some(SUMMARIZE_SLOW),
+        timeout: SENTENCE_TIMEOUT,
+        slow: Some(SENTENCE_SLOW),
         instructions: EXPAND_QUERY_INSTRUCTIONS,
     },
 ];
@@ -1270,9 +1290,10 @@ pub static HAIKU_AGENT_JOBS: &[JobSpec] = &[
 /// other two unreachable.
 const CLASSIFY_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Summarize stays under the session-overview emit floor (`EMIT_FLOOR`, 8s), so
-/// a headline can never still be in flight when the next one is due.
-const SUMMARIZE_TIMEOUT: Duration = Duration::from_secs(6);
+/// A sentence job stays under the session-synopsis debounce
+/// (`SYNOPSIS_MIN_INTERVAL`, 60s), so a description can never still be in
+/// flight when the next one is due.
+const SENTENCE_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Set from the Step 1 spike rather than guessed: warm classify turns measured
 /// 867–989 ms against CLI 2.1.222, so a 1s mark would fire on roughly half of
@@ -1282,7 +1303,7 @@ const SUMMARIZE_TIMEOUT: Duration = Duration::from_secs(6);
 /// genuinely drifting toward the 2s ceiling.
 const CLASSIFY_SLOW: Duration = Duration::from_millis(1500);
 
-const SUMMARIZE_SLOW: Duration = Duration::from_secs(3);
+const SENTENCE_SLOW: Duration = Duration::from_secs(3);
 
 /// What both classify wordings share: the task, the one fact the caller has
 /// already established, and the asymmetry that decides every close call.
@@ -1358,94 +1379,33 @@ docker the worker into a smaller image => PROMPT
 The line:"
 );
 
-/// The headline register, kept verbatim from the on-device wording because
-/// `headline_register_report` and `ground_headline` enforce exactly these rules
-/// downstream — a headline that breaks them is refused, not repaired.
-macro_rules! headline_rules {
-    () => {
-        "\
-NO \"the\", \"a\", \"an\". NO \"and\" — use a comma, or cut the second half.
-NO trailing detail. Name the work, not the parts it is made of.
-SENTENCE CASE, like a sentence: only the first word is capitalized. Proper names keep their capitals — Lens, Finder, Keychain, CodeMirror.
-No period. No quotes.
-ROOM FOR ABOUT 56 CHARACTERS — one short line.
-
-USE THE DIGEST'S OWN WORDS. Build the headline out of words that appear in the digest you were given; do not reach for a synonym when the digest has the word. Never name a tool — Bash, Edit, Read, Write, Grep — and never write a path or a file's location. Those say which command ran; the headline says what the work is for.
-
-A headline with no verb is a label, and a label is a failure. \"Ligature fallback for monospace fonts\" is a label. \"Repair ligature fallback in monospace\" is a headline."
-    };
-}
-
-const SUMMARIZE_INSTRUCTIONS: &str = concat!(
-    "\
-You write the headline for a live coding session. The digest comes in labeled sections.
-
-\"The current ask\" is what the person most recently asked for, and it names the subject: headline the work being done about THAT. \"The standing goal\" is the older, wider aim — background, not the subject, unless it is the only ask there is. \"What it is doing right now\" says how the ask is being advanced, and it is what makes the headline move.
-
-Newspaper headline style. The rules are strict:
-
-START WITH A VERB, in the plain command form: Fix, Author, Draft, Wire, Trace, Port, Audit, Bundle, Salvage, Explain. Not \"Fixing\", not \"Building\" — Fix, Build.
-",
-    headline_rules!(),
-    "
-
-Answer only from the digest below. Output only the headline.
-
-DIGEST:"
-);
-
-const SUMMARIZE_DONE_INSTRUCTIONS: &str = concat!(
-    "\
-You write one line saying what a coding session accomplished. The work has stopped. The section labeled \"What the session did\" holds everything that happened, and the other sections say what it was for. Say what was accomplished — not the last thing that ran, and not every step in order.
-
-Newspaper headline style, in the PAST TENSE. The rules are strict:
-
-START WITH A PAST-TENSE VERB: Fixed, Authored, Drafted, Wired, Traced, Ported, Audited, Bundled, Salvaged, Explained. Not \"Fixing\", not \"Has fixed\" — Fixed, Wired.
-",
-    headline_rules!(),
-    "
-
-Never restate one line of the digest; say what the lines add up to.
-
-Answer only from the digest below. Output only the line.
-
-DIGEST:"
-);
-
-/// The session's standing description ([P07], Spec S07) — the line that names
-/// what a session is *about*, as against the headline that says what it is
-/// doing this minute.
+/// The session's standing description — the line that names what a session is
+/// *about*.
 ///
-/// **This is not a second headline, and the wording's whole job is to stop it
-/// becoming one.** It shipped asking for `headline_rules!` verbatim against the
-/// headline's own digest, and the result was exactly what that describes: the
-/// description and the headline, one line above the other on the same card,
-/// printing the same sentence. Two things changed together, and neither works
-/// without the other:
+/// **It is not a headline, and the wording's whole job is to stop it becoming
+/// one.** It shipped asking for headline rules against a stretch-scoped digest,
+/// and produced a headline. Two things carry it:
 ///
-///  - **The evidence.** The digest is now `compose_synopsis_digest`'s —
+///  - **The evidence.** The digest is `compose_synopsis_digest`'s —
 ///    session-lifetime and NEWEST FIRST: the most recent ask is the subject,
 ///    prior asks are earlier work, the session's opening is context, and the
-///    live headline is explicitly labelled background. The boundaries between
-///    work items are the user's own messages, not idle-barrier stretches — a
-///    stretch swallowed every ask after its first, which is how a description
-///    kept leading with the morning's job after the session had moved on.
-///  - **The register.** `headline_rules!` is dropped for a summary's rules:
-///    articles and conjunctions are allowed, the budget is
-///    `MAX_SYNOPSIS_CHARS` rather than 56, and the line is asked to name the
-///    undertaking and its object. A line held to headline register beside a
-///    headline reads as a headline however carefully its subject was chosen —
-///    the two levels have to differ in voice, not only in scope. The wording
-///    asks for less than the budget on purpose: the first cut at this line
-///    said "about 110 characters" and the model filled every one of them,
-///    which overran the Lens and picker rows and shipped clipped mid-word.
+///    newest activity lines are explicitly labelled background. The boundaries
+///    between work items are the user's own messages, not idle-barrier
+///    stretches — a stretch swallowed every ask after its first, which is how a
+///    description kept leading with the morning's job after the session had
+///    moved on.
+///  - **The register.** A summary's rules, not a headline's: articles and
+///    conjunctions are allowed, the budget is `MAX_SYNOPSIS_CHARS`, and the
+///    line is asked to name the undertaking and its object. The wording asks
+///    for less than the budget on purpose: the first cut at this line said
+///    "about 110 characters" and the model filled every one of them, which
+///    overran the Lens and picker rows and shipped clipped mid-word.
 ///
-/// What is kept from the headline wording is the extractive instruction, for
-/// the same reason it is there: `ground_headline` refuses a description whose
-/// words are not in the digest, so telling the model to reuse the digest's own
-/// words is what keeps the refusal rate down.
+/// The instruction is deliberately **extractive**: `ground_synopsis` refuses a
+/// description whose words are not in the digest, so telling the model to reuse
+/// the digest's own words is what keeps the refusal rate down.
 const SYNOPSIS_INSTRUCTIONS: &str = "\
-You write the standing description of a coding session — ONE sentence saying what the session is about, weighted toward what it is about NOW. It sits under the session's name; on the line under it a headline says what the session is doing this minute. A session moves through work items over time, each new ask closing the one before it, and the reader scanning a list of sessions wants the newest work named first.
+You write the standing description of a coding session — ONE sentence saying what the session is about, weighted toward what it is about NOW. It sits under the session's name. A session moves through work items over time, each new ask closing the one before it, and the reader scanning a list of sessions wants the newest work named first.
 
 The digest comes in labeled sections, and they are not equal.
 
@@ -1455,7 +1415,7 @@ The digest comes in labeled sections, and they are not equal.
 
 \"What the session set out to do at the start\" is CONTEXT. It says where the session began. It earns a place in the line only when the newest ask is still that same undertaking.
 
-\"Where it stands right now\" is BACKGROUND. It is there so you know the work is live and what it currently touches. It is never the subject. The line above yours already says it, and a description that repeats it says nothing.
+\"Where it stands right now\" is BACKGROUND: the raw trail of what the session has just been doing — tool calls written as Name(target), shell commands written after a $, and lines the assistant said, newest last. It is there so you know the work is live and what it currently touches. It is never the subject, and a description that restates one of those lines says nothing.
 
 \"The description you are revising\" is your own last answer. Keep its voice and wording where they still fit — but the subject moves with the work. When the newest ask is a new undertaking, the line changes with it; a description still leading with finished work is stale, not stable.
 
@@ -1663,8 +1623,8 @@ pub(crate) mod test_support {
             slow: None,
         },
         JobSpec {
-            name: "summarize",
-            instructions: "SUMMARIZE",
+            name: "synopsis",
+            instructions: "SYNOPSIS",
             timeout: Duration::from_secs(6),
             slow: None,
         },
@@ -1706,10 +1666,10 @@ mod tests {
     async fn a_job_turn_carries_its_instructions_and_input() {
         let fake = FakeSpawner::always(Ok("Fix the thing".to_string()));
         let pool = pool(Arc::clone(&fake), 2);
-        pool.run("summarize", "the digest".to_string())
+        pool.run("synopsis", "the digest".to_string())
             .await
             .expect("answers");
-        assert_eq!(fake.turns_seen().as_slice(), ["SUMMARIZE\n\nthe digest"]);
+        assert_eq!(fake.turns_seen().as_slice(), ["SYNOPSIS\n\nthe digest"]);
     }
 
     /// A job run with images shows them WITH the turn rather than instead of
@@ -1725,10 +1685,10 @@ mod tests {
             media_type: "image/png".to_string(),
             data: "aGVsbG8=".to_string(),
         }];
-        pool.run_seeing("summarize", "what is this".to_string(), shown.clone())
+        pool.run_seeing("synopsis", "what is this".to_string(), shown.clone())
             .await
             .expect("answers");
-        assert_eq!(fake.turns_seen().as_slice(), ["SUMMARIZE\n\nwhat is this"]);
+        assert_eq!(fake.turns_seen().as_slice(), ["SYNOPSIS\n\nwhat is this"]);
         assert_eq!(fake.images_seen().as_slice(), [shown]);
     }
 
@@ -1739,7 +1699,7 @@ mod tests {
     async fn a_turn_with_no_images_carries_none() {
         let fake = FakeSpawner::always(Ok("Fix the thing".to_string()));
         let pool = pool(Arc::clone(&fake), 2);
-        pool.run("summarize", "the digest".to_string())
+        pool.run("synopsis", "the digest".to_string())
             .await
             .expect("answers");
         assert_eq!(fake.images_seen().as_slice(), [Vec::<TurnImage>::new()]);
@@ -1760,20 +1720,20 @@ mod tests {
     }
 
     /// [P12]'s reason for existing: a classify that arrives while the only
-    /// other worker is mid-summarize must not wait for it. The summarize here
+    /// other worker is mid-sentence must not wait for it. The sentence job here
     /// holds for 5s — longer than classify's entire 2s ceiling — so if the
     /// classify queued behind it, it would time out instead of answering.
     #[tokio::test(start_paused = true)]
-    async fn a_classify_never_queues_behind_a_busy_summarize_worker() {
-        let fake = FakeSpawner::slow(Ok("SHELL".to_string()), "SUMMARIZE", Duration::from_secs(5));
+    async fn a_classify_never_queues_behind_a_busy_sentence_worker() {
+        let fake = FakeSpawner::slow(Ok("SHELL".to_string()), "SYNOPSIS", Duration::from_secs(5));
         let pool = pool(Arc::clone(&fake), 2);
         warmed(&pool, JobClass::Classify).await;
 
-        let summarizing = {
+        let describing = {
             let pool = Arc::clone(&pool);
-            tokio::spawn(async move { pool.run("summarize", "digest".to_string()).await })
+            tokio::spawn(async move { pool.run("synopsis", "digest".to_string()).await })
         };
-        // Let the summarize claim its own worker before the classify arrives.
+        // Let the synopsis claim its own worker before the classify arrives.
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         let verdict = pool.run_classify("ls -la".to_string(), None).await;
@@ -1783,7 +1743,7 @@ mod tests {
             2,
             "the classify answered on its own class's worker",
         );
-        summarizing.await.expect("join").expect("summarize answers");
+        describing.await.expect("join").expect("the synopsis answers");
     }
 
     /// The regression that took shell routing out entirely: a classify spawned
@@ -1853,7 +1813,7 @@ mod tests {
         warmed(&pool, JobClass::Classify).await;
 
         let error = pool
-            .run("summarize", "digest".to_string())
+            .run("synopsis", "digest".to_string())
             .await
             .expect_err("no room for a second class");
         assert_eq!(error, UNAVAILABLE);
@@ -1889,7 +1849,7 @@ mod tests {
         let fake = FakeSpawner::always(Ok("SHELL".to_string()));
         let pool = pool(Arc::clone(&fake), 2);
         warmed(&pool, JobClass::Classify).await;
-        warmed(&pool, JobClass::Summarize).await;
+        warmed(&pool, JobClass::Sentence).await;
 
         // The warmup was the classify worker's first turn, so the cap lands on
         // the last loop turn.
@@ -1921,15 +1881,15 @@ mod tests {
         assert_eq!(fake.spawn_count(), 2, "spawned again on demand");
     }
 
-    /// The summarize lane's ceiling *can* cover a cold start, so a summarize is
+    /// The sentence lane's ceiling *can* cover a cold start, so a synopsis is
     /// answered by the worker it spawns rather than degraded into a warmup.
     #[tokio::test]
-    async fn a_summarize_is_answered_by_the_worker_it_spawns() {
-        let fake = FakeSpawner::always(Ok("A headline".to_string()));
+    async fn a_sentence_job_is_answered_by_the_worker_it_spawns() {
+        let fake = FakeSpawner::always(Ok("A description".to_string()));
         let pool = pool(Arc::clone(&fake), 2);
         assert_eq!(
-            pool.run("summarize", "digest".to_string()).await.as_deref(),
-            Ok("A headline"),
+            pool.run("synopsis", "digest".to_string()).await.as_deref(),
+            Ok("A description"),
         );
         assert_eq!(fake.spawn_count(), 1);
     }
@@ -2060,7 +2020,7 @@ mod tests {
             .await
             .expect_err("gated");
         assert_eq!(error, UNAVAILABLE);
-        assert!(pool.run("summarize", "d".to_string()).await.is_err());
+        assert!(pool.run("synopsis", "d".to_string()).await.is_err());
         assert_eq!(fake.spawn_count(), 0, "nothing was spawned");
         unsafe { std::env::remove_var("TUGAPP_APP_TEST") };
     }
@@ -2072,8 +2032,8 @@ mod tests {
     async fn a_second_agent_spec_runs_on_the_same_pool_machinery() {
         static OTHER_JOBS: &[JobSpec] = &[
             JobSpec {
-                name: "summarize",
-                instructions: "OTHER-SUMMARIZE",
+                name: "synopsis",
+                instructions: "OTHER-SYNOPSIS",
                 timeout: Duration::from_secs(30),
                 slow: None,
             },
@@ -2122,15 +2082,11 @@ mod tests {
         );
         assert!(!job("classify").instructions.contains(GRAMMAR_PLACEHOLDER));
 
-        // The register rules `headline_register_report` and `ground_headline`
+        // The register rules `synopsis_register_report` and `ground_synopsis`
         // enforce, and the extractive instruction that keeps grounding passing.
-        for name in ["summarize", "summarize_done"] {
-            let text = job(name).instructions;
-            assert!(text.contains("SENTENCE CASE"), "{name}");
-            assert!(text.contains("USE THE DIGEST'S OWN WORDS"), "{name}");
-            assert!(text.contains("56 CHARACTERS"), "{name}");
-        }
-        assert!(job("summarize_done").instructions.contains("PAST TENSE"));
+        let synopsis = job("synopsis").instructions;
+        assert!(synopsis.contains("SENTENCE CASE"));
+        assert!(synopsis.contains("USE THE DIGEST'S OWN WORDS"));
 
         // Expansion's output contract, which `expand_via_model` parses and
         // whose empty case it treats as a real answer. Both halves are pinned:
@@ -2151,11 +2107,12 @@ mod tests {
         // degradation into verb timeouts.
         assert!(job("expand_query").timeout < crate::feeds::operator::VERB_TIMEOUT);
 
-        // Classify's ceiling is the triad's Rust member; summarize stays under
-        // the emit floor.
+        // Classify's ceiling is the triad's Rust member; a sentence job stays
+        // under the synopsis debounce.
         assert_eq!(job("classify").timeout, Duration::from_secs(2));
-        assert!(job("summarize").timeout < crate::feeds::session_overview::EMIT_FLOOR);
-        assert!(job("summarize_done").timeout < crate::feeds::session_overview::EMIT_FLOOR);
+        assert!(
+            job("synopsis").timeout < crate::feeds::session_synopsis::SYNOPSIS_MIN_INTERVAL
+        );
     }
 
     /// The only test that spawns a real `claude` and spends real tokens.
@@ -2173,11 +2130,11 @@ mod tests {
     ///
     /// It pins the seam the fake spawner cannot: that the argv, the isolation
     /// posture, and the stream-json frame parsing actually work against the
-    /// installed CLI. It asserts a label and a non-empty headline — never model
+    /// installed CLI. It asserts a label and a non-empty line — never model
     /// prose, which is the eval harness's business.
     #[tokio::test]
     #[ignore = "requires TUG_REAL_CLAUDE=1 and a live claude binary"]
-    async fn a_real_worker_answers_one_classify_and_one_summarize() {
+    async fn a_real_worker_answers_one_classify_and_one_synopsis() {
         if std::env::var("TUG_REAL_CLAUDE").as_deref() != Ok("1") {
             return;
         }
@@ -2210,15 +2167,64 @@ mod tests {
             "a warm classify took {warm_ms}ms, past the {CLASSIFY_TIMEOUT:?} budget",
         );
 
-        let digest = "The standing goal:\n- make the watch loop resilient\n\
-             What it is doing right now:\n- Edit(watch.rs)\n";
-        let headline = pool
-            .run("summarize", digest.to_string())
+        let digest = "What the session was most recently asked to do:\n\
+             make the watch loop resilient\n\n\
+             Where it stands right now (background, not the subject):\n\
+             - Edit(watch.rs)\n";
+        let line = pool
+            .run("synopsis", digest.to_string())
             .await
-            .expect("a summarize answers");
+            .expect("a synopsis answers");
+        assert!(!line.trim().is_empty(), "an empty description is a failure");
+    }
+
+    /// The rename must not re-enable a tenant somebody turned off. Absent reads
+    /// as enabled, so an uncopied `false` is a description switching itself back
+    /// on — and a value written under the new key is the newer intent, so the
+    /// copy never overwrites one.
+    #[test]
+    fn the_description_tenant_survives_its_key_rename() {
+        use tempfile::NamedTempFile;
+        use tugbank_core::TugbankClient;
+
+        let switched_off = |legacy: Option<bool>, current: Option<bool>| {
+            let tmp = NamedTempFile::new().expect("temp file");
+            let bank = TugbankClient::open(tmp.path()).expect("open bank");
+            if let Some(value) = legacy {
+                bank.set(
+                    SHARED_AGENT_DOMAIN,
+                    LEGACY_PULSE_OVERVIEW_KEY,
+                    tugbank_core::Value::Bool(value),
+                )
+                .unwrap();
+            }
+            if let Some(value) = current {
+                bank.set(
+                    SHARED_AGENT_DOMAIN,
+                    SYNOPSIS_KEY,
+                    tugbank_core::Value::Bool(value),
+                )
+                .unwrap();
+            }
+            carry_synopsis_tenant_forward(&bank);
+            (
+                tenant_enabled(Some(&bank), SYNOPSIS_KEY),
+                bank.get(SHARED_AGENT_DOMAIN, LEGACY_PULSE_OVERVIEW_KEY)
+                    .unwrap()
+                    .is_some(),
+            )
+        };
+
+        assert!(!switched_off(Some(false), None).0, "the off carries");
+        assert!(switched_off(Some(true), None).0, "so does the on");
         assert!(
-            !headline.trim().is_empty(),
-            "an empty headline is a failure"
+            switched_off(Some(false), Some(true)).0,
+            "a value written since the rename is the newer intent",
+        );
+        assert!(switched_off(None, None).0, "absent reads enabled");
+        assert!(
+            switched_off(Some(false), None).1,
+            "the copy leaves the stale key where it sits",
         );
     }
 
@@ -2230,7 +2236,7 @@ mod tests {
             JobClass::Classify,
             "both classify wordings share a lane",
         );
-        assert_eq!(JobClass::of("summarize"), JobClass::Summarize);
-        assert_eq!(JobClass::of("summarize_done"), JobClass::Summarize);
+        assert_eq!(JobClass::of("synopsis"), JobClass::Sentence);
+        assert_eq!(JobClass::of("expand_query"), JobClass::Sentence);
     }
 }

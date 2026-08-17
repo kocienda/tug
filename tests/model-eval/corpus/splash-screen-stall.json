@@ -49,6 +49,5 @@
   "Bash(cd /Users/kocienda/Mounts/u/src/tugtool/tugdeck",
   "Bash(cd /Users/kocienda/Mounts/u/src/tugtool && git status --shor)",
   "Bash(just app-debug >/tmp/appdebug-final.log 2>&1; echo \"exit=$?\")"
- ],
- "recent_tools": 10
+ ]
 }

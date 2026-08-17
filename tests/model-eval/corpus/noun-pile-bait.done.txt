@@ -1,7 +1,0 @@
-The standing goal:
-- audit the theme token contrast budgets across every shipped theme
-
-What the session did:
-- Read(tugdeck/styles/themes/nocturne.css)
-- Bash(bun run audit:theme-contrast)
-- Edit(tugdeck/styles/themes/aria.css)

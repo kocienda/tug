@@ -47,6 +47,5 @@
   "Bash(cd /Users/kocienda/Mounts/u/src/tugtool",
   "Bash(tugutil context)",
   "Bash(tugutil commit --message \"plan(new): roadmap/local-model-inv)"
- ],
- "recent_tools": 6
+ ]
 }

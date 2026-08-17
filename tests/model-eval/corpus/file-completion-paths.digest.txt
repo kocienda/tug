@@ -1,24 +1,11 @@
-The standing goal:
-- *WHY* is file completion broken right now? *WHY* can't you complete @local-model-bringup.md correctly? It's *right there* in `@roadmap/`
-
-The current ask:
+What the session was most recently asked to do:
 - Look... if this is a problem with a failure to properly handle canonicalized paths, I will be *very disappointed*. UGH. But OK. *Consult the #tuglaw* on this matter in `@tuglaws/tuglaws.md`, and then make the appropriate #tuglaw-compliant f…
 
-What the session has been doing:
-- Bash(rg -n 'workspace_key|workspaceKey|projectDir' tugdeck/src/ca)
-- Read(card-services-store.ts)
-- Bash(rg -n 'workspaceKey' tugdeck/src/ -g '*.ts' -g '*.tsx' | gre)
-- Read(action-dispatch.ts)
-- Bash(ps eww 35200 2>/dev/null | tr ' ' '\n' | grep -E '^TUG_INSTA)
-- Bash(L="/Users/kocienda/Library/Application Support/Tug/instances)
-- Bash(f="/Users/kocienda/Library/Application Support/Tug/instances)
-- Read(filetree.rs)
-- Edit(filetree.rs)
-- Bash(cd /Users/kocienda/Mounts/u/src/tugtool/tugrust && cargo bui)
-- Read(filetree.rs)
-- Edit(filetree.rs)
+What the session set out to do at the start (context, not the subject):
+- *WHY* is file completion broken right now? *WHY* can't you complete @local-model-bringup.md correctly? It's *right there* in `@roadmap/`
 
-What it is doing right now:
+Where it stands right now (background, not the subject):
+- Edit(filetree.rs)
 - Bash(cargo nextest run -p tugcast filetree 2>&1 | tail -30)
 - Edit(filetree.rs)
 - Bash(cargo nextest run -p tugcast filetree 2>&1 | tail -25)

@@ -1,25 +1,19 @@
-"""Score the SharedAgent's session headlines against a live Tug instance.
+"""Score the SharedAgent's session descriptions against a live Tug instance.
 
 Drives the real thing end to end: the frozen digest goes over the control
-socket to the running app, the SharedAgent's own `SUMMARIZE_INSTRUCTIONS` job
+socket to the running app, the SharedAgent's own `SYNOPSIS_INSTRUCTIONS` job
 prompt and its Haiku worker answer, and tugcast normalizes the answer through
-`headline_register` before logging it. What this scores is therefore the string
-the PULSE strip would actually wear — prompt, model, and normalizer together —
-not a re-implementation of any of them.
+the synopsis register before logging it. What this scores is therefore the
+string a session row would actually wear — prompt, model, and normalizer
+together — not a re-implementation of any of them.
 
     just model-eval                 # against debug-main
     just model-eval release-main
-    python3 run.py <instance> --retrospective
 
-`--retrospective` drives the idle collapse's lane instead: the `.done.txt`
-fixtures over the `summarize_done` task, scored against the past forms. The two
-lanes are the same measurement of two different registers, so they share every
-line of this file except which fixtures they read and which tense they expect.
-
-Needs a running instance with the `pulse-overview`
-tenant left on. Every headline is reported whether or not it passes; the summary
-is a rate, not a gate, because a headline can satisfy every mechanical rule and
-still describe the session badly. Read the lines.
+Needs a running instance with the `synopsis` tenant left on. Every description
+is reported whether or not it passes; the summary is a rate, not a gate,
+because a description can satisfy every mechanical rule and still describe the
+session badly. Read the lines.
 """
 
 import argparse
@@ -63,8 +57,8 @@ def words(text: str) -> set[str]:
     """The text's comparable words, dotted tokens contributing their parts too.
 
     `nocturne.css` yields `nocturne`, `css`, and itself, matching
-    `content_words` in `session_overview.rs`: a digest writes filenames and a
-    56-character headline has room to name one, so a check that only saw the
+    `content_words` in `session_synopsis.rs`: a digest writes filenames and a
+    72-character description has room to name one, so a check that only saw the
     dotted whole would call an example decontaminated because it wrote
     `nocturne` where the digest wrote `nocturne.css`.
     """
@@ -79,7 +73,7 @@ def words(text: str) -> set[str]:
 
 def _rust_prompt(name: str) -> str | None:
     """The text of one `const <name>: &str` prompt in `shared_agent.rs`,
-    string-literal content only, with `headline_rules!()` inlined.
+    string-literal content only.
 
     Read out of the Rust source rather than duplicated here — a copy would be
     the thing that goes stale while reporting all is well, which is the failure
@@ -93,11 +87,6 @@ def _rust_prompt(name: str) -> str | None:
     if anchor not in text:
         return None
     region = _through_closing_paren(text, anchor)
-    if "headline_rules!()" in region:
-        region = region.replace(
-            "headline_rules!()",
-            _through_closing_paren(text, "macro_rules! headline_rules"),
-        )
     literals = re.findall(r'"((?:[^"\\]|\\.)*)"', region, re.S)
     joined = "".join(literals)
     # Rust escapes, in the order that keeps `\\n` from becoming a newline:
@@ -111,7 +100,7 @@ def _rust_prompt(name: str) -> str | None:
 
 def _through_closing_paren(text: str, anchor: str) -> str:
     """The source region from `anchor` through the next `)`/`}` at column 0 —
-    how far a prompt `concat!(…)` or the rules macro body runs."""
+    how far a prompt `concat!(…)` or a plain literal runs."""
     start = text.index(anchor)
     end = min(
         (i for i in (text.find(f"\n{close}", start) for close in (")", "}")) if i != -1),
@@ -120,57 +109,50 @@ def _through_closing_paren(text: str, anchor: str) -> str:
     return text[start:end]
 
 
-def summarize_prompt() -> str:
-    """The live-intent lane's job prompt, for the drift report."""
-    return _rust_prompt("SUMMARIZE_INSTRUCTIONS") or ""
-
-
-def headline_prompts() -> list[str]:
-    """Every prompt that could show headline examples: the live-intent
-    `summarize` lane and the idle collapse's retrospective one. The Haiku
-    prompts currently carry no `HEADLINE:` examples at all — the few-shot
-    scaffolding propped up the weak local model and was dropped in the
-    SharedAgent port — so an example found here is a later addition, and the
-    guards below apply to it the day it appears."""
-    return [
-        prompt
-        for name in ("SUMMARIZE_INSTRUCTIONS", "SUMMARIZE_DONE_INSTRUCTIONS")
-        if (prompt := _rust_prompt(name)) is not None
-    ]
+def synopsis_prompt() -> str | None:
+    """The description lane's job prompt, for the drift report and the
+    contamination guard. `None` means the extractor went blind."""
+    return _rust_prompt("SYNOPSIS_INSTRUCTIONS")
 
 
 def example_lines() -> list[str]:
-    """The bare headline examples in that prompt — the line after each
-    `HEADLINE:` marker.
+    """The bare description examples in that prompt — the line after each
+    `DESCRIPTION:` marker.
 
     Anchored on the marker rather than on the shape of the line, because the
     prompt's paired format puts one there and nothing else does. The version
     before this recognized an example by being 2-6 words long and opening on a
-    known verb, which was the old six-word headline budget in disguise: at 56
-    characters an example can run eight or nine words, and every one of those
-    would have vanished from `lifted` and from `contamination` — the two checks
-    this function feeds — while both kept reporting all clear.
+    known verb, which was a headline budget in disguise: at 72 characters an
+    example can run ten or eleven words, and every one of those would have
+    vanished from `lifted` and from `contamination` — the two checks this
+    function feeds — while both kept reporting all clear.
 
     Widening the length bound was not the fix. That bound was doing a second
     job: keeping the instruction prose out, and some of that prose is itself
-    short and verb-initial (`Not "Fixing", not "Building" — Fix, Build.`). The
-    marker is exact where any length heuristic is a guess, and it needs no verb
-    list at all, which is what lets the past-tense retrospective examples be
-    read by the same code.
+    short and verb-initial (`Not "Fixing", not "Working on" — Rework, Repair.`).
+    The marker is exact where any length heuristic is a guess, and it needs no
+    verb list at all.
+
+    The Haiku prompt currently carries no `DESCRIPTION:` examples at all — the
+    few-shot scaffolding propped up the weak local model and was dropped in the
+    SharedAgent port — so an example found here is a later addition, and the
+    guards below apply to it the day it appears.
     """
+    source = synopsis_prompt()
+    if source is None:
+        return []
     out = []
-    for source in headline_prompts():
-        lines = source.splitlines()
-        for i, line in enumerate(lines[:-1]):
-            if line.strip() == "HEADLINE:":
-                example = lines[i + 1].strip()
-                if example:
-                    out.append(example)
+    lines = source.splitlines()
+    for i, line in enumerate(lines[:-1]):
+        if line.strip() == "DESCRIPTION:":
+            example = lines[i + 1].strip()
+            if example:
+                out.append(example)
     return out
 
 
-def lifted(headline: str) -> str | None:
-    """The prompt example this headline copied, if it copied one.
+def lifted(line: str) -> str | None:
+    """The prompt example this description copied, if it copied one.
 
     Only meaningful because the examples are disjoint from the corpus (see
     `contamination`): with an answer key in the instructions a match would be
@@ -182,7 +164,7 @@ def lifted(headline: str) -> str | None:
     Matched on the word set rather than the exact string, so a copy that drops a
     preposition or reorders is still caught.
     """
-    have = words(headline)
+    have = words(line)
     for example in example_lines():
         if have == words(example):
             return example
@@ -199,13 +181,11 @@ def contamination(digests: list[Path]) -> list[tuple[str, str]]:
     prompt that was leaking into production. Scoring a contaminated corpus is
     worse than not scoring, so `run.py` refuses rather than warns.
     """
-    # Deduped on the pair: the same corpus entry has both a live digest and a
-    # retrospective one, and reporting one leak twice reads as two leaks.
     hits: list[tuple[str, str]] = []
     examples = example_lines()
     for digest in digests:
         have = words(digest.read_text())
-        name = digest.name.removesuffix(".digest.txt").removesuffix(".done.txt")
+        name = digest.name.removesuffix(".digest.txt")
         for example in examples:
             subject = words(example) - words(example.split()[0])
             if subject and subject <= have and (example, name) not in hits:
@@ -218,19 +198,13 @@ def main() -> int:
     ap.add_argument("instance", nargs="?", default="debug-main")
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--json", type=Path, help="write the full result set here")
-    ap.add_argument(
-        "--retrospective",
-        action="store_true",
-        help="drive the idle collapse's past-tense lane over the .done.txt fixtures",
-    )
     args = ap.parse_args()
 
     path = log_path(args.instance)
     if path is None:
         print(f"no tugcast log for instance {args.instance!r}", file=sys.stderr)
         return 2
-    suffix = ".done.txt" if args.retrospective else ".digest.txt"
-    digests = sorted(CORPUS.glob(f"*{suffix}"))
+    digests = sorted(CORPUS.glob("*.digest.txt"))
     if not digests:
         print("no corpus; run `cargo nextest run corpus_digests` first", file=sys.stderr)
         return 2
@@ -238,27 +212,25 @@ def main() -> int:
     # An extraction that finds nothing looks exactly like a clean bill, so the
     # guard checks itself first. A Rust rename is the way this goes silent.
     # Zero examples inside a successfully extracted prompt is the current,
-    # legitimate state (the Haiku prompts are example-free); zero *prompts* is
+    # legitimate state (the Haiku prompt is example-free); no prompt at all is
     # the extractor gone blind.
-    if len(headline_prompts()) != 2:
+    if synopsis_prompt() is None:
         print(
             "prompt extraction from shared_agent.rs came up short — the\n"
-            "`SUMMARIZE_INSTRUCTIONS` / `SUMMARIZE_DONE_INSTRUCTIONS` consts\n"
-            "moved or were renamed. The contamination guard is blind until\n"
-            "this is fixed; it is not reporting that all is well.",
+            "`SYNOPSIS_INSTRUCTIONS` const moved or was renamed. The\n"
+            "contamination guard is blind until this is fixed; it is not\n"
+            "reporting that all is well.",
             file=sys.stderr,
         )
         return 2
 
-    # Both lanes' fixtures: an example that is an answer key for a retrospective
-    # digest is as much a leak as one for a live digest.
-    leaks = contamination(digests + sorted(CORPUS.glob("*.done.txt")))
+    leaks = contamination(digests)
     if leaks:
         print("CONTAMINATED — these prompt examples are answer keys:", file=sys.stderr)
         for example, name in leaks:
             print(f"  {example!r} is {name}'s subject", file=sys.stderr)
         print(
-            "\nRewrite the example in SUMMARIZE_INSTRUCTIONS (shared_agent.rs)\n"
+            "\nRewrite the example in SYNOPSIS_INSTRUCTIONS (shared_agent.rs)\n"
             "onto work no digest describes. A score over this pair measures\n"
             "copying.",
             file=sys.stderr,
@@ -267,28 +239,20 @@ def main() -> int:
 
     rows, latencies = [], []
     for digest_file in digests:
-        name = digest_file.name.removesuffix(suffix)
-        answer = ask(
-            digest_file.read_text(), args.instance, path, args.timeout,
-            retrospective=args.retrospective,
-        )
+        name = digest_file.name.removesuffix(".digest.txt")
+        answer = ask(digest_file.read_text(), args.instance, path, args.timeout)
         if answer is None:
             print(f"{name:24s} -- NO ANSWER")
             continue
-        raw, headline, ms = answer
-        row = score(headline, retrospective=args.retrospective)
+        raw, line, ms = answer
+        row = score(line)
         row["name"], row["raw"], row["ms"] = name, raw, ms
-        # Which lane produced this row. The offline gate reads these captures
-        # back and has to ground a retrospective in `Retrospective` mode against
-        # the `.done.txt` fixture — scoring it as an intent would refuse every
-        # past-tense opener that spells a tool name and report it as a finding.
-        row["retrospective"] = args.retrospective
-        row["lifted"] = lifted(headline)
+        row["lifted"] = lifted(line)
         rows.append(row)
         latencies.append(ms)
-        drift = "  (raw: %s)" % raw if raw != headline else ""
+        drift = "  (raw: %s)" % raw if raw != line else ""
         copied = "  <- COPIED FROM THE PROMPT" if row["lifted"] else ""
-        print(f'{name:24s} {row["chars"]:2d}c [{flags(row)}] {headline}{drift}{copied}')
+        print(f'{name:24s} {row["chars"]:2d}c [{flags(row)}] {line}{drift}{copied}')
 
     if not rows:
         print("\nnothing scored — is the instance running with a model installed?")
@@ -306,18 +270,18 @@ def main() -> int:
     copies = [r for r in rows if r["lifted"]]
     print(f'  {"copied examples":16s} {len(copies):2d}/{n}')
     if copies:
-        print(f"\n  {len(copies)} headline(s) were copied out of the prompt's example")
+        print(f"\n  {len(copies)} description(s) were copied out of the prompt's example")
         print("  block, not written from the digest — the examples are disjoint")
         print("  from the corpus, so a match here cannot be a correct answer:")
         for r in copies:
-            print(f'    {r["name"]}: {r["headline"]!r}')
+            print(f'    {r["name"]}: {r["line"]!r}')
 
-    drifted = [r for r in rows if r["raw"] != r["headline"]]
+    drifted = [r for r in rows if r["raw"] != r["line"]]
     if drifted:
-        print(f'\n  {len(drifted)} headline(s) needed the normalizer — the prompt is')
+        print(f'\n  {len(drifted)} description(s) needed the normalizer — the prompt is')
         print("  drifting from the register it asks for:")
         for r in drifted:
-            print(f'    {r["name"]}: {r["raw"]!r} -> {r["headline"]!r}')
+            print(f'    {r["name"]}: {r["raw"]!r} -> {r["line"]!r}')
 
     if args.json:
         args.json.write_text(json.dumps(rows, indent=1))

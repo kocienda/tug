@@ -33,10 +33,7 @@ export const SHARED_AGENT_DOMAIN = "dev.tugtool.shared-agent";
 /** Per-tenant kill switch for shell arbitration. Deck-only; no Rust reader. */
 export const SHELL_ROUTING_KEY = "shell-routing";
 
-/** Per-tenant kill switch for the session-overview intent line. */
-export const PULSE_OVERVIEW_KEY = "pulse-overview";
-
-export type SharedAgentTenant = typeof SHELL_ROUTING_KEY | typeof PULSE_OVERVIEW_KEY;
+export type SharedAgentTenant = typeof SHELL_ROUTING_KEY;
 
 /**
  * A tenant kill switch. Absent — and any non-bool — reads as enabled, the

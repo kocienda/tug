@@ -8,7 +8,5 @@
   "Edit(tugdeck/styles/session-card.css)",
   "said: The resize stutter came from a transition on grid-template-columns.",
   "Bash(bunx vite build)"
- ],
- "recent_tools": 0,
- "asked": true
+ ]
 }

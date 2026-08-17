@@ -73,7 +73,6 @@ import type {
   CardBinding,
   OverviewPostWire,
   PulseLineWireRow,
-  PulseOverviewWireRow,
   SessionStateChangeWireRow,
 } from "./protocol";
 import { publishListPulseLinesOk } from "./lib/pulse-store";
@@ -1315,21 +1314,14 @@ export function initActionDispatch(
 
   // list_pulse_lines_ok: response to the pulse-store's app-scoped
   // ledger-tail request. Lines are oldest-first; an empty ledger is a
-  // valid empty array. `overviews` rides the same response — a standing
-  // headline per scope, which is what a card wears after a relaunch.
+  // valid empty array.
   registerAction("list_pulse_lines_ok", (payload) => {
     const lines = payload.lines;
     if (!Array.isArray(lines)) {
       console.warn("list_pulse_lines_ok: missing or invalid lines", payload);
       return;
     }
-    const overviews = payload.overviews;
-    publishListPulseLinesOk({
-      lines: lines as PulseLineWireRow[],
-      overviews: Array.isArray(overviews)
-        ? (overviews as PulseOverviewWireRow[])
-        : [],
-    });
+    publishListPulseLinesOk({ lines: lines as PulseLineWireRow[] });
   });
 
   // list_overview_posts_ok: response to the overview-store's app-scoped

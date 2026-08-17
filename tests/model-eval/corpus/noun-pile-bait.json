@@ -6,6 +6,5 @@
   "Read(tugdeck/styles/themes/nocturne.css)",
   "Bash(bun run audit:theme-contrast)",
   "Edit(tugdeck/styles/themes/aria.css)"
- ],
- "recent_tools": 2
+ ]
 }

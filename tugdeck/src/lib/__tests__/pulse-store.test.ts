@@ -16,7 +16,6 @@ import {
   PulseStore,
   groupPulseHistory,
   latestLineForScope,
-  latestPulseOverviewForScope,
   publishListPulseLinesOk,
   type PulseLineEntry,
 } from "@/lib/pulse-store";
@@ -88,7 +87,6 @@ describe("PulseStore", () => {
     store.getSnapshot();
     publishListPulseLinesOk({
       lines: [wireRow(1, "first"), wireRow(2, "second")] as never,
-      overviews: [],
     });
     const snap = store.getSnapshot();
     expect(snap.status).toBe("ready");
@@ -107,7 +105,6 @@ describe("PulseStore", () => {
     // …then the tail arrives carrying the SAME line plus history.
     publishListPulseLinesOk({
       lines: [wireRow(1, "first"), wireRow(2, "second")] as never,
-      overviews: [],
     });
     expect(store.getSnapshot().lines.map((l) => l.text)).toEqual([
       "first",
@@ -142,7 +139,6 @@ describe("PulseStore", () => {
       lines: [
         { ...wireRow(1, "Explore · Reading foo.ts"), intent: "Mapping the reducer seam first." },
       ] as never,
-      overviews: [],
     });
     snap = store.getSnapshot();
     expect(snap.lines[0].intent).toBe("Mapping the reducer seam first.");
@@ -182,37 +178,6 @@ describe("PulseStore", () => {
     expect(snap.lines.filter((l) => l.scopes.includes("s1")).length).toBe(
       PULSE_LINES_CAP,
     );
-  });
-
-  it("the tail restores standing overviews; a live one already held wins", () => {
-    const { store, conn } = makeStore();
-    stores.push(store);
-    store.getSnapshot();
-    // s1 already spoke live while the tail was in flight.
-    conn.pushPulseFrame({
-      type: "pulse",
-      kind: "overview",
-      text: "live: rewiring the responder chain",
-      scopes: ["s1"],
-      beat: 4,
-      at: 9_000,
-    });
-    publishListPulseLinesOk({
-      lines: [],
-      overviews: [
-        { scope: "s1", at_ms: 1_000, beat: 1, text: "stale: earlier stretch" },
-        { scope: "s2", at_ms: 2_000, beat: 2, text: "restored: pulse ledger" },
-      ],
-    });
-    const { pulseOverviews } = store.getSnapshot();
-    expect(latestPulseOverviewForScope(pulseOverviews, "s1")?.text).toBe(
-      "live: rewiring the responder chain",
-    );
-    expect(latestPulseOverviewForScope(pulseOverviews, "s2")?.text).toBe(
-      "restored: pulse ledger",
-    );
-    // A card with no overview of its own and no app-wide one stays bare.
-    expect(latestPulseOverviewForScope(pulseOverviews, "s3")).toBeNull();
   });
 
   it("latestLineForScope shows own-session, app-wide, and woven lines only", () => {
@@ -352,91 +317,5 @@ describe("clearScope", () => {
     expect(
       latestLineForScope(snap.lines, "s2", snap.cleared.get("s2"))?.text,
     ).toBe("s2 line");
-  });
-});
-
-describe("PulseStore — overviews", () => {
-  function overviewFrame(
-    text: string,
-    scopes: string[] = ["s1"],
-    beat = 1,
-  ): Record<string, unknown> {
-    return { type: "pulse", kind: "overview", text, scopes, beat, at: 2_000 + beat };
-  }
-
-  it("an overview never enters the beat log", () => {
-    const { store, conn } = makeStore();
-    stores.push(store);
-    store.getSnapshot();
-    conn.pushPulseFrame(liveLine(1, "a beat"));
-    conn.pushPulseFrame(overviewFrame("Hardening the watch loop."));
-    const snap = store.getSnapshot();
-    expect(snap.lines.length).toBe(1);
-    expect(snap.lines[0].text).toBe("a beat");
-    expect(snap.latest?.text).toBe("a beat");
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s1")?.text).toBe(
-      "Hardening the watch loop.",
-    );
-  });
-
-  it("a newer overview replaces the older one outright", () => {
-    const { store, conn } = makeStore();
-    stores.push(store);
-    store.getSnapshot();
-    conn.pushPulseFrame(overviewFrame("First goal.", ["s1"], 1));
-    conn.pushPulseFrame(overviewFrame("Second goal.", ["s1"], 2));
-    const snap = store.getSnapshot();
-    expect(snap.pulseOverviews.size).toBe(1);
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s1")?.text).toBe("Second goal.");
-  });
-
-  it("a card only sees its own session's overview", () => {
-    const { store, conn } = makeStore();
-    stores.push(store);
-    store.getSnapshot();
-    conn.pushPulseFrame(overviewFrame("s1 goal.", ["s1"]));
-    const snap = store.getSnapshot();
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s1")?.text).toBe("s1 goal.");
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s2")).toBeNull();
-  });
-
-  it("an app-wide overview shows everywhere the session has none", () => {
-    const { store, conn } = makeStore();
-    stores.push(store);
-    store.getSnapshot();
-    conn.pushPulseFrame(overviewFrame("app-wide.", ["app"]));
-    let snap = store.getSnapshot();
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s2")?.text).toBe("app-wide.");
-    // The session's own always wins over the app-wide fallback.
-    conn.pushPulseFrame(overviewFrame("s2 goal.", ["s2"]));
-    snap = store.getSnapshot();
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s2")?.text).toBe("s2 goal.");
-  });
-
-  it("an unscoped overview files as app-wide", () => {
-    const { store, conn } = makeStore();
-    stores.push(store);
-    store.getSnapshot();
-    conn.pushPulseFrame(overviewFrame("unscoped.", []));
-    const snap = store.getSnapshot();
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "anything")?.text).toBe("unscoped.");
-  });
-
-  it("clearing a scope does not clear its overview — it is not news", () => {
-    const { store, conn } = makeStore();
-    stores.push(store);
-    store.getSnapshot();
-    conn.pushPulseFrame(overviewFrame("Standing goal."));
-    store.clearScope("s1");
-    const snap = store.getSnapshot();
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "s1")?.text).toBe("Standing goal.");
-  });
-
-  it("an empty scope has no overview", () => {
-    const { store } = makeStore();
-    stores.push(store);
-    const snap = store.getSnapshot();
-    expect(latestPulseOverviewForScope(snap.pulseOverviews, "")).toBeNull();
-    expect(snap.pulseOverviews.size).toBe(0);
   });
 });

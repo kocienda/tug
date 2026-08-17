@@ -1,9 +1,0 @@
-The standing goal:
-- bundle tmux statically from source
-
-What the session did:
-- $ bash scripts/fetch-tmux.sh --verify
-- $ bash scripts/fetch-tmux.sh --verify → exit 1
-- Bash(bash scripts/fetch-tmux.sh --verify)
-- Edit(scripts/fetch-tmux.sh)
-- said: The checksum step failed because the mirror serves a gzip, not an xz.

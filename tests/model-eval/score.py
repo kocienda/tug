@@ -1,87 +1,75 @@
-"""Score one headline against the register the PULSE strip is written in.
+"""Score one description against the register a session row is written in.
 
 The rubric is mechanical on purpose. There is no ground truth for "what is this
-session working on" — two correct headlines can share no words — so nothing here
-scores whether a headline is *right*. It scores whether it is a headline at all,
-which is the part that kept going wrong.
+session about" — two correct descriptions can share no words — so nothing here
+scores whether a description is *right*. It scores whether it is a description
+at all, which is the part that kept going wrong.
 
-Every check traces to a rule of newspaper headline register:
+Every check traces to a rule of the register `SYNOPSIS_INSTRUCTIONS` asks for:
 
-  verb_first    A headline needs a verb; a noun phrase without one is a *label*,
-                which is the failure this whole rubric exists to catch. Sessions
-                have no subject to name (the session is the implied subject), so
-                the verb leads, in the plain command form — or, for a
-                retrospective, in the past form.
-  within_budget 56 characters, the room the strip gives a headline. Compression
-                is the register's defining constraint, and this is the only
-                measure of it: a headline that says the work in ten short words
-                is a headline, and counting words instead once cut those.
-  no_article    "a", "an", "the" are dropped.
-  no_and        "and" gives way to a comma, or the second half is cut.
+  verb_first    A description needs a verb; a noun phrase without one is a
+                *label*, which is the failure this rubric exists to catch.
+                Sessions have no subject to name (the session is the implied
+                subject), so the verb leads, in the plain command form.
+  within_budget `MAX_SYNOPSIS_CHARS`, the room every surface gives the line.
+                The instruction asks for less on purpose; this is the hard edge
+                past which the normalizer clips mid-thought.
   sentence_case Only the first word and proper names are capitalized.
 
-`verbs.txt` is a closed list, so a headline opening with a word not on it scores
-as a miss and gets read by a human — a model inventing a plausible verb should
-cost a look, not pass silently. Add genuinely good verbs to the list; that is
-the intended way for it to grow. The file carries two sections: plain command
-forms for intents, and the past forms a retrospective opens with.
+Articles and conjunctions are deliberately NOT scored: this is the one line in
+the product that gets to read as English, and the instruction says so. Scoring
+them was the headline's rule, and it would fail every correct description.
+
+What the normalizer repairs is not scored either — a leading article, a filler
+opener, a trailing period, wrapping quotes. Those come back already fixed, so a
+check on them would pass unconditionally; `run.py`'s drift report is where they
+show up, by comparing the raw answer against the normalized one.
+
+`verbs.txt` is a closed list, so a description opening with a word not on it
+scores as a miss and gets read by a human — a model inventing a plausible verb
+should cost a look, not pass silently. Add genuinely good verbs to the list;
+that is the intended way for it to grow.
 """
 
 import re
 from pathlib import Path
 
-PAST_SECTION = "# past forms"
 
-
-def _verb_sections() -> tuple[set[str], set[str]]:
-    """The plain and past-form halves of `verbs.txt`.
-
-    The past forms live behind a marker line rather than in their own file so
-    the two lists stay side by side and grow together — a verb earned for one
-    register almost always wants its counterpart in the other.
-    """
-    plain: set[str] = set()
-    past: set[str] = set()
-    into = plain
+def _verbs() -> set[str]:
+    out: set[str] = set()
     for line in (Path(__file__).parent / "verbs.txt").read_text().splitlines():
-        if line.strip() == PAST_SECTION:
-            into = past
-        elif not line.lstrip().startswith("#"):
-            into.update(word.lower() for word in line.split())
-    return plain, past
+        if not line.lstrip().startswith("#"):
+            out.update(word.lower() for word in line.split())
+    return out
 
 
-VERBS, PAST_VERBS = _verb_sections()
+VERBS = _verbs()
 
-ARTICLE = re.compile(r"\b(the|a|an)\b", re.I)
-AND = re.compile(r"\band\b", re.I)
-MAX_CHARS = 56
+# Mirrors `MAX_SYNOPSIS_CHARS` in `session_synopsis.rs`.
+MAX_CHARS = 72
 
-# A capitalized word mid-headline is only a violation if it is ordinary prose.
+# A capitalized word mid-line is only a violation if it is ordinary prose.
 # Identifiers and proper names legitimately keep their capitals, so anything
 # that looks like one is exempt: an interior capital (`TugSetup`), all caps
-# (`README`), or a dotted path (`session_overview.rs`).
+# (`README`), or a dotted path (`session_synopsis.rs`).
 IDENTIFIER = re.compile(r"[a-z][A-Z]|\.")
 PROPER = {
     "Lens", "Tug", "Rust", "Swift", "Claude", "Sparkle", "Bonsai", "MLX",
     "Maxwell", "Maxwell's", "Makefile", "README", "PATH", "CPU", "Xcode",
-    # This project's own surfaces, which a headline about it names constantly.
+    # This project's own surfaces, which a description about it names constantly.
     "Tugdeck", "Tugcast", "Tugcode", "Tugbank", "Tugways", "Tugutil",
     "ConfigureTug", "TugSetup", "Session", "Jots", "Changeset", "DMG",
     "WAL", "JSONL",
 }
 
 
-def score(headline: str, retrospective: bool = False) -> dict:
-    """Score one line. In `retrospective` mode the opener is read against the
-    past forms — the tense is what tells a settled stretch from a live intent,
-    and the strip gives them the same pixels."""
-    words = headline.split()
+def score(line: str) -> dict:
+    """Score one description."""
+    words = line.split()
     if not words:
         return {
-            "headline": headline, "words": 0, "chars": 0, "verb_first": False,
-            "within_budget": True, "no_article": True, "no_and": True,
-            "sentence_case": True, "passes": False,
+            "line": line, "words": 0, "chars": 0, "verb_first": False,
+            "within_budget": True, "sentence_case": True, "passes": False,
         }
 
     first = re.sub(r"[^A-Za-z-]", "", words[0]).lower()
@@ -93,28 +81,23 @@ def score(headline: str, retrospective: bool = False) -> dict:
     stray_capitals = [w for w in words[1:] if w[:1].isupper() and not is_proper(w)]
 
     result = {
-        "headline": headline,
+        "line": line,
         "words": len(words),
-        "chars": len(headline),
-        "verb_first": first in (PAST_VERBS if retrospective else VERBS),
-        "within_budget": len(headline) <= MAX_CHARS,
-        "no_article": not ARTICLE.search(headline),
-        "no_and": not AND.search(headline),
+        "chars": len(line),
+        "verb_first": first in VERBS,
+        "within_budget": len(line) <= MAX_CHARS,
         "sentence_case": not stray_capitals,
     }
-    result["passes"] = all(
-        result[k] for k in
-        ("verb_first", "within_budget", "no_article", "no_and", "sentence_case")
-    )
+    result["passes"] = all(result[k] for k in CHECKS)
     return result
 
 
-CHECKS = ("verb_first", "within_budget", "no_article", "no_and", "sentence_case")
+CHECKS = ("verb_first", "within_budget", "sentence_case")
 
 
 def flags(result: dict) -> str:
-    """A five-slot summary, one letter per failed check."""
+    """A three-slot summary, one letter per failed check."""
     return "".join(
         "." if result[k] else letter
-        for k, letter in zip(CHECKS, "VBA&C")
+        for k, letter in zip(CHECKS, "VBC")
     )

@@ -1,6 +1,6 @@
-# Verbs a session headline may open with, in the plain command form.
+# Verbs a session description may open with, in the plain command form.
 #
-# A closed list on purpose: a headline opening with a word that is not here
+# A closed list on purpose: a description opening with a word that is not here
 # scores as a miss so a human reads it. When the model earns a good verb that
 # is missing, add it — that is how this file is meant to grow.
 add audit author
@@ -27,35 +27,3 @@ teach test throttle tighten trace track trigger trim tune
 unify update
 validate verify vet
 walk watch wire wrap write
-
-# past forms
-#
-# What a retrospective opens with, once a stretch of work has settled. The
-# strip gives an intent and a retrospective the same pixels, so the tense is
-# the only thing telling them apart — which is why this is a scored rule and
-# not a stylistic note. Grown exactly like the plain list above: when the
-# model earns a past form that is missing, add it.
-added audited authored
-bound built bundled
-cached chased checked clipped closed composed covered cut
-debugged derived detected diagnosed drafted drove dropped dumped
-emitted enforced evaluated expanded explained explored extended
-fetched filtered found fixed flushed folded formatted
-gated generated
-handled hardened hunted
-implemented improved indexed injected inserted inspected installed instrumented investigated
-landed linked loaded logged
-mapped measured merged migrated mounted moved
-normalized
-opened
-parsed patched persisted pinned planned ported probed profiled pruned published pushed
-queried queued
-raised read rebuilt recorded reduced refactored renamed rendered repaired replaced
-reset resolved restored resumed retried rewrote routed
-salvaged sampled saved scanned scoped scored sealed seeded sent served set shipped
-showed silenced simplified skipped solved sorted spawned split stabilized started stopped
-stored streamed stripped summarized swept switched synced
-taught tested throttled tightened traced tracked triggered trimmed tuned
-unified updated
-validated verified vetted
-walked watched wired wrapped wrote

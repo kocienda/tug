@@ -15,18 +15,12 @@ from pathlib import Path
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
-# tugcast logs the normalized headline beside the raw answer; the two differing
-# means the normalizer is covering for a prompt that has drifted. The headline
-# runs to the normalizer's report fields when they are present and to end of
-# line when they are not, so the capture stops at whichever comes first rather
-# than swallowing `normalized=…` into the headline.
-ANSWER = re.compile(r"raw=(?P<raw>.*?) headline=(?P<headline>.*?)(?= normalized=|\s*$)")
-
-# Which summarize lane answered. Both the live intent and the idle collapse's
-# retrospective log the same message, so without this a retrospective landing
-# between an `ask` call's two reads would be handed back as the intent's answer.
-# A line with no `task=` predates the field and is an intent by construction.
-TASK = re.compile(r'\btask="(?P<task>[a-z_]+)"')
+# tugcast logs the normalized description beside the raw answer; the two
+# differing means the normalizer is covering for a prompt that has drifted. The
+# line runs to the normalizer's report fields when they are present and to end
+# of line when they are not, so the capture stops at whichever comes first
+# rather than swallowing `normalized=…` into the description.
+ANSWER = re.compile(r"raw=(?P<raw>.*?) line=(?P<line>.*?)(?= normalized=|\s*$)")
 
 # The classify verdict, logged with the line it judged. The text may contain
 # anything including `verdict=`, so the verdict is anchored to end of line and
@@ -55,20 +49,25 @@ def log_path(instance: str) -> Path | None:
     return candidates[-1] if candidates else None
 
 
-def answers(path: Path, task: str = "summarize") -> list[tuple[str, str]]:
+def answers(path: Path) -> list[tuple[str, str]]:
+    """Every `(raw, normalized)` description the socket verb has drawn, oldest
+    first.
+
+    Reads only the verb's own log message. The feed writes its answers under
+    `session synopsis: written`, a different line entirely, so a description the
+    app composed on its own cadence while this was waiting can never be handed
+    back as the answer to a digest nobody asked it about.
+    """
     if not path.exists():
         return []
     out = []
     for line in path.read_text(errors="ignore").splitlines():
         line = ANSI.sub("", line)
-        if "shared agent summarize answered" not in line:
-            continue
-        found = TASK.search(line)
-        if (found.group("task") if found else "summarize") != task:
+        if "shared agent synopsis answered" not in line:
             continue
         m = ANSWER.search(line)
         if m:
-            out.append((m.group("raw").strip(), m.group("headline").strip()))
+            out.append((m.group("raw").strip(), m.group("line").strip()))
     return out
 
 
@@ -77,21 +76,12 @@ def ask(
     instance: str,
     path: Path,
     timeout: float,
-    retrospective: bool = False,
 ) -> tuple[str, str, int] | None:
-    """Put one digest to the model and read its answer back out of the log.
-
-    `retrospective` drives the idle collapse's past-tense lane instead of the
-    live intent one. The two are read apart by task, never by arrival order:
-    they share a log message, and the emitter can answer one while this is
-    waiting on the other.
-    """
-    task = "summarize_done" if retrospective else "summarize"
-    action = f"shared_agent_{task}"
-    before = len(answers(path, task))
+    """Put one digest to the model and read its answer back out of the log."""
+    before = len(answers(path))
     started = time.monotonic()
     proc = subprocess.run(
-        ["tugutil", "host", "tell", action,
+        ["tugutil", "host", "tell", "shared_agent_synopsis",
          "--instance", instance, "-p", f"prompt={digest}"],
         capture_output=True, text=True,
     )
@@ -100,10 +90,10 @@ def ask(
         return None
     while time.monotonic() - started < timeout:
         time.sleep(0.2)
-        got = answers(path, task)
+        got = answers(path)
         if len(got) > before:
-            raw, headline = got[-1]
-            return raw, headline, round((time.monotonic() - started) * 1000)
+            raw, line = got[-1]
+            return raw, line, round((time.monotonic() - started) * 1000)
     return None
 
 
@@ -146,7 +136,7 @@ def ask_classify(
     guards against one, because the corpus is the only caller.
 
     `grammar` is the program's own documentation, sent for a Maybe-band line so
-    the app composes its documentation-bearing classify prompt. A synopsis is
+    the app composes its documentation-bearing classify prompt. A grammar is
     multi-line and full of `=`, which `-p` survives because the param parser
     splits on the FIRST `=` only.
     """

@@ -2,7 +2,7 @@
   "_doc": [
     "Labeled shell-routing cases: does this line mean the shell, or mean Claude?",
     "",
-    "Unlike the headline corpus next door, this one has ground truth, so it is",
+    "Unlike the description corpus next door, this one has ground truth, so it is",
     "scored as accuracy rather than as a rate. The two error directions are NOT",
     "equal and the runner reports them apart: a line labeled prompt and answered",
     "shell has already executed a command nobody asked for, while the reverse",

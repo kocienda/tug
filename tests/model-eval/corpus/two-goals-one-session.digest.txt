@@ -1,12 +1,10 @@
-The standing goal:
-- the download restarts from zero when resumed, fix it
-
-The current ask:
+What the session was most recently asked to do:
 - also port the shell router to async
 
-What the session has been doing:
-- Edit(tugcast/src/local_model.rs)
+What the session set out to do at the start (context, not the subject):
+- the download restarts from zero when resumed, fix it
 
-What it is doing right now:
+Where it stands right now (background, not the subject):
+- Edit(tugcast/src/local_model.rs)
 - Bash(cargo nextest run download)
 - Edit(tugcast/src/feeds/shell.rs)

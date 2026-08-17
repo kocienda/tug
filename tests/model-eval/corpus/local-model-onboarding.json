@@ -49,6 +49,5 @@
   "Bash(cd ~/bonsai-eval && for r in mlx-community/Qwen3-4B-Instruct)",
   "Write(make_digests.py)",
   "Bash(cd ~/bonsai-eval && python3 make_digests.py && echo \"=== sam)"
- ],
- "recent_tools": 9
+ ]
 }

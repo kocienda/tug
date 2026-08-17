@@ -47,6 +47,5 @@
   "Bash(ls tuglaws/ && echo \"=== release/update docs ===\" && grep -r)",
   "Bash(cd tugrust && git log -1 --format=%h && echo \"=== does gener)",
   "Bash(gh secret list 2>&1 | head -20)"
- ],
- "recent_tools": 8
+ ]
 }

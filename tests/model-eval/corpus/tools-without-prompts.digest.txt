@@ -1,7 +1,0 @@
-What it is doing right now:
-- Read(tugcast/src/feeds/session_overview.rs)
-- said: The cadence gate never fires because only tool frames count as beats.
-- Grep(session overview)
-- $ cargo nextest run session_overview
-- Bash(cargo nextest run session_overview)
-- Edit(tugcast/src/feeds/session_overview.rs)

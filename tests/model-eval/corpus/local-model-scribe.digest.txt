@@ -1,25 +1,18 @@
-The standing goal:
-- OK. You see what `@tugrust/crates/tugcast/src/scribe.rs` does, eh? What would we need to do to bring this type of AI processing to a *local model* that runs on the *local computer* that we can ship with Tug? It feels to me that this is the …
-
-The current ask:
+What the session was most recently asked to do:
 - Can we run a dash to try out these Bonsai models? I would like to see if we can use these *exclusively*, and never use Qwen3-Coder-30B at all. We can always fallback to `claude -p`.
 Use their MLX (see the branch/fork that supports these mod…
 
-What the session has been doing:
-- Bash(cd /Users/kocienda/Mounts/u/src/tugtool
-- Read(main-pulse.ts)
-- Bash(DIR=~/.claude/projects/-Users-kocienda-Mounts-u-src-tugtool
-- Write(pulse_8b.py)
-- Bash(cd ~/bonsai-eval/Bonsai-demo
-- Read(results-pulse-8b.md)
-- Bash(cd ~/bonsai-eval/Bonsai-demo
-- Write(report-pulse-8b.md)
-- Bash(rm -f /Users/kocienda/Mounts/u/src/tugtool/.git/worktrees/bo)
-- Bash(pgrep -fl git | grep -v pgrep || echo "no git process"
+What it worked on before that, newest first:
+- https://prismml.com/news/bonsai-8b
+- https://huggingface.co/collections/prism-ml/bonsai
+- OK. Check out this model. Looks *way* more promising for local processing than the Qwen models you suggested. 1-bit models! What do you think?
+
+What the session set out to do at the start (context, not the subject):
+- OK. You see what `@tugrust/crates/tugcast/src/scribe.rs` does, eh? What would we need to do to bring this type of AI processing to a *local model* that runs on the *local computer* that we can ship with Tug? It feels to me that this is the …
+
+Where it stands right now (background, not the subject):
 - Bash(tugutil dash commit bonsai-eval --message "eval(bonsai): 8B )
 - Edit(project_bonsai_local_scribe_eval.md)
-
-What it is doing right now:
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool
 - Bash(cd /Users/kocienda/Mounts/u/src/tugtool
 - Write(local-model-investigations.md)

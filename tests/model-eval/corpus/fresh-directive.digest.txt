@@ -1,14 +1,11 @@
-The standing goal:
-- make the session card resize smoothly when the sidebar collapses
-
-The current ask:
+What the session was most recently asked to do:
 - good. now chase the typing lag in the composer
 
-What the session has been doing:
+What the session set out to do at the start (context, not the subject):
+- make the session card resize smoothly when the sidebar collapses
+
+Where it stands right now (background, not the subject):
 - Read(tugdeck/src/components/chrome/session-card.tsx)
 - Edit(tugdeck/styles/session-card.css)
 - said: The resize stutter came from a transition on grid-template-columns.
 - Bash(bunx vite build)
-
-What it is doing right now:
-- good. now chase the typing lag in the composer

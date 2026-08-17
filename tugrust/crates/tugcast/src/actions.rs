@@ -216,11 +216,10 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 broadcast_auth_result(cat, state, None);
             });
         }
-        // The two summarize lanes: the live intent and the past-tense
-        // retrospective the idle collapse emits. Same seam, same normalization,
-        // different instructions per lane.
-        "shared_agent_summarize" | "shared_agent_summarize_done" => {
-            let retrospective = action == "shared_agent_summarize_done";
+        // The session description, asked on demand against a digest the caller
+        // supplies — the same seam and the same normalization the feed uses on
+        // its own cadence.
+        "shared_agent_synopsis" => {
             let cat = stream_outputs
                 .get(&FeedId::CONTROL)
                 .map(|(tx, _)| tx.clone());
@@ -228,13 +227,10 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 .ok()
                 .and_then(|v| v.get("prompt")?.as_str().map(str::to_owned));
             match prompt {
-                Some(prompt) => crate::shared_agent::request_summary(
-                    shared_agent.clone(),
-                    cat,
-                    prompt,
-                    retrospective,
-                ),
-                None => info!(action, "dispatch_action: summarize missing prompt"),
+                Some(prompt) => {
+                    crate::shared_agent::request_synopsis(shared_agent.clone(), cat, prompt)
+                }
+                None => info!(action, "dispatch_action: synopsis missing prompt"),
             }
         }
         "shared_agent_classify" => {
