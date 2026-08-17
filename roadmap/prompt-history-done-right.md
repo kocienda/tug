@@ -406,15 +406,15 @@ All three routes are loopback-gated (403 `{"error":"denied"}` otherwise, per the
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Path plumbing in tugcore::instance | pending | — |
-| #step-2 | PromptLedger module with schema + unit tests | pending | — |
-| #step-3 | HTTP routes on tugcast | pending | — |
-| #step-4 | GC root-set extension + tugbank migration (one commit) | pending | — |
-| #step-5 | Startup wiring and prune retirement | pending | — |
-| #step-6 | Client rewrite: paged store, outbox, reference-only atoms, backfill | pending | — |
-| #step-7 | Retire the old persistence surface | pending | — |
-| #step-8 | App-test at0437 + harness isolation | pending | — |
-| #step-9 | Integration checkpoint | pending | — |
+| #step-1 | Path plumbing in tugcore::instance | done | `ac38c7380` |
+| #step-2 | PromptLedger module with schema + unit tests | done | `49653bb2d` |
+| #step-3 | HTTP routes on tugcast | done | `35b4c2ca4` |
+| #step-4 | GC root-set extension + tugbank migration (one commit) | done | `bcab886a9` |
+| #step-5 | Startup wiring and prune retirement | done | `7948e4bbd` |
+| #step-6 | Client rewrite: paged store, outbox, reference-only atoms, backfill | done | `3d2ab5755` |
+| #step-7 | Retire the old persistence surface | done | `8967c7d67` |
+| #step-8 | App-test at0437 + harness isolation | done | `c2d9ada6e` |
+| #step-9 | Integration checkpoint | done | `6cdcef921` |
 
 #### Step 1: Path plumbing in tugcore::instance {#step-1}
 
@@ -485,8 +485,11 @@ All three routes are loopback-gated (403 `{"error":"denied"}` otherwise, per the
 
 **Tests:**
 - [ ] Pure-logic tests over the request→ledger seam against an in-memory ledger: append maps body→row and returns the id; duplicate `client_entry_id` echoes the original id; page request maps cursor/limit and clamps out-of-range limits; malformed body is rejected.
+- [ ] Route tests in `integration_tests.rs` over the real router, following `build_jots_test_app`: a `build_prompt_history_test_app(client_ip)` helper returning the app (with `MockConnectInfo`) and the in-memory ledger, then append→page round trip in submit order, wire-level append idempotence, atom-path completion, malformed-body 400, non-loopback 403 on both verbs, and an append against a ledger-less app failing visibly instead of panicking on the missing `Extension`.
 
-**Note on test layering:** do **not** introduce `tower::ServiceExt::oneshot` handler tests. No axum handler in tugcast is tested that way today — every `oneshot` in the crate is `tokio::sync::oneshot` (a channel) — and `attachments.rs` establishes the convention this plan follows: unit-test the pure helpers, and prove the HTTP contract (status codes, loopback refusal, JSON shapes) end-to-end through the real app, as `at0413` does for attachments and `at0437` does here (#step-8). Growing a new in-crate HTTP test idiom for three routes is the parallel-machinery smell, not thoroughness.
+**Note on test layering:** the review's earlier claim that no axum handler in tugcast is tested through `tower::ServiceExt::oneshot` was **wrong** — `integration_tests.rs` does exactly that for the two other `Extension`-backed route families (`/api/defaults` via `build_defaults_test_app`, `/api/jots` via `build_jots_test_app`), both with `MockConnectInfo` supplying a loopback peer. So the idiom is established, not new, and the prompt-history routes join it rather than growing a parallel one. What `attachments.rs` establishes and this step still follows is that the *work* lives in synchronous functions the handlers only wrap, so the seam is unit-testable directly and the route tests are about status codes and JSON shapes.
+
+The one thing the route tests must not assert is the exact status of a request to an **unregistered** route: with a built `tugdeck/dist` present the static fallback answers a POST with 405, and without it axum answers 404. Assert `is_client_error()` — the contract is that the append fails visibly and the process survives, not which of the two the fallback picked.
 
 **Checkpoint:**
 - [ ] `cd tugrust && cargo nextest run -p tugcast prompt_history`

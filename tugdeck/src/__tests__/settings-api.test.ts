@@ -21,14 +21,9 @@ import {
   readDeckState,
   putFocusedCardId,
   readCardStates,
-  putPromptHistory,
-  getPromptHistory,
   readSessionRecentProjects,
   insertSessionRecentProject,
   capDurableCardState,
-  boundPromptHistoryForPersist,
-  MAX_PERSISTED_THUMBNAILS,
-  MAX_PROMPT_HISTORY_BYTES,
   pruneOrphanedCardDefaults,
   CARD_KEYED_DOMAINS,
   SESSION_RECENT_PROJECTS_MAX,
@@ -38,7 +33,6 @@ import {
 } from "../settings-api";
 import type { CardStateBag } from "../layout-tree";
 import type { TugbankClient, TaggedValue } from "../lib/tugbank-client";
-import type { HistoryEntry } from "../lib/prompt-history-store";
 
 // ---------------------------------------------------------------------------
 // fetch mock helpers
@@ -309,7 +303,7 @@ describe("readCardStates", () => {
 });
 
 // ---------------------------------------------------------------------------
-// putPromptHistory
+// pruneOrphanedCardDefaults
 // ---------------------------------------------------------------------------
 
 describe("pruneOrphanedCardDefaults", () => {
@@ -365,162 +359,6 @@ describe("pruneOrphanedCardDefaults", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(deletes).toEqual(["/api/defaults/dev.tugtool.deck.cardstate/dead"]);
-  });
-});
-
-describe("boundPromptHistoryForPersist", () => {
-  const imgEntry = (id: string, thumbBytes: number): HistoryEntry => ({
-    id,
-    sessionId: "s",
-    projectPath: "/p",
-    route: ">",
-    text: `prompt ${id}`,
-    atoms: [
-      {
-        position: 0,
-        type: "image",
-        label: "img",
-        value: "img",
-        id: `bytes-${id}`,
-        thumbnailDataUrl: "data:image/png;base64," + "A".repeat(thumbBytes),
-      },
-    ],
-    timestamp: 0,
-  });
-
-  test("keeps thumbnails only on the most recent few image entries", () => {
-    // 10 image entries, newest last. Only the newest MAX survive with a thumb.
-    const entries = Array.from({ length: 10 }, (_, i) => imgEntry(`e${i}`, 100));
-    const out = boundPromptHistoryForPersist(entries);
-    const withThumb = out.filter((e) =>
-      e.atoms.some((a) => a.thumbnailDataUrl !== undefined),
-    );
-    expect(withThumb.length).toBe(MAX_PERSISTED_THUMBNAILS);
-    // The survivors are the newest entries (end of the array).
-    const survivorIds = new Set(withThumb.map((e) => e.id));
-    expect(survivorIds.has("e9")).toBe(true);
-    expect(survivorIds.has("e0")).toBe(false);
-    // Older entries keep their text + atom, just no thumbnail.
-    const e0 = out.find((e) => e.id === "e0");
-    expect(e0?.text).toBe("prompt e0");
-    expect(e0?.atoms[0].thumbnailDataUrl).toBeUndefined();
-    expect(e0?.atoms[0].id).toBe("bytes-e0");
-  });
-
-  test("keeps text-only history intact (nothing to strip)", () => {
-    const entries: HistoryEntry[] = [
-      { id: "a", sessionId: "s", projectPath: "/p", route: ">", text: "hi", atoms: [], timestamp: 0 },
-    ];
-    expect(boundPromptHistoryForPersist(entries)).toEqual(entries);
-  });
-
-  test("byte backstop drops oldest entries until under the cap", () => {
-    // A few very large thumbnails would exceed the byte cap even after the
-    // count trim — the backstop drops oldest whole entries so it fits.
-    const big = Math.floor(MAX_PROMPT_HISTORY_BYTES / 2);
-    const entries = Array.from({ length: 6 }, (_, i) => imgEntry(`e${i}`, big));
-    const out = boundPromptHistoryForPersist(entries);
-    const bytes = JSON.stringify({ kind: "json", value: out }).length;
-    expect(bytes).toBeLessThanOrEqual(MAX_PROMPT_HISTORY_BYTES);
-    expect(out.length).toBeLessThan(entries.length);
-    // Whatever survives is the newest tail.
-    expect(out[out.length - 1].id).toBe("e5");
-  });
-});
-
-describe("putPromptHistory", () => {
-  afterEach(() => {
-    mock.restore();
-  });
-
-  test("sends PUT to correct URL with json-tagged body", async () => {
-    const calls: { url: string; init: RequestInit }[] = [];
-
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: url as string, init: init ?? {} });
-      return makeResponse(200, {});
-    }) as unknown as typeof fetch;
-
-    const sessionId = "session-abc-123";
-    const entries: HistoryEntry[] = [
-      {
-        id: "entry-1",
-        sessionId,
-        projectPath: "/home/user/proj",
-        route: ">",
-        text: "hello world",
-        atoms: [],
-        timestamp: 1700000000000,
-      },
-    ];
-
-    putPromptHistory(sessionId, entries);
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(calls.length).toBe(1);
-    expect(calls[0].url).toBe(
-      `/api/defaults/dev.tugtool.prompt.history/${encodeURIComponent(sessionId)}`
-    );
-    expect(calls[0].init.method).toBe("PUT");
-
-    const body = JSON.parse(calls[0].init.body as string);
-    expect(body.kind).toBe("json");
-    expect(Array.isArray(body.value)).toBe(true);
-    expect(body.value.length).toBe(1);
-    expect(body.value[0].id).toBe("entry-1");
-    expect(body.value[0].text).toBe("hello world");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getPromptHistory
-// ---------------------------------------------------------------------------
-
-describe("getPromptHistory", () => {
-  afterEach(() => {
-    mock.restore();
-  });
-
-  test("returns parsed entries array on 200 response", async () => {
-    const sessionId = "session-xyz-456";
-    const entries: HistoryEntry[] = [
-      {
-        id: "entry-a",
-        sessionId,
-        projectPath: "/home/user/proj",
-        route: "$",
-        text: "ls -la",
-        atoms: [],
-        timestamp: 1700000001000,
-      },
-      {
-        id: "entry-b",
-        sessionId,
-        projectPath: "/home/user/proj",
-        route: ">",
-        text: "what is this file",
-        atoms: [{ position: 15, type: "file", label: "readme.md", value: "/readme.md" }],
-        timestamp: 1700000002000,
-      },
-    ];
-
-    globalThis.fetch = (async () =>
-      makeResponse(200, { kind: "json", value: entries })) as unknown as typeof fetch;
-
-    const result = await getPromptHistory(sessionId);
-
-    expect(result.length).toBe(2);
-    expect(result[0].id).toBe("entry-a");
-    expect(result[1].id).toBe("entry-b");
-    expect(result[1].atoms.length).toBe(1);
-    expect(result[1].atoms[0].type).toBe("file");
-  });
-
-  test("returns empty array on 404 response", async () => {
-    globalThis.fetch = (async () => makeResponse(404, null)) as unknown as typeof fetch;
-
-    const result = await getPromptHistory("session-no-history");
-    expect(result).toEqual([]);
   });
 });
 

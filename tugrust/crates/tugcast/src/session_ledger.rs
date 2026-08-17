@@ -3001,18 +3001,6 @@ impl SessionLedger {
         rows.into_iter().collect()
     }
 
-    /// Every session id in the ledger — the live set used to prune orphaned
-    /// per-session defaults (e.g. prompt history keyed by session id) whose
-    /// sessions no longer exist.
-    pub fn all_session_ids(&self) -> Result<Vec<String>, LedgerError> {
-        let conn = self.db.lock().expect("ledger mutex");
-        let mut stmt = conn.prepare("SELECT session_id FROM sessions")?;
-        let ids = stmt
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ids)
-    }
-
     /// Look up a single row by session id.
     pub fn get(&self, session_id: &str) -> Result<Option<SessionRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");

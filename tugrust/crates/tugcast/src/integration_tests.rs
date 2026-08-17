@@ -5,7 +5,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tokio::sync::broadcast;
 use tower::ServiceExt;
 
@@ -51,7 +51,7 @@ fn build_test_app(port: u16) -> (axum::Router, String) {
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
 
-    let app = build_app(feed_router, dev_state, None, None);
+    let app = build_app(feed_router, dev_state, None, None, None);
     (app, token)
 }
 
@@ -512,7 +512,7 @@ async fn test_tell_reload() {
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
 
-    let app = build_app(feed_router, dev_state, None, None);
+    let app = build_app(feed_router, dev_state, None, None, None);
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
     let app_with_connect_info = app.layer(MockConnectInfo(addr));
@@ -564,7 +564,7 @@ async fn test_tell_client_action_round_trip() {
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
 
-    let app = build_app(feed_router, dev_state, None, None);
+    let app = build_app(feed_router, dev_state, None, None, None);
 
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
     let app_with_connect_info = app.layer(MockConnectInfo(addr));
@@ -734,7 +734,7 @@ fn build_defaults_test_app() -> (axum::Router, tempfile::NamedTempFile) {
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
 
-    let app = build_app(feed_router, dev_state, Some(client), None);
+    let app = build_app(feed_router, dev_state, Some(client), None, None);
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
     (app.layer(MockConnectInfo(addr)), tmp)
 }
@@ -1029,7 +1029,7 @@ async fn test_defaults_non_loopback_returns_403() {
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
 
-    let app = build_app(feed_router, dev_state, Some(bank_client), None);
+    let app = build_app(feed_router, dev_state, Some(bank_client), None, None);
     // Apply a non-loopback address
     let non_loopback = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), 0);
     let app = app.layer(MockConnectInfo(non_loopback));
@@ -1230,7 +1230,7 @@ fn build_jots_test_app() -> (axum::Router, tempfile::TempDir, std::path::PathBuf
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
 
-    let app = build_app(feed_router, dev_state, None, Some(state));
+    let app = build_app(feed_router, dev_state, None, Some(state), None);
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
     (app.layer(MockConnectInfo(addr)), dir, path)
 }
@@ -1337,4 +1337,294 @@ async fn test_jots_put_refuses_to_clobber_corrupt_file() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::CONFLICT);
+}
+
+// ── Prompt-history API integration tests ──────────────────────────────────
+
+/// Build a test app wired to an in-memory prompt ledger, reachable from
+/// `client_ip`. The ledger comes back alongside the router so a test can read
+/// the rows the routes wrote without going through the routes again.
+fn build_prompt_history_test_app(
+    client_ip: IpAddr,
+) -> (axum::Router, Arc<crate::prompt_ledger::PromptLedger>) {
+    use axum::extract::connect_info::MockConnectInfo;
+
+    let ledger = Arc::new(crate::prompt_ledger::PromptLedger::open_in_memory().expect("ledger"));
+
+    let auth = auth::new_shared_auth_state(7894);
+    let (terminal_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+    let (input_tx, _) = tokio::sync::mpsc::channel(256);
+    let (code_tx, _) = broadcast::channel(1024);
+    let (code_input_tx, _) = tokio::sync::mpsc::channel(256);
+    let (shutdown_tx, _) = tokio::sync::mpsc::channel::<u8>(1);
+    let (client_action_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+
+    let dev_state = dev::new_shared_dev_state();
+    let mut feed_router = FeedRouter::new(
+        "test-dummy".to_string(),
+        auth,
+        shutdown_tx,
+        dev_state.clone(),
+    );
+    feed_router.register_stream(FeedId::TERMINAL_OUTPUT, terminal_tx, LagPolicy::Bootstrap);
+    feed_router.register_stream(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn);
+    feed_router.register_stream(FeedId::CONTROL, client_action_tx, LagPolicy::Warn);
+    feed_router.register_input(FeedId::TERMINAL_INPUT, input_tx.clone());
+    feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
+    feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
+
+    let app = build_app(feed_router, dev_state, None, None, Some(ledger.clone()));
+    let addr = SocketAddr::new(client_ip, 0);
+    (app.layer(MockConnectInfo(addr)), ledger)
+}
+
+fn loopback_prompt_history_app() -> (axum::Router, Arc<crate::prompt_ledger::PromptLedger>) {
+    build_prompt_history_test_app(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
+}
+
+fn append_request(client_entry_id: &str, text: &str) -> Request<Body> {
+    let body = serde_json::json!({
+        "session_id": "sess-1",
+        "route": "❯",
+        "text": text,
+        "atoms": [],
+        "project_path": "",
+        "submitted_at_ms": 1_700_000_000_000i64,
+        "client_entry_id": client_entry_id,
+    });
+    Request::builder()
+        .method("POST")
+        .uri("/api/prompt-history")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap()
+}
+
+/// A submitted prompt lands as a row and the response carries its ledger id.
+#[tokio::test]
+async fn test_prompt_history_append_returns_the_row_id() {
+    let (app, ledger) = loopback_prompt_history_app();
+
+    let resp = app
+        .oneshot(append_request("e1", "first prompt"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    let id = json["id"].as_i64().expect("an id");
+
+    let (rows, has_more) = ledger.list_page("sess-1", None, 10).unwrap();
+    assert!(!has_more);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, id);
+    assert_eq!(rows[0].text, "first prompt");
+}
+
+/// The whole durability contract in one test: a submitted corpus reads back
+/// complete and in submit order, with no cap anywhere in the path.
+#[tokio::test]
+async fn test_prompt_history_page_returns_the_corpus_in_order() {
+    let (app, _ledger) = loopback_prompt_history_app();
+
+    for n in 1..=5 {
+        let resp = app
+            .clone()
+            .oneshot(append_request(&format!("e{n}"), &format!("prompt {n}")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/prompt-history?session=sess-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    assert_eq!(json["has_more"], false);
+    assert!(json["before"].is_null());
+    let texts: Vec<&str> = json["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        texts,
+        ["prompt 1", "prompt 2", "prompt 3", "prompt 4", "prompt 5"],
+    );
+
+    // A short page hands back the newest rows and says older ones remain.
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/prompt-history?session=sess-1&limit=2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let json = json_body(resp).await;
+    assert_eq!(json["has_more"], true);
+    let texts: Vec<&str> = json["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, ["prompt 4", "prompt 5"]);
+}
+
+/// The retry contract over the wire: the same `client_entry_id` twice is a
+/// success carrying the same id, and leaves one row.
+#[tokio::test]
+async fn test_prompt_history_append_is_idempotent_on_client_entry_id() {
+    let (app, ledger) = loopback_prompt_history_app();
+
+    let first = json_body(
+        app.clone()
+            .oneshot(append_request("e1", "once"))
+            .await
+            .unwrap(),
+    )
+    .await;
+    let resp = app.oneshot(append_request("e1", "twice")).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let second = json_body(resp).await;
+
+    assert_eq!(first["id"], second["id"]);
+    let (rows, _) = ledger.list_page("sess-1", None, 10).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].text, "once", "the landed row is not rewritten");
+}
+
+/// The atom-path completion route patches the stored reference in place.
+#[tokio::test]
+async fn test_prompt_history_atom_path_completes_the_row() {
+    let (app, ledger) = loopback_prompt_history_app();
+
+    let body = serde_json::json!({
+        "session_id": "sess-1",
+        "route": "❯",
+        "text": "look at this",
+        "atoms": [{"id": "atom-a", "position": 0, "type": "image", "label": "shot.png"}],
+        "project_path": "",
+        "submitted_at_ms": 1_700_000_000_000i64,
+        "client_entry_id": "e1",
+    });
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/prompt-history")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let patch = serde_json::json!({
+        "client_entry_id": "e1",
+        "atom_id": "atom-a",
+        "path": "/tmp/draft-attachments/uuid.png",
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/prompt-history/atom-path")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(patch.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(json_body(resp).await["ok"], true);
+
+    let (rows, _) = ledger.list_page("sess-1", None, 10).unwrap();
+    assert_eq!(rows[0].atoms[0]["path"], "/tmp/draft-attachments/uuid.png");
+}
+
+/// A malformed body is a 400 and writes nothing.
+#[tokio::test]
+async fn test_prompt_history_append_rejects_a_malformed_body() {
+    let (app, ledger) = loopback_prompt_history_app();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/prompt-history")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from("{ not json"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let (rows, _) = ledger.list_page("sess-1", None, 10).unwrap();
+    assert!(rows.is_empty());
+}
+
+/// The prompt corpus is loopback-only, like every other local storage route.
+#[tokio::test]
+async fn test_prompt_history_refuses_a_non_loopback_client() {
+    let (app, ledger) = build_prompt_history_test_app(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
+
+    let resp = app
+        .clone()
+        .oneshot(append_request("e1", "from elsewhere"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/prompt-history?session=sess-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    let (rows, _) = ledger.list_page("sess-1", None, 10).unwrap();
+    assert!(rows.is_empty());
+}
+
+/// With no ledger the routes are absent rather than panicking on a missing
+/// `Extension`, and the append fails visibly — which is what the composer's
+/// failure notice is built on.
+///
+/// The exact status is the static fallback's to choose (405 when a built
+/// `tugdeck/dist` is being served, 404 when it is not), so the assertion is on
+/// the part that is this module's contract: the request does not succeed, and
+/// serving it does not bring the process down.
+#[tokio::test]
+async fn test_prompt_history_routes_are_absent_without_a_ledger() {
+    let (app, _token) = build_test_app(7895);
+
+    let resp = app
+        .oneshot(append_request("e1", "nowhere to go"))
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_client_error(),
+        "unregistered append should fail, got {}",
+        resp.status(),
+    );
 }

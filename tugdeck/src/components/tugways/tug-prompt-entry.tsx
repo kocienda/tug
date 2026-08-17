@@ -141,6 +141,7 @@ import { getDeckStore } from "@/lib/deck-store-registry";
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { HistoryEntry } from "@/lib/prompt-history-store";
+import { subscribeAppendFailures } from "@/lib/prompt-history-api";
 import { DEFAULT_ROUTE } from "@/lib/route-constants";
 import type { PathCommandsStore } from "@/lib/path-commands-store";
 import {
@@ -1941,22 +1942,26 @@ export const TugPromptEntry = React.forwardRef<
     return fresh;
   }, [historyStore, route, snap.tugSessionId]);
 
-  // Re-seed the per-card bytes store from durable history thumbnails so a
-  // recalled prompt shows its image previews even after a cold launch —
-  // the full bytes are ephemeral and per-card, but the baked thumbnail
-  // rode the history entry into tugbank. This is structure-zone store→store
+  // Re-seed the per-card bytes store from stored history attachments so a
+  // recalled prompt shows its image previews even after a cold launch — the
+  // bytes are ephemeral and per-card, but the entry carries the path of the
+  // original tugcast stored at drop time. This is structure-zone store→store
   // wiring ([L24]): observe the history store's own subscription directly
   // and mutate the bytes store in the callback ([L22]) — not a
   // `useSyncExternalStore` → `useEffect` round-trip. The effect re-subscribes
   // on a session change, so the callback never reads a stale id ([L07]).
   // Gaps only: a live id whose full bytes are still present is never
-  // clobbered. An image atom with no stored thumbnail gets an empty marker
-  // so it recalls as a broken-image tile rather than inert text.
+  // clobbered.
   //
-  // An entry that also carries a stored `path` is re-seeded with it and
-  // handed to rehydration, which reads the original back and replaces the
-  // marker with real bytes — the difference between a recalled prompt that
-  // merely shows what was attached and one that can be resubmitted.
+  // Every image atom gets a marker, path-bearing or not. Seeding only the
+  // path-bearing ones would leave `attachmentBytesStore.get(id) === null` for
+  // the rest, and the submit gate reads that as "still processing" — which
+  // would block a recalled prompt from ever being sent again.
+  //
+  // A marker with a path is then handed to rehydration, which reads the
+  // original back and replaces it with real bytes — the difference between a
+  // recalled prompt that merely shows what was attached and one that can be
+  // resubmitted.
   useLayoutEffect(() => {
     const sessionId = snap.tugSessionId;
     if (sessionId.length === 0) return;
@@ -1969,7 +1974,6 @@ export const TugPromptEntry = React.forwardRef<
           attachmentBytesStore.put(atom.id, {
             content: "",
             mediaType: "",
-            thumbnailDataUrl: atom.thumbnailDataUrl,
             path: atom.path,
           });
           if (atom.path !== undefined) {
@@ -1986,6 +1990,67 @@ export const TugPromptEntry = React.forwardRef<
     reseed();
     return historyStore.subscribe(reseed);
   }, [historyStore, attachmentBytesStore, snap.tugSessionId]);
+
+  // Late-upload backfill for the pathless atoms of a just-submitted prompt.
+  // A drop's upload can land after the submit that recorded it, so the stored
+  // row holds an image atom with no path — recall would show a severed
+  // attachment. Each registration watches the bytes store until every id it
+  // was given has a path, patches the stored row through the history store,
+  // and unsubscribes itself. One-shot per atom; a card that closes first
+  // simply drops the watch, and the route treats a missing row as a no-op.
+  const atomPathWatchesRef = useRef<Set<() => void>>(new Set());
+  const registerAtomPathBackfill = useCallback(
+    (clientEntryId: string, atomIds: readonly string[]): void => {
+      if (atomIds.length === 0) return;
+      const outstanding = new Set(atomIds);
+      let unsubscribe: (() => void) | null = null;
+      const stop = (): void => {
+        if (unsubscribe === null) return;
+        const fn = unsubscribe;
+        unsubscribe = null;
+        atomPathWatchesRef.current.delete(fn);
+        fn();
+      };
+      const check = (): void => {
+        for (const id of [...outstanding]) {
+          const path = attachmentBytesStore.get(id)?.path;
+          if (path === undefined) continue;
+          outstanding.delete(id);
+          historyStore.patchAtomPath(clientEntryId, id, path);
+        }
+        if (outstanding.size === 0) stop();
+      };
+      unsubscribe = attachmentBytesStore.subscribe(check);
+      atomPathWatchesRef.current.add(unsubscribe);
+      // The upload may already have landed between the submit and here.
+      check();
+    },
+    [attachmentBytesStore, historyStore],
+  );
+
+  // Drop every outstanding watch when the entry unmounts.
+  useLayoutEffect(() => {
+    const watches = atomPathWatchesRef.current;
+    return () => {
+      for (const unsubscribe of watches) unsubscribe();
+      watches.clear();
+    };
+  }, []);
+
+  // An append that has outlived its fast retry rungs is the user's prompt not
+  // yet on disk. Say so through the card's notice channel rather than letting
+  // the retry grind on invisibly ([L31]) — the ladder keeps going either way.
+  useLayoutEffect(
+    () =>
+      subscribeAppendFailures((notice) => {
+        const excerpt =
+          notice.text.length > 60 ? `${notice.text.slice(0, 60)}…` : notice.text;
+        publishAttachmentError(
+          `Prompt history isn't saving — still retrying "${excerpt}".`,
+        );
+      }),
+    [publishAttachmentError],
+  );
 
   // Live ref to the active route's history provider so `performSubmit`
   // can reset its cursor without taking `currentHistoryProvider` as a
@@ -2866,8 +2931,9 @@ export const TugPromptEntry = React.forwardRef<
     // recalls it ([P11]). Captured before clear so the live state is
     // still the submitted content.
     const sessionId = snapRef.current.tugSessionId;
+    const historyEntryId = `${sessionId}-${Date.now()}`;
     historyStore.push({
-      id: `${sessionId}-${Date.now()}`,
+      id: historyEntryId,
       sessionId,
       projectPath: "",
       route,
@@ -2878,15 +2944,11 @@ export const TugPromptEntry = React.forwardRef<
         label: a.segment.label,
         value: a.segment.value,
         id: a.segment.id,
-        // Persist the baked thumbnail so the preview survives a cold
-        // launch (the full bytes live only in the ephemeral per-card
-        // store). Read straight off the bytes store at submit time.
-        thumbnailDataUrl:
-          a.segment.id !== undefined
-            ? attachmentBytesStore.get(a.segment.id)?.thumbnailDataUrl
-            : undefined,
-        // And the stored original alongside it, so a recalled prompt can
-        // read its bytes back rather than recalling preview-only.
+        // The stored original, and only it — the preview a recalled prompt
+        // shows is re-derived from these bytes, so persisting the baked
+        // thumbnail alongside would store the same picture twice. Undefined
+        // here when the upload hasn't landed yet; the backfill below
+        // completes the row when it does.
         path:
           a.segment.id !== undefined
             ? attachmentBytesStore.get(a.segment.id)?.path
@@ -2894,6 +2956,22 @@ export const TugPromptEntry = React.forwardRef<
       })),
       timestamp: Date.now(),
     });
+    // Pathless image atoms: the upload can land after the submit that
+    // recorded them. Watch the bytes store for each one and complete the
+    // stored row when its path arrives, so a later recall of this prompt
+    // reads real bytes back instead of showing a severed attachment. Store→
+    // store wiring in a callback ([L22], [L24]) — nothing here is rendered.
+    registerAtomPathBackfill(
+      historyEntryId,
+      positionedAtoms
+        .filter(
+          (a) =>
+            a.segment.type === "image" &&
+            a.segment.id !== undefined &&
+            attachmentBytesStore.get(a.segment.id)?.path === undefined,
+        )
+        .map((a) => a.segment.id as string),
+    );
     // Fire the pre-clear hook so hosts can drive submit-specific
     // effects BEFORE `editor.clear()` flips `data-empty="true"`.
     onBeforeSubmitRef.current?.();
@@ -2924,6 +3002,7 @@ export const TugPromptEntry = React.forwardRef<
     sessionMetadataStore,
     persistClearedDraft,
     attachmentBytesStore,
+    registerAtomPathBackfill,
     setArbitrating,
   ]);
 

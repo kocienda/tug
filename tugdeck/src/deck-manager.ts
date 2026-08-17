@@ -80,6 +80,7 @@ import { TugTooltipProvider } from "./components/tugways/tug-tooltip";
 import { TugAlertProvider } from "./components/tugways/tug-alert";
 import { TugBulletinProvider } from "./components/tugways/tug-bulletin";
 import { putLayout, putCardState, putFocusedCardId } from "./settings-api";
+import { flushPromptHistorySync } from "./lib/prompt-history-api";
 import { TugThemeProvider, type ThemeName } from "./contexts/theme-provider";
 import { composeProviders } from "./lib/compose-providers";
 import type {
@@ -3004,6 +3005,15 @@ export class DeckManager implements IDeckManagerStore {
     // card mid-iteration does not confuse the Map iterator.
     for (const cardId of Array.from(this.saveCallbacks.keys())) {
       this.invokeSaveCallback(cardId, source);
+    }
+
+    // Drain any prompt append still in the outbox. A `sync` teardown is the
+    // page going away, where a queued fetch would never settle — and a prompt
+    // the user submitted has to reach the ledger before the process does. Runs
+    // after the card callbacks so a submit folded in by `"termination"` is
+    // already queued. [L23]
+    if (options?.sync === true) {
+      flushPromptHistorySync();
     }
 
     const cardsPromise = this.flushDirtyCardStates({

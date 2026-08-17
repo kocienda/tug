@@ -250,6 +250,26 @@ pub fn changes_db_path() -> PathBuf {
     guard_isolated(base_data_dir().join("changes.db"))
 }
 
+/// Environment variable overriding the shared prompt-history ledger path.
+/// Set by test harnesses (the app-test driver, the tugutil CLI suite)
+/// so isolated runs never touch the user's real prompt corpus.
+pub const ENV_PROMPT_HISTORY_DB: &str = "TUG_PROMPT_HISTORY_DB";
+
+/// The **machine-global** prompt-history ledger path: one
+/// `prompt_history.db` for every app instance, holding one append-only row
+/// per prompt the user has submitted. Deliberately independent of
+/// `TUG_INSTANCE_ID` — the prompts are the user's corpus, not an
+/// instance's, so partitioning per instance splits the truth (switching
+/// from release to a debug build would present an empty recall history
+/// while the release instance holds it all). Honors the
+/// [`ENV_PROMPT_HISTORY_DB`] override for isolated test runs.
+pub fn prompt_history_db_path() -> PathBuf {
+    if let Some(p) = env::var_os(ENV_PROMPT_HISTORY_DB).filter(|v| !v.is_empty()) {
+        return guard_isolated(PathBuf::from(p));
+    }
+    guard_isolated(base_data_dir().join("prompt_history.db"))
+}
+
 /// Environment variable overriding the shared jots-file path.
 /// Set by test harnesses so isolated runs never touch the user's real
 /// jots file.
@@ -628,7 +648,12 @@ mod tests {
         // `Tug` is still appended, so an override of `/x` yields `/x/Tug` —
         // the same contract tugcode's `tugDataRoot()` implements.
         assert_eq!(base_data_dir(), tmp.path().join("Tug"));
-        for p in [data_dir(), changes_db_path(), jots_path()] {
+        for p in [
+            data_dir(),
+            changes_db_path(),
+            jots_path(),
+            prompt_history_db_path(),
+        ] {
             assert!(p.starts_with(tmp.path()), "{} escaped", p.display());
         }
         assert!(
@@ -730,6 +755,40 @@ mod tests {
         let _s = JotsEnvGuard::snapshot();
         unsafe { env::set_var(ENV_JOTS_PATH, "") };
         assert!(jots_path().ends_with("Tug/jots.json"));
+    }
+
+    #[test]
+    #[serial]
+    fn prompt_history_db_path_default_is_machine_global_and_instance_independent() {
+        let _g = EnvGuard::snapshot();
+        let _s = VarGuard::set(ENV_PROMPT_HISTORY_DB, None);
+        // Independent of TUG_INSTANCE_ID: same path with the ID set or unset.
+        set_instance(None);
+        let unset = prompt_history_db_path();
+        set_instance(Some("debug-foo"));
+        let set = prompt_history_db_path();
+        assert_eq!(unset, set);
+        assert!(set.ends_with("Tug/prompt_history.db"));
+    }
+
+    #[test]
+    #[serial]
+    fn prompt_history_db_path_env_override_wins() {
+        let _s = VarGuard::set(
+            ENV_PROMPT_HISTORY_DB,
+            Some(std::path::Path::new("/tmp/custom-prompts.db")),
+        );
+        assert_eq!(
+            prompt_history_db_path(),
+            PathBuf::from("/tmp/custom-prompts.db")
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn prompt_history_db_path_ignores_empty_env() {
+        let _s = VarGuard::set(ENV_PROMPT_HISTORY_DB, Some(std::path::Path::new("")));
+        assert!(prompt_history_db_path().ends_with("Tug/prompt_history.db"));
     }
 
     #[test]

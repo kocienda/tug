@@ -28,6 +28,8 @@ mod ledger_integrity;
 /// storage→feeds back-reference.
 mod path_resolver;
 mod permissions;
+mod prompt_history_api;
+mod prompt_ledger;
 mod refs_ledger;
 mod resources;
 mod router;
@@ -612,36 +614,39 @@ async fn main() {
         Err(e) => warn!(error = %e, "failed to demote stale live ledger rows"),
     }
 
-    // Startup hygiene: drop per-session prompt-history entries whose session
-    // no longer exists — the leak that bloated the boot DEFAULTS frame past
-    // the transport cap and hung launch. Runs before the feed registers its
-    // change callback so the deletions don't each rebuild the frame.
-    if let Some(bank) = bank_client.as_ref() {
-        match ledger.all_session_ids() {
-            Ok(ids) => {
-                let live: std::collections::HashSet<String> = ids.into_iter().collect();
-                let removed = crate::defaults::prune_orphaned_session_keys(
-                    bank,
-                    crate::defaults::PROMPT_HISTORY_DOMAIN,
-                    &live,
-                );
-                if removed > 0 {
-                    info!(
-                        count = removed,
-                        "pruned orphaned prompt-history entries on startup"
-                    );
-                }
-            }
-            Err(e) => warn!(error = %e, "failed to list sessions for prompt-history prune"),
+    // Prompt-history ledger — the composer's durable prompt corpus. Non-fatal:
+    // a failure leaves the recall routes unregistered, which the deck reports
+    // to the user rather than swallowing, and must not take tugcast down.
+    let prompt_ledger: Option<Arc<prompt_ledger::PromptLedger>> = {
+        let path = prompt_ledger::PromptLedger::default_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
+        match prompt_ledger::PromptLedger::open(&path) {
+            Ok(l) => Some(Arc::new(l)),
+            Err(e) => {
+                warn!(error = %e, path = %path.display(), "failed to open prompt-history ledger (prompt recall disabled)");
+                None
+            }
+        }
+    };
+
+    // Move whatever prompt history still lives in tugbank into the ledger. This
+    // runs before the DEFAULTS feed builds the boot frame out of those domains,
+    // and before the attachment sweep below reads the ledger as a root — an
+    // entry mid-migration is referenced by neither home, so a sweep between the
+    // two would see an attachment nothing claims.
+    if let (Some(bank), Some(pl)) = (bank_client.as_ref(), prompt_ledger.as_ref()) {
+        // The migration logs its own count; nothing to report here.
+        prompt_ledger::migrate_prompt_history(bank, pl);
     }
 
-    // Startup hygiene, second half: reclaim composer attachments nothing
-    // references any more. Runs after the prune above so a swept history key
-    // has already released whatever it was holding, and before the DEFAULTS
-    // feed registers its callback for the same reason that one does.
+    // Startup hygiene: reclaim composer attachments nothing references any
+    // more. Runs after the migration above so every history reference lives in
+    // a root the sweep can see, and before the DEFAULTS feed registers its
+    // change callback so the deletions don't each rebuild the boot frame.
     if let Some(bank) = bank_client.as_ref() {
-        crate::draft_gc::sweep_at_startup(bank);
+        crate::draft_gc::sweep_at_startup(bank, prompt_ledger.as_deref());
     }
 
     // Create DEFAULTS feed from the TugbankClient.
@@ -1986,6 +1991,7 @@ async fn main() {
         shared_dev_state,
         bank_client,
         jots_state,
+        prompt_ledger,
     );
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())

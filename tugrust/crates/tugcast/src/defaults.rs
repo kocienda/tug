@@ -5,7 +5,6 @@
 //! plus four HTTP handler functions for `/api/defaults/:domain` and
 //! `/api/defaults/:domain/:key`.
 
-use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -28,44 +27,16 @@ use tugbank_core::{Error as BankError, TugbankClient, Value};
 /// boundary rather than allowed to accumulate and brick launch.
 const MAX_DEFAULTS_VALUE_BYTES: usize = 256 * 1024;
 
-/// Domain of per-session prompt history, keyed by session id. Its keys
-/// accumulate one per session and are never removed by normal use — the
-/// leak that bloated the store past the 16 MB boot-frame cap and hung
-/// launch — so a startup sweep drops entries whose session is gone.
+/// Domain that used to hold per-session prompt history, keyed by session id.
+/// History now lives in `prompt_history.db`; the constant survives as the key
+/// the startup migration drains and as a root `draft_gc` still reads while
+/// unmigrated instances may hold entries.
 pub(crate) const PROMPT_HISTORY_DOMAIN: &str = "dev.tugtool.prompt.history";
 
 /// Domain of per-card durable state, keyed by card id. Alongside prompt
 /// history it is one of the two places a stored draft-attachment path can be
 /// referenced from, so `draft_gc` reads both as its root set.
 pub(crate) const CARDSTATE_DOMAIN: &str = "dev.tugtool.deck.cardstate";
-
-/// Delete keys of `domain` whose id is not in `live`, returning how many
-/// were removed. Best-effort startup hygiene: a missing domain yields 0,
-/// and a failed delete is logged and skipped. Run BEFORE the DEFAULTS feed
-/// registers its change callback so the deletions don't each rebuild the
-/// aggregated frame.
-pub(crate) fn prune_orphaned_session_keys(
-    bank: &TugbankClient,
-    domain: &str,
-    live: &HashSet<String>,
-) -> usize {
-    let keys: Vec<String> = match bank.read_domain(domain) {
-        Ok(snapshot) => snapshot.into_keys().collect(),
-        Err(_) => return 0,
-    };
-    let mut removed = 0usize;
-    for key in keys {
-        if live.contains(&key) {
-            continue;
-        }
-        match bank.delete(domain, &key) {
-            Ok(true) => removed += 1,
-            Ok(false) => {}
-            Err(e) => warn!(domain = %domain, key = %key, error = %e, "prune: delete failed"),
-        }
-    }
-    removed
-}
 
 // ── Tagged wire format ─────────────────────────────────────────────────────
 
@@ -687,41 +658,5 @@ mod tests {
     fn test_bank_error_conflict_returns_500() {
         let resp = bank_error_to_response(BankError::Conflict);
         assert_eq!(status_of(resp), StatusCode::INTERNAL_SERVER_ERROR);
-    }
-
-    // prune_orphaned_session_keys removes only keys whose session is gone.
-    #[test]
-    fn test_prune_orphaned_session_keys() {
-        use tempfile::NamedTempFile;
-        let tmp = NamedTempFile::new().expect("temp file");
-        let bank = TugbankClient::open(tmp.path()).expect("open bank");
-        bank.set(PROMPT_HISTORY_DOMAIN, "live-1", Value::String("[]".into()))
-            .unwrap();
-        bank.set(PROMPT_HISTORY_DOMAIN, "dead-1", Value::String("[]".into()))
-            .unwrap();
-        bank.set(PROMPT_HISTORY_DOMAIN, "dead-2", Value::String("[]".into()))
-            .unwrap();
-
-        let live: HashSet<String> = ["live-1".to_string()].into_iter().collect();
-        let removed = prune_orphaned_session_keys(&bank, PROMPT_HISTORY_DOMAIN, &live);
-        assert_eq!(removed, 2, "both dead sessions pruned");
-
-        let remaining = bank.read_domain(PROMPT_HISTORY_DOMAIN).unwrap();
-        assert!(remaining.contains_key("live-1"), "live session kept");
-        assert!(!remaining.contains_key("dead-1"), "dead session pruned");
-        assert!(!remaining.contains_key("dead-2"), "dead session pruned");
-    }
-
-    // A missing (never-written) domain prunes nothing rather than erroring.
-    #[test]
-    fn test_prune_missing_domain_is_noop() {
-        use tempfile::NamedTempFile;
-        let tmp = NamedTempFile::new().expect("temp file");
-        let bank = TugbankClient::open(tmp.path()).expect("open bank");
-        let live: HashSet<String> = HashSet::new();
-        assert_eq!(
-            prune_orphaned_session_keys(&bank, PROMPT_HISTORY_DOMAIN, &live),
-            0
-        );
     }
 }

@@ -1825,6 +1825,10 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
       // rows into the developer's real ~/Library/Application Support/Tug/
       // changes.db (the same dir the teardown below reclaims).
       TUG_CHANGES_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/changes.db`,
+      // Same isolation for the machine-global prompt ledger: a test that
+      // submits prompts must not append them to the developer's real corpus,
+      // and — since nothing ever trims that file — must not be able to.
+      TUG_PROMPT_HISTORY_DB: `${homedir()}/Library/Application Support/Tug/instances/${instanceId}/prompt_history.db`,
     },
     logPath,
     expectedSurfaceVersion: opts.expectedSurfaceVersion ?? EXPECTED_SURFACE_VERSION,

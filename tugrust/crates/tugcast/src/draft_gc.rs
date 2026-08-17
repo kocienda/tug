@@ -8,17 +8,34 @@
 //!
 //! ## The root-set contract
 //!
-//! Exactly two producers write references to these files:
+//! Three producers write references to these files:
 //!
 //!   - `dev.tugtool.deck.cardstate` — the prompt entry's `attachmentBytes`
 //!     entries, each carrying the stored path.
-//!   - `dev.tugtool.prompt.history` — the same path on a submitted prompt's
-//!     image atoms.
+//!   - `prompt_history.db` — the same path on a submitted prompt's image atoms
+//!     ([`crate::prompt_ledger`]). An unreadable ledger skips the sweep, on the
+//!     same grounds an unreadable root domain does.
+//!   - `dev.tugtool.prompt.history` — where the prompt-history references used
+//!     to live. Read for as long as an instance somewhere may not yet have run
+//!     the import that empties it.
 //!
-//! Both live in this instance's own tugbank, so the world is closed and the
-//! sweep can union them and treat anything unmentioned as garbage. **A future
+//! The sweep unions them and treats anything unmentioned as garbage. **A future
 //! feature that stores one of these references anywhere else must add itself
 //! to the root set**, or this sweep will delete bytes it still needs.
+//!
+//! The prompt ledger is machine-global while `draft-attachments/` is
+//! per-instance, so the union holds UUIDs naming files in other instances'
+//! directories. That is harmless in the only direction that matters: a UUID
+//! with no local file never matches a local filename, and a local file some
+//! other instance's history references is retained. No instance sweeps
+//! another's directory, so none can delete another's bytes.
+//!
+//! One asymmetry worth knowing while reading this: the Overview composer
+//! uploads into `draft-attachments/` but records its durable references under
+//! `overview-attachments/`, so its uploads are reclaimed here once the grace
+//! period expires. That is the intended outcome — the bytes it keeps have been
+//! copied elsewhere — but it does mean this directory has two writers and only
+//! one of them produces reachability.
 //!
 //! ## Why the predicate is a UUID and not a path
 //!
@@ -191,10 +208,32 @@ pub(crate) fn sweep_draft_docs(
     removed
 }
 
-/// Read the root domains and run the sweep. Called once at tugcast startup;
-/// tugbank is fatal-if-absent there, so the roots are always readable.
-pub(crate) fn sweep_at_startup(bank: &TugbankClient) {
+/// The union of every root producer's reference-bearing text, or `None` when
+/// any of them could not be read.
+///
+/// `None` means "do not sweep": an incomplete root set cannot tell live from
+/// dead, and the failure mode of guessing is deleting bytes a live draft still
+/// points at. Retaining everything until the next launch is the only safe
+/// answer, and it is why this returns an option rather than a partial set.
+fn collect_root_json(
+    bank: &TugbankClient,
+    prompt_ledger: Option<&crate::prompt_ledger::PromptLedger>,
+) -> Option<Vec<String>> {
     let mut root_json: Vec<String> = Vec::new();
+    let ledger = match prompt_ledger {
+        Some(ledger) => ledger,
+        None => {
+            warn!("draft-gc: prompt ledger unavailable; sweep skipped");
+            return None;
+        }
+    };
+    match ledger.atoms_json_with_refs() {
+        Ok(rows) => root_json.extend(rows),
+        Err(err) => {
+            warn!(error = %err, "draft-gc: prompt ledger unreadable; sweep skipped");
+            return None;
+        }
+    }
     for domain in [
         crate::defaults::CARDSTATE_DOMAIN,
         crate::defaults::PROMPT_HISTORY_DOMAIN,
@@ -216,14 +255,28 @@ pub(crate) fn sweep_at_startup(bank: &TugbankClient) {
                 }
             }
             Err(err) => {
-                // Without a readable root set the sweep cannot tell live from
-                // dead, so it does not run at all. Retaining everything for
-                // another launch is the only safe answer.
                 warn!(domain = %domain, error = %err, "draft-gc: root domain unreadable; sweep skipped");
-                return;
+                return None;
             }
         }
     }
+    Some(root_json)
+}
+
+/// Read the root set and run the sweep. Called once at tugcast startup;
+/// tugbank is fatal-if-absent there, so the domain roots are always readable.
+///
+/// `prompt_ledger` is `None` when the ledger failed to open. Since it is now a
+/// root producer, a sweep without it would be a sweep with an incomplete root
+/// set — so it does not run at all, exactly as an unreadable root domain
+/// stops it.
+pub(crate) fn sweep_at_startup(
+    bank: &TugbankClient,
+    prompt_ledger: Option<&crate::prompt_ledger::PromptLedger>,
+) {
+    let Some(root_json) = collect_root_json(bank, prompt_ledger) else {
+        return;
+    };
     let now = SystemTime::now();
     let removed = sweep_draft_attachments(
         &crate::attachments::draft_attachments_dir(),
@@ -432,6 +485,84 @@ mod tests {
         let just_after = SystemTime::now() + Duration::from_secs(60);
         assert_eq!(sweep_draft_docs(dir.path(), &[], GRACE, just_after), 0);
         assert!(home.exists());
+    }
+
+    // ── The root set ────────────────────────────────────────────────────────
+
+    /// A tugbank over a temp file, so the root-domain reads are real.
+    fn bank() -> (TugbankClient, tempfile::NamedTempFile) {
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        let bank = TugbankClient::open(tmp.path()).expect("open bank");
+        (bank, tmp)
+    }
+
+    fn ledger_with_atom_path(path: &str) -> crate::prompt_ledger::PromptLedger {
+        let ledger = crate::prompt_ledger::PromptLedger::open_in_memory().unwrap();
+        ledger
+            .append(&crate::prompt_ledger::NewPromptEntry {
+                session_id: "s1".into(),
+                route: "❯".into(),
+                text: "look at this".into(),
+                atoms_json: serde_json::json!([{"id": "atom-a", "path": path}]).to_string(),
+                project_path: String::new(),
+                submitted_at_ms: 1,
+                client_entry_id: "e1".into(),
+            })
+            .unwrap();
+        ledger
+    }
+
+    /// The reason the root-set extension had to land with the migration: once a
+    /// reference lives only in the ledger, the ledger is what keeps its bytes.
+    #[test]
+    fn a_reference_held_only_by_a_ledger_row_retains_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let referenced = make_file(dir.path());
+        let unreferenced = make_file(dir.path());
+
+        let (bank, _tmp) = bank();
+        let ledger = ledger_with_atom_path(&format!("/d/{referenced}.png"));
+
+        let roots = collect_root_json(&bank, Some(&ledger)).expect("a complete root set");
+        let removed = sweep_draft_attachments(dir.path(), &roots, GRACE, long_after());
+
+        assert_eq!(removed, 1, "only the unreferenced file goes");
+        assert!(dir.path().join(format!("{referenced}.png")).exists());
+        assert!(!dir.path().join(format!("{unreferenced}.png")).exists());
+    }
+
+    /// The legacy tugbank domain stays a root for as long as an instance
+    /// somewhere may not have run its import yet.
+    #[test]
+    fn the_legacy_history_domain_still_retains_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let referenced = make_file(dir.path());
+
+        let (bank, _tmp) = bank();
+        bank.set(
+            crate::defaults::PROMPT_HISTORY_DOMAIN,
+            "s-old",
+            tugbank_core::Value::Json(
+                serde_json::json!([{"atoms": [{"path": format!("/d/{referenced}.png")}]}]),
+            ),
+        )
+        .unwrap();
+        let ledger = crate::prompt_ledger::PromptLedger::open_in_memory().unwrap();
+
+        let roots = collect_root_json(&bank, Some(&ledger)).expect("a complete root set");
+        assert_eq!(
+            sweep_draft_attachments(dir.path(), &roots, GRACE, long_after()),
+            0,
+        );
+        assert!(dir.path().join(format!("{referenced}.png")).exists());
+    }
+
+    /// No ledger means an incomplete root set, and an incomplete root set means
+    /// no sweep — never a sweep that guesses.
+    #[test]
+    fn an_absent_ledger_stops_the_sweep_rather_than_narrowing_the_root_set() {
+        let (bank, _tmp) = bank();
+        assert!(collect_root_json(&bank, None).is_none());
     }
 
     /// A loose file in `draft-docs/` was not written by this module, so it is

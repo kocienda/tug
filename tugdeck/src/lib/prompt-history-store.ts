@@ -1,14 +1,30 @@
 /**
- * PromptHistoryStore — session-scoped prompt history with tugbank persistence.
+ * PromptHistoryStore — session-scoped prompt history over the append-only ledger.
  *
- * **Laws:** [L02] L02-compliant store with subscribe/getSnapshot.
- *           [L23] Persists to tugbank — data survives reload and quit.
+ * The store holds a **contiguous newest-suffix window** of each session's
+ * corpus, not the corpus itself. The ledger keeps every prompt the user has
+ * ever submitted, forever; the window is however much of the newest end has
+ * been paged in so far. `hasMore` says whether older entries exist behind it,
+ * and `extendOlder` pages backward when a provider walks off the top edge.
+ *
+ * Nothing in this module discards an entry. There is no entry cap, no byte
+ * budget, and no truncation — those all existed because history used to be
+ * re-serialized into the boot DEFAULTS frame, and it isn't any more.
+ *
+ * **Laws:** [L02] subscribe/getSnapshot store; external state enters React
+ *           through `useSyncExternalStore` only.
+ *           [L23] Persists to the ledger — a submitted prompt survives quit,
+ *           and a failed append is retried and reported, never dropped.
  *
  * @module lib/prompt-history-store
  */
 
 import type { HistoryProvider, TugTextEditingState } from "./tug-text-types";
-import { putPromptHistory, getPromptHistory } from "../settings-api";
+import {
+  appendPromptHistory,
+  fetchPromptHistoryPage,
+  patchPromptAtomPath,
+} from "./prompt-history-api";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,8 +33,11 @@ import { logSessionLifecycle } from "./session-lifecycle-log";
  * A serialized atom captures the subset of atom fields needed for persistence.
  * Used to restore file references and other inline atoms when navigating history.
  *
- * Note: If tug-text-engine exports a compatible atom element type in the future,
- * consider aliasing it here instead of duplicating.
+ * **References, never pixels.** An image atom persists its bytes-store id and
+ * the absolute path of the original tugcast stored at drop time — never the
+ * baked thumbnail. The preview a recalled prompt shows is re-derived from that
+ * original by `rehydrateDraftAttachments`, which is also what makes the recall
+ * resubmittable rather than merely legible.
  */
 export interface SerializedAtom {
   position: number;
@@ -34,25 +53,14 @@ export interface SerializedAtom {
    */
   id?: string;
   /**
-   * Durable thumbnail data URL for image atoms. The full image bytes
-   * live only in the per-card `AtomBytesStore` (ephemeral); persisting
-   * the small baked thumbnail here lets a recalled prompt re-seed the
-   * store and show its preview even after a cold launch, when the
-   * original bytes are gone. Absent for non-image atoms, and for image
-   * atoms whose thumbnail bake hadn't landed at submit time (those
-   * recall as a broken-image tile).
-   */
-  thumbnailDataUrl?: string;
-  /**
    * Absolute path of the original file tugcast stored at drop time. What
    * makes a recalled prompt *resubmittable* rather than merely legible: the
-   * thumbnail above shows what the attachment was, and this reads the bytes
-   * back so the recalled prompt ships a real image block instead of a
-   * mention marker. Absent for non-image atoms and for images whose upload
-   * had not landed at submit time.
+   * bytes are read back from here, so the recalled prompt ships a real image
+   * block instead of a mention marker.
    *
-   * A path string is negligible beside the thumbnail already here, so it
-   * costs nothing against `MAX_PROMPT_HISTORY_BYTES`.
+   * Absent when the upload had not landed at submit time. That case is not
+   * permanent — the bytes-store backfill completes the stored row through
+   * `patchAtomPath` once the upload arrives.
    */
   path?: string;
 }
@@ -60,12 +68,16 @@ export interface SerializedAtom {
 /**
  * A single prompt history entry. Stores everything needed to restore the prompt
  * state when the user navigates Up/Down (or Opt-Up/Down) through history.
- *
- * Metadata fields (sessionId, projectPath, route) are stored for future
- * cross-session search tiers (T3.4+).
  */
 export interface HistoryEntry {
+  /** Client-generated stable id; the ledger's `client_entry_id`, and what makes an append idempotent. */
   id: string;
+  /**
+   * Ledger row id, present once the append has landed. Recall order is this
+   * field's order; it is also the keyset cursor `extendOlder` pages behind and
+   * the handle the atom-path backfill needs.
+   */
+  ledgerId?: number;
   sessionId: string;
   projectPath: string;
   route: string;
@@ -89,20 +101,19 @@ export interface PromptHistorySnapshot {
   totalEntries: number;
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const MAX_ENTRIES_PER_SESSION = 200;
-
 // ── SessionHistoryProvider ────────────────────────────────────────────────────
 
 /**
  * Session-scoped HistoryProvider returned by PromptHistoryStore.createProvider().
  *
  * Manages cursor and draft state, same pattern as GalleryHistoryProvider.
- * Returns null from back() if entries haven't loaded yet (loadSession is async).
+ * Returns null from back() when the window can't advance — including the
+ * window-edge case, where it first asks the store to page older entries in so
+ * the next press can land.
  */
 class SessionHistoryProvider implements HistoryProvider {
-  private _cursor = -1; // -1 = at draft
+  /** Entry id the cursor rests on; null = at the draft. */
+  private _cursorId: string | null = null;
   private _draft: TugTextEditingState = { text: "", atoms: [], selection: null };
 
   constructor(
@@ -112,37 +123,64 @@ class SessionHistoryProvider implements HistoryProvider {
 
   back(current: TugTextEditingState): TugTextEditingState | null {
     const entries = this._store._getSessionEntries(this._sessionId);
-    if (entries.length === 0) return null;
-
-    if (this._cursor === -1) {
-      this._draft = current;
-      this._cursor = entries.length - 1;
-    } else if (this._cursor > 0) {
-      this._cursor--;
-    } else {
+    const step = stepBack(entries, this._cursorId);
+    if (step === null) {
+      // Either the window is empty or the cursor sits on its oldest entry.
+      // Both mean the same thing: page backward, so the next press has
+      // somewhere to go.
+      this._store._kickExtendOlder(this._sessionId);
       return null;
     }
-    return entryToEditingState(entries[this._cursor]);
+    if (this._cursorId === null) this._draft = current;
+    this._cursorId = step.id;
+    return entryToEditingState(step);
   }
 
   forward(): TugTextEditingState | null {
+    if (this._cursorId === null) return null;
     const entries = this._store._getSessionEntries(this._sessionId);
-
-    if (this._cursor === -1) return null;
-
-    if (this._cursor < entries.length - 1) {
-      this._cursor++;
-      return entryToEditingState(entries[this._cursor]);
+    const step = stepForward(entries, this._cursorId);
+    if (step === null) {
+      this._cursorId = null;
+      return this._draft;
     }
-
-    this._cursor = -1;
-    return this._draft;
+    this._cursorId = step.id;
+    return entryToEditingState(step);
   }
 
   resetToDraft(draft: TugTextEditingState): void {
-    this._cursor = -1;
+    this._cursorId = null;
     this._draft = draft;
   }
+}
+
+/**
+ * The entry one step older than `cursorId`, or the newest when the cursor is
+ * at the draft. `null` when there is nowhere older to go inside this list.
+ *
+ * The cursor is an entry id rather than an index because the window grows at
+ * both ends: paging prepends older entries and a submit appends a newer one,
+ * and either would silently slide an index onto the wrong entry.
+ */
+function stepBack(
+  entries: readonly HistoryEntry[],
+  cursorId: string | null,
+): HistoryEntry | null {
+  if (entries.length === 0) return null;
+  if (cursorId === null) return entries[entries.length - 1];
+  const index = entries.findIndex((e) => e.id === cursorId);
+  if (index <= 0) return null;
+  return entries[index - 1];
+}
+
+/** The entry one step newer than `cursorId`, or `null` at the newest end. */
+function stepForward(
+  entries: readonly HistoryEntry[],
+  cursorId: string,
+): HistoryEntry | null {
+  const index = entries.findIndex((e) => e.id === cursorId);
+  if (index < 0 || index >= entries.length - 1) return null;
+  return entries[index + 1];
 }
 
 /**
@@ -154,12 +192,17 @@ class SessionHistoryProvider implements HistoryProvider {
  * history timeline, matching the per-route-drafts semantics of
  * TugPromptEntry's TugPane state preservation payload.
  *
+ * The route filter is why a window edge matters more here than for the session
+ * provider: a route can have zero entries in the loaded window while the ledger
+ * holds plenty behind it, so "no entries for this route" has to page backward
+ * rather than resolve to a permanent dead end.
+ *
  * Cursor and `_draft` are in-memory and per-provider. Callers that
  * create one provider per route and retain the reference across route
  * switches preserve their browsing position for each route.
  */
 class RouteHistoryProvider implements HistoryProvider {
-  private _cursor = -1;
+  private _cursorId: string | null = null;
   private _draft: TugTextEditingState = { text: "", atoms: [], selection: null };
 
   constructor(
@@ -182,37 +225,35 @@ class RouteHistoryProvider implements HistoryProvider {
       route: this._route,
       entries_for_session: allForSession.length,
       entries_for_route: entries.length,
-      cursor_in: this._cursor,
+      cursor_in: this._cursorId,
     });
-    if (entries.length === 0) return null;
 
-    if (this._cursor === -1) {
-      this._draft = current;
-      this._cursor = entries.length - 1;
-    } else if (this._cursor > 0) {
-      this._cursor--;
-    } else {
+    const step = stepBack(entries, this._cursorId);
+    if (step === null) {
+      // Zero entries for this route in the window is not a dead end either:
+      // the window is a suffix of the whole corpus, and this route's entries
+      // may all sit behind its top edge.
+      this._store._kickExtendOlder(this._sessionId);
       return null;
     }
-    return entryToEditingState(entries[this._cursor]);
+    if (this._cursorId === null) this._draft = current;
+    this._cursorId = step.id;
+    return entryToEditingState(step);
   }
 
   forward(): TugTextEditingState | null {
-    const entries = this._entries();
-
-    if (this._cursor === -1) return null;
-
-    if (this._cursor < entries.length - 1) {
-      this._cursor++;
-      return entryToEditingState(entries[this._cursor]);
+    if (this._cursorId === null) return null;
+    const step = stepForward(this._entries(), this._cursorId);
+    if (step === null) {
+      this._cursorId = null;
+      return this._draft;
     }
-
-    this._cursor = -1;
-    return this._draft;
+    this._cursorId = step.id;
+    return entryToEditingState(step);
   }
 
   resetToDraft(draft: TugTextEditingState): void {
-    this._cursor = -1;
+    this._cursorId = null;
     this._draft = draft;
   }
 }
@@ -235,28 +276,32 @@ function entryToEditingState(entry: HistoryEntry): TugTextEditingState {
 // ── PromptHistoryStore ────────────────────────────────────────────────────────
 
 /**
- * PromptHistoryStore — L02-compliant store for session-scoped prompt history.
+ * PromptHistoryStore — L02-compliant store over the prompt ledger.
  *
- * - In-memory map of sessionId → HistoryEntry[].
- * - push() appends and fires tugbank PUT (fire-and-forget).
- * - loadSession() fetches from tugbank on first access per session.
- * - createProvider() returns a HistoryProvider scoped to a session.
- * - subscribe/getSnapshot for useSyncExternalStore. [L02]
+ * - In-memory map of sessionId → the newest-suffix window of that session's
+ *   entries, ascending.
+ * - `push()` appends locally and hands the entry to the ledger outbox; the
+ *   resolved row id is patched back onto the entry.
+ * - `loadSession()` fetches the newest page on first access per session.
+ * - `extendOlder()` pages backward from the window's top edge, single-flight.
+ * - `patchAtomPath()` completes a stored atom's path after a late upload.
+ * - createProvider()/createRouteProvider() return HistoryProviders. [L02]
  *
- * **Capacity:** 200 entries per session. Oldest entries are dropped on push()
- * when the cap is exceeded. [D07]
+ * **Capacity:** none. The corpus is unbounded by design; the window is what's
+ * bounded, and only by what has been asked for.
  */
 export class PromptHistoryStore {
   private _sessions: Map<string, HistoryEntry[]> = new Map();
   private _loadedSessions: Set<string> = new Set();
+  /** Whether older entries exist behind the window's top edge, per session. */
+  private _hasMore: Map<string, boolean> = new Map();
   /**
-   * Pending in-flight load promise per session id. Lets concurrent
-   * `loadSession(id)` callers share a single fetch and lets `push(id)`
-   * defer its PUT until the load settles — without this, a quick
-   * push() before fetch resolves would PUT a partial in-memory list,
-   * clobbering the persisted record.
+   * Pending in-flight first-page load per session id. Lets concurrent
+   * `loadSession(id)` callers share one fetch.
    */
   private _loadPromises: Map<string, Promise<void>> = new Map();
+  /** Single-flight guard for backward paging, per session. */
+  private _extendPromises: Map<string, Promise<void>> = new Map();
   private _listeners: Set<() => void> = new Set();
   private _lastActiveSessionId: string | null = null;
   private _version = 0;
@@ -299,11 +344,13 @@ export class PromptHistoryStore {
   // ── Public API ────────────────────────────────────────────────────────────
 
   /**
-   * Push a new entry onto the session's history.
+   * Push a newly submitted entry onto the session's window and append it to
+   * the ledger.
    *
-   * - Enforces 200-entry cap by dropping oldest entries.
-   * - Fire-and-forget PUT to tugbank.
-   * - Notifies subscribers.
+   * The append is queued, ordered per session, and retried until it lands —
+   * see `prompt-history-api`. The resolved row id is written back onto the
+   * entry object the window holds, which is what later lets the atom-path
+   * backfill name the row it wants to complete.
    */
   push(entry: HistoryEntry): void {
     const { sessionId } = entry;
@@ -317,67 +364,23 @@ export class PromptHistoryStore {
 
     entries.push(entry);
 
-    // Enforce capacity cap: keep most recent MAX_ENTRIES_PER_SESSION entries.
-    if (entries.length > MAX_ENTRIES_PER_SESSION) {
-      entries.splice(0, entries.length - MAX_ENTRIES_PER_SESSION);
-    }
-
-    // If a load is in flight for this session, defer the PUT until it
-    // settles so the merged in-memory view (persisted history + this
-    // new entry) is what hits the wire — not just the latest entry,
-    // which would otherwise clobber the persisted record.
-    const pending = this._loadPromises.get(sessionId);
-    if (pending) {
-      pending.then(() => {
-        const latest = this._sessions.get(sessionId) ?? [];
-        putPromptHistory(sessionId, latest);
-      });
-    } else {
-      putPromptHistory(sessionId, entries);
-    }
+    void appendPromptHistory(entry).then((id) => {
+      if (id !== null) entry.ledgerId = id;
+    });
 
     this._version++;
     this._notifyListeners();
   }
 
   /**
-   * Truncate a session's history to its first `keepCount` entries, dropping
-   * the rest — used by `/rewind` ([#step-7-3]) to rewind the prompt history
-   * alongside the transcript: a conversation rewind drops the rewound-away
-   * turns, and their prompts should leave history recall too.
-   *
-   * Idempotent and self-correcting: callers pass the retained user-prompt
-   * count derived from the post-rewind transcript, so a session that already
-   * has `≤ keepCount` entries is a no-op (a re-invocation after the user has
-   * sent fresh prompts can never drop them). Persists the truncated list to
-   * tugbank and notifies subscribers; a no-op skips both.
-   */
-  truncateSession(sessionId: string, keepCount: number): void {
-    const entries = this._sessions.get(sessionId);
-    if (!entries || entries.length <= keepCount) return;
-    entries.splice(keepCount); // keep the first `keepCount`, drop the tail
-    const pending = this._loadPromises.get(sessionId);
-    if (pending) {
-      pending.then(() => {
-        putPromptHistory(sessionId, this._sessions.get(sessionId) ?? []);
-      });
-    } else {
-      putPromptHistory(sessionId, entries);
-    }
-    this._version++;
-    this._notifyListeners();
-  }
-
-  /**
-   * Load history entries for a session from tugbank.
+   * Load the newest page of a session's history from the ledger.
    *
    * - Idempotent: returns the cached promise for any concurrent caller
    *   on the same `sessionId`; no-op if the session is already loaded.
-   * - Marks `_loadedSessions` only on a successful fetch (404 included
-   *   — that's a definitive "no record"). A network error leaves the
-   *   session unmarked so the next `createProvider` call retries.
-   * - Dedups the merge by entry id so a re-fetch can't introduce
-   *   duplicates for entries that were pushed during the load window.
+   * - Marks `_loadedSessions` only on a successful fetch. A network error
+   *   leaves the session unmarked so the next `createProvider` call retries.
+   * - Dedups by client entry id, so entries pushed during the load window
+   *   can't double up against the same rows coming back from the ledger.
    */
   async loadSession(sessionId: string): Promise<void> {
     if (this._loadedSessions.has(sessionId)) {
@@ -398,29 +401,27 @@ export class PromptHistoryStore {
 
     const promise = (async () => {
       try {
-        const entries = await getPromptHistory(sessionId);
+        const page = await fetchPromptHistoryPage(sessionId);
         const existing = this._sessions.get(sessionId) ?? [];
-        // Merge: persisted entries first (older), then in-session
-        // pushes (newer). Dedup by entry id.
+        // Ledger rows first (older), then anything pushed while the fetch was
+        // in flight. Dedup by client entry id.
         const seen = new Set<string>();
         const merged: HistoryEntry[] = [];
-        for (const e of [...entries, ...existing]) {
+        for (const e of [...page.entries, ...existing]) {
           if (seen.has(e.id)) continue;
           seen.add(e.id);
           merged.push(e);
         }
-        const capped =
-          merged.length > MAX_ENTRIES_PER_SESSION
-            ? merged.slice(merged.length - MAX_ENTRIES_PER_SESSION)
-            : merged;
-        if (capped.length > 0 || existing.length > 0) {
-          this._sessions.set(sessionId, capped);
+        if (merged.length > 0 || existing.length > 0) {
+          this._sessions.set(sessionId, merged);
         }
+        this._hasMore.set(sessionId, page.hasMore);
         this._loadedSessions.add(sessionId);
         logSessionLifecycle("history.load_complete", {
           session_id: sessionId,
-          fetched_count: entries.length,
-          merged_count: capped.length,
+          fetched_count: page.entries.length,
+          merged_count: merged.length,
+          has_more: page.hasMore,
           in_memory_after: (this._sessions.get(sessionId) ?? []).length,
         });
         // Bump on every successful load completion so observers can
@@ -440,6 +441,86 @@ export class PromptHistoryStore {
     })();
     this._loadPromises.set(sessionId, promise);
     return promise;
+  }
+
+  /**
+   * Page backward from the window's top edge, prepending what comes back.
+   *
+   * Single-flight per session, and a no-op when the window already reaches the
+   * start of the corpus. The cursor is the oldest *ledger* id in the window;
+   * a window holding only not-yet-landed local pushes has no cursor to page
+   * behind, so it waits for the append to resolve rather than re-fetching the
+   * newest page and duplicating itself.
+   */
+  async extendOlder(sessionId: string): Promise<void> {
+    if (this._hasMore.get(sessionId) !== true) return;
+    const inFlight = this._extendPromises.get(sessionId);
+    if (inFlight) return inFlight;
+
+    const entries = this._sessions.get(sessionId) ?? [];
+    const oldest = entries.find((e) => e.ledgerId !== undefined)?.ledgerId;
+    if (oldest === undefined) return;
+
+    const promise = (async () => {
+      try {
+        const page = await fetchPromptHistoryPage(sessionId, oldest);
+        const current = this._sessions.get(sessionId) ?? [];
+        const seen = new Set(current.map((e) => e.id));
+        const older = page.entries.filter((e) => !seen.has(e.id));
+        this._sessions.set(sessionId, [...older, ...current]);
+        this._hasMore.set(sessionId, page.hasMore);
+        logSessionLifecycle("history.extend_older", {
+          session_id: sessionId,
+          before: oldest,
+          fetched_count: page.entries.length,
+          prepended_count: older.length,
+          has_more: page.hasMore,
+        });
+        this._version++;
+        this._notifyListeners();
+      } catch (err) {
+        logSessionLifecycle("history.extend_error", {
+          session_id: sessionId,
+          before: oldest,
+          error: String(err),
+        });
+      } finally {
+        this._extendPromises.delete(sessionId);
+      }
+    })();
+    this._extendPromises.set(sessionId, promise);
+    return promise;
+  }
+
+  /** Whether older entries exist behind this session's window. */
+  hasMore(sessionId: string): boolean {
+    return this._hasMore.get(sessionId) === true;
+  }
+
+  /**
+   * Complete a stored atom's `path` — in the window and in the ledger row.
+   *
+   * Called when an upload lands after its prompt was already submitted, so the
+   * appended row carries a pathless image atom. Best-effort: an entry the
+   * window no longer holds is skipped, and the route itself answers a
+   * no-longer-present row without error.
+   */
+  patchAtomPath(clientEntryId: string, atomId: string, path: string): void {
+    let touched = false;
+    for (const entries of this._sessions.values()) {
+      const entry = entries.find((e) => e.id === clientEntryId);
+      if (entry === undefined) continue;
+      for (const atom of entry.atoms) {
+        if (atom.id !== atomId || atom.path !== undefined) continue;
+        atom.path = path;
+        touched = true;
+      }
+    }
+    void patchPromptAtomPath(clientEntryId, atomId, path);
+    if (touched) {
+      this._version++;
+      this._notifyListeners();
+    }
   }
 
   /**
@@ -482,7 +563,7 @@ export class PromptHistoryStore {
 
   /**
    * Read the loaded entries for a session. Used by the prompt entry to
-   * re-seed the per-card bytes store from durable image thumbnails so
+   * re-seed the per-card bytes store from stored attachment paths so
    * recalled prompts show their previews after a cold launch. Returns
    * the live array (do not mutate) or an empty array if not yet loaded.
    */
@@ -490,11 +571,20 @@ export class PromptHistoryStore {
     return this._sessions.get(sessionId) ?? [];
   }
 
-  // ── Internal helpers (used by SessionHistoryProvider) ─────────────────────
+  // ── Internal helpers (used by the providers) ──────────────────────────────
 
-  /** @internal — used by SessionHistoryProvider to read entries. */
+  /** @internal — used by the providers to read the window. */
   _getSessionEntries(sessionId: string): HistoryEntry[] {
     return this._sessions.get(sessionId) ?? [];
+  }
+
+  /**
+   * @internal — a provider walked off the window's top edge. Page backward so
+   * the next press has somewhere to go. Fire-and-forget: `back()` answers null
+   * now, and the arriving page notifies subscribers.
+   */
+  _kickExtendOlder(sessionId: string): void {
+    void this.extendOlder(sessionId);
   }
 
   // ── Private ───────────────────────────────────────────────────────────────

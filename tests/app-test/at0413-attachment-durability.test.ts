@@ -335,46 +335,38 @@ describe.skipIf(!SHOULD_RUN)(
             persistInTestMode: true,
           });
           try {
-            // The history entry is written through the RUNNING app rather
-            // than into the db beforehand. tugcast sweeps prompt-history
-            // keyed by a session its ledger has never seen at startup, so a
-            // pre-launch seed for a synthetic session id is gone before the
-            // deck can read it — correct product behavior, and the reason
-            // this write lands after boot.
+            // The history entry is appended through the RUNNING app's ledger
+            // route rather than written into the db beforehand: the routes are
+            // only registered once tugcast has opened the ledger at startup.
             //
-            // No thumbnail on the atom, deliberately: that is the
-            // trimmed-past-the-cutoff case, where the path alone has to be
-            // enough to get real bytes back.
-            const historyValue = {
-              kind: "json",
-              value: [
+            // The atom carries a path and nothing else. That is the whole
+            // persisted shape now — history stores references, never pixels —
+            // so the path alone has to be enough to get real bytes back.
+            const historyEntry = {
+              session_id: sessionId,
+              route: "❯",
+              text: "look at this ￼",
+              atoms: [
                 {
-                  id: `${sessionId}-1`,
-                  sessionId,
-                  projectPath: "",
-                  route: "❯",
-                  text: "look at this ￼",
-                  atoms: [
-                    {
-                      position: 13,
-                      type: "image",
-                      label: "image-1",
-                      value: "image-1",
-                      id: atomId,
-                      path: storedPath,
-                    },
-                  ],
-                  timestamp: Date.now(),
+                  position: 13,
+                  type: "image",
+                  label: "image-1",
+                  value: "image-1",
+                  id: atomId,
+                  path: storedPath,
                 },
               ],
+              project_path: "",
+              submitted_at_ms: Date.now(),
+              client_entry_id: `${sessionId}-1`,
             };
             await app.evalJS<null>(
               `(function(){
                 window.__at0409History = "pending";
-                fetch("/api/defaults/dev.tugtool.prompt.history/" + encodeURIComponent(${JSON.stringify(sessionId)}), {
-                  method: "PUT",
+                fetch("/api/prompt-history", {
+                  method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: ${JSON.stringify(JSON.stringify(historyValue))},
+                  body: ${JSON.stringify(JSON.stringify(historyEntry))},
                 }).then(function(r){ window.__at0409History = r.ok ? "ok" : "http-" + r.status; },
                         function(e){ window.__at0409History = "err:" + e.message; });
                 return null;

@@ -1047,11 +1047,17 @@ async fn ask_handler(
 /// defaults routes are reachable in callers (e.g., tests) that do not supply
 /// a client. The client is created externally (in `main.rs`) so that migration
 /// can share the same connection before the server starts accepting connections.
+///
+/// `prompt_ledger` follows the same pattern: `None` leaves the prompt-history
+/// routes unregistered rather than registering handlers that would panic on a
+/// missing `Extension`. A composer talking to a build whose ledger failed to
+/// open therefore gets a 404 it can report, not a hang.
 pub(crate) fn build_app(
     router: FeedRouter,
     _dev_state: SharedDevState,
     bank_store: Option<Arc<TugbankClient>>,
     jots_state: Option<Arc<crate::jots::JotsState>>,
+    prompt_ledger: Option<Arc<crate::prompt_ledger::PromptLedger>>,
 ) -> Router {
     // Allow any origin on localhost — tugcast only binds to loopback.
     // This prevents WKWebView CORS errors during page teardown (keepalive
@@ -1143,6 +1149,21 @@ pub(crate) fn build_app(
             .layer(Extension(state));
     }
 
+    // Wire the prompt-history routes when the ledger opened.
+    if let Some(ledger) = prompt_ledger {
+        base = base
+            .route(
+                "/api/prompt-history",
+                get(crate::prompt_history_api::get_prompt_history)
+                    .post(crate::prompt_history_api::post_prompt_history),
+            )
+            .route(
+                "/api/prompt-history/atom-path",
+                post(crate::prompt_history_api::post_prompt_history_atom_path),
+            )
+            .layer(Extension(ledger));
+    }
+
     let dist_path = crate::resources::source_tree().join("tugdeck").join("dist");
     if dist_path.is_dir() {
         let index_html = dist_path.join("index.html");
@@ -1171,8 +1192,9 @@ pub async fn run_server(
     dev_state: SharedDevState,
     bank_store: Option<Arc<TugbankClient>>,
     jots_state: Option<Arc<crate::jots::JotsState>>,
+    prompt_ledger: Option<Arc<crate::prompt_ledger::PromptLedger>>,
 ) -> Result<(), std::io::Error> {
-    let app = build_app(router, dev_state, bank_store, jots_state);
+    let app = build_app(router, dev_state, bank_store, jots_state, prompt_ledger);
 
     axum::serve(
         listener,
@@ -1415,7 +1437,7 @@ mod tests {
         router.register_stream(FeedId::CONTROL, control_tx, crate::router::LagPolicy::Warn);
         let pending_asks = router.pending_asks.clone();
 
-        let app = build_app(router, dev_state, None, None);
+        let app = build_app(router, dev_state, None, None, None);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {

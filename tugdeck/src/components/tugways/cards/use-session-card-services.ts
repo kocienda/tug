@@ -45,8 +45,8 @@ const EMPTY_FILE_COMPLETION_PROVIDER = ((_q: string) => []) as CompletionProvide
 
 // Lazily-constructed singleton prompt-history store shared across dev cards.
 // The store is internally keyed by session id (see `lib/prompt-history-store.ts`);
-// per-session persistence via `getPromptHistory` / `putPromptHistory` is baked
-// in and runs on every `push()`. Cross-card reuse of history for the same
+// every `push()` appends to the machine-global prompt ledger, and each session's
+// entries page back in on first access. Cross-card reuse of history for the same
 // project arrives once a stable per-workspace session id exists.
 let _devPromptHistoryStore: PromptHistoryStore | null = null;
 function getSessionPromptHistoryStore(): PromptHistoryStore {

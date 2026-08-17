@@ -144,10 +144,10 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // the app-test bundle's profile is "apptest", so they are absent here
   // and not asserted.
   { id: "maker.reload", key: "r", mods: MOD.command | MOD.shift },
-  // The three sidebar toggles, all swept: ⌃⌘L, ⌃⌘J, ⌃⌘G.
+  // The three sidebar toggles, all swept: ⌃⌘L, ⌃⌘J, ⌃⌘O.
   { id: "maker.lens", key: "l", mods: MOD.command | MOD.control },
   { id: "maker.jots", key: "j", mods: MOD.command | MOD.control },
-  { id: "maker.overview", key: "g", mods: MOD.command | MOD.control },
+  { id: "maker.overview", key: "o", mods: MOD.command | MOD.control },
   { id: "maker.sourceTree" },
   // Help
   { id: "help.shortcuts", key: "" },

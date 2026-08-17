@@ -167,6 +167,12 @@ function installFetchMock(): FetchHarness {
     if (method === "PUT") {
       return new Response(null, { status: 204 });
     }
+    if (method === "POST" && url.startsWith("/api/prompt-history")) {
+      return new Response(JSON.stringify({ id: records.length }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     for (const [needle, payload] of seeds.entries()) {
       if (url.includes(needle)) {
         return new Response(JSON.stringify(payload), {
@@ -281,7 +287,7 @@ describe("R-CHAIN-01 — Fresh new", () => {
     fetchH.restore();
   });
 
-  it("history.push lands under the picker-chosen session id without waiting on session_init", async () => {
+  it("history.push appends under the picker-chosen session id without waiting on session_init", async () => {
     const cardId = "card-rchain-01";
     const sessionId = "tug-rchain-01";
     const conn = new TestFrameChannel();
@@ -303,12 +309,15 @@ describe("R-CHAIN-01 — Fresh new", () => {
       timestamp: 1,
     });
 
-    const put = fetchH.records.find(
-      (r) => r.method === "PUT" && r.url.includes("prompt.history"),
+    // The append is queued and drained on a microtask, so let it go out.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const post = fetchH.records.find(
+      (r) => r.method === "POST" && r.url === "/api/prompt-history",
     );
-    expect(put).toBeDefined();
-    expect(put!.url).toContain(encodeURIComponent(sessionId));
-    expect(logs.expectEvent("history.put").fields.session_id).toBe(sessionId);
+    expect(post).toBeDefined();
+    expect((post!.body as { session_id: string }).session_id).toBe(sessionId);
+    expect((post!.body as { text: string }).text).toBe("hello world");
 
     store.dispose();
   });
@@ -355,19 +364,21 @@ describe("R-CHAIN-02 — Resume success", () => {
     const cardId = "card-rchain-02";
     const sessionId = "rchain-02-session";
 
-    fetchH.seedGet(`prompt.history/${encodeURIComponent(sessionId)}`, {
-      kind: "json",
-      value: [
+    fetchH.seedGet(`/api/prompt-history?session=${encodeURIComponent(sessionId)}`, {
+      entries: [
         {
-          id: `${sessionId}-1`,
-          sessionId,
-          projectPath: PROJECT_DIR,
+          id: 1,
+          client_entry_id: `${sessionId}-1`,
+          session_id: sessionId,
+          project_path: PROJECT_DIR,
           route: "❯",
           text: "remember my favorite color is green",
           atoms: [],
-          timestamp: 1,
+          submitted_at_ms: 1,
         },
       ],
+      has_more: false,
+      before: null,
     });
 
     const conn = new TestFrameChannel();
@@ -382,9 +393,9 @@ describe("R-CHAIN-02 — Resume success", () => {
         r.method === "GET" && r.url.includes(encodeURIComponent(sessionId)),
     );
     expect(get).toBeDefined();
-    const getEvt = logs.expectEvent("history.get");
-    expect(getEvt.fields.session_id).toBe(sessionId);
-    expect(getEvt.fields.entry_count).toBe("1");
+    const loaded = logs.expectEvent("history.load_complete");
+    expect(loaded.fields.session_id).toBe(sessionId);
+    expect(loaded.fields.fetched_count).toBe("1");
 
     const provider = history.createRouteProvider(sessionId, "❯");
     const restored = provider.back({ text: "", atoms: [], selection: null });
@@ -439,7 +450,7 @@ describe("R-CHAIN-03 — Resume failure", () => {
 
     expect(
       fetchH.records.some(
-        (r) => r.method === "PUT" && r.url.includes("prompt.history"),
+        (r) => r.method === "POST" && r.url === "/api/prompt-history",
       ),
     ).toBe(false);
 
