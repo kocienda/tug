@@ -665,6 +665,7 @@ export const TugConfirmPopover = React.forwardRef<
               onClick={onCancelClick}
               focusGroup={buttonFocusGroup}
               focusOrder={CANCEL_ORDER}
+              data-slot="tug-confirm-cancel"
             >
               {cancelLabel}
             </TugPushButton>
@@ -676,11 +677,16 @@ export const TugConfirmPopover = React.forwardRef<
               onClick={onConfirmClick}
               focusGroup={buttonFocusGroup}
               focusOrder={CONFIRM_ORDER}
+              data-slot="tug-confirm-confirm"
             >
               {confirmLabel}
             </TugPushButton>
           </div>
-          <TugLabel size="md" align="center">{message}</TugLabel>
+          {/* Named parts, so a test can aim a real pointer at the act it means
+              rather than walking the button list by label text. */}
+          <TugLabel size="md" align="center" data-slot="tug-confirm-message">
+            {message}
+          </TugLabel>
         </div>
       </TugPopoverContent>
     </TugPopover>

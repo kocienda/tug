@@ -434,6 +434,17 @@ export interface LedgerSeedSession {
    * id, so its chip resolves through `resolve_sessions`' callsign arm.
    */
   tag?: string;
+  /**
+   * The dash this session is mated to — its **owner key**, applied through the
+   * same `set_dash_binding` a real `bind_dash` uses.
+   *
+   * Seed it to stand up "another live session is holding this dash", which is
+   * what the shade's release-reach rule refuses on. `bound_sessions` is
+   * computed from these rows, so a client-side `bind_dash_ok` cannot fake it.
+   */
+  dash_id?: string;
+  /** The dash's short name; defaults to `dash_id` when omitted. */
+  dash_name?: string;
 }
 
 /**

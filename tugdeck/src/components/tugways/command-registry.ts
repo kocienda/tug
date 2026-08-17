@@ -1907,27 +1907,6 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
   },
   {
-    // The Join route's entry, and it carries no chord ([P07]). Note the
-    // precedent above is deliberately not uniform: `:changes` has no entry at
-    // all, because the Changes route's door is the Session menu's Show/Hide
-    // Changes toggle and a second entry would name a control's internal state
-    // as a command. Join has no such menu twin — its doors are the segment,
-    // `/dash-join`, and the lane's affordance — so it takes an entry of its
-    // own, which is what puts it in front of the keymap pane and the collision
-    // lint the day a binding is proposed.
-    //
-    // The obvious chord is taken: ⌃⌘J is Show Jots and ⌘J is New Jot.
-    // Displacing either for a gesture with three doors would be a bad trade.
-    id: `${TUG_ACTIONS.SELECT_COMPOSER_ROUTE}:join`,
-    title: "Join Route",
-    routing: "key-card",
-    action: TUG_ACTIONS.SELECT_COMPOSER_ROUTE,
-    payload: "join",
-    // The door is the composer's Join segment, which the door-coverage lint
-    // cannot see — not "nothing opens this", which is what `internal` means.
-    paneChrome: true,
-  },
-  {
     // A menu item with a DECORATIVE chord ([P11]). KBF mode is now a deck-wide
     // mode rather than one card's affordance, so it earns a place in the View
     // menu — but its chord stays out of AppKit's key-equivalent scan, which is

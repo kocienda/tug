@@ -286,7 +286,7 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the ladder's candidate is gated on a revie
         await app.waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(ROUTE_GROUP)} + ' [data-state="active"]');
-            return el !== null && el.getAttribute("data-choice-value") === "join";
+            return el !== null && el.getAttribute("data-choice-value") === "changes";
           })()`,
           { timeoutMs: 12000 },
         );

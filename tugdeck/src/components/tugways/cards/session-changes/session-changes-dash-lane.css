@@ -29,16 +29,17 @@
   margin-top: var(--tug-space-xs);
 }
 
-/* The folded group's cue trails its label. */
-.session-changes-dash-lane-rest-label {
-  justify-content: space-between;
-}
-
 /* ---- The row ---- */
 
 .session-changes-dash-row {
   display: flex;
   flex-direction: column;
+}
+
+/* The tooltip anchor around a Release that may be disabled — a disabled button
+   takes no pointer events, so the reason has to hang off something that does. */
+.session-changes-dash-row-release {
+  display: inline-flex;
 }
 
 .session-changes-dash-row-trailing {

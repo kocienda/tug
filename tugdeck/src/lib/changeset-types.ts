@@ -167,8 +167,7 @@ export interface DashChangesetEntry {
   /** True when the dash worktree has uncommitted changes. */
   worktree_dirty: boolean;
   files: ChangesetFile[];
-  /** Round commit subjects, newest first — the release discard preflight
-   *  lists these ([P14]). */
+  /** Round commit subjects, newest first — the lane's expanded row lists them. */
   round_subjects?: string[];
   /** The maintained draft — the dash's eventual join message ([P23]). */
   draft?: ChangesetDraft;

@@ -213,7 +213,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         await app.waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(ROUTE_GROUP)} + ' [data-state="active"]');
-            return el !== null && el.getAttribute("data-choice-value") === "join";
+            return el !== null && el.getAttribute("data-choice-value") === "changes";
           })()`,
           { timeoutMs: 12000 },
         );

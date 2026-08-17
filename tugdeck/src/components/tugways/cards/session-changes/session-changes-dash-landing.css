@@ -58,29 +58,6 @@
   color: var(--tug7-element-global-text-normal-rest);
 }
 
-/* The discard's first beat: what the second one destroys, listed. Marked off
-   by a danger-toned rule, because this is the one act in the lane that cannot
-   be undone. */
-.session-changes-dash-landing-discard {
-  display: flex;
-  flex-direction: column;
-  gap: var(--tug-space-2xs);
-  padding-left: var(--tug-space-sm);
-  border-left: 2px solid var(--tug7-element-tone-border-normal-danger-rest);
-}
-
-.session-changes-dash-landing-discard-subjects {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-family: var(--tug-font-family-mono);
-  font-size: var(--tug-font-size-xs);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
 .session-changes-dash-landing-blockers,
 .session-changes-dash-landing-conflicts {
   display: flex;

@@ -53,6 +53,8 @@ tugutil draft show --owner dash:<name>
 
   `` `tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"` ``
 
+  The subject that command writes is **bare** — no `tugdash(<name>): ` prefix. The landing adds the scope itself, and a scope naming a different dash is stripped there rather than preserved.
+
   Do **not** compose the message yourself, and do not let the join fall through to the bare dash description. Message authorship needs the working context — what the rounds did and why — which the working skill has and this gesture does not; a message invented from log lines is exactly the durable lie the draft machinery exists to prevent. Whoever worked the dash writes the draft; this gesture lands it.
 
 ## Beat 1 — preview

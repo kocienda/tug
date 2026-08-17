@@ -45,8 +45,10 @@ import {
 } from "@/components/tugways/tug-changes-list";
 import {
   SessionChangesDashLane,
+  canReleaseFromHere,
   type DashLaneBinding,
   type DashLaneLanding,
+  type DashLaneRelease,
 } from "./session-changes-dash-lane";
 import type { DashLandingActions } from "./session-changes-dash-landing";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
@@ -58,6 +60,7 @@ import {
   useChangesetClaim,
   useChangesetDisclaim,
   useChangesetJoin,
+  useChangesetRelease,
 } from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
@@ -140,6 +143,10 @@ export function SessionChangesView({
   // not by dash, which is exactly why the landing face belongs to the fronted
   // row alone — two rows previewing would share this slot.
   const join = useChangesetJoin(changesController.entryKey);
+  // The card's one discard round trip ([L02]), keyed by the card's entry like
+  // the join above. That is why every row's Release is held while one is in
+  // flight: two rows sharing this slot would render each other's phase.
+  const releaseVerb = useChangesetRelease(changesController.entryKey);
   // The resolution ladder's overlay, keyed by dash rather than by card. The
   // fronted dash is resolved from the same snapshot the lane orders by; an
   // unbound card watches the empty key, which is idle by construction.
@@ -351,6 +358,35 @@ export function SessionChangesView({
           disabledReason: join.phase === "pending" ? "A landing is in flight" : null,
         };
 
+  // Discard, for every row the reach rule allows ([P06]/[P12]). The reach is a
+  // pure function of data already in this snapshot — no store, no subscription,
+  // no new wire field — and the two gates are folded into one sentence so the
+  // fronted row's Release and a parked row's can never disagree.
+  //
+  // `release_in` is deliberately left unguarded: `tugutil dash release` is a
+  // power tool the app-test preamble's stranded-fixture sweep depends on, and
+  // the one genuinely irreversible case — base dirt overlapping the dash's own
+  // files — is already refused server-side before anything moves.
+  const laneRelease: DashLaneRelease | undefined =
+    project === null
+      ? undefined
+      : {
+          canRelease: (entry) =>
+            canReleaseFromHere(entry, changesController.tugSessionId, boundDashId),
+          release: (entry) =>
+            releaseVerb.release(
+              project.project_dir,
+              entry.display_name,
+              changesController.tugSessionId,
+            ),
+          disabledReason:
+            releaseVerb.phase === "pending"
+              ? "A discard is in flight"
+              : turnInProgress
+                ? "Wait for the turn to finish"
+                : null,
+        };
+
   const laneLanding: DashLaneLanding | undefined =
     dashLanding !== undefined
       ? {
@@ -423,6 +459,7 @@ export function SessionChangesView({
         projectRoot={project.project_dir}
         landing={laneLanding}
         binding={laneBinding}
+        release={laneRelease}
       />
     </div>,
     headerActions,

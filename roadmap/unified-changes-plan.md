@@ -462,12 +462,12 @@ The lane's app-tests build **real dashes in the live repository**. Leave no `tug
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | One room, one landing — the route group goes invariant | pending | — |
-| #step-2 | The project's other dashes come out of the fold | pending | — |
-| #step-3 | The discard confirms in a popover | pending | — |
-| #step-4 | Release reaches every dash nobody is holding | pending | — |
-| #step-5 | No landing emits a doubled scope | pending | — |
-| #step-6 | Integration checkpoint — the whole lane in one invocation | pending | — |
+| #step-1 | One room, one landing — the route group goes invariant | done | `3d2b9a0c0` |
+| #step-2 | The project's other dashes come out of the fold | done | `36167235f` |
+| #step-3 | The discard confirms in a popover | done | `851ed96e3` |
+| #step-4 | Release reaches every dash nobody is holding | done | `bf30362a8` |
+| #step-5 | No landing emits a doubled scope | done | `531572bfc` |
+| #step-6 | Integration checkpoint — the whole lane in one invocation | in progress | — |
 
 #### Step 1: One room, one landing — the route group goes invariant {#step-1}
 

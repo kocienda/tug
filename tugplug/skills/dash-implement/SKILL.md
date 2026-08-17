@@ -118,6 +118,8 @@ Before you stop, write the dash's **join draft** — the squash message the user
 tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
 ```
 
+**Write the subject bare — no `tugdash(<name>): ` prefix.** The landing adds the scope itself, so one written here is redundant; a scope naming a *different* dash is stripped at the landing rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
+
 Then point the user at the landing gesture: **`/join <name>`** in the Session card previews the merge and lands the squash with that draft as its message.
 
 ### 4. Iterate (interactive)

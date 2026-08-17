@@ -27,6 +27,13 @@
  * would squash a fixture onto the developer's own `main` — so the discard is
  * where the card → server → shell ledger → reload path is actually walked.
  *
+ * The discard confirms through the lane's `TugConfirmPopover`, and both halves
+ * are driven: Cancel first — proving the arming click destroys nothing and
+ * sends no release — then Confirm. The confirm's message is a fact sheet
+ * naming the counts and the hand-back, not a list of round subjects: those stay
+ * on the row, which is asserted here so the deletion of the block that used to
+ * duplicate them is visibly a deduplication.
+ *
  * `base-dirt` is deliberately **not** driven here. Its dirt would have to land
  * in that same main checkout — the developer's live tree, mid-run — and the
  * blocker is already pinned where it is cheap and exact: the intersection in
@@ -36,6 +43,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-landing.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
+ * @covers tugdeck/src/components/tugways/tug-confirm-popover.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/use-landing-receipts.ts
@@ -74,6 +82,9 @@ const DASH_RELEASE = "at0418-release";
 const RELEASE_SUBJECT = "at0418(round): the subject the discard names";
 
 const RELEASE_RECEIPT = `${CARD} [data-slot="release-receipt-block"]`;
+/** The lane's one discard confirm. It portals out of the card's subtree, so it
+ *  is addressed from the document root rather than under `CARD`. */
+const CONFIRM_POPOVER = '[data-slot="tug-confirm-popover"]';
 
 /** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
 const encodeProjectDir = (absDir: string): string =>
@@ -394,10 +405,16 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         expect(cleanFace.empty).toBe(0);
 
         // The affordance does something: it opens the join-message editor.
+        // The route group is invariant, so the Changes segment is what goes
+        // active; the Z5 button is what names the landing as a join.
         await clickUntil(
           app,
           `${row(DASH_WORK)} [data-slot="session-changes-dash-join"]`,
-          `${ROUTE_GROUP} [data-choice-value="join"][data-state="active"]`,
+          `${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`,
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`)}) !== null`,
+          { timeoutMs: 8000 },
         );
         await app.nativeClickAtElement(EDITOR);
         await settle();
@@ -482,7 +499,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         expect(noJoin.disabled).toBe(true);
         expect(noJoin.hint).toContain("Nothing to join");
 
-        // ── Release: two beats, then the receipt, then a reload ────────────
+        // ── Release: confirm, then the receipt, then a reload ──────────────
         // Its own dash, because this case destroys the one it runs on.
         await app.dispatchControlAction("bind_dash_ok", {
           tug_session_id: SID,
@@ -494,24 +511,60 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
           { timeoutMs: 20000 },
         );
 
-        // Beat 1 arms the confirm and shows exactly what beat 2 destroys.
+        // The round subject lives on the row itself, not in the confirm. The
+        // popover's message is one flat string and cannot carry a list — and it
+        // does not need to, because the expanded row already lists them. This
+        // assertion is here to prove the fact survived the block that used to
+        // duplicate it.
+        expect(
+          await app.evalJS<string>(
+            `(document.querySelector(${JSON.stringify(`${row(DASH_RELEASE)} [data-slot="session-changes-dash-subjects"]`)})?.textContent ?? "").trim()`,
+          ),
+          "the row still lists the round subject",
+        ).toContain(RELEASE_SUBJECT);
+
+        // Cancel first: the arming beat must not itself be destructive.
         await clickUntil(
           app,
           `${row(DASH_RELEASE)} [data-slot="session-changes-dash-release"]`,
-          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-landing-discard"]`,
+          CONFIRM_POPOVER,
+        );
+        await app.nativeClickAtElement(`${CONFIRM_POPOVER} [data-slot="tug-confirm-cancel"]`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CONFIRM_POPOVER)}) === null`,
+          { timeoutMs: 8000 },
+        );
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(row(DASH_RELEASE))}).length`,
+          ),
+          "cancel destroys nothing",
+        ).toBe(1);
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(RELEASE_RECEIPT)}).length`,
+          ),
+          "cancel sends no release",
+        ).toBe(0);
+
+        // Arm it again and read the fact sheet: counts, and where the
+        // worktree's uncommitted files go. The hand-back is the sentence that
+        // makes this consent rather than a click.
+        await clickUntil(
+          app,
+          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-release"]`,
+          CONFIRM_POPOVER,
         );
         const preflight = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(`${row(DASH_RELEASE)} [data-slot="session-changes-dash-landing-discard"]`)})?.textContent ?? "").trim()`,
+          `(document.querySelector(${JSON.stringify(`${CONFIRM_POPOVER} [data-slot="tug-confirm-message"]`)})?.textContent ?? "").trim()`,
         );
-        note(`at0418 discard preflight: ${JSON.stringify(preflight)}`);
+        note(`at0418 discard confirm: ${JSON.stringify(preflight)}`);
+        expect(preflight).toContain(DASH_RELEASE);
         expect(preflight).toContain("Discards 1 round · 1 file");
-        expect(preflight).toContain(RELEASE_SUBJECT);
 
-        // Beat 2 destroys it: the row goes on the next recompose, and the
+        // Confirming destroys it: the row goes on the next recompose, and the
         // discard leaves the only record of what it took.
-        await app.nativeClickAtElement(
-          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-release"][data-confirming="true"]`,
-        );
+        await app.nativeClickAtElement(`${CONFIRM_POPOVER} [data-slot="tug-confirm-confirm"]`);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(RELEASE_RECEIPT)}).length === 1`,
           { timeoutMs: 40000 },

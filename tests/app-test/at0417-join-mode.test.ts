@@ -8,9 +8,13 @@
  * shelled out, read the output, and reported back in prose. That works, but it
  * puts the preview in the transcript instead of in front of the button and
  * gives the join message no editor. This asserts the seam is closed — the verb
- * enters a mode, the composer becomes the join-message editor over the dash's
- * draft row, and the Z4A group grows a third segment that says which route you
- * are on.
+ * enters a mode and the composer becomes the join-message editor over the
+ * dash's draft row.
+ *
+ * The route group is INVARIANT: two segments, bound or unbound. *Changes* names
+ * the room and the Z5 land button names the act, so what proves join mode here
+ * is the button reading `Join` while the route reads `changes` — not a third
+ * segment appearing under the pointer.
  *
  * The retired `/join` spelling is the one part of the rename a user can hit by
  * accident, so it is the part that gets an assertion: it runs the same handler
@@ -19,8 +23,8 @@
  *
  * ## Test matrix
  *
- *   1. Bare `/dash-join` on a bound card: three segments render with Join
- *      selected and the shade is up.
+ *   1. Bare `/dash-join` on a bound card: the route reads `changes`, the land
+ *      button reads `Join`, and the shade is up.
  *   2. `/dash-join <name> <message>` seeds the message as an edited draft.
  *   3. Escape returns to Prompt, and re-entering resumes that message from the
  *      dash's draft row — the same read that opens a run's maintained join
@@ -28,8 +32,9 @@
  *      instance's own ledger; a CLI-written draft belongs to another one.)
  *   4. The retired `/join` enters the same mode and raises the bulletin.
  *
- * The unbound case (no third segment, bare `/dash-join` cautions) runs first,
- * before the card is bound to anything.
+ * The unbound case (two segments, bare `/dash-join` cautions) runs first,
+ * before the card is bound to anything — and the segment count is asserted
+ * again after the bind, because staying two is the whole point.
  *
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/landing-mode.ts
@@ -119,7 +124,10 @@ async function runCommand(app: App, line: string): Promise<void> {
   await app.nativeKey("Return", ["cmd"]);
 }
 
-/** The value of the selected route segment: "prompt" | "changes" | "join" | "". */
+/** The Z5 land button, whose accessible name is the landing's own verb. */
+const LAND_BUTTON = `${CARD} .tug-prompt-entry-commit-button`;
+
+/** The value of the selected route segment: "prompt" | "changes" | "". */
 async function selectedRoute(app: App): Promise<string> {
   return app.evalJS<string>(
     `(function(){
@@ -135,6 +143,21 @@ async function waitForRoute(app: App, value: string, where: string): Promise<voi
       // waitForRoute: ${where}
       var el = document.querySelector(${JSON.stringify(ROUTE_GROUP)} + ' [data-state="active"]');
       return el !== null && el.getAttribute("data-choice-value") === ${JSON.stringify(value)};
+    })()`,
+    { timeoutMs: 12000 },
+  );
+}
+
+/**
+ * Wait for the land button to name a given act. With the route group invariant
+ * this is what tells a join apart from a commit.
+ */
+async function waitForLandWord(app: App, word: string, where: string): Promise<void> {
+  await app.waitForCondition<boolean>(
+    `(function(){
+      // waitForLandWord: ${where}
+      var el = document.querySelector(${JSON.stringify(LAND_BUTTON)});
+      return el !== null && el.getAttribute("aria-label") === ${JSON.stringify(word)};
     })()`,
     { timeoutMs: 12000 },
   );
@@ -163,7 +186,7 @@ async function bulletinText(app: App): Promise<string> {
 
 describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
   test(
-    "the verb opens the join editor on the dash's draft, the third segment says so, and the retired spelling still lands",
+    "the verb opens the join editor on the dash's draft, the land button says Join, and the retired spelling still lands",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
@@ -226,16 +249,16 @@ describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
           { timeoutMs: 20000 },
         );
 
-        // ── Bound: the third segment appears ──────────────────────────────
-        await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(ROUTE_GROUP)} + ' [data-choice-value]').length === 3`,
-          { timeoutMs: 8000 },
-        );
-        expect(await routeValues(app)).toEqual(["prompt", "changes", "join"]);
+        // ── Bound: the group is still two segments ────────────────────────
+        // The bind must not move the chrome. This is the assertion that would
+        // have caught a third segment growing back.
+        expect(await routeValues(app)).toEqual(["prompt", "changes"]);
 
         // ── Bare `/dash-join` opens the editor over the shade ─────────────
         await runCommand(app, "/dash-join");
-        await waitForRoute(app, "join", "after bare /dash-join");
+        await waitForRoute(app, "changes", "after bare /dash-join");
+        // The route names the room; the button names the act.
+        await waitForLandWord(app, "Join", "after bare /dash-join");
         // The landing happens over the shade, exactly as commit's does.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
@@ -249,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
         // ── A named dash plus a message seeds the message ─────────────────
         const seeded = "at0417 seeded from the command line";
         await runCommand(app, `/dash-join ${DASH} ${seeded}`);
-        await waitForRoute(app, "join", "after the seeded form");
+        await waitForRoute(app, "changes", "after the seeded form");
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent || "").indexOf(${JSON.stringify(seeded)}) !== -1`,
           { timeoutMs: 12000 },
@@ -264,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
         await app.nativeKey("Escape");
         await waitForRoute(app, "prompt", "after the seeded form's Escape");
         await runCommand(app, "/dash-join");
-        await waitForRoute(app, "join", "after re-entry");
+        await waitForRoute(app, "changes", "after re-entry");
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent || "").indexOf(${JSON.stringify(seeded)}) !== -1`,
           { timeoutMs: 12000 },
@@ -287,7 +310,7 @@ describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
         );
         await settle(400);
         await runCommand(app, "/join");
-        await waitForRoute(app, "join", "after the retired /join");
+        await waitForRoute(app, "changes", "after the retired /join");
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(BULLETIN)})?.textContent || "").indexOf("/dash-join") !== -1`,
           { timeoutMs: 8000 },
@@ -337,7 +360,9 @@ describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
         await app.dispatchControlAction("toggle-lens");
 
         await runCommand(app, `/dash-join ${DASH}`);
-        await waitForRoute(app, "join", "after a named join on an unbound card");
+        await waitForRoute(app, "changes", "after a named join on an unbound card");
+        // Aimed but unbound is still a join, and the button is what says so.
+        await waitForLandWord(app, "Join", "after a named join on an unbound card");
 
         // The landing face lives on the fronted row alone. Before the fix this
         // row never fronted, so a named join came up live in the composer with

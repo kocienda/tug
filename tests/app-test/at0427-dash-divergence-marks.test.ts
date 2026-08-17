@@ -58,7 +58,6 @@ const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
-const GROUP_FOLD = `${LANE} [data-slot="session-changes-dash-lane-fold"]`;
 
 const DASH_NAME = "at0427-marks";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
@@ -163,37 +162,6 @@ function deckShape() {
 
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
-/** Click `target` until `expected` exists, re-aiming after each miss — the
- *  lane's rows move under the cursor as the aggregate recomposes (at0405). */
-async function clickUntil(
-  app: Awaited<ReturnType<typeof launchTugApp>>,
-  target: string,
-  expected: string,
-  attempts = 4,
-): Promise<void> {
-  for (let i = 0; i < attempts; i += 1) {
-    await app.evalJS<null>(
-      `(() => {
-         const el = document.querySelector(${JSON.stringify(target)});
-         if (el !== null) el.scrollIntoView({ block: "center" });
-         return null;
-       })()`,
-    );
-    await settle();
-    await app.nativeClickAtElement(target);
-    try {
-      await app.waitForCondition<boolean>(
-        `document.querySelector(${JSON.stringify(expected)}) !== null`,
-        { timeoutMs: 2500 },
-      );
-      return;
-    } catch {
-      note(`at0427 click on ${target} did not land (attempt ${i + 1})`);
-    }
-  }
-  throw new Error(`at0427: ${expected} never appeared after clicking ${target}`);
-}
-
 describe.skipIf(!SHOULD_RUN)("AT0427: the dash lane's divergence marks", () => {
   test(
     "base dirt overlapping the dash's own files paints the overlap mark, and clears when it goes",
@@ -236,7 +204,11 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the dash lane's divergence marks", () => {
           `document.querySelector(${JSON.stringify(LANE)}) !== null`,
           { timeoutMs: 30000 },
         );
-        await clickUntil(app, GROUP_FOLD, ROW);
+        // The non-fronted dash is a visible row — no fold to open first.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(ROW)}) !== null`,
+          { timeoutMs: 30000 },
+        );
 
         // ── The mark ───────────────────────────────────────────────────────
         await app.waitForCondition<boolean>(

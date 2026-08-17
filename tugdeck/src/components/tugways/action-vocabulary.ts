@@ -378,11 +378,12 @@ export const TUG_ACTIONS = {
   //                 rotation, so NEXT undoes PREVIOUS at every depth
   //                 (raising the second-from-top instead would ping-pong).
   //                 Same depth-2 gate as its pair.
-  // SELECT_COMPOSER_ROUTE: payload — `value: "prompt" | "changes" | "join"`.
-  //                 Select one of the composer's routes directly (as opposed to
-  //                 TOGGLE_CHANGES_VIEW, which flips between the first two).
-  //                 `"join"` is present only while the card is bound to a dash
-  //                 ([P03]) and is a no-op otherwise. Bound to
+  // SELECT_COMPOSER_ROUTE: payload — `value: "prompt" | "changes"`.
+  //                 Select one of the composer's two routes directly (as opposed
+  //                 to TOGGLE_CHANGES_VIEW, which flips between them). Which
+  //                 landing `"changes"` opens — a commit or a join — is the
+  //                 card's to resolve from its binding, not a third value here.
+  //                 Bound to
   //                 ⌃⌘P for `"prompt"`, scoped `scope: "key-card"`, handled
   //                 by the session card's card-content responder, which
   //                 applies it through the matching landing controller — the

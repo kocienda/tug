@@ -46,7 +46,6 @@ import React, {
 import {
   ArrowUp,
   GitCommitHorizontal,
-  GitMerge,
   MessageSquareText,
   Plus,
   Square,
@@ -793,23 +792,20 @@ export interface TugPromptEntryProps {
    */
   landingMode?: LandingMode;
   /**
-   * Whether a dash is in reach — this card is bound to one, **or** a landing
-   * is aimed at one by name — which is what puts the Join segment in the Z4A
-   * route group ([P03]). A card with neither renders the two-segment group it
-   * always has.
-   *
-   * The aimed case matters: `/dash-join <name>` enters join mode without
-   * binding, and gating the segment on the binding alone left the mode live
-   * with no segment to show it — the route could never read `join`.
+   * Which landing the Changes room opens for this card — a function of what
+   * the card is mated to, not of what is active right now. The segment's label
+   * is invariant, so this is what its tooltip names; `landingMode.kind` cannot
+   * answer it, because a mated card sitting in the prompt has no join
+   * controller mounted yet. Defaults to `commit`.
    */
-  joinAvailable?: boolean;
+  changesLandingKind?: LandingKind;
   /**
-   * Route selection the host must resolve: entering a landing means choosing
-   * *which* controller to enter, and only the host holds both. Leaving to the
-   * prompt is handled here, because it has to persist the typed message first.
-   * Omit for hosts with a single landing mode and no Join segment.
+   * Entering the Changes room, which the host must resolve: which landing a
+   * card enters depends on what it is mated to, and only the host holds both
+   * controllers. Leaving to the prompt is handled here, because it has to
+   * persist the typed message first. Omit for hosts with no landing mode.
    */
-  onSelectRoute?: (route: "changes" | "join") => void;
+  onEnterChanges?: () => void;
   /**
    * Host handler for an attachment that could not be accepted (drop or
    * paste of an unsupported / oversize / undecodable image, or a submit
@@ -1137,8 +1133,8 @@ export const TugPromptEntry = React.forwardRef<
     shellClassifyStore,
     findSession,
     landingMode,
-    joinAvailable,
-    onSelectRoute,
+    changesLandingKind = "commit",
+    onEnterChanges,
     onAttachmentError,
     sessionMetadataStore,
     historyStore,
@@ -3006,8 +3002,8 @@ export const TugPromptEntry = React.forwardRef<
       // so leaving a landing and coming back resumes it.
       [TUG_ACTIONS.SELECT_VALUE]: (event: ActionEvent) => {
         if (event.sender !== ROUTE_CHOICE_SENDER_ID) return;
-        if (event.value === "changes" || event.value === "join") {
-          onSelectRoute?.(event.value);
+        if (event.value === "changes") {
+          onEnterChanges?.();
         } else if (event.value === "prompt") {
           exitCommitMode();
         }
@@ -3496,25 +3492,27 @@ export const TugPromptEntry = React.forwardRef<
     ) : undefined;
 
   // Z4A leading slot — the composer's routes. A route is a mode that owns the
-  // composer's whole document, and the things that do are: typing a prompt,
-  // authoring a commit message, and — on a card bound to a dash — authoring a
-  // join message. Everything else is a one-shot verb (a slash command) or
-  // lives outside the composer.
+  // composer's whole document, and there are two: typing a prompt, and
+  // authoring the message that lands what is in flight. Everything else is a
+  // one-shot verb (a slash command) or lives outside the composer.
+  //
+  // The group is INVARIANT: two segments on every card, whatever it is mated
+  // to. *Changes* names the room; which landing that room opens — a commit or
+  // a join — is the host's to resolve from the card's binding, and the Z5 land
+  // button is what names the act. A group whose population changed under a
+  // bind was presenting commits and joins as sibling choices, which is not how
+  // anyone thinks about them, and moved the segments under the pointer.
   //
   // The group is a VIEW of whichever landing mode is up, not a second home for
-  // the selection: `value` is derived from `landingActive` and the mode's
-  // `kind`, and the segments route through the host, which owns both
-  // controllers and so is the only place that can decide which one to enter.
-  // That is what makes every existing entry and exit path — ⌃⌘C, `/commit`,
-  // `/dash-join`, the Session menu, a successful land, Cancel ✕, Escape, the
-  // shade's self-close — move the visible tab with no extra wiring.
+  // the selection: `value` is derived from `landingActive` alone. That is what
+  // makes every existing entry and exit path — ⌃⌘C, `/commit`, `/dash-join`,
+  // the Session menu, a successful land, Cancel ✕, Escape, the shade's
+  // self-close — move the visible tab with no extra wiring.
   //
   // No controller means no group. Hosts without a landing mode (the Component
   // Gallery's prompt entry) render an empty leading slot rather than a Changes
-  // segment that cannot act. The Join segment additionally requires a bound
-  // dash ([P03]), so an unbound card's chrome is byte-identical to before.
-  // The group is deliberately NOT disabled while a landing is active — it is
-  // how you leave one.
+  // segment that cannot act. The group is deliberately NOT disabled while a
+  // landing is active — it is how you leave one.
   const entryRouteChoice =
     landingMode !== undefined ? (
       <TugChoiceGroup
@@ -3531,23 +3529,13 @@ export const TugPromptEntry = React.forwardRef<
             value: "changes",
             label: "Changes",
             icon: <GitCommitHorizontal strokeWidth={2} />,
-            tooltip: LANDING_WORDS.commit.routeTooltip,
+            // The label is invariant; the tooltip follows the binding, so the
+            // bubble says which message this room is for.
+            tooltip: LANDING_WORDS[changesLandingKind].routeTooltip,
             tooltipShortcut: commandShortcut(TUG_ACTIONS.TOGGLE_CHANGES_VIEW),
           },
-          // No `tooltipShortcut`: the Join route carries no key equivalent this
-          // phase ([P07]). The asymmetry with its two neighbours is intended.
-          ...(joinAvailable === true
-            ? [
-                {
-                  value: "join",
-                  label: "Join",
-                  icon: <GitMerge strokeWidth={2} />,
-                  tooltip: LANDING_WORDS.join.routeTooltip,
-                },
-              ]
-            : []),
         ]}
-        value={landingActive ? (landingMode.kind === "join" ? "join" : "changes") : "prompt"}
+        value={landingActive ? "changes" : "prompt"}
         senderId={ROUTE_CHOICE_SENDER_ID}
         size="xs"
         aria-label="Route"

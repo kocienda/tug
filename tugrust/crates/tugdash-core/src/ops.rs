@@ -2530,12 +2530,24 @@ pub(crate) fn dash_draft_message(repo: &Path, branch: &str) -> Option<String> {
 /// as `tugdash(<name>): …`. Shared by the strategy integrate and the resolution
 /// ladder's candidate commit so both speak the same voice.
 ///
-/// Every body source may legitimately already open with this dash's scope — a
-/// draft authored in the conventional voice, a description written by hand, an
-/// override composed from a previous message. So the wrap is idempotent: one
-/// leading `tugdash(<name>): ` for *this* dash's name is stripped before the
-/// subject is composed. A body scoped to some other name, or carrying any other
-/// conventional prefix, passes through untouched.
+/// Every body source may legitimately already open with a dash scope — a draft
+/// authored in the conventional voice, a description written by hand, an
+/// override composed from a previous message. So the wrap is idempotent: **any**
+/// leading `tugdash(…): ` is stripped before the subject is composed, whatever
+/// name it carries.
+///
+/// Not only this dash's own name. A foreign scope used to pass through, on the
+/// reasoning that it was content rather than an accident of composition — and
+/// it produced `tugdash(close-backend): tugdash(backend): …`, which is not a
+/// good subject whoever authored it. The composing side owns the scope; a body
+/// that arrives wearing one is describing the same work, not naming a second
+/// subject. Any other conventional prefix (`fix(x): `, `feat: `) still passes
+/// through untouched — only the spelling this function itself emits is
+/// absorbed.
+///
+/// The three skills that author join drafts are told to write a bare subject,
+/// so both ends are closed: nothing produces a scope here, and a hand-typed one
+/// cannot double.
 pub(crate) fn integrate_message(
     repo: &Path,
     name: &str,
@@ -2547,10 +2559,29 @@ pub(crate) fn integrate_message(
         .or_else(|| dash_draft_message(repo, branch))
         .or(description)
         .unwrap_or_else(|| "Dash work".to_string());
-    let prefix = format!("tugdash({}): ", name);
-    let body = body.strip_prefix(&prefix).unwrap_or(&body);
+    let body = strip_dash_scope(&body);
     // Subject stays `tugdash(<name>): …`; the trailers ride the body ([P08]).
-    with_dash_trailers(repo, name, branch, &format!("{}{}", prefix, body))
+    with_dash_trailers(
+        repo,
+        name,
+        branch,
+        &format!("tugdash({}): {}", name, body),
+    )
+}
+
+/// Strip one leading `tugdash(<anything>): `, or return the body unchanged.
+///
+/// Matched by hand rather than by pattern so a body whose text merely *contains*
+/// `tugdash(` later on is untouched: the opener has to be at position 0, and the
+/// closing paren is the first one after it.
+fn strip_dash_scope(body: &str) -> &str {
+    let Some(rest) = body.strip_prefix("tugdash(") else {
+        return body;
+    };
+    let Some(close) = rest.find(')') else {
+        return body;
+    };
+    rest[close + 1..].strip_prefix(": ").unwrap_or(body)
 }
 
 /// Auto-commit any outstanding changes in the dash worktree — FATAL on error
@@ -6189,12 +6220,13 @@ Some context.
         assert_eq!(out.matches("tugdash(idem): ").count(), 1, "{out}");
     }
 
-    /// Only *this* dash's scope is stripped. A body deliberately scoped to
-    /// another name is content, not an accident of composition, so the wrap
-    /// leaves it alone and the result is legitimately double-scoped.
+    /// A foreign scope is stripped too, and this replaces the contract that
+    /// used to preserve it. `tugdash(a): tugdash(b): …` was never a good
+    /// subject: the composing side owns the scope, so a body arriving with one
+    /// is describing the same work rather than naming a second subject.
     #[serial]
     #[test]
-    fn integrate_message_leaves_another_scope_alone() {
+    fn integrate_message_strips_a_foreign_scope() {
         let temp = TempDir::new().unwrap();
         seed_dash_with_a_round(&temp, "mine");
         isolate_changes_db(&temp);
@@ -6206,10 +6238,47 @@ Some context.
             "tugdash/mine",
             Some("tugdash(theirs): borrowed work".to_string()),
         );
-        assert!(
-            out.starts_with("tugdash(mine): tugdash(theirs): borrowed work"),
-            "{out}"
-        );
+        assert!(out.starts_with("tugdash(mine): borrowed work"), "{out}");
+        assert_eq!(out.matches("tugdash(").count(), 1, "{out}");
+    }
+
+    /// The strip reads a *leading* scope only. A subject that merely mentions
+    /// the spelling later keeps every character of it.
+    #[serial]
+    #[test]
+    fn integrate_message_leaves_an_inner_mention_alone() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "inner");
+        isolate_changes_db(&temp);
+        let repo = temp.path();
+
+        let body = "teach the linter about tugdash(name): prefixes";
+        let out = integrate_message(repo, "inner", "tugdash/inner", Some(body.to_string()));
+        assert!(out.starts_with(&format!("tugdash(inner): {body}")), "{out}");
+    }
+
+    /// A body that opens with the spelling but is not a scope — no closing
+    /// paren, or no `: ` after it — is left whole rather than half-eaten.
+    #[serial]
+    #[test]
+    fn integrate_message_leaves_a_malformed_scope_whole() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "malformed");
+        isolate_changes_db(&temp);
+        let repo = temp.path();
+
+        for body in ["tugdash(unclosed work", "tugdash(x) no colon"] {
+            let out = integrate_message(
+                repo,
+                "malformed",
+                "tugdash/malformed",
+                Some(body.to_string()),
+            );
+            assert!(
+                out.starts_with(&format!("tugdash(malformed): {body}")),
+                "{out}"
+            );
+        }
     }
 
     #[serial]

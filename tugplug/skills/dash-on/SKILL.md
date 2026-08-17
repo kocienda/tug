@@ -63,7 +63,7 @@ Before you stop for the user's vet, write the dash's **join draft** — the squa
 tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
 ```
 
-Compose it from what the rounds actually did: an imperative subject under 50 chars naming the deliverable, then a terse factual digest. Every line unbroken to its end (**no hard wrapping**), no AI or agent attribution, ever. The landing gesture lands this message and does not compose one — a dash that reaches it draftless stops there.
+Compose it from what the rounds actually did: an imperative subject under 50 chars naming the deliverable, then a terse factual digest. **The subject is bare — no `tugdash(<name>): ` prefix**, because the landing adds the scope itself and a scope naming a different dash is stripped there rather than preserved. Every line unbroken to its end (**no hard wrapping**), no AI or agent attribution, ever. The landing gesture lands this message and does not compose one — a dash that reaches it draftless stops there.
 
 Then **stop and let the user vet the build.** Don't merge.
 

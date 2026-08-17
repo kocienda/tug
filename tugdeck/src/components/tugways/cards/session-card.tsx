@@ -2547,29 +2547,28 @@ export function SessionCardBody({
   const retiredVerbsSeenRef = useRef(new Set<string>());
 
   /**
-   * The Z4A route group's entering half ([P03]). The composer holds one
-   * landing-mode slot and cannot know which controller a segment means, so the
-   * card — which holds them all — resolves it. Leaving to the prompt stays in
-   * the composer, which has to persist the typed message first.
+   * The Changes door. Every way into the room — the Z4A segment, ⌃⌘C, the
+   * Session menu — arrives here, and the landing it opens is a function of
+   * what the card is mated to: a dash means a join, anything else means a
+   * commit. The composer holds one landing-mode slot and cannot make that
+   * call; the card holds both controllers, so it does.
+   *
+   * A card bound to a dash whose entry has not composed into the changes
+   * snapshot yet falls back to commit mode rather than dead-ending — the door
+   * always opens.
    */
-  const handleSelectComposerRoute = useCallback(
-    (route: "changes" | "join") => {
-      if (route === "changes") {
-        commitModeController.enter();
-        return;
-      }
-      // A no-op when unbound, which is also when the segment is absent.
-      const binding = cardSessionBindingStore.getBinding(cardId);
-      const dashId = binding?.dash?.id;
-      if (dashId === undefined) return;
-      const entry = changesController
-        .getSnapshot()
-        .dashes.find((row) => row.owner_id === dashId);
-      if (entry === undefined) return;
+  const enterChanges = useCallback(() => {
+    const dashId = cardSessionBindingStore.getBinding(cardId)?.dash?.id;
+    const entry =
+      dashId === undefined
+        ? undefined
+        : changesController.getSnapshot().dashes.find((row) => row.owner_id === dashId);
+    if (entry !== undefined) {
       joinModeController.enter(joinTargetFromEntry(entry));
-    },
-    [cardId, changesController, commitModeController, joinModeController],
-  );
+      return;
+    }
+    commitModeController.enter();
+  }, [cardId, changesController, commitModeController, joinModeController]);
 
   // Find bar: open/closed is structural (the bar mounts/unmounts above Z2),
   // mirroring the Text card's `findOpen`. The session outlives the bar here —
@@ -4388,8 +4387,8 @@ export function SessionCardBody({
       // `CommitModeController`, which is where the selection lives, so the
       // Z4A group follows without being told.
       [TUG_ACTIONS.SELECT_COMPOSER_ROUTE]: (event: ActionEvent) => {
-        if (event.value === "changes" || event.value === "join") {
-          handleSelectComposerRoute(event.value);
+        if (event.value === "changes") {
+          enterChanges();
         } else if (event.value === "prompt") {
           commitModeController.exit();
           joinModeController.exit();
@@ -4458,22 +4457,26 @@ export function SessionCardBody({
         entryDelegateRef.current?.insertFilePath(path);
       },
       // Swift Session-menu "Show/Hide Changes" and the ⌃⌘C deck twin — toggle
-      // the Changes shade, always in commit mode ([P03]). Showing Changes is
-      // Changes mode, whether or not there are changes and whether or not a
-      // prompt is typed: the composer's
-      // in-progress draft is stashed on entry and restored on exit (see
-      // `tug-prompt-entry`), so nothing is clobbered. Visible: exit the mode
-      // (drop the sheet). Hidden: enter the mode (raise the sheet).
+      // the Changes shade. Showing Changes is the landing the card is mated to,
+      // whether or not there are changes and whether or not a prompt is typed:
+      // the composer's in-progress draft is stashed on entry and restored on
+      // exit (see `tug-prompt-entry`), so nothing is clobbered. Visible: exit
+      // whichever landing is up (drop the sheet). Hidden: enter (raise it).
+      //
+      // Exiting must test both controllers. Testing only commit mode left a
+      // dash-bound card's ⌃⌘C hiding the shade out from under a live join.
       [TUG_ACTIONS.TOGGLE_CHANGES_VIEW]: (_event: ActionEvent) => {
         const sheetVisible = shadeViewController.getSnapshot() === "changes";
-        if (sheetVisible) {
-          if (commitModeController.getSnapshot().active) {
-            commitModeController.exit();
-          } else {
-            shadeViewController.hide();
-          }
+        if (!sheetVisible) {
+          enterChanges();
+          return;
+        }
+        if (commitModeController.getSnapshot().active) {
+          commitModeController.exit();
+        } else if (joinModeController.getSnapshot().active) {
+          joinModeController.exit();
         } else {
-          commitModeController.enter();
+          shadeViewController.hide();
         }
       },
       // Swift Session-menu "Show/Hide History" and the ⌃⌘H deck twin.
@@ -4595,15 +4598,10 @@ export function SessionCardBody({
           changesController.projectDir,
           entry.display_name,
         ),
-      // The session id is what gives the discard a receipt ([P06]); without it
-      // the release still runs and simply leaves no row.
-      release: (entry) =>
-        getChangesetVerbStore()?.release(
-          changesController.entryKey,
-          changesController.projectDir,
-          entry.display_name,
-          changesController.tugSessionId,
-        ),
+      // Discard is deliberately absent here. It reaches past the fronted row —
+      // any dash no live session holds is releasable from this shade — so it
+      // rides the lane's own release bundle, which the view builds, rather than
+      // the landing face's actions, which the fronted row alone receives.
     }),
     [changesController, joinModeController],
   );
@@ -5162,11 +5160,16 @@ export function SessionCardBody({
               shellClassifyStore={shellClassifyStore}
               findSession={findSession}
               landingMode={joinActive ? joinModeController : commitModeController}
-              joinAvailable={
-                boundDashId !== null ||
-                (joinSnapshot.active && joinSnapshot.dash !== null)
+              // What the Changes room lands for this card: a dash in reach —
+              // bound, or aimed at by name through `/dash-join` — means a join.
+              // The aimed case matters because that command enters join mode
+              // without binding.
+              changesLandingKind={
+                boundDashId !== null || (joinSnapshot.active && joinSnapshot.dash !== null)
+                  ? "join"
+                  : "commit"
               }
-              onSelectRoute={handleSelectComposerRoute}
+              onEnterChanges={enterChanges}
               // A rejected drop / paste (unsupported, oversize, or
               // undecodable image) is transient input validation, not a
               // session fault. Surface it as a calm, dismissible bulletin

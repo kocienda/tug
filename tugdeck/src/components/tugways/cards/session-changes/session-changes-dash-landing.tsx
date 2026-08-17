@@ -49,8 +49,6 @@ export interface DashLandingActions {
   resolve: (entry: DashChangesetEntry) => void;
   /** Acknowledge what the ladder decided — the beat that arms Join ([P31]). */
   markReviewed: (entry: DashChangesetEntry) => void;
-  /** Discard the dash — branch, worktree, and dirt. The confirm's second beat. */
-  release: (entry: DashChangesetEntry) => void;
 }
 
 /**
@@ -112,6 +110,17 @@ export interface SessionChangesDashLandingProps {
   /** What refuses the binding control on the row above, named so the face can
    *  say which control it is — the row calls it Adopt or Leave by binding. */
   bindingRefusal: { control: string; reason: string } | null;
+  /** Whether this shade may discard this dash at all. False renders no Release
+   *  control — the reach rule's refusal is permanent, and a disabled control
+   *  would invite waiting for something that is not coming. */
+  releaseAvailable: boolean;
+  /** Why Release is unavailable right now, or null. Read from the lane's one
+   *  release bundle so the turn gate and the in-flight gate cannot disagree
+   *  with the same gates on the other rows. */
+  releaseDisabledReason: string | null;
+  /** Arm the lane's discard confirm for this dash. The face never releases
+   *  directly — one popover serves every row, and the lane owns it. */
+  onRequestRelease: () => void;
   actions: DashLandingActions;
 }
 
@@ -157,9 +166,9 @@ export function blockerAct(blocker: JoinBlocker, base: string): string | null {
 }
 
 /**
- * What a discard would destroy, as one line ([P06]'s two-beat rule: beat 1
- * shows exactly what beat 2 does). Pure, so the sentence the confirm is
- * measured against is testable without a surface.
+ * What a discard would destroy, as one clause. Pure, so the sentence the
+ * confirm is measured against is testable without a surface. The lane's
+ * `releaseConfirmMessage` composes it into the popover's fact sheet.
  */
 export function discardPreflightLine(rounds: number, files: number): string {
   const parts: string[] = [];
@@ -245,6 +254,9 @@ export function SessionChangesDashLanding({
   turnInProgress,
   resolve,
   bindingRefusal,
+  releaseAvailable,
+  releaseDisabledReason,
+  onRequestRelease,
   actions,
 }: SessionChangesDashLandingProps): React.ReactElement {
   // The message lives in the composer, not here, so the affordance asks the
@@ -263,14 +275,10 @@ export function SessionChangesDashLanding({
   // outcome says — it is the one gesture that can make the rest reachable.
   const interrupted = entry.stage === "landing";
   const resolveFace = deriveResolveFace(outcome, resolve.phase, resolve.candidateCommit);
-  // The discard's first beat. View-scope state ([L24]): the shade is a glance
-  // surface, and a half-armed confirm is not something to remember.
-  const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
   const reviewPayload = React.useMemo(
     () => resolutionDiffPayload(resolve.resolved, entry.owner_id),
     [resolve.resolved, entry.owner_id],
   );
-  const releaseHint = turnInProgress ? "Wait for the turn to finish" : null;
   const resumeHint =
     joinPhase === "pending"
       ? "A landing is in flight"
@@ -285,7 +293,9 @@ export function SessionChangesDashLanding({
     refusals.push({ control: "Resume teardown", reason: resumeHint });
   }
   if (disabledReason !== null) refusals.push({ control: "Join", reason: disabledReason });
-  if (releaseHint !== null) refusals.push({ control: "Release", reason: releaseHint });
+  if (releaseAvailable && releaseDisabledReason !== null) {
+    refusals.push({ control: "Release", reason: releaseDisabledReason });
+  }
   if (bindingRefusal !== null) refusals.push(bindingRefusal);
 
   return (
@@ -341,29 +351,21 @@ export function SessionChangesDashLanding({
             Join
           </TugPushButton>
           {/* Shade-only, on the row: a discard is not a thing to reach by
-              chord or by typing a verb. Two beats — the first arms it and
-              opens the preflight below, the second destroys the dash — and
-              the label reserves the wider word's width so the row does not
-              jump between them. */}
-          <TugPushButton
-            size="xs"
-            emphasis={confirmingDiscard ? "filled" : "outlined"}
-            role="danger"
-            onClick={() => {
-              if (!confirmingDiscard) {
-                setConfirmingDiscard(true);
-                return;
-              }
-              setConfirmingDiscard(false);
-              actions.release(entry);
-            }}
-            disabled={releaseHint !== null}
-            widthStabilize={{ alternateLabel: "Discard" }}
-            data-slot="session-changes-dash-release"
-            data-confirming={confirmingDiscard ? "true" : undefined}
-          >
-            {confirmingDiscard ? "Discard" : "Release"}
-          </TugPushButton>
+              chord or by typing a verb. One beat — it opens the lane's confirm
+              popover, which names what the discard destroys and where the
+              worktree's uncommitted files go. */}
+          {releaseAvailable ? (
+            <TugPushButton
+              size="xs"
+              emphasis="outlined"
+              role="danger"
+              onClick={onRequestRelease}
+              disabled={releaseDisabledReason !== null}
+              data-slot="session-changes-dash-release"
+            >
+              Release
+            </TugPushButton>
+          ) : null}
         </span>
       </div>
       {refusals.length > 0 ? (
@@ -380,23 +382,6 @@ export function SessionChangesDashLanding({
             </li>
           ))}
         </ul>
-      ) : null}
-      {confirmingDiscard ? (
-        <div
-          className="session-changes-dash-landing-discard"
-          data-slot="session-changes-dash-landing-discard"
-        >
-          <div className="session-changes-dash-landing-note">
-            {discardPreflightLine(entry.rounds, entry.files.length)}
-          </div>
-          {(entry.round_subjects ?? []).length > 0 ? (
-            <ul className="session-changes-dash-landing-discard-subjects">
-              {(entry.round_subjects ?? []).map((subject, index) => (
-                <li key={`${index}:${subject}`}>{subject}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
       ) : null}
       {outcome === "empty" ? (
         <div

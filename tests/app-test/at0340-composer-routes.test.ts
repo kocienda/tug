@@ -24,21 +24,37 @@
  *      chords, the tab, and Escape.
  *   4. Draft stash-and-restore: a typed prompt survives Prompt → Changes →
  *      Prompt verbatim, and the composer holds the commit message in between.
+ *   5. The same door on a card mated to a dash opens the *other* landing:
+ *      ⌃⌘C raises the shade with the route reading `changes` and the Z5 button
+ *      reading `Join`. One room, two acts.
+ *
+ * Case 5 is why the group is invariant. The door is the same gesture in both,
+ * and the card's binding — not a segment the user has to find — decides which
+ * landing it opens.
  *
  * The two-segment rendering and the click path are at0215's; this suite is
  * about the non-click doors agreeing with them.
  *
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/lib/commit-mode-controller.ts
+ * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/slash-commands.ts
  * @covers tugdeck/src/components/tugways/action-vocabulary.ts
+ * @covers tugdeck/src/components/tugways/cards/session-card.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import {
+  mkTempTugbank,
+  rmTempTugbank,
+  seedTugbankForLaunch,
+} from "./_harness/tugbank-helpers";
+import { createDash, commitRound, releaseDash } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -54,15 +70,32 @@ const CHANGES_ACTIVE = `${CARD} .session-view-slot[data-active-view="changes"]`;
 
 const DRAFT = "explain the parser to me";
 
+/** The Z5 land button — its accessible name is the landing's own verb. */
+const LAND_BUTTON = `${CARD} .tug-prompt-entry-commit-button`;
+
+/** The bound case needs a real dash, so it runs against the real repo. */
+const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+const DASH = "at0340-changes-door";
+const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const BOUND_SID = "at0340-bound";
+
 let dir = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   dir = mkdtempSync(join(tmpdir(), "at0340-"));
+  releaseDash(PROJECT_DIR, DASH);
+  const created = createDash(PROJECT_DIR, DASH, "at0340 changes-door fixture");
+  // A round, so the dash is not empty — the landing face needs something to
+  // land, and an empty dash's answer is release rather than join.
+  writeFileSync(join(created.worktree, "at0340.txt"), "at0340\n");
+  commitRound(PROJECT_DIR, DASH, "at0340 round");
 });
 
 afterAll(() => {
   if (dir !== "" && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  if (!SHOULD_RUN) return;
+  releaseDash(PROJECT_DIR, DASH);
 });
 
 function deckShape() {
@@ -233,6 +266,21 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
           { timeoutMs: 8000 },
         );
         await waitForRoute(app, "changes", "ctrl-cmd-c enters");
+        // An unbound card lands by committing, and the Z5 button says so. The
+        // segment cannot: it reads `changes` in both landings.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${LAND_BUTTON}[aria-label="Commit"]`)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        // This card's project is a bare temp directory, so the shade has no
+        // dashes to list — and a lane with nothing in it renders nothing at
+        // all, not an empty group label.
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(`${CARD} [data-slot="session-changes-dash-lane"]`)}).length`,
+          ),
+          "a project with no dashes renders no lane",
+        ).toBe(0);
 
         await pressChord(app, "KeyC", "c", { meta: true, ctrl: true });
         await waitForRoute(app, "prompt", "ctrl-cmd-c exits");
@@ -300,5 +348,83 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
       }
     },
     TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the same door on a dash-bound card opens the join landing",
+    async () => {
+      const tugbankPath = mkTempTugbank();
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      const app = await launchTugApp({
+        testName: "at0340-composer-routes-bound",
+        env: { TUGBANK_PATH: tugbankPath },
+      });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+          { timeoutMs: 15_000 },
+        );
+        await app.bindSession("A", {
+          tugSessionId: BOUND_SID,
+          projectDir: PROJECT_DIR,
+          workspaceKey: PROJECT_DIR,
+        });
+        await app.awaitEngineReady("A", { timeoutMs: 15000 });
+
+        // Wait for the dash to reach the aggregate before binding: before the
+        // first compose `/dash-bind <name>` misses every snapshot match and
+        // falls through to the create path.
+        await app.dispatchControlAction("toggle-lens");
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
+          { timeoutMs: 30000 },
+        );
+        await app.dispatchControlAction("toggle-lens");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
+          { timeoutMs: 8000 },
+        );
+        await submitLine(app, `/dash-bind ${DASH}`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]')?.textContent.trim() === ${JSON.stringify(`#${DASH}`)}`,
+          { timeoutMs: 20000 },
+        );
+
+        // The group did not grow a segment under the bind.
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(ROUTE_GROUP)} + ' [data-choice-value]').length`,
+          ),
+          "the bind leaves the route group at two segments",
+        ).toBe(2);
+
+        // The same chord as case 1, on a mated card: same room, other act.
+        await pressChord(app, "KeyC", "c", { meta: true, ctrl: true });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CHANGES_ACTIVE)}) !== null`,
+          { timeoutMs: 8000 },
+        );
+        await waitForRoute(app, "changes", "ctrl-cmd-c on a bound card");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${LAND_BUTTON}[aria-label="Join"]`)}) !== null`,
+          { timeoutMs: 12000 },
+        );
+
+        // And the chord still closes what it opened — the exit branch has to
+        // test the join controller too, not only commit mode.
+        await pressChord(app, "KeyC", "c", { meta: true, ctrl: true });
+        await waitForRoute(app, "prompt", "ctrl-cmd-c exits a join");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CHANGES_ACTIVE)}) === null`,
+          { timeoutMs: 8000 },
+        );
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    240_000,
   );
 });

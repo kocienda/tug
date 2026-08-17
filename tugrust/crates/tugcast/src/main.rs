@@ -2131,6 +2131,16 @@ struct SeedSession {
     /// citation or a session atom carries.
     #[serde(default)]
     tag: Option<String>,
+    /// The dash this session is mated to, as `(owner key, short name)`.
+    ///
+    /// Applied through the same `set_dash_binding` a real `bind_dash` uses, so
+    /// the seeded row is indistinguishable from a bound one — which is what
+    /// makes it possible to stand up "another live session is holding this
+    /// dash" without launching a second card and a second agent.
+    #[serde(default)]
+    dash_id: Option<String>,
+    #[serde(default)]
+    dash_name: Option<String>,
 }
 
 /// One file event to seed, with the sub-file evidence that decides whether
@@ -2243,6 +2253,14 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
         if let Some(name) = session.name.as_deref() {
             if let Err(e) = ledger.rename(&session.session_id, Some(name)) {
                 eprintln!("tugcast: error: rename failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        if let Some(dash_id) = session.dash_id.as_deref() {
+            let dash_name = session.dash_name.as_deref().unwrap_or(dash_id);
+            if let Err(e) = ledger.set_dash_binding(&session.session_id, Some((dash_id, dash_name)))
+            {
+                eprintln!("tugcast: error: set_dash_binding failed: {e}");
                 std::process::exit(1);
             }
         }

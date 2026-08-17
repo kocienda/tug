@@ -10,10 +10,23 @@
  * lane is there a claim, disclaim, or hunk-election affordance — the whole
  * point of not reusing `TugChangesList`'s rows.
  *
+ * Every dash in the project is a visible row, with no fold to open first. The
+ * fold's absence is asserted directly, not merely relied upon.
+ *
  * It also pins the fronting rule: a `bind_dash_ok` naming this card's session
  * moves the dash to the top of the lane, expanded, under the "This card's
  * dash" label. The broadcast is dispatched through `dispatchAction` — the
  * production entry point the wire's decoder hands frames to.
+ *
+ * ## Release's reach
+ *
+ * Both sides of the rule are driven. A parked dash — one no live session is
+ * mated to — offers Release from any shade, because there is nobody to take it
+ * away from. A dash a *different* live session holds offers none at all: it is
+ * that session's to release, and the refusal is permanent, so the control is
+ * absent rather than disabled. The holding session is seeded into the ledger
+ * with a `dash_id`, since `bound_sessions` is computed from those rows and a
+ * client-side `bind_dash_ok` cannot fake it.
  *
  * The project must be the one tugcast registers at boot, exactly as at0332
  * records; dash entries derive from the repo's `tugdash/*` refs, which the
@@ -54,13 +67,17 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "at0405-session";
+/** The reach case's own pair: the card doing the looking, and the live session
+ *  that actually holds the dash. Separate ids so neither test's ledger rows can
+ *  be mistaken for the other's. */
+const HELD_SID = "at0405-onlooker";
+const HOLDER_SID = "at0405-holder";
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const USER_ROWS = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 
 const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
-const GROUP_FOLD = `${LANE} [data-slot="session-changes-dash-lane-fold"]`;
 const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-label"]`;
 
 const DASH_NAME = "at0405-lane";
@@ -68,6 +85,7 @@ const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NA
 const ROW_FOLD = `${ROW} [data-slot="session-changes-dash-fold"]`;
 const LEAVE = `${ROW} [data-slot="session-changes-dash-leave"]`;
 const ADOPT = `${ROW} [data-slot="session-changes-dash-adopt"]`;
+const RELEASE = `${ROW} [data-slot="session-changes-dash-release"]`;
 
 /** The checkout this file sits in — the project the aggregate composes, per
  *  at0332's rule. */
@@ -168,6 +186,92 @@ async function clickUntil(
 
 describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
   test(
+    "a dash another live session holds offers this shade no Release at all",
+    async () => {
+      const tugbankPath = mkTempTugbank();
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      const app = await launchTugApp({
+        testName: "at0405-changes-dash-lane-held",
+        env: { TUGBANK_PATH: tugbankPath },
+      });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+        await app.bindSession("A", {
+          tugSessionId: HELD_SID,
+          projectDir: PROJECT_DIR,
+          workspaceKey: PROJECT_DIR,
+        });
+        await app.awaitEngineReady("A", { timeoutMs: 15000 });
+
+        // Two live sessions in this instance's ledger, and the dash is mated
+        // to the OTHER one. `bound_sessions` is computed from these rows, so
+        // this is the real condition rather than a client-side pretence — a
+        // `bind_dash_ok` broadcast could not produce it.
+        app.seedLedger({
+          sessions: [
+            {
+              session_id: HELD_SID,
+              workspace_key: PROJECT_DIR,
+              project_dir: PROJECT_DIR,
+              card_id: "A",
+              name: "at0405 onlooker",
+            },
+            {
+              session_id: HOLDER_SID,
+              workspace_key: PROJECT_DIR,
+              project_dir: PROJECT_DIR,
+              card_id: "elsewhere",
+              name: "at0405 holder",
+              dash_id: dashOwnerId,
+              dash_name: DASH_NAME,
+            },
+          ],
+        });
+
+        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.nativeType("/commit");
+        await settle();
+        await app.nativeKey("Escape");
+        await settle();
+        await app.nativeKey("Return", ["cmd"]);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(ROW)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+
+        // The row is here — a dash somebody else is working is still a
+        // situation worth seeing. What is absent is the gesture that would
+        // destroy it: that dash is its own session's to release.
+        //
+        // Absent, not disabled. Nothing the reader does *here* will ever make
+        // it available, and a disabled control with a reason is the idiom for
+        // "not yet", not for "not yours".
+        await settle(1500);
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(RELEASE)}).length`,
+          ),
+          "a dash another live session holds renders no Release",
+        ).toBe(0);
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(ADOPT)}).length`,
+          ),
+          "Adopt is unaffected — taking a dash on is not destroying it",
+        ).toBe(1);
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
     "a real dash renders in dash grammar, folds when unbound, and fronts on bind",
     async () => {
       const tugbankPath = mkTempTugbank();
@@ -237,29 +341,42 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           { timeoutMs: 8000 },
         );
 
-        // ── Unbound: the lane exists and everything is folded away ─────────
+        // ── Unbound: the lane exists, and the dash is a visible row ────────
+        // Nothing is fronted yet — the card is bound to no dash — but the row
+        // is on screen with no gesture at all. A dash somebody else is working
+        // is a situation to look at, not a count to expand.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LANE)}) !== null`,
+          `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const foldedState = await app.evalJS<{ fronted: number; rows: number }>(
+        const unfrontedState = await app.evalJS<{ fronted: number; rows: number }>(
           `(() => ({
              fronted: document.querySelectorAll(${JSON.stringify(FRONTED_LABEL)}).length,
              rows: document.querySelectorAll(${JSON.stringify(`${LANE} [data-slot="session-changes-dash-row"]`)}).length,
            }))()`,
         );
-        expect(foldedState.fronted).toBe(0);
-        expect(foldedState.rows).toBe(0);
+        expect(unfrontedState.fronted).toBe(0);
+        expect(unfrontedState.rows).toBe(1);
 
-        // ── Expand the fold: the dash row arrives in dash grammar ──────────
-        // Two things move under the cursor here and both are the aggregate's
-        // doing: the shade auto-sizes and the lane is its last block, so the
-        // cue can sit below the scrollport; and a CHANGESET_ALL recompose
-        // landing between the coordinate read and the click shifts the row out
-        // from under it. Scroll it in, click, and re-aim if the fold did not
-        // take — a missed click leaves the state untouched, so a retry is a
-        // retry and never a double toggle.
-        await clickUntil(app, GROUP_FOLD, ROW);
+        // The fold is gone, not merely unused — nothing anywhere renders it.
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll('[data-slot="session-changes-dash-lane-fold"]').length`,
+          ),
+          "the other-dashes fold no longer exists",
+        ).toBe(0);
+
+        // Release reaches a parked dash. No live session is mated to this one,
+        // so it is nobody's to protect and this shade may clean it up — the
+        // whole point of widening the gesture past the fronted row.
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(RELEASE)}).length`,
+          ),
+          "a parked dash offers Release",
+        ).toBe(1);
+
+        // ── The row reads in dash grammar ─────────────────────────────────
         const row = await app.evalJS<{
           badge: string;
           facts: string;
@@ -388,15 +505,15 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         );
 
         // ── Adopt: and back again, the same way ───────────────────────────
-        // The row fell back into the collapsed rest group when it stopped
-        // being fronted, so re-open the fold to reach it.
-        await clickUntil(app, GROUP_FOLD, ADOPT);
-        // Through the same scroll-in-and-retry the fold cue needs, and for the
-        // same reason: the lane is the shade's last block over an aggregate
-        // that recomposes on its own schedule, so a coordinate read can go
-        // stale between aiming and clicking. A missed click leaves the state
-        // untouched, which is what makes the retry a retry and not a
-        // double-bind.
+        // The row stays on screen when it stops being fronted — it moves into
+        // the rest group, which no longer hides anything — so Adopt is reachable
+        // without a fold click first.
+        //
+        // Through a scroll-in-and-retry, because the lane is the shade's last
+        // block over an aggregate that recomposes on its own schedule, so a
+        // coordinate read can go stale between aiming and clicking. A missed
+        // click leaves the state untouched, which is what makes the retry a
+        // retry and not a double-bind.
         await clickUntil(app, ADOPT, FRONTED_LABEL);
         expect(
           await app.evalJS<string | null>(
