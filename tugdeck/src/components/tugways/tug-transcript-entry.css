@@ -172,8 +172,12 @@ body {
  * eighth of the icon's em-sized box) brings their visual tops into
  * line at the nominal `1em` icon size used inside `session-card-
  * transcript`. */
+/* Glyphs differ in how much of their em box they fill, so the shared
+ * correction lands some participants high and others low. The
+ * per-participant knob below overrides it; larger pushes the glyph
+ * down. */
 .tug-transcript-entry__icon > svg {
-  margin-block-start: 0.125em;
+  margin-block-start: var(--tugx-transcript-icon-nudge, 0.125em);
   filter: var(--tugx-transcript-icon-shadow);
 }
 
@@ -195,9 +199,11 @@ body {
 }
 .tug-transcript-entry[data-participant="observer"] {
   --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-observer);
+  --tugx-transcript-icon-nudge: 0.25em;
 }
 .tug-transcript-entry[data-participant="operator"] {
   --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-operator);
+  --tugx-transcript-icon-nudge: 0.0625em;
 }
 
 /* Trailing header slot — per-row chrome that belongs with the attribution
