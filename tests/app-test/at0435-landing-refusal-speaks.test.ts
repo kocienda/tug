@@ -254,18 +254,28 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           { timeoutMs: 8000 },
         );
 
-        // Empty the editor. The dash's maintained draft seeds it, so this is
-        // what makes the refusal deterministic — and it puts the surface in
-        // exactly the state the incident had: a disabled land button beside a
-        // submit path that is still reachable.
+        // The editor opens empty: a fixture dash has no maintained join draft,
+        // and nothing here writes one. Nothing clears it either — `⌘A` is a
+        // menu chord and menu chords die in a background window (at0043 runs
+        // `foreground: true` for exactly that reason), so the fixture supplies
+        // the empty document instead of a keystroke pretending to.
         await app.nativeClickAtElement(EDITOR);
         await settle();
-        await app.nativeKey("a", ["cmd"]);
-        await app.nativeKey("Delete");
-        await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").trim() === ""`,
-          { timeoutMs: 5000 },
+        // Emptiness is `.cm-placeholder`, never `textContent`: CM6 renders the
+        // placeholder inside `.cm-content` when the document length is 0, so
+        // an empty join editor reads as "Write the join message, or use
+        // Auto-Message." to anyone asking the DOM for its text (at0043).
+        const opening = await app.evalJS<{ text: string; empty: boolean }>(
+          `(() => {
+             const el = document.querySelector(${JSON.stringify(EDITOR)});
+             return {
+               text: el?.textContent ?? "",
+               empty: el !== null && el.querySelector(".cm-placeholder") !== null,
+             };
+           })()`,
         );
+        note(`at0435 join editor opened with: ${JSON.stringify(opening)}`);
+        expect(opening.empty, "the refusal under test is the empty message").toBe(true);
         const buttonDisabled = await app.evalJS<boolean>(
           `(() => {
              const b = document.querySelector(${JSON.stringify(JOIN_BUTTON)});
@@ -299,11 +309,17 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         ).toBe(true);
 
         // A second press speaks again rather than going quiet on a repeat.
-        await app.evalJS<null>(
-          `(() => {
-             for (const t of document.querySelectorAll('[data-sonner-toast]')) t.remove();
-             return null;
-           })()`,
+        //
+        // The wait for the first bulletin to fade is the test, not a delay: a
+        // gate refusal is a caution and cautions auto-dismiss, so by the time
+        // someone presses again the previous sentence is gone and a surface
+        // that compared wording — rather than the refusal's `seq` — would sit
+        // silent on exactly the press where the user is asking louder. The
+        // fade is observed rather than forced; removing the node by hand would
+        // leave the bulletin channel believing it was still up.
+        await app.waitForCondition<boolean>(
+          `${BULLETIN_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
+          { timeoutMs: 30000 },
         );
         await app.nativeClickAtElement(EDITOR);
         await settle();
@@ -312,6 +328,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           `${BULLETIN_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
           { timeoutMs: 10000 },
         );
+        note("at0435 the second press spoke again after the first bulletin faded");
       } finally {
         await app.close();
       }
