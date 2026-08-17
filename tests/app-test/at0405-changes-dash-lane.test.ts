@@ -148,19 +148,29 @@ function deckShape() {
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Click `target` until `expected` exists, scrolling the target into view each
- * time. The lane sits at the bottom of an auto-sizing shade fed by an
+ * Click `target` until `expected` reaches `want`, scrolling the target into
+ * view each time. The lane sits at the bottom of an auto-sizing shade fed by an
  * aggregate that recomposes on its own schedule, so a click's coordinates can
  * go stale between the aim and the press. A missed click changes nothing, so
  * re-aiming is safe; the generous per-attempt wait is what keeps a *landed*
  * click from being re-sent and toggled back.
+ *
+ * Both directions take the retry, because both gestures aim at the same moving
+ * lane: Adopt waits for the fronted label to appear, Leave for it to go. A bare
+ * click on either is a coin flip on whether the aggregate recomposed in the
+ * window between reading the coordinates and pressing them.
  */
 async function clickUntil(
   app: Awaited<ReturnType<typeof launchTugApp>>,
   target: string,
   expected: string,
+  want: "present" | "absent" = "present",
   attempts = 4,
 ): Promise<void> {
+  const predicate =
+    want === "present"
+      ? `document.querySelector(${JSON.stringify(expected)}) !== null`
+      : `document.querySelector(${JSON.stringify(expected)}) === null`;
   for (let i = 0; i < attempts; i += 1) {
     await app.evalJS<null>(
       `(() => {
@@ -172,16 +182,15 @@ async function clickUntil(
     await settle();
     await app.nativeClickAtElement(target);
     try {
-      await app.waitForCondition<boolean>(
-        `document.querySelector(${JSON.stringify(expected)}) !== null`,
-        { timeoutMs: 2500 },
-      );
+      await app.waitForCondition<boolean>(predicate, { timeoutMs: 2500 });
       return;
     } catch {
       note(`at0405 click on ${target} did not land (attempt ${i + 1})`);
     }
   }
-  throw new Error(`at0405: ${expected} never appeared after clicking ${target}`);
+  throw new Error(
+    `at0405: ${expected} never went ${want} after clicking ${target}`,
+  );
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
@@ -498,11 +507,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // The fronting moves on the `unbind_dash_ok` broadcast, never on the
         // click — nothing here writes the binding store optimistically, so
         // this assertion is about the round trip.
-        await app.nativeClickAtElement(LEAVE);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) === null`,
-          { timeoutMs: 15000 },
-        );
+        await clickUntil(app, LEAVE, FRONTED_LABEL, "absent");
 
         // ── Adopt: and back again, the same way ───────────────────────────
         // The row stays on screen when it stops being fronted — it moves into
