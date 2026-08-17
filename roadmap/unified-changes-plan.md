@@ -699,3 +699,50 @@ The lane's app-tests build **real dashes in the live repository**. Leave no `tug
 | Release reach | Unit predicate over four arms + at0405's present/absent cases |
 | Informed consent | Popover message contains the hand-back sentence for a dirty worktree |
 | No doubled scope | `integrate_message_strips_a_foreign_scope` |
+
+---
+
+## Implementation addendum {#addendum}
+
+**Written 2026-08-16, after the plan landed.** Everything above is the plan as reviewed; this records what implementation actually did, where it departed from the plan and why, and one claim the plan got wrong. It postdates the review stamp, so `tugutil plan status` now reads **`stale`** — because the document finished, not because it drifted, the same way `base-motion-replay-plan.md` reads.
+
+### Status {#addendum-status}
+
+All six steps `done`. Landed on `main` as **`2ddcace0a`** — *"Make Changes one room and one landing"* — squashed from six rounds on `tugdash/unified-changes`.
+
+Verification at close: `bunx tsc --noEmit`, `bun test` (6908 pass, 15 new), `bunx vite build`, `cargo nextest run` (2818 pass), `cargo build` under `-D warnings`, `just app-test-covers-check`, and the seven-file lane + composer-route app-test invocation **7/7 files, 10/10 tests** from the main checkout.
+
+### What changed under implementation {#addendum-deviations}
+
+Five departures from the plan as written. None changed the deliverable; all are recorded because a cold reader comparing plan to diff would otherwise find them unexplained.
+
+1. **[P02]'s tooltip could not read the active landing kind.** The card passes `joinActive ? joinModeController : commitModeController`, so `landingMode.kind` says `join` only while a join is *already up* — a mated card sitting in the prompt would have shown "Write a commit message". The tooltip has to follow the **binding**, which is what [P02]'s own text says. `joinAvailable` was therefore not simply deleted but **retyped** as `changesLandingKind: LandingKind`, carrying the same expression the old prop computed.
+
+2. **[Spec S03]'s exit branch mattered more than the plan implied.** The plan noted `TOGGLE_CHANGES_VIEW`'s exit tests only `commitModeController`. Once the chord could *open* a join, that omission became a live defect: pressing ⌃⌘C a second time on a mated card fell through to `shadeViewController.hide()` and dropped the shade out from under an active join. at0340's bound case drives the chord both directions for exactly this.
+
+3. **[P12] became props, and `DashLandingActions.release` was deleted.** Folding the two gates into one `disabledReason` meant the landing face could no longer compute its own `releaseHint` — it now takes `releaseAvailable` and `releaseDisabledReason` from the lane's release bundle, so the fronted row's Release and a parked row's cannot disagree. With the dispatch moved to `DashLaneRelease`, the landing actions' `release` arm had no caller and went with it.
+
+4. **[Spec S02]'s plan clause was gated on the wrong condition.** The spec said *"`bound_sessions` empty and the dash records a plan"*. `restore_plan_to_base` runs **unconditionally** before teardown, so the implemented condition is `plan_path !== undefined`. The spec's extra qualifier would have hidden a true fact from a reader whose dash was bound.
+
+5. **The negative reach case was not testable, so the seeder was extended.** `bound_sessions` is computed from `sessions.db` rows, so a client-side `bind_dash_ok` cannot fabricate "another live session holds this dash" — and no ledger-seed field could write a binding. `SeedSession` (tugcast) and `LedgerSeedSession` (the harness) gained `dash_id` / `dash_name`, applied through the same `set_dash_binding` a real `bind_dash` uses. Without this, at0405 could have asserted only the permissive half of the reach rule. `TugConfirmPopover` also gained `data-slot`s on its parts (`tug-confirm-cancel`, `tug-confirm-confirm`, `tug-confirm-message`) so at0418 aims a real pointer at the act it means rather than walking the button list by label text.
+
+### One claim the plan got wrong {#addendum-correction}
+
+**The fold deletion did not retire at0405's chronic `did not land (attempt 1)` diagnostic, as [P04](#p04-no-fold) claimed it would.** The `session-changes-dash-lane-fold` instance is gone with the control, but the same diagnostic now fires on `session-changes-dash-fold` — the **row's own** expand cue. The cause was never that particular control: the lane is the shade's last block over an aggregate that recomposes on its own schedule, so any coordinate read there can go stale between aiming and clicking. Covered by the retry, green, and still worth fixing at the source. It stays open in `dash-closure-brief.md#tail` with this narrower diagnosis.
+
+### The worktree risk held exactly as written {#addendum-worktree}
+
+The corpus refused the linked worktree, by name and with its reason. Steps 1–5 carried their own frontend and Rust checkpoints on the dash; Step 6's app-test half ran from the main checkout after the landing. Confirmed by running it rather than assumed. Any future plan walked as a dash inherits this shape.
+
+### The Join sheet hunt, incidentally exercised {#addendum-join-hunt}
+
+The pairing [#join-hunt](dash-closure-brief.md#join-hunt) proposed worked: this dash went created → implementing → built → landed through the shade by hand, on real work, in a real instance. The join surface behaved at every stage, and at0425's archaeology read the resulting squash back — `tugdash(unified-changes): Make Changes one room and one landing`, one scope, which is the scope fix proving itself on its own landing. That is the deliberate-exercise receipt §4 asks for. Writing the downgrade is the next step, not a conclusion this document may draw on its own.
+
+### Next {#addendum-next}
+
+In order, per `dash-closure-brief.md#program`:
+
+1. **Close the Join sheet report** — write the downgrade into `closing-dash-backend-issues-brief.md#join-sheet` with this run as its receipt, or capture a misbehavior if the owner saw one during the landing. Cheap, and it ends a standing tripwire.
+2. **Entry points into dash workflows** ([#entry-points](dash-closure-brief.md#entry-points)) — the last UX item, and a design round with the owner before any plan. Every surface that now *shows* a dash is a candidate place to start, bind, or join one; the shade's rows are newly load-bearing here, since they are visible and carry gestures for the first time.
+3. **Archive the six historical documents** the brief's `#document-map` names, so `roadmap/` reads as only the live surface.
+4. **The pull-driven tail** — including this addendum's re-diagnosed click noise.
