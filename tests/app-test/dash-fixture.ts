@@ -213,6 +213,13 @@ export interface ConflictSubject {
  * simply must not stage its conflict on a file the developer is mid-edit on.
  * It bites exactly when the newest commit touched a file still being worked,
  * which is the ordinary state of a checkout an hour after a commit.
+ *
+ * A path that no longer exists on `main` is skipped for the same reason from
+ * the other direction: the dash side can stage its half against any path in
+ * history, but the base side is `main` as it stands, and a file deleted or
+ * renamed since has nothing left to conflict with. A rename is both traps at
+ * once — the old path is gone from the tip, the new one is dirty while the
+ * rename is still uncommitted.
  */
 export function smallConflictSubject(
   projectDir: string,
@@ -246,6 +253,10 @@ export function smallConflictSubject(
     if (!revExists(projectDir, `${commit}~1`)) continue;
     // Uncommitted work here would read as base overlap, not a conflict.
     if (dirty.has(line)) continue;
+    // The commit modified it; a later commit may have deleted or renamed it.
+    // The dash side stages its half against the path, but the base side is
+    // `main` as it stands, where a vanished path has nothing to conflict with.
+    if (!pathAtTip(projectDir, line)) continue;
     const blob = gitRetry(projectDir, "show", `${commit}:${line}`);
     if (blob.includes("\0")) continue; // binary — no content conflict to resolve
     if (blob.split("\n").length > maxLines) continue;
@@ -277,6 +288,14 @@ function dirtyPaths(projectDir: string): ReadonlySet<string> {
     }
   }
   return paths;
+}
+
+/** Whether `main` still carries this path — the conflict needs both sides. */
+function pathAtTip(projectDir: string, path: string): boolean {
+  return (
+    Bun.spawnSync(["git", "-C", projectDir, "cat-file", "-e", `main:${path}`], {})
+      .exitCode === 0
+  );
 }
 
 /** Whether a revision resolves — used to skip a commit with no parent. */

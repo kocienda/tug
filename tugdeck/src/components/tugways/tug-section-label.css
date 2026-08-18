@@ -1,0 +1,57 @@
+/* tug-section-label.css — `TugSectionLabel`, the eyebrow over a bucket of rows.
+
+   Every value here arrived unchanged from the two stylesheets that used to
+   spell it — `tug-changes-list.css` and `session-changes-dash-lane.css` — so
+   the extraction is a move, not a redesign.
+
+   Laws: [L20] owns `--tugx-section-label-*` and composes no other component's
+   tokens; [L17] every alias resolves to a base token in one hop. */
+
+/* ---- Component-tier aliases — resolve to base tier in one hop [L17] ---- */
+
+body {
+  /* The two tones. Nothing here is at full strength: the name is the run a
+     reader navigates by, the qualifier is what it says about itself. */
+  --tugx-section-label-name:      var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-section-label-qualifier: var(--tug7-element-global-text-normal-subtle-rest);
+  --tugx-section-label-rule:      var(--tug7-element-global-divider-normal-default-rest);
+  /* Space above the label is what separates one bucket from the last row of
+     the one before it — the rule alone is too thin to do that work. */
+  --tugx-section-label-space-above: var(--tug-space-lg);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-section-label {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  font-size: var(--tug-font-size-2xs);
+  font-family: var(--tug-font-family-sans);
+  font-weight: var(--tug-font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0 var(--tug-space-sm) var(--tug-space-xs);
+  margin-top: var(--tugx-section-label-space-above);
+}
+
+/* The hairline is the label's own trailing run, not a border on the host: it
+   takes whatever width the words leave, so a long header shortens its rule
+   instead of wrapping under it. */
+.tug-section-label::after {
+  content: "";
+  flex: 1 1 auto;
+  block-size: 1px;
+  background: var(--tugx-section-label-rule);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-section-label-name {
+  color: var(--tugx-section-label-name);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-section-label-dash,
+.tug-section-label-qualifier {
+  color: var(--tugx-section-label-qualifier);
+  font-weight: var(--tug-font-weight-normal);
+}

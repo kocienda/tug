@@ -1,0 +1,53 @@
+/* tug-meta-run.css — `TugMetaRun`, the small facts after a row's name.
+
+   Every value arrived unchanged from the two runs that used to spell it: the
+   Changes shade's file metadata cluster (`tug-changes-list.css`) and the dash
+   lane's fact run (`session-changes-dash-lane.css`). The extraction is a move.
+
+   Laws: [L20] owns `--tugx-meta-run-*`; [L17] every alias resolves to a base
+   token in one hop. */
+
+/* ---- Component-tier aliases — resolve to base tier in one hop [L17] ---- */
+
+body {
+  --tugx-meta-run-text:    var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-meta-run-rule:    var(--tug7-element-global-border-normal-muted-rest);
+  /* The rule is a separator between the name and the facts, not a property of
+     any one fact — so it rides the run, and a row shows exactly one whichever
+     facts it happens to carry, and none at all when it carries none. */
+  --tugx-meta-run-rule-gap: var(--tug-space-md);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-meta-run {
+  display: inline-flex;
+  align-items: baseline;
+  min-inline-size: 0;
+  padding-inline-start: var(--tugx-meta-run-rule-gap);
+  border-inline-start: 1px solid var(--tugx-meta-run-rule);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tugx-meta-run-text);
+}
+
+/* A fact is legible whole or it is not on the line. A host with one run of
+   prose among the facts overrides this for that child alone. */
+.tug-meta-run > * {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Parts standing apart on space alone. */
+.tug-meta-run[data-separator="gap"] {
+  gap: var(--tug-space-md);
+}
+
+/* Parts with a bullet between them: the gap lands on both sides of each
+   bullet, so half of it reproduces the rhythm the other spelling gets whole. */
+.tug-meta-run[data-separator="bullet"] {
+  gap: var(--tug-space-2xs);
+}
+
+.tug-meta-run-bullet {
+  opacity: 0.55;
+}

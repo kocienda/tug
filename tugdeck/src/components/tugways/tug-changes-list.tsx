@@ -69,6 +69,11 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
 import { TugStatusMark } from "@/components/tugways/tug-status-mark";
+import { TugMetaRun } from "@/components/tugways/tug-meta-run";
+import {
+  TugSectionLabel,
+  type SectionLabel,
+} from "@/components/tugways/tug-section-label";
 import {
   getEntryDiffStore,
   releaseEntryDiffStore,
@@ -295,30 +300,6 @@ export function PopOutDiffButton({
         }}
       />
     </TugActionTooltip>
-  );
-}
-
-/**
- * A section header's text — one renderer, composed by every surface that
- * names a bucket, so the dash lane's headers and the file list's cannot paint
- * differently. The em dash is authored here and nowhere else: it is a
- * separator the renderer draws between two facts, not a character in either.
- */
-export function SectionLabelText({ label }: { label: SectionLabel }) {
-  return (
-    <span className="tug-changes-list-section-label-text">
-      <span className="tug-changes-list-section-label-name">{label.name}</span>
-      {label.qualifier !== undefined ? (
-        <>
-          <span className="tug-changes-list-section-label-dash" aria-hidden="true">
-            {" — "}
-          </span>
-          <span className="tug-changes-list-section-label-qualifier">
-            {label.qualifier}
-          </span>
-        </>
-      ) : null}
-    </span>
   );
 }
 
@@ -775,7 +756,7 @@ function FileIdentity({
         highlightQuery={highlightQuery}
       />
       {hasMeta ? (
-        <span className="tug-changes-list-file-meta">
+        <TugMetaRun className="tug-changes-list-file-meta">
           {election !== null ? (
             election.kind === "partial" ? (
               <TugTooltip
@@ -814,7 +795,7 @@ function FileIdentity({
               {file.hint}
             </span>
           ) : null}
-        </span>
+        </TugMetaRun>
       ) : null}
     </span>
   );
@@ -1151,17 +1132,6 @@ function EntryFiles({
   );
 }
 
-/**
- * A section header: the bucket's name, and an optional qualifier that says
- * something about it. They are separate because the header paints them
- * separately — the name at full strength, the qualifier dimmer — and the em
- * dash that joins them on screen belongs to the renderer, not to the data.
- */
-export interface SectionLabel {
-  name: string;
-  qualifier?: string;
-}
-
 export interface TugChangesListProps {
   /** Head entries to render, in order: the session entry, then unattributed. */
   entries: ReadonlyArray<TugChangesListEntry>;
@@ -1326,12 +1296,10 @@ export function TugChangesList({
         return (
           <React.Fragment key={entry.id}>
             {label !== undefined ? (
-              <div
-                className="tug-changes-list-section-label"
-                data-slot={`tug-changes-list-${entry.kind}-label`}
-              >
-                <SectionLabelText label={label} />
-              </div>
+              <TugSectionLabel
+                label={label}
+                slot={`tug-changes-list-${entry.kind}-label`}
+              />
             ) : null}
             <EntryFiles
               entry={entry}

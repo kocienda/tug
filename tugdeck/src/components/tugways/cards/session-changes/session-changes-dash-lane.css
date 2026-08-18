@@ -11,28 +11,10 @@
   gap: var(--tug-space-2xs);
 }
 
-/* The lane's group headers borrow the shade's section-label weight so the
-   dash lane reads as a peer of the file buckets above it — but in the muted
-   tone, because a dash is never a bucket asking for a decision. */
-/* The lane's group headers are the same eyebrow the file list wears — same
-   shape, same name/qualifier split, same hairline — because a reader scanning
-   the shade should not be able to tell that two components drew them. The
-   metrics are restated rather than shared: these are two independent
-   components, and a cross-import for five declarations would couple them for
-   less than it costs. A dash is not a decision, so it takes no tone. */
-.session-changes-dash-lane-label {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  font-size: var(--tug-font-size-2xs);
-  font-family: var(--tug-font-family-sans);
-  font-weight: var(--tug-font-weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-  padding: 0 var(--tug-space-sm) var(--tug-space-xs);
-  margin-top: var(--tug-space-lg);
-}
+/* The lane's group headers are `TugSectionLabel`, the same component the file
+   buckets above render — which is now true by construction rather than by two
+   sets of metrics kept equal by hand. A reader scanning the shade cannot tell
+   that two components drew them, because in the part that shows, one did. */
 
 /* Two or more workers on one dash is legal, so the atoms are a wrapping row
    rather than a single slot. */
@@ -86,13 +68,6 @@
   font-family: var(--tug-font-family-mono);
 }
 
-.session-changes-dash-lane-label::after {
-  content: "";
-  flex: 1 1 auto;
-  block-size: 1px;
-  background: var(--tug7-element-global-divider-normal-default-rest);
-}
-
 /* ---- The row ---- */
 
 .session-changes-dash-row {
@@ -106,48 +81,16 @@
   gap: var(--tug-space-2xs);
 }
 
-/* The fact run: base · rounds · uncommitted · stage · step.
+/* The fact run — base · rounds · uncommitted · stage · step — is a
+   `TugMetaRun`, the same grammar a file row's `edit · exact` wears. The rule,
+   the bullets, the type and the atomic parts all live there. What is left here
+   is per-fact tone, which is this lane's to say. */
 
-   This is the same metadata cluster a file row wears, and it is drawn the same
-   way on purpose: one rule divides the name from its facts, and bullets
-   separate the facts from each other. Small proportional type, because these
-   are read as a sentence about the dash rather than as identifiers to be typed
-   back — the name ahead of the pipe is the only run here anybody copies, and it
-   keeps its own family.
-
-   `flex: none` on the parts is what stopped them smashing. The run is a flex
-   line in a row that is allowed to be narrow, so every part was shrinking below
-   its own text and wrapping mid-phrase — "4 / rounds", "step / 2/5". A fact is
-   atomic: it is legible whole or it should not be on the line. Exactly one part
-   gives way, and it is the step title below, which is prose and elides
-   gracefully. */
-.session-changes-dash-facts {
-  display: flex;
-  align-items: baseline;
-  /* Applied on both sides of each bullet span, so this is half the space
-     between two facts — the file row spells the same total as one 8px gap
-     because its bullets live inside the string. */
-  gap: var(--tug-space-2xs);
-  min-width: 0;
-  padding-left: var(--tug-space-md);
-  border-left: 1px solid var(--tug7-element-global-border-normal-muted-rest);
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-2xs);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.session-changes-dash-facts > * {
-  flex: none;
-  white-space: nowrap;
-}
-
+/* The base is the one identifier in the run: a git ref somebody types back, so
+   it keeps the mono family the rest of the facts have no use for. */
 .session-changes-dash-base {
   font-family: var(--tug-font-family-mono);
   color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-.session-changes-dash-sep {
-  opacity: 0.55;
 }
 
 /* Uncommitted work in the worktree is the one fact here worth a tone. */
@@ -168,7 +111,7 @@
    It is also the only part with no bullet ahead of it: the bullets separate
    facts of one kind, and the title is a caption on the fact before it. The
    larger gap says the same thing the missing bullet does. */
-.session-changes-dash-step-title {
+.session-changes-dash-facts .session-changes-dash-step-title {
   flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;

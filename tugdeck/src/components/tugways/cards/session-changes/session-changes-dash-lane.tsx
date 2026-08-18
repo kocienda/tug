@@ -51,7 +51,9 @@ import { TugStatusMark } from "@/components/tugways/tug-status-mark";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dashReviewPaints, dashReviewTooltip } from "@/lib/dash-review";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
-import { PopOutDiffButton, SectionLabelText } from "@/components/tugways/tug-changes-list";
+import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import { TugMetaRun, TugMetaBullet } from "@/components/tugways/tug-meta-run";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { dashFrontedLabel, dashRestLabel } from "./changes-section-labels";
 import { DashSigil } from "@/components/tugways/dash-sigil";
@@ -151,7 +153,7 @@ function DashDivergenceMarks({ entry }: { entry: DashChangesetEntry }) {
     <>
       {conflicts.length > 0 ? (
         <>
-          <span className="session-changes-dash-sep">·</span>
+          <TugMetaBullet />
           <TugTooltip
             content={`Replaying this dash onto ${entry.base} conflicts in:\n${pathList(conflicts)}`}
           >
@@ -167,7 +169,7 @@ function DashDivergenceMarks({ entry }: { entry: DashChangesetEntry }) {
       ) : null}
       {overlap.length > 0 ? (
         <>
-          <span className="session-changes-dash-sep">·</span>
+          <TugMetaBullet />
           <TugTooltip
             content={`Uncommitted work on ${entry.base} touches files this dash also changes:\n${pathList(overlap)}`}
           >
@@ -183,7 +185,7 @@ function DashDivergenceMarks({ entry }: { entry: DashChangesetEntry }) {
       ) : null}
       {ahead > 0 ? (
         <>
-          <span className="session-changes-dash-sep">·</span>
+          <TugMetaBullet />
           <TugTooltip
             content={`${entry.base} has gained ${ahead === 1 ? "1 commit" : `${ahead} commits`} this dash does not have yet.`}
           >
@@ -199,7 +201,7 @@ function DashDivergenceMarks({ entry }: { entry: DashChangesetEntry }) {
       ) : null}
       {ahead === 0 && conflicts.length === 0 && settled !== undefined && settled !== "" ? (
         <>
-          <span className="session-changes-dash-sep">·</span>
+          <TugMetaBullet />
           <TugTooltip content={`Replayed ${settled}`}>
             <span
               className="session-changes-dash-divergence"
@@ -565,27 +567,27 @@ function DashRow({
           </span>
         }
       >
-        <span className="session-changes-dash-facts">
+        <TugMetaRun separator="bullet" className="session-changes-dash-facts">
           <span className="session-changes-dash-base">{entry.base}</span>
-          <span className="session-changes-dash-sep">·</span>
+          <TugMetaBullet />
           <span className="session-changes-dash-rounds">
             {roundsLabel(entry.rounds)}
           </span>
           {entry.worktree_dirty ? (
             <>
-              <span className="session-changes-dash-sep">·</span>
+              <TugMetaBullet />
               <span className="session-changes-dash-dirty">uncommitted</span>
             </>
           ) : null}
           {entry.stage !== undefined ? (
             <>
-              <span className="session-changes-dash-sep">·</span>
+              <TugMetaBullet />
               <span className="session-changes-dash-stage">{entry.stage}</span>
             </>
           ) : null}
           {steps !== null ? (
             <>
-              <span className="session-changes-dash-sep">·</span>
+              <TugMetaBullet />
               <span className="session-changes-dash-step">{steps}</span>
             </>
           ) : null}
@@ -596,7 +598,7 @@ function DashRow({
           ) : null}
           {dashReviewPaints(entry.review) ? (
             <>
-              <span className="session-changes-dash-sep">·</span>
+              <TugMetaBullet />
               <TugTooltip
                 content={dashReviewTooltip(
                   entry.review!,
@@ -614,7 +616,7 @@ function DashRow({
             </>
           ) : null}
           <DashDivergenceMarks entry={entry} />
-        </span>
+        </TugMetaRun>
       </TugListRow>
       {expanded ? (
         <div className="session-changes-dash-detail">
@@ -758,14 +760,10 @@ export function SessionChangesDashLane({
     <div className="session-changes-dash-lane" data-slot="session-changes-dash-lane">
       {fronted !== null ? (
         <>
-          <div
-            className="session-changes-dash-lane-label"
-            data-slot="session-changes-dash-lane-fronted-label"
-          >
-            <SectionLabelText
-              label={dashFrontedLabel(fronted.owner_id === boundDashId)}
-            />
-          </div>
+          <TugSectionLabel
+            label={dashFrontedLabel(fronted.owner_id === boundDashId)}
+            slot="session-changes-dash-lane-fronted-label"
+          />
           <DashRow
             // Keyed so a rebind swaps the row rather than reusing it: the
             // landing face's preview fires on mount, and a reused instance
@@ -786,12 +784,10 @@ export function SessionChangesDashLane({
       ) : null}
       {rest.length > 0 ? (
         <>
-          <div
-            className="session-changes-dash-lane-label"
-            data-slot="session-changes-dash-lane-rest-label"
-          >
-            <SectionLabelText label={restLabel} />
-          </div>
+          <TugSectionLabel
+            label={restLabel}
+            slot="session-changes-dash-lane-rest-label"
+          />
           {rest.map((entry) => (
             <DashRow
               key={entry.owner_id}

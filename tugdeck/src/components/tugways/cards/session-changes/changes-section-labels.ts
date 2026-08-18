@@ -23,7 +23,7 @@
  * @module components/tugways/cards/session-changes/changes-section-labels
  */
 
-import type { SectionLabel } from "@/components/tugways/tug-changes-list";
+import type { SectionLabel } from "@/components/tugways/tug-section-label";
 
 /** Files this session is the proven owner of. */
 export const SESSION_LABEL: SectionLabel = {
