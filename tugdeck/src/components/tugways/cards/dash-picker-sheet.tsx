@@ -93,7 +93,7 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
   const facts = [
     entry.stage ?? null,
     roundsLabel(entry.rounds),
-    entry.worktree_dirty ? "dirty" : null,
+    entry.worktree_dirty ? "uncommitted" : null,
     dashReviewPaints(entry.review)
       ? entry.review === "stale"
         ? "plan stale"

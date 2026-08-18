@@ -14,19 +14,50 @@
 /* The lane's group headers borrow the shade's section-label weight so the
    dash lane reads as a peer of the file buckets above it — but in the muted
    tone, because a dash is never a bucket asking for a decision. */
+/* The lane's group headers are the same eyebrow the file list wears — same
+   shape, same name/qualifier split, same hairline — because a reader scanning
+   the shade should not be able to tell that two components drew them. The
+   metrics are restated rather than shared: these are two independent
+   components, and a cross-import for five declarations would couple them for
+   less than it costs. A dash is not a decision, so it takes no tone. */
 .session-changes-dash-lane-label {
   display: flex;
   align-items: center;
   gap: var(--tug-space-sm);
-  font-size: var(--tug-font-size-sm);
+  font-size: var(--tug-font-size-2xs);
   font-family: var(--tug-font-family-sans);
-  font-weight: 600;
+  font-weight: var(--tug-font-weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--tug7-element-global-text-normal-muted-rest);
-  padding: var(--tug-space-sm) var(--tug-space-sm) var(--tug-space-2xs);
-  border-top: 1px solid var(--tug7-element-tone-border-normal-neutral-rest);
-  margin-top: var(--tug-space-xs);
+  letter-spacing: 0.1em;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  padding: 0 var(--tug-space-sm) var(--tug-space-xs);
+  margin-top: var(--tug-space-lg);
+}
+
+/* The dash name, as `DashSigil` draws it everywhere else.
+
+   The family and size are restated rather than inherited: the row primitive
+   types its CONTENT column from `[data-mono="true"]`, and the name rides the
+   leading slot, which that rule does not reach. `xs` is the value that rule
+   sets — the size a file path takes in `TugChangesList` two sections up — so a
+   dash name and a file name are the same size in the same shade, which is the
+   only reason this file names a size at all.
+
+   The width ceiling is a share of the row in characters and never an authored
+   pixel count, so a name that fits is shown whole and a longer one ellipsizes
+   at the same place in every theme. */
+[data-slot="session-changes-dash-name"] {
+  flex: none;
+  max-inline-size: 24ch;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+}
+
+.session-changes-dash-lane-label::after {
+  content: "";
+  flex: 1 1 auto;
+  block-size: 1px;
+  background: var(--tug7-element-global-divider-normal-default-rest);
 }
 
 /* ---- The row ---- */
@@ -170,7 +201,7 @@
   flex-direction: column;
   gap: var(--tug-space-2xs);
   padding: var(--tug-space-xs) var(--tug-space-sm);
-  border-left: 2px solid var(--tug7-element-tone-border-normal-neutral-rest);
+  border-left: 2px solid var(--tug7-element-global-divider-normal-default-rest);
 }
 
 .session-changes-dash-draft-label {

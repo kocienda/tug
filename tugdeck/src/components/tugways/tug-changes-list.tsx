@@ -272,16 +272,19 @@ function FilePathLink({
 export function PopOutDiffButton({
   descriptor,
   label,
+  size = "2xs",
 }: {
   descriptor: DiffDescriptor;
   label: string;
+  /** `2xs` for a per-file row; `xs` for a header's trailing cluster. */
+  size?: "2xs" | "xs";
 }) {
   return (
     <TugActionTooltip action={TUG_ACTIONS.OPEN_DIFF} content="Open this diff in a card">
       <TugPushButton
         subtype="icon"
-        icon={<SquareArrowOutUpRight size={12} />}
-        size="2xs"
+        icon={<SquareArrowOutUpRight size={size === "xs" ? 14 : 12} />}
+        size={size}
         emphasis="ghost"
         role="action"
         aria-label={label}
@@ -292,6 +295,30 @@ export function PopOutDiffButton({
         }}
       />
     </TugActionTooltip>
+  );
+}
+
+/**
+ * A section header's text — one renderer, composed by every surface that
+ * names a bucket, so the dash lane's headers and the file list's cannot paint
+ * differently. The em dash is authored here and nowhere else: it is a
+ * separator the renderer draws between two facts, not a character in either.
+ */
+export function SectionLabelText({ label }: { label: SectionLabel }) {
+  return (
+    <span className="tug-changes-list-section-label-text">
+      <span className="tug-changes-list-section-label-name">{label.name}</span>
+      {label.qualifier !== undefined ? (
+        <>
+          <span className="tug-changes-list-section-label-dash" aria-hidden="true">
+            {" — "}
+          </span>
+          <span className="tug-changes-list-section-label-qualifier">
+            {label.qualifier}
+          </span>
+        </>
+      ) : null}
+    </span>
   );
 }
 
@@ -1124,6 +1151,17 @@ function EntryFiles({
   );
 }
 
+/**
+ * A section header: the bucket's name, and an optional qualifier that says
+ * something about it. They are separate because the header paints them
+ * separately — the name at full strength, the qualifier dimmer — and the em
+ * dash that joins them on screen belongs to the renderer, not to the data.
+ */
+export interface SectionLabel {
+  name: string;
+  qualifier?: string;
+}
+
 export interface TugChangesListProps {
   /** Head entries to render, in order: the session entry, then unattributed. */
   entries: ReadonlyArray<TugChangesListEntry>;
@@ -1134,7 +1172,7 @@ export interface TugChangesListProps {
   expandedKeys: ReadonlySet<string>;
   onToggleFile: (entryId: string, path: string, collapsed: boolean) => void;
   /** Optional label rendered above the unattributed entry. */
-  unattributedLabel?: string;
+  unattributedLabel?: SectionLabel;
   /** When set, unattributed rows show a Claim affordance that promotes the
    *  path into this session's changeset ([D1xx]). */
   onClaimUnattributed?: (path: string) => void;
@@ -1142,7 +1180,7 @@ export interface TugChangesListProps {
    *  unattributed header claims every path in one batch. */
   onClaimAllUnattributed?: (paths: string[]) => void;
   /** Optional label rendered above the orphaned entry ([D120]). */
-  orphanedLabel?: string;
+  orphanedLabel?: SectionLabel;
   /** When set, orphaned rows show a Claim affordance that reclaims the path
    *  into this session, severing the dead originator ([D120]). */
   onClaimOrphaned?: (path: string) => void;
@@ -1154,7 +1192,7 @@ export interface TugChangesListProps {
   claimPending?: boolean;
   /** Optional label rendered above the session entry. Present only when the
    *  section needs a header — which is what carries "Disclaim all". */
-  sessionLabel?: string;
+  sessionLabel?: SectionLabel;
   /** When set, a session-entry row shared only with *closed* sessions shows a
    *  release affordance — the same `changeset_claim`, which severs them
    *  ([D120]). It is the only remedy for shares no evidence can falsify:
@@ -1292,7 +1330,7 @@ export function TugChangesList({
                 className="tug-changes-list-section-label"
                 data-slot={`tug-changes-list-${entry.kind}-label`}
               >
-                <span className="tug-changes-list-section-label-text">{label}</span>
+                <SectionLabelText label={label} />
               </div>
             ) : null}
             <EntryFiles

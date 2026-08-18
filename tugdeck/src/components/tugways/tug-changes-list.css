@@ -146,19 +146,57 @@
 /* The bucket name is the sheet's primary structure — it groups the rows by
    claim state and the reader navigates by it, so it is sized to be read at a
    glance rather than as fine print. */
+/* The eyebrow: a small tracked-out label at the left, with the hairline
+   running through the rest of the line to the right edge rather than sitting
+   above it. The rule is a `::after` on the label itself — a flex child with no
+   content — so no surface needs a second element and nothing is measured.
+
+   Tone is per bucket and lives in the `[data-slot]` rules below; this block is
+   the shape only. */
 .tug-changes-list-section-label {
   display: flex;
   align-items: center;
   gap: var(--tug-space-sm);
-  font-size: var(--tug-font-size-sm);
+  font-size: var(--tug-font-size-2xs);
   font-family: var(--tug-font-family-sans);
-  font-weight: 600;
+  font-weight: var(--tug-font-weight-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--tug7-element-tone-text-normal-caution-rest);
-  padding: var(--tug-space-sm) var(--tug-space-sm) var(--tug-space-2xs);
-  border-top: 1px solid var(--tug7-element-tone-border-normal-neutral-rest);
-  margin-top: var(--tug-space-xs);
+  letter-spacing: 0.1em;
+  padding: 0 var(--tug-space-sm) var(--tug-space-xs);
+  margin-top: var(--tug-space-lg);
+}
+
+.tug-changes-list-section-label::after {
+  content: "";
+  flex: 1 1 auto;
+  block-size: 1px;
+  background: var(--tug7-element-global-divider-normal-default-rest);
+}
+
+/* The name leads and the qualifier follows it down a step, so "unattributed"
+   reads before "no session claims these". The em dash between them is the
+   renderer's separator and takes the dimmer tone with the qualifier.
+
+   Nothing here is at full strength, and no bucket carries hue. Colour in this
+   surface would have to mean something, and the four things it could have
+   meant — ownership, urgency, species, staleness — are all already said in
+   words a line below. The headers are spacing with words in it; the file rows
+   carry the surface. Both knobs are `var(x, default)` at point of use, so a
+   caller can still tune one bucket without this file changing. */
+.tug-changes-list-section-label-name {
+  color: var(
+    --changes-header-name-color,
+    var(--tug7-element-global-text-normal-muted-rest)
+  );
+}
+
+.tug-changes-list-section-label-dash,
+.tug-changes-list-section-label-qualifier {
+  color: var(
+    --changes-header-qualifier-color,
+    var(--tug7-element-global-text-normal-subtle-rest)
+  );
+  font-weight: var(--tug-font-weight-normal);
 }
 
 /* The bulk affordance closes its section: trailing-aligned under the last

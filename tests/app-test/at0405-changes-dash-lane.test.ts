@@ -85,7 +85,7 @@ const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NA
 const ROW_FOLD = `${ROW} [data-slot="session-changes-dash-fold"]`;
 const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
 const ADOPT = `${ROW} [data-slot="session-changes-dash-bind"]`;
-const RELEASE = `${ROW} [data-slot="session-changes-dash-release"]`;
+const RELEASE = `${ROW} [data-slot="session-changes-dash-discard"]`;
 
 /** The checkout this file sits in — the project the aggregate composes, per
  *  at0332's rule. */
@@ -396,7 +396,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              const lane = document.querySelector(${JSON.stringify(LANE)});
              return {
-               badge: (row.querySelector(".tug-badge")?.textContent ?? "").trim(),
+               badge: (row.querySelector('[data-slot="session-changes-dash-name"]')?.textContent ?? "").trim(),
                facts: (row.querySelector(".session-changes-dash-facts")?.textContent ?? "").trim(),
                popOuts: row.querySelectorAll('[data-testid="tug-changes-list-diff-popout"]').length,
                claimish: lane.querySelectorAll(
@@ -405,7 +405,12 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
              };
            })()`,
         );
-        expect(row.badge).toBe(DASH_NAME);
+        // The name wears its caret and no chip: `DashSigil`, the same component
+        // a bound session's identity atom composes. `textContent`, not
+        // `innerText` — the run is an inline-flex of two spans, which
+        // blockifies them and would put a line break between the sigil and
+        // the name it belongs to.
+        expect(row.badge).toBe(`^${DASH_NAME}`);
         expect(row.facts).toContain("main");
         expect(row.facts).toContain("1 round");
         // The derived stage, rendered as the word the server sent.

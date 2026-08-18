@@ -49,7 +49,6 @@ import {
   MessageSquareText,
   Plus,
   Square,
-  X,
 } from "lucide-react";
 import { Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -183,8 +182,11 @@ const ROUTE_CHOICE_SENDER_ID = "tug-prompt-entry-route";
  * The chrome's words, per landing kind ([P01]). The composer's controls are
  * identical for both landings; only what they are called moves, so the two
  * vocabularies sit here side by side rather than as branches at each use.
+ *
+ * `cancel` is read by the Changes shade's header X, which is where the cancel
+ * gesture lives; everything else is read here.
  */
-const LANDING_WORDS: Record<
+export const LANDING_WORDS: Record<
   LandingKind,
   {
     cancel: string;
@@ -3754,9 +3756,8 @@ export const TugPromptEntry = React.forwardRef<
   );
 
   // ── Commit-mode chrome ([P03], Z5 icon rail) ─────────────────────────────
-  // Z5: cancel / auto-message / commit, all icons ([P03]). Cancel exits the
-  // mode (danger), Auto-Message drafts (pencil-sparkles; a spinner + disabled
-  // while drafting), Commit lands — JS-disabled on the turn/pending/changeset
+  // Z5: auto-message / commit, both icons ([P03]). Auto-Message drafts
+  // (pencil-sparkles; a spinner + disabled while drafting), Commit lands — JS-disabled on the turn/pending/changeset
   // gate, and additionally dimmed by CSS when the message is empty
   // (`data-empty`, so no per-keystroke React state, [L22]).
   const landingPending = landingSnap?.landPhase === "pending";
@@ -3772,30 +3773,11 @@ export const TugPromptEntry = React.forwardRef<
     commitFocusOrderBase === undefined ? undefined : commitFocusOrderBase + offset;
   const commitToolbarTrailing = (
     <>
-      {/* The chord is read, not authored: Cancel holds two bindings (⌘. and ⎋)
-          and the registry decides which one a surface shows ([P11]). An
-          authored "Esc" here was a second statement of a fact the command
-          table already holds — and the first thing to go wrong the day
-          someone rebinds Cancel. */}
-      <TugActionTooltip
-        action={TUG_ACTIONS.CANCEL_DIALOG}
-        content={landingDrafting ? "Cancel auto-message" : landingWords.cancel}
-      >
-        <TugPushButton
-          className="tug-prompt-entry-commit-cancel"
-          subtype="icon"
-          size="lg"
-          emphasis="outlined"
-          role="danger"
-          // While drafting, the X cancels the Auto-Message (not the whole mode);
-          // otherwise it exits commit mode ([P06]).
-          onClick={landingDrafting ? cancelCommitDraft : exitCommitMode}
-          aria-label={landingDrafting ? "Cancel auto-message" : landingWords.cancel}
-          focusGroup={submitFocusGroup}
-          focusOrder={commitOrder(0)}
-          icon={<X size={16} strokeWidth={2.5} />}
-        />
-      </TugActionTooltip>
+      {/* Cancel is not here. The X lives at the Changes shade's trailing
+          header edge, where every other close in the deck sits; ⎋ and ⌘. reach
+          the same two acts from the keyboard. `commitOrder(0)` therefore goes
+          unclaimed — Commit stays on `SESSION_CYCLE_ORDER_SUBMIT` at
+          `commitOrder(2)`, which renumbering would move. */}
       <TugActionTooltip
         action={TUG_ACTIONS.COMMIT_AUTO_MESSAGE}
         content={landingDrafting ? "Composing…" : landingWords.autoMessage}

@@ -23,7 +23,7 @@
  * ## What is pinned
  *
  * - The incident's state renders as designed: the named join fronts a dash the
- *   card is not bound to, under "This card's dash", with **Adopt** (fronting
+ *   card is not bound to, under "the dash on this card", with **Adopt** (fronting
  *   is about what is being landed; the binding is about what the card works).
  * - **Join** on a conflicted outcome is disabled and carries its reason.
  * - **Resolve** is enabled, and a click visibly registers at once — the offer
@@ -81,7 +81,7 @@ const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
 const OUTCOME = `${ROW} [data-slot="session-changes-dash-landing-outcome"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
 const JOIN = `${ROW} [data-slot="session-changes-dash-join"]`;
-const RELEASE = `${ROW} [data-slot="session-changes-dash-release"]`;
+const RELEASE = `${ROW} [data-slot="session-changes-dash-discard"]`;
 const REFUSALS = `${ROW} [data-slot="session-changes-dash-landing-refusals"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-dash-landing-conflicts"]`;
 const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-landing-archaeology"]`;

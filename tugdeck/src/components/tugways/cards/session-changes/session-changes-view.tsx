@@ -6,10 +6,11 @@
  * affordance. It answers "what's changed?" — glanceable, dismiss-and-forget.
  *
  * The sheet is passive ([P17]): the composer below keeps focus (⌃⌘C is the
- * toggle; landing a commit lives in the composer's commit mode + Z5), so
- * the view carries no Done button, no header X, and seeds no key view. The
- * file rows are `TugChangesList` ([P01]); the header keeps only its fold-all
- * cue + whole-diff pop-out, and the git-init affordance sits in the body.
+ * toggle; landing a commit lives in the composer's commit mode) and the view
+ * seeds no key view. The file rows are `TugChangesList` ([P01]); the header's
+ * trailing cluster is the fold-all cue, the whole-diff pop-out, and the
+ * dismiss X — three same-sized icon buttons, the card-header idiom. The
+ * git-init affordance sits in the body.
  *
  * The list IS this session's diff — every row expands into its own hunks — so
  * the view mounts no second whole-session document above it. The repo-wide
@@ -31,9 +32,17 @@
 import "./session-changes-view.css";
 
 import React, { useCallback, useState, useSyncExternalStore } from "react";
-import { GitCommitHorizontal, LoaderCircle } from "lucide-react";
+import { GitCommitHorizontal, LoaderCircle, X } from "lucide-react";
 
 import { TugNonRepoNotice } from "@/components/tugways/tug-non-repo-notice";
+import {
+  ORPHANED_LABEL,
+  SESSION_LABEL,
+  UNATTRIBUTED_DEGRADED_LABEL,
+  UNATTRIBUTED_LABEL,
+} from "./changes-section-labels";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { BlockStrip } from "@/components/tugways/blocks/block-strip";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import {
@@ -90,6 +99,24 @@ export interface SessionChangesViewProps {
    * lane read-only, which is what an unbound card shows.
    */
   dashLanding?: DashLandingSource;
+  /**
+   * The shade's own dismissal, at the trailing edge of the header. Absent
+   * leaves the header without one, which is what a host that has no way to
+   * close the shade renders.
+   */
+  dismiss?: SessionChangesDismiss;
+}
+
+/** The header X — what it does, and what it is called while it does it. */
+export interface SessionChangesDismiss {
+  /**
+   * What the gesture is called here — "Cancel commit", "Cancel join",
+   * "Cancel auto-message", or "Close Changes". Composed by the host, which is
+   * the only thing that knows which landing (if any) the shade is carrying.
+   */
+  label: string;
+  /** Abort the draft, leave the landing, or close a bare glance. */
+  onDismiss: () => void;
 }
 
 /** What the card hands the view for the fronted dash row's landing face. */
@@ -111,6 +138,7 @@ export function SessionChangesView({
   changesController,
   codeSessionStore,
   dashLanding,
+  dismiss,
 }: SessionChangesViewProps): React.ReactElement {
   const snap = useSyncExternalStore(
     changesController.subscribe,
@@ -186,8 +214,28 @@ export function SessionChangesView({
 
   // The shade header is the section band chrome ([P02]) — a `BlockStrip` at
   // `altitude="section"`, grip-less: the Changes glyph + title on the left,
-  // the fold-all cue + Diff pop-out on the right. No X: the passive sheet is
-  // dismissed by ⌃⌘C (the composer keeps focus).
+  // the fold-all cue + Diff pop-out + dismiss X on the right. The X trails the
+  // cluster and closes the shade, which is where every other close in the deck
+  // sits; ⌃⌘C still toggles.
+  const dismissButton =
+    dismiss !== undefined ? (
+      <TugTooltip content={dismiss.label}>
+        <TugPushButton
+          className="session-changes-dismiss"
+          subtype="icon"
+          icon={<X size={14} strokeWidth={2.5} />}
+          size="xs"
+          emphasis="ghost"
+          role="action"
+          aria-label={dismiss.label}
+          data-testid="session-changes-dismiss"
+          onClick={(event) => {
+            event?.stopPropagation();
+            dismiss.onDismiss();
+          }}
+        />
+      </TugTooltip>
+    ) : null;
   const buildHeader = (actions?: React.ReactNode): React.ReactElement => (
     <BlockStrip
       altitude="section"
@@ -199,7 +247,16 @@ export function SessionChangesView({
         </span>
       }
       name="Changes"
-      actions={actions}
+      // The X rides every case of the shade — empty, non-repo, scanning — so
+      // it is composed here rather than in the per-case `actions`.
+      actions={
+        actions !== undefined || dismissButton !== null ? (
+          <>
+            {actions}
+            {dismissButton}
+          </>
+        ) : undefined
+      }
     />
   );
 
@@ -318,6 +375,7 @@ export function SessionChangesView({
           <PopOutDiffButton
             descriptor={combinedDescriptor}
             label="Open the whole diff in a card"
+            size="xs"
           />
         ) : null}
       </>
@@ -433,17 +491,15 @@ export function SessionChangesView({
           expandedKeys={expandedKeys}
           onToggleFile={onToggleFile}
           unattributedLabel={
-            snap.ledgerDegraded
-              ? "unattributed — ledger damaged, claims unavailable"
-              : "unattributed — no session claims these"
+            snap.ledgerDegraded ? UNATTRIBUTED_DEGRADED_LABEL : UNATTRIBUTED_LABEL
           }
           onClaimUnattributed={(path) => changesController.claim([path])}
           onClaimAllUnattributed={(paths) => changesController.claim(paths)}
-          orphanedLabel="orphaned — claim to bring into this session"
+          orphanedLabel={ORPHANED_LABEL}
           onClaimOrphaned={(path) => changesController.claim([path])}
           onClaimAllOrphaned={(paths) => changesController.claim(paths)}
           claimPending={claimPending}
-          sessionLabel="this session's changes"
+          sessionLabel={SESSION_LABEL}
           onReleaseShared={(path) => changesController.claim([path])}
           onDisclaimFile={(path) => changesController.disclaim([path])}
           onDisclaimAllFiles={(paths) => changesController.disclaim(paths)}

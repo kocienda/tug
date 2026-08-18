@@ -491,7 +491,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
              };
            })()`,
         );
-        expect(emptyFace.note).toBe("Nothing to join — release this dash.");
+        expect(emptyFace.note).toBe("Nothing to join — discard this dash.");
         // The line is prose; the act it names is the row's own affordance, not
         // a second button inside the sentence.
         expect(emptyFace.buttons).toBe(0);
@@ -526,7 +526,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // Cancel first: the arming beat must not itself be destructive.
         await clickUntil(
           app,
-          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-release"]`,
+          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-discard"]`,
           CONFIRM_POPOVER,
         );
         await app.nativeClickAtElement(`${CONFIRM_POPOVER} [data-slot="tug-confirm-cancel"]`);
@@ -552,7 +552,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // makes this consent rather than a click.
         await clickUntil(
           app,
-          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-release"]`,
+          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-discard"]`,
           CONFIRM_POPOVER,
         );
         const preflight = await app.evalJS<string>(

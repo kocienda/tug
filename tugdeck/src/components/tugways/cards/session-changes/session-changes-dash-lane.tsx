@@ -35,7 +35,7 @@
  *
  * Laws: [L02] the lane takes its data as props from the view's
  * `useSyncExternalStore` reads; [L06] tone and state paint through CSS and
- * data attributes; [L19] the row composes `TugBadge` / `TugListRow` /
+ * data attributes; [L19] the row composes `DashSigil` / `TugListRow` /
  * `BlockFoldCue` / `PopOutDiffButton` rather than hand-rolling chrome.
  *
  * @module components/tugways/cards/session-changes/session-changes-dash-lane
@@ -45,15 +45,16 @@ import "./session-changes-dash-lane.css";
 
 import React, { useEffect, useRef, useState } from "react";
 
-import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugStatusMark } from "@/components/tugways/tug-status-mark";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { dashReviewPaints, dashReviewTooltip } from "@/lib/dash-review";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
-import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
+import { PopOutDiffButton, SectionLabelText } from "@/components/tugways/tug-changes-list";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
+import { DASH_FRONTED_LABEL, dashRestLabel } from "./changes-section-labels";
+import { DashSigil } from "@/components/tugways/dash-sigil";
 import {
   SessionChangesDashLanding,
   discardPreflightLine,
@@ -424,10 +425,17 @@ function DashRow({
       <TugListRow
         variant="flush"
         density="compact"
+        // The name wears its caret and no box ([D138] naming): `DashSigil` is
+        // the same component a bound session's identity atom composes, so a
+        // dash named here and the same dash named in a session's title are one
+        // rendering. A tinted chip was the loudest thing in a row whose news is
+        // the facts beside it, and it said "tag" where the caret says "dash".
         leading={
-          <TugBadge emphasis="tinted" role="data" size="2xs">
-            {entry.display_name}
-          </TugBadge>
+          <DashSigil
+            name={entry.display_name}
+            review={entry.review ?? null}
+            slot="session-changes-dash-name"
+          />
         }
         trailing={
           <span className="session-changes-dash-row-trailing">
@@ -504,7 +512,7 @@ function DashRow({
           {entry.worktree_dirty ? (
             <>
               <span className="session-changes-dash-sep">·</span>
-              <span className="session-changes-dash-dirty">dirty</span>
+              <span className="session-changes-dash-dirty">uncommitted</span>
             </>
           ) : null}
           {entry.stage !== undefined ? (
@@ -682,10 +690,7 @@ export function SessionChangesDashLane({
   const toggle = (entry: DashChangesetEntry, next: boolean): void => {
     setOverrides((prev) => ({ ...prev, [entry.owner_id]: next }));
   };
-  const restLabel =
-    fronted !== null
-      ? `Also on this project: ${rest.length} ${rest.length === 1 ? "dash" : "dashes"}`
-      : `Dashes: ${rest.length}`;
+  const restLabel = dashRestLabel(rest.length, fronted !== null);
 
   return (
     <div className="session-changes-dash-lane" data-slot="session-changes-dash-lane">
@@ -695,7 +700,7 @@ export function SessionChangesDashLane({
             className="session-changes-dash-lane-label"
             data-slot="session-changes-dash-lane-fronted-label"
           >
-            This card&rsquo;s dash
+            <SectionLabelText label={DASH_FRONTED_LABEL} />
           </div>
           <DashRow
             // Keyed so a rebind swaps the row rather than reusing it: the
@@ -721,7 +726,7 @@ export function SessionChangesDashLane({
             className="session-changes-dash-lane-label"
             data-slot="session-changes-dash-lane-rest-label"
           >
-            <span>{restLabel}</span>
+            <SectionLabelText label={restLabel} />
           </div>
           {rest.map((entry) => (
             <DashRow

@@ -47,6 +47,7 @@
  *
  * @covers tugdeck/src/components/tugways/cards/session-history/session-history-view.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.css
  * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
@@ -329,6 +330,32 @@ describe.skipIf(!SHOULD_RUN)(
             commitDefault.inLitShell,
             "with the caret in the composer its shell holds the keyboard",
           ).toBe(true);
+
+          // The cancel gesture is the shade header's X, not a Z5 button. Both
+          // halves are asserted together: a header X that appeared while the
+          // Z5 one stayed would double the control rather than move it.
+          const cancelSite = await app.evalJS<{
+            header: number;
+            headerLabel: string | null;
+            z5: number;
+          }>(
+            `(function(){
+              var card = document.querySelector(${JSON.stringify(CARD)});
+              var x = card.querySelector('[data-testid="session-changes-dismiss"]');
+              return {
+                header: x === null ? 0 : 1,
+                headerLabel: x === null ? null : x.getAttribute("aria-label"),
+                z5: card.querySelectorAll(".tug-prompt-entry-commit-cancel").length
+              };
+            })()`,
+          );
+          note("cancel lives in the header", cancelSite);
+          expect(cancelSite.header, "the shade header carries the dismiss X").toBe(1);
+          expect(
+            cancelSite.headerLabel,
+            "and in commit mode it says what it cancels",
+          ).toBe("Cancel commit");
+          expect(cancelSite.z5, "the Z5 rail no longer carries one").toBe(0);
 
           // ⌥Tab engages KBF, then walk the cycle the shade leaves live.
           await app.nativeKey("Tab", ["alt"]);

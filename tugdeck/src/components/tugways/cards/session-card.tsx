@@ -34,7 +34,7 @@
 
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 
-import { TugPromptEntry, type TugPromptEntryDelegate } from "../tug-prompt-entry";
+import { LANDING_WORDS, TugPromptEntry, type TugPromptEntryDelegate } from "../tug-prompt-entry";
 import { ShadeViewController } from "@/lib/shade-view-controller";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
@@ -2681,6 +2681,17 @@ export function SessionCardBody({
     commitModeController.subscribe,
     () => commitModeController.getSnapshot().claimableCount,
   );
+  // Whether an Auto-Message scribe is streaming, on whichever landing is up.
+  // The shade header's X reads it: while a draft streams the X aborts the
+  // draft; otherwise it closes the shade ([P06]).
+  const commitDrafting = useSyncExternalStore(
+    commitModeController.subscribe,
+    () => commitModeController.getSnapshot().draftPhase === "drafting",
+  );
+  const joinDrafting = useSyncExternalStore(
+    joinModeController.subscribe,
+    () => joinModeController.getSnapshot().draftPhase === "drafting",
+  );
   const activeView: "transcript" | "changes" | "history" =
     shadeView === "none" ? "transcript" : shadeView;
   // The Changes and History shades are TugSheet `shade` presentations ([P17]);
@@ -2739,6 +2750,35 @@ export function SessionCardBody({
       }
     },
     [shadeViewController, commitModeController, joinModeController],
+  );
+  // The shade header's X ([P03]). Leaving the mode — rather than exiting it —
+  // persists a typed message, which is what the Z5 cancel this replaced did;
+  // the mode↔sheet coupling above then drops the shade. With no landing up the
+  // shade is a bare glance and hides on its own.
+  const dismissChangesShade = useCallback(() => {
+    if (commitModeController.getSnapshot().active) commitModeController.leave();
+    else if (joinModeController.getSnapshot().active) joinModeController.leave();
+    else shadeViewController.hide();
+  }, [commitModeController, joinModeController, shadeViewController]);
+  // The same X while the Auto-Message scribe streams: it aborts the draft and
+  // leaves the mode standing.
+  const cancelActiveDraft = useCallback(() => {
+    if (commitModeController.getSnapshot().active) commitModeController.cancelDraft();
+    else if (joinModeController.getSnapshot().active) joinModeController.cancelDraft();
+  }, [commitModeController, joinModeController]);
+  // What the header X is called, and what it does — one object so the view
+  // can never show a label from one state and fire the act of another.
+  const drafting = commitDrafting || joinDrafting;
+  const changesDismiss = useMemo(
+    () => ({
+      label: drafting
+        ? "Cancel auto-message"
+        : commitModeActive || joinActive
+          ? LANDING_WORDS[joinActive ? "join" : "commit"].cancel
+          : "Close Changes",
+      onDismiss: drafting ? cancelActiveDraft : dismissChangesShade,
+    }),
+    [drafting, commitModeActive, joinActive, cancelActiveDraft, dismissChangesShade],
   );
   const handleHistorySheetOpenChange = useCallback(
     (open: boolean) => {
@@ -5050,8 +5090,8 @@ export function SessionCardBody({
               commit mode so the prompt entry becomes the message editor.
               `shadePassive` keeps focus in the composer below; `shadeAnchor=
               "bottom"` + auto-size gives the rise-from-the-composer geometry.
-              Landing lives in the composer's Z5, so the view carries no
-              Done / X.
+              Landing lives in the composer's Z5; the shade's own dismissal is
+              the X at the trailing edge of its header.
 
               Mounted as the top column's own overlay wrapper rather than a
               pane inside `.session-view-slot` (where History still lives):
@@ -5087,6 +5127,7 @@ export function SessionCardBody({
                         ? dashLanding
                         : undefined
                     }
+                    dismiss={changesDismiss}
                   />
                 </TugSheetContent>
               </TugSheet>
