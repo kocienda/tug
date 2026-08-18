@@ -32,15 +32,33 @@
 
 import "./tug-meta-run.css";
 
-import type React from "react";
+import React from "react";
 
 export function TugMetaRun({
   children,
+  parts,
   separator = "gap",
   slot = "tug-meta-run",
   className,
 }: {
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  /**
+   * A fixed list of facts, some of which may be absent. Nulls are dropped and
+   * a {@link TugMetaBullet} goes between whatever survives — so a run whose
+   * middle fact is missing does not show two bullets in a row, and a caller
+   * never writes `a !== null && b !== null ? bullet : null`. That expression
+   * is correct exactly until someone adds a fourth fact.
+   *
+   * Use `children` instead when the facts are not a list: the dash lane
+   * interleaves conditional fragments, some of which carry their own bullets
+   * and one of which (a step's title) deliberately has none.
+   *
+   * Each surviving part must be an **element**, not a bare string. A string
+   * lands as an anonymous flex item, which no selector can reach — so the rule
+   * that keeps facts atomic would silently skip it and that one fact would wrap
+   * mid-phrase while its neighbours held.
+   */
+  parts?: ReadonlyArray<React.ReactNode>;
   /**
    * How the caller has already separated the parts: `"gap"` for parts that
    * stand apart on space alone (or carry a separator inside their own text),
@@ -50,15 +68,28 @@ export function TugMetaRun({
   slot?: string;
   className?: string;
 }): React.ReactElement {
+  const present =
+    parts === undefined
+      ? null
+      : parts.filter((part) => part !== null && part !== undefined && part !== false);
   return (
     <span
       className={
         className !== undefined ? `tug-meta-run ${className}` : "tug-meta-run"
       }
       data-slot={slot}
-      data-separator={separator}
+      data-separator={present !== null ? "bullet" : separator}
     >
-      {children}
+      {present !== null
+        ? present.map((part, index) => (
+            // Index keys: the list is positional and fixed per render — there
+            // is no identity here to key on and nothing reorders.
+            <React.Fragment key={index}>
+              {index > 0 ? <TugMetaBullet /> : null}
+              {part}
+            </React.Fragment>
+          ))
+        : children}
     </span>
   );
 }

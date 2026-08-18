@@ -32,6 +32,8 @@
  * @covers tugdeck/src/lib/changeset-verb-store.ts
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
+ * @covers tugdeck/src/components/tugways/tug-section-label.tsx
+ * @covers tugdeck/src/components/tugways/tug-meta-run.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

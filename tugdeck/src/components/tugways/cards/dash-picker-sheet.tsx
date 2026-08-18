@@ -29,6 +29,8 @@ import "./dash-picker-sheet.css";
 import React, { useMemo, useRef } from "react";
 
 import { TugListRow } from "@/components/tugways/tug-list-row";
+import { TugDashName } from "@/components/tugways/tug-dash-name";
+import { TugMetaRun } from "@/components/tugways/tug-meta-run";
 import {
   TugListView,
   type TugListViewCellProps,
@@ -90,16 +92,6 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
   const entry = dataSource.dashes[index];
   if (entry === undefined) return null;
   const current = entry.owner_id === dataSource.boundDashId;
-  const facts = [
-    entry.stage ?? null,
-    roundsLabel(entry.rounds),
-    entry.worktree_dirty ? "uncommitted" : null,
-    dashReviewPaints(entry.review)
-      ? entry.review === "stale"
-        ? "plan stale"
-        : "plan unreviewed"
-      : null,
-  ].filter((fact): fact is string => fact !== null);
   return (
     <TugListRow
       variant="flush"
@@ -107,8 +99,20 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
       data-slot="dash-picker-row"
       data-dash={entry.display_name}
       data-current={current ? "true" : undefined}
-      title={entry.display_name}
-      subtitle={facts.join(" · ")}
+      // The register carries the fact this picker exists to weigh. A dash
+      // somebody is working leads with that worker's atom; one nobody is
+      // working takes the mono run. Reading it off `title` as bare text made
+      // every candidate look identical in the one place a reader is choosing
+      // between them.
+      leading={
+        <TugDashName
+          name={entry.display_name}
+          review={entry.review ?? null}
+          boundSessions={entry.bound_sessions}
+          slot="dash-picker-name"
+          workerSlot="dash-picker-worker"
+        />
+      }
       trailing={
         current ? (
           <span className="dash-picker-current" data-slot="dash-picker-current">
@@ -116,7 +120,24 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
           </span>
         ) : undefined
       }
-    />
+    >
+      <TugMetaRun
+        className="dash-picker-facts"
+        slot="dash-picker-facts"
+        parts={[
+          entry.stage !== undefined ? <span>{entry.stage}</span> : null,
+          <span>{roundsLabel(entry.rounds)}</span>,
+          entry.worktree_dirty ? (
+            <span className="dash-picker-uncommitted">uncommitted</span>
+          ) : null,
+          dashReviewPaints(entry.review) ? (
+            <span className="dash-picker-review" data-review={entry.review}>
+              {entry.review === "stale" ? "plan stale" : "plan unreviewed"}
+            </span>
+          ) : null,
+        ]}
+      />
+    </TugListRow>
   );
 };
 

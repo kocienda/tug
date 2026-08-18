@@ -16,57 +16,10 @@
    sets of metrics kept equal by hand. A reader scanning the shade cannot tell
    that two components drew them, because in the part that shows, one did. */
 
-/* Two or more workers on one dash is legal, so the atoms are a wrapping row
-   rather than a single slot. */
-.session-changes-dash-workers {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tug-space-2xs);
-  min-inline-size: 0;
-  flex-wrap: wrap;
-}
-
-/* Optical outdent for whichever pill leads the row.
-
-   Both registers are enclosed — the worker's session atom and the unbound
-   caret run alike — and a pill holds its text a border plus its own inline
-   padding in from its edge. Set flush against the file rows above, the edges
-   agree and the *names* read a step right of every path in the shade. This
-   takes back part of that inset: enough that the eye reads one left margin
-   down the section, not so much that the pill hangs off the eyebrow above it.
-
-   Deliberately not the full inset. Pulling the border all the way to the
-   glyph column would align the text and misalign every enclosure with it, and
-   the enclosure is the part a reader actually sees first.
-
-   Applied to both registers together on purpose. They are the same slot of the
-   same row and a lane can show both at once; outdenting one would trade an
-   alignment against the file rows for a worse one against the row next door. */
-.session-changes-dash-workers,
-[data-slot="session-changes-dash-name"] {
-  margin-inline-start: calc(-1 * var(--tug-space-xs));
-}
-
-/* The unbound dash's name.
-
-   The ENCLOSURE is not here and is not this file's to author: `DashSigil
-   atom` wears the settled session-atom skin, so the pill's radius, hairline,
-   padding and size scale are `tug-session-identity.css`'s and change with it.
-
-   What this file adds is the one thing the skin does not say: the family. A
-   worked dash rides its worker's atom in the proportional face; an unworked
-   one is monospace. That contrast IS the fact — it says whether anybody is on
-   this dash before a word is read — which is why a font family is worth
-   naming here and nothing else is.
-
-   No width ceiling. A name elides when the ROW is out of room and never
-   because of a number authored here — the same rule the identity run states
-   for itself. */
-[data-slot="session-changes-dash-name"] {
-  flex: 0 1 auto;
-  min-inline-size: 0;
-  font-family: var(--tug-font-family-mono);
-}
+/* The name is `TugDashName` — both registers, the wrapping worker row, the
+   optical outdent and the monospace that distinguishes an unworked dash all
+   live there now, so the picker and this lane cannot drift apart on any of
+   them. Nothing about the name is authored here. */
 
 /* ---- The row ---- */
 

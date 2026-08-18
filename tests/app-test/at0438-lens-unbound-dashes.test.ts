@@ -39,6 +39,7 @@
  * @covers tugdeck/src/components/lens/lens-section-registry.ts
  * @covers tugdeck/src/components/tugways/dash-sigil.tsx
  * @covers tugdeck/src/components/lens/sections/dash-age.ts
+ * @covers tugdeck/src/components/tugways/tug-meta-run.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

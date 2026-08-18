@@ -3,16 +3,22 @@
  * paints, over real dashes.
  *
  * Every dash in this section has no live session mated to it — that is the
- * membership rule, not a property of the row — and the section says so with a
- * quiet glyph rather than a dot at rest. "Nobody is working this" is not a
+ * membership rule, not a property of the row — and the row says so with the
+ * register its name is in: monospace in the atom pill, which is what the
+ * Changes shade means by the same form. "Nobody is working this" is not a
  * state of work, and a pulsing dot on an abandoned dash is the lie this pins
  * against.
+ *
+ * There used to be a dashed-circle glyph ahead of every name saying the same
+ * thing, under a header already reading "Unbound Dashes", over rows that are
+ * unbound by construction. The register replaced it.
  *
  * The bind/unbind round trip is NOT here. Under the partition, binding removes
  * the row from this section entirely rather than changing its mark, so the
  * transition is a fact about the two sections together and belongs to
  * at0438-lens-unbound-dashes.test.ts, which drives it from both directions.
- * What is left here is what only this file asserts: the marks themselves.
+ * What is left here is what only this file asserts: the register and the
+ * review mark themselves.
  *
  * A second dash carries the review mark. Its plan is real, recorded by the
  * real `dash step start --plan` and stamped by the real `plan stamp`, and it
@@ -27,6 +33,7 @@
  * @covers tugdeck/src/lib/changeset-all-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/lib/dash-review.ts
+ * @covers tugdeck/src/components/tugways/tug-dash-name.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -98,7 +105,7 @@ function deckShape() {
 
 describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
   test(
-    "an unbound dash wears the quiet mark and never a dot",
+    "an unbound dash names itself in the unbound register and never wears a dot",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
@@ -142,15 +149,16 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         );
         const unbound = await app.evalJS<{
           text: string;
-          marks: number;
+          register: string | null;
           dots: number;
           flag: string | null;
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              return {
-               text: (row.querySelector(".lens-dashes-facts")?.textContent ?? "").trim(),
-               marks: row.querySelectorAll('[data-slot="lens-dashes-unbound"]').length,
+               text: (row.textContent ?? "").trim(),
+               register:
+                 row.querySelector(".tug-dash-name")?.getAttribute("data-register") ?? null,
                dots: row.querySelectorAll('[data-slot="tug-progress-indicator"]').length,
                flag: row.getAttribute("data-unbound"),
              };
@@ -159,10 +167,13 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         expect(unbound.text).toContain(DASH_NAME);
         // A freshly created dash with no round and no dirt is `created`.
         expect(unbound.text).toContain("created");
-        expect(unbound.marks).toBe(1);
-        // The mark is the WHOLE state channel here: a row in this section can
-        // never carry a phase dot, because a dash with a phase to report has a
-        // session bound to it and a bound dash is not in this section at all.
+        // The register is the state channel. Every row in this section is
+        // unbound by construction, so a `bound` one here would mean the
+        // partition leaked rather than that a name was painted wrong.
+        expect(unbound.register).toBe("unbound");
+        // A row in this section can never carry a phase dot either, because a
+        // dash with a phase to report has a session bound to it and a bound
+        // dash is not in this section at all.
         expect(unbound.dots).toBe(0);
         expect(unbound.flag).toBe("true");
       } finally {

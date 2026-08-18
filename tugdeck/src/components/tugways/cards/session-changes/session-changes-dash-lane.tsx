@@ -35,7 +35,7 @@
  *
  * Laws: [L02] the lane takes its data as props from the view's
  * `useSyncExternalStore` reads; [L06] tone and state paint through CSS and
- * data attributes; [L19] the row composes `DashSigil` / `TugListRow` /
+ * data attributes; [L19] the row composes `TugDashName` / `TugListRow` /
  * `BlockFoldCue` / `PopOutDiffButton` rather than hand-rolling chrome.
  *
  * @module components/tugways/cards/session-changes/session-changes-dash-lane
@@ -56,9 +56,7 @@ import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugMetaRun, TugMetaBullet } from "@/components/tugways/tug-meta-run";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { dashFrontedLabel, dashRestLabel } from "./changes-section-labels";
-import { DashSigil } from "@/components/tugways/dash-sigil";
-import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
-import { useSessionIdentity } from "@/lib/session-identity";
+import { TugDashName } from "@/components/tugways/tug-dash-name";
 import {
   SessionChangesDashLanding,
   discardPreflightLine,
@@ -354,65 +352,6 @@ export function discardConfirmMessage(entry: DashChangesetEntry): string {
 // The row
 // ---------------------------------------------------------------------------
 
-/**
- * A dash's name in the lane, in whichever of its two registers applies.
- *
- * **Bound** — one session atom per live session mated to this dash, each
- * carrying this dash inside it. `bound_sessions` is a list because two cards
- * on one dash is legal rather than a race, and the Lens already answers that
- * with one chip per session; the lane answers it the same way rather than
- * inventing a "+1 more".
- *
- * **Unbound** — the mono caret run. The register IS the fact: a proportional
- * atom means somebody is working this, a monospace run means nobody is, and a
- * reader can sort the lane on that without reading a word.
- */
-function DashLaneName({ entry }: { entry: DashChangesetEntry }): React.ReactElement {
-  const bound = entry.bound_sessions ?? [];
-  const dash = { name: entry.display_name, review: entry.review ?? null };
-  if (bound.length === 0) {
-    return (
-      <DashSigil
-        name={entry.display_name}
-        review={entry.review ?? null}
-        slot="session-changes-dash-name"
-        atom
-      />
-    );
-  }
-  return (
-    <span className="session-changes-dash-workers">
-      {bound.map((sessionId) => (
-        <BoundWorkerAtom key={sessionId} sessionId={sessionId} dash={dash} />
-      ))}
-    </span>
-  );
-}
-
-/** One worker's atom, resolved by id, wearing the row's own dash. */
-function BoundWorkerAtom({
-  sessionId,
-  dash,
-}: {
-  sessionId: string;
-  dash: { name: string; review: string | null };
-}): React.ReactElement {
-  const identity = useSessionIdentity(sessionId);
-  return (
-    <TugSessionIdentity
-      identity={identity}
-      tier="chip"
-      size="2xs"
-      dash={dash}
-      tooltip={false}
-      // Deliberately NOT the unbound row's slot: that one carries the mono
-      // family, and a worked dash is proportional. Two slots because the two
-      // registers are two different statements, not one with a variant.
-      data-slot="session-changes-dash-worker"
-    />
-  );
-}
-
 function DashRow({
   entry,
   projectRoot,
@@ -500,7 +439,15 @@ function DashRow({
         // An unbound dash has no atom to ride, and takes the mono caret run —
         // which is the differentiator, not a fallback. Sans in a pill means a
         // session is working this; mono means nobody is.
-        leading={<DashLaneName entry={entry} />}
+        leading={
+          <TugDashName
+            name={entry.display_name}
+            review={entry.review ?? null}
+            boundSessions={entry.bound_sessions}
+            slot="session-changes-dash-name"
+            workerSlot="session-changes-dash-worker"
+          />
+        }
         trailing={
           <span className="session-changes-dash-row-trailing">
             {binding !== null ? (

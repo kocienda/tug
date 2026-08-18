@@ -28,6 +28,8 @@
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/lib/card-session-binding-store.ts
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
+ * @covers tugdeck/src/components/tugways/tug-dash-name.tsx
+ * @covers tugdeck/src/components/tugways/tug-meta-run.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

@@ -13,6 +13,22 @@
   overflow: auto;
 }
 
+/* Uncommitted work in the worktree is the one fact in the run worth a tone —
+   the same one the Changes shade gives it. */
+.dash-picker-uncommitted {
+  color: var(--tug7-element-tone-text-normal-caution-rest);
+}
+
+/* The review advisory: caution when a plan has drifted, muted when nothing has
+   vouched for it — nothing is broken there, so nothing should shout. */
+.dash-picker-review {
+  color: var(--tug7-element-tone-text-normal-caution-rest);
+}
+
+.dash-picker-review[data-review="never-reviewed"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
 /* The card's own dash, marked rather than described: the row is already the
    seeded cursor, so this only has to confirm which one that is. */
 .dash-picker-current {

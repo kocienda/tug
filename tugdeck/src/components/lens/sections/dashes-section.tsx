@@ -75,13 +75,14 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { CircleDashed, GitBranch } from "lucide-react";
+import { GitBranch } from "lucide-react";
 
 import { LENS_LIST_PRESENTATION } from "@/components/lens/lens-list-presentation";
 import { setSectionContent } from "@/components/lens/lens-section-content";
 import { DashReviewMark } from "@/components/lens/sections/dash-facts";
 import { formatDashAge } from "@/components/lens/sections/dash-age";
-import { DashSigil } from "@/components/tugways/dash-sigil";
+import { TugDashName } from "@/components/tugways/tug-dash-name";
+import { TugMetaRun } from "@/components/tugways/tug-meta-run";
 import { dashReviewPaints } from "@/lib/dash-review";
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
@@ -254,23 +255,6 @@ export function dashesCollapsedSummary(rows: readonly DashRow[]): string {
 // ---------------------------------------------------------------------------
 // Leaves
 // ---------------------------------------------------------------------------
-
-/** The unbound mark: a quiet glyph, deliberately not a dot at rest — a dash
- *  nobody is working is not a state of work. Unconditional here, because every
- *  row in this section is unbound by construction. */
-function DashUnboundMark(): React.ReactElement {
-  return (
-    <TugTooltip content="Unbound — no live session is working this dash">
-      <span
-        className="lens-dashes-unbound"
-        data-slot="lens-dashes-unbound"
-        aria-label="Unbound"
-      >
-        <CircleDashed size={DASH_DOT_SIZE + 2} />
-      </span>
-    </TugTooltip>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // The list
@@ -456,7 +440,23 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
       data-dash={row.name}
       data-unbound="true"
       data-age={age ?? undefined}
-      leading={<DashUnboundMark />}
+      // The name leads the row, as it leads a row in the Changes shade's dash
+      // lane — and `TugDashName` is why the pill sits where a leading pill
+      // should rather than a step to the right of one.
+      //
+      // Every row in this section is unbound by definition, so every one takes
+      // the unbound register: a monospace name in the settled atom pill. There
+      // used to be a dashed-circle mark ahead of it saying the same thing,
+      // under a section header already titled "Unbound Dashes" — three
+      // statements of one fact on one line. The register says it now.
+      leading={
+        <TugDashName
+          name={row.name}
+          review={row.review}
+          slot="lens-unbound-name"
+          workerSlot="lens-unbound-worker"
+        />
+      }
       trailing={
         <span className="lens-dashes-verbs" data-slot="lens-unbound-verbs">
           <BindControl row={row} />
@@ -465,13 +465,6 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
       }
     >
       <span className="lens-dashes-facts">
-        {/* The name reads first and wears its sigil, the same run a session
-            identity carries — a dash is named one way everywhere. */}
-        <DashSigil
-          name={row.name}
-          review={row.review}
-          slot="lens-unbound-name"
-        />
         {row.steps !== null ? (
           <span className="lens-dashes-step">{row.steps}</span>
         ) : null}
@@ -481,20 +474,27 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
         {/* Everything the reader needs to place the dash, and nothing they
             need to read first: stage, staleness, whose project, and the
             review advisory when it has something to say. */}
-        <span className="lens-dashes-meta" data-slot="lens-unbound-meta">
-          {row.stage !== null ? (
-            <span className="lens-dashes-stage">{row.stage}</span>
-          ) : null}
-          {age !== null ? (
-            <span className="lens-dashes-age" data-slot="lens-unbound-age">
-              {age}
-            </span>
-          ) : null}
-          <span className="lens-dashes-project">{row.projectLabel}</span>
-          {dashReviewPaints(row.review) ? (
-            <DashReviewMark review={row.review!} size={DASH_DOT_SIZE + 2} />
-          ) : null}
-        </span>
+        <TugMetaRun
+          className="lens-dashes-meta"
+          slot="lens-unbound-meta"
+          parts={[
+            row.stage !== null ? (
+              <span className="lens-dashes-stage">{row.stage}</span>
+            ) : null,
+            age !== null ? (
+              <span className="lens-dashes-age" data-slot="lens-unbound-age">
+                {age}
+              </span>
+            ) : null,
+            <span className="lens-dashes-project">{row.projectLabel}</span>,
+            // A glyph rather than a word here, where the shade's lane spells
+            // "plan stale" — but it is a fact in the run like any other and
+            // takes its bullet like any other.
+            dashReviewPaints(row.review) ? (
+              <DashReviewMark review={row.review!} size={DASH_DOT_SIZE + 2} />
+            ) : null,
+          ]}
+        />
       </span>
     </TugListRow>
   );

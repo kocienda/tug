@@ -48,6 +48,9 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/changes-route-controller.ts
+ * @covers tugdeck/src/components/tugways/tug-dash-name.tsx
+ * @covers tugdeck/src/components/tugways/tug-meta-run.tsx
+ * @covers tugdeck/src/components/tugways/tug-section-label.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
