@@ -1,4 +1,30 @@
-Now, next... let's look at the Dashes section in the Lens. My first question is... do we really need this separate section. I tend to think that maybe we don't. I think that we should probably improve the Sessions section and the information we give in the session card in the Cahnges shade for a dash in progress. What do you think? Should we drop this second Dash-only section? As a counterpoint to my suggestion: argue the other side and defned keeping it and how we could improve it to make it truly distinct and useful.
+OK. I want to pull back on this dashes work and discuss terminology and typography. Two main points:
+- I don't like *parked* or *leave*. Instead, I want dashes to be bound/unbound to sessions, and to have the verbs be bind/unbind. Make these changes up and down the code. Comprehensive update. No lingering *parked* or *leave*. Any issues with this?
+- I want to reconsider the `#` sigil. We should use a different character, mostly because we already use the `#` for message numbers in the transcript. I suggest either `◊` or `∫`. What do you think?
+
+
+
+
+OK. We need to go back to this fourth/dash row in the Sessions section of the Lens. It needs improvement. Basically, showing only the state of the dash in tiny little font size with no mention of the total number of steps or the step number being work on now. 
+
+Look back at #u10 for in this session.
+
+> Similarly, we seem to have some ill-conceived/half-broken manner for showing the state of a dash (working/paused/etc.), but this must be made more correct, accurate and robust (one of my dashes got stuck in paused mode when asking me a question and then got stuck in that state even after I answered).
+> 
+> Both of these points indicate two specific concepts that I wish to stress:
+> 
+> The session identity name & atom must always show the bound dash for that session with the #-sigil when there is a bound dash to that session. This is true in all places in the UI. No exceptions.
+> 
+> The plan step numbers for dash plans must truly become a first-class element in the system. Right now, it feels like a convention we ususally honor (which is great), but we must do even better. A dash plan without plan numbers is a broken plan and dash, and we can’t allow that.
+
+Basically, we acted on the first concept (The session identity name & atom must always show the bound dash for that session with the #-sigil when there is a bound dash to that session), but totally and completely flubbed the second. There's no mention *at all* of the steps or step numbers. We need this, and we need to improve the typography: font size, spacing, indent, the lot. The total step number and the currently-executing step must be made visible in this fourth dash-specific session row.
+
+
+Once we do this, we need to spend a little more attention on the first row, the session identity, specially when it comes to the possible need to ellipsize a long name: the rule I want is that the callsign is the part we ellipsize first—we middle truncate from that, preserving the custom name and dash name when present.
+
+
+
+
 
 
 
@@ -44,3 +70,5 @@ OK. Our job now is to start improving the experience and user interface related 
 - Both of these points indicate two specific concepts that I wish to *stress*:
     - 1. The session identity name & atom must *always* show the biound dash for that session with the #-sigil when there is a bound dash to that session. This is true in all places in the UI. No exceptions.
     - 2. The plan step numbers for dash plans must truly become a *first-class* element in the system. Right now, it feels like a convention we ususally honor (which is great), but we must do *even better*. A dash plan without plan numbers is a broken plan and dash, and we can't allow that.
+
+Now, next... let's look at the Dashes section in the Lens. My first question is... do we really need this separate section. I tend to think that maybe we don't. I think that we should probably improve the Sessions section and the information we give in the session card in the Cahnges shade for a dash in progress. What do you think? Should we drop this second Dash-only section? As a counterpoint to my suggestion: argue the other side and defned keeping it and how we could improve it to make it truly distinct and useful.
