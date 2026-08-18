@@ -56,6 +56,10 @@ import { sessionPrivateStore } from "./lib/session-private-store";
 import { sessionSynopsisStore } from "./lib/session-synopsis-store";
 import { sessionCitationStore } from "./lib/session-citation-store";
 import { applyAuthResultPayload, applyInstallResultPayload, applyLogoutResultPayload } from "./lib/auth-store";
+import {
+  applyVersionResultPayload,
+  applyUpdateResultPayload,
+} from "./lib/claude-version-store";
 import { requestLogout } from "./lib/logout-store";
 import { requestConfigureTug } from "./lib/configure-tug-request-store";
 import { sessionSpawnErrorStore } from "./lib/session-spawn-error-store";
@@ -409,6 +413,19 @@ export function initActionDispatch(
   // re-probe arrives separately as claude_auth_result).
   registerAction("claude_install_result", (payload) => {
     applyInstallResultPayload(payload);
+  });
+
+  // claude_version_result: tugcast's answer to `check_claude_version` — the
+  // installed version and the newest stable release. Also re-broadcast after an
+  // install or update, so the row settles on what actually landed.
+  registerAction("claude_version_result", (payload) => {
+    applyVersionResultPayload(payload);
+  });
+
+  // claude_update_result: outcome of a Tug-managed `update_claude` (the
+  // re-probe arrives separately as claude_version_result).
+  registerAction("claude_update_result", (payload) => {
+    applyUpdateResultPayload(payload);
   });
 
   // claude_logout_result: outcome of `claude_logout` (the re-probe arrives

@@ -364,27 +364,36 @@ A zone's *location* is contract; its *occupant* is not — every zone is a gener
 
 **D106.** ConfigureTug — the app-modal onboarding wizard (`configure-tug.tsx`, [#step-9] of `roadmap/onboarding-and-install.md`) — renders as an ordered list of **step rows**, each a **bespoke row** (not a transcript `BlockChrome` [D104]): a left-hand `TugProgressIndicator variant="pulsing-dot"` whose role+state encode the step's lifecycle ([D02]), a requirement/direction **label**, a **detail** line carrying state/progress/completion, and an optional **CTA**. The block shell was evaluated and rejected for this surface — its tool-name/result-summary/copy/chevron affordances are transcript baggage a setup step does not want; the bespoke row keeps the wizard's own rhythm. A step's status is one of `pending | active | busy | error | done`, mapping to the dot as: `pending`→`inherit/stopped` (row dimmed), `active`→`action/running`, `busy`→`agent/running`, `error`→`danger/aborted`, `done`→`success/completed`. The pulsing dot is the *only* role tone on the row; the label/detail inherit panel text ([D104] convention 1 — status is the dot's). The design spike that fixes this surface's copy and rhythm without a clean guest is the **`gallery-configure-tug`** card (`gallery-configure-tug.tsx`), which simulates every state below from local state — it never touches the real `authStore`.
 
-**Flow.** Three steps, each gated on the one before, fed by the app-level `authStore` ([L02]) plus the deck card count:
+**Flow.** Four steps, each gated on the one before, fed by the app-level `authStore` ([L02]), the `claudeVersionStore` version pair, and the deck card count:
 
 ```
    (first launch) ──▶ PROBING  "Checking your setup…"
                           │
    STEP 1 ── Install Claude Code   (label flips to "Claude Code installed" on done)
-     active (Install) ─▶ busy (Installing…) ─▶ done ✓
-                    └─▶ error (Retry) ─┘
+     active (Install) ─▶ busy (Installing…) ─▶ done ✓ / done + Update
+                    └─▶ error (Retry) ─┘        └─▶ busy (Updating…) ─▶ done ✓
+                                                └─▶ error (Retry) ─┘
                           │ done
    STEP 2 ── Log in to Claude
      active (Log In) ─▶ busy (Logging in…) ─▶ done ✓
                     └─▶ error (Try Again) ─┘
                           │ done
-   STEP 3 ── Start a Claude Code session   (success/transition button)
-     active (Open a Session Card) ─▶ opens first card ─▶ wizard dismisses
+   STEP 3 ── Choose a default project directory
+     active (Choose) ─▶ busy (Creating…) ─▶ done ✓
+                   └─▶ error (Retry) ─┘
+                          │ done
+   STEP 4 ── Start a session   (success/transition button)
+     active (Open a Session) ─▶ opens first card ─▶ wizard dismisses
 
    Transport down (replaces body): a "Reconnecting…" step row
    Sibling app-modal (wins):       VERSION TOO OLD → TugVersionGate ([#step-7])
 ```
 
-**Per-state copy (what we show & say).** Label is the requirement/direction; detail is the state/progress/completion line. A `busy` step keeps a **disabled** CTA (not hidden) so the row doesn't empty out; a `done` step swaps the CTA for a green success check (✓):
+**Per-state copy (what we show & say).** Label is the requirement/direction; detail is the state/progress/completion line. A `busy` step keeps a **disabled** CTA (not hidden) so the row doesn't empty out; a `done` step swaps the CTA for a green success check (✓) — **unless it carries an offer anyway** (the installed-but-behind row), where the outlined CTA takes the check's slot: the dot already says settled, and a check beside an Update button would be two answers to one question.
+
+**Version, and updating.** Step 1 carries the whole life of the install, not just its presence. `check_claude_version` (sent beside `check_auth` at launch/reconnect, and again on an on-demand open — a launch-time answer goes stale) answers `claude_version_result {installed, latest}`: `claude --version` locally, and the **stable release channel** (`downloads.claude.ai/claude-code-releases/stable`) for what is on offer — the same channel the installer lands, so "up to date" means up to date with what pressing Update would do. Either half may be `null` (no CLI, no network) and the row then says only what it knows; the Update CTA appears only when both are known and `compareVersions` proves the local one older, so a locally built or ahead-of-channel `claude` never reads as behind. **The updater IS the installer** — the official installer always lands the newest stable build — so `update_claude` reuses the install shell-out and differs only in what the row says. A successful update stays `busy` until the version re-probe lands, so the row never flashes the old version back as if nothing happened. State lives in `claudeVersionStore` ([L02]), deliberately apart from `authStore`: the picker gate and per-card banner read auth and have no business re-rendering on a version lookup.
+
+**Logged out on a configured app.** The Log Out gesture (and any relaunch with the login revoked) reopens this wizard with **only steps 1 and 2**. The directory is already chosen and the session step is answered by the deck the user is returning to, so the other two rows would be settled state the user cannot act on while logged out — the wizard shows only what it is actually asking. The condition is a stored default project directory plus a logged-out state; a genuine first run (nothing stored) still gets the whole checklist.
 
 | Step | Status | Dot (role/state) | Label | Detail | CTA |
 |---|---|---|---|---|---|
@@ -392,18 +401,26 @@ A zone's *location* is contract; its *occupant* is not — every zone is a gener
 | 1 | active | action / running | Install Claude Code | "Tug will install it for you." | **Install** |
 | 1 | busy | agent / running | Install Claude Code | "This can take a moment." | *Installing…* (disabled) |
 | 1 | error | danger / aborted | Install Claude Code | "Install failed: \<error\>" | **Retry** |
-| 1 | done | success / completed | Claude Code installed | "Claude Code is ready." | ✓ |
+| 1 | done (current) | success / completed | Claude Code installed | "Version \<installed\> — up to date." | ✓ |
+| 1 | done (channel unknown) | success / completed | Claude Code installed | "Version \<installed\>" | ✓ |
+| 1 | done (behind) | success / completed | Claude Code installed | "Version \<installed\> — \<latest\> is available." | **Update** (outlined) |
+| 1 | busy (update) | agent / running | Update Claude Code | "Installing \<latest\>…" | *Updating…* (disabled) |
+| 1 | error (update) | danger / aborted | Update Claude Code | "Update failed: \<error\>" | **Retry** |
 | 2 | active | action / running | Log in to Claude | "Tug runs sessions with your Claude subscription." | **Log In** |
 | 2 | busy | agent / running | Log in to Claude | "Use your browser to log in…" | *Logging in…* (disabled) |
 | 2 | error | danger / aborted | Log in to Claude | "Log-in didn't finish. The browser may have been closed." | **Try Again** |
 | 2 | done | success / completed | Logged in as \<email\> | "Claude \<Tier\> plan" | ✓ |
-| 3 | pending (no cards) | inherit / stopped | Start a Claude Code session | — | — |
-| 3 | pending (cards open) | inherit / stopped | Continue working | "You'll return to your \<N\> open cards." | — |
-| 3 | active | action / running | Start a Claude Code session | "Open a Session card to get started" | **Open a Session Card** |
-| 3 | done | success / completed | Start a Claude Code session | "Opening Session card…" | ✓ |
+| 3 | active | action / running | Choose a default project directory | "Tug opens new sessions in this directory by default." | **Choose** (on the chooser's own line) |
+| 3 | busy | agent / running | Choose a default project directory | "Creating the folder…" | *Creating…* (disabled) |
+| 3 | error | danger / aborted | Choose a default project directory | "Couldn't create \<path\>." | **Retry** |
+| 3 | done | success / completed | Default project directory | \<path\> | ✓ |
+| 4 | pending (no dir yet) | inherit / stopped | Start a session | "Waiting for a default project directory." | — |
+| 4 | pending (cards open) | inherit / stopped | Continue working | "You'll return to your \<N\> open cards." | — |
+| 4 | active | action / running | Start a session | "Start working in a new session." | **Open a Session** |
+| 4 | done | success / completed | Start a session | "Opening Session card…" | ✓ |
 | — | transport down | agent / running | Reconnecting… | "Lost the connection to Tug. Setup will resume automatically." | — |
 
-The step-3 pending row previews the return to work while the user is still logged out (the "Continue working" case, [P04] of `roadmap/logout-consolidation.md`): with cards open, re-login auto-closes the wizard straight back to them (the `open` derivation is `notReady || needsFirstSession`, which goes false the instant a logged-in deck has cards), so the preview lives in the logged-out window rather than as an active step. The `pendingOpenStepCopy` helper (`configure-tug-copy.ts`, unit-tested) owns the label/detail branch on card count.
+The step-4 pending row previews the return to work while the user is still logged out (the "Continue working" case, [P04] of `roadmap/logout-consolidation.md`): with cards open, re-login auto-closes the wizard straight back to them (the `open` derivation is `notReady || needsFirstSession`, which goes false the instant a logged-in deck has cards), so the preview lives in the logged-out window rather than as an active step. The `pendingOpenStepCopy` helper (`configure-tug-copy.ts`, unit-tested) owns the label/detail branch on card count.
 
 **Verbiage.** Tug uses the consistent **"Log in" / "Log out"** pair for the account action (the `claude` CLI itself says "Sign in"/"Log out" — inconsistent; Tug does not follow it). The `subscriptionLabel` helper (`configure-tug-copy.ts`, unit-tested) formalizes the tier as "Claude Max plan" etc. **Logout** reopens this same wizard: an app-level "Log out…" (File menu + `/logout`) confirms via TugAlert, interrupts every in-progress turn **first** (each tagged `interrupt("logout")` so its Z1B end-state reads "Stopped — logged out"), then runs `claude_logout`, and flips `authStore` logged-out so ConfigureTug returns to the Log-in step (a failed/timed-out logout surfaces a "Couldn't log out" alert and leaves the user logged in). The `TugLogout` orchestrator (deck-root sibling) owns that flow.
 

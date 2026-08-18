@@ -1,5 +1,7 @@
 //! Detection of the user's Claude Code login state via `claude auth status`,
-//! plus a `login()` helper that drives `claude auth login`.
+//! plus a `login()` helper that drives `claude auth login`, and the version
+//! pair the setup wizard's install row reports: the locally installed version
+//! (`claude --version`) and the newest release on the stable channel.
 //!
 //! `claude` owns authentication (the credentials live in the macOS Keychain,
 //! not a file we could read), so we ask the CLI rather than inspecting storage
@@ -144,6 +146,58 @@ pub async fn logout() -> (bool, Option<String>) {
     }
 }
 
+/// The release channel `claude install` (and therefore the official installer)
+/// resolves by default. Tug reports the same channel the update it offers would
+/// land, so "up to date" means up to date with what pressing Update would do.
+const STABLE_CHANNEL_URL: &str = "https://downloads.claude.ai/claude-code-releases/stable";
+
+/// How long to wait on the release-channel lookup. The version row is
+/// informational — a slow or unreachable network resolves to "latest unknown"
+/// and the row still reports the installed version rather than hanging.
+const LATEST_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// The version of Claude Code installed locally, from `claude --version`
+/// (`"2.1.222 (Claude Code)"`). `None` when the CLI is missing or its output
+/// does not lead with a version.
+pub async fn installed_version() -> Option<String> {
+    let output = claude_command(&["--version"]).output().await.ok()?;
+    parse_version(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// The newest Claude Code release on the stable channel, or `None` when the
+/// lookup fails (offline, unsupported region, unexpected content).
+pub async fn latest_version() -> Option<String> {
+    let response = reqwest::Client::new()
+        .get(STABLE_CHANNEL_URL)
+        .timeout(LATEST_VERSION_TIMEOUT)
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    parse_version(&response.text().await.ok()?)
+}
+
+/// Take the leading `MAJOR.MINOR.PATCH[-pre]` token out of a line, so both
+/// `claude --version`'s suffixed output and the channel file's bare version parse
+/// through one path. Anything else (an HTML error page, a usage message)
+/// resolves to `None` rather than being shown to the user as a version.
+fn parse_version(text: &str) -> Option<String> {
+    let token = text.trim().lines().next()?.split_whitespace().next()?;
+    let mut parts = token.splitn(3, '.');
+    let major = parts.next()?;
+    let minor = parts.next()?;
+    let patch = parts.next()?;
+    let numeric = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let patch_numeric = patch.split(['-', '+']).next().unwrap_or_default();
+    if numeric(major) && numeric(minor) && numeric(patch_numeric) {
+        Some(token.to_string())
+    } else {
+        None
+    }
+}
+
 /// Run the official Claude Code installer (`curl -fsSL https://claude.ai/
 /// install.sh | bash`) and return `(ok, error_message)`. The native installer
 /// drops `claude` in `~/.local/bin` without editing the shell PATH; Tug finds
@@ -207,5 +261,32 @@ mod tests {
     #[test]
     fn logged_out_when_unparseable() {
         assert_eq!(parse_status("not json at all"), AuthState::LoggedOut);
+    }
+
+    #[test]
+    fn parses_the_cli_version_line() {
+        assert_eq!(
+            parse_version("2.1.222 (Claude Code)\n"),
+            Some("2.1.222".to_string())
+        );
+    }
+
+    #[test]
+    fn parses_a_bare_channel_version() {
+        assert_eq!(parse_version("2.1.226\n"), Some("2.1.226".to_string()));
+        assert_eq!(
+            parse_version("2.2.0-rc.1\n"),
+            Some("2.2.0-rc.1".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_content_that_is_not_a_version() {
+        // An HTML error page from the channel URL, or a CLI that answered with
+        // usage text, must read as "unknown" rather than land in the UI.
+        assert_eq!(parse_version("<!doctype html>"), None);
+        assert_eq!(parse_version(""), None);
+        assert_eq!(parse_version("Usage: claude [options]"), None);
+        assert_eq!(parse_version("2.1"), None);
     }
 }

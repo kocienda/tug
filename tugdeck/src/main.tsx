@@ -207,6 +207,7 @@ registerConnectionLifecycle(connectionLifecycle);
 // handler and is dropped.
 connectionLifecycle.observeConnectionDidReconnect(() => {
   connection.sendControlFrame("check_auth");
+  connection.sendControlFrame("check_claude_version");
 });
 
 // Feed the app-wide transport-state store from the same lifecycle pipe. This is
@@ -443,6 +444,10 @@ if (!container) {
   // unhandled and the auth gate never resolves. Reconnects re-probe via
   // `observeConnectionDidReconnect`.
   connection.sendControlFrame("check_auth");
+  // …and the Claude Code version pair the wizard's install row reports
+  // (installed here vs newest on the stable channel). Same timing rule as the
+  // auth probe: sent after `initActionDispatch` registered its handler.
+  connection.sendControlFrame("check_claude_version");
 
   // Wire the menuState host push: the aggregator subscribes to the
   // deck store and posts the menu-relevant projection to the Swift

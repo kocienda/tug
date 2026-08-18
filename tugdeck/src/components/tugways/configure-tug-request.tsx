@@ -20,6 +20,7 @@
 import { useEffect, useRef } from "react";
 
 import { useConfigureTugRequest, openConfigureTugOnDemand } from "@/lib/configure-tug-request-store";
+import { getConnection } from "@/lib/connection-singleton";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { useDeckManager } from "@/deck-manager-context";
 import { useTugAlert } from "./tug-alert";
@@ -33,6 +34,13 @@ export function ConfigureTugRequest(): null {
   useEffect(() => {
     if (nonce === 0 || nonce === handledRef.current) return;
     handledRef.current = nonce;
+
+    // Re-probe the Claude Code version pair on the way in. The launch probe
+    // could be days old on a long-lived app, and the install row is about to
+    // tell the user whether they are current — a stale answer there is worse
+    // than a late one. Imperative on a transition, not a component effect
+    // ([L02]/[L24]); the answering frame updates the store.
+    getConnection()?.sendControlFrame("check_claude_version");
 
     // Which sessions are mid-turn right now. Same read as the logout path:
     // `canInterrupt` is the store's own answer to "is there a turn to stop".

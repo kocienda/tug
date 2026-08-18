@@ -39,6 +39,10 @@ import { pendingOpenStepCopy } from "@/components/tugways/configure-tug-copy";
 
 /** The prefill the projects-folder scenarios show. */
 const PROJECT_DIR = "/Users/ken/tug";
+
+/** The version pair the install row's version states report. */
+const INSTALLED_VERSION = "2.1.222";
+const LATEST_VERSION = "2.1.226";
 import "./gallery.css";
 import "./gallery-configure-tug.css";
 
@@ -121,7 +125,9 @@ function SetupStepRow({ step }: { step: SetupStepModel }): React.ReactElement {
         )}
         {step.body && <div className="cg-configure-tug-step-body">{step.body}</div>}
       </div>
-      {step.status === "done" ? (
+      {/* A settled step shows the check — unless it carries a CTA anyway (the
+          installed-but-updatable row), where the offer takes the slot. */}
+      {step.status === "done" && !step.cta ? (
         <div className="cg-configure-tug-step-action">
           <CircleCheck className="cg-configure-tug-step-check" size={28} aria-hidden />
         </div>
@@ -135,7 +141,9 @@ function SetupStepRow({ step }: { step: SetupStepModel }): React.ReactElement {
           {step.cta && (
             <TugPushButton
               size="sm"
-              emphasis={step.status === "error" ? "outlined" : "filled"}
+              emphasis={
+                step.status === "error" || step.status === "done" ? "outlined" : "filled"
+              }
               role={step.status === "error" ? "danger" : "action"}
               disabled={step.status === "busy"}
               onClick={step.cta.onClick}
@@ -156,7 +164,7 @@ function SetupStepRow({ step }: { step: SetupStepModel }): React.ReactElement {
 const ISOLATED_STEPS: SetupStepModel[] = [
   {
     key: "pending",
-    label: "Start a Claude Code session",
+    label: "Start a session",
     detail: "Waiting on the steps above.",
     status: "pending",
   },
@@ -198,6 +206,10 @@ type Scenario =
   | "fresh"
   | "installing"
   | "install_failed"
+  | "update_available"
+  | "updating"
+  | "update_failed"
+  | "logged_out_configured"
   | "signed_out"
   | "signing_in"
   | "signin_failed"
@@ -214,6 +226,10 @@ const SCENARIOS: { key: Scenario; label: string }[] = [
   { key: "fresh", label: "Fresh (install)" },
   { key: "installing", label: "Installing" },
   { key: "install_failed", label: "Install failed" },
+  { key: "update_available", label: "Update available" },
+  { key: "updating", label: "Updating" },
+  { key: "update_failed", label: "Update failed" },
+  { key: "logged_out_configured", label: "Logged out (configured)" },
   { key: "signed_out", label: "Signed out" },
   { key: "signing_in", label: "Logging in" },
   { key: "signin_failed", label: "Log-in failed" },
@@ -248,13 +264,13 @@ function buildFlow(
   });
   const open = (overrides: Partial<SetupStepModel>): SetupStepModel => ({
     key: "open",
-    label: "Start a Claude Code session",
+    label: "Start a session",
     status: "pending",
     ...overrides,
   });
   const projectDir = (overrides: Partial<SetupStepModel>): SetupStepModel => ({
     key: "project-dir",
-    label: "Choose your projects folder",
+    label: "Choose a default project directory",
     status: "pending",
     ...overrides,
   });
@@ -272,7 +288,7 @@ function buildFlow(
         base={PROJECT_DIR}
         kind="directory"
         size="md"
-        aria-label="Projects folder"
+        aria-label="Default project directory"
       />
       <TugPushButton
         size="sm"
@@ -286,7 +302,7 @@ function buildFlow(
   const installed = install({
     status: "done",
     label: "Claude Code installed",
-    detail: "Claude Code is ready.",
+    detail: `Version ${INSTALLED_VERSION} — up to date.`,
   });
   const signedIn = signin({
     status: "done",
@@ -338,6 +354,67 @@ function buildFlow(
           open({}),
         ],
       };
+    case "update_available":
+      // Settled, but a version behind: the dot stays green (nothing is
+      // blocked) and the Update offer takes the success check's slot.
+      return {
+        steps: [
+          install({
+            status: "done",
+            label: "Claude Code installed",
+            detail: `Version ${INSTALLED_VERSION} — ${LATEST_VERSION} is available.`,
+            cta: { label: "Update", onClick: () => go("updating") },
+          }),
+          signedIn,
+          projectDir({ status: "done", label: "Default project directory", detail: PROJECT_DIR }),
+          open({
+            status: "active",
+            detail: "Start working in a new session.",
+            cta: { label: "Open a Session", onClick: () => go("complete") },
+          }),
+        ],
+      };
+    case "updating":
+      return {
+        steps: [
+          install({
+            status: "busy",
+            label: "Update Claude Code",
+            detail: `Installing ${LATEST_VERSION}…`,
+            cta: { label: "Updating…", onClick: () => {} },
+          }),
+          signedIn,
+          projectDir({ status: "done", label: "Default project directory", detail: PROJECT_DIR }),
+          open({ status: "pending", label: "Start a session" }),
+        ],
+      };
+    case "update_failed":
+      return {
+        steps: [
+          install({
+            status: "error",
+            label: "Update Claude Code",
+            detail: "Update failed: network unreachable.",
+            cta: { label: "Retry", onClick: () => go("updating") },
+          }),
+          signedIn,
+          projectDir({ status: "done", label: "Default project directory", detail: PROJECT_DIR }),
+          open({ status: "pending", label: "Start a session" }),
+        ],
+      };
+    case "logged_out_configured":
+      // The Log Out gesture on an app that is already set up: only the two
+      // questions the wizard is actually asking survive.
+      return {
+        steps: [
+          installed,
+          signin({
+            status: "active",
+            detail: "Tug runs sessions with your Claude subscription.",
+            cta: { label: "Log In", onClick: () => go("complete") },
+          }),
+        ],
+      };
     case "signed_out":
       return {
         steps: [
@@ -381,10 +458,10 @@ function buildFlow(
           signedIn,
           projectDir({
             status: "active",
-            detail: "Tug opens here when nothing else is in front.",
-            body: projectDirChooser("Use This Folder"),
+            detail: "Tug opens new sessions in this directory by default.",
+            body: projectDirChooser("Choose"),
           }),
-          open({ status: "pending", detail: "Choose your projects folder." }),
+          open({ status: "pending", detail: "Waiting for a default project directory." }),
         ],
       };
     case "project_dir_creating":
@@ -397,7 +474,7 @@ function buildFlow(
             detail: "Creating the folder…",
             body: projectDirChooser("Creating…"),
           }),
-          open({ status: "pending", detail: "Choose your projects folder." }),
+          open({ status: "pending", detail: "Waiting for a default project directory." }),
         ],
       };
     case "project_dir_failed":
@@ -410,7 +487,7 @@ function buildFlow(
             detail: `Couldn't create ${PROJECT_DIR}.`,
             body: projectDirChooser("Retry", true),
           }),
-          open({ status: "pending", detail: "Choose your projects folder." }),
+          open({ status: "pending", detail: "Waiting for a default project directory." }),
         ],
       };
     case "ready_to_open":
@@ -418,11 +495,11 @@ function buildFlow(
         steps: [
           installed,
           signedIn,
-          projectDir({ status: "done", label: "Projects folder", detail: PROJECT_DIR }),
+          projectDir({ status: "done", label: "Default project directory", detail: PROJECT_DIR }),
           open({
             status: "active",
-            detail: "Open a Session card to get started",
-            cta: { label: "Open a Session Card", onClick: () => go("complete") },
+            detail: "Start working in a new session.",
+            cta: { label: "Open a Session", onClick: () => go("complete") },
           }),
         ],
       };
@@ -447,7 +524,7 @@ function buildFlow(
         steps: [
           installed,
           signedIn,
-          projectDir({ status: "done", label: "Projects folder", detail: PROJECT_DIR }),
+          projectDir({ status: "done", label: "Default project directory", detail: PROJECT_DIR }),
           open({ status: "done", detail: "Opening Session card…" }),
         ],
       };

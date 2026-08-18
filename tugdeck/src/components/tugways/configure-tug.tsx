@@ -7,14 +7,24 @@
  * is reachable — setup is strictly required for an AI IDE.
  *
  * The steps, driven by the app-level {@link authStore} (one `claude auth
- * status` probe surfaced via `check_auth`) plus the deck's card count:
- *   1. Claude Code installed & reachable — Tug-managed install + recheck.
+ * status` probe surfaced via `check_auth`), the {@link claudeVersionStore}
+ * version pair, and the deck's card count:
+ *   1. Claude Code — Tug-managed install + recheck, then the version it landed
+ *      against the newest stable release, with an Update offer when it's
+ *      behind. The updater IS the installer (the official installer always
+ *      lands the newest stable build), so both live on one row.
  *   2. Logged in to Claude — browser OAuth shell-out.
- *   3. Choose your projects folder — a path chooser prefilled with `~/tug`.
- *      Confirming creates the directory and writes it to tugbank as the
- *      app-wide default project directory.
- *   4. Open your first session — pops the first Session card. First-run only:
+ *   3. Choose a default project directory — a path chooser prefilled with
+ *      `~/tug`. Confirming creates the directory and writes it to tugbank as
+ *      the app-wide default project directory.
+ *   4. Start a session — pops the first Session card. First-run only:
  *      a set-up user whose deck goes empty mid-life is left alone with it.
+ *
+ * A logged-out revisit of an app that is already configured (the Log Out
+ * gesture, or a relaunch with the login revoked) shows only steps 1 and 2:
+ * the directory is already chosen and the session step is answered by the deck
+ * being returned to, so re-presenting them would be two settled rows the user
+ * cannot act on. A genuine first run still gets the whole checklist.
  *
  * The projects-folder step gates the one below it: where projects live decides
  * what Open Quickly and the session picker reach for, so that answer is settled
@@ -49,9 +59,9 @@
  *     precedence (Spec S02); logged-out mid-session → the per-card session-card
  *     auth banner safety net.
  *
- * Pure read of the stores ([L02]/[L24]) — `authStore`, the deck, the transport
- * and version-gate stores; the `check_auth` probe is fired imperatively from
- * `main.tsx`. The sign-in timeout is the one imperative effect (it schedules a
+ * Pure read of the stores ([L02]/[L24]) — `authStore`, `claudeVersionStore`,
+ * the deck, the transport and version-gate stores; the `check_auth` and
+ * `check_claude_version` probes are fired imperatively from `main.tsx`. The sign-in timeout is the one imperative effect (it schedules a
  * store call, it does not mirror state).
  */
 
@@ -85,8 +95,14 @@ import {
 import { useDeckManager } from "@/deck-manager-context";
 import { countWorkCards } from "@/deck-store-selectors";
 import {
+  claudeVersionStore,
+  useClaudeVersion,
+} from "@/lib/claude-version-store";
+import {
   subscriptionLabel,
   pendingOpenStepCopy,
+  claudeInstalledCopy,
+  isLoginOnlyWizard,
 } from "./configure-tug-copy";
 import { TugPushButton } from "./tug-push-button";
 import { TugFileChooser } from "./tug-file-chooser";
@@ -182,7 +198,11 @@ function StepRow({
         {detail && <span className="configure-tug-step-detail">{detail}</span>}
         {body && <div className="configure-tug-step-body">{body}</div>}
       </div>
-      {status === "done" ? (
+      {/* A settled step normally shows the green check. When it carries a CTA
+          anyway — the installed-but-updatable row — the offer takes the slot:
+          the dot already says "done", and a check next to an Update button
+          would be two answers to the same question. */}
+      {status === "done" && !cta ? (
         <div className="configure-tug-step-action">
           <CircleCheck className="configure-tug-step-check" size={28} aria-hidden="true" />
         </div>
@@ -196,7 +216,9 @@ function StepRow({
           {cta && (
             <TugPushButton
               size="sm"
-              emphasis={status === "error" ? "outlined" : "filled"}
+              // A settled row's offer is optional, so it stays quieter than the
+              // filled CTA of the step the user is actually on.
+              emphasis={status === "error" || status === "done" ? "outlined" : "filled"}
               role={status === "error" ? "danger" : "action"}
               disabled={status === "busy"}
               onClick={cta.onClick}
@@ -213,6 +235,12 @@ function StepRow({
 export function ConfigureTug(): ReactElement {
   const { loggedIn, reason, account, signingIn, signInFailed, installing, verifyingInstall, installError } =
     useAuth();
+  const {
+    installed,
+    latest,
+    updating,
+    updateError,
+  } = useClaudeVersion();
   const transport = useAppTransportState();
   const deck = useDeckManager();
   const deckState = useSyncExternalStore(deck.subscribe, deck.getSnapshot);
@@ -346,6 +374,13 @@ export function ConfigureTug(): ReactElement {
     authStore.setInstalling(true);
     getConnection()?.sendControlFrame("install_claude");
   };
+  // The installer is the updater: it always lands the newest stable build, so
+  // the same shell-out serves both rows. tugcast re-probes the version pair
+  // afterward, and that re-probe is what settles the row.
+  const handleUpdate = (): void => {
+    claudeVersionStore.setUpdating(true);
+    getConnection()?.sendControlFrame("update_claude");
+  };
   const handleSignIn = (): void => {
     authStore.setSigningIn(true);
     getConnection()?.sendControlFrame("claude_sign_in");
@@ -404,31 +439,69 @@ export function ConfigureTug(): ReactElement {
     secondaryCta?: { label: string; onClick: () => void };
   };
 
-  const claudeStep: Step = installing || verifyingInstall
-    ? {
-        key: "install",
+  // Row one carries the whole life of the Claude Code install: getting it,
+  // knowing which version is here, and keeping it current. The update path
+  // shares the installer with the first install (the official installer always
+  // lands the newest stable build), so the two differ only in what the row says.
+  const claudeStep: Step = (() => {
+    const key = "install";
+    if (installing || verifyingInstall) {
+      return {
+        key,
         status: "busy",
         label: "Install Claude Code",
         detail: "This can take a moment.",
         cta: { label: "Installing…", onClick: handleInstall },
-      }
-    : installError
-      ? {
-          key: "install",
-          status: "error",
-          label: "Install Claude Code",
-          detail: `Install failed: ${installError}`,
-          cta: { label: "Retry", onClick: handleInstall },
-        }
-      : claudeMissing
-        ? {
-            key: "install",
-            status: "active",
-            label: "Install Claude Code",
-            detail: "Tug will install it for you.",
-            cta: { label: "Install", onClick: handleInstall },
-          }
-        : { key: "install", status: "done", label: "Claude Code installed", detail: "Claude Code is ready." };
+      };
+    }
+    if (installError) {
+      return {
+        key,
+        status: "error",
+        label: "Install Claude Code",
+        detail: `Install failed: ${installError}`,
+        cta: { label: "Retry", onClick: handleInstall },
+      };
+    }
+    if (claudeMissing) {
+      return {
+        key,
+        status: "active",
+        label: "Install Claude Code",
+        detail: "Tug will install it for you.",
+        cta: { label: "Install", onClick: handleInstall },
+      };
+    }
+    if (updating) {
+      return {
+        key,
+        status: "busy",
+        label: "Update Claude Code",
+        detail: latest !== null ? `Installing ${latest}…` : "Installing the update…",
+        cta: { label: "Updating…", onClick: handleUpdate },
+      };
+    }
+    if (updateError !== null) {
+      return {
+        key,
+        status: "error",
+        label: "Update Claude Code",
+        detail: `Update failed: ${updateError}`,
+        cta: { label: "Retry", onClick: handleUpdate },
+      };
+    }
+    // Installed and working. The row stays `done` even with an update on offer
+    // — nothing is blocked by being a version behind — so the dot reads settled
+    // and the Update button rides beside it in place of the success check.
+    const { detail, updatable } = claudeInstalledCopy(installed, latest);
+    return {
+      key,
+      status: "done",
+      label: "Claude Code installed",
+      detail,
+      ...(updatable ? { cta: { label: "Update", onClick: handleUpdate } } : {}),
+    };
+  })();
 
   const signInStep: Step = claudeMissing
     ? { key: "signin", status: "pending", label: "Log in to Claude" }
@@ -470,7 +543,7 @@ export function ConfigureTug(): ReactElement {
   const projectDirStep: Step = (() => {
     const key = "project-dir";
     if (!effectiveLoggedIn) {
-      return { key, status: "pending", label: "Choose your projects folder" };
+      return { key, status: "pending", label: "Choose a default project directory" };
     }
     // Settled: confirmed just now, or already chosen on a previous run. An
     // on-demand visit is the gesture for changing it, so it re-opens there.
@@ -478,7 +551,7 @@ export function ConfigureTug(): ReactElement {
       return {
         key,
         status: "done",
-        label: "Projects folder",
+        label: "Default project directory",
         detail: projectDirConfirmed ? projectPathValue : storedProjectPath,
       };
     }
@@ -497,7 +570,7 @@ export function ConfigureTug(): ReactElement {
           size="md"
           onSubmit={handleConfirmProjectDir}
           disabled={projectDirBusy}
-          aria-label="Projects folder"
+          aria-label="Default project directory"
         />
         <TugPushButton
           size="sm"
@@ -514,7 +587,7 @@ export function ConfigureTug(): ReactElement {
       return {
         key,
         status: "busy",
-        label: "Choose your projects folder",
+        label: "Choose a default project directory",
         detail: "Creating the folder…",
         body: chooser("Creating…"),
       };
@@ -523,7 +596,7 @@ export function ConfigureTug(): ReactElement {
       return {
         key,
         status: "error",
-        label: "Choose your projects folder",
+        label: "Choose a default project directory",
         detail: `Couldn't create ${projectDirError}.`,
         body: chooser("Retry"),
       };
@@ -531,9 +604,9 @@ export function ConfigureTug(): ReactElement {
     return {
       key,
       status: "active",
-      label: "Choose your projects folder",
-      detail: "Tug opens here when nothing else is in front.",
-      body: chooser("Use This Folder"),
+      label: "Choose a default project directory",
+      detail: "Tug opens new sessions in this directory by default.",
+      body: chooser("Choose"),
     };
   })();
 
@@ -548,21 +621,21 @@ export function ConfigureTug(): ReactElement {
         ? {
             key: "open",
             status: "pending",
-            label: "Start a Claude Code session",
-            detail: "Choose your projects folder.",
+            label: "Start a session",
+            detail: "Waiting for a default project directory.",
           }
         : {
           key: "open",
           status: "active",
-          label: "Start a Claude Code session",
-          detail: "Open a Session card to get started",
-          cta: { label: "Open a Session Card", onClick: handleOpenSession },
+          label: "Start a session",
+          detail: "Start working in a new session.",
+          cta: { label: "Open a Session", onClick: handleOpenSession },
         };
 
   const probingSteps: Step[] = [
     { key: "install", status: "busy", label: "Install Claude Code", detail: "Looking for Claude Code…" },
     { key: "signin", status: "pending", label: "Log in to Claude" },
-    { key: "open", status: "pending", label: "Start a Claude Code session" },
+    { key: "open", status: "pending", label: "Start a session" },
   ];
 
   // Transport down mid-setup: replace the body with a calm "Reconnecting…" row
@@ -580,18 +653,28 @@ export function ConfigureTug(): ReactElement {
     },
   ];
 
+  // Logging out of a configured app is a login question, not a setup question:
+  // the project directory is already chosen and the session step is answered by
+  // the deck the user is returning to. So the wizard shows only what it is
+  // actually asking about — install and login — rather than re-presenting two
+  // settled rows the user cannot act on while logged out. A first run (nothing
+  // stored yet) still gets the whole checklist.
+  const loginOnly = isLoginOnlyWizard(effectiveLoggedIn, storedProjectPath);
+
   const steps: Step[] = transportDown
     ? reconnectingSteps
     : probing
       ? probingSteps
-      : [
-          claudeStep,
-          signInStep,
-          projectDirStep,
-          // …and the "open your first session" row is dead weight on a deck
-          // that already has work in it; Done takes its place.
-          ...(dismissible ? [] : [openStep]),
-        ];
+      : loginOnly
+        ? [claudeStep, signInStep]
+        : [
+            claudeStep,
+            signInStep,
+            projectDirStep,
+            // …and the "open your first session" row is dead weight on a deck
+            // that already has work in it; Done takes its place.
+            ...(dismissible ? [] : [openStep]),
+          ];
 
   return (
     <AlertDialog.Root open={open}>

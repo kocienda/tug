@@ -45,6 +45,28 @@ fn broadcast_auth_result(
     }
 }
 
+/// Probe the installed and newest-available Claude Code versions and broadcast
+/// them as a `claude_version_result` CONTROL frame. The two lookups are
+/// independent (one local process, one network fetch), so they run together and
+/// each reports `null` on its own failure — a missing CLI still lets the row
+/// name the newest release, and an offline machine still names what is
+/// installed.
+async fn broadcast_version_result(cat: Option<broadcast::Sender<Frame>>) {
+    let (installed, latest) = tokio::join!(
+        crate::feeds::claude_auth::installed_version(),
+        crate::feeds::claude_auth::latest_version(),
+    );
+    let Some(cat) = cat else { return };
+    let body = serde_json::json!({
+        "action": "claude_version_result",
+        "installed": installed,
+        "latest": latest,
+    });
+    if let Ok(bytes) = serde_json::to_vec(&body) {
+        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
+    }
+}
+
 /// The router-owned state every ingress path hands to [`dispatch_action`].
 ///
 /// Borrowed as a group so the three call sites (HTTP tell, WebSocket control
@@ -165,7 +187,49 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 }
                 // Re-probe regardless — on success `claude` is now reachable.
                 let state = crate::feeds::claude_auth::probe().await;
-                broadcast_auth_result(cat, state, None);
+                broadcast_auth_result(cat.clone(), state, None);
+                // …and report what version that install landed, so the row
+                // names it rather than staying blank until the next launch.
+                broadcast_version_result(cat).await;
+            });
+        }
+        "check_claude_version" => {
+            // Version probe for the wizard's install row: what is installed here
+            // and what the stable channel is offering. Both are optional — a
+            // missing CLI or an unreachable network answers `null` and the row
+            // simply says less. Spawned so the network lookup never blocks
+            // dispatch.
+            info!("dispatch_action: claude version check requested");
+            let cat = stream_outputs
+                .get(&FeedId::CONTROL)
+                .map(|(tx, _)| tx.clone());
+            tokio::spawn(async move {
+                broadcast_version_result(cat).await;
+            });
+        }
+        "update_claude" => {
+            // Update in place: the official installer always lands the stable
+            // channel's newest build, so an update is the same operation as a
+            // first install — only the reporting differs, so the wizard can say
+            // "Updating…" rather than "Installing…". Re-probes the version pair
+            // afterward so the row settles on what is now installed.
+            info!("dispatch_action: claude update requested");
+            let cat = stream_outputs
+                .get(&FeedId::CONTROL)
+                .map(|(tx, _)| tx.clone());
+            tokio::spawn(async move {
+                let (ok, error) = crate::feeds::claude_auth::install().await;
+                if let Some(cat) = &cat {
+                    let body = serde_json::json!({
+                        "action": "claude_update_result",
+                        "ok": ok,
+                        "error": error,
+                    });
+                    if let Ok(bytes) = serde_json::to_vec(&body) {
+                        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
+                    }
+                }
+                broadcast_version_result(cat).await;
             });
         }
         "claude_sign_in" => {
