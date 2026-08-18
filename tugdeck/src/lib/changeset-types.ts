@@ -189,6 +189,92 @@ export interface DashChangesetEntry {
   last_replay?: string;
   /** Paths the last replay attempt stopped on, when it conflicted. */
   replay_conflict_paths?: string[];
+  /**
+   * The join pipeline's entire durable state for this dash.
+   *
+   * This is the join arc's single source of truth. The client keeps no durable
+   * copy of any of it — what remains client-side is the in-flight resolve's
+   * progress and the draft message, both genuinely ephemeral. Absent from an
+   * older server, which reads as *nothing to say*.
+   */
+  join?: DashJoinStateWire;
+}
+
+/** One reason a landing would be refused right now. */
+export interface DashJoinBlockerWire {
+  /** `off-base` | `base-dirt` | `stale-journal` | `empty`. */
+  kind: string;
+  /** The human sentence — the same one the CLI's execute path returns. */
+  detail: string;
+  /** The offending paths, for `base-dirt`; empty otherwise. */
+  paths?: string[];
+}
+
+/** One base commit behind a conflicted path. */
+export interface DashConflictCommitWire {
+  sha: string;
+  subject: string;
+}
+
+/** What the base did to one conflicted path since the two sides parted. */
+export interface DashConflictHistoryWire {
+  path: string;
+  commits?: DashConflictCommitWire[];
+  /** How many commits touched it in total — more than `commits` when capped. */
+  total: number;
+}
+
+/** One file the resolution ladder resolved, as the review panel reads it. */
+export interface DashResolvedFileWire {
+  path: string;
+  /**
+   * Which rung decided it: `replay` | `rerere` | `merge-file` | `driver` |
+   * `ai`, or `unknown` when the provenance could not be read back.
+   *
+   * This is why the review exists: every rung above the replay probe is a
+   * machine decision nobody saw, and a diff without its provenance drops the
+   * signal the panel was built to carry.
+   */
+  resolved_by: string;
+  /** The unified diff this resolution lands on the base, capped server-side. */
+  diff?: string;
+  /** Lines added and removed as git counts them — not as the capped diff reads. */
+  added?: number;
+  removed?: number;
+}
+
+/**
+ * The join pipeline's server-owned state for one dash.
+ *
+ * Every field is computed fresh server-side on each recompute; nothing here is
+ * a client-held accumulation, which is what makes two cards on one dash, a
+ * reloaded deck, and a relaunched app agree by construction.
+ */
+export interface DashJoinStateWire {
+  /** `blocked` | `previewed` | `conflicted` | `resolved`. Derived, never stored. */
+  phase: string;
+  /** Non-empty means `phase` is `blocked`. */
+  blockers?: DashJoinBlockerWire[];
+  /** Conflicted paths from the in-memory merge probe. */
+  conflicts?: string[];
+  /** What the base did to each conflicted path. */
+  archaeology?: DashConflictHistoryWire[];
+  /**
+   * The resolved candidate commit, present only while it still verifies
+   * against the current base and dash heads. Present means `phase` is
+   * `resolved`.
+   */
+  candidate?: string;
+  /** The ladder's per-file results, for the review panel. */
+  resolved?: DashResolvedFileWire[];
+  /** Whether the user has read what the ladder decided **for this candidate**. */
+  reviewed?: boolean;
+  /**
+   * A candidate existed but no longer describes the current heads; the
+   * sentence names which side moved. The server drops the stale candidate when
+   * it says this, so the state demotes itself rather than standing as a lie.
+   */
+  stale_note?: string;
 }
 
 export type ChangesetEntry = SessionChangesetEntry | DashChangesetEntry;
@@ -256,6 +342,78 @@ function isOptionalStringArray(value: unknown): value is string[] | undefined {
     value === undefined ||
     (Array.isArray(value) && value.every((s) => typeof s === "string"))
   );
+}
+
+/**
+ * The join block, checked field for field.
+ *
+ * Every member below `phase` is optional, so a server that sends a sparse block
+ * — the common case, since the wire skips empty collections — passes, and so
+ * does an older server that sends none at all.
+ */
+function isOptionalDashJoinState(
+  value: unknown,
+): value is DashJoinStateWire | undefined {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  if (typeof value.phase !== "string") return false;
+  if (value.candidate !== undefined && typeof value.candidate !== "string") return false;
+  if (value.reviewed !== undefined && typeof value.reviewed !== "boolean") return false;
+  if (value.stale_note !== undefined && typeof value.stale_note !== "string") return false;
+  if (!isOptionalStringArray(value.conflicts)) return false;
+  if (
+    value.blockers !== undefined &&
+    !(
+      Array.isArray(value.blockers) &&
+      value.blockers.every(
+        (b) =>
+          isRecord(b) &&
+          typeof b.kind === "string" &&
+          typeof b.detail === "string" &&
+          isOptionalStringArray(b.paths),
+      )
+    )
+  ) {
+    return false;
+  }
+  if (
+    value.archaeology !== undefined &&
+    !(
+      Array.isArray(value.archaeology) &&
+      value.archaeology.every(
+        (h) =>
+          isRecord(h) &&
+          typeof h.path === "string" &&
+          typeof h.total === "number" &&
+          (h.commits === undefined ||
+            (Array.isArray(h.commits) &&
+              h.commits.every(
+                (c) =>
+                  isRecord(c) && typeof c.sha === "string" && typeof c.subject === "string",
+              ))),
+      )
+    )
+  ) {
+    return false;
+  }
+  if (
+    value.resolved !== undefined &&
+    !(
+      Array.isArray(value.resolved) &&
+      value.resolved.every(
+        (r) =>
+          isRecord(r) &&
+          typeof r.path === "string" &&
+          typeof r.resolved_by === "string" &&
+          (r.diff === undefined || typeof r.diff === "string") &&
+          (r.added === undefined || typeof r.added === "number") &&
+          (r.removed === undefined || typeof r.removed === "number"),
+      )
+    )
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function isUnattributedFile(value: unknown): value is UnattributedFile {
@@ -351,7 +509,8 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.base_ahead === undefined || typeof value.base_ahead === "number") &&
       isOptionalStringArray(value.base_overlap) &&
       (value.last_replay === undefined || typeof value.last_replay === "string") &&
-      isOptionalStringArray(value.replay_conflict_paths)
+      isOptionalStringArray(value.replay_conflict_paths) &&
+      isOptionalDashJoinState(value.join)
     );
   }
   return false;

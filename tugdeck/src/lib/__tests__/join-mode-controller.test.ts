@@ -9,8 +9,10 @@
  * the reasons in the same precedence order commit's does.
  *
  * The controller half drives the real verb and draft singletons attached to a
- * fake connection, the way the verb-store suites do, so `enter`'s preview is a
- * real frame on a real store rather than a spy.
+ * fake connection, the way the verb-store suites do, so a land press is a real
+ * frame on a real store rather than a spy. What a landing *would* do is not
+ * asked for at all: it rides the dash's feed entry, so the fixtures below set a
+ * `join` block and the controller reads it.
  */
 
 import { beforeEach, afterEach, describe, expect, it } from "bun:test";
@@ -37,14 +39,17 @@ import { CHANGES_SERVICE_DISCONNECTED } from "@/lib/landing-mode";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
-import type { DashChangesetEntry } from "@/lib/changeset-types";
+import type { DashChangesetEntry, DashJoinStateWire } from "@/lib/changeset-types";
+
+/** A dash whose merge is clean and carries nothing for the ladder to decide. */
+const CLEAN_JOIN: DashJoinStateWire = { phase: "previewed" };
 
 describe("joinDisabledReason", () => {
   // The regression this pins: a real `base-dirt` blocker derives `blocked`,
   // the gate refuses on the outcome, and the composer's land button used to
   // report a constant that named no cause — leaving a disabled button, a
   // generated message, and no way to learn what was wrong.
-  it("names the cause for a preview that came back blocked", () => {
+  it("names the cause for a dash the server reports blocked", () => {
     expect(joinDisabledReason("outcome", "blocked")).toBe(
       "Clear what blocks this join first",
     );
@@ -54,7 +59,10 @@ describe("joinDisabledReason", () => {
     expect(joinDisabledReason("turn", "blocked")).toBe(
       "Wait for the turn to finish",
     );
-    expect(joinDisabledReason("pending", "blocked")).toBe("Previewing…");
+    // `pending` can only mean an execute in flight now that nothing previews,
+    // so the sentence says that rather than describing a round trip that no
+    // longer exists.
+    expect(joinDisabledReason("pending", "blocked")).toBe("Landing…");
   });
 
   it("names the review as the act that clears it, whatever the outcome reads", () => {
@@ -75,48 +83,69 @@ describe("joinDisabledReason", () => {
     expect(joinDisabledReason("empty-message", "clean")).toBe("Write a join message");
   });
 
-  it("distinguishes conflicted, empty, and never-previewed", () => {
+  it("distinguishes conflicted and empty", () => {
     expect(joinDisabledReason("outcome", "conflicted")).toBe(
       "Resolve the conflicts first",
     );
     expect(joinDisabledReason("outcome", "empty")).toBe("Nothing to join");
-    expect(joinDisabledReason("outcome", "unknown")).toBe("Not previewed yet");
+  });
+
+  it("quotes the server's stale sentence, which names which side moved", () => {
+    // The note is the refusal: only the server knows whether the base or the
+    // dash moved, and "resolve again" without that is advice without a cause.
+    expect(
+      joinDisabledReason("outcome", "stale", "main moved since this was resolved — resolve again"),
+    ).toBe("main moved since this was resolved — resolve again");
+    // A stale state whose note did not survive still refuses in words.
+    expect(joinDisabledReason("outcome", "stale")).toBe(
+      "The resolution is out of date — resolve again",
+    );
   });
 });
 
 describe("resolutionAwaitsReview", () => {
+  const resolvedFile = { path: "a.rs", resolved_by: "driver" };
+
   it("asks for a review only where the ladder decided per file", () => {
     // A rung-1 replay and a clean one-shot squash resolve nothing by machine:
     // their `resolved` list is empty, and they land as they always did.
-    expect(
-      resolutionAwaitsReview({ candidateCommit: "abc", resolved: [], reviewed: false }),
-    ).toBe(false);
+    expect(resolutionAwaitsReview({ phase: "resolved", candidate: "abc", resolved: [] })).toBe(
+      false,
+    );
     // No candidate ⇒ nothing to land ⇒ nothing to review.
-    expect(
-      resolutionAwaitsReview({ candidateCommit: null, resolved: ["a"], reviewed: false }),
-    ).toBe(false);
+    expect(resolutionAwaitsReview({ phase: "conflicted", resolved: [resolvedFile] })).toBe(false);
     // A candidate built out of per-file resolutions, unread.
     expect(
-      resolutionAwaitsReview({ candidateCommit: "abc", resolved: ["a"], reviewed: false }),
+      resolutionAwaitsReview({ phase: "resolved", candidate: "abc", resolved: [resolvedFile] }),
     ).toBe(true);
     // …and read.
     expect(
-      resolutionAwaitsReview({ candidateCommit: "abc", resolved: ["a"], reviewed: true }),
+      resolutionAwaitsReview({
+        phase: "resolved",
+        candidate: "abc",
+        resolved: [resolvedFile],
+        reviewed: true,
+      }),
     ).toBe(false);
+  });
+
+  it("asks nothing of a dash the feed has said nothing about", () => {
+    expect(resolutionAwaitsReview(undefined)).toBe(false);
+    expect(resolutionAwaitsReview(null)).toBe(false);
   });
 });
 
 describe("evaluateJoinLandGate", () => {
   const base = {
     turnInProgress: false,
-    joinPhase: "preview" as const,
+    joinPhase: "idle" as const,
     outcome: "clean" as const,
     candidateCommit: null,
     unreviewedResolution: false,
     message: "land it",
   };
 
-  it("passes over a clean preview with a message", () => {
+  it("passes over a clean merge with a message", () => {
     expect(evaluateJoinLandGate(base)).toEqual({ ok: true });
   });
 
@@ -145,7 +174,7 @@ describe("evaluateJoinLandGate", () => {
     });
   });
 
-  it("refuses a preview that came back with blockers", () => {
+  it("refuses a dash the server reports blocked", () => {
     // The face that carries blockers derives `blocked`, and blocked never lands.
     expect(evaluateJoinLandGate({ ...base, outcome: "blocked" })).toEqual({
       ok: false,
@@ -159,10 +188,9 @@ describe("evaluateJoinLandGate", () => {
     // `deriveJoinOutcome` alone, so a pair the deriver cannot produce is not a
     // state worth asserting about.
     const outcome = deriveJoinOutcome({
-      joinPhase: "done",
+      phase: "resolved",
       conflicts: ["a.rs"],
-      blockers: [],
-      candidateCommit: "cafe1234",
+      candidate: "cafe1234",
     });
     expect(outcome).toBe("clean");
     expect(evaluateJoinLandGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
@@ -189,10 +217,10 @@ describe("evaluateJoinLandGate", () => {
     // the other way the badge read `clean` over its own "commit outstanding
     // changes" line, and the gate believed the badge.
     const outcome = deriveJoinOutcome({
-      joinPhase: "done",
+      phase: "blocked",
       conflicts: ["a.rs"],
       blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["x.ts"] }],
-      candidateCommit: "cafe1234",
+      candidate: "cafe1234",
     });
     expect(outcome).toBe("blocked");
     expect(evaluateJoinLandGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
@@ -227,21 +255,18 @@ describe("evaluateJoinLandGate", () => {
 });
 
 describe("deriveJoinOutcome", () => {
-  const base = {
-    joinPhase: "preview" as const,
-    conflicts: [] as readonly string[],
-    blockers: [] as readonly { kind: string; detail: string; paths: readonly string[] }[],
-    candidateCommit: null as string | null,
-  };
+  const base: DashJoinStateWire = { phase: "previewed" };
   const blocker = (kind: string) => ({ kind, detail: `${kind} detail`, paths: [] });
 
-  it("reads a clean preview as clean", () => {
+  it("reads a clean merge as clean", () => {
     expect(deriveJoinOutcome(base)).toBe("clean");
   });
 
-  it("reads no round trip yet as unknown, and one in flight as previewing", () => {
-    expect(deriveJoinOutcome({ ...base, joinPhase: "idle" })).toBe("unknown");
-    expect(deriveJoinOutcome({ ...base, joinPhase: "pending" })).toBe("previewing");
+  it("refuses a dash the feed says nothing about", () => {
+    // An older tugcast, or an entry that arrived before the board composed:
+    // there is no reading of silence that makes a landing safe.
+    expect(deriveJoinOutcome(undefined)).toBe("blocked");
+    expect(deriveJoinOutcome(null)).toBe("blocked");
   });
 
   it("calls out empty separately from the other blockers", () => {
@@ -255,13 +280,27 @@ describe("deriveJoinOutcome", () => {
 
   it("reads conflicting paths as conflicted, and a candidate as landable", () => {
     expect(deriveJoinOutcome({ ...base, conflicts: ["a.ts"] })).toBe("conflicted");
-    expect(
-      deriveJoinOutcome({ ...base, conflicts: ["a.ts"], candidateCommit: "cafe1234" }),
-    ).toBe("clean");
+    expect(deriveJoinOutcome({ ...base, conflicts: ["a.ts"], candidate: "cafe1234" })).toBe(
+      "clean",
+    );
   });
 
-  it("reads a verb-level refusal as blocked rather than as landable", () => {
-    expect(deriveJoinOutcome({ ...base, joinPhase: "error" })).toBe("blocked");
+  it("refuses a merge that is clean under a candidate the server dropped", () => {
+    // The trap: the base moved, the server invalidated the candidate, and the
+    // merge underneath happens to be clean. Landing it would land an unread
+    // machine merge under a review that answered a different one.
+    expect(
+      deriveJoinOutcome({
+        ...base,
+        stale_note: "main moved since this was resolved — resolve again",
+      }),
+    ).toBe("stale");
+  });
+
+  it("ranks a live candidate over a stale note, so a re-resolve lands", () => {
+    expect(
+      deriveJoinOutcome({ ...base, candidate: "cafe1234", stale_note: "leftover" }),
+    ).toBe("clean");
   });
 });
 
@@ -296,19 +335,6 @@ function reply(body: Record<string, unknown>): void {
   for (const handler of [...controlHandlers]) handler(payload);
 }
 
-/** Settle the mode's opening preview as clean, so the land gate passes. */
-function replyCleanPreview(): void {
-  reply({
-    action: "changeset_join_ok",
-    project_dir: "/p",
-    dash: "join-lane",
-    previewed: true,
-    conflicts: [],
-    commit_hash: null,
-    blockers: [],
-  });
-}
-
 const DASH_ENTRY: DashChangesetEntry = {
   kind: "dash",
   owner_id: "tugdash/join-lane#1",
@@ -324,14 +350,26 @@ const DASH_ENTRY: DashChangesetEntry = {
     updated_at: 0,
     edited: false,
   },
+  join: CLEAN_JOIN,
 };
 
-function fakeChangesController(): ChangesRouteController {
+/**
+ * The card's binding path and the workspace's canonical key, deliberately
+ * spelled differently — the shape the 2026-08-18 deadlock was made of. Nothing
+ * in the join pipeline may key on the raw one ([L29]).
+ */
+const RAW_DIR = "/Users/dev/Mounts/u/src/tugtool";
+const WORKSPACE_KEY = "/u/src/tugtool";
+
+function fakeChangesController(
+  join: DashJoinStateWire | undefined = CLEAN_JOIN,
+): ChangesRouteController & { _setJoin: (next: DashJoinStateWire | undefined) => void } {
   let notify: (() => void) | null = null;
+  let entry: DashChangesetEntry = { ...DASH_ENTRY, join };
   const controller = {
     entryKey: "session:s1",
-    projectDir: "/p",
-    workspaceKey: "/p",
+    projectDir: RAW_DIR,
+    workspaceKey: WORKSPACE_KEY,
     tugSessionId: "s1",
     subscribe: (listener: () => void) => {
       notify = listener;
@@ -341,18 +379,25 @@ function fakeChangesController(): ChangesRouteController {
     },
     getSnapshot: () => ({
       entry: null,
-      dashes: [DASH_ENTRY],
+      dashes: [entry],
       unattributed: [],
       orphaned: [],
-      project: { project_dir: "/p" },
+      project: { project_dir: RAW_DIR, workspace_key: WORKSPACE_KEY },
       committedPaths: new Set<string>(),
     }),
     commit: () => {},
     requestDraft: () => {},
     /** Test hook: fire the subscription without changing anything. */
     _notify: () => notify?.(),
+    /** Test hook: republish the dash with a different server-owned join state. */
+    _setJoin: (next: DashJoinStateWire | undefined): void => {
+      entry = { ...DASH_ENTRY, join: next };
+      notify?.();
+    },
   };
-  return controller as unknown as ChangesRouteController;
+  return controller as unknown as ChangesRouteController & {
+    _setJoin: (next: DashJoinStateWire | undefined) => void;
+  };
 }
 
 function fakeCodeSessionStore(canInterrupt: boolean): CodeSessionStore & {
@@ -430,13 +475,91 @@ describe("JoinModeController", () => {
     controller.dispose();
   });
 
-  it("enter fires exactly one preview", () => {
+  it("enter asks the server nothing — the feed already answered", () => {
+    // Entering used to fire a `--preview`, which is what made the surface's
+    // answer a round trip that could come back after the face had moved on.
     const { controller } = build();
     controller.enter(TARGET);
+    expect(sent.filter((s) => s.action === "changeset_join")).toHaveLength(0);
+    expect(controller.getSnapshot().outcome).toBe("clean");
+    controller.dispose();
+  });
 
-    const previews = sent.filter((s) => s.action === "changeset_join");
-    expect(previews).toHaveLength(1);
-    expect(previews[0]?.body).toEqual({ project_dir: "/p", dash: "join-lane", preview: true });
+  it("aim costs nothing either — opening a row is not a question", () => {
+    const { controller } = build();
+    controller.aim(TARGET);
+    expect(sent.filter((s) => s.action === "changeset_join")).toHaveLength(0);
+    expect(controller.getSnapshot().active).toBe(false);
+    controller.dispose();
+  });
+
+  it("derives every landing state from the feed's join block", () => {
+    const { controller, changesController } = build();
+    controller.enter(TARGET);
+    expect(controller.getSnapshot().canLandIgnoringMessage).toBe(true);
+
+    changesController._setJoin({
+      phase: "blocked",
+      blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["x.ts"] }],
+    });
+    expect(controller.getSnapshot().outcome).toBe("blocked");
+    expect(controller.getSnapshot().landBlockedReason).toBe(
+      "Clear what blocks this join first",
+    );
+
+    changesController._setJoin({ phase: "conflicted", conflicts: ["a.rs"] });
+    expect(controller.getSnapshot().outcome).toBe("conflicted");
+    expect(controller.getSnapshot().landBlockedReason).toBe("Resolve the conflicts first");
+
+    changesController._setJoin({
+      phase: "resolved",
+      candidate: "cafe1234",
+      resolved: [{ path: "a.rs", resolved_by: "driver" }],
+    });
+    expect(controller.getSnapshot().outcome).toBe("clean");
+    expect(controller.getSnapshot().landBlockedReason).toBe(
+      "Review what the ladder resolved first",
+    );
+
+    changesController._setJoin({
+      phase: "resolved",
+      candidate: "cafe1234",
+      resolved: [{ path: "a.rs", resolved_by: "driver" }],
+      reviewed: true,
+    });
+    expect(controller.getSnapshot().canLandIgnoringMessage).toBe(true);
+    controller.dispose();
+  });
+
+  it("carries the server's stale sentence into the composer's refusal", () => {
+    const { controller, changesController } = build();
+    controller.enter(TARGET);
+    changesController._setJoin({
+      phase: "previewed",
+      stale_note: "main moved since this was resolved — resolve again",
+    });
+    expect(controller.getSnapshot().outcome).toBe("stale");
+    expect(controller.getSnapshot().landBlockedReason).toBe(
+      "main moved since this was resolved — resolve again",
+    );
+    const outcome = controller.land("land it");
+    expect(outcome).toEqual({
+      kind: "refused",
+      sentence: "main moved since this was resolved — resolve again",
+    });
+    controller.dispose();
+  });
+
+  it("addresses the land by workspace key, never by the card's binding path", () => {
+    // The 2026-08-18 deadlock in one assertion: the card is bound with a raw
+    // spelling of a directory whose canonical key reads differently, and every
+    // address on the join path has to be the canonical one ([L29]).
+    const { controller } = build();
+    controller.enter(TARGET);
+    controller.land("land it");
+    const land = sent.find((s) => s.action === "changeset_join" && s.body.preview === false);
+    expect(land?.body.project_dir).toBe(WORKSPACE_KEY);
+    expect(land?.body.project_dir).not.toBe(RAW_DIR);
     controller.dispose();
   });
 
@@ -514,7 +637,6 @@ describe("JoinModeController", () => {
     // must not outlive the press that answered it.
     const { controller, codeSessionStore } = build();
     controller.enter(TARGET);
-    replyCleanPreview();
     codeSessionStore._setTurn(true);
     controller.land("land it");
     expect(controller.getSnapshot().landRefusal?.seq).toBe(1);
@@ -535,7 +657,6 @@ describe("JoinModeController", () => {
     // exact shape that made the dead Join press unreadable.
     const { controller, codeSessionStore } = build();
     controller.enter(TARGET);
-    replyCleanPreview();
     let staged: (() => void) | null = null;
     controller.setLandHook((run) => {
       staged = run;
@@ -562,7 +683,6 @@ describe("JoinModeController", () => {
     // which is the dead-Join-button failure exactly.
     const { controller } = build();
     controller.enter(TARGET);
-    replyCleanPreview();
     let staged: (() => void) | null = null;
     controller.setLandHook((run) => {
       staged = run;
@@ -582,7 +702,6 @@ describe("JoinModeController", () => {
   it("a missing changes service is a spoken fault, not a no-op ([L31])", () => {
     const { controller } = build();
     controller.enter(TARGET);
-    replyCleanPreview();
     let staged: (() => void) | null = null;
     controller.setLandHook((run) => {
       staged = run;

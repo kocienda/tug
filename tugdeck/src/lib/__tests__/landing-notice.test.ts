@@ -47,6 +47,9 @@ const DASH_ENTRY: DashChangesetEntry = {
   worktree_dirty: false,
   files: [],
   draft: { fingerprint: "abc", message: "a join message", updated_at: 0, edited: false },
+  // The server says this dash merges clean, which is what makes the land press
+  // below reach the wire rather than being refused on the outcome.
+  join: { phase: "previewed" },
 };
 
 const controlHandlers: ((payload: Uint8Array) => void)[] = [];
@@ -126,8 +129,9 @@ describe("landingNoticeDecision", () => {
     const controller = buildController();
     controller.enter(joinTargetFromEntry(DASH_ENTRY));
 
-    // The real error path: the server refuses the join and the verb store
-    // settles it into `landError`. Nothing read this for join before.
+    // The real error path: a landing goes out, the server refuses it, and the
+    // verb store settles the refusal into `landError`.
+    controller.land("land it");
     reply({
       action: "changeset_join_err",
       project_dir: PROJECT,
@@ -153,7 +157,7 @@ describe("landingNoticeDecision", () => {
     expect(again.actions).toEqual([]);
 
     // The next attempt goes pending, which clears the error.
-    getChangesetVerbStore()?.join(ENTRY_KEY, PROJECT, "notice-lane", { preview: true });
+    getChangesetVerbStore()?.join(ENTRY_KEY, PROJECT, "notice-lane", { preview: false });
     const cleared = landingNoticeDecision("join", posted, controller.getSnapshot());
     expect(cleared.actions).toEqual([{ kind: "dismiss", id: "join-error" }]);
     controller.dispose();
@@ -190,15 +194,6 @@ describe("landingNoticeDecision", () => {
   it("makes a fault sticky and a gate refusal transient", () => {
     const controller = buildController();
     controller.enter(joinTargetFromEntry(DASH_ENTRY));
-    reply({
-      action: "changeset_join_ok",
-      project_dir: PROJECT,
-      dash: "notice-lane",
-      previewed: true,
-      conflicts: [],
-      commit_hash: null,
-      blockers: [],
-    });
 
     // Stage the land, then take the changes service away before it runs: the
     // app is broken, not the user, so the notice has to persist.

@@ -19,11 +19,13 @@
  * Per-row expansion stays view-scope state: the shade is a glance surface,
  * dismiss and forget, so nothing here is persisted.
  *
- * The fronted row — and only it — carries a landing face: the outcome of a
- * live `--preview` plus the act that clears it. `JoinState` is one slot per
- * card rather than per dash, so a second row previewing would overwrite the
- * first and render its blockers under the wrong name; landing is a gesture on
- * this card's own dash regardless.
+ * The fronted row — and only it — carries a landing face: the server's standing
+ * answer for that dash, plus the act that clears it. This is a scope choice,
+ * not a data limitation: every dash's join state rides its own feed entry now,
+ * so every row *could* show a face. It does not because landing is a gesture on
+ * the card's own dash and the route it names is this card's composer, so a face
+ * on a row the composer will not act on would name a control that is not aimed
+ * at it.
  *
  * The two **binding** gestures go the other way. Every row carries one: Unbind
  * on the fronted row, Bind on all the rest, complements that never appear
@@ -221,15 +223,11 @@ function DashDivergenceMarks({ entry }: { entry: DashChangesetEntry }) {
  * face is the fronted row's alone.
  */
 export interface DashLaneLanding {
-  /** The card's one join round trip ([L02], read by the view). */
+  /** The card's one landing round trip ([L02], read by the view). */
   join: JoinState;
-  /** The derived outcome ([#outcome-derivation]). */
-  outcome: JoinOutcome;
-  /** A candidate commit from the resolution ladder, if one was built. */
-  candidateCommit: string | null;
   /** A Claude turn is in flight — durable acts wait. */
   turnInProgress: boolean;
-  /** The resolution ladder's live state for the fronted dash. */
+  /** The resolution ladder's live progress for the fronted dash. */
   resolve: ResolveState;
   actions: DashLandingActions;
 }
@@ -384,18 +382,18 @@ function DashRow({
   onRequestDiscard: (entry: DashChangesetEntry, anchor: HTMLElement | null) => void;
 }): React.ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
-  // Previewing costs a `merge-tree` run, so it is spent on the expand gesture
-  // rather than on every lane render: the effect fires on the closed → open
-  // edge (and on mount, since the fronted row opens with the shade). Reopening
-  // a row is a deliberate re-ask, and answers for the repository as it is now.
-  const preview = landing?.actions.preview ?? null;
+  // Opening a row points the join mode at its dash and asks the server nothing:
+  // the answer is already on the entry. The effect fires on the closed → open
+  // edge (and on mount, since the fronted row opens with the shade), so the
+  // composer's ⌃⌘C lands on the dash the reader is looking at.
+  const aim = landing?.actions.aim ?? null;
   const wasExpandedRef = useRef(false);
   useEffect(() => {
     const wasExpanded = wasExpandedRef.current;
     wasExpandedRef.current = expanded;
-    if (preview === null || !expanded || wasExpanded) return;
-    preview(entry);
-  }, [preview, expanded, entry]);
+    if (aim === null || !expanded || wasExpanded) return;
+    aim(entry);
+  }, [aim, expanded, entry]);
 
   const descriptor: DiffDescriptor = {
     kind: "range",
@@ -570,13 +568,9 @@ function DashRow({
           {landing !== null ? (
             <SessionChangesDashLanding
               entry={entry}
-              outcome={landing.outcome}
+              join={entry.join ?? null}
               joinPhase={landing.join.phase}
-              conflicts={landing.join.conflicts}
-              archaeology={landing.join.archaeology}
-              blockers={landing.join.blockers}
               error={landing.join.error}
-              candidateCommit={landing.candidateCommit}
               turnInProgress={landing.turnInProgress}
               resolve={landing.resolve}
               bindingRefusal={

@@ -4602,15 +4602,14 @@ export function SessionCardBody({
       [cardId],
     ),
   );
-  // The dash lane's landing face. Only the join-mode controller can say what a
-  // landing would do, so the card hands the shade the derivation and the three
-  // gestures; the view supplies the round trip and the turn gate from its own
-  // reads. Aiming previews without entering, so opening the row costs a
-  // `merge-tree` run and not the composer.
+  // The dash lane's landing face. What a landing would do comes off the dash's
+  // own feed entry, so the card hands the shade only the gestures; the view
+  // supplies the round trip and the turn gate from its own reads. None of these
+  // lands — landing is the composer's, and the composer is where a refusal can
+  // be shown to the hand that made it.
   const dashLandingActions = useMemo<DashLandingActions>(
     () => ({
-      preview: (entry) => joinModeController.aim(joinTargetFromEntry(entry)),
-      join: (entry) => joinModeController.enter(joinTargetFromEntry(entry)),
+      aim: (entry) => joinModeController.aim(joinTargetFromEntry(entry)),
       resumeTeardown: (entry) =>
         joinModeController.resumeTeardown(joinTargetFromEntry(entry)),
       // The ladder runs against the dash, not the card, so it is addressed by
@@ -4618,17 +4617,21 @@ export function SessionCardBody({
       // ordinary Join gesture, which is why the store never joins.
       resolve: (entry) =>
         getChangesetJoinStore()?.resolve(
-          changesController.projectDir,
+          changesController.workspaceKey,
           entry.display_name,
         ),
-      // The review's second beat ([P31]). It moves only the client's read of
-      // the ladder's result — nothing is sent and nothing lands; arming Join is
-      // the whole effect.
-      markReviewed: (entry) =>
-        getChangesetJoinStore()?.markReviewed(
-          changesController.projectDir,
+      // The review's second beat ([D115]). It pins the acknowledgment to the
+      // candidate's sha server-side, so the mark cannot outlive the artifact it
+      // answered; the face flips when the feed comes back saying so.
+      markReviewed: (entry) => {
+        const candidate = entry.join?.candidate;
+        if (typeof candidate !== "string" || candidate === "") return;
+        getChangesetJoinStore()?.review(
+          changesController.workspaceKey,
           entry.display_name,
-        ),
+          candidate,
+        );
+      },
       // Discard is deliberately absent here. It reaches past the fronted row —
       // any dash no live session holds is releasable from this shade — so it
       // rides the lane's own release bundle, which the view builds, rather than
@@ -4644,21 +4647,12 @@ export function SessionCardBody({
       // live in the composer and unmounted in the room that explains it.
       //
       // Gated on `active`, and that gate is load-bearing: `aim()` sets the same
-      // target when a row is merely EXPANDED, to spend a `merge-tree` on the
-      // open gesture rather than on every render. Fronting on an aim would move
-      // the lane under the reader for a preview they did not ask to land.
+      // target when a row is merely EXPANDED. Fronting on an aim would move the
+      // lane under the reader for a dash they did not ask to land.
       dashId: joinSnapshot.active ? (joinSnapshot.dash?.ownerId ?? null) : null,
-      outcome: joinSnapshot.outcome,
-      candidateCommit: joinSnapshot.candidateCommit,
       actions: dashLandingActions,
     }),
-    [
-      joinSnapshot.active,
-      joinSnapshot.dash,
-      joinSnapshot.outcome,
-      joinSnapshot.candidateCommit,
-      dashLandingActions,
-    ],
+    [joinSnapshot.active, joinSnapshot.dash, dashLandingActions],
   );
   // A question put to the developer by a process outside the turn stream, with
   // that process blocked on the answer. The snapshot's `pendingAsk` reference

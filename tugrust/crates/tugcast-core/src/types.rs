@@ -564,7 +564,123 @@ pub enum ChangesetEntry {
         /// an attempt rather than about a state.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         replay_conflict_paths: Vec<String>,
+        /// The join pipeline's entire durable state for this dash — blockers,
+        /// conflicts, the verified candidate, and whether it has been reviewed.
+        ///
+        /// This is the join arc's single source of truth ([P01]); the client
+        /// holds no durable copy of any of it. Absent from an older server,
+        /// which reads as "nothing to say" and leaves the face where it was.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        join: Option<DashJoinState>,
     },
+}
+
+
+/// The join pipeline's state for one dash — the single durable source every
+/// client reads ([P01] of the join-pipeline plan).
+///
+/// Before this block existed, the join arc's truth was assembled at render time
+/// from four separate client stores stitched together by string equality, and
+/// every missed stitch rendered as nothing happening at all. The server already
+/// knew each of these facts; publishing what it knows is what makes the
+/// mismatch class unrepresentable rather than merely fixed.
+///
+/// Additive on the wire: an older deck ignores the block and behaves exactly as
+/// it did, and an older server sends none, which parses as "nothing to say".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinState {
+    /// `blocked` | `previewed` | `conflicted` | `resolved`.
+    ///
+    /// **Derived on every recompute, never stored.** The board reads git and
+    /// assembles; there is no state machine holding a phase that reality could
+    /// drift away from.
+    pub phase: String,
+    /// What would refuse a landing right now. Non-empty means `phase` is
+    /// `blocked`.
+    ///
+    /// Never cached server-side: every one of these answers to working-tree
+    /// state, which moves without moving a commit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blockers: Vec<DashJoinBlocker>,
+    /// Conflicted paths from the in-memory merge probe.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<String>,
+    /// What the base did to each conflicted path since the two sides parted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub archaeology: Vec<DashConflictHistory>,
+    /// The resolved candidate commit, present only when it still verifies
+    /// against the current base and dash heads. Present means `phase` is
+    /// `resolved`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate: Option<String>,
+    /// The ladder's per-file results, for the review panel.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved: Vec<DashResolvedFile>,
+    /// Whether the user has read what the ladder decided **for this candidate**.
+    /// Pinned to a sha server-side, so reviewing one candidate never blesses
+    /// the next one.
+    #[serde(default)]
+    pub reviewed: bool,
+    /// A candidate existed but no longer describes the current heads: the
+    /// sentence names which side moved. The board drops the stale candidate
+    /// when it says this, so the state demotes itself rather than lying.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_note: Option<String>,
+}
+
+/// One reason a landing would be refused.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinBlocker {
+    /// `off-base` | `base-dirt` | `stale-journal` | `empty`.
+    pub kind: String,
+    /// The human sentence — the same one the CLI's execute path returns.
+    pub detail: String,
+    /// The offending paths, for `base-dirt`; empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+}
+
+/// What the base did to one conflicted path since the two sides parted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashConflictHistory {
+    pub path: String,
+    /// The most recent base commits that touched it, newest first, capped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commits: Vec<DashConflictCommit>,
+    /// How many touched it in total — `commits.len()` unless the cap bit.
+    pub total: u32,
+}
+
+/// One base commit behind a conflicted path.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashConflictCommit {
+    pub sha: String,
+    pub subject: String,
+}
+
+/// One file the resolution ladder resolved, as the review panel reads it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashResolvedFile {
+    pub path: String,
+    /// Which rung decided it: `replay` | `rerere` | `merge-file` | `driver` |
+    /// `ai`, or `unknown` when the provenance could not be read back.
+    ///
+    /// This is the reason the review exists. Every rung above the replay probe
+    /// is a machine decision the user never saw, and the candidate commit
+    /// records the resolved bytes without recording which rung chose them — so
+    /// this half is persisted rather than recomputed, and an entry whose rung
+    /// cannot be recovered still renders, because a resolution nobody can
+    /// attribute is still one that has to be reviewed.
+    pub resolved_by: String,
+    /// The unified diff this resolution lands on the base, capped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+    /// Lines added and removed as **git** counts them — never as anything
+    /// counts the capped `diff` above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<u32>,
 }
 
 /// `skip_serializing_if` for a count whose zero means "nothing to say".
@@ -1389,9 +1505,12 @@ mod tests {
             base_overlap: vec![],
             last_replay: None,
             replay_conflict_paths: vec![],
+            join: None,
         };
         let json = serde_json::to_string(&dash).unwrap();
         assert!(json.contains(r#""kind":"dash""#));
+        // A dash with nothing to say about joining spends no bytes on it.
+        assert!(!json.contains("\"join\""));
         // A current dash spends no wire bytes on its divergence fields.
         assert!(!json.contains("base_ahead"));
         assert!(!json.contains("base_overlap"));

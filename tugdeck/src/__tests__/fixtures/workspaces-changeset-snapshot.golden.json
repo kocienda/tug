@@ -75,6 +75,35 @@
             "fingerprint": "d33f",
             "message": "Fix the join engine\n\n- intersection-aware preflight\n- journaled teardown",
             "updated_at": 1752264200000
+          },
+          "join": {
+            "phase": "resolved",
+            "conflicts": [
+              "tugrust/crates/tugutil/src/commands/dash.rs"
+            ],
+            "archaeology": [
+              {
+                "path": "tugrust/crates/tugutil/src/commands/dash.rs",
+                "commits": [
+                  {
+                    "sha": "3722f24",
+                    "subject": "Add graphical usage sheet"
+                  }
+                ],
+                "total": 1
+              }
+            ],
+            "candidate": "9f1c2d3e4b5a60718293a4b5c6d7e8f901234567",
+            "resolved": [
+              {
+                "path": "tugrust/crates/tugutil/src/commands/dash.rs",
+                "resolved_by": "driver",
+                "diff": "@@ -1,3 +1,3 @@\n-old\n+new\n",
+                "added": 1,
+                "removed": 1
+              }
+            ],
+            "reviewed": false
           }
         }
       ],

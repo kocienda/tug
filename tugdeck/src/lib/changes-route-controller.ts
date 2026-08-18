@@ -278,7 +278,7 @@ export class ChangesRouteController {
     const entry = this._snapshot.entry;
     getChangesetVerbStore()?.commit(
       this.entryKey,
-      this.projectDir,
+      this.workspaceKey,
       files,
       message,
       { name: entry?.display_name, id: entry?.owner_id ?? this.tugSessionId },
@@ -348,16 +348,16 @@ export class ChangesRouteController {
   /**
    * Claim unattributed files for this session: promote the given repo-relative
    * paths from "likely" hints into this session's changeset. Keyed by the
-   * aggregate's canonical project spelling (`project.project_dir`) so the
-   * claim rows land under the same project the unattributed rows compose
-   * against, and by `entryKey` so the round trip's outcome reaches this card's
-   * claim-error notice. No-op when the store is absent or `paths` is empty.
+   * workspace's canonical key ([L29]) so the claim rows land under the same
+   * project the unattributed rows compose against, and by `entryKey` so the
+   * round trip's outcome reaches this card's claim-error notice. No-op when the
+   * store is absent or `paths` is empty.
    */
   claim(paths: string[]): void {
     if (paths.length === 0) return;
     getChangesetVerbStore()?.claim(
       this.entryKey,
-      this._snapshot.project.project_dir,
+      this.workspaceKey,
       this.tugSessionId,
       paths,
     );
@@ -367,15 +367,15 @@ export class ChangesRouteController {
    * Disclaim files for this session: remove the given repo-relative paths from
    * this session's changeset. The inverse of {@link claim} — a path falls to
    * another session that still holds proof of it (resolving a SHARED file in
-   * that session's favor), or back to unattributed. Keyed by the aggregate's
-   * canonical project spelling and by `entryKey`, exactly as claim is. No-op
-   * when the store is absent or `paths` is empty.
+   * that session's favor), or back to unattributed. Keyed by the workspace's
+   * canonical key and by `entryKey`, exactly as claim is. No-op when the store
+   * is absent or `paths` is empty.
    */
   disclaim(paths: string[]): void {
     if (paths.length === 0) return;
     getChangesetVerbStore()?.disclaim(
       this.entryKey,
-      this._snapshot.project.project_dir,
+      this.workspaceKey,
       this.tugSessionId,
       paths,
     );

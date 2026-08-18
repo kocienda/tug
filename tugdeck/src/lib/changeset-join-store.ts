@@ -4,12 +4,18 @@
  *
  * When the card asks tugcast to resolve a conflicted join, the ladder streams
  * `changeset_join_resolve_delta` frames (per file / rung, with the AI rung's
- * accumulated text) and finishes with `changeset_join_resolve_ok`
- * (resolved/unresolved/candidate/shape) or `_err`. This store keys that live
- * state by `(project_dir, dash)` and exposes it via `useSyncExternalStore`
- * ([L02]); the card renders a mini-transcript overlay while resolving, then a
- * reviewable result. The candidate is landed separately (a `changeset_join`
- * with the candidate) once the user confirms — this store never lands.
+ * accumulated text) and finishes with `changeset_join_resolve_ok` or `_err`.
+ * This store keys that live state by `(workspace_key, dash)` and exposes it via
+ * `useSyncExternalStore` ([L02]); the card renders a mini-transcript overlay
+ * while resolving.
+ *
+ * **It holds the run, never the result.** The candidate the ladder builds, what
+ * it decided per file and by which rung, and whether anybody has read that, are
+ * written into git and reported on the dash's feed entry — so an `_ok` frame is
+ * an *end-of-run* signal here and nothing more. That split is what makes the
+ * whole overlay disposable: this state can be lost to a dropped socket, a
+ * reload, or a relaunch without costing a resolution, because the resolution
+ * was never in it.
  *
  * **A run in flight always ends.** The ladder answers exactly once, over a
  * CONTROL frame that nothing replays — CONTROL is registered `LagPolicy::Warn`,
@@ -32,10 +38,11 @@
  * rungs (git work) and the wait for a first token.
  *
  * **And the deadline is impatience, not cancellation** — which is what makes it
- * safe to keep short. Nothing here can stop tugcast's ladder, so an answer that
- * arrives late is still true and still applies, flipping the face from the
- * error to the result. A deadline that fires early costs a stale error for a
- * few seconds, never a lost resolution.
+ * safe to keep short. Nothing here can stop tugcast's ladder, so a run this
+ * client gave up on still finishes, still writes its candidate, and still bumps
+ * the feed: the row flips to the resolved face on its own, over the top of the
+ * error. That is why the error says the result will appear rather than telling
+ * the user to press Resolve again.
  *
  * Attached once at boot with {@link attachChangesetJoinStore}; consumed via
  * {@link useChangesetJoinResolve}.
@@ -49,7 +56,7 @@ import type { TugConnection } from "../connection";
 import { FeedId } from "../protocol";
 import { getConnectionLifecycle } from "./connection-lifecycle";
 
-export type ResolvePhase = "idle" | "resolving" | "resolved" | "partial" | "error";
+export type ResolvePhase = "idle" | "resolving" | "error";
 
 /** One conflicted file's live resolution progress (from the deltas). */
 export interface FileProgress {
@@ -60,63 +67,28 @@ export interface FileProgress {
   text: string;
 }
 
-/** One file's terminal resolution (from the ok frame). */
-export interface ResolvedFile {
-  path: string;
-  resolvedBy: string;
-  /**
-   * What this resolution would land on the base — the server's unified diff for
-   * this path. `null` when the ladder built no candidate, so there is nothing to
-   * review. This is the artifact the review gate exists to put on screen.
-   */
-  diff: string | null;
-  /**
-   * Lines added and removed, as git counted them over the whole resolution —
-   * not over `diff`, which the server caps. `null` for a binary path, and for
-   * any resolution carrying no diff.
-   */
-  added: number | null;
-  removed: number | null;
-}
-
-/** The live resolve state for one dash. */
+/**
+ * The live resolve state for one dash — an overlay, and only an overlay.
+ *
+ * What the ladder *built* is not here. The candidate, the per-file resolutions
+ * and their rungs, and whether anybody has read them all live on the dash's
+ * feed entry, written into git by the server before it bumps the feed. So this
+ * holds the three things that are genuinely ephemeral: a run is in flight, what
+ * it has said so far, and — when it stopped talking — why the client gave up
+ * waiting.
+ */
 export interface ResolveState {
   phase: ResolvePhase;
   /** Per-file streaming progress while `phase === "resolving"`. */
   progress: readonly FileProgress[];
-  /** Files the ladder resolved (terminal). */
-  resolved: readonly ResolvedFile[];
-  /** Files still conflicting (terminal; non-empty ⇒ `partial`). */
-  unresolved: readonly string[];
-  /** The pre-built candidate commit to land, when fully resolved. */
-  candidateCommit: string | null;
-  /** `"squash"` | `"replay"` (terminal). */
-  shape: string | null;
   /** Error detail when `phase === "error"`. */
   error: string | null;
-  /**
-   * Whether the user has acknowledged what the ladder decided. Every rung above
-   * the replay probe resolves files by machine — rerere replays a cached
-   * resolution that may be stale, the driver and the AI rung guess — so a
-   * candidate built that way stays unlandable until this is true ([P31]).
-   *
-   * It lives here, keyed by dash, rather than in the landing face, because both
-   * landing routes have to honour it: the lane's Join button and the composer's
-   * `/join <name>`. A review held in a component would gate one and not the
-   * other. Every fresh ladder run resets it — a new resolution is a new decision.
-   */
-  reviewed: boolean;
 }
 
 const IDLE: ResolveState = Object.freeze({
   phase: "idle",
   progress: Object.freeze([]) as readonly FileProgress[],
-  resolved: Object.freeze([]) as readonly ResolvedFile[],
-  unresolved: Object.freeze([]) as readonly string[],
-  candidateCommit: null,
-  shape: null,
   error: null,
-  reviewed: false,
 });
 
 /**
@@ -134,8 +106,8 @@ const IDLE: ResolveState = Object.freeze({
  */
 export const RESOLVE_IDLE_DEADLINE_MS = 12_000;
 
-function key(projectDir: string, dash: string): string {
-  return `${projectDir}|${dash}`;
+function key(workspaceKey: string, dash: string): string {
+  return `${workspaceKey}|${dash}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -188,7 +160,7 @@ export class ChangesetJoinStore {
       if (state.phase !== "resolving") continue;
       this._fail(
         k,
-        "The connection dropped while the ladder was running — its result is gone. Press Resolve again.",
+        "The connection dropped while the ladder was running — its result will appear on this row if it finished.",
       );
     }
   }
@@ -219,7 +191,7 @@ export class ChangesetJoinStore {
           k,
           `No answer from the resolution ladder in ${Math.round(
             this._deadlineMs / 1000,
-          )} seconds — the result was lost on the way back. Press Resolve again.`,
+          )} seconds — its result will appear on this row if it finished.`,
         );
       }, this._deadlineMs),
     );
@@ -248,10 +220,13 @@ export class ChangesetJoinStore {
     ) {
       return;
     }
-    const projectDir = typeof body.project_dir === "string" ? body.project_dir : null;
+    // The server echoes `project_dir` back exactly as it was sent, and every
+    // send on this path carries the workspace key — so the reply correlates to
+    // the same cell the request opened, with no spelling to reconcile ([L29]).
+    const workspaceKey = typeof body.project_dir === "string" ? body.project_dir : null;
     const dash = typeof body.dash === "string" ? body.dash : null;
-    if (projectDir === null || dash === null) return;
-    const k = key(projectDir, dash);
+    if (workspaceKey === null || dash === null) return;
+    const k = key(workspaceKey, dash);
     const prev = this._states.get(k) ?? IDLE;
 
     if (action === "changeset_join_resolve_delta") {
@@ -273,36 +248,28 @@ export class ChangesetJoinStore {
     }
 
     if (action === "changeset_join_resolve_ok") {
-      const resolvedRaw = Array.isArray(body.resolved) ? body.resolved : [];
-      const resolved: ResolvedFile[] = resolvedRaw
-        .filter(isRecord)
-        .map((r) => ({
-          path: typeof r.path === "string" ? r.path : "",
-          resolvedBy: typeof r.resolved_by === "string" ? r.resolved_by : "",
-          diff: typeof r.diff === "string" ? r.diff : null,
-          added: typeof r.added === "number" ? r.added : null,
-          removed: typeof r.removed === "number" ? r.removed : null,
-        }));
-      const unresolved = readStringArray(body.unresolved);
-      const candidateCommit =
-        typeof body.candidate_commit === "string" ? body.candidate_commit : null;
-      const shape = typeof body.shape === "string" ? body.shape : null;
       // A late answer still counts. The deadline never cancelled anything —
       // the ladder ran to completion server-side whatever this client believed
       // — so a result that turns up after the run was given up on is true, and
       // takes the face back off the error it was showing.
       this._clearDeadline(k);
-      this._set(k, {
-        ...prev,
-        phase: unresolved.length > 0 ? "partial" : "resolved",
-        resolved,
-        unresolved,
-        candidateCommit,
-        shape,
-        error: null,
-        // A terminal frame is a new decision, whatever the last one was.
-        reviewed: false,
-      });
+      const unresolved = readStringArray(body.unresolved);
+      if (unresolved.length > 0) {
+        // The ladder's honest dead end, and the one terminal fact the feed
+        // cannot state: the dash's conflicts will still be there, but nothing
+        // on the entry says a run just tried them and stopped. Re-running
+        // decides nothing new, so the sentence names the files instead.
+        this._set(k, {
+          phase: "error",
+          progress: prev.progress,
+          error: `Still conflicting — resolve by hand: ${unresolved.join(", ")}`,
+        });
+        return;
+      }
+      // Everything else the run produced — the candidate, each file's rung and
+      // diff — is already in git and already on its way back as feed state, so
+      // the overlay's whole job is to get out of the way.
+      this._set(k, IDLE);
       return;
     }
 
@@ -327,44 +294,40 @@ export class ChangesetJoinStore {
    * legal: the ladder builds its candidate off to the side and touches no
    * checkout, so a second run costs time and nothing else.
    */
-  resolve(projectDir: string, dash: string): void {
-    const k = key(projectDir, dash);
+  resolve(workspaceKey: string, dash: string): void {
+    const k = key(workspaceKey, dash);
     this._armDeadline(k);
-    this._set(k, {
-      phase: "resolving",
-      progress: [],
-      resolved: [],
-      unresolved: [],
-      candidateCommit: null,
-      shape: null,
-      error: null,
-      reviewed: false,
-    });
+    this._set(k, { phase: "resolving", progress: [], error: null });
     this._connection.sendControlFrame("changeset_join_resolve", {
-      project_dir: projectDir,
+      project_dir: workspaceKey,
       dash,
     });
   }
 
-  state(projectDir: string, dash: string): ResolveState {
-    return this._states.get(key(projectDir, dash)) ?? IDLE;
+  state(workspaceKey: string, dash: string): ResolveState {
+    return this._states.get(key(workspaceKey, dash)) ?? IDLE;
   }
 
   /**
    * Record that the user has read what the ladder decided — the second beat of
-   * the review that {@link ResolveState.reviewed} gates. A no-op on a dash with
-   * no terminal state: there is nothing to have reviewed.
+   * the review the land gate holds for.
+   *
+   * The acknowledgment is pinned to `candidate`'s sha server-side, so it cannot
+   * outlive the artifact it answered: a candidate rebuilt after the base moved
+   * demands a fresh reading. The mark comes back on the dash's feed entry; this
+   * send only asks for it.
    */
-  markReviewed(projectDir: string, dash: string): void {
-    const k = key(projectDir, dash);
-    const prev = this._states.get(k);
-    if (prev === undefined || prev.reviewed) return;
-    this._set(k, { ...prev, reviewed: true });
+  review(workspaceKey: string, dash: string, candidate: string): void {
+    this._connection.sendControlFrame("changeset_join_review", {
+      project_dir: workspaceKey,
+      dash,
+      candidate,
+    });
   }
 
   /** Clear a dash's resolve state (cancel / after landing). */
-  clear(projectDir: string, dash: string): void {
-    const k = key(projectDir, dash);
+  clear(workspaceKey: string, dash: string): void {
+    const k = key(workspaceKey, dash);
     this._clearDeadline(k);
     this._set(k, IDLE);
   }
@@ -422,26 +385,26 @@ export function _ingestJoinFrameForTest(body: unknown): void {
  * idle + no-op triggers when no store is attached (gallery / fixtures).
  */
 export function useChangesetJoinResolve(
-  projectDir: string,
+  workspaceKey: string,
   dash: string,
-): ResolveState & { resolve: () => void; clear: () => void; markReviewed: () => void } {
+): ResolveState & { resolve: () => void; clear: () => void; review: (candidate: string) => void } {
   const state = useSyncExternalStore(
     (listener) => {
       const store = _activeStore;
       if (store === null) return () => {};
       return store.subscribe(listener);
     },
-    () => _activeStore?.state(projectDir, dash) ?? IDLE,
+    () => _activeStore?.state(workspaceKey, dash) ?? IDLE,
     () => IDLE,
   );
   const resolve = (): void => {
-    _activeStore?.resolve(projectDir, dash);
+    _activeStore?.resolve(workspaceKey, dash);
   };
   const clear = (): void => {
-    _activeStore?.clear(projectDir, dash);
+    _activeStore?.clear(workspaceKey, dash);
   };
-  const markReviewed = (): void => {
-    _activeStore?.markReviewed(projectDir, dash);
+  const review = (candidate: string): void => {
+    _activeStore?.review(workspaceKey, dash, candidate);
   };
-  return { ...state, resolve, clear, markReviewed };
+  return { ...state, resolve, clear, review };
 }

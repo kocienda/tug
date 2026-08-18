@@ -1020,7 +1020,22 @@ pub struct DashDetail {
     /// preflight computes the same intersection at landing time; this says it
     /// the moment the overlap appears, which is usually hours earlier. A
     /// warning, never a trigger — uncommitted work on the base is the user's.
+    ///
+    /// Literally the same set, from the same function: the dash's changed set
+    /// is its committed diff **plus** its worktree's uncommitted tracked paths,
+    /// because the join's preamble commits that dirt before landing and it
+    /// therefore blocks exactly as a committed change would.
     pub base_overlap: Vec<String>,
+    /// The untracked half of the same intersection — base-checkout files git
+    /// does not track yet, which this dash would overwrite on landing.
+    pub base_overlap_untracked: Vec<String>,
+    /// Whether the worktree holds uncommitted changes to **tracked** files.
+    ///
+    /// Narrower than [`Self::worktree_dirty`], which counts untracked files
+    /// too, and the distinction decides a blocker: the join's preamble commits
+    /// tracked dirt, so a dash with no rounds but dirty tracked files is not
+    /// empty, while one whose only dirt is an untracked scratch file is.
+    pub worktree_dirty_tracked: bool,
     /// The note of the dash-log's most recent `replayed` line — the settled
     /// mark's text. `None` when this dash has never been replayed.
     pub last_replay: Option<String>,
@@ -1089,6 +1104,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
     // invocations per dash, and the base's dirty set is the same answer for all
     // of them.
     let base_dirt = dirty_tracked_paths(repo_root);
+    let base_untracked = untracked_paths(repo_root);
 
     let mut entries = Vec::new();
     for branch in branches.lines().filter(|l| !l.trim().is_empty()) {
@@ -1118,6 +1134,12 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             && git_stdout(&worktree_abs, &["status", "--porcelain"])
                 .map(|s| !s.is_empty())
                 .unwrap_or(false);
+        let worktree_dirt_tracked = if worktree_abs.exists() {
+            dirty_tracked_paths(&worktree_abs)
+        } else {
+            Vec::new()
+        };
+        let worktree_dirty_tracked = !worktree_dirt_tracked.is_empty();
 
         let files = git_stdout(
             repo_root,
@@ -1154,11 +1176,13 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(0);
-        let base_overlap: Vec<String> = base_dirt
-            .iter()
-            .filter(|p| files.iter().any(|f| &&f.path == p))
-            .cloned()
-            .collect();
+        // The dash's changed set is what it has committed plus what its
+        // worktree holds uncommitted — the join's preamble commits the latter,
+        // so it blocks exactly as a committed change does. Composed through the
+        // same intersection the preflight uses, so the two cannot drift.
+        let mut dash_changed: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+        dash_changed.extend(worktree_dirt_tracked.iter().cloned());
+        let overlap = intersect_base_dirt(&base_dirt, &base_untracked, &dash_changed);
 
         // One dash-log read per dash per recompute — the log is small,
         // append-only, and parsed line by line. No plan markdown is read here
@@ -1182,7 +1206,9 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             step_title: declarations.step_title.clone(),
             plan_path: dash_plan_path(repo_root, name),
             base_ahead,
-            base_overlap,
+            base_overlap: overlap.tracked,
+            base_overlap_untracked: overlap.untracked,
+            worktree_dirty_tracked,
             last_replay: declarations.last_replay.clone(),
             last_activity: declarations.last_activity.clone(),
             base,
@@ -1195,6 +1221,19 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         });
     }
     entries
+}
+
+/// One dash's detail, composed exactly as [`dash_detail_entries_in`] composes
+/// every dash's.
+///
+/// Shares that walk rather than reimplementing it, so a caller asking about one
+/// dash and a caller asking about all of them cannot get different answers about
+/// the same dash. Returns `None` when the dash has no branch.
+pub fn dash_detail_entry_in(repo_root: &Path, name: &str) -> Option<DashDetail> {
+    let repo_root = &main_repo_root(repo_root);
+    dash_detail_entries_in(repo_root)
+        .into_iter()
+        .find(|d| d.name == name)
 }
 
 /// One dash's lifecycle readout (Spec S05) — the machine-readable answer to
@@ -2747,14 +2786,32 @@ fn blocking_base_dirt(
     if worktree.exists() {
         dash_changed.extend(dirty_tracked_paths(worktree));
     }
+    intersect_base_dirt(&base_dirt, &base_untracked, &dash_changed)
+}
+
+/// The intersection itself, over sets the caller has already read.
+///
+/// Split out so the per-dash detail walk — which has hoisted the base's dirty
+/// set above its loop, and already holds each dash's changed file list — can
+/// reach the same answer without re-running the reads, and, more importantly,
+/// without a second definition of what "blocking" means. The card's early
+/// warning and the landing's refusal are the same set because they are the same
+/// function.
+fn intersect_base_dirt(
+    base_dirt: &[String],
+    base_untracked: &[String],
+    dash_changed: &[String],
+) -> BlockingBasePaths {
     BlockingBasePaths {
         tracked: base_dirt
-            .into_iter()
+            .iter()
             .filter(|p| dash_changed.contains(p))
+            .cloned()
             .collect(),
         untracked: base_untracked
-            .into_iter()
+            .iter()
             .filter(|p| dash_changed.contains(p))
+            .cloned()
             .collect(),
     }
 }
@@ -2784,8 +2841,30 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     if !branch_exists(repo_root, &branch) {
         return Err(format!("Dash not found: {}", name));
     }
-    let base_branch = dash_base(repo_root, name)?;
-    let worktree = worktree_path(repo_root, name);
+    let detail = dash_detail_entry_in(repo_root, name)
+        .ok_or_else(|| format!("Dash not found: {}", name))?;
+    let current = current_branch(repo_root)?;
+    Ok(join_blockers_from_detail(repo_root, &detail, &current))
+}
+
+/// What would refuse a join right now, composed from a detail the caller
+/// already holds.
+///
+/// **Never cache this.** Every input is something that moves without moving a
+/// SHA: a journal file, which branch the base checkout has out, and the
+/// working-tree dirt on both sides. A blocker set cached against the two heads
+/// keeps refusing a landing whose real answer changed the moment the user
+/// cleaned their checkout — which is a face that lies, and the specific failure
+/// this whole seam exists to prevent. It is cheap instead of cached: every git
+/// read but one is already paid for by the detail walk, and the exception
+/// (which branch is checked out) is per-repository rather than per-dash.
+pub fn join_blockers_from_detail(
+    repo_root: &Path,
+    detail: &DashDetail,
+    current_branch: &str,
+) -> Vec<JoinBlocker> {
+    let name = detail.name.as_str();
+    let base_branch = detail.base.as_str();
     let mut blockers = Vec::new();
 
     if read_join_journal(repo_root, name).is_some() {
@@ -2796,56 +2875,105 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
         });
     }
 
-    let current_branch = git_stdout(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     if current_branch != base_branch {
         blockers.push(JoinBlocker {
             kind: "off-base".to_string(),
-            detail: off_base_detail(&current_branch, &base_branch),
+            detail: off_base_detail(current_branch, base_branch),
             paths: vec![],
         });
     }
 
-    let intersect = blocking_base_dirt(repo_root, &worktree, &base_branch, &branch);
-    let plan_rel = dash_plan_path(repo_root, name);
-    if !intersect.tracked.is_empty() {
+    let plan_rel = detail.plan_path.clone();
+    if !detail.base_overlap.is_empty() {
         blockers.push(JoinBlocker {
             kind: "base-dirt".to_string(),
-            detail: base_dirt_detail(&intersect.tracked, plan_rel.as_deref(), name),
-            paths: intersect.tracked,
+            detail: base_dirt_detail(&detail.base_overlap, plan_rel.as_deref(), name),
+            paths: detail.base_overlap.clone(),
         });
     }
-    if !intersect.untracked.is_empty() {
+    if !detail.base_overlap_untracked.is_empty() {
         blockers.push(JoinBlocker {
             kind: "base-dirt".to_string(),
-            detail: untracked_overwrite_detail(&intersect.untracked, plan_rel.as_deref(), name),
-            paths: intersect.untracked,
+            detail: untracked_overwrite_detail(
+                &detail.base_overlap_untracked,
+                plan_rel.as_deref(),
+                name,
+            ),
+            paths: detail.base_overlap_untracked.clone(),
         });
     }
 
     // Empty is a *finding* on the preview path, not a refusal: the card's answer
     // to it is the discard affordance. The execute path auto-commits worktree
     // dirt before testing `ahead`, so dirt makes a dash non-empty here too.
-    let ahead = git_stdout(
-        repo_root,
-        &[
-            "rev-list",
-            "--count",
-            &format!("{}..{}", base_branch, branch),
-        ],
-    )
-    .ok()
-    .and_then(|s| s.trim().parse::<i64>().ok())
-    .unwrap_or(0);
-    let worktree_dirty = worktree.exists() && !dirty_tracked_paths(&worktree).is_empty();
-    if ahead == 0 && !worktree_dirty {
+    if detail.rounds == 0 && !detail.worktree_dirty_tracked {
         blockers.push(JoinBlocker {
             kind: "empty".to_string(),
-            detail: empty_detail(name, &base_branch),
+            detail: empty_detail(name, base_branch),
             paths: vec![],
         });
     }
 
-    Ok(blockers)
+    blockers
+}
+
+/// Resolve a revision to its commit sha.
+///
+/// Exposed because a cache keyed by a head pair has to be able to read that
+/// pair cheaply — two of these are what a cache hit costs.
+pub fn rev_parse(repo_root: &Path, rev: &str) -> Result<String, String> {
+    git_stdout(&main_repo_root(repo_root), &["rev-parse", rev])
+}
+
+/// Which branch the repository has checked out.
+///
+/// A property of the repository rather than of any dash, so a composition
+/// covering many dashes reads it once and passes it down — the one blocker
+/// input the per-dash detail walk does not already hold.
+pub fn current_branch(repo_root: &Path) -> Result<String, String> {
+    git_stdout(
+        &main_repo_root(repo_root),
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+    )
+}
+
+/// The conflict half of a join preview: what `merge-tree` says, plus the base
+/// archaeology behind it, plus the two heads the answer was computed from.
+#[derive(Debug, Clone)]
+pub struct JoinConflicts {
+    pub conflicts: Vec<String>,
+    pub archaeology: Vec<ConflictHistory>,
+    pub base_sha: String,
+    pub dash_sha: String,
+}
+
+/// Probe a dash's conflict set without touching anything.
+///
+/// **This half is cacheable**, and it is the expensive one: `merge-tree` plus a
+/// `git log` per conflicted path. It is a pure function of the two heads it
+/// reports, which is what makes a cache keyed by that pair sound — unlike the
+/// blockers ([`join_blockers_from_detail`]), which move without either head
+/// moving and must never be cached.
+pub fn join_conflicts_in(repo_root: &Path, name: &str) -> Result<JoinConflicts, String> {
+    let repo_root = &main_repo_root(repo_root);
+    let branch = branch_name(name);
+    if !branch_exists(repo_root, &branch) {
+        return Err(format!("Dash not found: {}", name));
+    }
+    if !git_supports_merge_tree(repo_root) {
+        return Err(
+            "a join preview requires git >= 2.38 (git merge-tree --write-tree).".to_string(),
+        );
+    }
+    let base_branch = dash_base(repo_root, name)?;
+    let conflicts = merge_tree_conflicts(repo_root, &base_branch, &branch)?;
+    let archaeology = conflict_archaeology(repo_root, &base_branch, &branch, &conflicts);
+    Ok(JoinConflicts {
+        conflicts,
+        archaeology,
+        base_sha: git_stdout(repo_root, &["rev-parse", &base_branch])?,
+        dash_sha: git_stdout(repo_root, &["rev-parse", &branch])?,
+    })
 }
 
 /// Join a dash into its base branch ([P14]): `--strategy squash|merge|rebase`,
@@ -2904,18 +3032,17 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
             );
         }
         let blockers = join_preflight_in(&repo_root, name)?;
-        let conflicts = merge_tree_conflicts(&repo_root, &base_branch, &branch)?;
-        let archaeology = conflict_archaeology(&repo_root, &base_branch, &branch, &conflicts);
+        let probe = join_conflicts_in(&repo_root, name)?;
         return Ok(JoinOutcome {
             name: name.to_string(),
             base_branch,
             strategy: opts.strategy.as_str().to_string(),
             commit_hash: None,
-            conflicts,
+            conflicts: probe.conflicts,
             previewed: true,
             blockers,
             message: None,
-            archaeology,
+            archaeology: probe.archaeology,
             warnings,
         });
     }
@@ -3126,6 +3253,10 @@ fn finish_join_teardown(
     }
 
     if journal.phase == JoinPhase::WorktreeRemoved {
+        // The branch config section dies with the branch, but a loose ref does
+        // not — so the candidate is dropped explicitly, on every landing path,
+        // rather than being left to outlive the dash it described.
+        crate::resolve::clear_candidate(repo_root, name);
         if branch_exists(repo_root, branch) {
             match git_output(repo_root, &["branch", "-D", branch]) {
                 Ok(o) if !o.status.success() => warnings.push(format!(
@@ -3217,6 +3348,10 @@ pub fn discard_in(
     // Reap the dash's tmux/app and remove its worktree robustly (see
     // `remove_dash_worktree` for the "Directory not empty" race this avoids).
     remove_dash_worktree(&repo_root, &branch, &worktree, &mut warnings);
+
+    // A loose ref outlives the branch config it was written beside, so the
+    // candidate is dropped explicitly here too.
+    crate::resolve::clear_candidate(&repo_root, name);
 
     // Delete the branch (warn on failure).
     if branch_exists(&repo_root, &branch) {
@@ -7022,5 +7157,199 @@ Some context.
         );
         let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
         assert!(dlog.contains("joined"), "dash-log records the join: {dlog}");
+    }
+
+    /// Every blocker kind, asserted identical between the composed path the
+    /// card uses and the preflight the CLI uses — the anti-drift pin. Two
+    /// definitions of "what refuses a join" is how the card and the terminal
+    /// came to disagree in the first place.
+    #[serial]
+    #[test]
+    fn composed_blockers_match_the_preflight_for_every_kind() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "kinds");
+        let repo = temp.path();
+
+        let composed = || {
+            let detail = dash_detail_entry_in(repo, "kinds").expect("detail");
+            let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
+            join_blockers_from_detail(repo, &detail, &current)
+        };
+        let same = |label: &str| {
+            let a = composed();
+            let b = join_preflight_in(repo, "kinds").unwrap();
+            assert_eq!(
+                a.iter().map(|x| &x.kind).collect::<Vec<_>>(),
+                b.iter().map(|x| &x.kind).collect::<Vec<_>>(),
+                "{label}: kinds agree"
+            );
+            assert_eq!(
+                a.iter().map(|x| &x.detail).collect::<Vec<_>>(),
+                b.iter().map(|x| &x.detail).collect::<Vec<_>>(),
+                "{label}: sentences agree byte for byte"
+            );
+            assert_eq!(
+                a.iter().map(|x| &x.paths).collect::<Vec<_>>(),
+                b.iter().map(|x| &x.paths).collect::<Vec<_>>(),
+                "{label}: paths agree"
+            );
+            a
+        };
+
+        assert!(same("clean").is_empty());
+
+        // base-dirt, tracked.
+        fs::write(repo.join("shared.txt"), "base\nlocal edit\n").unwrap();
+        assert!(same("tracked dirt").iter().any(|b| b.kind == "base-dirt"));
+        git_output(repo, &["checkout", "--", "shared.txt"]).unwrap();
+
+        // base-dirt, untracked: the dash must also change that path, so it is
+        // the untracked *overwrite* case rather than unrelated base dirt.
+        let worktree = repo.join(".tug/worktrees/kinds");
+        fs::write(worktree.join("fresh.txt"), "from the dash\n").unwrap();
+        commit("kinds", "add fresh", None).unwrap();
+        fs::write(repo.join("fresh.txt"), "untracked on base\n").unwrap();
+        assert!(same("untracked overlap")
+            .iter()
+            .any(|b| b.kind == "base-dirt"));
+        fs::remove_file(repo.join("fresh.txt")).unwrap();
+
+        // off-base.
+        git_output(repo, &["checkout", "-b", "scratch"]).unwrap();
+        assert!(same("off base").iter().any(|b| b.kind == "off-base"));
+        git_output(repo, &["checkout", "main"]).unwrap();
+
+        // stale-journal.
+        let journal = JoinJournal {
+            name: "kinds".to_string(),
+            base_branch: "main".to_string(),
+            strategy: "squash".to_string(),
+            commit_hash: "deadbeef".to_string(),
+            phase: JoinPhase::Integrated,
+            message: None,
+        };
+        write_join_journal(repo, &journal).unwrap();
+        assert!(same("stale journal")
+            .iter()
+            .any(|b| b.kind == "stale-journal"));
+        clear_join_journal(repo, "kinds");
+
+        // empty: a dash with no rounds and no tracked worktree dirt.
+        create("hollow", None, None, false).unwrap();
+        let hollow_detail = dash_detail_entry_in(repo, "hollow").expect("detail");
+        let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
+        assert_eq!(
+            join_blockers_from_detail(repo, &hollow_detail, &current)
+                .iter()
+                .map(|b| &b.kind)
+                .collect::<Vec<_>>(),
+            join_preflight_in(repo, "hollow")
+                .unwrap()
+                .iter()
+                .map(|b| &b.kind)
+                .collect::<Vec<_>>(),
+        );
+        assert!(join_preflight_in(repo, "hollow")
+            .unwrap()
+            .iter()
+            .any(|b| b.kind == "empty"));
+    }
+
+    /// Blockers answer to working-tree state, which moves without either head
+    /// moving. This is the exact defect a `(base_sha, dash_head_sha)` cache
+    /// would hide: both SHAs are unchanged across the whole test, and the right
+    /// answer changes twice.
+    #[serial]
+    #[test]
+    fn blockers_track_dirt_that_moves_no_sha() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "nosha");
+        let repo = temp.path();
+
+        let heads = || {
+            (
+                git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+                git_stdout(repo, &["rev-parse", "tugdash/nosha"]).unwrap(),
+            )
+        };
+        let before = heads();
+        assert!(join_preflight_in(repo, "nosha").unwrap().is_empty());
+
+        fs::write(repo.join("shared.txt"), "base\nlocal edit\n").unwrap();
+        let dirty = join_preflight_in(repo, "nosha").unwrap();
+        assert!(
+            dirty.iter().any(|b| b.kind == "base-dirt"),
+            "dirt on an overlapping path blocks"
+        );
+        assert_eq!(before, heads(), "no SHA moved");
+
+        git_output(repo, &["checkout", "--", "shared.txt"]).unwrap();
+        assert!(
+            join_preflight_in(repo, "nosha").unwrap().is_empty(),
+            "cleaning the checkout clears the blocker"
+        );
+        assert_eq!(before, heads(), "still no SHA moved");
+    }
+
+    /// The dash's uncommitted work counts toward the overlap, because the
+    /// join's preamble commits it before landing. The detail walk's warning and
+    /// the preflight's refusal are the same set.
+    #[serial]
+    #[test]
+    fn worktree_dirt_counts_toward_the_overlap_the_landing_will_hit() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "wtdirt");
+        let repo = temp.path();
+
+        // A path the dash has NOT committed, only dirtied in its worktree.
+        let worktree = repo.join(".tug/worktrees/wtdirt");
+        fs::write(worktree.join("other.txt"), "dash uncommitted\n").unwrap();
+        git_output(&worktree, &["add", "other.txt"]).unwrap();
+        fs::write(repo.join("other.txt"), "base uncommitted\n").unwrap();
+        git_output(repo, &["add", "other.txt"]).unwrap();
+
+        let detail = dash_detail_entry_in(repo, "wtdirt").expect("detail");
+        assert!(
+            detail.base_overlap.contains(&"other.txt".to_string()),
+            "the detail's warning sees it: {:?}",
+            detail.base_overlap
+        );
+        let blockers = join_preflight_in(repo, "wtdirt").unwrap();
+        assert!(
+            blockers
+                .iter()
+                .any(|b| b.kind == "base-dirt" && b.paths.contains(&"other.txt".to_string())),
+            "and the preflight refuses on it: {blockers:?}"
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn join_conflicts_in_reports_what_the_preview_reports() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "probe");
+        let repo = temp.path();
+
+        // Make the base conflict with the dash on the same path.
+        fs::write(repo.join("shared.txt"), "base\nbase change\n").unwrap();
+        git_output(repo, &["commit", "-am", "base moves shared"]).unwrap();
+
+        let probe = join_conflicts_in(repo, "probe").unwrap();
+        let previewed = preview("probe");
+        assert_eq!(probe.conflicts, previewed.conflicts);
+        assert_eq!(
+            probe.archaeology.len(),
+            previewed.archaeology.len(),
+            "the same archaeology rides both paths"
+        );
+        assert!(!probe.conflicts.is_empty(), "the fixture really conflicts");
+        assert_eq!(
+            probe.base_sha,
+            git_stdout(repo, &["rev-parse", "main"]).unwrap()
+        );
+        assert_eq!(
+            probe.dash_sha,
+            git_stdout(repo, &["rev-parse", "tugdash/probe"]).unwrap()
+        );
     }
 }

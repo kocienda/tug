@@ -4,7 +4,7 @@
  *
  * Join mode is commit mode's twin in the dash lane: `/dash-join` (or the Z4A
  * Join segment, or the lane's Join affordance) turns the composer into the
- * join-message editor over a *previewed* merge, and Z5 swaps to cancel /
+ * join-message editor over the dash the feed describes, and Z5 swaps to cancel /
  * auto-message / join. Everything structural is `CommitModeController`'s shape
  * — the same four upstream stores folded into one referentially-stable
  * snapshot, the same enter / leave / exit / land triggers, the same staged-land
@@ -12,12 +12,13 @@
  * neither has to know the other exists.
  *
  * What differs is what a landing *means* here. The gate's third reason is the
- * preview rather than the changeset: a join may land only over a preview that
- * came back clean, or over a candidate the resolution ladder built out of the
- * conflicts. Entering therefore fires a preview immediately — a landing surface
- * that opens without knowing whether it can land is the thing this mode exists
- * to fix. And the draft is the *dash's*: it keys on the dash's owner id, so the
- * message the run's `tugutil draft set` maintained is what the editor opens on.
+ * dash's join state rather than the changeset: a join may land only over a
+ * merge the server reports clean, or over a candidate the resolution ladder
+ * built out of the conflicts. That state is not asked for — it rides the dash's
+ * feed entry as a `join` block the server computes on every changeset
+ * recompute, so this controller reads it and never previews. And the draft is
+ * the *dash's*: it keys on the dash's owner id, so the message the run's
+ * `tugutil draft set` maintained is what the editor opens on.
  *
  * @module lib/join-mode-controller
  */
@@ -25,8 +26,12 @@
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
-import type { DashChangesetEntry } from "@/lib/changeset-types";
-import type { JoinBlocker, JoinPhase } from "@/lib/changeset-verb-store";
+import type {
+  DashChangesetEntry,
+  DashJoinBlockerWire,
+  DashJoinStateWire,
+} from "@/lib/changeset-types";
+import type { JoinPhase } from "@/lib/changeset-verb-store";
 import type { LandOutcome, LandingMode, LandingRefusal, LandingSnapshot } from "@/lib/landing-mode";
 import { CHANGES_SERVICE_DISCONNECTED, sameRefusal } from "@/lib/landing-mode";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
@@ -51,16 +56,18 @@ export interface JoinTarget {
 
 /**
  * The landing outcome the surface fronts ([#outcome-derivation]). `empty` and
- * `blocked` both come from a preview's blockers — `empty` is called out
- * separately because its answer is release, not a fix.
+ * `blocked` both come from the feed's blockers — `empty` is called out
+ * separately because its answer is release, not a fix. `stale` is a candidate
+ * the server has already invalidated: it names which side moved, and the act
+ * that clears it is another run of the ladder.
  */
-export type JoinOutcome = "unknown" | "previewing" | "clean" | "conflicted" | "blocked" | "empty";
+export type JoinOutcome = "clean" | "conflicted" | "blocked" | "empty" | "stale";
 
 /** Inputs to the pure join land-gate. */
 export interface JoinLandGateInput {
   /** A Claude turn is in flight (`canInterrupt`) — durable mutations wait. */
   turnInProgress: boolean;
-  /** The current join round-trip phase for this entry. */
+  /** The current landing round-trip phase for this entry. */
   joinPhase: JoinPhase;
   /** The derived landing outcome. */
   outcome: JoinOutcome;
@@ -75,13 +82,14 @@ export interface JoinLandGateInput {
   message: string;
 }
 
+/** Why a land press was refused. */
+export type JoinLandGateReason = "turn" | "pending" | "outcome" | "unreviewed" | "empty-message";
+
 /** The land-gate verdict — `ok`, or the first failing reason. */
-export type JoinLandGate =
-  | { ok: true }
-  | { ok: false; reason: "turn" | "pending" | "outcome" | "unreviewed" | "empty-message" };
+export type JoinLandGate = { ok: true } | { ok: false; reason: JoinLandGateReason };
 
 /**
- * Whether the ladder's per-file decisions still await the user's eyes ([P31]).
+ * Whether the ladder's per-file decisions still await the user's eyes ([D115]).
  *
  * Only a candidate built out of *per-file* resolutions asks for this. A rung-1
  * replay and a clean one-shot squash resolve nothing by machine — their
@@ -89,13 +97,15 @@ export type JoinLandGate =
  * that rung is a guess or a replayed cache entry: the 2026-08-15 landing proved
  * a stale rerere resolution can keep one side wholesale and discard the other,
  * build green, and break at runtime.
+ *
+ * Read off the feed's join block, which is where the review mark lives: it is
+ * a candidate sha in the dash's branch config, so a reload cannot forget a
+ * review and a re-resolved candidate cannot inherit one.
  */
-export function resolutionAwaitsReview(resolve: {
-  candidateCommit: string | null;
-  resolved: readonly unknown[];
-  reviewed: boolean;
-}): boolean {
-  return resolve.candidateCommit !== null && resolve.resolved.length > 0 && !resolve.reviewed;
+export function resolutionAwaitsReview(join: DashJoinStateWire | null | undefined): boolean {
+  if (join === null || join === undefined) return false;
+  if (typeof join.candidate !== "string" || join.candidate === "") return false;
+  return (join.resolved ?? []).length > 0 && join.reviewed !== true;
 }
 
 /**
@@ -136,11 +146,14 @@ export function evaluateJoinLandGate(input: JoinLandGateInput): JoinLandGate {
  * is worse than one that reads tersely in both.
  */
 export function joinDisabledReason(
-  reason: "turn" | "pending" | "outcome" | "unreviewed" | "empty-message",
+  reason: JoinLandGateReason,
   outcome: JoinOutcome,
+  staleNote?: string | null,
 ): string {
   if (reason === "turn") return "Wait for the turn to finish";
-  if (reason === "pending") return "Previewing…";
+  // `pending` is the execute round trip and nothing else now that the card
+  // never previews, so the sentence says the only thing it can mean.
+  if (reason === "pending") return "Landing…";
   // Without its own arm this falls to the outcome switch and, on a clean
   // preview, reads "This join cannot land yet" — which names nothing the user
   // can act on when all that is missing is the message.
@@ -149,19 +162,79 @@ export function joinDisabledReason(
   // shows this sentence too, and the diffs it points at live on the dash row.
   if (reason === "unreviewed") return "Review what the ladder resolved first";
   switch (outcome) {
-    case "unknown":
-      return "Not previewed yet";
-    case "previewing":
-      return "Previewing…";
     case "conflicted":
       return "Resolve the conflicts first";
     case "blocked":
       return "Clear what blocks this join first";
     case "empty":
       return "Nothing to join";
+    // The server's own sentence names which side moved, so it is the refusal;
+    // the fallback covers a stale state whose note did not survive the wire.
+    case "stale":
+      return staleNote !== null && staleNote !== undefined && staleNote !== ""
+        ? staleNote
+        : "The resolution is out of date — resolve again";
     default:
       return "This join cannot land yet";
   }
+}
+
+/**
+ * What clears a refusal, and where the user finds it ([P08]).
+ *
+ * [L31] got refusals to *speak*. It was not enough: the 2026-08-18 deadlock
+ * produced a true sentence pointing at a control that was not on screen, which
+ * is silence in the only terms that matter. So every reason names the DOM slot
+ * of the thing that clears it, or says plainly that time clears it and nothing
+ * else does — and a reason added without a row fails `tsc`.
+ *
+ * `slot` is `null` exactly where waiting is the whole answer. Those two rows
+ * are not an exemption from [L31]; they are why the sentence has to name the
+ * wait, since there is nothing to point at.
+ */
+export interface ReachabilityRow {
+  /** The `data-slot` of the control that clears this refusal, or `null`. */
+  slot: string | null;
+  /** Where that control is: the dash row's landing face, or the composer. */
+  where: "landing-face" | "composer" | "time";
+}
+
+export const REFUSAL_REACHABILITY = {
+  // No control clears a running turn — the sentence names the wait.
+  turn: { slot: null, where: "time" },
+  // Nor a landing already in flight. This reason is also why the landable row
+  // needs no control of its own: with nothing to press twice, a second press
+  // cannot double-submit a landing.
+  pending: { slot: null, where: "time" },
+  // The conflicted and stale readings of `outcome`; see
+  // {@link refusalReachability} for the two that answer to a different act.
+  outcome: { slot: "session-changes-dash-resolve", where: "landing-face" },
+  unreviewed: { slot: "session-changes-dash-landing-reviewed", where: "landing-face" },
+  // The message is the composer's document, so the editor is the control.
+  "empty-message": { slot: "tug-prompt-entry", where: "composer" },
+} satisfies Record<JoinLandGateReason, ReachabilityRow>;
+
+/**
+ * The row for a live refusal, which needs the outcome as well as the reason.
+ *
+ * `outcome` is one reason covering four states, and they do not answer to the
+ * same act: conflicted and stale want the ladder, blocked wants whatever each
+ * blocker's own row names, and empty wants the dash released. Collapsing them
+ * would point a refusal at a control that state does not mount — the exact
+ * failure this table exists to make impossible.
+ */
+export function refusalReachability(
+  reason: JoinLandGateReason,
+  outcome: JoinOutcome,
+): ReachabilityRow {
+  if (reason !== "outcome") return REFUSAL_REACHABILITY[reason];
+  if (outcome === "blocked") {
+    return { slot: "session-changes-dash-landing-blockers", where: "landing-face" };
+  }
+  if (outcome === "empty") {
+    return { slot: "session-changes-dash-discard", where: "landing-face" };
+  }
+  return REFUSAL_REACHABILITY.outcome;
 }
 
 /**
@@ -190,12 +263,14 @@ export interface JoinModeSnapshot extends LandingSnapshot {
   dash: JoinTarget | null;
   /** The derived landing outcome ([#outcome-derivation]). */
   outcome: JoinOutcome;
-  /** Conflicting paths from the preview or the aborted execute. */
+  /** Conflicting paths, as the server's merge probe reports them. */
   conflicts: readonly string[];
-  /** What would refuse this join, from the preview's preflight (Spec S03). */
-  blockers: readonly JoinBlocker[];
-  /** A candidate commit from the resolution ladder, if one was built. */
+  /** What would refuse this join, from the server's preflight. */
+  blockers: readonly DashJoinBlockerWire[];
+  /** A candidate commit from the resolution ladder, if one still verifies. */
   candidateCommit: string | null;
+  /** The server's sentence for a candidate that no longer describes the heads. */
+  staleNote: string | null;
 }
 
 export interface JoinModeControllerDeps {
@@ -239,10 +314,6 @@ export class JoinModeController implements LandingMode {
     if (draftStore !== null) {
       this.unsubscribes.push(draftStore.subscribe(() => this.recompute()));
     }
-    const joinStore = getChangesetJoinStore();
-    if (joinStore !== null) {
-      this.unsubscribes.push(joinStore.subscribe(() => this.recompute()));
-    }
   }
 
   // ── Store surface ([L02]) ──────────────────────────────────────────────
@@ -265,6 +336,15 @@ export class JoinModeController implements LandingMode {
   private entry(): DashChangesetEntry | null {
     const ownerId = this.target?.ownerId;
     if (ownerId === undefined) return null;
+    return this.entryFor(ownerId);
+  }
+
+  /**
+   * A dash entry by owner key. Taken by id rather than off `this.target`
+   * because the staged land path runs a beat after the mode exits, and by then
+   * the target is gone while the dash it captured is still on the feed.
+   */
+  private entryFor(ownerId: string): DashChangesetEntry | null {
     return (
       this.deps.changesController.getSnapshot().dashes.find((d) => d.owner_id === ownerId) ?? null
     );
@@ -277,25 +357,23 @@ export class JoinModeController implements LandingMode {
     const turnInProgress = codeSessionStore.getSnapshot().canInterrupt === true;
 
     const verbStore = getChangesetVerbStore();
-    const join = verbStore?.joinState(changesController.entryKey) ?? null;
-    const joinPhase: JoinPhase = join?.phase ?? "idle";
+    const landing = verbStore?.joinState(changesController.entryKey) ?? null;
+    const joinPhase: JoinPhase = landing?.phase ?? "idle";
+    const landError = landing?.error ?? null;
+
+    // Everything about what a landing would do comes from the dash's own feed
+    // entry — one server-owned block, delivered on the snapshot every card
+    // already subscribes to. There is no second reading of it to disagree with.
+    const entry = this.entry();
+    const join = entry?.join ?? null;
     const conflicts = join?.conflicts ?? [];
     const blockers = join?.blockers ?? [];
-    const landError = join?.error ?? null;
+    const candidateCommit =
+      typeof join?.candidate === "string" && join.candidate !== "" ? join.candidate : null;
+    const staleNote =
+      typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
 
-    // A resolved candidate outlives the join state it came from: the ladder
-    // runs its own round trip, and landing it is what clears it.
-    const resolve = this.target
-      ? getChangesetJoinStore()?.state(changesController.projectDir, this.target.name)
-      : null;
-    const candidateCommit = resolve?.candidateCommit ?? null;
-
-    const outcome = deriveJoinOutcome({
-      joinPhase,
-      conflicts,
-      blockers,
-      candidateCommit,
-    });
+    const outcome = deriveJoinOutcome(join);
 
     const draftStore = getChangesetDraftStore();
     // The dash's own draft row — `workspaceKey`, never `projectDir` ([L29]) —
@@ -309,7 +387,6 @@ export class JoinModeController implements LandingMode {
           ) ?? null
         : null;
     const draftPhase: DraftOverlayPhase = overlay?.phase ?? "idle";
-    const entry = this.entry();
     const persistedMessage = entry?.draft?.message ?? "";
     const draftText =
       draftPhase === "drafting" || draftPhase === "ready"
@@ -322,9 +399,7 @@ export class JoinModeController implements LandingMode {
       joinPhase,
       outcome,
       candidateCommit,
-      unreviewedResolution: resolve !== null && resolve !== undefined
-        ? resolutionAwaitsReview(resolve)
-        : false,
+      unreviewedResolution: resolutionAwaitsReview(join),
       message: "x", // ignore message emptiness here (CSS-gated on data-commit-empty)
     });
     // The same sentence the fronted row's landing face shows, carried to the
@@ -332,7 +407,7 @@ export class JoinModeController implements LandingMode {
     // actually looking, and which otherwise reports a constant.
     const landBlockedReason = gate.ok
       ? null
-      : joinDisabledReason(gate.reason, outcome);
+      : joinDisabledReason(gate.reason, outcome, staleNote);
     const messagePresent = this.active && (this.messageProvider?.() ?? "").trim().length > 0;
 
     return {
@@ -354,6 +429,7 @@ export class JoinModeController implements LandingMode {
       conflicts,
       blockers,
       candidateCommit,
+      staleNote,
     };
   }
 
@@ -375,8 +451,8 @@ export class JoinModeController implements LandingMode {
    * Enter join mode on `target`. A `/dash-join <name> <message>` seed is
    * written into the dash's draft as an edited draft, so the composer seeds
    * from it exactly as commit mode does. Commit mode exits — one composer, one
-   * document ([P01]) — and a preview fires straight away so the surface knows
-   * what it is offering before the user reads it.
+   * document ([P01]). Nothing is asked of the server: the dash's feed entry
+   * already says what a landing would do, so the surface opens knowing.
    */
   enter(target: JoinTarget, seedMessage?: string): void {
     const seed = seedMessage?.trim() ?? "";
@@ -394,25 +470,22 @@ export class JoinModeController implements LandingMode {
     this.active = true;
     this.snapshot = this.derive();
     this.fire();
-    this.preview();
   }
 
   /**
-   * Aim the mode at a dash and preview it **without entering** — the dash
-   * lane's expand. The face the row renders is this controller's snapshot, so
-   * aiming is what makes one derivation serve both the lane and the composer;
-   * without it the lane would need a second reading of the same stores.
+   * Aim the mode at a dash **without entering** — the dash lane's expand. The
+   * face the row renders is this controller's snapshot, so aiming is what makes
+   * one derivation serve both the lane and the composer; without it the lane
+   * would need a second reading of the same state.
    *
-   * Every call previews: the lane aims on the expand gesture, and a row the
-   * reader deliberately reopens should answer for the repository as it is now,
-   * not as it was the first time.
+   * Pure targeting: the join state the face reads arrives with the feed, so
+   * opening a row asks the server nothing and costs nothing.
    */
   aim(target: JoinTarget): void {
     this.retarget(target);
-    this.preview();
   }
 
-  /** Point the mode at a dash without asking the server anything. */
+  /** Point the mode at a dash. */
   private retarget(target: JoinTarget): void {
     if (sameTarget(this.target, target)) return;
     this.target = target;
@@ -420,24 +493,11 @@ export class JoinModeController implements LandingMode {
     this.fire();
   }
 
-  /** Ask the server what this join would do, touching nothing (`--preview`). */
-  preview(): void {
-    const target = this.target;
-    if (target === null) return;
-    const { changesController } = this.deps;
-    getChangesetVerbStore()?.join(
-      changesController.entryKey,
-      changesController.projectDir,
-      target.name,
-      { preview: true },
-    );
-  }
-
   /**
    * Resume an interrupted teardown from the dash's join journal (Spec S04).
-   * Takes its dash, because the lane can offer this on a row nothing has
-   * previewed — a stale journal is exactly the state that refuses a preview's
-   * every other act.
+   * Takes its dash, because the lane can offer this on a row the mode has never
+   * been aimed at — a stale journal is exactly the state that refuses every
+   * other act.
    */
   resumeTeardown(dash?: JoinTarget): void {
     if (dash !== undefined) this.retarget(dash);
@@ -446,7 +506,7 @@ export class JoinModeController implements LandingMode {
     const { changesController } = this.deps;
     getChangesetVerbStore()?.join(
       changesController.entryKey,
-      changesController.projectDir,
+      changesController.workspaceKey,
       target.name,
       { preview: false, continueJoin: true, sessionId: changesController.tugSessionId },
     );
@@ -541,7 +601,7 @@ export class JoinModeController implements LandingMode {
     if (!gate.ok) {
       return this.refuse(
         "gate",
-        joinDisabledReason(gate.reason, input.outcome),
+        joinDisabledReason(gate.reason, input.outcome, this.staleNoteFor(target)),
         gate.reason,
         input,
       );
@@ -596,24 +656,26 @@ export class JoinModeController implements LandingMode {
    */
   private liveGateInput(message: string, target: JoinTarget): JoinLandGateInput {
     const { changesController, codeSessionStore } = this.deps;
-    const snapshot = this.snapshot;
-    // The review is read live, not off the snapshot: the land path fires a beat
-    // after the shade dismisses, and an unreviewed resolution must not slip
-    // through that gap. The dash comes from the caller for the same reason the
-    // staged land carries it — by that beat the mode has already exited.
-    const resolve =
-      getChangesetJoinStore()?.state(changesController.projectDir, target.name) ?? null;
+    // Read live off the feed, not off the snapshot: the land path fires a beat
+    // after the shade dismisses, and the mode has already exited by then — so a
+    // snapshot read would judge a null target. The dash comes from the caller
+    // for the same reason the staged land carries it.
+    const join = this.entryFor(target.ownerId)?.join ?? null;
+    const candidate = join?.candidate;
     return {
       turnInProgress: codeSessionStore.getSnapshot().canInterrupt === true,
       joinPhase: getChangesetVerbStore()?.joinState(changesController.entryKey).phase ?? "idle",
-      outcome: snapshot.outcome,
-      // From the resolve store rather than the snapshot: a mode the host has
-      // already exited derives a null candidate, and a staged landing must
-      // still carry the commit the ladder built.
-      candidateCommit: resolve?.candidateCommit ?? null,
-      unreviewedResolution: resolve !== null ? resolutionAwaitsReview(resolve) : false,
+      outcome: deriveJoinOutcome(join),
+      candidateCommit: typeof candidate === "string" && candidate !== "" ? candidate : null,
+      unreviewedResolution: resolutionAwaitsReview(join),
       message,
     };
+  }
+
+  /** The dash's stale-candidate sentence, for a refusal that must quote it. */
+  private staleNoteFor(target: JoinTarget): string | null {
+    const note = this.entryFor(target.ownerId)?.join?.stale_note;
+    return typeof note === "string" && note !== "" ? note : null;
   }
 
   /**
@@ -629,7 +691,12 @@ export class JoinModeController implements LandingMode {
     const gate = evaluateJoinLandGate(input);
     if (!gate.ok) {
       if (!this.active) this.enter(target);
-      this.refuse("gate", joinDisabledReason(gate.reason, input.outcome), gate.reason, input);
+      this.refuse(
+        "gate",
+        joinDisabledReason(gate.reason, input.outcome, this.staleNoteFor(target)),
+        gate.reason,
+        input,
+      );
       return;
     }
     const verbStore = getChangesetVerbStore();
@@ -638,7 +705,7 @@ export class JoinModeController implements LandingMode {
       this.refuse("fault", CHANGES_SERVICE_DISCONNECTED, "no-verb-store", input);
       return;
     }
-    verbStore.join(changesController.entryKey, changesController.projectDir, target.name, {
+    verbStore.join(changesController.entryKey, changesController.workspaceKey, target.name, {
       preview: false,
       message: text,
       sessionId: changesController.tugSessionId,
@@ -652,7 +719,7 @@ export class JoinModeController implements LandingMode {
         // The landed dash's draft row and bindings die server-side ([P14]);
         // clearing the ladder's candidate is what keeps a reused dash name
         // from inheriting a stale one.
-        getChangesetJoinStore()?.clear(changesController.projectDir, target.name);
+        getChangesetJoinStore()?.clear(changesController.workspaceKey, target.name);
         this.exit();
       } else if (!this.active) {
         this.enter(target);
@@ -667,32 +734,35 @@ export class JoinModeController implements LandingMode {
 }
 
 /**
- * The landing outcome, derived from the join round trip ([#outcome-derivation]).
- * Pure and exported so the lane's face and the controller agree by construction
- * rather than by two readings of the same table.
+ * The landing outcome, derived from the dash's server-owned join block
+ * ([#outcome-derivation]). Pure and exported so the lane's face and the
+ * controller agree by construction rather than by two readings of the same
+ * table.
+ *
+ * An absent block is `blocked`: a dash whose join state has not reached this
+ * deck is one nothing can say is landable, and refusing is the only answer
+ * that cannot be wrong.
  */
-export function deriveJoinOutcome(input: {
-  joinPhase: JoinPhase;
-  conflicts: readonly string[];
-  blockers: readonly JoinBlocker[];
-  candidateCommit: string | null;
-}): JoinOutcome {
-  if (input.joinPhase === "pending") return "previewing";
-  if (input.joinPhase === "idle") return "unknown";
-  if (input.blockers.some((b) => b.kind === "empty")) return "empty";
+export function deriveJoinOutcome(join: DashJoinStateWire | null | undefined): JoinOutcome {
+  if (join === null || join === undefined) return "blocked";
+  const blockers = join.blockers ?? [];
+  if (blockers.some((b) => b.kind === "empty")) return "empty";
   // A BLOCKER outranks a resolved candidate, and the order here is the whole
   // point. The ladder resolves conflicts; it does not commit the base's
   // outstanding changes, finish an interrupted prior join, or make a branch
   // exist. Ranked the other way — as this was — a successful Resolve painted
   // `clean` over a face still displaying `join: commit outstanding changes`
   // one line below it, and the land gate believed the badge.
-  if (input.blockers.length > 0) return "blocked";
-  // A resolved candidate DOES outrank the conflicts it was built from — that
-  // is the one state where a conflicted history is landable, and the reason
-  // this check sits between the two.
-  if (input.candidateCommit !== null) return "clean";
-  if (input.conflicts.length > 0) return "conflicted";
-  if (input.joinPhase === "error") return "blocked";
+  if (blockers.length > 0) return "blocked";
+  // A candidate the server still verifies DOES outrank the conflicts it was
+  // built from — that is the one state where a conflicted history is landable,
+  // and the reason this check sits between the two.
+  if (typeof join.candidate === "string" && join.candidate !== "") return "clean";
+  // A note means the candidate that stood here no longer describes these two
+  // heads. The merge underneath may well be clean, but landing it would land
+  // an unreviewed machine merge under a review that answered a different one.
+  if (typeof join.stale_note === "string" && join.stale_note !== "") return "stale";
+  if ((join.conflicts ?? []).length > 0) return "conflicted";
   return "clean";
 }
 
@@ -714,6 +784,7 @@ function snapshotsEqual(a: JoinModeSnapshot, b: JoinModeSnapshot): boolean {
     a.draftError === b.draftError &&
     a.outcome === b.outcome &&
     a.candidateCommit === b.candidateCommit &&
+    a.staleNote === b.staleNote &&
     sameTarget(a.dash, b.dash) &&
     sameStrings(a.conflicts, b.conflicts) &&
     sameBlockers(a.blockers, b.blockers)
@@ -735,7 +806,10 @@ function sameStrings(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-function sameBlockers(a: readonly JoinBlocker[], b: readonly JoinBlocker[]): boolean {
+function sameBlockers(
+  a: readonly DashJoinBlockerWire[],
+  b: readonly DashJoinBlockerWire[],
+): boolean {
   return (
     a.length === b.length &&
     a.every((v, i) => {
@@ -744,7 +818,7 @@ function sameBlockers(a: readonly JoinBlocker[], b: readonly JoinBlocker[]): boo
         other !== undefined &&
         v.kind === other.kind &&
         v.detail === other.detail &&
-        sameStrings(v.paths, other.paths)
+        sameStrings(v.paths ?? [], other.paths ?? [])
       );
     })
   );

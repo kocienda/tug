@@ -27,13 +27,15 @@
  *   (fronting is about what is being landed; the binding is about what the card
  *   works — so the fronted header names the landing, not a binding that is not
  *   there).
- * - **Join** on a conflicted outcome is disabled and carries its reason.
+ * - A conflicted outcome never reads as ready: the row states no landing
+ *   route, and the conflicted paths and their archaeology are the reason, in
+ *   words.
  * - **Resolve** is enabled, and a click visibly registers at once — the offer
  *   face leaves the moment the store flips to `resolving`, before any server
  *   frame. This is the dead-click assertion: if the click does nothing, the
  *   Resolve affordance is still on screen and the wait below times out.
- * - The ladder's terminal frame lands: the face settles `partial`, naming the
- *   file that is still conflicting.
+ * - The ladder's terminal frame lands: the run reaches its dead end and says
+ *   so, naming the file that is still conflicting.
  * - **Adopt** round-trips for real: the click sends `bind_dash`, and the row
  *   flips to Leave only on the `bind_dash_ok` broadcast that comes back.
  *
@@ -43,6 +45,7 @@
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugrust/crates/tugdash-core/src/resolve.rs
+ * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -82,12 +85,11 @@ const ADOPT = `${ROW} [data-slot="session-changes-dash-bind"]`;
 const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
 const OUTCOME = `${ROW} [data-slot="session-changes-dash-landing-outcome"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
-const JOIN = `${ROW} [data-slot="session-changes-dash-join"]`;
+const READY = `${ROW} [data-slot="session-changes-dash-landing-ready"]`;
 const RELEASE = `${ROW} [data-slot="session-changes-dash-discard"]`;
-const REFUSALS = `${ROW} [data-slot="session-changes-dash-landing-refusals"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-dash-landing-conflicts"]`;
 const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-landing-archaeology"]`;
-const PARTIAL = `${ROW} [data-slot="session-changes-dash-landing-partial"]`;
+const DEAD_END = `${ROW} .session-changes-dash-landing-error`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
@@ -162,7 +164,7 @@ async function runCommand(app: App, line: string): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its controls", () => {
   test(
-    "a named join on an unbound card fronts conflicted; Join refuses with its reason, Resolve's click registers and settles partial, Adopt round-trips",
+    "a named join on an unbound card fronts conflicted; the row never reads ready, Resolve's click registers and reaches its dead end, Adopt round-trips",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
@@ -210,7 +212,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
 
         // ── The incident's state, reconstructed for real ──────────────────
         // Unbound card, join aimed by name. The mode enters, the shade rises,
-        // the preview fires on its own, and the answer is `conflicted`.
+        // and the dash entry already carries the answer: `conflicted`.
         await runCommand(app, `/dash-join ${DASH}`);
         await app.waitForCondition<boolean>(
           `(function(){
@@ -254,33 +256,18 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         expect(archaeology).toContain(baseSubject);
         note(`archaeology names the base commit: ${baseSubject}`);
 
-        // ── Join: refused, and the refusal has words ──────────────────────
-        const joinState = await app.evalJS<{
-          disabled: boolean;
-          title: string;
-          pointerEvents: string;
-        }>(
+        // ── Landing: not offered, and the reason is on screen ─────────────
+        // The incident's shape was a control that offered a press and refused
+        // it somewhere the press could not reach. The row's one act here is the
+        // ladder, and the conflicted paths below are the reason, in the
+        // server's words.
+        const claimsReady = await app.evalJS<boolean>(
           `(function(){
-            var b = document.querySelector(${JSON.stringify(JOIN)});
-            return {
-              disabled: b ? b.disabled : false,
-              title: b ? (b.getAttribute("title") || "") : "",
-              pointerEvents: b ? getComputedStyle(b).pointerEvents : "",
-            };
+            var line = document.querySelector(${JSON.stringify(READY)});
+            return line !== null && line.getAttribute("data-ready") === "true";
           })()`,
         );
-        expect(joinState.disabled).toBe(true);
-        // The reason arrives as face text, and ONLY as face text. A disabled
-        // button takes no pointer events (recorded below), so the `title` this
-        // file used to assert could never be read by anyone — carrying one was
-        // the defect, not the fix.
-        expect(joinState.title).toBe("");
-        note(`disabled Join pointer-events: ${joinState.pointerEvents}`);
-        expect(
-          await app.evalJS<string>(
-            `(document.querySelector(${JSON.stringify(REFUSALS)})?.textContent || "")`,
-          ),
-        ).toContain("Resolve the conflicts first");
+        expect(claimsReady, "a conflicted dash must not read as ready").toBe(false);
 
         // ── Resolve: ungated by the turn, and the click must register ─────
         // Hold a real turn open across the whole Resolve gesture. Resolving
@@ -343,31 +330,32 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         );
 
         // The ladder's terminal frame must land, and for a delete/modify it must
-        // be `partial` naming the file. No rung may claim a non-content conflict:
-        // the per-file walk short-circuits it to unresolved, and rung 2 (rerere)
-        // skips it rather than harvesting the surviving side's content as a
-        // resolution — the false positive `resolve.rs` used to have here, which
-        // reported `resolved` over a candidate equal to the base tree.
+        // be the dead end naming the file. No rung may claim a non-content
+        // conflict: the per-file walk short-circuits it to unresolved, and rung 2
+        // (rerere) skips it rather than harvesting the surviving side's content
+        // as a resolution — the false positive `resolve.rs` used to have here,
+        // which reported `resolved` over a candidate equal to the base tree.
+        //
+        // A run that resolved nothing builds no candidate, so the feed reports
+        // no candidate either and the row has no resolved face to show. The dead
+        // end is therefore the overlay's to state, and it states it in words.
         const terminal = await app.waitForCondition<string>(
           `(function(){
             var row = document.querySelector(${JSON.stringify(ROW)});
             if (row === null) return null;
-            if (row.querySelector('[data-slot="session-changes-dash-landing-partial"]') !== null) return "partial";
             if (row.querySelector('[data-slot="session-changes-dash-landing-resolved"]') !== null) return "resolved";
             if (row.querySelector('.session-changes-dash-landing-error') !== null) return "error";
             return null;
           })()`,
           { timeoutMs: 60000 },
         );
-        // A delete/modify must settle `partial` — no rung may claim a
-        // non-content conflict.
-        expect(terminal).toBe("partial");
-        const partialText = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(PARTIAL)})?.textContent || "").trim()`,
+        expect(terminal).toBe("error");
+        const deadEndText = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(DEAD_END)})?.textContent || "").trim()`,
         );
         // The face names the file it could not resolve.
-        expect(partialText).toContain(conflictFile);
-        note(`ladder settled partial: ${partialText}`);
+        expect(deadEndText).toContain(conflictFile);
+        note(`ladder settled at its dead end: ${deadEndText}`);
 
         // ── Adopt: the real round trip ────────────────────────────────────
         await app.nativeClickAtElement(ADOPT);

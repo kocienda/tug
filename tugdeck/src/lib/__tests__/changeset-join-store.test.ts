@@ -1,7 +1,13 @@
 /**
  * changeset-join-store — the dash-join resolve overlay over the ladder's
- * CONTROL frames (Spec S12, [P31]/[P32]): resolving → per-file deltas →
- * resolved / partial / error, keyed by (project_dir, dash).
+ * CONTROL frames (Spec S12): resolving → per-file deltas → out of the way,
+ * keyed by (workspace_key, dash).
+ *
+ * The overlay holds the *run*, never its result. What the ladder built lands in
+ * git and comes back on the dash's feed entry, so what these cases pin is that
+ * an `_ok` puts the overlay away rather than becoming a second, competing
+ * account of the resolution — and that a run which stops talking always ends in
+ * a sentence rather than a spinner nothing will ever take down.
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
@@ -24,7 +30,7 @@ const K = { project_dir: "/p", dash: "demo" };
 beforeEach(() => _resetChangesetJoinStoreForTest());
 
 describe("changeset join resolve overlay", () => {
-  test("deltas accumulate per file, then ok with a candidate → resolved", () => {
+  test("deltas accumulate per file, then ok puts the overlay away", () => {
     const store = attachChangesetJoinStore(fakeConn);
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_delta",
@@ -65,72 +71,58 @@ describe("changeset join resolve overlay", () => {
       candidate_commit: "abc123",
       shape: "squash",
     });
+    // The run is over, so the overlay is over. The candidate and every file's
+    // rung and diff came back in the same frame, and every one of them is
+    // ignored here on purpose: the server wrote them into git before it bumped
+    // the feed, and the row reads them from there. A copy kept here would be a
+    // second account of the same resolution, free to disagree with the first —
+    // which is what a reload used to expose, and what a lost frame used to
+    // destroy.
     const done = store.state("/p", "demo");
-    expect(done.phase).toBe("resolved");
-    expect(done.candidateCommit).toBe("abc123");
-    expect(done.shape).toBe("squash");
-    expect(done.resolved).toEqual([
-      {
-        path: "a.rs",
-        resolvedBy: "ai",
-        diff: "@@ -1 +1 @@\n-old\n+new\n",
-        added: 1,
-        removed: 1,
+    expect(done.phase).toBe("idle");
+    expect(done.progress).toEqual([]);
+    expect(done.error).toBeNull();
+  });
+
+  test("review pins the acknowledgment to the candidate's sha, on the wire", () => {
+    // The review is not a client flag: it is a mark the server writes against
+    // this exact candidate, so a candidate rebuilt after the base moved cannot
+    // inherit a reading that answered a different one. The store's whole part
+    // is the send.
+    const sent: { action: string; body: Record<string, unknown> }[] = [];
+    const conn = {
+      onFrame: () => () => {},
+      sendControlFrame: (action: string, body: Record<string, unknown>) => {
+        sent.push({ action, body });
       },
+    } as never;
+    const store = attachChangesetJoinStore(conn);
+    store.review("/u/src/tugtool", "demo", "abc123");
+    expect(sent).toEqual([
       {
-        path: "b.bin",
-        resolvedBy: "driver",
-        diff: "Binary files differ\n",
-        added: null,
-        removed: null,
+        action: "changeset_join_review",
+        body: { project_dir: "/u/src/tugtool", dash: "demo", candidate: "abc123" },
       },
     ]);
-    // The ladder's decision arrives unread, whatever the last one was ([P31]).
-    expect(done.reviewed).toBe(false);
   });
 
-  test("markReviewed arms the candidate, and a fresh ladder run disarms it", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    const ok = {
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [{ path: "a.rs", resolved_by: "rerere", diff: "@@ -1 +1 @@\n-x\n+y\n" }],
-      unresolved: [],
-      candidate_commit: "abc123",
-      shape: "squash",
-    };
-    _ingestJoinFrameForTest(ok);
-    expect(store.state("/p", "demo").reviewed).toBe(false);
-
-    store.markReviewed("/p", "demo");
-    expect(store.state("/p", "demo").reviewed).toBe(true);
-
-    // A second run over the same dash is a second decision — the review it
-    // carries is not the one the user read.
-    _ingestJoinFrameForTest(ok);
-    expect(store.state("/p", "demo").reviewed).toBe(false);
-  });
-
-  test("markReviewed is a no-op on a dash the ladder has not touched", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    store.markReviewed("/p", "never-resolved");
-    expect(store.state("/p", "never-resolved").reviewed).toBe(false);
-  });
-
-  test("ok with unresolved files → partial, no candidate", () => {
+  test("ok with unresolved files names them, because the feed cannot", () => {
+    // The ladder's honest dead end. The dash's conflicts are still on the feed,
+    // but nothing on the entry says a run just tried them and stopped — so
+    // clearing the overlay here would erase the only record that re-running
+    // decides nothing new.
     const store = attachChangesetJoinStore(fakeConn);
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_ok",
       ...K,
       resolved: [{ path: "a.rs", resolved_by: "driver" }],
-      unresolved: ["b.rs"],
+      unresolved: ["b.rs", "c.rs"],
       candidate_commit: null,
       shape: "squash",
     });
     const st = store.state("/p", "demo");
-    expect(st.phase).toBe("partial");
-    expect(st.unresolved).toEqual(["b.rs"]);
-    expect(st.candidateCommit).toBeNull();
+    expect(st.phase).toBe("error");
+    expect(st.error).toBe("Still conflicting — resolve by hand: b.rs, c.rs");
   });
 
   test("err carries the detail", () => {
@@ -199,7 +191,7 @@ describe("a run whose answer never arrives", () => {
     }
   });
 
-  test("a result already in hand survives the wire dropping", () => {
+  test("a finished run is not failed retroactively when the wire drops", () => {
     try {
       const lifecycle = liveLifecycle();
       const store = attachChangesetJoinStore(fakeConn);
@@ -213,9 +205,9 @@ describe("a run whose answer never arrives", () => {
       });
       lifecycle.notifyConnectionDidClose();
 
-      const done = store.state("/p", "demo");
-      expect(done.phase).toBe("resolved");
-      expect(done.candidateCommit).toBe("abc123");
+      // Idle, not error: the run ended, and the resolution it built is in git
+      // where a dropped socket cannot reach it.
+      expect(store.state("/p", "demo").phase).toBe("idle");
     } finally {
       registerConnectionLifecycle(null);
     }
@@ -272,8 +264,8 @@ describe("the silence deadline", () => {
     expect(store.state("/p", "demo").phase).toBe("error");
 
     // Nothing was cancelled — the ladder ran to completion on the server
-    // whatever this client concluded — so its result is still true and takes
-    // the face back off the error.
+    // whatever this client concluded — so its answer still takes the face off
+    // the error the deadline put there.
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_ok",
       ...K,
@@ -284,8 +276,7 @@ describe("the silence deadline", () => {
     });
 
     const late = store.state("/p", "demo");
-    expect(late.phase).toBe("resolved");
-    expect(late.candidateCommit).toBe("abc123");
+    expect(late.phase).toBe("idle");
     expect(late.error).toBeNull();
   });
 
@@ -302,8 +293,8 @@ describe("the silence deadline", () => {
     });
 
     // The deadline that was live when the answer arrived must not fire behind
-    // it and paint an error over a result the user is reading.
+    // it and paint an error over a row that has already moved on.
     await settle(DEADLINE * 3);
-    expect(store.state("/p", "demo").phase).toBe("resolved");
+    expect(store.state("/p", "demo").phase).toBe("idle");
   });
 });

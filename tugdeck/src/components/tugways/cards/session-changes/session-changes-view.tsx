@@ -93,10 +93,10 @@ export interface SessionChangesViewProps {
    */
   codeSessionStore: CodeSessionStore;
   /**
-   * The half of the fronted row's landing face only the join-mode controller
-   * knows — the derived outcome, the ladder's candidate, and the gestures.
-   * The view supplies the rest from its own store reads. Absent leaves the
-   * lane read-only, which is what an unbound card shows.
+   * The half of the fronted row's landing face only the card knows — which
+   * dash the landing is about, and the gestures. What a landing would do comes
+   * off the dash's own feed entry. Absent leaves the lane read-only, which is
+   * what an unbound card shows.
    */
   dashLanding?: DashLandingSource;
   /**
@@ -125,10 +125,6 @@ export interface DashLandingSource {
    *  It outranks the card's binding for fronting: `/dash-join <name>` aims
    *  without binding, and the face has to appear on the dash being landed. */
   dashId: string | null;
-  /** The derived landing outcome ([#outcome-derivation]). */
-  outcome: JoinOutcome;
-  /** A candidate commit from the resolution ladder, if one was built. */
-  candidateCommit: string | null;
   actions: DashLandingActions;
 }
 
@@ -188,8 +184,11 @@ export function SessionChangesView({
     frontedDashId !== null
       ? (snap.dashes.find((entry) => entry.owner_id === frontedDashId) ?? null)
       : null;
+  // Keyed by the workspace's canonical spelling ([L29]) — the same key the
+  // card's resolve and review sends use, so the overlay a press starts is the
+  // overlay this row reads.
   const resolveState = useChangesetJoinResolve(
-    project.project_dir,
+    project.workspace_key,
     frontedDash?.display_name ?? "",
   );
 
@@ -400,7 +399,7 @@ export function SessionChangesView({
           bind: (entry) => {
             getConnection()?.sendControlFrame("bind_dash", {
               tug_session_id: tugSessionId,
-              project_dir: project.project_dir,
+              project_dir: project.workspace_key,
               dash: entry.display_name,
             });
           },
@@ -433,7 +432,7 @@ export function SessionChangesView({
             canDiscardFromHere(entry, changesController.tugSessionId, boundDashId),
           discard: (entry) =>
             discardVerb.discard(
-              project.project_dir,
+              project.workspace_key,
               entry.display_name,
               changesController.tugSessionId,
             ),
@@ -449,8 +448,6 @@ export function SessionChangesView({
     dashLanding !== undefined
       ? {
           join,
-          outcome: dashLanding.outcome,
-          candidateCommit: dashLanding.candidateCommit,
           turnInProgress,
           resolve: resolveState,
           actions: dashLanding.actions,

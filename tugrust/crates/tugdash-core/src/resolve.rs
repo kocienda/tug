@@ -29,7 +29,7 @@ use std::process::Command;
 use serde::Serialize;
 
 use crate::ops::{
-    branch_exists, branch_name, commit_worktree_dirt, dash_base, git_output, git_stdout,
+    branch_exists, branch_name, commit_worktree_dirt, config_get, dash_base, git_output, git_stdout,
     integrate_message, worktree_path,
 };
 use crate::replay::{ReplayWalk, ReplayedRounds};
@@ -135,6 +135,48 @@ pub fn resolve_conflicts_cwd(
 /// candidate commit is built off to the side and landed separately by
 /// [`crate::ops::join_in`] with the staleness guard.
 pub fn resolve_conflicts(
+    repo: &Path,
+    name: &str,
+    merger: Option<&dyn FileMerger>,
+) -> Result<ResolveOutcome, String> {
+    let outcome = resolve_ladder(repo, name, merger)?;
+
+    // Anchor at one site rather than at each of the ladder's four success
+    // exits. The dash head is read here — *after* the ladder's
+    // `commit_worktree_dirt` preamble, which commits the dash worktree's dirt
+    // and so moves the dash head as part of resolving. Recording the
+    // pre-preamble head would mark every candidate stale the moment it was
+    // built.
+    match &outcome.candidate_commit {
+        Some(candidate) => {
+            let dash_head = git_stdout(repo, &["rev-parse", &branch_name(name)])?;
+            write_candidate_ref(repo, name, candidate)?;
+            clear_candidate_marks(repo, name);
+            let _ = git_output(
+                repo,
+                &["config", &join_source_config_key(name), &dash_head],
+            );
+            for r in &outcome.resolved {
+                let value = format!("{}\t{}", r.path, r.resolved_by.as_str());
+                let _ = git_output(
+                    repo,
+                    &["config", "--add", &join_resolved_config_key(name), &value],
+                );
+            }
+        }
+        // A partial outcome lands nothing, so any previously anchored candidate
+        // is now describing a resolution this run did not reach. Clearing it
+        // keeps a superseded candidate from standing as the current one.
+        None => clear_candidate(repo, name),
+    }
+
+    Ok(outcome)
+}
+
+/// The ladder proper. Wrapped by [`resolve_conflicts`], which anchors whatever
+/// candidate this returns; the split exists so the anchoring happens once
+/// instead of at each of the four success exits below.
+fn resolve_ladder(
     repo: &Path,
     name: &str,
     merger: Option<&dyn FileMerger>,
@@ -998,6 +1040,238 @@ fn is_clean_merge(bytes: &[u8]) -> bool {
     })
 }
 
+// --- candidate anchoring ---------------------------------------------------
+
+/// The ref a resolved candidate is anchored at.
+///
+/// A candidate that lives only in a caller's memory dies with the process, and
+/// three of them were built and abandoned in one day because of it. A ref
+/// survives process death, is visible to every process on the repo, and is a gc
+/// root, so the commit cannot be collected while it stands.
+pub fn candidate_ref_name(name: &str) -> String {
+    format!("refs/tug/join/{}", name)
+}
+
+/// Which candidate sha the user has read the resolutions of.
+pub fn reviewed_config_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinreviewed", name)
+}
+
+/// The dash head the ladder ran against, recorded because the candidate's own
+/// parentage cannot say it (the replay shape parents onto its previous round).
+pub fn join_source_config_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinsource", name)
+}
+
+/// Which rung resolved each path, multi-valued as `<path>\t<rung>`.
+///
+/// The candidate commit records the resolved *bytes* and never the provenance
+/// of the decision, so this is the one half of the review payload that cannot
+/// be recomputed from git.
+pub fn join_resolved_config_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinresolved", name)
+}
+
+impl ResolvedBy {
+    /// The stored spelling, matching the wire's kebab-case.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ResolvedBy::Replay => "replay",
+            ResolvedBy::Rerere => "rerere",
+            ResolvedBy::MergeFile => "merge-file",
+            ResolvedBy::Driver => "driver",
+            ResolvedBy::Ai => "ai",
+        }
+    }
+
+    /// Read a stored spelling back.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "replay" => Some(ResolvedBy::Replay),
+            "rerere" => Some(ResolvedBy::Rerere),
+            "merge-file" => Some(ResolvedBy::MergeFile),
+            "driver" => Some(ResolvedBy::Driver),
+            "ai" => Some(ResolvedBy::Ai),
+            _ => None,
+        }
+    }
+}
+
+/// Anchor a candidate commit at the dash's join ref.
+pub fn write_candidate_ref(repo: &Path, name: &str, sha: &str) -> Result<(), String> {
+    let out = git_output(repo, &["update-ref", &candidate_ref_name(name), sha])?;
+    if !out.status.success() {
+        return Err(format!(
+            "failed to anchor join candidate for {}: {}",
+            name,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// The commit the dash's join ref points at, if it stands.
+pub fn read_candidate(repo: &Path, name: &str) -> Option<String> {
+    let spec = format!("{}^{{commit}}", candidate_ref_name(name));
+    let out = git_output(repo, &["rev-parse", "--verify", "--quiet", &spec]).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!sha.is_empty()).then_some(sha)
+}
+
+/// Drop the candidate ref. Best-effort: a ref that is already gone is success.
+pub fn delete_candidate_ref(repo: &Path, name: &str) {
+    let _ = git_output(repo, &["update-ref", "-d", &candidate_ref_name(name)]);
+}
+
+/// Read back which rung resolved each path.
+pub fn read_resolved_rungs(repo: &Path, name: &str) -> Vec<(String, ResolvedBy)> {
+    let out = match git_output(
+        repo,
+        &["config", "--get-all", &join_resolved_config_key(name)],
+    ) {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (path, rung) = line.split_once('\t')?;
+            Some((path.to_string(), ResolvedBy::parse(rung)?))
+        })
+        .collect()
+}
+
+/// Which candidate sha the user has reviewed, if any.
+pub fn read_reviewed(repo: &Path, name: &str) -> Option<String> {
+    config_get(repo, &reviewed_config_key(name))
+}
+
+/// Record that a candidate's resolutions have been read.
+pub fn write_reviewed(repo: &Path, name: &str, candidate: &str) -> Result<(), String> {
+    let out = git_output(repo, &["config", &reviewed_config_key(name), candidate])?;
+    if !out.status.success() {
+        return Err(format!(
+            "failed to record the review for {}: {}",
+            name,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// One resolved path's diff against the base, for a caller rebuilding the
+/// review payload from git rather than from the run that produced it.
+///
+/// The same function the ladder reports with, so a diff recomputed on a later
+/// recompute and the diff the ladder first sent are the same bytes.
+pub fn candidate_path_diff(
+    repo: &Path,
+    base_branch: &str,
+    candidate: &str,
+    path: &str,
+) -> Option<CandidateDiff> {
+    let base_head = git_stdout(repo, &["rev-parse", base_branch]).ok()?;
+    let d = resolution_diff(repo, &base_head, candidate, path)?;
+    Some(CandidateDiff {
+        text: d.text,
+        added: d.added,
+        removed: d.removed,
+    })
+}
+
+/// One path's recomputed diff and the counts describing it.
+pub struct CandidateDiff {
+    pub text: String,
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
+}
+
+/// Clear every mark that describes a candidate, without touching the ref.
+fn clear_candidate_marks(repo: &Path, name: &str) {
+    for key in [
+        reviewed_config_key(name),
+        join_source_config_key(name),
+        join_resolved_config_key(name),
+    ] {
+        let _ = git_output(repo, &["config", "--unset-all", &key]);
+    }
+}
+
+/// Drop a candidate and everything that described it, as one act.
+///
+/// The ref and the three marks are written and cleared as a group so a
+/// half-written set cannot outlive a candidate — a stale `tugjoinreviewed`
+/// standing alone would bless whatever candidate came next.
+pub fn clear_candidate(repo: &Path, name: &str) {
+    delete_candidate_ref(repo, name);
+    clear_candidate_marks(repo, name);
+}
+
+/// Whether the anchored candidate still describes the current heads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CandidateStatus {
+    /// No candidate ref stands.
+    None,
+    /// The ref stands and both checks pass.
+    Valid(String),
+    /// The ref stood but failed verification; the sentence names which side moved.
+    Stale(String),
+}
+
+/// [`candidate_status`] for a caller that does not already hold the base
+/// branch, resolving it the same way every other dash verb does.
+pub fn candidate_status_in(repo: &Path, name: &str) -> Result<CandidateStatus, String> {
+    let base = dash_base(repo, name)?;
+    Ok(candidate_status(repo, name, &base))
+}
+
+/// Verify the anchored candidate against the current base and dash heads.
+///
+/// **Ancestry, not parenthood.** The squash shape builds its candidate directly
+/// on the base head, but the replay shape returns the tip of a chain of replayed
+/// rounds whose parent is the previous round — so a parent-equality test would
+/// call every multi-round replay candidate stale. Ancestry is also exactly what
+/// landing demands (`git merge --ff-only`), which is what keeps this verdict and
+/// the landing's verdict from ever disagreeing.
+pub fn candidate_status(repo: &Path, name: &str, base_branch: &str) -> CandidateStatus {
+    let candidate = match read_candidate(repo, name) {
+        Some(c) => c,
+        None => return CandidateStatus::None,
+    };
+
+    let base_head = match git_stdout(repo, &["rev-parse", base_branch]) {
+        Ok(h) => h,
+        Err(_) => return CandidateStatus::None,
+    };
+    let ancestor = git_output(
+        repo,
+        &["merge-base", "--is-ancestor", &base_head, &candidate],
+    )
+    .map(|o| o.status.success())
+    .unwrap_or(false);
+    if !ancestor {
+        return CandidateStatus::Stale(format!(
+            "{} moved since this was resolved — resolve again",
+            base_branch
+        ));
+    }
+
+    let branch = branch_name(name);
+    let dash_head = match git_stdout(repo, &["rev-parse", &branch]) {
+        Ok(h) => h,
+        Err(_) => return CandidateStatus::None,
+    };
+    match config_get(repo, &join_source_config_key(name)) {
+        Some(source) if source == dash_head => CandidateStatus::Valid(candidate),
+        _ => CandidateStatus::Stale(
+            "the dash has moved since this was resolved — resolve again".to_string(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1418,5 +1692,188 @@ mod tests {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&show.stdout), "R\n");
+    }
+
+    // ---- candidate anchoring ----
+
+    #[test]
+    fn squash_candidate_anchors_at_the_ref_and_verifies_valid() {
+        // branch A→B, main A→C, stub driver resolves → squash-shape candidate.
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "C\n");
+        git(repo, &["commit", "-am", "main to C"]);
+        stub_driver(repo, "RESOLVED\n");
+
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(outcome.shape, JoinShape::Squash);
+        let candidate = outcome.candidate_commit.clone().expect("candidate");
+
+        assert_eq!(
+            read_candidate(repo, "demo").as_deref(),
+            Some(candidate.as_str()),
+            "the ref points at the candidate the ladder built"
+        );
+        assert_eq!(
+            candidate_status(repo, "demo", "main"),
+            CandidateStatus::Valid(candidate)
+        );
+    }
+
+    #[test]
+    fn replay_candidate_verifies_valid_though_its_parent_is_not_the_base() {
+        // The multi-round replay shape: the candidate is the tip of a chain of
+        // replayed rounds, so its *parent* is the previous round rather than
+        // the base head. A parent-equality rule would call this stale; ancestry
+        // is the rule that gets it right, and it is the rule landing uses.
+        let temp = init(&[("f.txt", "B\n", "r1"), ("f.txt", "C\n", "r2")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "B\n");
+        git(repo, &["commit", "-am", "main advances to B"]);
+
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(outcome.shape, JoinShape::Replay);
+        let candidate = outcome.candidate_commit.clone().expect("candidate");
+
+        let base_head = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        let parent = git_stdout(repo, &["rev-parse", &format!("{candidate}^")]).unwrap();
+        assert_ne!(
+            parent, base_head,
+            "precondition: the replay candidate does NOT parent onto the base"
+        );
+
+        assert_eq!(
+            candidate_status(repo, "demo", "main"),
+            CandidateStatus::Valid(candidate),
+            "ancestry accepts what parenthood would have rejected"
+        );
+    }
+
+    #[test]
+    fn worktree_dirt_committed_by_the_preamble_still_yields_a_valid_candidate() {
+        // The dash head the ladder records must be read AFTER the preamble
+        // commits the worktree's dirt — that preamble moves the dash head as
+        // part of resolving, so a pre-preamble reading marks every candidate
+        // stale the instant it is built.
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "C\n");
+        git(repo, &["commit", "-am", "main to C"]);
+        stub_driver(repo, "RESOLVED\n");
+
+        let worktree = repo.join(".tug").join("worktrees").join("demo");
+        std::fs::create_dir_all(worktree.parent().unwrap()).unwrap();
+        git(
+            repo,
+            &[
+                "worktree",
+                "add",
+                &worktree.to_string_lossy(),
+                "tugdash/demo",
+            ],
+        );
+        let head_before = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        set(&worktree, "extra.txt", "dirt\n");
+
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let candidate = outcome.candidate_commit.clone().expect("candidate");
+
+        let head_after = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        assert_ne!(
+            head_before, head_after,
+            "precondition: the preamble moved the dash head"
+        );
+        assert_eq!(
+            candidate_status(repo, "demo", "main"),
+            CandidateStatus::Valid(candidate),
+            "the recorded source is the post-preamble head"
+        );
+    }
+
+    #[test]
+    fn a_moved_base_and_a_moved_dash_each_get_their_own_stale_sentence() {
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "C\n");
+        git(repo, &["commit", "-am", "main to C"]);
+        stub_driver(repo, "RESOLVED\n");
+        resolve_conflicts(repo, "demo", None).unwrap();
+
+        // The base advances past the candidate.
+        set(repo, "other.txt", "later\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "main moves on"]);
+        match candidate_status(repo, "demo", "main") {
+            CandidateStatus::Stale(note) => {
+                assert!(note.contains("main"), "names the base: {note}");
+            }
+            other => panic!("expected stale after base motion, got {other:?}"),
+        }
+
+        // Rebuild against the moved base, then move the dash instead.
+        resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(matches!(
+            candidate_status(repo, "demo", "main"),
+            CandidateStatus::Valid(_)
+        ));
+        git(repo, &["switch", "-q", "tugdash/demo"]);
+        set(repo, "dash-extra.txt", "r2\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "r2"]);
+        git(repo, &["switch", "-q", "main"]);
+        match candidate_status(repo, "demo", "main") {
+            CandidateStatus::Stale(note) => {
+                assert!(note.contains("dash"), "names the dash: {note}");
+            }
+            other => panic!("expected stale after dash motion, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_partial_resolve_clears_a_previously_anchored_candidate() {
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "C\n");
+        git(repo, &["commit", "-am", "main to C"]);
+        stub_driver(repo, "RESOLVED\n");
+        resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(read_candidate(repo, "demo").is_some(), "anchored");
+
+        // Drop the driver so the same conflict now resolves nothing.
+        git(repo, &["config", "--unset", "tugdash.mergedriver"]);
+        git(repo, &["config", "rerere.enabled", "false"]);
+        let again = resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(again.candidate_commit.is_none(), "partial outcome");
+        assert_eq!(
+            read_candidate(repo, "demo"),
+            None,
+            "the superseded candidate does not stand"
+        );
+        assert!(read_resolved_rungs(repo, "demo").is_empty());
+        assert_eq!(config_get(repo, &join_source_config_key("demo")), None);
+    }
+
+    #[test]
+    fn resolved_rungs_round_trip_through_config() {
+        let temp = init(&[("f.txt", "B\n", "r1"), ("g.txt", "G\n", "r2")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "C\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "main to C"]);
+        stub_driver(repo, "RESOLVED\n");
+
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(outcome.candidate_commit.is_some());
+        let stored = read_resolved_rungs(repo, "demo");
+        assert_eq!(stored.len(), outcome.resolved.len(), "one value per file");
+        for r in &outcome.resolved {
+            assert!(
+                stored
+                    .iter()
+                    .any(|(p, by)| p == &r.path && *by == r.resolved_by),
+                "{} kept its rung",
+                r.path
+            );
+        }
     }
 }

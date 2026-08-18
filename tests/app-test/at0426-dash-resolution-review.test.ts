@@ -19,10 +19,11 @@
  * - A stub merge driver (`tugdash.mergedriver`, rung 4) resolves it to a fixed
  *   body, so the ladder reaches a candidate deterministically without needing
  *   the AI rung or this repo's `rr-cache`.
- * - The assertions: after Resolve the outcome reads `clean` and yet `Join` is
- *   still refused, naming the review as the act that clears it; the review
- *   renders the resolution's diff through the shared diff document; and the
- *   `Reviewed` beat is what finally arms `Join`.
+ * - The assertions: after Resolve the outcome reads `clean` and yet the row
+ *   still refuses to call the dash landable, naming the review as the act that
+ *   clears it; the review renders the resolution's diff through the shared diff
+ *   document; and the `Reviewed` beat is what finally makes the row state its
+ *   landing route.
  *
  * The join is never fired. This test proves the gate, not the landing — landing
  * would rewrite the developer's `main`.
@@ -32,6 +33,8 @@
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugrust/crates/tugdash-core/src/resolve.rs
+ * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -75,8 +78,7 @@ const DASH = "at0426-review";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
 const OUTCOME = `${ROW} [data-slot="session-changes-dash-landing-outcome"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
-const JOIN = `${ROW} [data-slot="session-changes-dash-join"]`;
-const REFUSALS = `${ROW} [data-slot="session-changes-dash-landing-refusals"]`;
+const READY = `${ROW} [data-slot="session-changes-dash-landing-ready"]`;
 const REVIEW = `${ROW} [data-slot="session-changes-dash-landing-review"]`;
 const REVIEWED = `${ROW} [data-slot="session-changes-dash-landing-reviewed"]`;
 
@@ -235,15 +237,19 @@ async function revealAndClick(app: App, selector: string): Promise<void> {
 }
 
 /**
- * The Join button's live disabled state and the sentence the face carries for
- * it. The reason is face text, never a `title`: a disabled button takes no
- * pointer events, so a tooltip on one is unreachable by construction.
+ * Whether the row says this dash can land, and what it says instead.
+ *
+ * A landable row carries a sentence naming ⌃⌘C and `/dash-join`; every refusing
+ * state carries the gate's own words in the same place. The reason has to be
+ * face text — a disabled control takes no pointer events, so a tooltip on one
+ * is unreachable by construction.
  */
-const JOIN_STATE = `(function(){
-  var b = document.querySelector(${JSON.stringify(JOIN)});
-  if (b === null) return null;
-  var r = document.querySelector(${JSON.stringify(REFUSALS)});
-  return { disabled: b.disabled === true, reason: (r ? r.textContent : "") || "" };
+const LANDING_STATE = `(function(){
+  var line = document.querySelector(${JSON.stringify(READY)});
+  return {
+    ready: line !== null && line.getAttribute("data-ready") === "true",
+    reason: line === null ? "" : (line.textContent || ""),
+  };
 })()`;
 
 describe.skipIf(!SHOULD_RUN)("AT0426: the ladder's candidate is gated on a review", () => {
@@ -300,10 +306,10 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the ladder's candidate is gated on a revie
         );
         note(`outcome: conflicted over ${conflictFile}`);
 
-        // Join refuses on the conflict, before any of this is about the review.
-        const preResolve = await app.evalJS<{ disabled: boolean; reason: string }>(JOIN_STATE);
-        expect(preResolve.disabled).toBe(true);
-        expect(preResolve.reason).toContain("Resolve the conflicts first");
+        // Nothing claims a conflicted dash is ready — before any of this is
+        // about the review.
+        const preResolve = await app.evalJS<{ ready: boolean; reason: string }>(LANDING_STATE);
+        expect(preResolve.ready).toBe(false);
 
         // ── Resolve: the driver rung builds a candidate ───────────────────
         // The row's controls settle as the conflict list renders under them;
@@ -325,8 +331,6 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the ladder's candidate is gated on a revie
             var row = document.querySelector(${JSON.stringify(ROW)});
             if (row === null) return null;
             if (row.querySelector('[data-slot="session-changes-dash-landing-review"]') !== null) return "review";
-            if (row.querySelector('[data-slot="session-changes-dash-landing-partial"]') !== null)
-              return "partial: " + row.querySelector('[data-slot="session-changes-dash-landing-partial"]').textContent;
             if (row.querySelector('.session-changes-dash-landing-error') !== null)
               return "error: " + row.querySelector('.session-changes-dash-landing-error').textContent;
             return null;
@@ -347,11 +351,13 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the ladder's candidate is gated on a revie
           ),
         ).toBe("clean");
 
-        // ── The gate: a landable candidate, and Join still refuses ────────
-        const refused = await app.evalJS<{ disabled: boolean; reason: string }>(JOIN_STATE);
-        expect(refused.disabled).toBe(true);
+        // ── The gate: a landable candidate, and the landing still refuses ──
+        const refused = await app.evalJS<{ ready: boolean; reason: string }>(LANDING_STATE);
+        expect(refused.ready).toBe(false);
+        // The sentence names the act that clears it, and it is on screen right
+        // above the diffs it is talking about.
         expect(refused.reason).toContain("Review what the ladder resolved first");
-        note(`Join refused over a resolved candidate: ${refused.reason}`);
+        note(`landing refused over a resolved candidate: ${refused.reason}`);
 
         // What the review puts on screen: the resolved file, and the body the
         // driver actually chose. This is the artifact the incident lacked.
@@ -368,14 +374,21 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the ladder's candidate is gated on a revie
         ).toBe("false");
 
         // ── The second beat arms it ───────────────────────────────────────
+        // The press is a round trip, not a local flip: the server writes the
+        // mark against this candidate's sha and bumps the feed, and the face
+        // changes when that recomposed entry arrives. That is the whole point —
+        // a review nobody wrote down is one a reload forgets.
         await revealAndClick(app, REVIEWED);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REVIEW)})?.getAttribute("data-reviewed") === "true"`,
-          { timeoutMs: 8000 },
+          { timeoutMs: 30000 },
         );
-        const armed = await app.evalJS<{ disabled: boolean; reason: string }>(JOIN_STATE);
-        expect(armed.disabled).toBe(false);
-        note("Reviewed armed Join — the candidate is landable once read");
+        const armed = await app.evalJS<{ ready: boolean; reason: string }>(LANDING_STATE);
+        expect(armed.ready).toBe(true);
+        // Landable, and the row says where to land it rather than offering a
+        // button — the sentence is the only way forward from here.
+        expect(armed.reason).toContain("/dash-join");
+        note(`Reviewed cleared the gate: ${armed.reason}`);
 
         // Deliberately not clicked: landing would rewrite the developer's main.
       } finally {

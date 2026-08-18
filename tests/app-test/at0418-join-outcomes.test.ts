@@ -4,11 +4,17 @@
  *
  * The lane used to say what a dash *is* (name · base · rounds · dirty) and
  * nothing about what landing it would do. This drives the face that answers
- * that question against real dashes and a real `--preview`: a dash with a round
- * over a clean base reads clean and its Join affordance opens the editor; an
- * interrupted teardown reads blocked, names the resume as the act that clears
- * it, and fronts the resume itself; a dash with no rounds reads empty and asks
- * the release question in words.
+ * that question against real dashes and the server's own standing answer for
+ * each: a dash with a round over a clean base reads clean, carries no control
+ * at all, and states where landing happens; an interrupted teardown reads
+ * blocked, names the resume as the act that clears it, and fronts the resume
+ * itself; a dash with no rounds reads empty and asks the release question in
+ * words.
+ *
+ * The readiness sentence is load-bearing, not decoration. Nothing on the row
+ * lands a dash, so a landable one that said only "clean" would leave the reader
+ * at a dead end — the sentence naming ⌃⌘C and `/dash-join` is the whole of the
+ * way forward from that state, which is why it is asserted word for word.
  *
  * ## Two fixture notes
  *
@@ -45,6 +51,8 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/tug-confirm-popover.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts
+ * @covers tugdeck/src/lib/changeset-verb-store.ts
+ * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/use-landing-receipts.ts
  */
@@ -311,14 +319,14 @@ async function raiseShade(app: App): Promise<void> {
 }
 
 /**
- * The fronted row's outcome once the preview has answered. Waits past the two
- * in-flight words rather than for one expected one, so a wrong answer reports
- * itself instead of timing out on a selector.
+ * The fronted row's outcome once the feed has answered. Waits for any word
+ * rather than for one expected one, so a wrong answer reports itself instead of
+ * timing out on a selector.
  */
 async function settledOutcome(app: App, dash: string): Promise<string> {
   const read = `(document.querySelector(${JSON.stringify(landing(dash))})?.getAttribute("data-outcome") ?? "")`;
   await app.waitForCondition<boolean>(
-    `(() => { const o = ${read}; return o !== "" && o !== "unknown" && o !== "previewing"; })()`,
+    `(() => { const o = ${read}; return o !== ""; })()`,
     { timeoutMs: 40000 },
   );
   const outcome = await app.evalJS<string>(read);
@@ -330,31 +338,42 @@ async function settledOutcome(app: App, dash: string): Promise<string> {
 }
 
 /**
- * Whether the row's Join affordance is offered, and what it says if not.
+ * What the row says about landing.
  *
- * The refusal is read off the face, not off the button: a disabled button
- * takes no pointer events, so a `title` on one can never be shown.
+ * Landing is the composer's, so what the face owes the reader is a sentence:
+ * `ready` is the state that names the route, and `line` is whatever the face
+ * states about landing in any state.
  */
-async function joinAffordance(
+async function landingFace(
   app: App,
   dash: string,
-): Promise<{ present: boolean; disabled: boolean; hint: string }> {
-  return app.evalJS<{ present: boolean; disabled: boolean; hint: string }>(
+): Promise<{ ready: boolean; line: string; refusals: string }> {
+  return app.evalJS<{ ready: boolean; line: string; refusals: string }>(
     `(() => {
-       const el = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-join"]`)});
+       const line = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-landing-ready"]`)});
        const reasons = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-landing-refusals"]`)});
        return {
-         present: el !== null,
-         disabled: el !== null && el.hasAttribute("disabled"),
-         hint: reasons === null ? "" : (reasons.textContent ?? ""),
+         ready: line !== null && line.getAttribute("data-ready") === "true",
+         line: line === null ? "" : (line.textContent ?? ""),
+         refusals: reasons === null ? "" : (reasons.textContent ?? ""),
        };
      })()`,
   );
 }
 
+/** Enter join mode on a dash by its named route, the way a user would. */
+async function enterJoinMode(app: App, dash: string): Promise<void> {
+  await app.nativeClickAtElement(EDITOR);
+  await app.nativeType(`/dash-join ${dash}`);
+  await settle();
+  await app.nativeKey("Escape");
+  await settle();
+  await app.nativeKey("Return", ["cmd"]);
+}
+
 describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
   test(
-    "clean offers the join, an interrupted teardown names its resume, and an empty dash asks to be released",
+    "clean states its route and offers no button, an interrupted teardown names its resume, and an empty dash asks to be released",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
@@ -377,7 +396,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
 
         await raiseShade(app);
 
-        // ── Clean: the fronted row previews on open and offers the join ────
+        // ── Clean: the fronted row reads the feed and offers the join ─────
         await app.dispatchControlAction("bind_dash_ok", {
           tug_session_id: SID,
           dash_id: workId,
@@ -388,9 +407,12 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
           { timeoutMs: 20000 },
         );
         expect(await settledOutcome(app, DASH_WORK)).toBe("clean");
-        const clean = await joinAffordance(app, DASH_WORK);
-        expect(clean.present).toBe(true);
-        expect(clean.disabled).toBe(false);
+        const clean = await landingFace(app, DASH_WORK);
+        // A landable dash states that it is ready and names where landing
+        // happens — the composer's ⬆ is what fires one.
+        expect(clean.ready).toBe(true);
+        expect(clean.line).toContain("Ready to land");
+        expect(clean.line).toContain("/dash-join");
         // No blockers on a clean bill, and no release question either.
         const cleanFace = await app.evalJS<{ blockers: number; empty: number }>(
           `(() => {
@@ -404,13 +426,13 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         expect(cleanFace.blockers).toBe(0);
         expect(cleanFace.empty).toBe(0);
 
-        // The affordance does something: it opens the join-message editor.
+        // The route the readiness line named opens the join-message editor.
         // The route group is invariant, so the Changes segment is what goes
         // active; the Z5 button is what names the landing as a join.
-        await clickUntil(
-          app,
-          `${row(DASH_WORK)} [data-slot="session-changes-dash-join"]`,
-          `${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`,
+        await enterJoinMode(app, DASH_WORK);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
+          { timeoutMs: 12000 },
         );
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`)}) !== null`,
@@ -426,11 +448,11 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
 
         // ── Interrupted teardown: blocked, named, and resumable ────────────
         // Leaving join mode took the shade down with it, so the journal is
-        // written into the gap and the shade comes back up — a fresh open is
-        // a fresh preview, which is the point of previewing on expand.
+        // written into the gap and the shade comes back up on state the server
+        // recomputed while it was down.
         writeJournal(DASH_WORK);
-        // The blocker rides the preview, but the `landing` *stage* rides the
-        // aggregate — and nothing about a file in the state dir wakes it.
+        // The blocker and the `landing` stage both ride the aggregate — and
+        // nothing about a file in the state dir wakes it.
         // Touching a project file is what asks for the recompose that carries
         // the new stage onto the entry.
         const nudge = join(PROJECT_DIR, "at0418-nudge.txt");
@@ -455,9 +477,11 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         expect(blocked.detail).toContain("is incomplete");
         expect(blocked.detail).toContain("tugutil dash join");
         expect(blocked.act).toBe("Resume the interrupted teardown");
-        const stuck = await joinAffordance(app, DASH_WORK);
-        expect(stuck.disabled).toBe(true);
-        expect(stuck.hint).toContain("Clear what blocks this join first");
+        const stuck = await landingFace(app, DASH_WORK);
+        // Nothing claims this dash is ready, and the blocker's own detail and
+        // act are the sentence — the face does not repeat a generic refusal
+        // over the specific one already on screen.
+        expect(stuck.ready).toBe(false);
 
         // The stage the journal derives fronts the act itself. The button is
         // asserted, never pressed: a resume would tear the fixture's branch
@@ -495,9 +519,8 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // The line is prose; the act it names is the row's own affordance, not
         // a second button inside the sentence.
         expect(emptyFace.buttons).toBe(0);
-        const noJoin = await joinAffordance(app, DASH_EMPTY);
-        expect(noJoin.disabled).toBe(true);
-        expect(noJoin.hint).toContain("Nothing to join");
+        const noJoin = await landingFace(app, DASH_EMPTY);
+        expect(noJoin.ready).toBe(false);
 
         // ── Release: confirm, then the receipt, then a reload ──────────────
         // Its own dash, because this case destroys the one it runs on.

@@ -1991,6 +1991,51 @@ fn parse_changeset_join_resolve_payload(
     Ok(ChangesetJoinResolvePayload { project_dir, dash })
 }
 
+/// Parsed `changeset_join_review` request (Spec S02): the project checkout, the
+/// dash, and **which candidate** is being acknowledged.
+///
+/// The candidate sha is required rather than implied. A review is an
+/// acknowledgment of a specific artifact, so pinning it to the sha is what stops
+/// a review of one candidate from silently blessing whichever one happens to
+/// stand when the message arrives.
+struct ChangesetJoinReviewPayload {
+    project_dir: String,
+    dash: String,
+    candidate: String,
+}
+
+fn parse_changeset_join_review_payload(
+    payload: &[u8],
+) -> Result<ChangesetJoinReviewPayload, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::InvalidProjectDir {
+            reason: "missing_project_dir",
+        })?
+        .to_string();
+    let dash = value
+        .get("dash")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::Malformed)?
+        .to_string();
+    let candidate = value
+        .get("candidate")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::Malformed)?
+        .to_string();
+    Ok(ChangesetJoinReviewPayload {
+        project_dir,
+        dash,
+        candidate,
+    })
+}
+
 /// Parsed `changeset_discard` request: the project checkout and the dash name.
 struct ChangesetDiscardPayload {
     project_dir: String,
@@ -2946,6 +2991,13 @@ impl AgentSupervisor {
             "changeset_join_resolve" => match parse_changeset_join_resolve_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_join_resolve(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            "changeset_join_review" => match parse_changeset_join_review_payload(payload) {
+                Ok(parsed) => {
+                    self.do_changeset_join_review(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -5168,6 +5220,110 @@ impl AgentSupervisor {
         ));
     }
 
+    /// Handle a `changeset_join_review` CONTROL request (Spec S02): record that
+    /// the user has read what the ladder decided for a specific candidate.
+    ///
+    /// The mark is a sha rather than a boolean, and the request names the
+    /// candidate it acknowledges, so a review can never carry over to a
+    /// different candidate than the one that was read. A review naming a
+    /// candidate that no longer stands is refused with the reason rather than
+    /// written and forgotten.
+    ///
+    /// The reply is a liveness hint; the truth is the feed recompute this
+    /// fires ([P09]).
+    async fn do_changeset_join_review(&self, request: &ChangesetJoinReviewPayload) {
+        let project_dir = request.project_dir.as_str();
+        let dir = std::path::Path::new(project_dir);
+
+        if self.registry.find_entry_by_path(dir).is_none() {
+            Self::send_changeset_join_review_err(
+                &self.control_tx,
+                project_dir,
+                &request.dash,
+                "not an open project",
+            );
+            return;
+        }
+        if !crate::feeds::git::is_within_git_worktree(dir).await {
+            Self::send_changeset_join_review_err(
+                &self.control_tx,
+                project_dir,
+                &request.dash,
+                "not a git repository",
+            );
+            return;
+        }
+
+        let dir_owned = dir.to_path_buf();
+        let dash = request.dash.clone();
+        let candidate = request.candidate.clone();
+        let outcome = tokio::task::spawn_blocking(move || {
+            match tugdash_core::resolve::candidate_status_in(&dir_owned, &dash)? {
+                tugdash_core::resolve::CandidateStatus::Valid(sha) if sha == candidate => {
+                    tugdash_core::resolve::write_reviewed(&dir_owned, &dash, &sha)
+                }
+                tugdash_core::resolve::CandidateStatus::Valid(_) => Err(
+                    "that resolution has been superseded — review the current one".to_string(),
+                ),
+                tugdash_core::resolve::CandidateStatus::Stale(note) => Err(note),
+                tugdash_core::resolve::CandidateStatus::None => {
+                    Err("there is no resolved candidate to review".to_string())
+                }
+            }
+        })
+        .await;
+
+        // Fire the recompute before replying, on every arm: a refused review
+        // means the face was showing something that is no longer true, and the
+        // recompute is what corrects it.
+        self.registry.changeset_all_bump().notify_one();
+
+        match outcome {
+            Ok(Ok(())) => {
+                let body = serde_json::json!({
+                    "action": "changeset_join_review_ok",
+                    "project_dir": project_dir,
+                    "dash": request.dash,
+                    "candidate": request.candidate,
+                });
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("changeset_join_review_ok serializes"),
+                ));
+            }
+            Ok(Err(detail)) => Self::send_changeset_join_review_err(
+                &self.control_tx,
+                project_dir,
+                &request.dash,
+                &detail,
+            ),
+            Err(join_err) => Self::send_changeset_join_review_err(
+                &self.control_tx,
+                project_dir,
+                &request.dash,
+                &format!("review task failed: {join_err}"),
+            ),
+        }
+    }
+
+    fn send_changeset_join_review_err(
+        control_tx: &broadcast::Sender<Frame>,
+        project_dir: &str,
+        dash: &str,
+        detail: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "changeset_join_review_err",
+            "project_dir": project_dir,
+            "dash": dash,
+            "detail": detail,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_join_review_err serializes"),
+        ));
+    }
+
     /// Handle a `changeset_join_resolve` CONTROL request (Spec S12, [P31]/[P32]):
     /// run the tugdash-core resolution ladder with the scribe AI rung injected,
     /// streaming per-file progress. The ladder builds a candidate commit off to
@@ -5219,6 +5375,14 @@ impl AgentSupervisor {
             tugdash_core::resolve_conflicts(&dir_owned, &dash, merger_ref)
         })
         .await;
+
+        // The ladder's git effects — the candidate ref and its marks — are
+        // written by now on every arm, win or lose. Firing the recompute here
+        // rather than only on success is what makes the CONTROL reply below a
+        // liveness hint instead of the only carrier of the result: CONTROL is
+        // droppable by design, and a dropped `_ok` used to lose a real
+        // candidate forever. Now it costs the spinner and nothing else.
+        self.registry.changeset_all_bump().notify_one();
 
         match result {
             Ok(Ok(outcome)) => {
@@ -8699,6 +8863,205 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&show.stdout), "MERGED\n");
 
         cancel.cancel();
+    }
+
+
+    /// A review is an acknowledgment of a *specific* candidate, so the mark is
+    /// a sha and the request names it. Reviewing a superseded candidate is
+    /// refused with the reason rather than written and forgotten.
+    #[tokio::test]
+    async fn join_review_pins_the_candidate_sha_and_refuses_a_superseded_one() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let ok = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("f.txt"), "A\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(root.join("f.txt"), "B\n").unwrap();
+        git(&root, &["commit", "-am", "r1"]);
+        git(&root, &["switch", "-q", "main"]);
+        std::fs::write(root.join("f.txt"), "C\n").unwrap();
+        git(&root, &["commit", "-am", "main to C"]);
+
+        // A stub driver resolves the conflict, so the ladder reaches a
+        // candidate without needing the scribe.
+        let stub = root.join("stub-driver.sh");
+        std::fs::write(&stub, "#!/bin/sh\nprintf 'RESOLVED\\n' > \"$4\"\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git(
+            &root,
+            &["config", "tugdash.mergedriver", &stub.to_string_lossy()],
+        );
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let outcome = tugdash_core::resolve::resolve_conflicts(&root, "demo", None).unwrap();
+        let candidate = outcome.candidate_commit.clone().expect("candidate");
+
+        // A review naming a candidate that is not the one standing is refused.
+        let wrong = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_review",
+            "project_dir": root_str,
+            "dash": "demo",
+            "candidate": "0000000000000000000000000000000000000000",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_review", &wrong, 1).await;
+        let body = drain_for(&mut control_rx, "changeset_join_review").await;
+        assert_eq!(body["action"], "changeset_join_review_err", "{body}");
+        assert_eq!(
+            tugdash_core::resolve::read_reviewed(&root, "demo"),
+            None,
+            "a refused review writes nothing"
+        );
+
+        // The right sha marks it.
+        let right = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_review",
+            "project_dir": root_str,
+            "dash": "demo",
+            "candidate": candidate,
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_review", &right, 1).await;
+        let body = drain_for(&mut control_rx, "changeset_join_review").await;
+        assert_eq!(body["action"], "changeset_join_review_ok", "{body}");
+        assert_eq!(
+            tugdash_core::resolve::read_reviewed(&root, "demo").as_deref(),
+            Some(candidate.as_str())
+        );
+
+        cancel.cancel();
+    }
+
+    /// Correctness must not ride a droppable channel.
+    ///
+    /// CONTROL is `LagPolicy::Warn` — a frame may simply not arrive, and a lost
+    /// `_ok` used to lose a real candidate forever. Here every CONTROL send
+    /// fails outright (no receiver at all), and the resolve still has to land
+    /// in git and still has to show up in the state the feed composes.
+    #[tokio::test]
+    async fn a_resolve_survives_losing_every_control_frame() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let ok = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+
+        let (sup, _state_rx, _meta_rx, control_rx) = make_supervisor_with_store();
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("f.txt"), "A\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(root.join("f.txt"), "B\n").unwrap();
+        git(&root, &["commit", "-am", "r1"]);
+        git(&root, &["switch", "-q", "main"]);
+        std::fs::write(root.join("f.txt"), "C\n").unwrap();
+        git(&root, &["commit", "-am", "main to C"]);
+
+        let stub = root.join("stub-driver.sh");
+        std::fs::write(&stub, "#!/bin/sh\nprintf 'RESOLVED\\n' > \"$4\"\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git(
+            &root,
+            &["config", "tugdash.mergedriver", &stub.to_string_lossy()],
+        );
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        // Every CONTROL frame this handler sends is now dropped on the floor.
+        drop(control_rx);
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_resolve",
+            "project_dir": root_str,
+            "dash": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_resolve", &payload, 1)
+            .await;
+
+        // The result is in git regardless, and the composition the feed runs
+        // reports it — which is the whole point of moving terminal truth off
+        // CONTROL and onto the replayed snapshot feed.
+        let detail = tugdash_core::ops::dash_detail_entry_in(&root, "demo").expect("detail");
+        let branch = tugdash_core::ops::current_branch(&root).unwrap();
+        let state = crate::feeds::join_board::join_state_for(&root, &detail, &branch);
+        assert_eq!(state.phase, "resolved", "{state:?}");
+        assert!(state.candidate.is_some(), "the candidate survived: {state:?}");
+        assert!(
+            tugdash_core::resolve::read_candidate(&root, "demo").is_some(),
+            "and it is anchored in git"
+        );
+
+        cancel.cancel();
+    }
+
+    /// Read control frames until one carries an action starting with `prefix`.
+    async fn drain_for(
+        rx: &mut broadcast::Receiver<Frame>,
+        prefix: &str,
+    ) -> serde_json::Value {
+        for _ in 0..40 {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+                .await
+                .expect("a control frame")
+                .expect("sender alive");
+            let body: serde_json::Value = match serde_json::from_slice(&frame.payload) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if body["action"]
+                .as_str()
+                .is_some_and(|a| a.starts_with(prefix))
+            {
+                return body;
+            }
+        }
+        panic!("no {prefix} frame arrived");
     }
 
     /// A fake scribe that streams one delta and returns a fixed message.

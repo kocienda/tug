@@ -214,6 +214,78 @@ describe("aggregate changeset wire contract", () => {
     ).toBe(false);
   });
 
+
+  test("the fixture's dash carries its join block, field for field", () => {
+    const dash = golden.changesets.find((e) => e.kind === "dash");
+    if (dash?.kind !== "dash") throw new Error("expected a dash entry");
+    const join = dash.join;
+    expect(join).toBeDefined();
+    if (!join) throw new Error("expected a join block");
+
+    expect(join.phase).toBe("resolved");
+    expect(join.candidate).toBe("9f1c2d3e4b5a60718293a4b5c6d7e8f901234567");
+    expect(join.reviewed).toBe(false);
+    expect(join.conflicts).toEqual(["tugrust/crates/tugutil/src/commands/dash.rs"]);
+    expect(join.archaeology?.[0]?.total).toBe(1);
+    expect(join.archaeology?.[0]?.commits?.[0]?.sha).toBe("3722f24");
+
+    // The review payload's two halves: the diff (recomputed server-side from
+    // git) and the rung (persisted, because git cannot answer it).
+    expect(join.resolved).toHaveLength(1);
+    expect(join.resolved?.[0]?.resolved_by).toBe("driver");
+    expect(join.resolved?.[0]?.diff).toContain("@@");
+    expect(join.resolved?.[0]?.added).toBe(1);
+    expect(join.resolved?.[0]?.removed).toBe(1);
+  });
+
+  test("a dash entry with no join block still parses", () => {
+    // An older server sends none, and absence has to read as "nothing to say"
+    // rather than as a parse failure — otherwise a version skew drops the whole
+    // entry and the card shows no dash at all.
+    const joinless = {
+      kind: "dash",
+      owner_id: "tugdash/x",
+      display_name: "x",
+      base: "main",
+      rounds: 0,
+      worktree: "/repo/.tug/worktrees/x",
+      worktree_dirty: false,
+      files: [],
+    };
+    expect(isChangesetEntry(joinless)).toBe(true);
+  });
+
+  test("the join guard rejects shape drift rather than passing it through", () => {
+    const withJoin = (join: unknown) => ({
+      kind: "dash",
+      owner_id: "tugdash/x",
+      display_name: "x",
+      base: "main",
+      rounds: 0,
+      worktree: "/repo/.tug/worktrees/x",
+      worktree_dirty: false,
+      files: [],
+      join,
+    });
+
+    // A sparse block is the ordinary case — the wire skips empty collections.
+    expect(isChangesetEntry(withJoin({ phase: "previewed" }))).toBe(true);
+    // …but the one required field really is required.
+    expect(isChangesetEntry(withJoin({}))).toBe(false);
+    expect(isChangesetEntry(withJoin({ phase: 3 }))).toBe(false);
+    // A resolved file without its rung would render as a diff nobody can
+    // attribute, which is the signal the review panel exists to carry.
+    expect(
+      isChangesetEntry(withJoin({ phase: "resolved", resolved: [{ path: "a" }] })),
+    ).toBe(false);
+    expect(
+      isChangesetEntry(
+        withJoin({ phase: "blocked", blockers: [{ kind: "empty" }] }),
+      ),
+    ).toBe(false);
+    expect(isChangesetEntry(withJoin({ phase: "resolved", candidate: 7 }))).toBe(false);
+  });
+
   test("CHANGESET_ALL feed id is registered at 0x24", () => {
     expect(FeedId.CHANGESET_ALL).toBe(0x24);
   });

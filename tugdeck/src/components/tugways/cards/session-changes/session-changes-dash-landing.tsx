@@ -1,20 +1,32 @@
 /**
  * `SessionChangesDashLanding` — the dash row's landing face.
  *
- * One line answering "what would landing this dash do right now?", and the act
- * that clears whatever the answer is. The outcome word comes from
- * `deriveJoinOutcome` ([#outcome-derivation]) so the lane and the join-mode
- * controller cannot disagree; each blocker renders its server-written detail
- * plus the one act that clears it ([#blocker-acts]).
+ * One line answering "what would landing this dash do right now?", and **the
+ * one act that advances it** — never a menu of acts, and never an act the gate
+ * will then refuse. Blocked shows each blocker's server-written detail beside
+ * the act that clears it; conflicted shows the paths and offers the ladder;
+ * resolved shows what the ladder decided and offers the review that
+ * acknowledges it; and landable shows a sentence and nothing else at all.
  *
- * The face belongs to the **fronted** row only. `JoinState` is one slot per
- * card, not per dash, so two rows previewing would overwrite each other and the
- * loser would render the winner's blockers under its own name — and landing is
- * a gesture on this card's own dash anyway.
+ * That last state is the point of the shape. There is no Join button here. The
+ * one it replaces read as an action and performed a mode entry, so on every
+ * state that could not land it stood there greyed out — a control offering a
+ * press whose refusal was computed somewhere the press never reached. Landing
+ * lives in the composer (⌃⌘C, or `/dash-join`), where the message is typed and
+ * where a refusal can be both computed and shown; the readiness line's job is
+ * to name that route, because with no control on the row a sentence is the only
+ * thing standing between the reader and a dead end.
+ *
+ * Every value here is read from the dash's server-owned join block, so the face
+ * and the land gate answer the same question from the same bytes.
+ *
+ * The face belongs to the **fronted** row only — landing is a gesture on this
+ * card's own dash, and the composer it routes to is this card's own.
  *
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
  * [L06] tone paints through `data-outcome` and CSS; [L19] the face composes
- * `TugBadge` / `TugPushButton` rather than hand-rolling chrome.
+ * `TugBadge` / `TugPushButton` rather than hand-rolling chrome; [L31] every
+ * refusal is on screen as face text, next to the act that clears it.
  *
  * @module components/tugways/cards/session-changes/session-changes-dash-landing
  */
@@ -27,28 +39,41 @@ import { LoaderCircle } from "lucide-react";
 import { TugBadge, type TugBadgeRole } from "@/components/tugways/tug-badge";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugDiffDocument } from "@/components/tugways/tug-diff-document";
-import type { DashChangesetEntry } from "@/lib/changeset-types";
-import type { ConflictHistory, JoinBlocker, JoinPhase } from "@/lib/changeset-verb-store";
-import type { ResolvedFile, ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
+import type {
+  DashChangesetEntry,
+  DashJoinBlockerWire,
+  DashJoinStateWire,
+  DashResolvedFileWire,
+} from "@/lib/changeset-types";
+import type { JoinPhase } from "@/lib/changeset-verb-store";
+import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
 import type { GitDiffFile, GitDiffPayload } from "@/lib/git-diff-store";
 import {
+  deriveJoinOutcome,
   evaluateJoinLandGate,
   joinDisabledReason,
   resolutionAwaitsReview,
   type JoinOutcome,
 } from "@/lib/join-mode-controller";
 
-/** The lane's landing gestures, supplied by the card that owns the dash. */
+/**
+ * The lane's landing gestures, supplied by the card that owns the dash.
+ *
+ * There is deliberately no gesture here that lands, and none that opens the
+ * join editor. Landing is the composer's — ⌃⌘C, or `/dash-join` — and the
+ * composer's ⬆ is the only control that fires one. A row-level button that
+ * *entered a mode* while reading as an action was the resting lie this lane
+ * carried: it claimed a landing, and on every state that could not land it
+ * greyed itself out and said so in a place the press never reached.
+ */
 export interface DashLandingActions {
-  /** Ask the server what this join would do; fired when the fronted row opens. */
-  preview: (entry: DashChangesetEntry) => void;
-  /** Open the join-message editor over the previewed merge. */
-  join: (entry: DashChangesetEntry) => void;
+  /** Point the join mode at this dash without entering it — the row's expand. */
+  aim: (entry: DashChangesetEntry) => void;
   /** Resume an interrupted teardown from the dash's join journal. */
   resumeTeardown: (entry: DashChangesetEntry) => void;
   /** Run the resolution ladder over a conflicted join. */
   resolve: (entry: DashChangesetEntry) => void;
-  /** Acknowledge what the ladder decided — the beat that arms Join ([P31]). */
+  /** Acknowledge what the ladder decided — the beat that clears the gate. */
   markReviewed: (entry: DashChangesetEntry) => void;
 }
 
@@ -59,51 +84,146 @@ export interface DashLandingActions {
  * - `offer` — conflicted and untried: the ladder is the act that clears it.
  * - `progress` — running, streaming per file.
  * - `resolved` — a candidate exists; the join is landable after all.
- * - `partial` — the ladder's honest dead end. Some files are still conflicting,
- *   so there is nothing to land and no button that could pretend otherwise.
- * - `error` / `none` — the ladder refused, or has nothing to say here.
- *
- * A `resolved` phase with no candidate reads as `partial` for the same reason:
- * whatever it resolved, there is no commit to land.
+ * - `error` / `none` — the ladder refused or reached its dead end, or has
+ *   nothing to say here.
  */
-export type ResolveFace = "none" | "offer" | "progress" | "resolved" | "partial" | "error";
+export type ResolveFace = "none" | "offer" | "progress" | "resolved" | "error";
 
+/**
+ * The candidate outranks the progress phase, and that ordering is what makes a
+ * resolution survive a reload: the phase is a live overlay that dies with the
+ * page, while the candidate is a git ref the server re-reports on every
+ * recompute. Ranked the other way, reopening the deck after a successful
+ * Resolve would show a clean dash with no review panel and land it unread.
+ */
 export function deriveResolveFace(
   outcome: JoinOutcome,
   phase: ResolvePhase,
   candidateCommit: string | null,
 ): ResolveFace {
-  switch (phase) {
-    case "resolving":
-      return "progress";
-    case "resolved":
-      return candidateCommit !== null ? "resolved" : "partial";
-    case "partial":
-      return "partial";
-    case "error":
-      return "error";
-    default:
-      return outcome === "conflicted" ? "offer" : "none";
-  }
+  if (phase === "resolving") return "progress";
+  if (candidateCommit !== null) return "resolved";
+  if (phase === "error") return "error";
+  return outcome === "conflicted" || outcome === "stale" ? "offer" : "none";
+}
+
+/** The `data-slot` of every control this face can mount on the landing path. */
+export const LANDING_CONTROL = {
+  resume: "session-changes-dash-resume",
+  resolve: "session-changes-dash-resolve",
+  reviewed: "session-changes-dash-landing-reviewed",
+} as const;
+
+export type LandingControl = (typeof LANDING_CONTROL)[keyof typeof LANDING_CONTROL];
+
+/** What the face shows for one state: the words, and the single act. */
+export interface LandingFace {
+  outcome: JoinOutcome;
+  resolve: ResolveFace;
+  /**
+   * The one control that advances this landing, or `null` where the state
+   * advances by itself — a run in flight, a landing in flight, a turn to wait
+   * out, and the landable state, whose act is the composer's ⬆.
+   */
+  control: LandingControl | null;
+  /**
+   * What the face states about landing, or `null` where the state's own block
+   * already is that sentence — see {@link LandingFace.statedBelow}.
+   */
+  line: string | null;
+  /**
+   * The state's own block carries the refusal, so `line` deliberately does not
+   * repeat it: the blockers name their causes and their acts, the conflicted
+   * paths name themselves, the stale note is the server's own sentence.
+   *
+   * It is computed from the content that will actually render, not from the
+   * outcome word, and that distinction is the whole reason it exists. A dash
+   * whose join state never reached this deck derives `blocked` with *no*
+   * blockers to show, so suppressing the line on the word alone left a row with
+   * no control, no explanation, and no way to tell that from a working one.
+   */
+  statedBelow: boolean;
+}
+
+/**
+ * Table T01 as a function: one feed state in, one act and one sentence out.
+ *
+ * Pure and exported so the face's shape is testable without a DOM, and — more
+ * to the point — so there is one place that decides which control is on screen.
+ * The old face decided that inline across five independent conditionals, which
+ * is how it ended up mounting a disabled Join beside a Resolve beside a review
+ * panel and leaving the reader to guess which one it wanted.
+ */
+export function deriveLandingFace(input: {
+  join: DashJoinStateWire | null;
+  resolvePhase: ResolvePhase;
+  joinPhase: JoinPhase;
+  turnInProgress: boolean;
+  /** The dash is mid-teardown from an interrupted landing (`stage === "landing"`). */
+  interrupted: boolean;
+}): LandingFace {
+  const { join, resolvePhase, joinPhase, turnInProgress, interrupted } = input;
+  const outcome = deriveJoinOutcome(join);
+  const candidate =
+    typeof join?.candidate === "string" && join.candidate !== "" ? join.candidate : null;
+  const staleNote =
+    typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
+  const resolve = deriveResolveFace(outcome, resolvePhase, candidate);
+  const gate = evaluateJoinLandGate({
+    turnInProgress,
+    joinPhase,
+    outcome,
+    candidateCommit: candidate,
+    unreviewedResolution: resolutionAwaitsReview(join),
+    // The message lives in the composer, so the row asks the gate everything
+    // except that: opening the editor is what supplies it.
+    message: "x",
+  });
+  const reason = gate.ok ? null : joinDisabledReason(gate.reason, outcome, staleNote);
+
+  // An interrupted teardown outranks everything: it refuses every other act
+  // server-side, so it is the only door out of this state.
+  const control: LandingControl | null = interrupted
+    ? LANDING_CONTROL.resume
+    : (join?.blockers ?? []).length > 0
+      ? null
+      : resolve === "offer" || resolve === "error"
+        ? LANDING_CONTROL.resolve
+        : resolve === "resolved" && resolutionAwaitsReview(join)
+          ? LANDING_CONTROL.reviewed
+          : null;
+
+  // Measured against what will render, never against the outcome word.
+  const statedBelow =
+    !gate.ok &&
+    gate.reason === "outcome" &&
+    ((outcome === "blocked" && (join?.blockers ?? []).length > 0) ||
+      (outcome === "conflicted" && (join?.conflicts ?? []).length > 0) ||
+      (outcome === "stale" && staleNote !== null) ||
+      outcome === "empty");
+  const line = gate.ok
+    ? "Ready to land — ⌃⌘C, or /dash-join"
+    : statedBelow
+      ? null
+      : reason;
+
+  return { outcome, resolve, control, line, statedBelow };
 }
 
 export interface SessionChangesDashLandingProps {
   /** The dash this face describes — always the card's own. */
   entry: DashChangesetEntry;
-  /** The derived landing outcome ([#outcome-derivation]). */
-  outcome: JoinOutcome;
-  /** The join round trip's phase, for the pending gate. */
+  /**
+   * The dash's server-owned join state, straight off its feed entry: blockers,
+   * conflicts, the candidate and what the ladder decided per path. Everything
+   * this face says about a landing is read from here, so the face and the land
+   * gate cannot disagree.
+   */
+  join: DashJoinStateWire | null;
+  /** The landing round trip's phase, for the pending gate. */
   joinPhase: JoinPhase;
-  /** Conflicting paths from the preview or an aborted execute. */
-  conflicts: readonly string[];
-  /** Per-path base history behind those conflicts (Spec S03); preview only. */
-  archaeology: readonly ConflictHistory[];
-  /** What would refuse this join, from the preview's preflight (Spec S03). */
-  blockers: readonly JoinBlocker[];
   /** A verb-level refusal from an execute, if one came back. */
   error: string | null;
-  /** A candidate commit from the resolution ladder, if one was built. */
-  candidateCommit: string | null;
   /** A Claude turn is in flight — durable acts wait. */
   turnInProgress: boolean;
   /** The resolution ladder's live state for this dash. */
@@ -127,21 +247,19 @@ export interface SessionChangesDashLandingProps {
 
 /** The word the face fronts for each outcome. */
 const OUTCOME_WORDS: Record<JoinOutcome, string> = {
-  unknown: "not previewed",
-  previewing: "previewing…",
   clean: "clean",
   conflicted: "conflicted",
   blocked: "blocked",
   empty: "empty",
+  stale: "out of date",
 };
 
 const OUTCOME_ROLES: Record<JoinOutcome, TugBadgeRole> = {
-  unknown: "data",
-  previewing: "data",
   clean: "success",
   conflicted: "danger",
   blocked: "caution",
   empty: "data",
+  stale: "caution",
 };
 
 /**
@@ -149,13 +267,14 @@ const OUTCOME_ROLES: Record<JoinOutcome, TugBadgeRole> = {
  * this deck has never heard of — an unknown blocker still renders its `detail`,
  * so a new server-side refusal is shown rather than swallowed (Spec S03).
  */
-export function blockerAct(blocker: JoinBlocker, base: string): string | null {
+export function blockerAct(blocker: DashJoinBlockerWire, base: string): string | null {
+  const paths = blocker.paths ?? [];
   switch (blocker.kind) {
     case "off-base":
       return `Check out ${base} first`;
     case "base-dirt":
-      return blocker.paths.length > 0
-        ? `Commit or stash ${blocker.paths.join(", ")}`
+      return paths.length > 0
+        ? `Commit or stash ${paths.join(", ")}`
         : "Commit or stash the overlapping changes";
     case "stale-journal":
       return "Resume the interrupted teardown";
@@ -211,11 +330,14 @@ function resolutionStatus(unified: string): GitDiffFile["status"] {
  * instead of reading it.
  */
 export function resolutionDiffPayload(
-  resolved: readonly ResolvedFile[],
+  resolved: readonly DashResolvedFileWire[],
   workspaceKey: string,
 ): GitDiffPayload {
   const files: GitDiffFile[] = resolved
-    .filter((file): file is ResolvedFile & { diff: string } => file.diff !== null)
+    .filter(
+      (file): file is DashResolvedFileWire & { diff: string } =>
+        typeof file.diff === "string" && file.diff !== "",
+    )
     .map((file) => ({
       path: file.path,
       status: resolutionStatus(file.diff),
@@ -237,21 +359,17 @@ export function resolutionDiffPayload(
 }
 
 /** The review's own header line — what the ladder did, and by which rungs. */
-export function resolutionReviewLine(resolved: readonly ResolvedFile[]): string {
+export function resolutionReviewLine(resolved: readonly DashResolvedFileWire[]): string {
   const count = resolved.length;
-  const rungs = [...new Set(resolved.map((f) => f.resolvedBy))].sort();
+  const rungs = [...new Set(resolved.map((f) => f.resolved_by))].sort();
   return `${count} file${count === 1 ? "" : "s"} resolved by ${rungs.join(", ")} — read this before it lands`;
 }
 
 export function SessionChangesDashLanding({
   entry,
-  outcome,
+  join,
   joinPhase,
-  conflicts,
-  archaeology,
-  blockers,
   error,
-  candidateCommit,
   turnInProgress,
   resolve,
   bindingRefusal,
@@ -260,25 +378,28 @@ export function SessionChangesDashLanding({
   onRequestDiscard,
   actions,
 }: SessionChangesDashLandingProps): React.ReactElement {
-  // The message lives in the composer, not here, so the affordance asks the
-  // gate everything *except* the message — opening the editor is what supplies
-  // it. Same gate as the land itself ([P05]), so the two never disagree.
-  const gate = evaluateJoinLandGate({
-    turnInProgress,
-    joinPhase,
-    outcome,
-    candidateCommit,
-    unreviewedResolution: resolutionAwaitsReview(resolve),
-    message: "x",
-  });
-  const disabledReason = gate.ok ? null : joinDisabledReason(gate.reason, outcome);
-  // A stale journal blocks every other act, so the resume renders whatever the
-  // outcome says — it is the one gesture that can make the rest reachable.
+  const conflicts = join?.conflicts ?? [];
+  const archaeology = join?.archaeology ?? [];
+  const blockers = join?.blockers ?? [];
+  const resolved = join?.resolved ?? [];
+  const staleNote =
+    typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
+  const reviewed = join?.reviewed === true;
+  // A stale journal refuses every other act server-side, so the resume is the
+  // one gesture that can make the rest reachable.
   const interrupted = entry.stage === "landing";
-  const resolveFace = deriveResolveFace(outcome, resolve.phase, resolve.candidateCommit);
+  // One decision, made once ({@link deriveLandingFace}) and rendered here.
+  const face = deriveLandingFace({
+    join,
+    resolvePhase: resolve.phase,
+    joinPhase,
+    turnInProgress,
+    interrupted,
+  });
+  const { outcome, resolve: resolveFace, control, line: landingLine } = face;
   const reviewPayload = React.useMemo(
-    () => resolutionDiffPayload(resolve.resolved, entry.owner_id),
-    [resolve.resolved, entry.owner_id],
+    () => resolutionDiffPayload(resolved, entry.owner_id),
+    [resolved, entry.owner_id],
   );
   const resumeHint =
     joinPhase === "pending"
@@ -293,7 +414,6 @@ export function SessionChangesDashLanding({
   if (interrupted && resumeHint !== null) {
     refusals.push({ control: "Resume teardown", reason: resumeHint });
   }
-  if (disabledReason !== null) refusals.push({ control: "Join", reason: disabledReason });
   if (discardAvailable && discardDisabledReason !== null) {
     refusals.push({ control: "Discard", reason: discardDisabledReason });
   }
@@ -318,9 +438,9 @@ export function SessionChangesDashLanding({
           {/* Offered while the ladder is the act that clears the conflict, and
               offered AGAIN after a run that failed — a refusal the user cannot
               answer is a dead end, and the ladder is the only door out of a
-              conflicted dash. `partial` keeps no button on purpose: the ladder
-              reached its honest end and re-running it decides nothing new. */}
-          {resolveFace === "offer" || resolveFace === "error" ? (
+              conflicted dash. The ladder's own dead end — some files still
+              conflicting — arrives as an error carrying their names. */}
+          {control === LANDING_CONTROL.resolve ? (
             <TugPushButton
               size="xs"
               emphasis="outlined"
@@ -334,7 +454,7 @@ export function SessionChangesDashLanding({
               {resolveFace === "error" ? "Resolve again" : "Resolve"}
             </TugPushButton>
           ) : null}
-          {interrupted ? (
+          {control === LANDING_CONTROL.resume ? (
             <TugPushButton
               size="xs"
               emphasis="filled"
@@ -346,16 +466,6 @@ export function SessionChangesDashLanding({
               Resume teardown
             </TugPushButton>
           ) : null}
-          <TugPushButton
-            size="xs"
-            emphasis="filled"
-            role="action"
-            onClick={() => actions.join(entry)}
-            disabled={disabledReason !== null}
-            data-slot="session-changes-dash-join"
-          >
-            Join
-          </TugPushButton>
           {/* Shade-only, on the row: a discard is not a thing to reach by
               chord or by typing a verb. One beat — it opens the lane's confirm
               popover, which names what the discard destroys and where the
@@ -374,6 +484,15 @@ export function SessionChangesDashLanding({
           ) : null}
         </span>
       </div>
+      {landingLine !== null ? (
+        <div
+          className="session-changes-dash-landing-note"
+          data-slot="session-changes-dash-landing-ready"
+          data-ready={control === null && outcome === "clean" ? "true" : "false"}
+        >
+          {landingLine}
+        </div>
+      ) : null}
       {refusals.length > 0 ? (
         <ul
           className="session-changes-dash-landing-refusals"
@@ -388,6 +507,17 @@ export function SessionChangesDashLanding({
             </li>
           ))}
         </ul>
+      ) : null}
+      {/* The server's own sentence for a candidate it has already dropped. It
+          names which side moved, which is the whole of what the reader needs
+          to decide whether to resolve again. */}
+      {staleNote !== null ? (
+        <div
+          className="session-changes-dash-landing-note"
+          data-slot="session-changes-dash-landing-stale"
+        >
+          {staleNote}
+        </div>
       ) : null}
       {outcome === "empty" ? (
         <div
@@ -448,42 +578,42 @@ export function SessionChangesDashLanding({
           ))}
         </ul>
       ) : null}
-      {resolveFace === "resolved" || resolveFace === "partial" ? (
+      {resolveFace === "resolved" ? (
         <ul
           className="session-changes-dash-landing-rungs"
           data-slot="session-changes-dash-landing-resolved"
         >
-          {resolve.resolved.map((file) => (
-            <li key={file.path} data-resolved-by={file.resolvedBy}>
+          {resolved.map((file) => (
+            <li key={file.path} data-resolved-by={file.resolved_by}>
               <span className="session-changes-dash-landing-rung-path">{file.path}</span>
               <span className="session-changes-dash-landing-rung-word">
-                {file.resolvedBy}
+                {file.resolved_by}
               </span>
             </li>
           ))}
         </ul>
       ) : null}
-      {/* The review ([P31]). A candidate built out of per-file resolutions is a
-          machine decision nobody has read: rerere replays a cache that can be
-          stale, the driver and the AI rung guess. So the diffs render, and Join
-          stays refused until the second beat acknowledges them — the same
-          shape as the discard above, for the same reason. A rung-1 replay
+      {/* The review ([D115]). A candidate built out of per-file resolutions is
+          a machine decision nobody has read: rerere replays a cache that can be
+          stale, the driver and the AI rung guess. So the diffs render, and the
+          landing stays refused until the second beat acknowledges them — the
+          same shape as the discard above, for the same reason. A rung-1 replay
           resolves no files and never lands here. */}
-      {resolveFace === "resolved" && resolve.resolved.length > 0 ? (
+      {resolveFace === "resolved" && resolved.length > 0 ? (
         <div
           className="session-changes-dash-landing-review"
           data-slot="session-changes-dash-landing-review"
-          data-reviewed={resolve.reviewed ? "true" : "false"}
+          data-reviewed={reviewed ? "true" : "false"}
         >
-          {resolve.reviewed ? (
+          {control !== LANDING_CONTROL.reviewed ? (
             <div className="session-changes-dash-landing-note">
-              Reviewed — {resolve.resolved.length} resolved file
-              {resolve.resolved.length === 1 ? "" : "s"} ready to land.
+              Reviewed — {resolved.length} resolved file
+              {resolved.length === 1 ? "" : "s"} ready to land.
             </div>
           ) : (
             <>
               <div className="session-changes-dash-landing-note">
-                {resolutionReviewLine(resolve.resolved)}
+                {resolutionReviewLine(resolved)}
               </div>
               {/* Open, not collapsed: an acknowledgement over a folded-away
                   diff is a checkbox, which is the thing this replaces. */}
@@ -499,15 +629,6 @@ export function SessionChangesDashLanding({
               </TugPushButton>
             </>
           )}
-        </div>
-      ) : null}
-      {resolveFace === "partial" ? (
-        <div
-          className="session-changes-dash-landing-note"
-          data-slot="session-changes-dash-landing-partial"
-        >
-          Still conflicting — resolve by hand:{" "}
-          {resolve.unresolved.join(", ")}
         </div>
       ) : null}
       {resolveFace === "error" ? (
@@ -526,7 +647,8 @@ export function SessionChangesDashLanding({
             // explains it, and it is the difference between "resolve this"
             // and knowing what you are resolving against.
             const history = archaeology.find((h) => h.path === path) ?? null;
-            const elided = history === null ? 0 : history.total - history.commits.length;
+            const commits = history?.commits ?? [];
+            const elided = history === null ? 0 : history.total - commits.length;
             return (
               <li key={path}>
                 <span className="session-changes-dash-landing-conflict-path">{path}</span>
@@ -535,7 +657,7 @@ export function SessionChangesDashLanding({
                     className="session-changes-dash-landing-archaeology"
                     data-slot="session-changes-dash-landing-archaeology"
                   >
-                    {history.commits.map((commit) => (
+                    {commits.map((commit) => (
                       <li key={commit.sha}>
                         <span className="session-changes-dash-landing-archaeology-sha">
                           {commit.sha}

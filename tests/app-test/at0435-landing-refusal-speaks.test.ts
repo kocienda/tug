@@ -185,6 +185,16 @@ async function clickUntil(app: App, target: string, expected: string, attempts =
   throw new Error(`at0435: ${expected} never appeared after clicking ${target}`);
 }
 
+/** Enter join mode on a dash by its named route — the row offers no control. */
+async function enterJoinMode(app: App, dash: string): Promise<void> {
+  await app.nativeClickAtElement(EDITOR);
+  await app.nativeType(`/dash-join ${dash}`);
+  await settle();
+  await app.nativeKey("Escape");
+  await settle();
+  await app.nativeKey("Return", ["cmd"]);
+}
+
 async function raiseShade(app: App): Promise<void> {
   await app.nativeClickAtElement(EDITOR);
   await app.nativeType("/commit");
@@ -205,7 +215,7 @@ async function raiseShade(app: App): Promise<void> {
 async function settledOutcome(app: App, dash: string): Promise<string> {
   const read = `(document.querySelector(${JSON.stringify(landing(dash))})?.getAttribute("data-outcome") ?? "")`;
   await app.waitForCondition<boolean>(
-    `(() => { const o = ${read}; return o !== "" && o !== "unknown" && o !== "previewing"; })()`,
+    `(() => { const o = ${read}; return o !== ""; })()`,
     { timeoutMs: 40000 },
   );
   return app.evalJS<string>(read);
@@ -249,11 +259,12 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         );
         expect(await settledOutcome(app, DASH), "the fixture must be landable").toBe("clean");
 
-        // Into the join-message editor through the lane's own affordance.
-        await clickUntil(
-          app,
-          `${row(DASH)} [data-slot="session-changes-dash-join"]`,
-          `${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`,
+        // The landable row states its route rather than offering a control,
+        // and this is that route.
+        await enterJoinMode(app, DASH);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
+          { timeoutMs: 12000 },
         );
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
@@ -262,8 +273,8 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
 
         // The editor opens empty: a fixture dash has no maintained join draft,
         // and nothing here writes one. Nothing clears it either — `⌘A` is a
-        // menu chord and menu chords die in a background window (at0043 runs
-        // `foreground: true` for exactly that reason), so the fixture supplies
+        // menu chord and menu chords die in a background window (at0043 takes
+        // the screen for exactly that reason), so the fixture supplies
         // the empty document instead of a keystroke pretending to.
         await app.nativeClickAtElement(EDITOR);
         await settle();

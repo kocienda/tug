@@ -230,6 +230,16 @@ async function clickUntil(app: App, target: string, expected: string, attempts =
   throw new Error(`at0436: ${expected} never appeared after clicking ${target}`);
 }
 
+/** Enter join mode on a dash by its named route — the row offers no control. */
+async function enterJoinMode(app: App, dash: string): Promise<void> {
+  await app.nativeClickAtElement(EDITOR);
+  await app.nativeType(`/dash-join ${dash}`);
+  await settle();
+  await app.nativeKey("Escape");
+  await settle();
+  await app.nativeKey("Return", ["cmd"]);
+}
+
 async function raiseShade(app: App): Promise<void> {
   await app.nativeClickAtElement(EDITOR);
   await app.nativeType("/commit");
@@ -250,7 +260,7 @@ async function raiseShade(app: App): Promise<void> {
 async function settledOutcome(app: App, dash: string): Promise<string> {
   const read = `(document.querySelector(${JSON.stringify(landing(dash))})?.getAttribute("data-outcome") ?? "")`;
   await app.waitForCondition<boolean>(
-    `(() => { const o = ${read}; return o !== "" && o !== "unknown" && o !== "previewing"; })()`,
+    `(() => { const o = ${read}; return o !== ""; })()`,
     { timeoutMs: 40000 },
   );
   return app.evalJS<string>(read);
@@ -293,10 +303,13 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         );
         expect(await settledOutcome(app, DASH), "the fixture must be landable").toBe("clean");
 
-        await clickUntil(
-          app,
-          `${row(DASH)} [data-slot="session-changes-dash-join"]`,
-          `${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`,
+        // The landable row offers no control — the composer's ⬆ is the only
+        // thing that lands — so the route the readiness line names is how the
+        // editor opens.
+        await enterJoinMode(app, DASH);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
+          { timeoutMs: 12000 },
         );
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,

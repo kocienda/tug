@@ -15,10 +15,9 @@ import {
   resolutionReviewLine,
 } from "@/components/tugways/cards/session-changes/session-changes-dash-landing";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
-import type { JoinBlocker } from "@/lib/changeset-verb-store";
-import type { ResolvedFile } from "@/lib/changeset-join-store";
+import type { DashJoinBlockerWire, DashResolvedFileWire } from "@/lib/changeset-types";
 
-const blocker = (kind: string, paths: readonly string[] = []): JoinBlocker => ({
+const blocker = (kind: string, paths: string[] = []): DashJoinBlockerWire => ({
   kind,
   detail: `detail for ${kind}`,
   paths,
@@ -69,12 +68,13 @@ describe("discardPreflightLine", () => {
 describe("joinDisabledReason", () => {
   it("answers with the gate's own reason before it looks at the outcome", () => {
     expect(joinDisabledReason("turn", "clean")).toBe("Wait for the turn to finish");
-    expect(joinDisabledReason("pending", "clean")).toBe("Previewing…");
+    expect(joinDisabledReason("pending", "clean")).toBe("Landing…");
   });
 
   it("names what the outcome is waiting on", () => {
-    expect(joinDisabledReason("outcome", "unknown")).toBe("Not previewed yet");
-    expect(joinDisabledReason("outcome", "previewing")).toBe("Previewing…");
+    expect(joinDisabledReason("outcome", "stale", "the dash has moved")).toBe(
+      "the dash has moved",
+    );
     expect(joinDisabledReason("outcome", "conflicted")).toBe(
       "Resolve the conflicts first",
     );
@@ -90,9 +90,15 @@ describe("resolutionDiffPayload", () => {
     path: string,
     resolvedBy: string,
     diff: string | null,
-    added: number | null = null,
-    removed: number | null = null,
-  ): ResolvedFile => ({ path, resolvedBy, diff, added, removed });
+    added?: number,
+    removed?: number,
+  ): DashResolvedFileWire => ({
+    path,
+    resolved_by: resolvedBy,
+    ...(diff !== null ? { diff } : {}),
+    ...(added !== undefined ? { added } : {}),
+    ...(removed !== undefined ? { removed } : {}),
+  });
 
   const modified = [
     "diff --git a/a.ts b/a.ts",
@@ -178,15 +184,15 @@ describe("resolutionReviewLine", () => {
   it("names the count and every rung that decided, deduplicated", () => {
     expect(
       resolutionReviewLine([
-        { path: "a.ts", resolvedBy: "rerere", diff: "d", added: null, removed: null },
-        { path: "b.ts", resolvedBy: "ai", diff: "d", added: null, removed: null },
-        { path: "c.ts", resolvedBy: "rerere", diff: "d", added: null, removed: null },
+        { path: "a.ts", resolved_by: "rerere", diff: "d" },
+        { path: "b.ts", resolved_by: "ai", diff: "d" },
+        { path: "c.ts", resolved_by: "rerere", diff: "d" },
       ]),
     ).toBe("3 files resolved by ai, rerere — read this before it lands");
   });
 
   it("agrees with itself in the singular", () => {
-    expect(resolutionReviewLine([{ path: "a.ts", resolvedBy: "rerere", diff: "d", added: null, removed: null }])).toBe(
+    expect(resolutionReviewLine([{ path: "a.ts", resolved_by: "rerere", diff: "d" }])).toBe(
       "1 file resolved by rerere — read this before it lands",
     );
   });

@@ -79,63 +79,27 @@ const COMMIT_IDLE: CommitState = Object.freeze({
 });
 
 /**
- * One dash-join round trip's state, keyed by the initiating card entry.
+ * One dash-landing round trip's state, keyed by the initiating card entry.
  *
- * `pending` covers a preview or execute request in flight. A preview reply
- * lands in `preview` (its `conflicts` empty ⇒ a clean bill, non-empty ⇒ the
- * conflicting paths). An execute reply lands in `done` (a commit was made and
- * the entry will drop on the next aggregate recompute) or `conflict` (the join
- * cleanly aborted on the listed paths — the "Resolve with AI" path). `error`
- * carries a verb-level refusal (e.g. "Nothing to join").
+ * This is the *execute* round trip and nothing else. What a landing would do —
+ * blockers, conflicts, the resolved candidate — arrives on the dash's feed
+ * entry as server-owned state, so the card asks nothing and the phases here
+ * describe only a landing the user pressed for.
+ *
+ * `pending` is an execute in flight; `done` means a commit was made and the
+ * entry will drop on the next aggregate recompute; `conflict` means the join
+ * cleanly aborted on the listed paths; `error` carries a verb-level refusal
+ * (e.g. "Nothing to join").
  */
-export type JoinPhase = "idle" | "pending" | "preview" | "done" | "conflict" | "error";
-
-/**
- * One reason a join would be refused, as the server's preflight reports it
- * (Spec S03). `kind` is `off-base` | `base-dirt` | `stale-journal` | `empty`;
- * an unrecognized kind still carries a renderable `detail`, so a blocker the
- * deck has never heard of is shown rather than swallowed.
- */
-export interface JoinBlocker {
-  kind: string;
-  detail: string;
-  /** Paths, for `base-dirt`; empty otherwise. */
-  paths: readonly string[];
-}
-
-/** One base commit behind a conflicted path (Spec S03). */
-export interface ConflictCommit {
-  sha: string;
-  subject: string;
-}
-
-/**
- * What the base did to one conflicted path since the two sides parted — the
- * history that explains the conflict. Server-computed on the preview path,
- * newest first and capped; `total` counts every commit, so the face can say
- * how many it is not showing.
- */
-export interface ConflictHistory {
-  path: string;
-  commits: readonly ConflictCommit[];
-  total: number;
-}
+export type JoinPhase = "idle" | "pending" | "done" | "conflict" | "error";
 
 export interface JoinState {
   phase: JoinPhase;
   error: string | null;
-  /** Conflicting paths for a `preview`/`conflict` phase; empty otherwise. */
+  /** Conflicting paths an execute aborted on; empty otherwise. */
   conflicts: readonly string[];
-  /** Per-path base history for a conflicted `preview`; empty otherwise. */
-  archaeology: readonly ConflictHistory[];
   /** The landing commit sha when `phase === "done"`. */
   commitHash: string | null;
-  /**
-   * What would refuse this join, from a `preview` reply. Blocked is a finding
-   * *about* a preview, not a phase of its own — a blocked preview still lands
-   * in `phase: "preview"` and the surface reads this to pick its face.
-   */
-  blockers: readonly JoinBlocker[];
   /** The server-formatted landing summary (Spec S01) when `phase === "done"`. */
   summary: string | null;
 }
@@ -144,9 +108,7 @@ const JOIN_IDLE: JoinState = Object.freeze({
   phase: "idle",
   error: null,
   conflicts: Object.freeze([]) as readonly string[],
-  archaeology: Object.freeze([]) as readonly ConflictHistory[],
   commitHash: null,
-  blockers: Object.freeze([]) as readonly JoinBlocker[],
   summary: null,
 });
 
@@ -228,9 +190,15 @@ const DISCARD_IDLE: DiscardState = Object.freeze({
   summary: null,
 });
 
-/** Correlation key for a join/discard reply: `project_dir` + dash name. */
-function verbKey(projectDir: string, dash: string): string {
-  return `${projectDir}\x00${dash}`;
+/**
+ * Correlation key for a join/discard reply.
+ *
+ * The workspace's canonical key ([L29]), never a raw binding path — the server
+ * echoes `project_dir` back exactly as it was sent, so keying on what was sent
+ * is what makes the correlation exact rather than approximately right.
+ */
+function verbKey(workspaceKey: string, dash: string): string {
+  return `${workspaceKey}\x00${dash}`;
 }
 
 export interface JoinArgs {
@@ -256,51 +224,6 @@ function claimShortfallDetail(claimed: number, requested: number): string {
     return `The ledger refused all ${requested} ${files}. Attribution may be degraded — check the log and restart Tug if it persists.`;
   }
   return `Only ${claimed} of ${requested} ${files} were claimed; the ledger refused the rest.`;
-}
-
-/**
- * Read the `blockers` array off a `changeset_join_ok` body. A malformed entry
- * is dropped rather than thrown on — a blocker the deck cannot read must not
- * cost the user the blockers it can.
- */
-function readJoinBlockers(value: unknown): JoinBlocker[] {
-  if (!Array.isArray(value)) return [];
-  const blockers: JoinBlocker[] = [];
-  for (const entry of value) {
-    if (!isRecord(entry)) continue;
-    const { kind, detail } = entry;
-    if (typeof kind !== "string" || kind === "") continue;
-    if (typeof detail !== "string" || detail === "") continue;
-    blockers.push({ kind, detail, paths: readStringArray(entry.paths) });
-  }
-  return blockers;
-}
-
-/**
- * The per-path base history a conflicted preview carries (Spec S03). Additive
- * and preview-only, so absence is ordinary rather than an error; a malformed
- * row is dropped, since a history is context and half of one is misleading.
- */
-function readConflictHistories(value: unknown): ConflictHistory[] {
-  if (!Array.isArray(value)) return [];
-  const histories: ConflictHistory[] = [];
-  for (const entry of value) {
-    if (!isRecord(entry)) continue;
-    const { path } = entry;
-    if (typeof path !== "string" || path === "") continue;
-    const commits: ConflictCommit[] = [];
-    if (Array.isArray(entry.commits)) {
-      for (const commit of entry.commits) {
-        if (!isRecord(commit)) continue;
-        const { sha, subject } = commit;
-        if (typeof sha !== "string" || sha === "") continue;
-        commits.push({ sha, subject: typeof subject === "string" ? subject : "" });
-      }
-    }
-    const total = typeof entry.total === "number" ? entry.total : commits.length;
-    histories.push({ path, commits, total });
-  }
-  return histories;
 }
 
 function readStringArray(value: unknown): string[] {
@@ -351,25 +274,29 @@ export class ChangesetVerbStore {
       return;
     }
     if (!isRecord(body) || typeof body.action !== "string") return;
-    const projectDir = typeof body.project_dir === "string" ? body.project_dir : null;
-    if (projectDir === null) return;
+    // Whatever this client put in `project_dir`: the server echoes the field
+    // back verbatim, so every correlation below is against what was sent rather
+    // than against a spelling the server chose. Each dash/join send now carries
+    // the workspace's canonical key ([L29]), which is what makes it exact.
+    const sentDir = typeof body.project_dir === "string" ? body.project_dir : null;
+    if (sentDir === null) return;
 
     if (body.action === "changeset_git_init_ok") {
       // Success: the aggregate recompute (server bump) removes this project's
       // non-repo section shortly. Clear the in-flight state meanwhile.
-      this._setGitInit(projectDir, IDLE);
+      this._setGitInit(sentDir, IDLE);
       // The History shade rides a separate GIT_LOG singleton: a fresh `git
       // init` leaves an unborn HEAD that moves no HEAD, so no GIT_HEAD signal
       // arrives to shake its cached `no_repo` snapshot. Nudge it directly so
       // History flips off "Not a git repository" in lockstep with Changes.
-      gitLogStore()?.onRepoInitialized(projectDir);
+      gitLogStore()?.onRepoInitialized(sentDir);
     } else if (body.action === "changeset_git_init_err") {
       const detail = typeof body.detail === "string" ? body.detail : "git init failed";
-      this._setGitInit(projectDir, { phase: "error", error: detail });
+      this._setGitInit(sentDir, { phase: "error", error: detail });
     } else if (body.action === "changeset_commit_ok") {
-      const entryKey = this._commitInflight.get(projectDir);
+      const entryKey = this._commitInflight.get(sentDir);
       if (entryKey === undefined) return;
-      this._commitInflight.delete(projectDir);
+      this._commitInflight.delete(sentDir);
       this._setCommit(entryKey, {
         phase: "done",
         error: null,
@@ -378,9 +305,9 @@ export class ChangesetVerbStore {
         summary: typeof body.summary === "string" ? body.summary : null,
       });
     } else if (body.action === "changeset_commit_err") {
-      const entryKey = this._commitInflight.get(projectDir);
+      const entryKey = this._commitInflight.get(sentDir);
       if (entryKey === undefined) return;
-      this._commitInflight.delete(projectDir);
+      this._commitInflight.delete(sentDir);
       const detail = typeof body.detail === "string" ? body.detail : "git commit failed";
       this._setCommit(entryKey, {
         phase: "error",
@@ -390,9 +317,9 @@ export class ChangesetVerbStore {
         summary: null,
       });
     } else if (body.action === "changeset_claim_ok") {
-      const entryKey = this._claimInflight.get(projectDir);
+      const entryKey = this._claimInflight.get(sentDir);
       if (entryKey === undefined) return;
-      this._claimInflight.delete(projectDir);
+      this._claimInflight.delete(sentDir);
       const requested = this._claims.get(entryKey)?.requested ?? null;
       const claimed = typeof body.claimed === "number" ? body.claimed : 0;
       // A shortfall is a failure with a receipt attached, not a success.
@@ -404,9 +331,9 @@ export class ChangesetVerbStore {
         requested,
       });
     } else if (body.action === "changeset_claim_err") {
-      const entryKey = this._claimInflight.get(projectDir);
+      const entryKey = this._claimInflight.get(sentDir);
       if (entryKey === undefined) return;
-      this._claimInflight.delete(projectDir);
+      this._claimInflight.delete(sentDir);
       const requested = this._claims.get(entryKey)?.requested ?? null;
       const detail = typeof body.detail === "string" ? body.detail : "claim failed";
       this._setClaim(entryKey, {
@@ -416,9 +343,9 @@ export class ChangesetVerbStore {
         requested,
       });
     } else if (body.action === "changeset_disclaim_ok") {
-      const entryKey = this._disclaimInflight.get(projectDir);
+      const entryKey = this._disclaimInflight.get(sentDir);
       if (entryKey === undefined) return;
-      this._disclaimInflight.delete(projectDir);
+      this._disclaimInflight.delete(sentDir);
       this._setDisclaim(entryKey, {
         phase: "done",
         error: null,
@@ -426,9 +353,9 @@ export class ChangesetVerbStore {
         requested: this._disclaims.get(entryKey)?.requested ?? null,
       });
     } else if (body.action === "changeset_disclaim_err") {
-      const entryKey = this._disclaimInflight.get(projectDir);
+      const entryKey = this._disclaimInflight.get(sentDir);
       if (entryKey === undefined) return;
-      this._disclaimInflight.delete(projectDir);
+      this._disclaimInflight.delete(sentDir);
       this._setDisclaim(entryKey, {
         phase: "error",
         error: typeof body.detail === "string" ? body.detail : "disclaim failed",
@@ -438,32 +365,24 @@ export class ChangesetVerbStore {
     } else if (body.action === "changeset_join_ok") {
       const dash = typeof body.dash === "string" ? body.dash : null;
       if (dash === null) return;
-      const key = verbKey(projectDir, dash);
+      const key = verbKey(sentDir, dash);
       const entryKey = this._joinInflight.get(key);
       if (entryKey === undefined) return;
       this._joinInflight.delete(key);
-      const previewed = body.previewed === true;
       const conflicts = readStringArray(body.conflicts);
       const commitHash = typeof body.commit_hash === "string" ? body.commit_hash : null;
-      const blockers = readJoinBlockers(body.blockers);
-      if (previewed) {
-        this._setJoin(entryKey, {
-          phase: "preview",
-          error: null,
-          conflicts,
-          archaeology: readConflictHistories(body.archaeology),
-          commitHash: null,
-          blockers,
-          summary: null,
-        });
+      if (body.previewed === true) {
+        // Previews are the CLI's now. The dash's feed entry carries what a
+        // landing would do, so a preview reply reaching this store describes a
+        // question the card did not ask — it settles back to idle rather than
+        // becoming a phase that outranks the feed's answer.
+        this._setJoin(entryKey, JOIN_IDLE);
       } else if (commitHash !== null) {
         this._setJoin(entryKey, {
           phase: "done",
           error: null,
           conflicts: [],
-          archaeology: [],
           commitHash,
-          blockers: [],
           // The landing's receipt, formatted by the server so the durable row
           // and the live one cannot drift (Spec S01).
           summary: typeof body.summary === "string" ? body.summary : null,
@@ -474,17 +393,14 @@ export class ChangesetVerbStore {
           phase: "conflict",
           error: null,
           conflicts,
-          // Preview-only ([P07]): an execute that aborted did not compute it.
-          archaeology: [],
           commitHash: null,
-          blockers: [],
           summary: null,
         });
       }
     } else if (body.action === "changeset_join_err") {
       const dash = typeof body.dash === "string" ? body.dash : null;
       if (dash === null) return;
-      const key = verbKey(projectDir, dash);
+      const key = verbKey(sentDir, dash);
       const entryKey = this._joinInflight.get(key);
       if (entryKey === undefined) return;
       this._joinInflight.delete(key);
@@ -493,15 +409,13 @@ export class ChangesetVerbStore {
         phase: "error",
         error: detail,
         conflicts: [],
-        archaeology: [],
         commitHash: null,
-        blockers: [],
         summary: null,
       });
     } else if (body.action === "changeset_discard_ok") {
       const dash = typeof body.dash === "string" ? body.dash : null;
       if (dash === null) return;
-      const key = verbKey(projectDir, dash);
+      const key = verbKey(sentDir, dash);
       const entryKey = this._discardInflight.get(key);
       if (entryKey === undefined) return;
       this._discardInflight.delete(key);
@@ -516,7 +430,7 @@ export class ChangesetVerbStore {
     } else if (body.action === "changeset_discard_err") {
       const dash = typeof body.dash === "string" ? body.dash : null;
       if (dash === null) return;
-      const key = verbKey(projectDir, dash);
+      const key = verbKey(sentDir, dash);
       const entryKey = this._discardInflight.get(key);
       if (entryKey === undefined) return;
       this._discardInflight.delete(key);
@@ -566,9 +480,9 @@ export class ChangesetVerbStore {
    * second send superseding the first's correlation — the same rule commit
    * follows).
    */
-  claim(entryKey: string, projectDir: string, sessionId: string, files: string[]): void {
+  claim(entryKey: string, workspaceKey: string, sessionId: string, files: string[]): void {
     if (files.length === 0) return;
-    this._claimInflight.set(projectDir, entryKey);
+    this._claimInflight.set(workspaceKey, entryKey);
     this._setClaim(entryKey, {
       phase: "pending",
       error: null,
@@ -576,7 +490,7 @@ export class ChangesetVerbStore {
       requested: files.length,
     });
     this._connection.sendControlFrame("changeset_claim", {
-      project_dir: projectDir,
+      project_dir: workspaceKey,
       session_id: sessionId,
       files,
     });
@@ -609,9 +523,9 @@ export class ChangesetVerbStore {
    * refusal has somewhere to show, and correlates through the same
    * project→entry map claim uses.
    */
-  disclaim(entryKey: string, projectDir: string, sessionId: string, files: string[]): void {
+  disclaim(entryKey: string, workspaceKey: string, sessionId: string, files: string[]): void {
     if (files.length === 0) return;
-    this._disclaimInflight.set(projectDir, entryKey);
+    this._disclaimInflight.set(workspaceKey, entryKey);
     this._setDisclaim(entryKey, {
       phase: "pending",
       error: null,
@@ -619,7 +533,7 @@ export class ChangesetVerbStore {
       requested: files.length,
     });
     this._connection.sendControlFrame("changeset_disclaim", {
-      project_dir: projectDir,
+      project_dir: workspaceKey,
       session_id: sessionId,
       files,
     });
@@ -668,13 +582,13 @@ export class ChangesetVerbStore {
    */
   commit(
     entryKey: string,
-    projectDir: string,
+    workspaceKey: string,
     files: string[],
     message: string,
     session?: { name?: string; id?: string },
     hunks?: Record<string, string[]>,
   ): void {
-    this._commitInflight.set(projectDir, entryKey);
+    this._commitInflight.set(workspaceKey, entryKey);
     this._setCommit(entryKey, {
       phase: "pending",
       error: null,
@@ -685,7 +599,7 @@ export class ChangesetVerbStore {
     // Optional `Tug-Session:` trailer fields (Spec S01) — appended server-side
     // by `do_changeset_commit`; omitted here keeps today's behavior byte-for-byte.
     const frame: Record<string, unknown> = {
-      project_dir: projectDir,
+      project_dir: workspaceKey,
       files,
       message,
     };
@@ -720,23 +634,22 @@ export class ChangesetVerbStore {
   }
 
   /**
-   * Send `changeset_join` for `(projectDir, dash)` and mark `entryKey`
-   * in-flight. `preview: true` reports conflicts without touching the tree;
-   * `preview: false` executes the join. One in-flight join per (project, dash).
+   * Send `changeset_join` for `(workspaceKey, dash)` and mark `entryKey`
+   * in-flight. The card only ever executes: what a landing *would* do rides
+   * the dash's feed entry, so `preview: true` is the CLI's path alone. One
+   * in-flight landing per (workspace, dash).
    */
-  join(entryKey: string, projectDir: string, dash: string, args: JoinArgs): void {
-    this._joinInflight.set(verbKey(projectDir, dash), entryKey);
+  join(entryKey: string, workspaceKey: string, dash: string, args: JoinArgs): void {
+    this._joinInflight.set(verbKey(workspaceKey, dash), entryKey);
     this._setJoin(entryKey, {
       phase: "pending",
       error: null,
       conflicts: [],
-      archaeology: [],
       commitHash: null,
-      blockers: [],
       summary: null,
     });
     this._connection.sendControlFrame("changeset_join", {
-      project_dir: projectDir,
+      project_dir: workspaceKey,
       dash,
       preview: args.preview,
       ...(args.strategy !== undefined ? { strategy: args.strategy } : {}),
@@ -766,15 +679,15 @@ export class ChangesetVerbStore {
   }
 
   /**
-   * Send `changeset_discard` for `(projectDir, dash)`; mark `entryKey`
+   * Send `changeset_discard` for `(workspaceKey, dash)`; mark `entryKey`
    * in-flight. `sessionId` is the card's tug session id, which the server needs
    * to leave the discard's receipt ([P06]); absent, the discard still runs.
    */
-  discard(entryKey: string, projectDir: string, dash: string, sessionId?: string): void {
-    this._discardInflight.set(verbKey(projectDir, dash), entryKey);
+  discard(entryKey: string, workspaceKey: string, dash: string, sessionId?: string): void {
+    this._discardInflight.set(verbKey(workspaceKey, dash), entryKey);
     this._setDiscard(entryKey, { phase: "pending", error: null, summary: null });
     this._connection.sendControlFrame("changeset_discard", {
-      project_dir: projectDir,
+      project_dir: workspaceKey,
       dash,
       ...(sessionId !== undefined ? { session_id: sessionId } : {}),
     });
@@ -847,7 +760,7 @@ export function useChangesetGitInit(projectDir: string): GitInitState & { init: 
  * (gallery / fixtures).
  */
 export function useChangesetCommit(entryKey: string): CommitState & {
-  commit: (projectDir: string, files: string[], message: string) => void;
+  commit: (workspaceKey: string, files: string[], message: string) => void;
   clear: () => void;
 } {
   const state = useSyncExternalStore(
@@ -859,8 +772,8 @@ export function useChangesetCommit(entryKey: string): CommitState & {
     () => _activeStore?.commitState(entryKey) ?? COMMIT_IDLE,
     () => COMMIT_IDLE,
   );
-  const commit = (projectDir: string, files: string[], message: string): void => {
-    _activeStore?.commit(entryKey, projectDir, files, message);
+  const commit = (workspaceKey: string, files: string[], message: string): void => {
+    _activeStore?.commit(entryKey, workspaceKey, files, message);
   };
   const clear = (): void => {
     _activeStore?.clearCommit(entryKey);
@@ -917,7 +830,7 @@ export function useChangesetDisclaim(entryKey: string): DisclaimState & { clear:
  * triggers. Returns idle + no-op triggers when no store is attached.
  */
 export function useChangesetJoin(entryKey: string): JoinState & {
-  join: (projectDir: string, dash: string, args: JoinArgs) => void;
+  join: (workspaceKey: string, dash: string, args: JoinArgs) => void;
   clear: () => void;
 } {
   const state = useSyncExternalStore(
@@ -929,8 +842,8 @@ export function useChangesetJoin(entryKey: string): JoinState & {
     () => _activeStore?.joinState(entryKey) ?? JOIN_IDLE,
     () => JOIN_IDLE,
   );
-  const join = (projectDir: string, dash: string, args: JoinArgs): void => {
-    _activeStore?.join(entryKey, projectDir, dash, args);
+  const join = (workspaceKey: string, dash: string, args: JoinArgs): void => {
+    _activeStore?.join(entryKey, workspaceKey, dash, args);
   };
   const clear = (): void => {
     _activeStore?.clearJoin(entryKey);
@@ -943,7 +856,7 @@ export function useChangesetJoin(entryKey: string): JoinState & {
  * triggers. Returns idle + no-op triggers when no store is attached.
  */
 export function useChangesetDiscard(entryKey: string): DiscardState & {
-  discard: (projectDir: string, dash: string, sessionId?: string) => void;
+  discard: (workspaceKey: string, dash: string, sessionId?: string) => void;
   clear: () => void;
 } {
   const state = useSyncExternalStore(
@@ -955,8 +868,8 @@ export function useChangesetDiscard(entryKey: string): DiscardState & {
     () => _activeStore?.discardState(entryKey) ?? DISCARD_IDLE,
     () => DISCARD_IDLE,
   );
-  const discard = (projectDir: string, dash: string, sessionId?: string): void => {
-    _activeStore?.discard(entryKey, projectDir, dash, sessionId);
+  const discard = (workspaceKey: string, dash: string, sessionId?: string): void => {
+    _activeStore?.discard(entryKey, workspaceKey, dash, sessionId);
   };
   const clear = (): void => {
     _activeStore?.clearDiscard(entryKey);

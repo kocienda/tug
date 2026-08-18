@@ -468,16 +468,16 @@ The invariant is enforced two ways: a `satisfies Record<JoinLandGateReason, Reac
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Candidate ref + review mark plumbing in tugdash-core | pending | — |
-| #step-2 | Join facts split by cacheability in tugdash-core | pending | — |
-| #step-3 | JoinBoard + `join` block on the dash feed entry | pending | — |
-| #step-4 | Resolve/review/land handlers speak feed truth | pending | — |
-| #step-5 | Client wire mirror + fixtures | pending | — |
-| #step-6 | Controller reads the feed; workspace_key keying | pending | — |
-| #step-7 | Shrink the resolve store to progress-only | pending | — |
-| #step-8 | Landing face rework — one control per state | pending | — |
-| #step-9 | L29 sweep of the pipeline | pending | — |
-| #step-10 | Reachability invariant + full-arc app-test | pending | — |
+| #step-1 | Candidate ref + review mark plumbing in tugdash-core | done | `5c25d0892` |
+| #step-2 | Join facts split by cacheability in tugdash-core | done | `fe03e576b` |
+| #step-3 | JoinBoard + `join` block on the dash feed entry | done | `a34fe6fff` |
+| #step-4 | Resolve/review/land handlers speak feed truth | done | `f7fd65b5b` |
+| #step-5 | Client wire mirror + fixtures | done | `f51f74665` |
+| #step-6 | Controller reads the feed; workspace_key keying | done | `9556fc0ac` |
+| #step-7 | Shrink the resolve store to progress-only | done | `389e63f05` |
+| #step-8 | Landing face rework — one control per state | done | `1c4219b2c` |
+| #step-9 | L29 sweep of the pipeline | done | `3d5f52958` |
+| #step-10 | Reachability invariant + full-arc app-test | done | `54db3b6a6` |
 | #step-11 | Integration checkpoint | pending | — |
 
 #### Step 1: Candidate ref + review mark plumbing in tugdash-core {#step-1}

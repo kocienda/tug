@@ -1132,14 +1132,22 @@ async fn dash_entries(
     // second scheduling round trip for a file read that costs less than one of
     // the git subprocesses already in here ([P04]).
     let Ok(details) = tokio::task::spawn_blocking(move || {
-        tugdash_core::dash_detail_entries_in(&root)
+        let details = tugdash_core::dash_detail_entries_in(&root);
+        // Which branch the base checkout has out is a property of the
+        // repository, not of a dash, so it is read once for the whole recompute
+        // and handed to each dash's composition rather than re-read per dash.
+        let current_branch = tugdash_core::ops::current_branch(&root).unwrap_or_default();
+        let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
+        crate::feeds::join_board::sweep(&live);
+        details
             .into_iter()
             .map(|detail| {
                 let review = detail
                     .plan_path
                     .as_deref()
                     .and_then(|plan| dash_review_state(Path::new(&detail.worktree_abs), plan));
-                (detail, review)
+                let join = crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
+                (detail, review, join)
             })
             .collect::<Vec<_>>()
     })
@@ -1150,7 +1158,8 @@ async fn dash_entries(
 
     details
         .into_iter()
-        .map(|(detail, review)| ChangesetEntry::Dash {
+        .map(|(detail, review, join)| ChangesetEntry::Dash {
+            join: Some(join),
             bound_sessions: bound_by_dash
                 .get(&detail.owner_key)
                 .cloned()
@@ -2512,6 +2521,7 @@ Some context.
             base_overlap: Vec::new(),
             last_replay: None,
             replay_conflict_paths: Vec::new(),
+            join: None,
         };
         let demo = dash("tugdash/demo#1723500000000-a1b2c3", "demo");
         let demo2 = dash("tugdash/demo2#1723500000001-d4e5f6", "demo2");
@@ -2594,6 +2604,7 @@ Some context.
                     base_overlap: Vec::new(),
                     last_replay: None,
                     replay_conflict_paths: Vec::new(),
+                    join: None,
                 },
                 ChangesetEntry::Session {
                     owner_id: "sess-writer".to_owned(),

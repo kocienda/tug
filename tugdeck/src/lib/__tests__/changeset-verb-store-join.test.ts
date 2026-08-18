@@ -2,14 +2,14 @@
  * changeset-verb-store — the `changeset_join` round trip's widened wire
  * (Specs S03, S04).
  *
- * Three facts live here. A preview that reports blockers is still a *preview* —
- * blocked is a finding about one, not a phase — so the landing surface reads
- * `blockers` to pick its face rather than watching for a phase that never
- * comes. A blocker the deck cannot parse is dropped rather than thrown on, so
- * one malformed entry never costs the user the blockers beside it. And
- * `continue` / `session_id` reach the frame only when the caller asks for them,
- * which is what keeps the widened payload back-compatible with a server that
- * defaults them.
+ * This store carries the landing *execute* and nothing else. What a landing
+ * would do — blockers, conflicts, a resolved candidate — rides the dash's feed
+ * entry, so the phases here describe a landing somebody pressed for: pending,
+ * then done / conflict / error. A preview reply is a question the card no
+ * longer asks, and settles back to idle rather than standing as a phase that
+ * would outrank the feed. And `continue` / `session_id` reach the frame only
+ * when the caller asks for them, which is what keeps the widened payload
+ * back-compatible with a server that defaults them.
  *
  * Drives the real store through a fake `TugConnection`, the way the claim tests
  * do: the CONTROL handler the store registers is captured and invoked with
@@ -58,72 +58,10 @@ beforeEach(() => {
   h = harness();
 });
 
-describe("changeset join blockers", () => {
-  test("a blocked preview is still a preview, and its blockers are readable", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: true });
-    h.reply({
-      action: "changeset_join_ok",
-      project_dir: PROJECT,
-      dash: DASH,
-      previewed: true,
-      conflicts: [],
-      commit_hash: null,
-      blockers: [
-        {
-          kind: "base-dirt",
-          detail: "Cannot join: … (a.ts). Commit or stash them first.",
-          paths: ["a.ts"],
-        },
-      ],
-    });
-
-    const state = h.store.joinState(ENTRY);
-    expect(state.phase).toBe("preview");
-    expect(state.blockers).toHaveLength(1);
-    expect(state.blockers[0]?.kind).toBe("base-dirt");
-    expect(state.blockers[0]?.paths).toEqual(["a.ts"]);
-  });
-
-  test("a clean preview carries no blockers", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: true });
-    h.reply({
-      action: "changeset_join_ok",
-      project_dir: PROJECT,
-      dash: DASH,
-      previewed: true,
-      conflicts: [],
-      commit_hash: null,
-    });
-    expect(h.store.joinState(ENTRY).blockers).toEqual([]);
-  });
-
-  test("a malformed blocker is dropped, not thrown on", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: true });
-    h.reply({
-      action: "changeset_join_ok",
-      project_dir: PROJECT,
-      dash: DASH,
-      previewed: true,
-      conflicts: [],
-      commit_hash: null,
-      blockers: [
-        null,
-        { kind: "off-base" },
-        { detail: "no kind" },
-        { kind: "", detail: "empty kind" },
-        { kind: "empty", detail: "Nothing to join.", paths: ["ok.ts", 7] },
-      ],
-    });
-
-    const { blockers } = h.store.joinState(ENTRY);
-    expect(blockers).toHaveLength(1);
-    expect(blockers[0]?.kind).toBe("empty");
-    // A non-string path is dropped with the same discipline.
-    expect(blockers[0]?.paths).toEqual(["ok.ts"]);
-  });
-
-  test("a landed join clears the blockers it previewed with", () => {
+describe("the landing round trip", () => {
+  test("a landed join settles on done with its commit", () => {
     h.store.join(ENTRY, PROJECT, DASH, { preview: false });
+    expect(h.store.joinState(ENTRY).phase).toBe("pending");
     h.reply({
       action: "changeset_join_ok",
       project_dir: PROJECT,
@@ -131,11 +69,59 @@ describe("changeset join blockers", () => {
       previewed: false,
       conflicts: [],
       commit_hash: "abc1234",
+      summary: "landed 3 files",
     });
     const state = h.store.joinState(ENTRY);
     expect(state.phase).toBe("done");
     expect(state.commitHash).toBe("abc1234");
-    expect(state.blockers).toEqual([]);
+    expect(state.summary).toBe("landed 3 files");
+  });
+
+  test("an execute that aborted names the paths it aborted on", () => {
+    h.store.join(ENTRY, PROJECT, DASH, { preview: false });
+    h.reply({
+      action: "changeset_join_ok",
+      project_dir: PROJECT,
+      dash: DASH,
+      previewed: false,
+      conflicts: ["a.rs", "b.rs"],
+      commit_hash: null,
+    });
+    const state = h.store.joinState(ENTRY);
+    expect(state.phase).toBe("conflict");
+    expect(state.conflicts).toEqual(["a.rs", "b.rs"]);
+  });
+
+  test("a preview reply settles to idle rather than outranking the feed", () => {
+    // Nothing on the card asks for one any more. If a preview reply does turn
+    // up — a stray CLI-shaped frame, an older server — the store must not turn
+    // it into a phase, because the landing face reads the feed's join block and
+    // a phase here would render beside an answer computed from different heads.
+    h.store.join(ENTRY, PROJECT, DASH, { preview: false, continueJoin: true });
+    h.reply({
+      action: "changeset_join_ok",
+      project_dir: PROJECT,
+      dash: DASH,
+      previewed: true,
+      conflicts: ["a.rs"],
+      commit_hash: null,
+      blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["a.ts"] }],
+    });
+    expect(h.store.joinState(ENTRY).phase).toBe("idle");
+    expect(h.store.joinState(ENTRY).conflicts).toEqual([]);
+  });
+
+  test("a refusal carries its detail", () => {
+    h.store.join(ENTRY, PROJECT, DASH, { preview: false });
+    h.reply({
+      action: "changeset_join_err",
+      project_dir: PROJECT,
+      dash: DASH,
+      detail: "Nothing to join.",
+    });
+    const state = h.store.joinState(ENTRY);
+    expect(state.phase).toBe("error");
+    expect(state.error).toBe("Nothing to join.");
   });
 });
 
@@ -151,8 +137,8 @@ describe("changeset join payload", () => {
   });
 
   test("a bare join sends neither", () => {
-    h.store.join(ENTRY, PROJECT, DASH, { preview: true });
-    expect(h.sent[0]?.body).toEqual({ project_dir: PROJECT, dash: DASH, preview: true });
+    h.store.join(ENTRY, PROJECT, DASH, { preview: false });
+    expect(h.sent[0]?.body).toEqual({ project_dir: PROJECT, dash: DASH, preview: false });
   });
 
   test("the session id rides the land so the receipt has a home", () => {
