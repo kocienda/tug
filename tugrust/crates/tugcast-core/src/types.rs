@@ -506,6 +506,12 @@ pub enum ChangesetEntry {
         /// title, so a display can say more than a counter.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         step_title: Option<String>,
+        /// When the dash was last touched: the newest dash-log line's timestamp
+        /// for its current generation, ISO-8601 UTC. Absent for a dash whose
+        /// generation has logged nothing — which for a dash created before
+        /// creation wrote a birth record is the ordinary case.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_activity: Option<String>,
         /// The plan this dash is driving, relative to its **worktree** — the
         /// copy a run edits and whose ledger the step verbs rewrite, which is
         /// what makes it the copy a review of a bound dash has to read. Compose
@@ -1363,6 +1369,7 @@ mod tests {
             step_current: None,
             step_total: None,
             step_title: None,
+            last_activity: None,
             plan_path: None,
             review: None,
             base: "main".to_string(),
@@ -1401,6 +1408,19 @@ mod tests {
         // never record. Absence is "nothing to say" on both.
         assert!(!json.contains("plan_path"));
         assert!(!json.contains("review"));
+        // A dash whose generation has logged nothing has no date to send.
+        assert!(!json.contains("last_activity"));
+
+        // And one that has been touched sends when.
+        let mut dated = dash;
+        if let ChangesetEntry::Dash { last_activity, .. } = &mut dated {
+            *last_activity = Some("2026-08-14T12:00:00Z".to_string());
+        }
+        assert!(
+            serde_json::to_string(&dated)
+                .unwrap()
+                .contains(r#""last_activity":"2026-08-14T12:00:00Z""#)
+        );
 
         // An older sender's entry — no new fields at all — still decodes.
         let legacy = r#"{"kind":"dash","owner_id":"tugdash/y","display_name":"y",

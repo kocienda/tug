@@ -147,6 +147,12 @@ export interface DashChangesetEntry {
   step_total?: number;
   /** What `step_current` *is* — the latest `step-start` declaration's title. */
   step_title?: string;
+  /** When the dash was last touched — the newest dash-log line's timestamp for
+   *  its current generation, as an ISO-8601 UTC instant. Absent for a dash
+   *  whose generation has logged nothing, which for one created before
+   *  creation wrote a birth record is the ordinary case; a surface shows no
+   *  age rather than guessing one. */
+  last_activity?: string;
   /** The plan this dash is driving, relative to its **worktree** — the copy a
    *  run edits and whose ledger the step verbs rewrite. Absolute path is
    *  `worktree` / `plan_path`, and involves no third component. */
@@ -340,6 +346,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.step_current === undefined || typeof value.step_current === "number") &&
       (value.step_total === undefined || typeof value.step_total === "number") &&
       (value.step_title === undefined || typeof value.step_title === "string") &&
+      (value.last_activity === undefined || typeof value.last_activity === "string") &&
       (value.plan_path === undefined || typeof value.plan_path === "string") &&
       (value.base_ahead === undefined || typeof value.base_ahead === "number") &&
       isOptionalStringArray(value.base_overlap) &&

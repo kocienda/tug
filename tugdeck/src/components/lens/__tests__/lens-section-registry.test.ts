@@ -11,11 +11,17 @@ import {
   registerLensSection,
   getRegisteredLensSections,
   resolveSectionRenderOrder,
+  mergeHiddenIntoOrder,
   moveInArray,
   sectionFocusGroup,
   _clearLensSectionsForTest,
   type LensSectionDefinition,
 } from "@/components/lens/lens-section-registry";
+import {
+  sectionIsPresent,
+  setSectionPresent,
+  _clearSectionPresenceForTest,
+} from "@/components/lens/lens-section-presence";
 
 function stub(kind: string): LensSectionDefinition {
   return {
@@ -29,6 +35,7 @@ function stub(kind: string): LensSectionDefinition {
 
 beforeEach(() => {
   _clearLensSectionsForTest();
+  _clearSectionPresenceForTest();
 });
 
 describe("lens-section-registry — register/get", () => {
@@ -75,6 +82,87 @@ describe("lens-section-registry — resolveSectionRenderOrder", () => {
     expect(
       resolveSectionRenderOrder(registered, ["log", "log", "telemetry"]),
     ).toEqual(["log", "telemetry", "changeset"]);
+  });
+});
+
+describe("lens-section-registry — mergeHiddenIntoOrder", () => {
+  const full = ["log", "telemetry", "changeset", "dashes"];
+
+  it("is the identity when nothing is hidden", () => {
+    expect(mergeHiddenIntoOrder(full, full)).toEqual(full);
+  });
+
+  it("returns a hidden head to index 0", () => {
+    expect(
+      mergeHiddenIntoOrder(full, ["telemetry", "changeset", "dashes"]),
+    ).toEqual(full);
+  });
+
+  it("returns a hidden middle to its own index", () => {
+    expect(mergeHiddenIntoOrder(full, ["log", "telemetry", "dashes"])).toEqual(
+      full,
+    );
+  });
+
+  it("returns a hidden tail to the end", () => {
+    expect(
+      mergeHiddenIntoOrder(full, ["log", "telemetry", "changeset"]),
+    ).toEqual(full);
+  });
+
+  // The case the whole function exists for: the visible sections were dragged
+  // while one was absent, and the absent one must not be dropped from the
+  // persisted order.
+  it("keeps a hidden kind's place across a reorder of the visible ones", () => {
+    expect(
+      mergeHiddenIntoOrder(full, ["changeset", "telemetry", "dashes"]),
+    ).toEqual(["log", "changeset", "telemetry", "dashes"]);
+  });
+
+  it("preserves the relative order of two hidden kinds", () => {
+    expect(mergeHiddenIntoOrder(full, ["telemetry", "dashes"])).toEqual([
+      "log",
+      "telemetry",
+      "changeset",
+      "dashes",
+    ]);
+  });
+
+  it("clamps a hidden index past the merged length to the end", () => {
+    expect(mergeHiddenIntoOrder(["a", "b", "c", "d"], ["a"])).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+  });
+
+  it("does not mutate its inputs", () => {
+    const visible = ["telemetry", "changeset", "dashes"];
+    mergeHiddenIntoOrder(full, visible);
+    expect(visible).toEqual(["telemetry", "changeset", "dashes"]);
+    expect(full).toEqual(["log", "telemetry", "changeset", "dashes"]);
+  });
+});
+
+describe("lens-section-presence", () => {
+  // The default has to be "present": a section is never hidden because nothing
+  // has published about it yet, only because something said so.
+  it("reads a kind nothing has published as present", () => {
+    expect(sectionIsPresent("never-heard-of-it")).toBe(true);
+  });
+
+  it("reads a definition with no presence hook as present", () => {
+    registerLensSection(stub("log"));
+    expect(getRegisteredLensSections().get("log")?.presence).toBeUndefined();
+    expect(sectionIsPresent("log")).toBe(true);
+  });
+
+  it("takes an explicit absence, and gives it back", () => {
+    setSectionPresent("dashes", false);
+    expect(sectionIsPresent("dashes")).toBe(false);
+    setSectionPresent("dashes", true);
+    expect(sectionIsPresent("dashes")).toBe(true);
   });
 });
 

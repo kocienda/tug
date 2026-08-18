@@ -11,14 +11,35 @@
   min-width: 0;
 }
 
-/* The row's one line: the name reads first, everything after it is context.
-   That run — name, stage, steps, review mark — is shared with the Cards
-   section's dash sub-row and lives in `dash-facts.css`. Only the project
-   suffix below is this section's own. */
+/* The row's one line: the sigil'd name reads first, then how far the run got,
+   then a trailing metadata run the eye can skip. The name, step, and review
+   type scales come from `dash-facts.css`, which the Cards section's dash line
+   shares; the layout below is this section's own. */
 
-/* The project suffix appears only when more than one project has dashes, and
-   it is the quietest run in the row when it does — it disambiguates, it does
-   not inform. */
+/* The metadata run sits at the far end and never gives way — it is short,
+   fixed, and the reason the row is worth a glance at all. What elides is the
+   step title to its left. */
+.lens-dashes-meta {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: var(--tug-space-sm);
+  margin-inline-start: auto;
+}
+
+/* How long since anything touched this dash. Quiet: it qualifies the row
+   rather than announcing it, and at day/hour granularity a loud one would be
+   claiming a precision it does not have. */
+.lens-dashes-age {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* The project label is orientation, not disambiguation: a parked dash may be
+   the only thing on screen from its project, so it rides every row — and as
+   the least urgent run on the line, it is the one that gives way first. */
 .lens-dashes-project {
   flex: 0 1 auto;
   overflow: hidden;
@@ -38,7 +59,25 @@
   opacity: 0.7;
 }
 
-/* The per-session jump chips are gone. They were this section's way of getting
-   TO the session working a dash; the dash sub-row in the Cards section is
-   already there, so they said the same thing at one remove. What is left is the
-   roster: what dashes exist, and which of them need attention. */
+/* The row's verbs. This section is not read-only, and it is the one place they
+   can live: a parked dash has no session card whose Changes shade could offer
+   them. Both are always visible rather than hover-revealed — a control that
+   appears under the pointer is one a keyboard reader never finds, and every row
+   here is a to-do. */
+.lens-dashes-verbs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+}
+
+/* The tooltip anchors, which have to be real boxes: a disabled button takes no
+   pointer events, so the span around it is what the hover lands on. */
+.lens-dashes-adopt,
+.lens-dashes-release {
+  display: inline-flex;
+}
+
+/* The sigil'd name run is `tug-session-identity-dash*`, styled beside the
+   session identity that also wears it — the same name in the same shape
+   wherever a dash is named. */

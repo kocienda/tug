@@ -421,6 +421,9 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
                 None => println!("Step: {}/{}", current, total),
             }
         }
+        if let Some(last) = &data.last_activity {
+            println!("Last activity: {}", last);
+        }
         println!("Branch: {}", data.branch);
         println!("Base: {}", data.base_branch);
         println!("Rounds: {}", data.rounds);

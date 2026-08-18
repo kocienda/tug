@@ -1,7 +1,9 @@
 /**
  * lens-content.tsx — the Lens card's content: a fixed, non-scrolling stack
- * of reorderable, collapsible sections. Every registered section always
- * renders (there is no hidden-sections set and no title-bar `…` menu);
+ * of reorderable, collapsible sections. A registered section renders unless it
+ * declares itself absent through `presence` (there is still no hidden-sections
+ * set and no title-bar `…` menu — absence is the section's own answer about its
+ * content, not a preference someone toggles);
  * each section's BODY scrolls internally when its list outgrows the
  * section's flex share, so every band stays on-screen. The stack itself
  * never scrolls — a section can scroll its own rows out of view, but never
@@ -49,6 +51,7 @@ import { BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
 import { lensSpatialOrder } from "./lens-spatial-order";
 import {
   getRegisteredLensSections,
+  mergeHiddenIntoOrder,
   resolveSectionRenderOrder,
   sectionFocusGroup,
   type LensSectionHost,
@@ -59,6 +62,12 @@ import {
   sectionHasContent,
   subscribeSectionContent,
 } from "./lens-section-content";
+import {
+  getSectionPresenceVersion,
+  sectionIsPresent,
+  subscribeSectionPresence,
+} from "./lens-section-presence";
+import { LensSectionPresenceProbe } from "./lens-section-presence-probe";
 import { useBlockReorder } from "./block-reorder";
 import { BlockDropCaret } from "./block-drop-caret";
 import {
@@ -76,7 +85,15 @@ export function LensContent({ cardId }: LensContentProps): React.ReactElement {
   const lens = useSyncExternalStore(lensStore.subscribe, lensStore.getSnapshot);
   const sections = getRegisteredLensSections();
   const registeredKinds = [...sections.keys()];
-  const order = resolveSectionRenderOrder(registeredKinds, lens.sectionOrder);
+  const fullOrder = resolveSectionRenderOrder(registeredKinds, lens.sectionOrder);
+  // A section may declare itself absent ([P03]). Everything downstream — the
+  // rendered map, the group walk, the arrow plane, the ⌘L seed, and the
+  // reorder's index arithmetic — runs off the VISIBLE order, because that is
+  // what the reader sees and what the bands on screen agree with. `fullOrder`
+  // survives only to give a hidden kind its place back when the order is
+  // persisted (`mergeHiddenIntoOrder`).
+  useSyncExternalStore(subscribeSectionPresence, getSectionPresenceVersion);
+  const order = fullOrder.filter(sectionIsPresent);
   const orderKey = order.join(" ");
   const collapsed = new Set(lens.collapsedSections);
 
@@ -171,9 +188,21 @@ export function LensContent({ cardId }: LensContentProps): React.ReactElement {
       resolveSectionRenderOrder(
         [...getRegisteredLensSections().keys()],
         lensStore.getSnapshot().sectionOrder,
-      ),
+      ).filter(sectionIsPresent),
+    // The drag can only ever produce a visible order, so an absent section's
+    // place is restored before the order is persisted — otherwise a section
+    // that happened to be empty during somebody else's drag would lose its
+    // position permanently ([P05]).
     commit: (newVisible) => {
-      lensStore.setSectionOrder([...newVisible]);
+      lensStore.setSectionOrder(
+        mergeHiddenIntoOrder(
+          resolveSectionRenderOrder(
+            [...getRegisteredLensSections().keys()],
+            lensStore.getSnapshot().sectionOrder,
+          ),
+          newVisible,
+        ),
+      );
     },
     // The keyboard follows the band that was set down — the same destination
     // and the same modality a band CLICK reaches (`lens-section-band`'s
@@ -221,6 +250,22 @@ export function LensContent({ cardId }: LensContentProps): React.ReactElement {
         // has a target to land the ring on when the Lens is focused.
         tabIndex={-1}
       >
+        {/* One presence probe per REGISTERED kind — mounted whether or not
+            that section renders, which is the only way the answer can come
+            back once it has been "no" (see `lens-section-presence.ts`). Each
+            renders null; they sit outside `.lens-sections` so they cannot be
+            mistaken for bands by the reorder's index arithmetic. */}
+        {registeredKinds.map((kind) => {
+          const def = sections.get(kind);
+          if (!def) return null;
+          return (
+            <LensSectionPresenceProbe
+              key={kind}
+              def={def}
+              host={{ lensCardId: cardId, focusGroup: sectionFocusGroup(kind) }}
+            />
+          );
+        })}
         <div className="lens-sections" data-testid="lens-sections" ref={sectionsRef}>
           {/* The reorder drop indicator — a persistently-mounted hairline the
               drag handler positions imperatively ([P08]); hidden at rest. */}

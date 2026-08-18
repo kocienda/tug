@@ -89,6 +89,10 @@ describe("changeset wire contract", () => {
     expect(isChangesetEntry({ ...base, plan_path: "roadmap/plan.md" })).toBe(true);
     expect(isChangesetEntry({ ...base, plan_path: 7 })).toBe(false);
     expect(isChangesetEntry({ ...base, plan_path: null })).toBe(false);
+    // `last_activity` is an ISO-8601 string or nothing. A number — an epoch
+    // millisecond count, the plausible drift — is not a date this side parses.
+    expect(isChangesetEntry({ ...base, last_activity: "2026-08-14T12:00:00Z" })).toBe(true);
+    expect(isChangesetEntry({ ...base, last_activity: 1_755_000_000_000 })).toBe(false);
   });
 
   test("guards reject shape drift", () => {

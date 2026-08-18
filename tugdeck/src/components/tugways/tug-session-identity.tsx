@@ -81,6 +81,7 @@ import React, { useSyncExternalStore } from "react";
 import { EyeOff } from "lucide-react";
 
 import { dispatchCommand } from "@/command-dispatch";
+import { DashSigil } from "@/components/tugways/dash-sigil";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
 import {
@@ -256,20 +257,16 @@ function SessionDashMarker({
 }): React.ReactElement | null {
   const dash = useDashForSession(sessionId);
   if (dash === null) return null;
-  const marked = dashReviewPaints(dash.review);
+  // The session lookup and the sentence are this component's; the run itself is
+  // shared, so the sigil is spelled once for every surface that names a dash.
   return (
-    <span
-      className="tug-session-identity-dash"
-      data-slot="session-identity-dash"
-      data-review={marked ? dash.review : undefined}
+    <DashSigil
+      name={dash.name}
+      review={dash.review ?? null}
+      slot="session-identity-dash"
       title={dashMarkerTitle(dash)}
-      aria-label={`On dash ${dash.name}`}
-    >
-      <span className="tug-session-identity-dash-sigil" aria-hidden="true">
-        #
-      </span>
-      <span className="tug-session-identity-dash-name">{dash.name}</span>
-    </span>
+      ariaLabel={`On dash ${dash.name}`}
+    />
   );
 }
 

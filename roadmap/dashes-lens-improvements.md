@@ -522,13 +522,13 @@ A future timestamp yields `null` rather than a negative or a clamped `now`: a cl
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | `last_activity` from the dash-log, and a birth record | pending | — |
-| #step-2 | Carry `last_activity` to the deck | pending | — |
-| #step-3 | Section presence: the registry can hide a section | pending | — |
-| #step-4 | The projection becomes parked-only | pending | — |
-| #step-5 | The Parked row's anatomy | pending | — |
-| #step-6 | Adopt and Release | pending | — |
-| #step-7 | Integration checkpoint: the partition law, in the app | pending | — |
+| #step-1 | `last_activity` from the dash-log, and a birth record | done | `a7e2ef2e8` |
+| #step-2 | Carry `last_activity` to the deck | done | `4c1384ff6` |
+| #step-3 | Section presence: the registry can hide a section | done | `38280776e` |
+| #step-4 | The projection becomes parked-only | done | `1bd05678a` |
+| #step-5 | The Parked row's anatomy | done | `ad12b10ae` |
+| #step-6 | Adopt and Release | done | `5326abf89` |
+| #step-7 | Integration checkpoint: the partition law, in the app | done | `a5c0a07c0` |
 
 ---
 

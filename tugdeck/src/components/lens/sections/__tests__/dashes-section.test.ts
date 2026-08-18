@@ -1,11 +1,15 @@
 /**
- * The Lens Dashes section's projection and its collapsed summary, over the
- * shared golden snapshot.
+ * The Lens Parked Dashes section's projection and its collapsed summary, over
+ * the shared golden snapshot.
  *
- * The two facts worth pinning are the ones a reader would be misled by: a dash
- * with no bound sessions reads *parked*, and so does one from a sender that
- * omits `bound_sessions` entirely — absence of evidence is the quiet mark, not
- * a live claim.
+ * The fact worth pinning hardest is the **partition law**: membership is
+ * exactly "no live session is working this", so a worked dash is never here
+ * (the Cards section shows it, on the row of the session doing the work) and a
+ * parked one is never anywhere else. The golden snapshot's own dash is worked,
+ * which makes the first assertion below a real one rather than a tautology.
+ *
+ * The second is that an older sender omitting `bound_sessions` entirely reads
+ * as parked. Absence of evidence is not evidence that somebody is working.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -21,6 +25,7 @@ import {
   compareDashRows,
   dashRowsFromSnapshot,
   dashesCollapsedSummary,
+  resolveAdoptTarget,
   type DashRow,
 } from "../dashes-section";
 
@@ -35,18 +40,45 @@ const GOLDEN_DASH = DATA.projects
   .flatMap((project) => project.changesets)
   .find((entry): entry is DashChangesetEntry => entry.kind === "dash")!;
 
-describe("dashRowsFromSnapshot", () => {
-  test("projects the golden dash with its stage and bound session", () => {
-    const rows = dashRowsFromSnapshot(DATA);
+/** The golden dash with nobody on it — the only kind this section holds. */
+const PARKED: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
+
+describe("dashRowsFromSnapshot — the partition law", () => {
+  test("a worked dash is not here at all", () => {
+    // The golden dash carries a bound session, so this is the law's live half:
+    // the section is empty precisely because the Cards section has that row.
+    expect(GOLDEN_DASH.bound_sessions?.length).toBeGreaterThan(0);
+    expect(dashRowsFromSnapshot(DATA)).toEqual([]);
+  });
+
+  test("a dash with no bound sessions is", () => {
+    const rows = dashRowsFromSnapshot({ projects: [projectWith([PARKED])] });
     expect(rows.length).toBe(1);
     const row = rows[0]!;
     expect(row.ownerId).toBe(GOLDEN_DASH.owner_id);
     expect(row.name).toBe("fix-join");
     expect(row.stage).toBe("draft-ready");
-    expect(row.boundSessions.length).toBe(1);
-    expect(row.parked).toBe(false);
     // Step counters are not minted in this era; the ink stays dark.
     expect(row.steps).toBeNull();
+  });
+
+  test("an absent bound_sessions field reads parked, never live", () => {
+    const older: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: undefined };
+    const rows = dashRowsFromSnapshot({ projects: [projectWith([older])] });
+    expect(rows.length).toBe(1);
+  });
+
+  test("the two halves partition: every dash lands on exactly one side", () => {
+    const worked: DashChangesetEntry = { ...GOLDEN_DASH, display_name: "worked" };
+    const napping: DashChangesetEntry = {
+      ...PARKED,
+      owner_id: "tugdash/napping#2",
+      display_name: "napping",
+    };
+    const rows = dashRowsFromSnapshot({
+      projects: [projectWith([worked, napping])],
+    });
+    expect(rows.map((r) => r.name)).toEqual(["napping"]);
   });
 
   test("session entries never become rows", () => {
@@ -54,95 +86,65 @@ describe("dashRowsFromSnapshot", () => {
       .flatMap((project) => project.changesets)
       .filter((entry) => entry.kind === "session");
     expect(sessions.length).toBeGreaterThan(0);
-    expect(dashRowsFromSnapshot(DATA).length).toBe(1);
-  });
-
-  test("no bound sessions reads parked", () => {
-    const parked: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
-    const rows = dashRowsFromSnapshot({ projects: [projectWith([parked])] });
-    expect(rows[0]!.parked).toBe(true);
-  });
-
-  test("an absent bound_sessions field reads parked, never live", () => {
-    const older: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: undefined };
-    const rows = dashRowsFromSnapshot({ projects: [projectWith([older])] });
-    expect(rows[0]!.parked).toBe(true);
-    expect(rows[0]!.boundSessions).toEqual([]);
+    expect(
+      dashRowsFromSnapshot({
+        projects: [projectWith([...sessions, PARKED])],
+      }).length,
+    ).toBe(1);
   });
 
   test("step counters render only when both halves arrive", () => {
-    const half: DashChangesetEntry = { ...GOLDEN_DASH, step_current: 2 };
+    const half: DashChangesetEntry = { ...PARKED, step_current: 2 };
     expect(
       dashRowsFromSnapshot({ projects: [projectWith([half])] })[0]!.steps,
     ).toBeNull();
-    const both: DashChangesetEntry = { ...GOLDEN_DASH, step_current: 2, step_total: 5 };
+    const both: DashChangesetEntry = { ...PARKED, step_current: 2, step_total: 5 };
     expect(
       dashRowsFromSnapshot({ projects: [projectWith([both])] })[0]!.steps,
     ).toBe("step 2/5");
   });
 
-  test("the project suffix appears only when it disambiguates", () => {
-    const one = dashRowsFromSnapshot(DATA);
-    expect(one[0]!.projectLabel).toBeNull();
-
-    const second: ProjectChangeset = {
-      ...projectWith([{ ...GOLDEN_DASH, owner_id: "tugdash/other#2" }]),
-      display_name: "other-project",
-      project_dir: "/tmp/other-project",
-    };
-    const two = dashRowsFromSnapshot({
-      projects: [projectWith([GOLDEN_DASH]), second],
-    });
-    expect(two.map((row) => row.projectLabel)).toEqual([
-      DATA.projects[0]!.display_name,
-      "other-project",
-    ]);
+  test("the row carries its project's dir and label, always", () => {
+    // Not a disambiguator: a parked dash may be the only thing on screen from
+    // its project, so the label is orientation. The dir is what a bind names.
+    const rows = dashRowsFromSnapshot({ projects: [projectWith([PARKED])] });
+    expect(rows[0]!.projectLabel).toBe(DATA.projects[0]!.display_name);
+    expect(rows[0]!.projectDir).toBe(DATA.projects[0]!.project_dir);
   });
 
   test("the order crosses projects: grouping by project is not a key", () => {
-    // A worked dash in the second project outranks a parked one in the first.
-    // Project grouping would bury it; the label is what tells them apart, and
-    // it still rides every row.
     const second: ProjectChangeset = {
       ...projectWith([
-        { ...GOLDEN_DASH, owner_id: "tugdash/live#2", display_name: "live" },
+        {
+          ...PARKED,
+          owner_id: "tugdash/landing#2",
+          display_name: "landing-one",
+          stage: "landing",
+        },
       ]),
       display_name: "other-project",
       project_dir: "/tmp/other-project",
     };
     const rows = dashRowsFromSnapshot({
       projects: [
-        projectWith([
-          { ...GOLDEN_DASH, display_name: "napping", bound_sessions: [] },
-        ]),
+        projectWith([{ ...PARKED, display_name: "napping", stage: "created" }]),
         second,
       ],
     });
-    expect(rows.map((r) => r.name)).toEqual(["live", "napping"]);
+    expect(rows.map((r) => r.name)).toEqual(["landing-one", "napping"]);
     expect(rows.map((r) => r.projectLabel)).toEqual([
       "other-project",
       DATA.projects[0]!.display_name,
     ]);
   });
-
-  test("a project with no dashes never contributes a disambiguator", () => {
-    const dashless = projectWith(
-      DATA.projects[0]!.changesets.filter((entry) => entry.kind !== "dash"),
-    );
-    const rows = dashRowsFromSnapshot({
-      projects: [projectWith([GOLDEN_DASH]), { ...dashless, display_name: "quiet" }],
-    });
-    expect(rows.length).toBe(1);
-    expect(rows[0]!.projectLabel).toBeNull();
-  });
 });
 
 describe("compareDashRows", () => {
-  /** A row with only the three keys the comparator reads. */
+  /** A row with only the keys the comparator reads. */
   function row(
     name: string,
     stage: string | null,
-    parked: boolean,
+    lastActivity: string | null = null,
   ): DashRow {
     return {
       ownerId: `tugdash/${name}#1`,
@@ -150,75 +152,179 @@ describe("compareDashRows", () => {
       stage,
       steps: null,
       stepTitle: null,
-      boundSessions: parked ? [] : ["sess-1"],
-      parked,
+      lastActivity,
       review: null,
-      projectLabel: null,
+      projectDir: "/tmp/p",
+      projectLabel: "p",
     };
   }
 
   const order = (rows: DashRow[]): string[] =>
     [...rows].sort(compareDashRows).map((r) => r.name);
 
-  test("worked before parked, whatever the stage says", () => {
-    // The dominant key, and deliberately so: the section exists to answer
-    // whether anyone is on it, so a parked dash about to land still sorts
-    // below a worked one that was created a minute ago.
-    expect(
-      order([row("parked-landing", "landing", true), row("worked-created", "created", false)]),
-    ).toEqual(["worked-created", "parked-landing"]);
-  });
-
-  test("within a group, nearest-to-done first", () => {
+  test("nearest-to-done first", () => {
     expect(
       order([
-        row("c", "created", false),
-        row("l", "landing", false),
-        row("w", "working", false),
-        row("b", "built", false),
-        row("d", "draft-ready", false),
-        row("a", "audited", false),
-        row("i", "implementing", false),
+        row("c", "created"),
+        row("l", "landing"),
+        row("w", "working"),
+        row("b", "built"),
+        row("d", "draft-ready"),
+        row("a", "audited"),
+        row("i", "implementing"),
       ]),
     ).toEqual(["l", "d", "a", "b", "i", "w", "c"]);
   });
 
-  test("name breaks a tie, not snapshot order", () => {
+  test("stage dominates age", () => {
     expect(
-      order([row("zebra", "built", false), row("alpha", "built", false)]),
-    ).toEqual(["alpha", "zebra"]);
+      order([
+        row("stale-but-close", "draft-ready", "2020-01-01T00:00:00Z"),
+        row("fresh-but-new", "created", "2026-08-17T00:00:00Z"),
+      ]),
+    ).toEqual(["stale-but-close", "fresh-but-new"]);
+  });
+
+  test("within a stage, freshest first", () => {
+    expect(
+      order([
+        row("older", "built", "2026-08-10T09:00:00Z"),
+        row("newer", "built", "2026-08-16T09:00:00Z"),
+      ]),
+    ).toEqual(["newer", "older"]);
+  });
+
+  // The comparison is lexical on ISO-8601 UTC, so a date whose ordering differs
+  // from its string ordering would break it. These two cross a month boundary,
+  // where zero-padding is what keeps the two orders the same.
+  test("compares raw ISO strings, never parsed dates", () => {
+    expect(
+      order([
+        row("sept", "built", "2026-09-02T00:00:00Z"),
+        row("aug", "built", "2026-08-30T00:00:00Z"),
+      ]),
+    ).toEqual(["sept", "aug"]);
+  });
+
+  test("an absent age sorts last within its stage", () => {
+    expect(
+      order([
+        row("undated", "built", null),
+        row("ancient", "built", "2020-01-01T00:00:00Z"),
+      ]),
+    ).toEqual(["ancient", "undated"]);
+  });
+
+  test("name breaks a tie, not snapshot order", () => {
+    expect(order([row("zebra", "built"), row("alpha", "built")])).toEqual([
+      "alpha",
+      "zebra",
+    ]);
   });
 
   test("an unrecognized or absent stage sorts last rather than throwing", () => {
     expect(
       order([
-        row("mystery", "from-the-future", false),
-        row("none", null, false),
-        row("known", "created", false),
+        row("mystery", "from-the-future"),
+        row("none", null),
+        row("known", "created"),
       ]),
     ).toEqual(["known", "mystery", "none"]);
     expect(DASH_STAGE_RANK["from-the-future"]).toBeUndefined();
   });
 });
 
+describe("resolveAdoptTarget", () => {
+  const HOME = { projectDir: "/tmp/tugtool", projectLabel: "tugtool" };
+
+  test("the followed card's session, when its project owns the dash", () => {
+    expect(
+      resolveAdoptTarget({
+        ...HOME,
+        followedCardId: "A",
+        binding: { tugSessionId: "sess-1", projectDir: "/tmp/tugtool" },
+      }),
+    ).toEqual({ tugSessionId: "sess-1", reason: null });
+  });
+
+  // Each refusal below names what is missing. A control that declines without
+  // saying why is exactly the failure this section used to have — its old
+  // activation was a silent no-op on every parked row ([L31]).
+  test("no followed card names the gesture that would fix it", () => {
+    const target = resolveAdoptTarget({
+      ...HOME,
+      followedCardId: null,
+      binding: undefined,
+    });
+    expect(target.tugSessionId).toBeNull();
+    expect(target.reason).toBe("Focus a session card to adopt this dash");
+  });
+
+  test("a followed card with no session says so", () => {
+    const target = resolveAdoptTarget({
+      ...HOME,
+      followedCardId: "A",
+      binding: undefined,
+    });
+    expect(target.tugSessionId).toBeNull();
+    expect(target.reason).toBe("The focused card has no session");
+  });
+
+  test("a project mismatch names the project, so a real refusal is self-reporting", () => {
+    const target = resolveAdoptTarget({
+      ...HOME,
+      followedCardId: "A",
+      binding: { tugSessionId: "sess-1", projectDir: "/tmp/elsewhere" },
+    });
+    expect(target.tugSessionId).toBeNull();
+    expect(target.reason).toBe("This dash belongs to tugtool");
+  });
+
+  test("exactly one of target and reason is ever set", () => {
+    const cases = [
+      { followedCardId: null, binding: undefined },
+      { followedCardId: "A", binding: undefined },
+      {
+        followedCardId: "A",
+        binding: { tugSessionId: "s", projectDir: "/tmp/elsewhere" },
+      },
+      {
+        followedCardId: "A",
+        binding: { tugSessionId: "s", projectDir: "/tmp/tugtool" },
+      },
+    ];
+    for (const input of cases) {
+      const target = resolveAdoptTarget({ ...HOME, ...input });
+      expect((target.tugSessionId === null) !== (target.reason === null)).toBe(true);
+    }
+  });
+});
+
 describe("dashesCollapsedSummary", () => {
-  test("says so when there are none", () => {
-    expect(dashesCollapsedSummary([])).toBe("No dashes");
-  });
-
-  test("counts one dash in the singular", () => {
-    expect(dashesCollapsedSummary(dashRowsFromSnapshot(DATA))).toBe("1 dash");
-  });
-
-  test("appends the parked count when any are parked", () => {
+  test("counts what is parked", () => {
     const rows = dashRowsFromSnapshot({
       projects: [
         projectWith([
-          GOLDEN_DASH,
-          { ...GOLDEN_DASH, owner_id: "tugdash/idle#2", bound_sessions: [] },
+          PARKED,
+          { ...PARKED, owner_id: "tugdash/idle#2", display_name: "idle" },
         ]),
       ],
     });
-    expect(dashesCollapsedSummary(rows)).toBe("2 dashes · 1 parked");
+    expect(dashesCollapsedSummary(rows)).toBe("2 parked");
+  });
+
+  test("one is still 'parked' — the word is the state, not a plural", () => {
+    expect(
+      dashesCollapsedSummary(
+        dashRowsFromSnapshot({ projects: [projectWith([PARKED])] }),
+      ),
+    ).toBe("1 parked");
+  });
+
+  // Unreachable in the app, where the section hides itself rather than showing
+  // a band that says nothing. Kept so the change of premise is a sentence
+  // rather than a crash.
+  test("an empty list still reads as a sentence", () => {
+    expect(dashesCollapsedSummary([])).toBe("No parked dashes");
   });
 });

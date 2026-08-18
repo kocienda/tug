@@ -58,6 +58,19 @@ export interface LensSectionDefinition {
    * grow without bound opts in; a fixed-size section leaves it off.
    */
   filterable?: boolean;
+  /**
+   * Whether this section renders **at all** — band included. Evaluated as a
+   * hook by an always-mounted probe (`lens-section-presence-probe.tsx`), never
+   * by the section's own body, which could not answer the question about
+   * itself: a body that answered "no" would unmount and never answer again.
+   *
+   * Opting out is the whole capability. A section that declares no `presence`
+   * always renders, which is what every section did before this existed. A
+   * section that does declare one is claiming its empty state is worth *no*
+   * rail height — appropriate for an inbox, wrong for a section whose absence
+   * would read as a bug.
+   */
+  presence?: (host: LensSectionHost) => boolean;
 
   // Reserved capability hooks — declared, not implemented ([P07]).
   findSegments?: unknown;
@@ -95,9 +108,14 @@ export function getRegisteredLensSections(): ReadonlyMap<
  * Resolve the section render order (pure): start from the persisted
  * `sectionOrder` (keeping only kinds that are actually registered), then
  * append any registered-but-unordered kinds in their registration order.
- * Every registered section renders — the Lens has no hidden sections.
  * Unknown persisted kinds are ignored — the persisted list tolerates
  * removed section kinds without crashing ([P03]).
+ *
+ * This answers "every registered kind, in order" and nothing about visibility:
+ * a section may declare itself absent through `presence`, and filtering this
+ * result by {@link ../lens-section-presence.sectionIsPresent} is the caller's
+ * job. The two stay separate because the persisted order must keep a kind's
+ * place while it is hidden — see {@link mergeHiddenIntoOrder}.
  */
 export function resolveSectionRenderOrder(
   registeredKinds: readonly string[],
@@ -131,6 +149,34 @@ export function moveInArray<T>(arr: readonly T[], from: number, to: number): T[]
   const clampedTo = Math.max(0, Math.min(to, out.length - 1));
   const [item] = out.splice(from, 1);
   out.splice(clampedTo, 0, item);
+  return out;
+}
+
+/**
+ * Put the kinds missing from `visibleOrder` back into it, each at the index it
+ * held in `fullOrder` (pure).
+ *
+ * A drag-reorder computes its drop index against the bands actually on screen,
+ * so it can only ever produce a *visible* order. Persisting that verbatim would
+ * silently drop every hidden kind out of the stored order, and a section that
+ * happened to be empty when somebody dragged another one would lose its place
+ * for good. Re-inserting at the recorded index keeps a hidden section exactly
+ * where it was, which is the least surprising thing to find when it comes back.
+ *
+ * With nothing hidden this is the identity.
+ */
+export function mergeHiddenIntoOrder(
+  fullOrder: readonly string[],
+  visibleOrder: readonly string[],
+): string[] {
+  const visible = new Set(visibleOrder);
+  const out = [...visibleOrder];
+  // Ascending original index, so an earlier hidden kind is already in place
+  // when a later one computes where it goes.
+  fullOrder.forEach((kind, index) => {
+    if (visible.has(kind)) return;
+    out.splice(Math.min(index, out.length), 0, kind);
+  });
   return out;
 }
 

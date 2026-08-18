@@ -1,14 +1,15 @@
 /**
  * dash-facts.tsx — a dash's facts as one row run, and the review mark inside it.
  *
- * Two Lens surfaces say the same things about a dash now: the Dashes section's
- * roster rows, and the sub-row nested under the session working it in the Cards
- * section. They answer different questions — what dashes exist, versus what
- * this session is doing — but the sentence is the same one, so it is authored
- * once here rather than twice and kept in step by hand.
+ * The run's consumer is the dash line nested under the session working it in
+ * the Cards section — what this session is doing, said in dash grammar. The
+ * Parked Dashes section used to render the identical run, which is what made
+ * the two surfaces a duplication rather than a division of labour; it now
+ * composes its own row from these pieces, because a parked dash's row answers a
+ * different question and has a different shape.
  *
- * The roster adds its own trailing project label, which the sub-row has no use
- * for: a sub-row is already inside a session, and the session names the project.
+ * `DashReviewMark` stays shared: the review advisory means the same thing
+ * wherever it paints, and two spellings of it is how that drifts.
  */
 
 import "./dash-facts.css";

@@ -303,19 +303,25 @@ pub struct DashDeclarations {
     /// its base last moved under it. Deliberately not a `latest` declaration: a
     /// replay rewrites history, it does not move the dash's stage.
     pub last_replay: Option<String>,
+    /// The timestamp of the newest surviving line for this dash's current
+    /// generation — when the dash was last touched at all, by any writer. Reset
+    /// with everything else at a terminal line, so a reused name reports its own
+    /// generation's age. `None` when the generation has logged nothing.
+    pub last_activity: Option<String>,
 }
 
-/// Split a dash-log line into its dash, marker, and note fields.
+/// Split a dash-log line into its timestamp, dash, marker, and note fields.
 ///
 /// [`append_dash_log`] joins the four fields with two spaces and trims the
 /// note, so the note is whatever follows the third separator — including
 /// nothing at all, which is how a `released` line is written.
-fn split_log_line(line: &str) -> Option<(&str, &str, &str)> {
+fn split_log_line(line: &str) -> Option<(&str, &str, &str, &str)> {
     let mut fields = line.trim_end().splitn(4, "  ");
-    let _timestamp = fields.next()?;
+    let timestamp = fields.next()?;
     let dash = fields.next()?;
     let marker = fields.next()?;
     Some((
+        timestamp.trim(),
         dash.trim(),
         marker.trim(),
         fields.next().unwrap_or("").trim(),
@@ -372,7 +378,7 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
 
     let mut found = DashDeclarations::default();
     for line in text.lines() {
-        let Some((name, marker, note)) = split_log_line(line) else {
+        let Some((timestamp, name, marker, note)) = split_log_line(line) else {
             continue;
         };
         if name != dash {
@@ -382,6 +388,10 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
             found = DashDeclarations::default();
             continue;
         }
+        // Every surviving line dates the dash, whatever it declares — including
+        // markers this match ignores, which is what lets a `created` line give a
+        // dash an age without giving it a stage.
+        found.last_activity = Some(timestamp.to_owned());
         match marker {
             "step-start" | "step-done" => {
                 if let Some((current, total)) = read_step_fields(note) {
@@ -467,7 +477,13 @@ mod tests {
 
     /// One log line in the shape [`append_dash_log`] writes.
     fn log_line(dash: &str, marker: &str, note: &str) -> String {
-        format!("2026-08-14T12:00:00Z  {dash}  {marker}  {note}\n")
+        log_line_at("2026-08-14T12:00:00Z", dash, marker, note)
+    }
+
+    /// The same, with the timestamp field spelled out — for the reads that are
+    /// *about* the timestamp and need the lines to differ.
+    fn log_line_at(at: &str, dash: &str, marker: &str, note: &str) -> String {
+        format!("{at}  {dash}  {marker}  {note}\n")
     }
 
     #[test]
@@ -590,12 +606,79 @@ mod tests {
                 log_line("d", "abc1234", "a fresh round on the reused name"),
             );
             let fixture = log_repo(&log);
+            let found = read_declarations(fixture.root(), "d");
             assert_eq!(
-                read_declarations(fixture.root(), "d"),
+                DashDeclarations {
+                    last_activity: None,
+                    ..found.clone()
+                },
                 DashDeclarations::default(),
                 "a new generation starts undeclared"
             );
+            assert!(
+                found.last_activity.is_some(),
+                "but the round after the terminal line still dates the dash"
+            );
         }
+    }
+
+    #[test]
+    #[serial]
+    fn a_logs_newest_line_dates_the_dash() {
+        let log = format!(
+            "{}{}{}",
+            log_line_at("2026-08-10T09:00:00Z", "d", "created", ""),
+            log_line_at("2026-08-11T09:00:00Z", "d", "step-start", "1/2 Step 1: First"),
+            log_line_at("2026-08-12T09:00:00Z", "d", "built", ""),
+        );
+        let fixture = log_repo(&log);
+        assert_eq!(
+            read_declarations(fixture.root(), "d").last_activity.as_deref(),
+            Some("2026-08-12T09:00:00Z"),
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn a_terminal_line_resets_the_date() {
+        let log = format!(
+            "{}{}{}",
+            log_line_at("2026-08-10T09:00:00Z", "d", "step-done", "2/2 a4477d5"),
+            log_line_at("2026-08-11T09:00:00Z", "d", "released", ""),
+            log_line_at("2026-08-12T09:00:00Z", "d", "created", ""),
+        );
+        let fixture = log_repo(&log);
+        assert_eq!(
+            read_declarations(fixture.root(), "d").last_activity.as_deref(),
+            Some("2026-08-12T09:00:00Z"),
+            "the new generation's own age, not the released one's",
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn a_dash_with_no_surviving_lines_has_no_date() {
+        let log = format!(
+            "{}{}",
+            log_line("d", "built", ""),
+            log_line("d", "released", ""),
+        );
+        let fixture = log_repo(&log);
+        assert_eq!(read_declarations(fixture.root(), "d").last_activity, None);
+    }
+
+    #[test]
+    #[serial]
+    fn a_created_marker_does_not_move_the_stage() {
+        let fixture = log_repo(&log_line_at("2026-08-10T09:00:00Z", "d", "created", ""));
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.latest, None, "a birth record is not a declaration");
+        assert_eq!(found.step, None);
+        assert_eq!(
+            found.last_activity.as_deref(),
+            Some("2026-08-10T09:00:00Z"),
+            "but it does date the dash",
+        );
     }
 
     #[test]

@@ -740,6 +740,18 @@ pub fn create(
     // it is torn down with the branch and needs no garbage collection.
     let id = ensure_dash_id(&repo_root, name).ok();
 
+    // The birth record. A dash created bare — no plan, no rounds — would
+    // otherwise have no line in the log at all and no date to report, while one
+    // created with a plan gets its `Adopt plan` line for free; the gap was
+    // arbitrary. Written only here, on the genuinely-created path, so the
+    // idempotent revisit above cannot forge activity.
+    //
+    // The note is empty, and that is load-bearing: `read_dash_log` in
+    // `tugcast`'s draft engine is a second parser of this file that keeps every
+    // non-empty note as a per-round authoring instruction, and skips empty ones.
+    // A note here would read as an instruction the user never gave.
+    let _ = append_dash_log(&repo_root, name, "created", "");
+
     // Hydrate the worktree; on failure, roll it (and the branch) back so a
     // retry re-creates cleanly and the idempotent path never strands it.
     if let Err(hook_err) = run_post_create(&repo_root, &worktree) {
@@ -1012,6 +1024,10 @@ pub struct DashDetail {
     /// The note of the dash-log's most recent `replayed` line — the settled
     /// mark's text. `None` when this dash has never been replayed.
     pub last_replay: Option<String>,
+    /// When this dash was last touched: the timestamp of the newest dash-log
+    /// line for its current generation, ISO-8601 UTC. `None` for a dash created
+    /// before creation wrote a birth record and never logged anything since.
+    pub last_activity: Option<String>,
 }
 
 /// Parse `git diff --name-status` output. Rename and copy lines
@@ -1168,6 +1184,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             base_ahead,
             base_overlap,
             last_replay: declarations.last_replay.clone(),
+            last_activity: declarations.last_activity.clone(),
             base,
             rounds,
             worktree_rel,
@@ -1209,6 +1226,9 @@ pub struct DashStatus {
     pub step_title: Option<String>,
     /// The plan this dash is driving, relative to its worktree ([P08]).
     pub plan_path: Option<String>,
+    /// When this dash was last touched — the newest dash-log line's timestamp
+    /// for the current generation, ISO-8601 UTC.
+    pub last_activity: Option<String>,
 }
 
 /// The stage a dash is in, from what git derives and what the dash declared.
@@ -1336,6 +1356,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         step_total: declarations.step.map(|(_, total)| total as i64),
         step_title: declarations.step_title.clone(),
         plan_path: dash_plan_path(repo_root, name),
+        last_activity: declarations.last_activity.clone(),
     })
 }
 
@@ -3382,6 +3403,23 @@ mod tests {
         }
     }
 
+    /// A git repo under `temp`, with the redirected project-state dir as its
+    /// *sibling* rather than a child, and the cwd left on it.
+    ///
+    /// Production never puts project state inside a working tree. A fixture
+    /// that does makes every dash-log write — including the birth record
+    /// `create` appends — read as untracked dirt in the base checkout, which
+    /// then shows up in dirt censuses and join preflights that have nothing to
+    /// do with it.
+    fn repo_beside_state(temp: &TempDir) -> std::path::PathBuf {
+        let repo = temp.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        init_git_repo(&repo);
+        redirect_state_dir(&temp.path().join("state"));
+        std::env::set_current_dir(&repo).unwrap();
+        repo
+    }
+
     /// Path the dash-log is written to for `repo`, given the redirected base.
     ///
     /// Canonicalizes `repo` to match `find_repo_root()`, which resolves the cwd
@@ -3544,17 +3582,14 @@ Some context.
     /// Returns the temp dir and the canonical repo root the verbs resolve to.
     fn stepped_dash(name: &str) -> (TempDir, std::path::PathBuf) {
         let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        init_git_repo(repo);
-        redirect_state_dir(&repo.join("state"));
-        std::env::set_current_dir(repo).unwrap();
+        let repo = repo_beside_state(&temp);
         create(name, None, None, false).unwrap();
 
-        let worktree = worktree_path(repo, name);
+        let worktree = worktree_path(&repo, name);
         fs::create_dir_all(worktree.join("roadmap")).unwrap();
         fs::write(worktree.join("roadmap/plan.md"), TWO_STEP_PLAN).unwrap();
 
-        let root = fs::canonicalize(repo).unwrap();
+        let root = fs::canonicalize(&repo).unwrap();
         (temp, root)
     }
 
@@ -3849,12 +3884,9 @@ Some context.
     /// A repo with a dash whose worktree holds no plan yet.
     fn adopting_dash(name: &str) -> (TempDir, std::path::PathBuf) {
         let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        init_git_repo(repo);
-        redirect_state_dir(&repo.join("state"));
-        std::env::set_current_dir(repo).unwrap();
+        let repo = repo_beside_state(&temp);
         create(name, None, None, false).unwrap();
-        let root = fs::canonicalize(repo).unwrap();
+        let root = fs::canonicalize(&repo).unwrap();
         (temp, root)
     }
 
@@ -3862,15 +3894,12 @@ Some context.
     /// both roots hold it and the base copy is clean.
     fn adopted_from_committed_plan(name: &str) -> (TempDir, std::path::PathBuf) {
         let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        init_git_repo(repo);
-        redirect_state_dir(&repo.join("state"));
-        std::env::set_current_dir(repo).unwrap();
-        write_base_plan(repo, TWO_STEP_PLAN);
-        run_git(repo, &["add", "-A"]);
-        run_git(repo, &["commit", "-m", "Add the plan"]);
+        let repo = repo_beside_state(&temp);
+        write_base_plan(&repo, TWO_STEP_PLAN);
+        run_git(&repo, &["add", "-A"]);
+        run_git(&repo, &["commit", "-m", "Add the plan"]);
         create(name, None, None, false).unwrap();
-        let root = fs::canonicalize(repo).unwrap();
+        let root = fs::canonicalize(&repo).unwrap();
         (temp, root)
     }
 
@@ -4402,14 +4431,11 @@ Some context.
     /// A repo with no dash yet, ready for a `create --plan`.
     fn repo_for_create(base_plan: Option<&str>) -> (TempDir, std::path::PathBuf) {
         let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        init_git_repo(repo);
-        redirect_state_dir(&repo.join("state"));
-        std::env::set_current_dir(repo).unwrap();
+        let repo = repo_beside_state(&temp);
         if let Some(body) = base_plan {
-            write_base_plan(repo, body);
+            write_base_plan(&repo, body);
         }
-        let root = fs::canonicalize(repo).unwrap();
+        let root = fs::canonicalize(&repo).unwrap();
         (temp, root)
     }
 
@@ -4427,6 +4453,41 @@ Some context.
         let out = create("tidy", None, None, false).unwrap();
         assert!(out.base_dirt.is_empty(), "{:?}", out.base_dirt);
         assert_eq!(out.off_base, None);
+    }
+
+    /// A dash created bare has no rounds and no adopted plan, so without a
+    /// birth record it would have no dash-log line at all and no date to
+    /// report. The revisit must not forge a second one — a re-run is a repair,
+    /// not activity.
+    #[serial]
+    #[test]
+    fn create_writes_one_birth_record_and_a_revisit_writes_none() {
+        let (_temp, root) = repo_for_create(None);
+        create("newborn", None, None, false).unwrap();
+
+        let log_path = tugutil_core::paths::project_state_dir(&root).join("dash-log.md");
+        let count = |text: &str| {
+            text.lines()
+                .filter(|l| l.contains("  newborn  created  "))
+                .count()
+        };
+        let after_create = fs::read_to_string(&log_path).unwrap();
+        assert_eq!(count(&after_create), 1, "{after_create}");
+
+        // The note is empty — the draft engine reads every non-empty note as an
+        // authoring instruction, and a birth record is not one.
+        let line = after_create
+            .lines()
+            .find(|l| l.contains("  newborn  created"))
+            .unwrap();
+        assert!(
+            line.trim_end().ends_with("created"),
+            "the created line carries no note: {line:?}"
+        );
+
+        let revisit = create("newborn", None, None, false).unwrap();
+        assert!(!revisit.created);
+        assert_eq!(count(&fs::read_to_string(&log_path).unwrap()), 1);
     }
 
     /// Most creates happen over *some* unrelated dirt, so a refusing create
@@ -4517,12 +4578,9 @@ Some context.
     #[test]
     fn carried_work_becomes_a_round_and_lands_the_authored_draft() {
         let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        init_git_repo(repo);
-        redirect_state_dir(&repo.join("state"));
-        std::env::set_current_dir(repo).unwrap();
+        let repo = repo_beside_state(&temp);
         isolate_changes_db(&temp);
-        let root = fs::canonicalize(repo).unwrap();
+        let root = fs::canonicalize(&repo).unwrap();
 
         // Work already under way on the base.
         fs::write(root.join("feature.rs"), "half a feature\n").unwrap();
