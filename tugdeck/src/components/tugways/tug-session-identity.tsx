@@ -283,8 +283,8 @@ function CallsignRun({
  * its identity, so folding it into the identity record would wake every
  * identity surface in the app whenever any session bound or unbound.
  *
- * Both tiers render the same run — `◊<dash-name>` — because the identity is one
- * format wherever it is met. The `◊` is the grammar's dash sigil and is
+ * Both tiers render the same run — `^<dash-name>` — because the identity is one
+ * format wherever it is met. The `^` is the grammar's dash sigil and is
  * decorative to a screen reader, which hears the run's own label instead. The
  * review state paints as a `data-review` attribute the CSS reads ([L06]) — the
  * mark is the run's own tone, since neither register has room for a second

@@ -223,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         // spelling — the glyph left the grammar when the sigil replaced it.
         expect(mark.hasGlyph).toBe(false);
         expect(mark.hasName).toBe(true);
-        expect(mark.text).toBe(`◊${DASH_NAME}`);
+        expect(mark.text).toBe(`^${DASH_NAME}`);
         expect(mark.title).toBe(`Working on dash ${DASH_NAME}`);
         expect(mark.label).toBe(`On dash ${DASH_NAME}`);
 
@@ -234,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         // even if the dash name were somewhere in the string.
         const bound = await readPanel(app);
         expect(bound.marks).toBe(1);
-        expect(bound.atom).toBe(`${bare.atom}◊${DASH_NAME}`);
+        expect(bound.atom).toBe(`${bare.atom}^${DASH_NAME}`);
         // A. And the citation did not move.
         expect(bound.citation).toBe(bare.citation);
         expect(bound.citation).not.toContain(DASH_NAME);

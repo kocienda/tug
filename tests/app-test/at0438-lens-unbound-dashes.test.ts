@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the partition law", () => {
         note("at0438 unbound row", JSON.stringify(unbound));
         // The name wears its sigil here too — a dash is named one way
         // everywhere, and this row is the one place with no session to carry it.
-        expect(unbound.name).toBe(`◊${DASH_NAME}`);
+        expect(unbound.name).toBe(`^${DASH_NAME}`);
         expect(unbound.rowText).toContain(DASH_NAME);
         // A dash created and never worked is `created`, and its birth record is
         // what gives it an age at all.

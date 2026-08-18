@@ -229,9 +229,12 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
         );
         note("at0424 dash line", JSON.stringify(line));
         // The name is the title run's to say; the line says only the doing.
-        expect(line.text).not.toContain(`◊${DASH_NAME}`);
-        // A freshly created dash with no round and no dirt is `created`.
-        expect(line.text).toContain("created");
+        expect(line.text).not.toContain(`^${DASH_NAME}`);
+        // The fixture's plan is uncommitted dirt in the dash's worktree, so
+        // the stage it derives is `working` — the point of the assertion is
+        // that a stage word is on the line at all, spelled the way the wire
+        // spelled it.
+        expect(line.text).toContain("working");
         expect(line.insideSessionRow).toBe(true);
         expect(line.sameCellAsSession).toBe(true);
         expect(line.belowActivity).toBe(true);

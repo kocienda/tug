@@ -421,7 +421,7 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
         );
         await runCommand(app, `/dash-bind ${DASH}`);
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]')?.textContent.trim() === ${JSON.stringify(`◊${DASH}`)}`,
+          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]')?.textContent.trim() === ${JSON.stringify(`^${DASH}`)}`,
           { timeoutMs: 20000 },
         );
 

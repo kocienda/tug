@@ -95,20 +95,26 @@ interface RunWidths {
 }
 
 /**
- * Squeeze the identity by `deficit` px below its natural width and report
- * which runs were clipped.
+ * Give the identity `deficit` px less than its runs need, and report which of
+ * them the browser had to clip.
  *
- * The constraint goes on the identity element itself, which is what a narrow
- * row does to it: everything inside — the three levels of clamp — is the
- * code under test, untouched.
+ * The width goes on the identity element itself, which is what a narrow row
+ * does to it: everything inside — the three levels of clamp — is the code
+ * under test, untouched. The reference is the runs' CONTENT width, measured
+ * with the element opened up first, so the stages are relative to what the
+ * text wants rather than to whatever the Lens happens to be wide enough for.
  */
 const squeeze = (app: App, deficit: number): Promise<RunWidths> =>
   app.evalJS<RunWidths>(
     `(() => {
        const id = document.querySelector(${JSON.stringify(IDENTITY)});
-       id.style.maxInlineSize = "";
-       const natural = id.getBoundingClientRect().width;
-       id.style.maxInlineSize = (natural - ${deficit}) + "px";
+       const run = id.querySelector(".tug-session-identity-run");
+       id.style.maxInlineSize = "none";
+       id.style.width = "3000px";
+       void id.getBoundingClientRect();
+       let content = 0;
+       for (const child of run.children) content += child.scrollWidth;
+       id.style.width = (content - ${deficit}) + "px";
        // A synchronous read forces the layout the assertions are about.
        void id.getBoundingClientRect();
        const clipped = (sel) => {
@@ -141,6 +147,7 @@ describe.skipIf(!SHOULD_RUN)("AT0439: the identity line's elision order", () => 
         env: { TUGBANK_PATH: tugbankPath },
       });
       try {
+        await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
@@ -165,6 +172,21 @@ describe.skipIf(!SHOULD_RUN)("AT0439: the identity line's elision order", () => 
             },
           ],
         });
+
+        // The name and the callsign arrive the way a real rename and a real
+        // mint do — on a `session_updated` push. A ledger seed alone leaves
+        // the identity on its short-id fallback, and the whole grammar has to
+        // be present at once for an elision order to mean anything.
+        expect(
+          await app.evalJS<boolean>(
+            `window.__tug.publishSessionUpdated(${JSON.stringify(
+              JSON.stringify({
+                session_id: SID,
+                fields: { name: NAME, name_user_set: true, tag: TAG },
+              }),
+            )})`,
+          ),
+        ).toBe(true);
 
         await app.dispatchControlAction("toggle-lens");
         await app.waitForCondition<boolean>(

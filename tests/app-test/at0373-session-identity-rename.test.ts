@@ -232,12 +232,16 @@ describe.skipIf(!SHOULD_RUN)("at0373 — session identity is one resolver, subsc
             var callsign = row.querySelector(".tug-session-identity-callsign");
             return {
               name: name === null ? "" : name.innerText,
-              callsign: callsign === null ? "" : callsign.innerText,
+              // textContent, not innerText: the callsign is two spans so it
+              // can middle-truncate (at0439), and flex blockifies its items,
+              // which makes innerText break a line between them. What this
+              // assertion is about is the characters, not the boxes.
+              callsign: callsign === null ? "" : callsign.textContent,
             };
           })()`,
         );
         // Two runs, sized separately — which is what lets the callsign be the
-        // one that elides under a squeeze (at0374 measures that).
+        // one that elides under a squeeze (at0439 measures that).
         expect(runs.name).toContain(RENAME);
         expect(runs.callsign).toContain(`tugtool/${REROLLED_TAG}`);
         // The Line string the pane-title channel carries is a different, and

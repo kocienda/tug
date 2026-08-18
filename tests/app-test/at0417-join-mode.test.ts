@@ -72,7 +72,7 @@ const BULLETIN = ".tug-pane-bulletin";
 const CHIP =
   '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
 /** What that run reads: the identity's dash grammar, sigil included. */
-const chipText = (dash: string): string => `◊${dash}`;
+const chipText = (dash: string): string => `^${dash}`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 

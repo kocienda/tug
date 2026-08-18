@@ -1,8 +1,8 @@
 /**
- * dash-sigil.tsx — a dash's name, wearing its `◊`.
+ * dash-sigil.tsx — a dash's name, wearing its `^`.
  *
  * The standing rule is that a bound dash shows with its sigil everywhere a dash
- * is named, with no opt-out. Two hand-rolled spellings of `◊` + name is exactly
+ * is named, with no opt-out. Two hand-rolled spellings of `^` + name is exactly
  * how a rule like that drifts, so there is one, and both surfaces compose it:
  * `SessionDashMarker` in the session identity run, and the Unbound Dashes row.
  *
@@ -29,7 +29,7 @@ import React from "react";
 import { dashReviewPaints } from "@/lib/dash-review";
 
 export interface DashSigilProps {
-  /** The dash's short name, without the `◊`. */
+  /** The dash's short name, without the `^`. */
   name: string;
   /** The plan's review state, or null. Tints the run only when it paints. */
   review: string | null;
@@ -59,7 +59,7 @@ export function DashSigil({
       aria-label={ariaLabel}
     >
       <span className="tug-session-identity-dash-sigil" aria-hidden="true">
-        ◊
+        ^
       </span>
       <span className="tug-session-identity-dash-name">{name}</span>
     </span>
