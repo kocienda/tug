@@ -114,8 +114,13 @@ export function resolutionAwaitsReview(resolve: {
 export function evaluateJoinLandGate(input: JoinLandGateInput): JoinLandGate {
   if (input.turnInProgress) return { ok: false, reason: "turn" };
   if (input.joinPhase === "pending") return { ok: false, reason: "pending" };
-  const landable = input.outcome === "clean" || input.candidateCommit !== null;
-  if (!landable) return { ok: false, reason: "outcome" };
+  // The outcome already accounts for the candidate ({@link deriveJoinOutcome}),
+  // so it is the whole answer. It deliberately no longer reads
+  // `candidateCommit` as a second, independent arm: that arm re-admitted every
+  // state the outcome had just refused — a blocked join with a candidate was
+  // landable through it, which is the shade saying "blocked" and the button
+  // saying "go".
+  if (input.outcome !== "clean") return { ok: false, reason: "outcome" };
   if (input.unreviewedResolution) return { ok: false, reason: "unreviewed" };
   if (input.message.trim().length === 0) return { ok: false, reason: "empty-message" };
   return { ok: true };
@@ -672,13 +677,20 @@ export function deriveJoinOutcome(input: {
   blockers: readonly JoinBlocker[];
   candidateCommit: string | null;
 }): JoinOutcome {
-  // A resolved candidate outranks the conflicts it was built from — it is the
-  // one state where a conflicted history is landable.
-  if (input.candidateCommit !== null) return "clean";
   if (input.joinPhase === "pending") return "previewing";
   if (input.joinPhase === "idle") return "unknown";
   if (input.blockers.some((b) => b.kind === "empty")) return "empty";
+  // A BLOCKER outranks a resolved candidate, and the order here is the whole
+  // point. The ladder resolves conflicts; it does not commit the base's
+  // outstanding changes, finish an interrupted prior join, or make a branch
+  // exist. Ranked the other way — as this was — a successful Resolve painted
+  // `clean` over a face still displaying `join: commit outstanding changes`
+  // one line below it, and the land gate believed the badge.
   if (input.blockers.length > 0) return "blocked";
+  // A resolved candidate DOES outrank the conflicts it was built from — that
+  // is the one state where a conflicted history is landable, and the reason
+  // this check sits between the two.
+  if (input.candidateCommit !== null) return "clean";
   if (input.conflicts.length > 0) return "conflicted";
   if (input.joinPhase === "error") return "blocked";
   return "clean";

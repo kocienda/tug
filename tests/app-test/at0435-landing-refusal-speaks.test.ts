@@ -9,11 +9,16 @@
  * of investigation had nothing to read.
  *
  * What this drives is the mechanism, not a hypothesis about which condition
- * fires: the composer's submit path is reachable while the land button is
- * disabled — that asymmetry is the incident's whole shape — so an empty message
- * over an otherwise landable dash is the cheapest deterministic refusal there
- * is. The press produces a bulletin carrying the gate's own sentence, the mode
- * stays up, and nothing goes on the wire.
+ * fires: an empty message over an otherwise landable dash is the cheapest
+ * deterministic refusal there is. The press produces a bulletin carrying the
+ * gate's own sentence, the mode stays up, and nothing goes on the wire.
+ *
+ * It is driven both ways, because only one of them was ever broken. A submit
+ * CHORD reaches `land()` whatever the button looks like; a CLICK on the button
+ * did not, because the button was HTML-disabled on the gate and
+ * `pointer-events: none` on an empty message. Pressing it with a mouse
+ * produced no act and no sentence — the refusal was computed and hung where no
+ * gesture could reach it. The button dims now without going numb.
  *
  * Safe by construction: the gate refuses, so no join is ever executed against
  * any branch.
@@ -23,6 +28,7 @@
  * @covers tugdeck/src/lib/landing-notice.ts
  * @covers tugdeck/src/components/tugways/cards/landing-notice-controller.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
+ * @covers tugdeck/src/components/tugways/tug-prompt-entry.css
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -329,6 +335,29 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           { timeoutMs: 10000 },
         );
         note("at0435 the second press spoke again after the first bulletin faded");
+
+        // And the same refusal, reached by CLICKING the button rather than by
+        // the submit chord — which is the half of this that was dead.
+        //
+        // Every press above rides `⌘Return`, and that path was never the
+        // broken one: a keystroke reaches `performSubmit` no matter what the
+        // button looks like. A CLICK does not. The land button was
+        // HTML-disabled on the gate and `pointer-events: none` on an empty
+        // message, so a mouse press on it landed on nothing at all — no act,
+        // no sentence, no bulletin — which is exactly what a developer
+        // reported after clicking it and watching the app do nothing. The
+        // button now dims without going numb, so the click refuses out loud
+        // like the keystroke does.
+        await app.waitForCondition<boolean>(
+          `${BULLETIN_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
+          { timeoutMs: 30000 },
+        );
+        await app.nativeClickAtElement(JOIN_BUTTON);
+        await app.waitForCondition<boolean>(
+          `${BULLETIN_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
+          { timeoutMs: 10000 },
+        );
+        note("at0435 clicking the dimmed land button refused out loud");
       } finally {
         await app.close();
       }

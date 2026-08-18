@@ -3757,9 +3757,18 @@ export const TugPromptEntry = React.forwardRef<
 
   // ── Commit-mode chrome ([P03], Z5 icon rail) ─────────────────────────────
   // Z5: auto-message / commit, both icons ([P03]). Auto-Message drafts
-  // (pencil-sparkles; a spinner + disabled while drafting), Commit lands — JS-disabled on the turn/pending/changeset
-  // gate, and additionally dimmed by CSS when the message is empty
-  // (`data-empty`, so no per-keystroke React state, [L22]).
+  // (pencil-sparkles; a spinner + disabled while drafting), Commit lands.
+  //
+  // The land button is NOT disabled by the land gate, and that is the point
+  // ([L31]). An HTML-disabled button takes no pointer events, so a press on it
+  // reaches nothing and its tooltip — the one carrying `landBlockedReason` —
+  // can never open: the refusal is computed, carried here, and then hung where
+  // no gesture can reach it. Blocked, it dims and keeps its cursor cue, and a
+  // press runs the land route, which refuses out loud through the one exit
+  // that writes the sentence to the bulletin, the dev log, and its caller.
+  // `disabled` is kept for the two states that are mechanical rather than
+  // judgments — a draft streaming into the editor and a landing already in
+  // flight — where the button is reporting itself and there is nothing to say.
   const landingPending = landingSnap?.landPhase === "pending";
   const commitCanLand =
     landingSnap !== null && landingSnap.canLandIgnoringMessage;
@@ -3838,7 +3847,9 @@ export const TugPromptEntry = React.forwardRef<
           // lights exactly one default ([#chord-ring]).
           data-tug-entry-default=""
           data-default-chord={submitChord}
-          disabled={landingDrafting || landingPending || !commitCanLand}
+          disabled={landingDrafting || landingPending}
+          // Dimmed and cursor-marked, still pressable — see the rail comment.
+          data-land-blocked={commitCanLand ? undefined : ""}
           onClick={performSubmit}
           aria-label={landingWords.land}
           focusGroup={submitFocusGroup}

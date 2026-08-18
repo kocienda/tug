@@ -154,9 +154,20 @@ describe("evaluateJoinLandGate", () => {
   });
 
   it("lands a resolved candidate even though the history conflicted", () => {
-    expect(
-      evaluateJoinLandGate({ ...base, outcome: "conflicted", candidateCommit: "cafe1234" }),
-    ).toEqual({ ok: true });
+    // Driven through the deriver rather than by handing the gate an outcome
+    // and a candidate separately: the candidate's authority lives in
+    // `deriveJoinOutcome` alone, so a pair the deriver cannot produce is not a
+    // state worth asserting about.
+    const outcome = deriveJoinOutcome({
+      joinPhase: "done",
+      conflicts: ["a.rs"],
+      blockers: [],
+      candidateCommit: "cafe1234",
+    });
+    expect(outcome).toBe("clean");
+    expect(evaluateJoinLandGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
+      ok: true,
+    });
   });
 
   it("refuses a candidate whose per-file resolutions nobody has read", () => {
@@ -165,11 +176,29 @@ describe("evaluateJoinLandGate", () => {
     expect(
       evaluateJoinLandGate({
         ...base,
-        outcome: "conflicted",
+        outcome: "clean",
         candidateCommit: "cafe1234",
         unreviewedResolution: true,
       }),
     ).toEqual({ ok: false, reason: "unreviewed" });
+  });
+
+  it("refuses a candidate the base still blocks — resolving is not committing", () => {
+    // The ladder resolves conflicts. It does not commit the base's outstanding
+    // changes, so a candidate must not clear a blocker that names them: ranked
+    // the other way the badge read `clean` over its own "commit outstanding
+    // changes" line, and the gate believed the badge.
+    const outcome = deriveJoinOutcome({
+      joinPhase: "done",
+      conflicts: ["a.rs"],
+      blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["x.ts"] }],
+      candidateCommit: "cafe1234",
+    });
+    expect(outcome).toBe("blocked");
+    expect(evaluateJoinLandGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
+      ok: false,
+      reason: "outcome",
+    });
   });
 
   it("fails on the outcome before the review — nothing to land outranks unread", () => {

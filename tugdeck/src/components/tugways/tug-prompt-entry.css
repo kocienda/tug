@@ -162,13 +162,22 @@ body {
   pointer-events: none;
 }
 
-/* An empty commit message disables the Commit button. Gated on the composer's
-   `data-commit-empty` bridge (the message, trimmed), which `data-empty` does
-   not cover — whitespace-only input is non-empty to the doc but empty as a
-   message. No per-keystroke React state ([L06] / [L22]). */
-.tug-prompt-entry[data-commit-empty="true"] .tug-prompt-entry-commit-button {
+/* The land button, unavailable: dimmed, cursor-marked, and STILL PRESSABLE.
+
+   Two conditions land here — the message is empty (gated on the composer's
+   `data-commit-empty` bridge, which `data-empty` does not cover: whitespace-only
+   input is non-empty to the doc but empty as a message, and no per-keystroke
+   React state is spent on it [L06]/[L22]) and the mode's own land gate
+   (`data-land-blocked`, which is snapshot-driven and cheap).
+
+   Neither takes `pointer-events` away. A control that refuses a press without
+   saying why is the dead end [L31] exists to make structurally impossible, and
+   the land button is the worst place in the app to have one — the whole
+   landing is in front of it. Pressed, it runs the land route, which refuses
+   with a sentence. The dimming says "this will not go"; the press says why. */
+.tug-prompt-entry[data-commit-empty="true"] .tug-prompt-entry-commit-button,
+.tug-prompt-entry-commit-button[data-land-blocked] {
   opacity: var(--tugx-control-disabled-opacity, 0.45);
-  pointer-events: none;
   cursor: not-allowed;
 }
 
