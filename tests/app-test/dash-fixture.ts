@@ -376,6 +376,28 @@ export function recordStampedPlan(
   return planPath;
 }
 
+/**
+ * Give a dash a plan it is driving with **no step started** — the state a
+ * surface has to say something about rather than fall silent on.
+ *
+ * `adopt-plan` with the worktree copy already written has nothing to
+ * transplant, so it only records the path: the dash carries a `plan_path` and
+ * no step declaration, which is exactly the split the missing-step fact
+ * exists to catch.
+ */
+export function recordAdoptedPlan(
+  projectDir: string,
+  name: string,
+  worktree: string,
+): string {
+  const planPath = join(worktree, "plan.md");
+  writeFileSync(planPath, FIXTURE_PLAN);
+  tugutil(["dash", "adopt-plan", name, "--plan", "plan.md", "--json"], {
+    cwd: projectDir,
+  });
+  return planPath;
+}
+
 /** Move the document past its stamp — one appended line is the whole edit. */
 export function makePlanStale(planPath: string): void {
   writeFileSync(planPath, `${readFileSync(planPath, "utf8")}\nOne more line.\n`);

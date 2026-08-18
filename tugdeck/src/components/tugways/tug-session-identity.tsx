@@ -17,12 +17,14 @@
  * quiet idle dot rather than a red one.
  *
  * **The title is two runs, not one.** The user's own name leads, then a quieter
- * ` : <project>/<callsign>` ({@link sessionTitleParts}). Which run gives way
+ * `:<project>/<callsign>` ({@link sessionTitleParts}). Which run gives way
  * under a width squeeze depends on the register, and both rules are the
- * gallery's: on a title surface (the line tier) the callsign is the permanent
- * citable handle the reader scans a list by, so it survives and the name
- * elides; on the atom (the chip tier) the user's own words survive and the
+ * gallery's: on the atom (the chip tier) the user's own words survive and the
  * minted handle elides — the tooltip and every copy path still carry it whole.
+ * On a title surface (the line tier) the same instinct now runs further: the
+ * callsign gives way FIRST, and from the middle, so the project prefix and the
+ * callsign's last word both survive; the user's name and the bound dash are
+ * what the reader keeps.
  * A session with no name renders the bare `<project>/<callsign>`, which may
  * then elide since it is the only run there is. The `project/` prefix rides
  * the callsign run — the project a session works against is how a reader
@@ -100,6 +102,7 @@ import {
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
 import { useCitedSession } from "@/lib/session-citation-store";
 import {
+  callsignRunParts,
   sessionCitation,
   sessionIdentityLine,
   sessionTitleParts,
@@ -234,6 +237,43 @@ function SessionPrivacyMarker({
         <EyeOff aria-label="Private session" />
       </span>
     </TugTooltip>
+  );
+}
+
+/**
+ * The callsign run, in the two spans a middle truncation needs.
+ *
+ * The line tier elides the callsign before it touches anything else, and it
+ * elides it from the MIDDLE — `tugtool/frothy-…nurse-2` keeps both the project
+ * a reader places the session by and the word they say it out loud as. CSS
+ * cannot cut a run in the middle, so the run arrives pre-cut
+ * ({@link callsignRunParts}): a head that ellipsizes and a tail that does not.
+ * When the whole run fits, the split is invisible.
+ *
+ * The filter mark paints inside each half rather than across the pair — a
+ * highlight range that straddled the cut would have to be split anyway, and a
+ * match spanning an elision is not a match the reader can see.
+ */
+function CallsignRun({
+  callsign,
+  highlight,
+}: {
+  callsign: string;
+  highlight: string;
+}): React.ReactElement {
+  const { head, tail } = callsignRunParts(callsign);
+  return (
+    <span className="tug-session-identity-callsign">
+      {":"}
+      <span className="tug-session-identity-callsign-head">
+        {renderFilterHighlight(head, highlight)}
+      </span>
+      {tail.length > 0 ? (
+        <span className="tug-session-identity-callsign-tail">
+          {renderFilterHighlight(tail, highlight)}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -425,10 +465,7 @@ export const TugSessionIdentity = React.forwardRef<
             {renderFilterHighlight(title.name, highlight)}
           </span>
           {title.callsign !== null ? (
-            <span className="tug-session-identity-callsign">
-              {":"}
-              {renderFilterHighlight(title.callsign, highlight)}
-            </span>
+            <CallsignRun callsign={title.callsign} highlight={highlight} />
           ) : null}
         </span>
         {/* The bound dash is part of the identity wherever the identity is

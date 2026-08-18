@@ -32,10 +32,14 @@ export interface DashSessionFact {
   readonly review: string | null;
   /** The owning project's directory (`project_dir` from the snapshot). */
   readonly projectDir: string;
-  /** `step i/N` as one preformatted run, or null unless both halves arrived. */
-  readonly steps: string | null;
+  /** The step being worked, or null when the sender declared no counters. */
+  readonly stepCurrent: number | null;
+  /** How many steps the plan holds, or null when none was declared. */
+  readonly stepTotal: number | null;
   /** What the current step *is* — the latest declaration's title, or null. */
   readonly stepTitle: string | null;
+  /** Whether the dash drives a plan at all — what makes a missing step loud. */
+  readonly hasPlan: boolean;
 }
 
 /**
@@ -61,11 +65,10 @@ export function buildDashSessionIndex(
         stage: entry.stage ?? null,
         review: entry.review ?? null,
         projectDir: project.project_dir,
-        steps:
-          entry.step_current !== undefined && entry.step_total !== undefined
-            ? `step ${entry.step_current}/${entry.step_total}`
-            : null,
+        stepCurrent: entry.step_current ?? null,
+        stepTotal: entry.step_total ?? null,
         stepTitle: entry.step_title ?? null,
+        hasPlan: entry.plan_path !== undefined,
       };
       for (const sessionId of sessions) {
         if (index.has(sessionId)) continue;

@@ -61,7 +61,7 @@ const DASH_LINE_MARK = 14;
  *
  * It carries what the title's own dash run cannot: the stage, the step
  * counters, the current step's title, and the review mark. The dash's name is
- * deliberately absent — the identity run above already says `#<dash>`, and the
+ * deliberately absent — the identity run above already says `◊<dash>`, and the
  * same name twice within one row's height would crowd out the one fact only
  * this line can carry: what the run is doing right now.
  */
@@ -72,8 +72,10 @@ function useSessionDashLine(sessionId: string): React.ReactNode {
     <DashFactsRun
       name={null}
       stage={dash.stage}
-      steps={dash.steps}
+      stepCurrent={dash.stepCurrent}
+      stepTotal={dash.stepTotal}
       stepTitle={dash.stepTitle}
+      hasPlan={dash.hasPlan}
       review={dash.review}
       markSize={DASH_LINE_MARK}
     />

@@ -21,6 +21,14 @@
  * mark. Both halves are pinned: the line appears carrying no name, and the
  * title says the dash exactly once while it does.
  *
+ * The counters are the reason the line exists, so their arrival is driven
+ * rather than assumed: the fixture dash adopts a plan with no step started,
+ * the line is read for the explicit missing-step state, a real
+ * `tugutil dash step … start` runs through the same shell route, and the line
+ * is read again for `1/1` in three forms — the data attributes a test can
+ * assert on, the custom properties CSS can compute over, and the numerals a
+ * reader actually sees.
+ *
  * Everything is real. `tugutil dash bind` runs through the card's own `$` shell
  * route (the route that stamps `TUG_SESSION_ID`), and the line appears because
  * the dash's `bound_sessions` moved in the account-global aggregate the row's
@@ -32,6 +40,8 @@
  * @covers tugdeck/src/components/lens/sections/cards-section.tsx
  * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
  * @covers tugdeck/src/components/lens/sections/dash-facts.tsx
+ * @covers tugdeck/src/components/lens/sections/dash-facts.css
+ * @covers tugdeck/src/lib/dash-session-index.ts
  * @covers tugdeck/src/components/tugways/tug-session-row.tsx
  * @covers tugdeck/src/components/tugways/tug-session-row.css
  */
@@ -46,7 +56,12 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, discardDash, tugutilPath } from "./dash-fixture";
+import {
+  createDash,
+  discardDash,
+  recordAdoptedPlan,
+  tugutilPath,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -61,13 +76,17 @@ const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 const SESSION_ROW_DASH = `${SESSION_ROW} [data-slot="session-identity-dash"]`;
 const DASH_NAME = "at0424-line";
 const DASH_LINE = `${SESSION_ROW} [data-slot="tug-session-row-dashline"]`;
+const DASH_FACTS = `${DASH_LINE} [data-slot="lens-dashes-facts"]`;
 const LIST_CELLS = `${CARDS} .tug-list-view-cell`;
 
 const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  createDash(PROJECT_DIR, DASH_NAME, "at0424 fixture");
+  const dash = createDash(PROJECT_DIR, DASH_NAME, "at0424 fixture");
+  // A plan adopted and no step started — the state the line must not be
+  // silent about, and the state the counters replace once a step opens.
+  recordAdoptedPlan(PROJECT_DIR, DASH_NAME, dash.worktree);
 });
 
 afterAll(() => {
@@ -228,8 +247,79 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
         expect(await dashRunsOnSessionRow(app)).toBe(1);
         note("at0424 lens with the dash line", (await app.screenshot()).path);
 
+        // ── The step it is on — first its absence, then its arrival ───────
+        // The dash carries a plan and no started step, so the line says so
+        // rather than dropping to a bare stage word. Silence here is how a
+        // whole run's declarations went unnoticed once.
+        const before = await app.evalJS<{
+          missing: boolean;
+          current: string | null;
+          total: string | null;
+        }>(
+          `(() => {
+             const facts = document.querySelector(${JSON.stringify(DASH_FACTS)});
+             return {
+               missing: facts.getAttribute("data-step-missing") === "true",
+               current: facts.getAttribute("data-step-current"),
+               total: facts.getAttribute("data-step-total"),
+             };
+           })()`,
+        );
+        note("at0424 before the step", JSON.stringify(before));
+        expect(before.missing).toBe(true);
+        expect(before.current).toBeNull();
+        expect(before.total).toBeNull();
+
+        await shellAndSettle(
+          app,
+          `${tugutilPath(PROJECT_DIR)} dash step ${DASH_NAME} start 1 --plan plan.md`,
+          1,
+        );
+        await app.waitForCondition<boolean>(
+          `(() => {
+             const facts = document.querySelector(${JSON.stringify(DASH_FACTS)});
+             return facts !== null && facts.getAttribute("data-step-current") === "1";
+           })()`,
+          { timeoutMs: 30000 },
+        );
+
+        const stepped = await app.evalJS<{
+          missing: boolean;
+          current: string | null;
+          total: string | null;
+          counters: string;
+          propCurrent: string;
+          propTotal: string;
+        }>(
+          `(() => {
+             const facts = document.querySelector(${JSON.stringify(DASH_FACTS)});
+             const step = facts.querySelector(".lens-dashes-step");
+             const style = getComputedStyle(facts);
+             return {
+               missing: facts.getAttribute("data-step-missing") === "true",
+               current: facts.getAttribute("data-step-current"),
+               total: facts.getAttribute("data-step-total"),
+               counters: (step?.textContent ?? "").trim(),
+               propCurrent: style.getPropertyValue("--dash-step-current").trim(),
+               propTotal: style.getPropertyValue("--dash-step-total").trim(),
+             };
+           })()`,
+        );
+        note("at0424 with the step", JSON.stringify(stepped));
+        // The fixture plan holds exactly one step.
+        expect(stepped.current).toBe("1");
+        expect(stepped.total).toBe("1");
+        // The numerals are real text, not `content` — selectable and readable.
+        expect(stepped.counters).toBe("1/1");
+        // And the same fact in the form CSS can compute over.
+        expect(stepped.propCurrent).toBe("1");
+        expect(stepped.propTotal).toBe("1");
+        // A declared step is not a missing one.
+        expect(stepped.missing).toBe(false);
+        note("at0424 lens with the counters", (await app.screenshot()).path);
+
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash unbind`, 2);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(DASH_LINE)}).length === 0`,
           { timeoutMs: 30000 },

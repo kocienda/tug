@@ -424,7 +424,7 @@ export function useSessionIdentity(
  *
  * Two runs rather than one joined string, because they are sized separately:
  * under a width squeeze the callsign run is the one that ellipsizes and the name
- * survives intact. The `" : "` separator belongs to the callsign run so it
+ * survives intact. The `":"` separator belongs to the callsign run so it
  * disappears with it. A lone name run may ellipsize — it is then the only run
  * there is.
  *
@@ -442,6 +442,35 @@ export function sessionTitleParts(identity: SessionIdentity): {
   const label = sessionIdentityLine(identity);
   if (identity.customName === null) return { name: label, callsign: null };
   return { name: identity.customName, callsign: label };
+}
+
+/**
+ * The callsign run split into the half that may be eaten and the half that
+ * must survive — the two spans a middle truncation needs.
+ *
+ * CSS cannot truncate from the middle of one run: `text-overflow: ellipsis`
+ * only eats the tail. Two spans can — a shrinkable head that ellipsizes and a
+ * `flex: none` tail that does not — and the split is invisible whenever the
+ * whole run fits.
+ *
+ * The cut is the first hyphen *after the last `/`*, so the project prefix
+ * stays with the head and the callsign's last word survives:
+ * `tugtool/frothy-nurse-2` → head `tugtool/frothy-`, tail `nurse-2`. The
+ * hyphen rides the head, so the two halves rejoin to the original string
+ * exactly. A hyphenless callsign is all head and no tail — nothing to preserve
+ * past the elision, and one span behaves as it always has.
+ */
+export function callsignRunParts(callsign: string): {
+  head: string;
+  tail: string;
+} {
+  const slash = callsign.lastIndexOf("/");
+  const hyphen = callsign.indexOf("-", slash + 1);
+  if (hyphen === -1) return { head: callsign, tail: "" };
+  return {
+    head: callsign.slice(0, hyphen + 1),
+    tail: callsign.slice(hyphen + 1),
+  };
 }
 
 /**

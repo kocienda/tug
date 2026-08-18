@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  callsignRunParts,
   composeSessionIdentity,
   parseTagLineage,
   projectLeafName,
@@ -147,6 +148,49 @@ describe("sessionTitleParts", () => {
       callsign: null,
     });
     expect(cited.resolved).toBe(false);
+  });
+});
+
+describe("callsignRunParts — where a middle truncation cuts", () => {
+  test("the cut is the first hyphen after the project prefix", () => {
+    expect(callsignRunParts("tugtool/frothy-nurse-2")).toEqual({
+      head: "tugtool/frothy-",
+      tail: "nurse-2",
+    });
+  });
+
+  test("a hyphen in the project name is not the cut", () => {
+    expect(callsignRunParts("my-repo/stocky-pixie")).toEqual({
+      head: "my-repo/stocky-",
+      tail: "pixie",
+    });
+  });
+
+  test("a hyphenless callsign is all head — there is nothing to preserve", () => {
+    expect(callsignRunParts("tugtool/deadbeef")).toEqual({
+      head: "tugtool/deadbeef",
+      tail: "",
+    });
+  });
+
+  test("an unprefixed callsign splits the same way", () => {
+    expect(callsignRunParts("stocky-pixie")).toEqual({
+      head: "stocky-",
+      tail: "pixie",
+    });
+  });
+
+  test("the halves rejoin to the original, always", () => {
+    for (const callsign of [
+      "tugtool/frothy-nurse-2",
+      "tugtool/deadbeef",
+      "stocky-pixie",
+      "a-b-c-d",
+      "",
+    ]) {
+      const { head, tail } = callsignRunParts(callsign);
+      expect(head + tail).toBe(callsign);
+    }
   });
 });
 

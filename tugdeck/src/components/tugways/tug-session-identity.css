@@ -76,13 +76,18 @@
    with a glyph beside it. The sigil abuts the name, which is why there is no
    gap here.
 
-   It is the run that gives way FIRST under a squeeze, on both registers: the
-   binding is temporary and the tooltip carries it whole, while the name and
-   the callsign are the durable handles a reader scans by. The ordering is the
+   On the ATOM it is the run that gives way FIRST under a squeeze: the binding
+   is temporary and the tooltip carries it whole, while the name and the
+   callsign are the durable handles a reader scans by. The ordering is the
    TITLE BOX's clamp, not a shrink factor here — see the note on
    `.tug-session-identity-title`. This run shrinks; the box beside it does not,
    so every pixel of a deficit lands here first. The sigil never shrinks, so an
-   ellipsized dash still says it is a dash. */
+   ellipsized dash still says it is a dash.
+
+   On the LINE tier the order is reversed and the dash is the run that keeps
+   its width — a session on a dash is never named without it, and a row that
+   drops the dash to save a few characters of a minted callsign has thrown
+   away the fact the reader was scanning for. See the line-tier block below. */
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
 .tug-session-identity-dash {
   display: inline-flex;
@@ -127,8 +132,8 @@
 /* The name and callsign, boxed. The box is CLAMPED, not shrunk: it takes its
    natural width until the run cannot hold it and is then capped to the run.
 
-   That clamp is what makes "the dash gives way first" true rather than merely
-   intended. A shrink factor could not do it: flex splits a deficit in
+   That clamp is what makes the ATOM's "the dash gives way first" true rather
+   than merely intended. A shrink factor could not do it: flex splits a deficit in
    proportion to `shrink × basis`, so however lopsided the factors, this box
    would always lose a sliver to the dash's squeeze — and a sliver is enough to
    paint an ellipsis on a name that fits. With the cap, every pixel of a
@@ -144,12 +149,15 @@
 }
 
 /* Which run gives way differs by REGISTER — the gallery draws both rules and
-   they are deliberate, not a contradiction. On a TITLE surface (the line tier:
-   the masthead, the rows) the callsign is the permanent citable handle the
-   reader scans a list by, so it never gives way; the user's name is the run
-   that elides. On the ATOM (the chip tier) it inverts: a citation is the
-   user's word in foreign context, so their own words survive and the minted
-   handle elides — the tooltip and every copy path still carry it whole. */
+   they are deliberate, not a contradiction. Both registers now agree on the
+   instinct: the words a person chose outrank the handle Tug minted. On the
+   ATOM (the chip tier) a citation is the user's word in foreign context, so
+   their own words survive and the callsign elides from its end. On a TITLE
+   surface (the line tier: the masthead, the rows) the callsign gives way
+   first as well, but from the MIDDLE — the project prefix places the session
+   and the callsign's last word is what a reader says out loud, so the two
+   ends are what a squeeze must not take. The tooltip and every copy path
+   still carry the handle whole. */
 .tug-session-identity-name {
   font-weight: var(--tug-font-weight-semibold);
 }
@@ -160,17 +168,58 @@
   font-weight: var(--tug-font-weight-regular, 400);
 }
 
-/* Title contexts: the name elides, the callsign survives. An unnamed session's
-   bare callsign fills the name span and may elide — it is the only run. */
+/* ── The line tier's elision order: callsign, then name, then nothing ──────
+   The order is built out of clamps rather than shrink factors, at three
+   nesting levels, for the reason spelled out on `.tug-session-identity-title`:
+   a shrink factor splits a deficit in proportion, so every run loses a sliver
+   and a sliver is enough to paint an ellipsis on a run that fits.
+
+   Level 1, in the run: the title box shrinks, the dash box does not, so a
+   deficit lands entirely on the name+callsign box while the dash stays whole.
+   Level 2, in the title box: the callsign shrinks, the name is clamped, so
+   the callsign pays until it has nothing left and only then is the name
+   capped and elided. Level 3, in the callsign: the head shrinks and
+   ellipsizes, the tail does not — which is what makes the truncation a middle
+   one. */
+.tug-session-identity[data-tier="line"] .tug-session-identity-title {
+  flex: 0 1 auto;
+}
+
+/* The dash keeps its whole run while anything else can still pay — but it is
+   capped, not incompressible: an incompressible run pushes its neighbors, and
+   a row refusing to fit is a bug where losing a run is a rule. */
+.tug-session-identity[data-tier="line"] .tug-session-identity-dash {
+  flex: 0 0 auto;
+  max-inline-size: 100%;
+}
+
 .tug-session-identity[data-tier="line"] .tug-session-identity-name {
+  flex: 0 0 auto;
   min-width: 0;
+  max-inline-size: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .tug-session-identity[data-tier="line"] .tug-session-identity-callsign {
-  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  flex: 0 1 auto;
+  min-inline-size: 0;
   opacity: 0.72;
+}
+
+.tug-session-identity[data-tier="line"] .tug-session-identity-callsign-head {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tug-session-identity[data-tier="line"] .tug-session-identity-callsign-tail {
+  flex: none;
+  white-space: nowrap;
 }
 
 /* The atom: the callsign gives way FIRST, and it gives way ALL the way — the

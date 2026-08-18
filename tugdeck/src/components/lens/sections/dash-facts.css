@@ -3,7 +3,8 @@
  * | Element                                        | Surface                                           | Role    | Context                         |
  * |------------------------------------------------|---------------------------------------------------|---------|---------------------------------|
  * | --tug7-element-global-text-normal-rest         | --tug7-surface-global-primary-normal-default-rest | content | the dash name (color)           |
- * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest | informational | stage and steps (color)   |
+ * | --tug7-element-global-text-normal-muted-rest   | --tug7-surface-global-primary-normal-default-rest | informational | stage, step title, the `step` word, the missing-step note (color) |
+ * | --tug7-element-global-text-normal-rest         | --tug7-surface-global-primary-normal-default-rest | content | the step counters (color)       |
  * | --tug7-element-tone-icon-normal-caution-rest   | --tug7-surface-global-primary-normal-default-rest | caution | the stale mark (color)          |
  * | --tug7-element-global-text-normal-subtle-rest  | --tug7-surface-global-primary-normal-default-rest | subtle  | the never-reviewed mark (color) |
  */
@@ -70,5 +71,85 @@
   color: var(
     --lens-dashes-review-never-color,
     var(--tug7-element-global-text-normal-subtle-rest)
+  );
+}
+
+/* ── The Cards-section dash line ───────────────────────────────────────────
+   Everything below is scoped to `[data-slot="lens-dashes-facts"]`, the
+   attribute only `DashFactsRun`'s container carries. The Unbound Dashes row
+   hand-renders the same class names with its own preformatted step string, so
+   an unscoped `content` rule here would double its wording; the rules above
+   remain that row's whole styling.
+
+   The whole design of this line is knobs. Every size, weight, colour, gap and
+   indent below reads a `--dash-line-*` custom property with its default as the
+   `var()` fallback at the point of use — never declared on this element, so an
+   outer scope can override one without fighting specificity. Retuning the line
+   is editing this file and nothing else. */
+
+[data-slot="lens-dashes-facts"] {
+  gap: var(--dash-line-gap, var(--tug-space-sm));
+  padding-inline-start: var(--dash-line-indent, 0px);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+[data-slot="lens-dashes-facts"] .lens-dashes-name {
+  font-size: var(--dash-line-name-size, var(--tug-font-size-sm));
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+[data-slot="lens-dashes-facts"] .lens-dashes-stage {
+  font-size: var(--dash-line-stage-size, var(--tug-font-size-2xs));
+  color: var(
+    --dash-line-muted-color,
+    var(--tug7-element-global-text-normal-muted-rest)
+  );
+}
+
+/* The counters are the fact this line exists to carry, so they read at the
+   line's normal ink and weight rather than the stage's whisper. The wording
+   is CSS's, the numerals are the DOM's. */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+[data-slot="lens-dashes-facts"] .lens-dashes-step {
+  font-size: var(--dash-line-step-size, var(--tug-font-size-xs));
+  font-weight: var(--dash-line-step-weight, var(--tug-font-weight-semibold));
+  color: var(
+    --dash-line-step-color,
+    var(--tug7-element-global-text-normal-rest)
+  );
+  font-variant-numeric: tabular-nums;
+}
+
+[data-slot="lens-dashes-facts"] .lens-dashes-step::before {
+  content: "step ";
+  font-weight: var(--tug-font-weight-regular);
+  color: var(
+    --dash-line-muted-color,
+    var(--tug7-element-global-text-normal-muted-rest)
+  );
+}
+
+/* A dash driving a plan with no declared step. Loud on purpose: silence here
+   is what let a whole run's declarations go missing unnoticed. */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+[data-slot="lens-dashes-facts"] .lens-dashes-step-missing {
+  flex: 0 0 auto;
+  font-size: var(--dash-line-step-size, var(--tug-font-size-xs));
+  color: var(
+    --dash-line-muted-color,
+    var(--tug7-element-global-text-normal-muted-rest)
+  );
+}
+
+[data-slot="lens-dashes-facts"] .lens-dashes-step-missing::before {
+  content: "no step declared";
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+[data-slot="lens-dashes-facts"] .lens-dashes-step-title {
+  font-size: var(--dash-line-title-size, var(--tug-font-size-xs));
+  color: var(
+    --dash-line-muted-color,
+    var(--tug7-element-global-text-normal-muted-rest)
   );
 }

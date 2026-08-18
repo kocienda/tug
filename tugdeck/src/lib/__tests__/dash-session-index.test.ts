@@ -99,19 +99,48 @@ describe("buildDashSessionIndex", () => {
     expect(buildDashSessionIndex({ projects: [projectWith(sessions)] }).size).toBe(0);
   });
 
-  test("steps read only when both counters arrive", () => {
+  test("the counters ride as raw numbers, each half independently", () => {
     const half: DashChangesetEntry = {
       ...GOLDEN_DASH,
       bound_sessions: ["sess-a"],
       step_current: 2,
     };
-    expect(
-      buildDashSessionIndex({ projects: [projectWith([half])] }).get("sess-a")!.steps,
-    ).toBeNull();
+    delete half.step_total;
+    const halfFact = buildDashSessionIndex({
+      projects: [projectWith([half])],
+    }).get("sess-a")!;
+    expect(halfFact.stepCurrent).toBe(2);
+    expect(halfFact.stepTotal).toBeNull();
+
     const both: DashChangesetEntry = { ...half, step_total: 5 };
+    const bothFact = buildDashSessionIndex({
+      projects: [projectWith([both])],
+    }).get("sess-a")!;
+    expect(bothFact.stepCurrent).toBe(2);
+    expect(bothFact.stepTotal).toBe(5);
+  });
+
+  test("plan presence rides the fact — it is what makes a missing step loud", () => {
+    const planless: DashChangesetEntry = {
+      ...GOLDEN_DASH,
+      bound_sessions: ["sess-a"],
+    };
+    delete planless.plan_path;
     expect(
-      buildDashSessionIndex({ projects: [projectWith([both])] }).get("sess-a")!.steps,
-    ).toBe("step 2/5");
+      buildDashSessionIndex({ projects: [projectWith([planless])] }).get(
+        "sess-a",
+      )!.hasPlan,
+    ).toBe(false);
+
+    const planned: DashChangesetEntry = {
+      ...planless,
+      plan_path: "roadmap/some-plan.md",
+    };
+    expect(
+      buildDashSessionIndex({ projects: [projectWith([planned])] }).get(
+        "sess-a",
+      )!.hasPlan,
+    ).toBe(true);
   });
 
   test("the step's title rides the fact, and absence reads as null", () => {
