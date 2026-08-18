@@ -1293,6 +1293,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             mMenu.addItem(NSMenuItem.separator())
             mMenu.addItem(NSMenuItem(title: "New Component Gallery Card", action: #selector(newComponentGalleryCard(_:)), keyEquivalent: "g", modifierMask: [.command, .option]).identified("maker.galleryCard"))
             mMenu.addItem(NSMenuItem(title: "New Hello World Card", action: #selector(newHelloWorldCard(_:)), keyEquivalent: "n", modifierMask: [.command, .option, .shift]).identified("maker.helloCard"))
+            // The Spikes index. No key equivalent: ⌥⌘G and ⌥⌘⇧N are taken,
+            // and a chord for the design sandbox is not worth a tier.
+            mMenu.addItem(NSMenuItem(title: "New Spikes Card", action: #selector(newSpikesCard(_:)), keyEquivalent: "").identified("maker.spikesCard"))
             // New Card in Active Pane (⌘T): the tab-creation chord.
             // Validated against deck state (needs a pane to add to).
             mMenu.addItem(NSMenuItem(title: "New Card in Active Pane", action: #selector(addCardToActivePane(_:)), keyEquivalent: "t").identified("maker.newCardInPane"))
@@ -1489,6 +1492,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func newHelloWorldCard(_ sender: Any) {
         sendControl("show-card", params: ["component": "hello"])
+    }
+
+    @objc private func newSpikesCard(_ sender: Any) {
+        sendControl("show-card", params: ["component": "spike-home"])
     }
 
     @objc private func newSessionCard(_ sender: Any) {

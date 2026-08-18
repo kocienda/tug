@@ -1,5 +1,5 @@
 /**
- * gallery-pinned-headers.tsx — production-mirror fixture for the
+ * spike-pinned-headers.tsx — production-mirror fixture for the
  * pin-stack consolidation.
  *
  * Seven sections, each in its own fixed-height scroll wrapper (with
@@ -41,7 +41,10 @@ import { TerminalBlock, type TerminalData } from "@/components/tugways/body-kind
 import type { DiffData } from "@/lib/diff/types";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
-import { BlockChrome } from "../blocks/block-chrome";
+import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
+
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
 
 // ---------------------------------------------------------------------------
 // Synthesized fixtures
@@ -163,8 +166,8 @@ interface PinSectionProps {
 
 function PinSection({ title, children }: PinSectionProps) {
   return (
-    <div className="cg-section">
-      <TugLabel className="cg-section-title">{title}</TugLabel>
+    <div className="sp-section">
+      <TugLabel className="sp-section-title">{title}</TugLabel>
       <div style={SCROLLER_STYLE} data-slot="pin-scroller">
         {children}
       </div>
@@ -173,12 +176,12 @@ function PinSection({ title, children }: PinSectionProps) {
 }
 
 // ---------------------------------------------------------------------------
-// GalleryPinnedHeaders
+// SpikePinnedHeaders
 // ---------------------------------------------------------------------------
 
-export function GalleryPinnedHeaders() {
+export function SpikePinnedHeaders() {
   return (
-    <div className="cg-content" data-testid="gallery-pinned-headers">
+    <div className="sp-content" data-testid="gallery-pinned-headers">
       <PinSection title="FileBlock — long file (header: Find, Copy, fold cue at trailing edge)">
         <FileBlock data={LONG_FILE} collapsed={false} />
       </PinSection>
@@ -249,3 +252,10 @@ export function GalleryPinnedHeaders() {
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "pinned-headers",
+  title: "Pinned Headers",
+  blurb: "A production mirror of the pin-stack consolidation: seven sections, each pinning inside its own scroll wrapper.",
+  component: () => <SpikePinnedHeaders />,
+};

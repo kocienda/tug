@@ -777,7 +777,8 @@ export function initActionDispatch(
   });
 
   // show-card: Show a card by componentId. The Swift app menu sends
-  // show-card for "settings" / "about" (app-level singletons) and for
+  // show-card for "settings" / "about" (app-level singletons), for
+  // "spike-home" (the Spikes index, a debug-build Maker item), and for
   // "dev" (New Session Card, ⌘N). Singleton components reuse an existing
   // card of that type (raising it to z-top) instead of spawning a
   // duplicate; every other component — notably "dev" — adds a fresh
@@ -785,7 +786,10 @@ export function initActionDispatch(
   // invocation additionally carries the app's build identity (version,
   // build, commit, branch, profile, copyright), parked in appInfoStore
   // for the About card to read.
-  const SINGLETON_CARDS = new Set(["about", "settings", "keyboard"]);
+  //
+  // The Spikes index is a singleton for the same reason the others are: a
+  // second index onto the same list is never the thing anyone wanted.
+  const SINGLETON_CARDS = new Set(["about", "settings", "keyboard", "spike-home"]);
   registerAction("show-card", (payload) => {
     const component = payload.component;
     if (typeof component !== "string") {

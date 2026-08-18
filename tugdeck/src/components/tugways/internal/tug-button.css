@@ -2149,3 +2149,82 @@ html[data-mods="shift"] [data-default-chord="shift"] {
 .tug-button-outlined-agent:is([data-key-view-kbd], [data-key-cursor], [data-default-ring]):is(:active,[data-pressing="true"]):not(:disabled):not([aria-disabled="true"]) svg {
   color: var(--tug7-element-control-icon-filled-agent-active);
 }
+
+/* ============================================================================
+   Pending Spinner
+   ========================================================================= */
+
+/* --- Petals: spinning petal indicator ---
+ *
+ * Size is controlled by --tug-petals-size (default 28px).
+ * All internal dimensions use em so the whole indicator scales proportionally
+ * when you set font-size equal to --tug-petals-size on the element.
+ *
+ * Usage:
+ *   <span class="tug-petals" style="--tug-petals-size: 40px">
+ *     <span class="petal"/> x8
+ *   </span>
+ */
+
+.tug-petals {
+  --tug-petals-size: 28px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tug-petals-size);
+  height: var(--tug-petals-size);
+  font-size: var(--tug-petals-size);
+  animation: tug-petals-rotate calc(20000ms * var(--tug-timing, 1)) linear infinite;
+  /* Compositor promotion: this is TugButton's busy spinner, shown
+     exactly while the main thread works — without a layer the rotation
+     is main-thread-painted and janks under the very load it reports. */
+  will-change: transform;
+}
+
+.tug-petals .petal {
+  position: absolute;
+  /* Petal dimensions: ~18% wide, ~32% tall relative to the bounding box */
+  width: 0.2em;
+  height: 0.5em;
+  border-radius: 50%;
+  background-color: var(--tugx-spinner, currentColor);
+  animation: tug-petals-fade calc(800ms * var(--tug-timing, 1)) var(--tug-motion-easing-standard) infinite,
+             tug-petals-scale calc(800ms * var(--tug-timing, 1)) var(--tug-motion-easing-standard) infinite;
+  will-change: transform, opacity;
+}
+
+/* Ring placement: each petal rotated 45deg apart, offset outward by 0.5em */
+.tug-petals .petal:nth-child(1) { transform: rotate(15deg)   translateY(-0.4em) translateX(-50%); }
+.tug-petals .petal:nth-child(2) { transform: rotate(60deg)  translateY(-0.4em) translateX(-50%); }
+.tug-petals .petal:nth-child(3) { transform: rotate(105deg)  translateY(-0.4em) translateX(-50%); }
+.tug-petals .petal:nth-child(4) { transform: rotate(150deg) translateY(-0.4em) translateX(-50%); }
+.tug-petals .petal:nth-child(5) { transform: rotate(195deg) translateY(-0.4em) translateX(-50%); }
+.tug-petals .petal:nth-child(6) { transform: rotate(240deg) translateY(-0.4em) translateX(-50%); }
+.tug-petals .petal:nth-child(7) { transform: rotate(285deg) translateY(-0.4em) translateX(-50%); }
+.tug-petals .petal:nth-child(8) { transform: rotate(330deg) translateY(-0.4em) translateX(-50%); }
+
+/* Staggered delays: clockwise chase */
+.tug-petals .petal:nth-child(1) { animation-delay: calc(-875ms * var(--tug-timing, 1)); }
+.tug-petals .petal:nth-child(2) { animation-delay: calc(-750ms * var(--tug-timing, 1)); }
+.tug-petals .petal:nth-child(3) { animation-delay: calc(-625ms * var(--tug-timing, 1)); }
+.tug-petals .petal:nth-child(4) { animation-delay: calc(-500ms * var(--tug-timing, 1)); }
+.tug-petals .petal:nth-child(5) { animation-delay: calc(-375ms * var(--tug-timing, 1)); }
+.tug-petals .petal:nth-child(6) { animation-delay: calc(-250ms * var(--tug-timing, 1)); }
+.tug-petals .petal:nth-child(7) { animation-delay: calc(-125ms * var(--tug-timing, 1)); }
+.tug-petals .petal:nth-child(8) { animation-delay: calc(0ms    * var(--tug-timing, 1)); }
+
+@keyframes tug-petals-fade {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
+@keyframes tug-petals-scale {
+  0%, 100% { scale: 0.9; }
+  50%      { scale: 1.0; }
+}
+
+@keyframes tug-petals-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

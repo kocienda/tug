@@ -24,7 +24,7 @@
  * ## Test layout
  *
  * Two side-by-side panes, each with a single
- * `gallery-markdown-50kb` card (50KB baked-in static markdown).
+ * `fixture-markdown-50kb` card (50KB baked-in static markdown).
  * `nativeDragElement` from card A's content into card B's
  * content. Inspect:
  *
@@ -59,8 +59,8 @@ describe.skipIf(!SHOULD_RUN)("m23: cross-card drag-select doesn't crash the pain
       await app.seedDeckState({
         state: {
           cards: [
-            { id: "A", componentId: "gallery-markdown-50kb", title: "MD A", closable: true },
-            { id: "B", componentId: "gallery-markdown-50kb", title: "MD B", closable: true },
+            { id: "A", componentId: "fixture-markdown-50kb", title: "MD A", closable: true },
+            { id: "B", componentId: "fixture-markdown-50kb", title: "MD B", closable: true },
           ],
           panes: [
             {
@@ -70,7 +70,7 @@ describe.skipIf(!SHOULD_RUN)("m23: cross-card drag-select doesn't crash the pain
               cardIds: ["A"],
               activeCardId: "A",
               title: "",
-              acceptsFamilies: ["maker"],
+              acceptsFamilies: ["fixture"],
             },
             {
               id: "p2",
@@ -79,7 +79,7 @@ describe.skipIf(!SHOULD_RUN)("m23: cross-card drag-select doesn't crash the pain
               cardIds: ["B"],
               activeCardId: "B",
               title: "",
-              acceptsFamilies: ["maker"],
+              acceptsFamilies: ["fixture"],
             },
           ],
           activePaneId: "p1",

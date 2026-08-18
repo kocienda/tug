@@ -132,7 +132,7 @@ import {
  * for [AT0017] saveState-RPC-parity) and {@link TugTestSurface.closePane}
  * (whole-pane teardown for [AT0019] flush coverage). Markdown content
  * fixtures for [AT0014] / [AT0023] ride through a separate
- * `gallery-markdown-50kb` card registration that bakes 50KB of
+ * `fixture-markdown-50kb` card registration that bakes 50KB of
  * static content on mount — no test-specific surface needed.
  * Additive; major stays `1`.
  *

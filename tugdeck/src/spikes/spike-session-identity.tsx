@@ -1,5 +1,5 @@
 /**
- * gallery-session-identity.tsx — the session-reference design surface.
+ * spike-session-identity.tsx — the session-reference design surface.
  *
  * **SHIPPED.** The brief was `roadmap/session-reference-brief.md`: one identity
  * model, one resolver, one component family. Earlier rounds settled the two
@@ -107,7 +107,9 @@
  * @module components/tugways/cards/gallery-session-identity
  */
 
-import "./gallery-session-identity.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-session-identity.css";
 
 import React from "react";
 import { Waves, X } from "lucide-react";
@@ -699,7 +701,7 @@ const DOT_VOCABULARY: readonly {
   },
 ];
 
-export function GallerySessionIdentity(): React.ReactElement {
+export function SpikeSessionIdentity(): React.ReactElement {
   return (
     <div className="gsi-root" data-testid="gallery-session-identity">
       <p className="gsi-blurb">
@@ -1193,3 +1195,10 @@ export function GallerySessionIdentity(): React.ReactElement {
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "session-identity",
+  title: "Session Identity",
+  blurb: "The shipped session-reference vocabulary: the two registers, the atom, the citation, the fork grammar. Driven by the identity app-tests.",
+  component: () => <SpikeSessionIdentity />,
+};

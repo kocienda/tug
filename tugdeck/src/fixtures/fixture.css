@@ -1,0 +1,52 @@
+/* ============================================================================
+   Fixture Layout Vocabulary
+   ========================================================================= */
+
+/**
+ * The layout classes a fixture card needs: a scrolling content column, a
+ * section, a section heading, and a row for laying variants side by side.
+ *
+ * Copies of the gallery's equivalents rather than an import from it. A fixture
+ * exists to be driven by the test harness, and a fixture whose appearance is
+ * coupled to the gallery's stylesheet means a gallery restyle can break an
+ * app-test — which is exactly the kind of action-at-a-distance this annex
+ * exists to end.
+ */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role         | Context                              |
+ * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest (element-global-text-normal-muted-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .fx-section-title (color)            |
+ */
+
+.fx-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  overflow-y: auto;
+}
+
+.fx-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.fx-section-title {
+  font-size: 11px;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  user-select: none;
+}
+
+.fx-variant-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}

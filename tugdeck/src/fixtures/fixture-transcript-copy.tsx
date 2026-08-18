@@ -1,5 +1,5 @@
 /**
- * gallery-transcript-copy.tsx — app-test fixture for the transcript COPY
+ * fixture-transcript-copy.tsx — app-test fixture for the transcript COPY
  * path ([Q03], the lighter real-cell approach).
  *
  * Proves the **real handler path** end to end: the actual
@@ -22,7 +22,7 @@
  * cell owns the COPY gesture reconstructs the entire spanned text
  * faithfully ([P09]). `at0188` drives the selections.
  *
- * @module components/tugways/cards/gallery-transcript-copy
+ * @module fixtures/fixture-transcript-copy
  */
 
 import React from "react";
@@ -32,6 +32,7 @@ import React from "react";
 // exercise a copy at all. Imported here rather than relied on from
 // whatever else the bundle happens to pull in.
 import "@/components/tugways/tug-transcript-entry.css";
+import "./fixture.css";
 
 import { PropertyStore } from "@/components/tugways/property-store";
 import type { AnnotationContext } from "@/lib/annotator/types";
@@ -118,10 +119,10 @@ const FIXTURE_ANNOTATION: AnnotationContext = {
 };
 
 /**
- * GalleryTranscriptCopy — mounts the real transcript COPY wiring over a
+ * FixtureTranscriptCopy — mounts the real transcript COPY wiring over a
  * static two-cell body for `at0188`.
  */
-export function GalleryTranscriptCopy(): React.ReactElement {
+export function FixtureTranscriptCopy(): React.ReactElement {
   const streamingStore = React.useMemo(
     () =>
       new PropertyStore({
@@ -178,7 +179,7 @@ export function GalleryTranscriptCopy(): React.ReactElement {
 
   return (
     <div
-      className="cg-content"
+      className="fx-content"
       data-testid="gallery-transcript-copy"
       style={{ padding: 16, fontSize: 14 }}
     >

@@ -5,7 +5,7 @@
  * # What this gates
  *
  * Two behaviors of the real `TugListView` + `SmartScroll` + CardHost
- * region-scroll restore, driven through `gallery-list-view-scroll-keyed`
+ * region-scroll restore, driven through `fixture-list-view-scroll-keyed`
  * (an `inline`, region-scroll-keyed, streaming-disabled fixture that
  * mirrors the session-card transcript's configuration — the same fixture
  * AT0059–AT0061 / AT0069 use).
@@ -86,7 +86,7 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
-const SCROLL_KEY = "gallery-list-view-scroll";
+const SCROLL_KEY = "fixture-list-view-scroll";
 /** Mid-list save target — not the bottom, so the restore anchor is non-trivial. */
 const RESTORE_TARGET_PX = 600;
 /** Sub-pixel rounding slack for scroll-position comparisons. */
@@ -96,7 +96,7 @@ const DECK_STATE = {
   cards: [
     {
       id: "A",
-      componentId: "gallery-list-view-scroll-keyed",
+      componentId: "fixture-list-view-scroll-keyed",
       title: "List",
       closable: true,
     },
@@ -109,7 +109,7 @@ const DECK_STATE = {
       cardIds: ["A"],
       activeCardId: "A",
       title: "",
-      acceptsFamilies: ["maker"],
+      acceptsFamilies: ["fixture"],
     },
   ],
   activePaneId: "p1",

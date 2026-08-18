@@ -8,10 +8,10 @@
  * @tug-pairings
  * | Element                                      | Surface                                           | Role          | Context               |
  * |----------------------------------------------|---------------------------------------------------|---------------|-----------------------|
- * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | informational | .cg-spike-pane-body   |
+ * | --tug7-element-global-text-normal-muted-rest | --tug7-surface-global-primary-normal-default-rest | informational | .sp-chrome-pane-body   |
  */
 
-.cg-spike-row {
+.sp-chrome-row {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-xs);
@@ -21,7 +21,7 @@
 /* The pane box. `overflow: hidden` clips to the rounded corner exactly as the
    real frame does — which is also what gives the masthead's phase-dot ring and
    the title bar's leading padding the same relationship they have in a deck. */
-.cg-spike-pane {
+.sp-chrome-pane {
   border: 1px solid var(--tugx-pane-border);
   border-radius: var(--tug-radius-md);
   overflow: hidden;
@@ -30,7 +30,7 @@
   max-width: 620px;
 }
 
-.cg-spike-pane[data-focused="true"] {
+.sp-chrome-pane[data-focused="true"] {
   box-shadow: var(--tugx-pane-shadow-active);
 }
 
@@ -40,12 +40,12 @@
    flow and landed on top of the frame beside it. Taken back here, at a weight
    that beats `.tug-pane:not([data-focused="true"])`, because the fixture owns
    its own layout and nothing else about the pane's chrome depends on this. */
-.tug-pane.cg-spike-pane:not([data-focused="true"]) {
+.tug-pane.sp-chrome-pane:not([data-focused="true"]) {
   position: relative;
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.cg-spike-pane-body {
+.sp-chrome-pane-body {
   padding: var(--tug-space-md);
   min-height: 44px;
   font-family: var(--tug-font-family-mono);

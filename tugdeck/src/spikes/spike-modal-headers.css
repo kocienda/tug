@@ -3,16 +3,16 @@
  * convention (gallery-modal-headers.tsx).
  *
  * The convention shipped: the slot family lives in styles/tugx-header.css as
- * `--tugx-header-*`, consumed by the real header classes. The `.cg-mh-*`
+ * `--tugx-header-*`, consumed by the real header classes. The `.sp-mh-*`
  * classes here are the spec render — they mirror the shipped structure 1:1
  * and consume the same tokens, so the card's shipped/spec pairs must look
  * identical:
  *
- *   .cg-mh-header   → .tug-sheet-header / .tug-alert-body
- *   .cg-mh-icon     → .tug-sheet-icon   / .tug-alert-icon
- *   .cg-mh-heading  → .tug-sheet-heading / .tug-alert-text
- *   .cg-mh-title    → .tug-sheet-title  / .tug-alert-title
- *   .cg-mh-desc     → .tug-sheet-description / .tug-alert-message
+ *   .sp-mh-header   → .tug-sheet-header / .tug-alert-body
+ *   .sp-mh-icon     → .tug-sheet-icon   / .tug-alert-icon
+ *   .sp-mh-heading  → .tug-sheet-heading / .tug-alert-text
+ *   .sp-mh-title    → .tug-sheet-title  / .tug-alert-title
+ *   .sp-mh-desc     → .tug-sheet-description / .tug-alert-message
  *
  * (ConfigureTug and TugVersionGate render the `.tug-alert-*` classes directly —
  * no bespoke header classes remain.)
@@ -26,24 +26,24 @@
 /* The convention shipped: the slot family lives in styles/tugx-header.css as
    `--tugx-header-*`. The spike consumes the shared slots so the card always
    shows exactly what the components render; tune values there, not here. */
-.cg-mh-scope {
-  --cg-mh-title-size: var(--tugx-header-title-size);
-  --cg-mh-title-weight: var(--tugx-header-title-weight);
-  --cg-mh-title-lh: var(--tugx-header-title-lh);
+.sp-mh-scope {
+  --sp-mh-title-size: var(--tugx-header-title-size);
+  --sp-mh-title-weight: var(--tugx-header-title-weight);
+  --sp-mh-title-lh: var(--tugx-header-title-lh);
 
-  --cg-mh-desc-size: var(--tugx-header-desc-size);
-  --cg-mh-desc-lh: var(--tugx-header-desc-lh);
-  --cg-mh-desc-gap: var(--tugx-header-desc-gap);
+  --sp-mh-desc-size: var(--tugx-header-desc-size);
+  --sp-mh-desc-lh: var(--tugx-header-desc-lh);
+  --sp-mh-desc-gap: var(--tugx-header-desc-gap);
 
-  --cg-mh-icon-one: var(--tugx-header-icon-one);
-  --cg-mh-icon-two: var(--tugx-header-icon-two);
-  --cg-mh-icon-alert: var(--tugx-header-icon-alert);
+  --sp-mh-icon-one: var(--tugx-header-icon-one);
+  --sp-mh-icon-two: var(--tugx-header-icon-two);
+  --sp-mh-icon-alert: var(--tugx-header-icon-alert);
 
-  --cg-mh-gap-one: var(--tugx-header-gap-one);
-  --cg-mh-gap-two: var(--tugx-header-gap-two);
-  --cg-mh-gap-alert: var(--tugx-header-gap-alert);
+  --sp-mh-gap-one: var(--tugx-header-gap-one);
+  --sp-mh-gap-two: var(--tugx-header-gap-two);
+  --sp-mh-gap-alert: var(--tugx-header-gap-alert);
 
-  --cg-mh-header-margin: var(--tugx-header-margin);
+  --sp-mh-header-margin: var(--tugx-header-margin);
 }
 
 /* ---- Header container ---------------------------------------------------- */
@@ -51,29 +51,29 @@
 /* Two-line and alert headers align the icon to the top of the title text;
    the one-line header centers the icon on its single line (the ConfigureTug
    alignment — for one line, top and center coincide optically). */
-.cg-mh-header {
+.sp-mh-header {
   display: flex;
   align-items: flex-start;
-  gap: var(--cg-mh-gap-one);
-  margin: 0 0 var(--cg-mh-header-margin);
+  gap: var(--sp-mh-gap-one);
+  margin: 0 0 var(--sp-mh-header-margin);
 }
 
-.cg-mh-header[data-kind="one"] {
+.sp-mh-header[data-kind="one"] {
   align-items: center;
 }
 
-.cg-mh-header[data-kind="two"] {
-  gap: var(--cg-mh-gap-two);
+.sp-mh-header[data-kind="two"] {
+  gap: var(--sp-mh-gap-two);
 }
 
-.cg-mh-header[data-kind="alert"] {
-  gap: var(--cg-mh-gap-alert);
+.sp-mh-header[data-kind="alert"] {
+  gap: var(--sp-mh-gap-alert);
 }
 
 /* A title-only alert keeps the alert icon scale but centers the icon on its
    lone title line (mirrors .tug-alert-body[data-scale="alert"] without
    data-has-message). */
-.cg-mh-header[data-kind="alert"][data-solo] {
+.sp-mh-header[data-kind="alert"][data-solo] {
   align-items: center;
 }
 
@@ -82,54 +82,54 @@
 /* The box owns the size; the lucide svg inside stretches to fill it, so the
    scale is tuned here in CSS, not in TSX size props. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-overlay-rest */
-.cg-mh-icon {
+.sp-mh-icon {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--cg-mh-icon-one);
-  height: var(--cg-mh-icon-one);
+  width: var(--sp-mh-icon-one);
+  height: var(--sp-mh-icon-one);
   color: var(--tug7-element-global-icon-normal-muted-rest);
 }
 
-.cg-mh-header[data-kind="two"] .cg-mh-icon {
-  width: var(--cg-mh-icon-two);
-  height: var(--cg-mh-icon-two);
+.sp-mh-header[data-kind="two"] .sp-mh-icon {
+  width: var(--sp-mh-icon-two);
+  height: var(--sp-mh-icon-two);
 }
 
-.cg-mh-header[data-kind="alert"] .cg-mh-icon {
-  width: var(--cg-mh-icon-alert);
-  height: var(--cg-mh-icon-alert);
+.sp-mh-header[data-kind="alert"] .sp-mh-icon {
+  width: var(--sp-mh-icon-alert);
+  height: var(--sp-mh-icon-alert);
 }
 
-.cg-mh-icon svg {
+.sp-mh-icon svg {
   width: 100%;
   height: 100%;
 }
 
 /* Per-role icon tint — same tone family the sheet header uses. */
-.cg-mh-header[data-icon-role="agent"]  .cg-mh-icon { color: var(--tug7-element-tone-icon-normal-agent-rest); }
-.cg-mh-header[data-icon-role="action"] .cg-mh-icon { color: var(--tug7-element-tone-icon-normal-action-rest); }
-.cg-mh-header[data-icon-role="danger"] .cg-mh-icon { color: var(--tug7-element-tone-icon-normal-danger-rest); }
+.sp-mh-header[data-icon-role="agent"]  .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-agent-rest); }
+.sp-mh-header[data-icon-role="action"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-action-rest); }
+.sp-mh-header[data-icon-role="danger"] .sp-mh-icon { color: var(--tug7-element-tone-icon-normal-danger-rest); }
 
 /* ---- Text column ----------------------------------------------------------- */
 
-.cg-mh-heading {
+.sp-mh-heading {
   flex: 1;
   min-width: 0;
 }
 
-.cg-mh-title {
-  font-size: var(--cg-mh-title-size);
-  font-weight: var(--cg-mh-title-weight);
-  line-height: var(--cg-mh-title-lh);
+.sp-mh-title {
+  font-size: var(--sp-mh-title-size);
+  font-weight: var(--sp-mh-title-weight);
+  line-height: var(--sp-mh-title-lh);
   margin: 0;
 }
 
-.cg-mh-desc {
-  font-size: var(--cg-mh-desc-size);
-  line-height: var(--cg-mh-desc-lh);
-  margin: var(--cg-mh-desc-gap) 0 0;
+.sp-mh-desc {
+  font-size: var(--sp-mh-desc-size);
+  line-height: var(--sp-mh-desc-lh);
+  margin: var(--sp-mh-desc-gap) 0 0;
   opacity: 0.8;
 }
 
@@ -137,14 +137,14 @@
    Spike fixtures — panels, mock rows, actions (not part of the proposal)
    ========================================================================= */
 
-.cg-mh-compare {
+.sp-mh-compare {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
   align-items: flex-start;
 }
 
-.cg-mh-unit {
+.sp-mh-unit {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -155,7 +155,7 @@
 
 /* Mimics the sheet/alert surface so the headers are judged on the overlay
    background they actually render on. */
-.cg-mh-panel {
+.sp-mh-panel {
   background: var(--tug7-surface-global-primary-normal-overlay-rest);
   border: 1px solid var(--tug7-element-global-stroke-normal-muted-rest);
   border-radius: 12px;
@@ -163,13 +163,13 @@
 }
 
 /* Mock body rows — the plinth rhythm the setup steps / picker options use. */
-.cg-mh-rows {
+.sp-mh-rows {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.cg-mh-row {
+.sp-mh-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -178,19 +178,19 @@
   border-radius: var(--tugx-block-chrome-radius);
 }
 
-.cg-mh-row-label {
+.sp-mh-row-label {
   font-size: 14px;
   font-weight: var(--tug-font-weight-semibold);
   line-height: 1.4;
 }
 
-.cg-mh-row-detail {
+.sp-mh-row-detail {
   font-size: 13px;
   line-height: 1.45;
   opacity: 0.8;
 }
 
-.cg-mh-actions {
+.sp-mh-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
@@ -200,7 +200,7 @@
 /* Alert message column in the "current" fixtures needs no extra styling —
    the real .tug-alert-* / .tug-sheet-* classes are used verbatim. */
 
-.cg-mh-notes {
+.sp-mh-notes {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -208,12 +208,12 @@
 }
 
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.cg-mh-note {
+.sp-mh-note {
   font-size: 13px;
   line-height: 1.5;
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.cg-mh-note strong {
+.sp-mh-note strong {
   color: var(--tug7-element-global-text-normal-default-rest);
 }

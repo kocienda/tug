@@ -1533,6 +1533,8 @@ Before a component is done:
 - [ ] `bun run audit:tokens lint` exits 0
 - [ ] Renders correctly in Component Gallery across themes
 
+A **gallery** card is an exemplary demo of an established `Tug*` component: proper usage, the range of the API, meant to be browsed as documentation. That is the only thing the gallery holds. Exploratory work — trying a layout, comparing two treatments, designing a surface that is not yet a component — is a **spike**, and belongs in `tugdeck/src/spikes/` (see its README, or run `/tugplug:spike-card`). A card whose only consumer is the app-test harness is a **fixture**, and belongs in `tugdeck/src/fixtures/`. Registering any of the three in the wrong place fails `card-taxonomy.test.ts`.
+
 ---
 
 ## Stores That Observe CONTROL Push Frames

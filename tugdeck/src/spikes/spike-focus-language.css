@@ -8,7 +8,7 @@
  * comparison, so the mockups are keyed on a self-contained `data-fl-*` attribute
  * set rather than the engine's live `data-key-*` — this card is a visual
  * overview, not a live-engine vetting (that lives in each component card).
- * Scoped under `.cg-focus-language` so nothing leaks into the app.
+ * Scoped under `.sp-focus-language` so nothing leaks into the app.
  *
  * The shipped language:
  *
@@ -28,7 +28,7 @@
  * Real `--tug7-*` theme tokens are used throughout so both themes are faithful.
  */
 
-.cg-focus-language {
+.sp-focus-language {
   /* --- the reference knobs (mirror the live `--tugx-focus-*` tokens) --- */
 
   /* THE ROLE AXIS. Every focusable's ring / selection-fill / behind-tint reads
@@ -60,20 +60,20 @@
 
 /* ---------- layout scaffolding ---------- */
 
-.cg-focus-language .fl-section {
+.sp-focus-language .fl-section {
   padding: 12px 4px 16px;
   border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
 }
-.cg-focus-language .fl-section:first-of-type {
+.sp-focus-language .fl-section:first-of-type {
   border-top: none;
 }
-.cg-focus-language .fl-section-head {
+.sp-focus-language .fl-section-head {
   margin-bottom: 10px;
 }
-.cg-focus-language .fl-section-title {
+.sp-focus-language .fl-section-title {
   font-weight: var(--tug-font-weight-semibold);
 }
-.cg-focus-language .fl-branch-tag {
+.sp-focus-language .fl-branch-tag {
   display: inline-block;
   margin-left: 8px;
   padding: 1px 7px;
@@ -84,40 +84,40 @@
   text-transform: uppercase;
   vertical-align: middle;
 }
-.cg-focus-language .fl-branch-tag[data-branch="fill"] {
+.sp-focus-language .fl-branch-tag[data-branch="fill"] {
   background: var(--tug7-surface-control-primary-filled-action-rest);
   color: var(--tug7-element-control-text-filled-action-rest);
 }
-.cg-focus-language .fl-branch-tag[data-branch="ring"] {
+.sp-focus-language .fl-branch-tag[data-branch="ring"] {
   border: var(--fl-ring-w) solid var(--fl-role);
   color: var(--fl-role);
 }
-.cg-focus-language .fl-note {
+.sp-focus-language .fl-note {
   margin-top: 4px;
   font-size: 0.78rem;
   opacity: 0.62;
   max-width: 60ch;
   line-height: 1.4;
 }
-.cg-focus-language .fl-grid {
+.sp-focus-language .fl-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 22px;
   align-items: flex-end;
 }
-.cg-focus-language .fl-cell {
+.sp-focus-language .fl-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
 }
-.cg-focus-language .fl-cell-label {
+.sp-focus-language .fl-cell-label {
   font-size: 0.68rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   opacity: 0.55;
 }
-.cg-focus-language .fl-stage {
+.sp-focus-language .fl-stage {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -128,7 +128,7 @@
    1 — ROLE BUTTON  (FILL branch)
    ============================================================ */
 
-.cg-focus-language .fl-btn {
+.sp-focus-language .fl-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -144,18 +144,18 @@
 }
 
 /* outlined identity at rest (per role) */
-.cg-focus-language .fl-btn[data-role="action"] {
+.sp-focus-language .fl-btn[data-role="action"] {
   color: var(--tug7-element-control-text-outlined-action-rest);
   border-color: var(--tug7-element-control-border-outlined-action-rest);
 }
-.cg-focus-language .fl-btn[data-role="danger"] {
+.sp-focus-language .fl-btn[data-role="danger"] {
   color: var(
     --tug7-element-control-text-outlined-danger-rest,
     var(--tug7-element-control-border-outlined-danger-rest)
   );
   border-color: var(--tug7-element-control-border-outlined-danger-rest);
 }
-.cg-focus-language .fl-btn[data-role="accent"] {
+.sp-focus-language .fl-btn[data-role="accent"] {
   color: var(
     --tug7-element-control-text-outlined-accent-rest,
     var(--tug7-element-control-border-outlined-accent-rest)
@@ -163,14 +163,14 @@
   border-color: var(--tug7-element-control-border-outlined-accent-rest);
 }
 
-.cg-focus-language .fl-btn[data-fl-state="hover"] {
+.sp-focus-language .fl-btn[data-fl-state="hover"] {
   background: var(--fl-hover);
 }
 
 /* recommended default (at rest, not the live control) → a TINT + a ring, never
    a full fill. Full fill is reserved for the live/focused control below ([P14]).
    This is the `persistentDefaultRing` look a sheet/dialog commit button wears. */
-.cg-focus-language .fl-btn[data-role="action"][data-fl-state="default"] {
+.sp-focus-language .fl-btn[data-role="action"][data-fl-state="default"] {
   background: var(--tug7-surface-control-primary-tinted-action-rest);
   color: var(--tug7-element-control-text-tinted-action-rest);
   border-color: var(--tug7-element-control-border-tinted-action-rest);
@@ -179,21 +179,21 @@
 }
 
 /* keyboard cursor → FILL promotion + role-coloured double border */
-.cg-focus-language .fl-btn[data-role="action"][data-fl-state="cursor"] {
+.sp-focus-language .fl-btn[data-role="action"][data-fl-state="cursor"] {
   background: var(--tug7-surface-control-primary-filled-action-rest);
   color: var(--tug7-element-control-text-filled-action-rest);
   border-color: var(--tug7-element-control-border-filled-action-rest);
   outline: var(--fl-ring-w) solid var(--tug7-element-control-border-filled-action-rest);
   outline-offset: var(--fl-ring-offset);
 }
-.cg-focus-language .fl-btn[data-role="danger"][data-fl-state="cursor"] {
+.sp-focus-language .fl-btn[data-role="danger"][data-fl-state="cursor"] {
   background: var(--tug7-surface-control-primary-filled-danger-rest);
   color: var(--tug7-element-control-text-filled-danger-rest);
   border-color: var(--tug7-element-control-border-filled-danger-rest);
   outline: var(--fl-ring-w) solid var(--tug7-element-control-border-filled-danger-rest);
   outline-offset: var(--fl-ring-offset);
 }
-.cg-focus-language .fl-btn[data-role="accent"][data-fl-state="cursor"] {
+.sp-focus-language .fl-btn[data-role="accent"][data-fl-state="cursor"] {
   background: var(--tug7-surface-control-primary-filled-accent-rest);
   color: var(--tug7-element-control-text-filled-accent-rest);
   border-color: var(--tug7-element-control-border-filled-accent-rest);
@@ -202,7 +202,7 @@
 }
 
 /* button group — shows the demotion (focused promotes, siblings stay outlined) */
-.cg-focus-language .fl-btn-group {
+.sp-focus-language .fl-btn-group {
   display: inline-flex;
   gap: 12px;
 }
@@ -211,7 +211,7 @@
    2 — TEXT INPUT  (RING branch — can't fill, legibility)
    ============================================================ */
 
-.cg-focus-language .fl-input {
+.sp-focus-language .fl-input {
   min-width: 130px;
   padding: 6px 10px;
   border-radius: var(--fl-radius);
@@ -220,7 +220,7 @@
   color: var(--tug7-element-field-text-normal-plain-rest);
   font-size: 0.82rem;
 }
-.cg-focus-language .fl-input[data-fl-state="hover"] {
+.sp-focus-language .fl-input[data-fl-state="hover"] {
   border-color: color-mix(
     in srgb,
     var(--tug7-element-field-border-normal-plain-rest) 60%,
@@ -228,7 +228,7 @@
   );
 }
 /* keyboard cursor → DOUBLE border: own border recoloured + offset outer ring */
-.cg-focus-language .fl-input[data-fl-state="cursor"] {
+.sp-focus-language .fl-input[data-fl-state="cursor"] {
   border-color: var(--fl-role);
   outline: var(--fl-ring-w) solid var(--fl-role);
   outline-offset: var(--fl-ring-offset);
@@ -242,7 +242,7 @@
 
 /* The component as a whole — glyph + label. The ring goes here, never on the
    bare glyph. */
-.cg-focus-language .fl-toggle-field {
+.sp-focus-language .fl-toggle-field {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -250,13 +250,13 @@
   border-radius: 8px;
   font-size: 0.85rem;
 }
-.cg-focus-language .fl-toggle-field[data-fl-state="cursor"] {
+.sp-focus-language .fl-toggle-field[data-fl-state="cursor"] {
   background: var(--fl-focus-bg);
   outline: var(--fl-ring-w) solid var(--fl-role);
   outline-offset: var(--fl-ring-offset);
 }
 
-.cg-focus-language .fl-check {
+.sp-focus-language .fl-check {
   width: 20px;
   height: 20px;
   flex: none;
@@ -271,13 +271,13 @@
   font-weight: var(--tug-font-weight-bold);
 }
 /* checked = FILL on the box (role-coloured when the control carries a role) */
-.cg-focus-language .fl-check[data-checked="true"] {
+.sp-focus-language .fl-check[data-checked="true"] {
   background: var(--fl-sel);
   border-color: var(--fl-sel);
   color: var(--fl-thumb-on);
 }
 
-.cg-focus-language .fl-switch {
+.sp-focus-language .fl-switch {
   width: 40px;
   height: 22px;
   flex: none;
@@ -286,7 +286,7 @@
   background: var(--tug7-surface-field-primary-normal-plain-rest);
   position: relative;
 }
-.cg-focus-language .fl-switch::after {
+.sp-focus-language .fl-switch::after {
   content: "";
   position: absolute;
   top: 2px;
@@ -298,11 +298,11 @@
   transition: none;
 }
 /* on = FILL on the track (role-coloured when the control carries a role) */
-.cg-focus-language .fl-switch[data-checked="true"] {
+.sp-focus-language .fl-switch[data-checked="true"] {
   background: var(--fl-sel);
   border-color: var(--fl-sel);
 }
-.cg-focus-language .fl-switch[data-checked="true"]::after {
+.sp-focus-language .fl-switch[data-checked="true"]::after {
   left: auto;
   right: 2px;
   background: var(--fl-thumb-on);
@@ -315,7 +315,7 @@
    ============================================================ */
 
 /* The component as a whole — label row + track. The ring goes here. */
-.cg-focus-language .fl-slider-field {
+.sp-focus-language .fl-slider-field {
   display: inline-flex;
   flex-direction: column;
   gap: 7px;
@@ -323,22 +323,22 @@
   padding: 8px 10px;
   border-radius: 8px;
 }
-.cg-focus-language .fl-slider-field[data-fl-state="cursor"] {
+.sp-focus-language .fl-slider-field[data-fl-state="cursor"] {
   background: var(--fl-focus-bg);
   outline: var(--fl-ring-w) solid var(--fl-role);
   outline-offset: var(--fl-ring-offset);
 }
-.cg-focus-language .fl-slider-head {
+.sp-focus-language .fl-slider-head {
   display: flex;
   justify-content: space-between;
   font-size: 0.82rem;
 }
-.cg-focus-language .fl-slider-value {
+.sp-focus-language .fl-slider-value {
   font-variant-numeric: tabular-nums;
   opacity: 0.7;
 }
 
-.cg-focus-language .fl-track {
+.sp-focus-language .fl-track {
   position: relative;
   height: 6px;
   border-radius: 3px;
@@ -348,7 +348,7 @@
     transparent
   );
 }
-.cg-focus-language .fl-track .fl-fill {
+.sp-focus-language .fl-track .fl-fill {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -356,7 +356,7 @@
   border-radius: 3px;
   background: var(--fl-role);
 }
-.cg-focus-language .fl-track .fl-thumb {
+.sp-focus-language .fl-track .fl-thumb {
   position: absolute;
   top: 50%;
   width: 16px;
@@ -369,7 +369,7 @@
 }
 /* keyboard focus → FILL the thumb solid (in addition to the whole-component
    ring above) */
-.cg-focus-language .fl-slider-field[data-fl-state="cursor"] .fl-thumb {
+.sp-focus-language .fl-slider-field[data-fl-state="cursor"] .fl-thumb {
   background: var(--fl-sel);
   border-color: var(--fl-sel);
 }
@@ -387,11 +387,11 @@
    ============================================================ */
 
 /* focused component → behind-tint (one rule for every group container) */
-.cg-focus-language .fl-group[data-fl-focus="true"],
-.cg-focus-language .fl-tabs[data-fl-focus="true"],
-.cg-focus-language .fl-optset[data-fl-focus="true"],
-.cg-focus-language .fl-list[data-fl-focus="true"],
-.cg-focus-language .fl-qa[data-fl-focus="true"] {
+.sp-focus-language .fl-group[data-fl-focus="true"],
+.sp-focus-language .fl-tabs[data-fl-focus="true"],
+.sp-focus-language .fl-optset[data-fl-focus="true"],
+.sp-focus-language .fl-list[data-fl-focus="true"],
+.sp-focus-language .fl-qa[data-fl-focus="true"] {
   background: var(--fl-focus-bg);
 }
 
@@ -401,12 +401,12 @@
    axis. Mirrors the per-role rings in the §1 TugPushButton example. */
 /* Default role = action (set at the root). These override per non-default role,
    colouring the ring, the selection fill, AND the faint behind-tint together. */
-.cg-focus-language [data-fl-role="danger"] {
+.sp-focus-language [data-fl-role="danger"] {
   --fl-role: var(--tug7-element-control-border-filled-danger-rest);
   --fl-sel: var(--tug7-surface-control-primary-filled-danger-rest);
   --fl-focus-bg: color-mix(in srgb, var(--fl-role) 13%, transparent);
 }
-.cg-focus-language [data-fl-role="accent"] {
+.sp-focus-language [data-fl-role="accent"] {
   --fl-role: var(--tug7-element-control-border-filled-accent-rest);
   --fl-sel: var(--tug7-surface-control-primary-filled-accent-rest);
   --fl-focus-bg: color-mix(in srgb, var(--fl-role) 13%, transparent);
@@ -416,9 +416,9 @@
    coloured when the component carries a role, action-blue otherwise. The shape
    of an element mark follows the shape of the item, so full-width row
    containers take the bar below instead. */
-.cg-focus-language .fl-item[data-fl-cursor="true"],
-.cg-focus-language .fl-tab[data-fl-cursor="true"],
-.cg-focus-language .fl-opt[data-fl-cursor="true"] {
+.sp-focus-language .fl-item[data-fl-cursor="true"],
+.sp-focus-language .fl-tab[data-fl-cursor="true"],
+.sp-focus-language .fl-opt[data-fl-cursor="true"] {
   outline: var(--fl-ring-w) solid var(--fl-role);
   outline-offset: 2px;
 }
@@ -427,12 +427,12 @@
    shipped list, accordion, and dialog answer rows actually draw: a ring around
    a full-bleed row reads as a second container nested in the first, which is
    the mark the container itself already owns. */
-.cg-focus-language .fl-list-row[data-fl-cursor="true"],
-.cg-focus-language .fl-qa-row[data-fl-cursor="true"] {
+.sp-focus-language .fl-list-row[data-fl-cursor="true"],
+.sp-focus-language .fl-qa-row[data-fl-cursor="true"] {
   position: relative;
 }
-.cg-focus-language .fl-list-row[data-fl-cursor="true"]::before,
-.cg-focus-language .fl-qa-row[data-fl-cursor="true"]::before {
+.sp-focus-language .fl-list-row[data-fl-cursor="true"]::before,
+.sp-focus-language .fl-qa-row[data-fl-cursor="true"]::before {
   content: "";
   position: absolute;
   inset-block: 0;
@@ -443,15 +443,15 @@
 }
 
 /* the native blue radio dot — reused by radio rows AND exclusive Q&A rows */
-.cg-focus-language .fl-dot {
+.sp-focus-language .fl-dot {
   width: 14px;
   height: 14px;
   flex: none;
   border-radius: 50%;
   border: 1.5px solid var(--tug7-element-field-border-normal-plain-rest);
 }
-.cg-focus-language [data-fl-selected="true"] > .fl-dot,
-.cg-focus-language .fl-dot[data-fl-selected="true"] {
+.sp-focus-language [data-fl-selected="true"] > .fl-dot,
+.sp-focus-language .fl-dot[data-fl-selected="true"] {
   border-color: var(--fl-sel);
   background: radial-gradient(
     circle,
@@ -461,7 +461,7 @@
 }
 
 /* ---- 5 · RadioGroup (exclusive · native = a dot) ---- */
-.cg-focus-language .fl-group {
+.sp-focus-language .fl-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -469,7 +469,7 @@
   border-radius: 10px;
   min-width: 175px;
 }
-.cg-focus-language .fl-item {
+.sp-focus-language .fl-item {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -478,7 +478,7 @@
 }
 
 /* ---- 6 · ChoiceGroup / TabBar (exclusive · native = a solid pill) ---- */
-.cg-focus-language .fl-tabs {
+.sp-focus-language .fl-tabs {
   display: inline-flex;
   gap: 8px;
   padding: 4px;
@@ -489,26 +489,26 @@
     transparent
   );
 }
-.cg-focus-language .fl-tab {
+.sp-focus-language .fl-tab {
   padding: 5px 14px;
   border-radius: 7px;
   font-size: 0.78rem;
   font-weight: var(--tug-font-weight-medium);
 }
-.cg-focus-language .fl-tab[data-fl-selected="true"] {
+.sp-focus-language .fl-tab[data-fl-selected="true"] {
   background: var(--fl-sel);
   color: var(--fl-thumb-on);
   font-weight: var(--tug-font-weight-semibold);
 }
 
 /* ---- 7 · OptionGroup (multiple · native = a solid fill) ---- */
-.cg-focus-language .fl-optset {
+.sp-focus-language .fl-optset {
   display: inline-flex;
   gap: 9px;
   padding: 6px;
   border-radius: 10px;
 }
-.cg-focus-language .fl-opt {
+.sp-focus-language .fl-opt {
   display: inline-flex;
   align-items: center;
   padding: 6px 14px;
@@ -516,14 +516,14 @@
   border: 1.5px solid var(--tug7-element-field-border-normal-plain-rest);
   font-size: 0.8rem;
 }
-.cg-focus-language .fl-opt[data-fl-selected="true"] {
+.sp-focus-language .fl-opt[data-fl-selected="true"] {
   background: var(--fl-sel);
   border-color: var(--fl-sel);
   color: var(--fl-thumb-on);
 }
 
 /* ---- 8 · Descendable rows (list / accordion · native = a row fill; multi) ---- */
-.cg-focus-language .fl-list {
+.sp-focus-language .fl-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -531,12 +531,12 @@
   border-radius: 10px;
   min-width: 195px;
 }
-.cg-focus-language .fl-list-row {
+.sp-focus-language .fl-list-row {
   padding: 6px 10px;
   border-radius: var(--fl-radius);
   font-size: 0.82rem;
 }
-.cg-focus-language .fl-list-row[data-fl-selected="true"] {
+.sp-focus-language .fl-list-row[data-fl-selected="true"] {
   background: var(--fl-sel);
   color: var(--fl-thumb-on);
 }
@@ -545,12 +545,12 @@
    at key-view strength and says which list the descended control belongs to.
    The quiet within-mark is for a container the keyboard has genuinely left the
    surface of — a sheet holding an open popover — which is not this. */
-.cg-focus-language .fl-list[data-fl-within="true"] {
+.sp-focus-language .fl-list[data-fl-within="true"] {
   background: var(--fl-focus-bg);
 }
 
 /* ---- 9 · QuestionDialog answers (exclusive = radio rows · multi = checkbox rows) ---- */
-.cg-focus-language .fl-qa {
+.sp-focus-language .fl-qa {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -558,7 +558,7 @@
   border-radius: 10px;
   min-width: 235px;
 }
-.cg-focus-language .fl-qa-row {
+.sp-focus-language .fl-qa-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -571,7 +571,7 @@
    10 — COMPONENT BOX-SCOPE  (RING branch — popover / sheet / alert box)
    ============================================================ */
 
-.cg-focus-language .fl-box {
+.sp-focus-language .fl-box {
   width: 190px;
   padding: 14px;
   border-radius: 10px;
@@ -581,13 +581,13 @@
 }
 /* keyboard key-view on the box → faint behind-tint + box-shadow ring (hugs the
    radius, no reflow). Matches the item-group focus signature: tint + ring. */
-.cg-focus-language .fl-box[data-fl-state="cursor"] {
+.sp-focus-language .fl-box[data-fl-state="cursor"] {
   background: linear-gradient(var(--fl-focus-bg), var(--fl-focus-bg)),
     var(--tug7-surface-field-primary-normal-plain-rest);
   box-shadow: 0 0 0 var(--fl-ring-w) var(--fl-role);
   border-color: var(--fl-role);
 }
-.cg-focus-language .fl-box[data-fl-state="within"] {
+.sp-focus-language .fl-box[data-fl-state="within"] {
   box-shadow: 0 0 0 var(--fl-ring-w) var(--fl-within);
 }
 
@@ -595,16 +595,16 @@
    11 — INLINE LINK  (RING branch — long-tail, non-box focusable)
    ============================================================ */
 
-.cg-focus-language .fl-link {
+.sp-focus-language .fl-link {
   color: var(--tug7-element-control-border-outlined-action-rest);
   text-decoration: none;
   border-radius: 3px;
   padding: 1px 2px;
 }
-.cg-focus-language .fl-link[data-fl-state="hover"] {
+.sp-focus-language .fl-link[data-fl-state="hover"] {
   text-decoration: underline;
 }
-.cg-focus-language .fl-link[data-fl-state="cursor"] {
+.sp-focus-language .fl-link[data-fl-state="cursor"] {
   background: var(--fl-focus-bg);
   text-decoration: underline;
   outline: var(--fl-ring-w) solid var(--fl-role);

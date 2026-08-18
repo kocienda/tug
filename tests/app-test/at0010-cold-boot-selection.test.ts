@@ -15,7 +15,7 @@
  * Phase B failure ⇒ load + apply at fresh mount didn't re-anchor
  * the selection.
  *
- * ## Why `gallery-markdown-1kb`, not `gallery-markdown-50kb`
+ * ## Why `fixture-markdown-1kb`, not `fixture-markdown-50kb`
  *
  * 1KB of static markdown fits in one viewport at the gallery card's
  * default size, so all blocks render fully on mount and
@@ -88,7 +88,7 @@ interface SeededSelection {
 function deckShape() {
   return {
     cards: [
-      { id: CARD_ID, componentId: "gallery-markdown-1kb", title: "MD A", closable: true },
+      { id: CARD_ID, componentId: "fixture-markdown-1kb", title: "MD A", closable: true },
     ],
     panes: [
       {
@@ -98,7 +98,7 @@ function deckShape() {
         cardIds: [CARD_ID],
         activeCardId: CARD_ID,
         title: "",
-        acceptsFamilies: ["maker"],
+        acceptsFamilies: ["fixture"],
       },
     ],
     activePaneId: "p1",
@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
           // stable across two consecutive observations. (The head is
           // not asserted to be index 0 — the block-remap path renumbers
           // keys when a region grows, so this fixture renders 1..10.) The
-          // `gallery-markdown-1kb` fixture passes
+          // `fixture-markdown-1kb` fixture passes
           // `followBottom: false` to TugMarkdownView for the
           // static-content path, so the bake-in renders with
           // `scrollTop = 0` and the virtualization window covers

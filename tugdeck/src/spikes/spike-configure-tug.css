@@ -1,6 +1,6 @@
 /*
  * gallery-configure-tug.css — styling for the ConfigureTug happy-path design spike
- * (gallery-configure-tug.tsx). Scoped to `.cg-configure-tug-*`; reuses gallery.css for the
+ * (gallery-configure-tug.tsx). Scoped to `.sp-configure-tug-*`; reuses gallery.css for the
  * section/content frame. The step row mirrors the real wizard's rhythm
  * (configure-tug.css) so design decisions made here transfer back to ConfigureTug.
  *
@@ -10,7 +10,7 @@
 
 /* ---- Scenario picker ---------------------------------------------------- */
 
-.cg-configure-tug-scenarios {
+.sp-configure-tug-scenarios {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -18,7 +18,7 @@
 
 /* ---- Wizard preview panel (mimics the real modal body) ------------------ */
 
-.cg-configure-tug-preview-panel {
+.sp-configure-tug-preview-panel {
   border: 1px solid var(--tug7-element-global-stroke-normal-muted-rest);
   border-radius: 12px;
   padding: 24px;
@@ -27,19 +27,19 @@
 }
 
 /* TugAlert-style header: a sizable icon left of the title + subtitle block. */
-.cg-configure-tug-header {
+.sp-configure-tug-header {
   display: flex;
   align-items: center;
   gap: 14px;
   margin: 0 0 20px;
 }
 
-.cg-configure-tug-icon {
+.sp-configure-tug-icon {
   flex: 0 0 auto;
   color: var(--tug7-element-tone-text-normal-action-rest);
 }
 
-.cg-configure-tug-preview-title {
+.sp-configure-tug-preview-title {
   font-size: 19px;
   font-weight: 700;
   margin: 0;
@@ -47,14 +47,14 @@
 
 /* Match the isolated step-row section to the simulated-flow row width: same
  * max-width + horizontal padding as the preview panel's inner content. */
-.cg-configure-tug-rows-frame {
+.sp-configure-tug-rows-frame {
   max-width: 600px;
   padding: 0 24px;
 }
 
 /* ---- Step list ---------------------------------------------------------- */
 
-.cg-configure-tug-steps {
+.sp-configure-tug-steps {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -73,7 +73,7 @@
  * transcript's block renderers use, so the background does the grouping and a
  * CTA can hang on the right. Fixed-height + centered content so state changes
  * never resize the row. */
-.cg-configure-tug-step {
+.sp-configure-tug-step {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -83,15 +83,15 @@
   border-radius: var(--tugx-block-chrome-radius);
 }
 
-.cg-configure-tug-step[data-step="project-dir"] {
+.sp-configure-tug-step[data-step="project-dir"] {
   min-height: var(--configure-tug-row-dir-h);
 }
 
-.cg-configure-tug-step[data-status="pending"] {
+.sp-configure-tug-step[data-status="pending"] {
   opacity: 0.5;
 }
 
-.cg-configure-tug-step-main {
+.sp-configure-tug-step-main {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -101,30 +101,30 @@
 
 /* Dot + label on one line so the dot rides the label even though the main block
  * is vertically centered in the row. */
-.cg-configure-tug-step-headline {
+.sp-configure-tug-step-headline {
   display: flex;
   align-items: center;
   gap: var(--configure-tug-headline-gap);
 }
 
-.cg-configure-tug-step-dot {
+.sp-configure-tug-step-dot {
   flex: 0 0 auto;
 }
 
-.cg-configure-tug-step-label {
+.sp-configure-tug-step-label {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
 }
 
-.cg-configure-tug-step-detail {
+.sp-configure-tug-step-detail {
   padding-left: calc(var(--configure-tug-dot) + var(--configure-tug-headline-gap));
   font-size: 13px;
   line-height: 1.45;
   opacity: 0.8;
 }
 
-.cg-configure-tug-step-body {
+.sp-configure-tug-step-body {
   padding-left: calc(var(--configure-tug-dot) + var(--configure-tug-headline-gap));
   min-height: calc(13px * 1.45);
   display: flex;
@@ -132,17 +132,17 @@
   gap: var(--tug-space-sm);
 }
 
-.cg-configure-tug-step-body .tug-file-chooser {
+.sp-configure-tug-step-body .tug-file-chooser {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.cg-configure-tug-step[data-step="project-dir"] .cg-configure-tug-step-body {
+.sp-configure-tug-step[data-step="project-dir"] .sp-configure-tug-step-body {
   margin-top: var(--tug-space-sm);
   gap: var(--tug-space-md);
 }
 
-.cg-configure-tug-step-action {
+.sp-configure-tug-step-action {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -150,7 +150,7 @@
 }
 
 /* Big green success check that takes the button's place on a completed step. */
-.cg-configure-tug-step-check {
+.sp-configure-tug-step-check {
   display: block;
   color: var(--tug7-element-tone-text-normal-success-rest);
 }

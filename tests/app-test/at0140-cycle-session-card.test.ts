@@ -5,7 +5,7 @@
  *
  * ## Why this exists
  *
- * The cycle mechanism is proven generically on `gallery-cycle-demo` (at0139).
+ * The cycle mechanism was proven generically on the `fixture-cycle-demo` card.
  * This test gates the *real consumer*: a connected session card. The card root
  * carries `data-cycling`, the engine signal the fill-suppression CSS keys on.
  *

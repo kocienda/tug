@@ -383,7 +383,7 @@ export interface TranscriptCellMenuOptions {
   codeSessionStore?: CodeSessionStore;
 }
 
-// Exported for the copy-wiring app-test fixture (`gallery-transcript-copy`),
+// Exported for the copy-wiring app-test fixture (`fixture-transcript-copy`),
 // which mounts this exact hook over a static body so `just app-test` drives
 // the real ⌘C / menu-Copy path. Not part of the card's public API otherwise.
 export function useTranscriptCellMenu({

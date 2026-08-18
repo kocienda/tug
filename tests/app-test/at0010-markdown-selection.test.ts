@@ -22,8 +22,8 @@
  *
  * ## Test layout
  *
- * One pane with two cards: A = `gallery-markdown-50kb` (50KB baked-
- * in markdown, opted into `selectionPublishKey`), B = `gallery-markdown-50kb`
+ * One pane with two cards: A = `fixture-markdown-50kb` (50KB baked-
+ * in markdown, opted into `selectionPublishKey`), B = `fixture-markdown-50kb`
  * (the alternate tab — using the same component id keeps the layout
  * symmetric, sidesteps focus-mode / form-control variance).
  *
@@ -81,8 +81,8 @@ describe.skipIf(!SHOULD_RUN)("m10: markdown-view DOM selection round-trips throu
       await app.seedDeckState({
         state: {
           cards: [
-            { id: "A", componentId: "gallery-markdown-50kb", title: "MD A", closable: true },
-            { id: "B", componentId: "gallery-markdown-50kb", title: "MD B", closable: true },
+            { id: "A", componentId: "fixture-markdown-50kb", title: "MD A", closable: true },
+            { id: "B", componentId: "fixture-markdown-50kb", title: "MD B", closable: true },
           ],
           panes: [
             {
@@ -92,7 +92,7 @@ describe.skipIf(!SHOULD_RUN)("m10: markdown-view DOM selection round-trips throu
               cardIds: ["A", "B"],
               activeCardId: "A",
               title: "",
-              acceptsFamilies: ["maker"],
+              acceptsFamilies: ["fixture"],
             },
           ],
           activePaneId: "p1",

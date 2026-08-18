@@ -1,5 +1,5 @@
 /**
- * gallery-cycle-demo.tsx — exercises the keyboard-focus-cycling mode primitive
+ * fixture-cycle-demo.tsx — exercises the keyboard-focus-cycling mode primitive
  * (`useCycleMode`) on a minimal surface, decoupled from the session card's stateful
  * picker/connected machinery.
  *
@@ -21,10 +21,10 @@
  * Laws: [L02] cycling is engine-derived (in the hook); [L06] appearance is the
  *       engine ring via CSS, no React state; [L19] gallery-card authoring.
  *
- * @module components/tugways/cards/gallery-cycle-demo
+ * @module fixtures/fixture-cycle-demo
  */
 
-import "./gallery.css";
+import "./fixture.css";
 
 import React from "react";
 
@@ -37,7 +37,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 
 const CYCLE_GROUP = "gallery-cycle-stops";
 
-export function GalleryCycleDemo({ cardId }: { cardId: string }): React.ReactElement {
+export function FixtureCycleDemo({ cardId }: { cardId: string }): React.ReactElement {
   const { cycling, toggle, CycleScope } = useCycleMode();
 
   // The ⌥⇥ trigger is `scope: "key-card"` — it routes to the active card's
@@ -53,13 +53,13 @@ export function GalleryCycleDemo({ cardId }: { cardId: string }): React.ReactEle
   return (
     <ResponderScope>
       <div
-        className="cg-content"
+        className="fx-content"
         data-testid="gallery-cycle-demo"
         data-cycling={cycling ? "true" : "false"}
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        <div className="cg-section">
-          <TugLabel className="cg-section-title">Keyboard-focus-cycling</TugLabel>
+        <div className="fx-section">
+          <TugLabel className="fx-section-title">Keyboard-focus-cycling</TugLabel>
           <TugLabel size="2xs" emphasis="calm">
             Click “Resting” to put the key view on it, then press ⌥⇥. Cycling
             seeds the ring on the commit-home; Tab wraps the stops; ⌥⇥ again
@@ -73,9 +73,9 @@ export function GalleryCycleDemo({ cardId }: { cardId: string }): React.ReactEle
             CycleScope), so it is not a cycle stop. Ghost emphasis so it carries
             no resting border: a bordered button reads as focus-decorated even
             when it is not, which is misleading next to the real cycle ring. */}
-        <div className="cg-section">
-          <TugLabel className="cg-section-title">Resting (base mode)</TugLabel>
-          <div className="cg-variant-row">
+        <div className="fx-section">
+          <TugLabel className="fx-section-title">Resting (base mode)</TugLabel>
+          <div className="fx-variant-row">
             <TugPushButton
               emphasis="ghost"
               focusGroup="gallery-cycle-rest"
@@ -93,10 +93,10 @@ export function GalleryCycleDemo({ cardId }: { cardId: string }): React.ReactEle
         {/* Cycle stops — wrapped in CycleScope so they register into this card's
             cycle mode. The commit-home is the lowest focusOrder, so it is what
             the mode seeds on entry; the rest follow in cycle order. */}
-        <div className="cg-section">
-          <TugLabel className="cg-section-title">Cycle stops</TugLabel>
+        <div className="fx-section">
+          <TugLabel className="fx-section-title">Cycle stops</TugLabel>
           <CycleScope>
-            <div className="cg-variant-row">
+            <div className="fx-variant-row">
               {/* All stops are OUTLINED so the keyboard-promoted fill is the
                   live signal: only the focused stop promotes to filled + ring,
                   and the fill MOVES with Tab — it is taken off the prior stop.

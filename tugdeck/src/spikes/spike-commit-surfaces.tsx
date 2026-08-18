@@ -1,8 +1,6 @@
 /**
- * gallery-commit-surfaces.tsx — the one gallery card for every surface that
- * shows a commit. It replaces the retired `gallery-commit-block` and
- * `gallery-commit-receipt` tabs, so each commit case has exactly one live
- * demo:
+ * spike-commit-surfaces.tsx — the one spike for every surface that shows a
+ * commit, so each commit case has exactly one live demo:
  *
  *   1. The History shade's rows — the candidate built from
  *      `commit-presentation.tsx`: one `.tugx-commit` type scale, the shared
@@ -20,7 +18,9 @@
  * @module components/tugways/cards/gallery-commit-surfaces
  */
 
-import "./gallery-commit-surfaces.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-commit-surfaces.css";
 
 import React, { useId, useState } from "react";
 
@@ -35,9 +35,9 @@ import {
   parseGitCommit,
   type CommitData,
 } from "@/components/tugways/body-kinds/commit-block";
-import { BlockChrome } from "../blocks/block-chrome";
-import { SessionCommitReceiptBlock } from "./session-commit-receipt-block";
-import type { CommandBlockProps } from "./session-command-block-registry";
+import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
+import { SessionCommitReceiptBlock } from "@/components/tugways/cards/session-commit-receipt-block";
+import type { CommandBlockProps } from "@/components/tugways/cards/session-command-block-registry";
 import type { ShellExchangeMessage } from "@/lib/code-session-store/types";
 import type { GitLogCommit } from "@/lib/git-log-store";
 import {
@@ -283,7 +283,7 @@ const META_ITEMS = [
   { value: "time", label: "Time" },
 ];
 
-export function GalleryCommitSurfaces(): React.ReactElement {
+export function SpikeCommitSurfaces(): React.ReactElement {
   // Which metadata the rows carry. Readers disagree about this — some want the
   // author, some the date, some the clock — so it is a choice, not a default
   // baked into the row. `TugOptionGroup` is a multi-toggle: zero or more on.
@@ -346,7 +346,7 @@ export function GalleryCommitSurfaces(): React.ReactElement {
           <code> at0264</code>). The header shows only the subject; the body and trailer live in
           the copied text.
         </Caption>
-        <div className="cg-section" data-testid="commit-receipt-wrapping">
+        <div className="sp-section" data-testid="commit-receipt-wrapping">
           <SessionCommitReceiptBlock {...receiptProps(OUTPUT_WRAPPING, "wrapping")} />
         </div>
 
@@ -355,7 +355,7 @@ export function GalleryCommitSurfaces(): React.ReactElement {
         <TugLabel size="lg">
           <code>/commit</code> durable receipt — single-line subject
         </TugLabel>
-        <div className="cg-section" data-testid="commit-receipt-one-line">
+        <div className="sp-section" data-testid="commit-receipt-one-line">
           <SessionCommitReceiptBlock {...receiptProps(OUTPUT_ONE_LINE, "one-line")} />
         </div>
 
@@ -378,3 +378,10 @@ export function GalleryCommitSurfaces(): React.ReactElement {
     </ResponderScope>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "commit-surfaces",
+  title: "Commit Surfaces",
+  blurb: "Every surface that shows a commit, side by side: History rows, the durable receipt, and the shared identity line.",
+  component: () => <SpikeCommitSurfaces />,
+};

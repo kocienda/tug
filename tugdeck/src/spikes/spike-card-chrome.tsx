@@ -1,5 +1,5 @@
 /**
- * gallery-card-chrome.tsx — the deck's three chrome tiers, side by side.
+ * spike-card-chrome.tsx — the deck's three chrome tiers, side by side.
  *
  * This began as a proposal and is now the reference: all three tiers ship.
  * The tiers are
@@ -40,7 +40,9 @@ import { TugBox } from "@/components/tugways/tug-box";
 import { TugCheckbox } from "@/components/tugways/tug-checkbox";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 
-import "./gallery-card-chrome.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-card-chrome.css";
 
 // ---------------------------------------------------------------------------
 // Fixture content
@@ -132,7 +134,7 @@ function SpikePane({
 }) {
   return (
     <div
-      className="tug-pane cg-spike-pane"
+      className="tug-pane sp-chrome-pane"
       data-focused={focused ? "true" : undefined}
       data-masthead={masthead ? "true" : undefined}
     >
@@ -143,7 +145,7 @@ function SpikePane({
           could not answer what a rail looks like on a card you are not using. */}
       <div className="tug-pane-chrome">
         {children}
-        <div className="cg-spike-pane-body">{body}</div>
+        <div className="sp-chrome-pane-body">{body}</div>
       </div>
     </div>
   );
@@ -151,7 +153,7 @@ function SpikePane({
 
 function SpikeRow({ caption, children }: { caption: string; children: React.ReactNode }) {
   return (
-    <div className="cg-spike-row">
+    <div className="sp-chrome-row">
       <TugLabel size="2xs" emphasis="calm">
         {caption}
       </TugLabel>
@@ -161,10 +163,10 @@ function SpikeRow({ caption, children }: { caption: string; children: React.Reac
 }
 
 // ---------------------------------------------------------------------------
-// GalleryCardChrome
+// SpikeCardChrome
 // ---------------------------------------------------------------------------
 
-export function GalleryCardChrome(): React.ReactElement {
+export function SpikeCardChrome(): React.ReactElement {
   const [focused, setFocused] = useState(true);
   const [dirty, setDirty] = useState(true);
   const [detail, setDetail] = useState(true);
@@ -192,12 +194,12 @@ export function GalleryCardChrome(): React.ReactElement {
   return (
     <ResponderScope>
       <div
-        className="cg-content"
+        className="sp-content"
         data-testid="gallery-card-chrome"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
-        <div className="cg-section">
-          <TugLabel className="cg-section-title">Card Chrome — three tiers</TugLabel>
+        <div className="sp-section">
+          <TugLabel className="sp-section-title">Card Chrome — three tiers</TugLabel>
           <TugLabel size="2xs" emphasis="calm">
             All three ship: the masthead generalizes from the Session card to every
             document card, and a rail no longer borrows a content card's title bar. Real
@@ -208,8 +210,8 @@ export function GalleryCardChrome(): React.ReactElement {
         <TugSeparator />
 
         {/* ---- Controls ---- */}
-        <div className="cg-section">
-          <TugLabel className="cg-section-title">Preview Controls</TugLabel>
+        <div className="sp-section">
+          <TugLabel className="sp-section-title">Preview Controls</TugLabel>
           <TugBox
             variant="bordered"
             rounded="sm"
@@ -229,8 +231,8 @@ export function GalleryCardChrome(): React.ReactElement {
         <TugSeparator />
 
         {/* ---- Tier 1: the document masthead ---- */}
-        <div className="cg-section">
-          <TugLabel className="cg-section-title">Tier 1 — document card (72px masthead)</TugLabel>
+        <div className="sp-section">
+          <TugLabel className="sp-section-title">Tier 1 — document card (72px masthead)</TugLabel>
           <TugLabel size="2xs" emphasis="calm">
             A card that holds a named thing says its name, then where it lives. The path is
             the line the Text card currently spends a whole second row on.
@@ -279,8 +281,8 @@ export function GalleryCardChrome(): React.ReactElement {
         <TugSeparator />
 
         {/* ---- Tier 2: the utility card ---- */}
-        <div className="cg-section">
-          <TugLabel className="cg-section-title">Tier 2 — utility card (36px, unchanged)</TugLabel>
+        <div className="sp-section">
+          <TugLabel className="sp-section-title">Tier 2 — utility card (36px, unchanged)</TugLabel>
           <TugLabel size="2xs" emphasis="calm">
             Settings, Keyboard Shortcuts, DevTools, the gallery. These have no document
             identity — a second line under "Settings" would have to be invented — so they
@@ -304,8 +306,8 @@ export function GalleryCardChrome(): React.ReactElement {
         <TugSeparator />
 
         {/* ---- Tier 3: the rail ---- */}
-        <div className="cg-section">
-          <TugLabel className="cg-section-title">Tier 3 — rail (32px, flush)</TugLabel>
+        <div className="sp-section">
+          <TugLabel className="sp-section-title">Tier 3 — rail (32px, flush)</TugLabel>
           <TugLabel size="2xs" emphasis="calm">
             A rail pins to a deck edge, takes its width from the allocator rather than a
             preset, and insets the band the content cards live in. So it says so: a flush
@@ -350,3 +352,12 @@ export function GalleryCardChrome(): React.ReactElement {
     </ResponderScope>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "card-chrome",
+  title: "Card Chrome Tiers",
+  blurb: "The deck's three chrome tiers side by side — the settled reference for what each tier is for.",
+  icon: "PanelTop",
+  component: () => <SpikeCardChrome />,
+};
+

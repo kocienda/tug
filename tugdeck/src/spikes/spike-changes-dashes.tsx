@@ -1,5 +1,5 @@
 /**
- * gallery-changes-dashes.tsx — the Changes shade, whole, in one place.
+ * spike-changes-dashes.tsx — the Changes shade, whole, in one place.
  *
  * It was called "Changes Headers" while a header treatment was the only thing
  * being decided. The dash rows under those headers turned out to be the harder
@@ -47,7 +47,9 @@
  * @module components/tugways/cards/gallery-changes-dashes
  */
 
-import "./gallery-changes-dashes.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-changes-dashes.css";
 
 import React from "react";
 
@@ -60,13 +62,13 @@ import {
   TugChangesList,
   type TugChangesListEntry,
 } from "@/components/tugways/tug-changes-list";
-import { SessionChangesDashLane } from "./session-changes/session-changes-dash-lane";
+import { SessionChangesDashLane } from "@/components/tugways/cards/session-changes/session-changes-dash-lane";
 import {
   ORPHANED_LABEL,
   SESSION_LABEL,
   UNATTRIBUTED_DEGRADED_LABEL,
   UNATTRIBUTED_LABEL,
-} from "./session-changes/changes-section-labels";
+} from "@/components/tugways/cards/session-changes/changes-section-labels";
 import type {
   ChangesetFile,
   DashChangesetEntry,
@@ -252,7 +254,7 @@ function Stage({
   );
 }
 
-export function GalleryChangesDashes(): React.ReactElement {
+export function SpikeChangesDashes(): React.ReactElement {
   return (
     <div className="gallery-changes-dashes" data-testid="gallery-changes-dashes">
       <Stage caption="The shade as it stacks — four headers, and the dash rows under the last two">
@@ -305,3 +307,12 @@ export function GalleryChangesDashes(): React.ReactElement {
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "changes-dashes",
+  title: "Changes and Dashes",
+  blurb: "The Changes shade whole, in one place — the settled reference for the dash lane and its section labels.",
+  icon: "GitBranch",
+  component: () => <SpikeChangesDashes />,
+};
+

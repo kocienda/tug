@@ -3,8 +3,8 @@
  * apply-side proof.
  *
  * Full save → reload → apply round-trip on the
- * `gallery-list-view-scroll-keyed` fixture (which mounts
- * `GalleryListView` with `scrollKey="gallery-list-view-scroll"`,
+ * `fixture-list-view-scroll-keyed` fixture (which mounts
+ * `GalleryListView` with `scrollKey="fixture-list-view-scroll"`,
  * `inline=true`, `disableStreaming=true`). The fixture mirrors the
  * session-card transcript's configuration: every cell rendered at mount,
  * region scroll opted into the [A9] region-scroll axis, no
@@ -75,7 +75,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
 const TEST_TIMEOUT_MS = 60_000;
 
-const SCROLL_KEY = "gallery-list-view-scroll";
+const SCROLL_KEY = "fixture-list-view-scroll";
 const REGION_SCROLL_TARGET = 600;
 const SCROLL_TOLERANCE_PX = 8;
 
@@ -180,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)(
               cards: [
                 {
                   id: "A",
-                  componentId: "gallery-list-view-scroll-keyed",
+                  componentId: "fixture-list-view-scroll-keyed",
                   title: "List",
                   closable: true,
                 },
@@ -193,7 +193,7 @@ describe.skipIf(!SHOULD_RUN)(
                   cardIds: ["A"],
                   activeCardId: "A",
                   title: "",
-                  acceptsFamilies: ["maker"],
+                  acceptsFamilies: ["fixture"],
                 },
               ],
               activePaneId: "p1",
@@ -321,7 +321,7 @@ describe.skipIf(!SHOULD_RUN)(
               cards: [
                 {
                   id: "A",
-                  componentId: "gallery-list-view-scroll-keyed",
+                  componentId: "fixture-list-view-scroll-keyed",
                   title: "List",
                   closable: true,
                 },
@@ -334,7 +334,7 @@ describe.skipIf(!SHOULD_RUN)(
                   cardIds: ["A"],
                   activeCardId: "A",
                   title: "",
-                  acceptsFamilies: ["maker"],
+                  acceptsFamilies: ["fixture"],
                 },
               ],
               activePaneId: "p1",

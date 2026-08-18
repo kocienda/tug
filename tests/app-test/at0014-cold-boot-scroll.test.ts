@@ -90,7 +90,7 @@ function markdownScrollSelectorFor(cardId: string): string {
 function deckShape() {
   return {
     cards: [
-      { id: CARD_ID, componentId: "gallery-markdown-50kb", title: "MD A", closable: true },
+      { id: CARD_ID, componentId: "fixture-markdown-50kb", title: "MD A", closable: true },
     ],
     panes: [
       {
@@ -100,7 +100,7 @@ function deckShape() {
         cardIds: [CARD_ID],
         activeCardId: CARD_ID,
         title: "",
-        acceptsFamilies: ["maker"],
+        acceptsFamilies: ["fixture"],
       },
     ],
     activePaneId: "p1",

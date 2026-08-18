@@ -60,6 +60,8 @@ import { registerTextCard } from "./components/tugways/cards/text-card-registrat
 import { registerFileViewCard } from "./components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "./components/tugways/cards/diff-card";
 import { registerGalleryCards } from "./components/tugways/cards/gallery-registrations";
+import { registerSpikeCards } from "./spikes/spike-registry";
+import { registerFixtureCards } from "./fixtures/fixture-registrations";
 import { installSessionPlacementGlobal } from "./components/tugways/cards/session-card-placement-experiment";
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import {
@@ -345,6 +347,8 @@ if (!container) {
   registerFileViewCard();
   registerDiffCard();
   registerGalleryCards();
+  registerSpikeCards();
+  registerFixtureCards();
 
   // Dev-build convenience: expose the log store on `window.tugDevLog`
   // so the WebKit Web Inspector console can drive the Log section without

@@ -17,6 +17,10 @@ The plugin ships **agentless, main-loop-driven** skills — there are no sub-age
 - **`dash-audit`** — post-implementation: audit the built code (or step range) against the tuglaws and the real diff, then rule "fixups needed" or "good shape". Read-only, with one carve-out: a good-shape verdict on dash-resident work declares `tugutil dash mark <name> audited`. *(was `audit`.)*
 - **`draft`** — analyze the working changes, decide per-file dispositions, and author the session's landing draft via `tugutil draft set`. **Never commits** — the user lands the draft with `/commit` in the Session card. *(was `commit`, which committed fire-and-forget; skills draft, humans land.)*
 
+**Authoring:**
+
+- **`spike-card`** — scaffold a design spike onto the deck: one file in `tugdeck/src/spikes/` plus two lines in its registry, verified by a build and opened from Maker ▸ New Spikes Card. Deliberately not a Component Gallery card — the gallery holds exemplary demos of established `Tug*` components, a spike holds an idea, and `card-taxonomy.test.ts` enforces the split.
+
 The lifecycle skills run in the main conversation and ride the `tugutil dash` CLI (`create` → `step start` → `commit` → `step done` per step, `mark` for the stages git cannot see). The flow is `/tugplug:plan-devise` (which reviews its own plan when it is already on Opus, and otherwise hands you the review chip) → `/tugplug:dash-implement` (or just `/tugplug:dash-on`) → `/tugplug:dash-audit` → review → the user's `/join <name>` in the Session card (the working run leaves the dash's join draft behind for it).
 
 **The shared working discipline lives in [`tuglaws/dash-work-doctrine.md`](../tuglaws/dash-work-doctrine.md)**, not in the skills: worktree-root discipline, the verification bar, test discipline and the banned shapes, law discipline, round mechanics, the stop-before-landing obligation, no plan numbers in durable artifacts. `dash-implement` and `dash-on` cite it and state only their own flow, so editing one no longer drifts the other.

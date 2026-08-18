@@ -1,5 +1,5 @@
 /**
- * gallery-slot-layout.tsx — design proposals for the Lens **Layouts** picker.
+ * spike-slot-layout.tsx — design proposals for the Lens **Layouts** picker.
  *
  * A spike, not a component demo. The question it exists to answer: how should
  * the Lens communicate the imposition choices — Off, Two Up, Three Up, Four Up
@@ -19,7 +19,9 @@
  * @module components/tugways/cards/gallery-slot-layout
  */
 
-import "./gallery-slot-layout.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-slot-layout.css";
 
 import React, { useState } from "react";
 
@@ -277,19 +279,19 @@ function ProposalRows({
 }
 
 /* ---------------------------------------------------------------------------
- * GallerySlotLayout
+ * SpikeSlotLayout
  * ---------------------------------------------------------------------------*/
 
-export function GallerySlotLayout(): React.ReactElement {
+export function SpikeSlotLayout(): React.ReactElement {
   const [p1, setP1] = useState(3);
   const [p2, setP2] = useState(3);
   const [p3, setP3] = useState(3);
   const [p4, setP4] = useState(3);
 
   return (
-    <div className="cg-content" data-testid="gallery-slot-layout">
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">Layouts picker — proposals</TugLabel>
+    <div className="sp-content" data-testid="gallery-slot-layout">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">Layouts picker — proposals</TugLabel>
         <p className="gsl-intro">
           Four ways to offer the imposition choices in the Lens. Each is shown at
           the rail&rsquo;s real width, inside a mock section band, so they can be
@@ -299,7 +301,7 @@ export function GallerySlotLayout(): React.ReactElement {
 
       <TugSeparator />
 
-      <div className="cg-section gsl-proposals">
+      <div className="sp-section gsl-proposals">
         <LensBand
           title="P1 · Snap miniatures"
           note="Each option is a scale picture of the canvas, divided into equal zones — the Windows 11 Snap Layouts idiom. Reads instantly and needs no numbers, but it draws an idealised deck: equal widths, no Lens, no slack."
@@ -331,3 +333,11 @@ export function GallerySlotLayout(): React.ReactElement {
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "slot-layout",
+  title: "Layouts Picker",
+  blurb: "How should the Lens show the imposition choices so the arrangement is obvious before you commit?",
+  icon: "Columns3",
+  component: () => <SpikeSlotLayout />,
+};

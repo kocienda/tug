@@ -1,5 +1,5 @@
 /**
- * gallery-pulse-display.tsx — the PULSE's design surface.
+ * spike-pulse-display.tsx — the PULSE's design surface.
  *
  * The PULSE is a two-level feed. INTENT is the headline: the model's reading
  * of the goal. ACTIVITY is the detail: the operation running now in service
@@ -35,7 +35,9 @@
  * @module components/tugways/cards/gallery-pulse-display
  */
 
-import "./gallery-pulse-display.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-pulse-display.css";
 
 import React, { useCallback, useEffect, useRef } from "react";
 
@@ -564,7 +566,7 @@ const WEIGHT_SPECIMENS: readonly Specimen[] = [
 // The card
 // ---------------------------------------------------------------------------
 
-export function GalleryPulseDisplay(): React.ReactElement {
+export function SpikePulseDisplay(): React.ReactElement {
   return (
     <div className="gpd-root" data-slot="gallery-pulse-display">
       <p className="gpd-blurb">
@@ -960,3 +962,10 @@ export function GalleryPulseDisplay(): React.ReactElement {
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "pulse-display",
+  title: "Pulse Display",
+  blurb: "How should the PULSE's activity run be set typographically, across both levels and both layouts?",
+  component: () => <SpikePulseDisplay />,
+};

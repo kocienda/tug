@@ -66,7 +66,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
 const TEST_TIMEOUT_MS = 60_000;
 
-const SCROLL_KEY = "gallery-list-view-scroll";
+const SCROLL_KEY = "fixture-list-view-scroll";
 const RESTORE_TARGET_PX = 600;
 const SCROLL_TOLERANCE_PX = 8;
 
@@ -74,7 +74,7 @@ const DECK_STATE = {
   cards: [
     {
       id: "A",
-      componentId: "gallery-list-view-scroll-keyed",
+      componentId: "fixture-list-view-scroll-keyed",
       title: "List",
       closable: true,
     },
@@ -87,7 +87,7 @@ const DECK_STATE = {
       cardIds: ["A"],
       activeCardId: "A",
       title: "",
-      acceptsFamilies: ["maker"],
+      acceptsFamilies: ["fixture"],
     },
   ],
   activePaneId: "p1",

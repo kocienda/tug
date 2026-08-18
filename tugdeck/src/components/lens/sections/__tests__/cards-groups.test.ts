@@ -35,6 +35,8 @@ import { registerTextCard } from "@/components/tugways/cards/text-card-registrat
 import { registerFileViewCard } from "@/components/tugways/cards/file-view-card-registration";
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
 import { registerGalleryCards } from "@/components/tugways/cards/gallery-registrations";
+import { registerSpikeCards } from "@/spikes/spike-registry";
+import { registerFixtureCards } from "@/fixtures/fixture-registrations";
 
 import {
   GROUP_ORDER,
@@ -57,6 +59,8 @@ beforeAll(() => {
   registerFileViewCard();
   registerDiffCard();
   registerGalleryCards();
+  registerSpikeCards();
+  registerFixtureCards();
 });
 
 /** componentId → the group it must resolve to, and how it gets there. */
@@ -92,13 +96,19 @@ describe("resolveLensGroup — the mapping", () => {
     expect(reg.category?.label).toBe("Files");
   });
 
-  test("every gallery card lands in tools", () => {
-    const gallery = [...getAllRegistrations().values()].filter((reg) =>
-      reg.componentId.startsWith("gallery-"),
+  test("every gallery, spike, and fixture card lands in tools", () => {
+    // All three prefixes, not just `gallery-`: when the spikes and fixtures
+    // moved out under their own prefixes, a `gallery-`-only filter would have
+    // gone on passing while silently covering sixteen fewer cards.
+    const maker = [...getAllRegistrations().values()].filter(
+      (reg) =>
+        reg.componentId.startsWith("gallery-") ||
+        reg.componentId.startsWith("spike-") ||
+        reg.componentId.startsWith("fixture-"),
     );
-    expect(gallery.length).toBeGreaterThan(0);
-    for (const reg of gallery) {
-      expect(resolveLensGroup(reg)).toBe("tools");
+    expect(maker.length).toBeGreaterThan(0);
+    for (const reg of maker) {
+      expect(resolveLensGroup(reg), `${reg.componentId}`).toBe("tools");
     }
   });
 });

@@ -1,0 +1,49 @@
+/* ============================================================================
+   Spike Layout Vocabulary
+   ========================================================================= */
+
+/**
+ * The three layout classes a spike body needs: a scrolling content column, a
+ * section within it, and a section heading.
+ *
+ * These are deliberately COPIES of the gallery's three equivalent layout
+ * classes, not a shared abstraction imported from it. A spike that
+ * still reaches into `gallery.css` is still a gallery card, and the point of
+ * the `spikes/` sandbox is that it owns its own appearance. Divergence from the
+ * gallery's versions later is expected and fine — spikes are allowed to look
+ * different.
+ *
+ * A spike needing anything beyond these three writes its own sibling
+ * stylesheet, the same way a component does ([L16]).
+ */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role         | Context                              |
+ * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest (element-global-text-normal-muted-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .sp-section-title (color)            |
+ */
+
+.sp-content {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  overflow-y: auto;
+}
+
+.sp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-section-title {
+  font-size: 11px;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  user-select: none;
+}

@@ -75,8 +75,8 @@ const TAG = "stocky-pixie";
 const CITATION = "tugtool/stocky-pixie (f6e43925)";
 const SENTINEL = "at0376-sentinel-nothing-copied";
 
-const GALLERY = '[data-card-id="G"]';
-const CHIP = `${GALLERY} [data-slot="tug-session-identity"][data-tier="chip"]`;
+const SPIKE_CARD = '[data-card-id="G"]';
+const CHIP = `${SPIKE_CARD} [data-slot="tug-session-identity"][data-tier="chip"]`;
 const MENU = '[data-slot="tug-editor-context-menu"]';
 const COMPOSER = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
 /** The bound Session card's masthead title — the third way into the atom copy. */
@@ -97,7 +97,7 @@ function deckShape() {
       { id: "A", componentId: "session", title: "Session", closable: true },
       {
         id: "G",
-        componentId: "gallery-session-identity",
+        componentId: "spike-session-identity",
         title: "Session Identity",
         closable: true,
       },
@@ -119,7 +119,7 @@ function deckShape() {
         cardIds: ["G"],
         activeCardId: "G",
         title: "",
-        acceptsFamilies: ["maker"],
+        acceptsFamilies: ["spike"],
       },
     ],
     activePaneId: "p1",

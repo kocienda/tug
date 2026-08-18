@@ -1,5 +1,5 @@
 /**
- * gallery-modal-headers.tsx — reference card for the unified modal-header
+ * spike-modal-headers.tsx — reference for the unified modal-header
  * convention.
  *
  * Every modal/overlay header (TugAlert, TugAlertSheet, TugSheet, ConfigureTug,
@@ -10,7 +10,7 @@
  *
  * Each case is shown twice: once through the real shipped classes
  * (`.tug-sheet-*` / `.tug-alert-*`, exactly the markup the components
- * render) and once through the `.cg-mh-*` spec classes that consume the
+ * render) and once through the `.sp-mh-*` spec classes that consume the
  * same tokens (see gallery-modal-headers.css for the class → component
  * map). The two panels of a pair must look identical — a visible
  * difference means a component has drifted off the shared tokens.
@@ -33,11 +33,12 @@ import {
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import "./gallery.css";
-import "./gallery-modal-headers.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-modal-headers.css";
 
 // ---------------------------------------------------------------------------
-// Spec header — the .cg-mh-* classes consuming the shared tokens
+// Spec header — the .sp-mh-* classes consuming the shared tokens
 // ---------------------------------------------------------------------------
 
 /** The three header cases of the convention. */
@@ -62,17 +63,17 @@ function SpecHeader({
 }: SpecHeaderProps): React.ReactElement {
   return (
     <div
-      className="cg-mh-header"
+      className="sp-mh-header"
       data-kind={kind}
       data-icon-role={iconRole}
       data-solo={description ? undefined : "true"}
     >
-      <div className="cg-mh-icon" aria-hidden="true">
+      <div className="sp-mh-icon" aria-hidden="true">
         {icon}
       </div>
-      <div className="cg-mh-heading">
-        <div className="cg-mh-title">{title}</div>
-        {description && <div className="cg-mh-desc">{description}</div>}
+      <div className="sp-mh-heading">
+        <div className="sp-mh-title">{title}</div>
+        {description && <div className="sp-mh-desc">{description}</div>}
       </div>
     </div>
   );
@@ -155,11 +156,11 @@ function MockPanel({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <div className="cg-mh-unit">
+    <div className="sp-mh-unit">
       <TugLabel size="2xs" emphasis="calm">
         {caption}
       </TugLabel>
-      <div className="cg-mh-panel">{children}</div>
+      <div className="sp-mh-panel">{children}</div>
     </div>
   );
 }
@@ -172,29 +173,29 @@ function MockRow({
   detail: string;
 }): React.ReactElement {
   return (
-    <div className="cg-mh-row">
-      <span className="cg-mh-row-label">{label}</span>
-      <span className="cg-mh-row-detail">{detail}</span>
+    <div className="sp-mh-row">
+      <span className="sp-mh-row-label">{label}</span>
+      <span className="sp-mh-row-detail">{detail}</span>
     </div>
   );
 }
 
 const PICKER_ROWS = (
-  <div className="cg-mh-rows">
+  <div className="sp-mh-rows">
     <MockRow label="Low" detail="Quick edits and simple tasks" />
     <MockRow label="Medium" detail="Balanced depth for everyday work" />
   </div>
 );
 
 const RESUME_ROWS = (
-  <div className="cg-mh-rows">
+  <div className="sp-mh-rows">
     <MockRow label="Redesign Pulse card" detail="2 hours ago · 14 turns" />
     <MockRow label="Activity feed emitter" detail="Yesterday · 31 turns" />
   </div>
 );
 
 const SETUP_ROWS = (
-  <div className="cg-mh-rows">
+  <div className="sp-mh-rows">
     <MockRow label="Claude Code installed" detail="Claude Code is ready." />
     <MockRow label="Logged in as ken@example.com" detail="Claude Max plan" />
   </div>
@@ -208,7 +209,7 @@ const REWIND_MESSAGE =
 
 function DeleteActions(): React.ReactElement {
   return (
-    <div className="cg-mh-actions">
+    <div className="sp-mh-actions">
       <TugPushButton size="sm" emphasis="filled" role="action">
         Cancel
       </TugPushButton>
@@ -221,7 +222,7 @@ function DeleteActions(): React.ReactElement {
 
 function SaveActions(): React.ReactElement {
   return (
-    <div className="cg-mh-actions">
+    <div className="sp-mh-actions">
       <TugPushButton size="sm" emphasis="filled" role="danger">
         Don’t Save
       </TugPushButton>
@@ -237,7 +238,7 @@ function SaveActions(): React.ReactElement {
 
 function OkAction(): React.ReactElement {
   return (
-    <div className="cg-mh-actions">
+    <div className="sp-mh-actions">
       <TugPushButton size="sm" emphasis="filled" role="action">
         OK
       </TugPushButton>
@@ -246,22 +247,22 @@ function OkAction(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// GalleryModalHeaders
+// SpikeModalHeaders
 // ---------------------------------------------------------------------------
 
-export function GalleryModalHeaders(): React.ReactElement {
+export function SpikeModalHeaders(): React.ReactElement {
   return (
-    <div className="cg-content cg-mh-scope" data-testid="gallery-modal-headers">
+    <div className="sp-content sp-mh-scope" data-testid="gallery-modal-headers">
       {/* ---- The convention ---- */}
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">The Convention</TugLabel>
-        <div className="cg-mh-notes">
-          <span className="cg-mh-note">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">The Convention</TugLabel>
+        <div className="sp-mh-notes">
+          <span className="sp-mh-note">
             <strong>One title scale everywhere:</strong> 17px / 700 / lh 1.25.
             One description scale: 14px / lh 1.4, 4px under the title. All
             titles in Title Case.
           </span>
-          <span className="cg-mh-note">
+          <span className="sp-mh-note">
             <strong>Icon steps with the text block:</strong> 30px for a
             one-line header, 36px for two lines, 44px for an alert. Two-line
             and alert headers align the icon to the top of the title text;
@@ -270,7 +271,7 @@ export function GalleryModalHeaders(): React.ReactElement {
             centered on the lone title line; the 30px one-line case is for
             utility-sheet headers, not alerts.
           </span>
-          <span className="cg-mh-note">
+          <span className="sp-mh-note">
             <strong>Parity check:</strong> each pair below renders the same
             header once through the shipped component classes and once
             through the spec classes — both consume the
@@ -283,21 +284,21 @@ export function GalleryModalHeaders(): React.ReactElement {
       <TugSeparator />
 
       {/* ---- One-line header ---- */}
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">
           One-Line Header — Title Only
         </TugLabel>
-        <div className="cg-mh-compare">
+        <div className="sp-mh-compare">
           <MockPanel caption="shipped — .tug-sheet-* (utility sheets)">
             <ShippedSheetHeader icon={<Bot />} title="Agents" />
             {PICKER_ROWS}
           </MockPanel>
-          <MockPanel caption="spec — .cg-mh-* one-line case">
+          <MockPanel caption="spec — .sp-mh-* one-line case">
             <SpecHeader kind="one" icon={<Bot />} title="Agents" />
             {PICKER_ROWS}
           </MockPanel>
         </div>
-        <div className="cg-mh-compare">
+        <div className="sp-mh-compare">
           <MockPanel caption="shipped — ConfigureTug's exact markup: .tug-alert-* with data-icon-role=action, no message">
             <ShippedAlertHeader
               icon={<Rocket />}
@@ -316,11 +317,11 @@ export function GalleryModalHeaders(): React.ReactElement {
       <TugSeparator />
 
       {/* ---- Two-line header ---- */}
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">
           Two-Line Header — Title + Description
         </TugLabel>
-        <div className="cg-mh-compare">
+        <div className="sp-mh-compare">
           <MockPanel caption="shipped — .tug-sheet-* with data-has-description (the pickers)">
             <ShippedSheetHeader
               icon={<Gauge />}
@@ -330,7 +331,7 @@ export function GalleryModalHeaders(): React.ReactElement {
             />
             {PICKER_ROWS}
           </MockPanel>
-          <MockPanel caption="spec — .cg-mh-* two-line case">
+          <MockPanel caption="spec — .sp-mh-* two-line case">
             <SpecHeader
               kind="two"
               icon={<Gauge />}
@@ -341,7 +342,7 @@ export function GalleryModalHeaders(): React.ReactElement {
             {PICKER_ROWS}
           </MockPanel>
         </div>
-        <div className="cg-mh-compare">
+        <div className="sp-mh-compare">
           <MockPanel caption="shipped — Resume in line with the other pickers: agent tint + Title Case">
             <ShippedSheetHeader
               icon={<RotateCcw />}
@@ -357,11 +358,11 @@ export function GalleryModalHeaders(): React.ReactElement {
       <TugSeparator />
 
       {/* ---- Alert header ---- */}
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">
           Alert Header — Title + Message
         </TugLabel>
-        <div className="cg-mh-compare">
+        <div className="sp-mh-compare">
           <MockPanel caption="shipped — .tug-alert-* with data-has-message">
             <ShippedAlertHeader
               icon={<Trash2 />}
@@ -371,7 +372,7 @@ export function GalleryModalHeaders(): React.ReactElement {
             />
             <DeleteActions />
           </MockPanel>
-          <MockPanel caption="spec — .cg-mh-* alert case">
+          <MockPanel caption="spec — .sp-mh-* alert case">
             <SpecHeader
               kind="alert"
               icon={<Trash2 />}
@@ -381,7 +382,7 @@ export function GalleryModalHeaders(): React.ReactElement {
             <DeleteActions />
           </MockPanel>
         </div>
-        <div className="cg-mh-compare">
+        <div className="sp-mh-compare">
           <MockPanel caption="shipped — OK-only alert-sheet, Title Case">
             <ShippedAlertHeader
               icon={<History />}
@@ -392,7 +393,7 @@ export function GalleryModalHeaders(): React.ReactElement {
             <OkAction />
           </MockPanel>
         </div>
-        <div className="cg-mh-compare">
+        <div className="sp-mh-compare">
           <MockPanel caption="shipped — title-only alert (.tug-alert-* with data-scale=alert): alert icon scale, centered">
             <ShippedAlertHeader
               icon={<TriangleAlert />}
@@ -401,7 +402,7 @@ export function GalleryModalHeaders(): React.ReactElement {
             />
             <SaveActions />
           </MockPanel>
-          <MockPanel caption="spec — .cg-mh-* alert case, no message">
+          <MockPanel caption="spec — .sp-mh-* alert case, no message">
             <SpecHeader
               kind="alert"
               icon={<TriangleAlert />}
@@ -415,27 +416,27 @@ export function GalleryModalHeaders(): React.ReactElement {
       <TugSeparator />
 
       {/* ---- Where it lives ---- */}
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">Where It Lives</TugLabel>
-        <div className="cg-mh-notes">
-          <span className="cg-mh-note">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">Where It Lives</TugLabel>
+        <div className="sp-mh-notes">
+          <span className="sp-mh-note">
             <strong>Tokens:</strong> `--tugx-header-*` in
             styles/tugx-header.css — the single tuning point for title,
             description, icon sizes, gaps, and header margin.
           </span>
-          <span className="cg-mh-note">
+          <span className="sp-mh-note">
             <strong>Consumers:</strong> `.tug-sheet-header/icon/title/
             description` (tug-sheet.css) and `.tug-alert-body/icon/title/
             message` (tug-alert.css). TugAlertSheet, ConfigureTug, and
             TugVersionGate all render the `.tug-alert-*` classes — no
             component declares its own header scale.
           </span>
-          <span className="cg-mh-note">
+          <span className="sp-mh-note">
             <strong>Copy:</strong> Title Case everywhere. Alerts carry the
             sentence/question voice in the title with the explanation in the
             message; sheets stay noun-phrase labels.
           </span>
-          <span className="cg-mh-note">
+          <span className="sp-mh-note">
             <strong>Exemption:</strong> the attachment preview (a full-bleed
             lightbox with its own top bar) is the one sanctioned
             `hideHeader` surface outside the convention.
@@ -445,3 +446,18 @@ export function GalleryModalHeaders(): React.ReactElement {
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "modal-headers",
+  title: "Modal Headers",
+  blurb: "The unified modal-header convention against what each surface actually ships.",
+  icon: "AlignLeft",
+  // The comparison is the content: two header treatments side by side, each at
+  // its real size. Anything narrower makes them wrap and stops being a
+  // comparison at all.
+  size: {
+    min: { width: 480, height: 400 },
+    preferred: { width: 800, height: 940 },
+  },
+  component: () => <SpikeModalHeaders />,
+};

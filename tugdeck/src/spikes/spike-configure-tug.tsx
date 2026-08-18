@@ -1,6 +1,6 @@
 /**
- * gallery-configure-tug.tsx — design spike for the ConfigureTug happy-path polish
- * ([#step-9] of roadmap/onboarding-and-install.md).
+ * spike-configure-tug.tsx — design spike for the ConfigureTug happy-path polish
+ * (roadmap/onboarding-and-install.md).
  *
  * ConfigureTug's real states only exist on a clean machine (Claude missing, signed
  * out, no cards) — states that are awkward to reach on a dev box. This card
@@ -43,8 +43,9 @@ const PROJECT_DIR = "/Users/ken/tug";
 /** The version pair the install row's version states report. */
 const INSTALLED_VERSION = "2.1.222";
 const LATEST_VERSION = "2.1.226";
-import "./gallery.css";
-import "./gallery-configure-tug.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-configure-tug.css";
 
 // ---------------------------------------------------------------------------
 // Step model
@@ -107,32 +108,32 @@ const DOT_SIZE = 14;
 function SetupStepRow({ step }: { step: SetupStepModel }): React.ReactElement {
   const { role, state } = dotVisual(step.status);
   return (
-    <li className="cg-configure-tug-step" data-step={step.key} data-status={step.status}>
-      <div className="cg-configure-tug-step-main">
-        <div className="cg-configure-tug-step-headline">
+    <li className="sp-configure-tug-step" data-step={step.key} data-status={step.status}>
+      <div className="sp-configure-tug-step-main">
+        <div className="sp-configure-tug-step-headline">
           <TugProgressIndicator
             variant="pulsing-dot"
             size={DOT_SIZE}
             role={role}
             state={state}
-            className="cg-configure-tug-step-dot"
+            className="sp-configure-tug-step-dot"
             aria-hidden
           />
-          <span className="cg-configure-tug-step-label">{step.label}</span>
+          <span className="sp-configure-tug-step-label">{step.label}</span>
         </div>
         {step.detail && (
-          <span className="cg-configure-tug-step-detail">{step.detail}</span>
+          <span className="sp-configure-tug-step-detail">{step.detail}</span>
         )}
-        {step.body && <div className="cg-configure-tug-step-body">{step.body}</div>}
+        {step.body && <div className="sp-configure-tug-step-body">{step.body}</div>}
       </div>
       {/* A settled step shows the check — unless it carries a CTA anyway (the
           installed-but-updatable row), where the offer takes the slot. */}
       {step.status === "done" && !step.cta ? (
-        <div className="cg-configure-tug-step-action">
-          <CircleCheck className="cg-configure-tug-step-check" size={28} aria-hidden />
+        <div className="sp-configure-tug-step-action">
+          <CircleCheck className="sp-configure-tug-step-check" size={28} aria-hidden />
         </div>
       ) : step.cta || step.secondaryCta ? (
-        <div className="cg-configure-tug-step-action">
+        <div className="sp-configure-tug-step-action">
           {step.secondaryCta && (
             <TugPushButton size="sm" emphasis="ghost" onClick={step.secondaryCta.onClick}>
               {step.secondaryCta.label}
@@ -550,7 +551,7 @@ function ScenarioPicker({
   onPick: (next: Scenario) => void;
 }): React.ReactElement {
   return (
-    <div className="cg-configure-tug-scenarios">
+    <div className="sp-configure-tug-scenarios">
       {SCENARIOS.map((s) => (
         <TugPushButton
           key={s.key}
@@ -571,12 +572,12 @@ function WizardPreview({
   flow: FlowModel;
 }): React.ReactElement {
   return (
-    <div className="cg-configure-tug-preview-panel" data-slot="setup-preview">
-      <div className="cg-configure-tug-header">
-        <Rocket className="cg-configure-tug-icon" size={32} aria-hidden />
-        <div className="cg-configure-tug-preview-title">Configure Tug</div>
+    <div className="sp-configure-tug-preview-panel" data-slot="setup-preview">
+      <div className="sp-configure-tug-header">
+        <Rocket className="sp-configure-tug-icon" size={32} aria-hidden />
+        <div className="sp-configure-tug-preview-title">Configure Tug</div>
       </div>
-      <ol className="cg-configure-tug-steps">
+      <ol className="sp-configure-tug-steps">
         {flow.steps.map((step) => (
           <SetupStepRow key={step.key} step={step} />
         ))}
@@ -586,17 +587,17 @@ function WizardPreview({
 }
 
 // ---------------------------------------------------------------------------
-// GalleryConfigureTug
+// SpikeConfigureTug
 // ---------------------------------------------------------------------------
 
-export function GalleryConfigureTug(): React.ReactElement {
+export function SpikeConfigureTug(): React.ReactElement {
   const [scenario, setScenario] = useState<Scenario>("fresh");
   const flow = buildFlow(scenario, setScenario);
 
   return (
-    <div className="cg-content" data-testid="gallery-configure-tug">
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">Simulated flow</TugLabel>
+    <div className="sp-content" data-testid="gallery-configure-tug">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">Simulated flow</TugLabel>
         <TugLabel size="2xs" emphasis="calm">
           Pick a scenario to drive the wizard body. CTAs advance one hop forward.
         </TugLabel>
@@ -606,12 +607,12 @@ export function GalleryConfigureTug(): React.ReactElement {
 
       <TugSeparator />
 
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">
           Step-row states (bespoke row)
         </TugLabel>
-        <div className="cg-configure-tug-rows-frame">
-          <ol className="cg-configure-tug-steps">
+        <div className="sp-configure-tug-rows-frame">
+          <ol className="sp-configure-tug-steps">
             {ISOLATED_STEPS.map((step) => (
               <SetupStepRow key={step.key} step={step} />
             ))}
@@ -621,3 +622,10 @@ export function GalleryConfigureTug(): React.ReactElement {
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "configure-tug",
+  title: "ConfigureTug",
+  blurb: "The setup flow's copy, rhythm, and step-row visuals, simulated from local state so a clean machine is not needed.",
+  component: () => <SpikeConfigureTug />,
+};

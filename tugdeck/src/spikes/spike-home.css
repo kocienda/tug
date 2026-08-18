@@ -1,0 +1,31 @@
+/* ============================================================================
+   Spikes Index Card
+   ========================================================================= */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role         | Context                              |
+ * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
+ * | --tug7-element-global-text-normal-muted-rest (element-global-text-normal-muted-rest) | --tug7-surface-global-primary-normal-default-rest (surface-global-primary-normal-default-rest) | informational | .spike-home-empty (color)            |
+ */
+
+.spike-home {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.spike-home-list {
+  flex: 1;
+  min-height: 0;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.spike-home-empty {
+  margin: 0;
+  padding: 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

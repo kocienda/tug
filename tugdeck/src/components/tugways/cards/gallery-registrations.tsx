@@ -1,17 +1,40 @@
 /**
  * Gallery card registrations.
  *
- * Registers all gallery card types in the global card registry.
- * Also exports GALLERY_DEFAULT_CARDS and small adapter components.
+ * Registers every Component Gallery card in the global card registry, and
+ * exports GALLERY_DEFAULT_CARDS plus a few small adapter components.
+ *
+ * ## What belongs here
+ *
+ * One thing: an **exemplary demo of an established `Tug*` component** — a card
+ * that shows proper usage and the range of the component's API, and is meant to
+ * be browsed as documentation. That is the whole membership test.
+ *
+ * Plus four **instruments** — the theme editor, the theme-accessibility audit,
+ * the scale-and-timing bench, and the motion bench. They are not component
+ * demos, but they are permanent dev tools rather than exploratory work, and
+ * they live here by decision.
+ *
+ * ## What does not
+ *
+ * - A **design spike** — an exploratory surface, a layout idea, a settled
+ *   reference that began as one. Those live in `tugdeck/src/spikes/`, which has
+ *   its own registry, its own `sp-*` layout vocabulary, and its own door onto
+ *   the deck. See `spikes/README.md`.
+ * - An **app-test fixture** — a card whose only consumer is the test harness.
+ *   Those live in `tugdeck/src/fixtures/`, are all `hidden`, and are reachable
+ *   only through `seedDeckState`.
+ *
+ * The gallery used to hold all three, which is how it came to contain cards no
+ * human could browse to and cards that documented nothing. `card-taxonomy.test.ts`
+ * now enforces the split: no registration in this file may be `hidden`, because
+ * a hidden demo is a contradiction in terms.
  *
  * **Authoritative references:**
  * - [D01] Seven separate componentIds for gallery sections
  * - [D08] Normal tabs: each section is a distinct componentId
  * - [D09] Every registration has a contentFactory
  * - [D06] Gallery palette tab follows existing gallery card pattern
- * -: Gallery registrations
- * -: Gallery default tabs
- * - (#s03-gallery-registrations, #s04-gallery-default-tabs, #symbol-inventory)
  *
  * @module components/tugways/cards/gallery-registrations
  */
@@ -31,8 +54,6 @@ import { GalleryMutation } from "./gallery-mutation";
 import { GalleryTabBar } from "./gallery-tab-bar";
 import { GalleryDefaultButton } from "./gallery-default-button";
 import { GalleryTitleBar } from "./gallery-title-bar";
-import { GalleryCardChrome } from "./gallery-card-chrome";
-import { GalleryChangesDashes } from "./gallery-changes-dashes";
 import { GalleryMutationTx } from "./gallery-mutation-tx";
 import { GalleryObservableProps } from "./gallery-observable-props";
 import { GalleryThemeEditor } from "./gallery-theme-editor";
@@ -60,7 +81,6 @@ import { GalleryPopover } from "./gallery-popover";
 import { GalleryBox } from "./gallery-box";
 import { GalleryTextarea } from "./gallery-textarea";
 import { GallerySeparator } from "./gallery-separator";
-import { GallerySlotLayout } from "./gallery-slot-layout";
 import { GalleryTugClamp } from "./gallery-tug-clamp";
 import { GalleryAccordion } from "./gallery-accordion";
 import { GalleryTooltip } from "./gallery-tooltip";
@@ -74,12 +94,9 @@ import { GallerySheet } from "./gallery-sheet";
 import { GalleryBulletin } from "./gallery-bulletin";
 import { GalleryPaneBulletin } from "./gallery-pane-bulletin";
 import { GalleryMarkdownView } from "./gallery-markdown-view";
-import { GalleryTranscriptCopy } from "./gallery-transcript-copy";
 import { GalleryListView } from "./gallery-list-view";
 import { GalleryListViewFilter } from "./gallery-list-view-filter";
 import { GalleryListViewFocus } from "./gallery-list-view-focus";
-import { GalleryFocusLanguage } from "./gallery-focus-language";
-import { GalleryCycleDemo } from "./gallery-cycle-demo";
 import { GalleryListViewHeaders } from "./gallery-list-view-headers";
 import { GalleryTugListRow } from "./gallery-tug-list-row";
 import { GalleryTranscriptEntry } from "./gallery-transcript-entry";
@@ -91,9 +108,6 @@ import { GallerySplitPane } from "./gallery-split-pane";
 import { GalleryStatePreservation } from "./gallery-state-preservation";
 import { GalleryTugCue } from "./gallery-tug-cue";
 import { GalleryBashToolBlock } from "./gallery-bash-tool-block";
-import { GalleryTranscriptRegisters } from "./gallery-transcript-registers";
-import { GalleryCommitSurfaces } from "./gallery-commit-surfaces";
-import { GalleryPinnedHeaders } from "./gallery-pinned-headers";
 import { GallerySessionThinking } from "./gallery-session-thinking";
 import { GalleryJsonTreeBlock } from "./gallery-json-tree-block";
 import { GalleryToolBlockFile } from "./gallery-tool-block-file";
@@ -104,10 +118,6 @@ import { GalleryTugLinearGauge } from "./gallery-tug-linear-gauge";
 import { GalleryTugArcGauge } from "./gallery-tug-arc-gauge";
 import { GalleryTugProgressIndicator } from "./gallery-tug-progress-indicator";
 import { GalleryMotionBench } from "./gallery-motion-bench";
-import { GalleryPulseDisplay } from "./gallery-pulse-display";
-import { GallerySessionIdentity } from "./gallery-session-identity";
-import { GalleryConfigureTug } from "./gallery-configure-tug";
-import { GalleryModalHeaders } from "./gallery-modal-headers";
 import { GalleryBlockHeader } from "./gallery-tool-call-header";
 import "./gallery.css";
 import { TUG_ACTIONS } from "../action-vocabulary";
@@ -696,34 +706,6 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.blockRenderers,
   });
 
-  // Transcript registers — design spike gathering the Code-route
-  // transcript's content kinds (prose, tool block, dialog, task updates,
-  // background notices) with three candidate treatments for the two
-  // problem children: task updates + background/system notices.
-  registerCard({
-    componentId: "gallery-transcript-registers",
-    contentFactory: (_cardId) => <GalleryTranscriptRegisters />,
-    defaultMeta: { title: "Transcript Registers", icon: "AlignLeft", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.blockRenderers,
-  });
-
-  // Commit surfaces — the single card for every surface that shows a commit:
-  // the History shade's rows on the shared `.tugx-commit` scale, the `/commit`
-  // durable receipt ([P08], the fixtures at0264 measures), and the `git commit`
-  // bash receipt (`CommitBlock`, the BashToolBlock routing target).
-  registerCard({
-    componentId: "gallery-commit-surfaces",
-    contentFactory: (_cardId) => <GalleryCommitSurfaces />,
-    defaultMeta: { title: "Commit Surfaces", icon: "GitCommitVertical", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.blockRenderers,
-  });
-
   // History-collapsed tool blocks — replayed history mounts
   // header-only; the body materializes on expand. Collapsed +
   // expanded readings across representative tool families.
@@ -803,21 +785,6 @@ export function registerGalleryCards(): void {
     componentId: "gallery-json-tree-block",
     contentFactory: (_cardId) => <GalleryJsonTreeBlock />,
     defaultMeta: { title: "JsonTreeBlock", icon: "Braces", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.blockRenderers,
-  });
-
-  // Diagnostic fixture for the body-kind pinned-header behavior:
-  // three standalone body kinds (FileBlock / DiffBlock / TerminalBlock)
-  // inside their own fixed-height scroll wrappers, deliberately
-  // detached from the transcript chain so the binding scrollport is
-  // unambiguous.
-  registerCard({
-    componentId: "gallery-pinned-headers",
-    contentFactory: (_cardId) => <GalleryPinnedHeaders />,
-    defaultMeta: { title: "Pinned Headers (diagnostic)", icon: "Pin", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,
@@ -917,7 +884,6 @@ export function registerGalleryCards(): void {
   // and the primitive consumes the derived data source.
   registerCard({
     componentId: "gallery-list-view-filter",
-    hidden: true,
     contentFactory: (_cardId) => <GalleryListViewFilter />,
     defaultMeta: { title: "TugListView (filter)", icon: "Search", closable: true },
     family: "maker",
@@ -940,47 +906,12 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.dataViews,
   });
 
-  // Focus-language reference — the canonical overview of the keyboard-focus
-  // treatment across the archetype taxonomy (ring + behind-tint on focus, native
-  // fill for selection, one role axis default action), judged by eye in both
-  // themes. A permanent gallery card.
-  registerCard({
-    componentId: "gallery-focus-language",
-    contentFactory: (_cardId) => <GalleryFocusLanguage />,
-    defaultMeta: { title: "Focus Language", icon: "List", closable: true },
-    // A gallery card follows its subject ([P10]), and this card's subject IS
-    // the engine's focus stops — it must be readable with rings on, at rest.
-    kbfAtRest: true,
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.architecture,
-  });
 
   // The `Focus Wash` and `Selection Wash` spike cards stood here. Both landed:
   // the container wash is a theme-authored step in `focus-ring.css` + the theme
   // files, the committed selection is an opaque ground plus a wash in
   // `tug-list-row.css`. A spike card is scaffolding for a decision, and the
   // decisions are made — the shipped surfaces are where these are judged now.
-
-  // Keyboard-focus-cycling app-test fixture for the `useCycleMode` primitive
-  // (⌥⇥ toggles a trapped cycle scope; Tab wraps the stops; toggle off restores
-  // the resting key view). The real consumer is the session card; this card exercises
-  // the mechanism in isolation for `at0139`. Hidden from the `+` picker — a
-  // mechanism proof, not a component demo — but kept as a driven test surface.
-  registerCard({
-    componentId: "gallery-cycle-demo",
-    hidden: true,
-    contentFactory: (cardId) => <GalleryCycleDemo cardId={cardId} />,
-    defaultMeta: { title: "Cycle Mode", icon: "List", closable: true },
-    // Follows its subject ([P10]): this card exists to exercise engaged-mode
-    // mechanics, so it is engaged at rest.
-    kbfAtRest: true,
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.dataViews,
-  });
 
   // Visual smoke for `TugListView`'s row-role feature
   // (`roleForIndex` → `data-list-cell-role` + `tabIndex={-1}` +
@@ -990,42 +921,11 @@ export function registerGalleryCards(): void {
   // `tugplan-session-picker-redesign`.
   registerCard({
     componentId: "gallery-list-view-headers",
-    hidden: true,
     contentFactory: (_cardId) => <GalleryListViewHeaders />,
     defaultMeta: { title: "TugListView (headers)", icon: "List", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.dataViews,
-  });
-
-  // Companion to `gallery-list-view`: same dataset, but the inner
-  // `TugListView` carries `scrollKey="gallery-list-view-scroll"` so
-  // the [A9] region-scroll axis captures the list's position into
-  // `bag.regionScroll`, AND mounts in `inline` mode (every cell in
-  // the DOM, no windowing) to mirror the session-card transcript
-  // configuration. The region-scroll-anchor app-tests
-  // (`at0059-region-scroll-anchor-save.test.ts`,
-  // `at0060-session-card-content-settled.test.ts`,
-  // `at0061-region-scroll-anchor-apply.test.ts`) drive this card.
-  registerCard({
-    componentId: "gallery-list-view-scroll-keyed",
-    hidden: true,
-    contentFactory: (_cardId) => (
-      <GalleryListView
-        scrollKey="gallery-list-view-scroll"
-        inline
-        disableStreaming
-      />
-    ),
-    defaultMeta: {
-      title: "TugListView (scroll-keyed)",
-      icon: "List",
-      closable: true,
-    },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
     category: CATEGORIES.dataViews,
   });
 
@@ -1048,52 +948,6 @@ export function registerGalleryCards(): void {
     componentId: "gallery-markdown-view",
     contentFactory: (_cardId) => <GalleryMarkdownView />,
     defaultMeta: { title: "TugMarkdownView", icon: "FileText", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.dataViews,
-  });
-
-  // Transcript COPY wiring fixture ([Q03]) — mounts the real
-  // `useTranscriptCellMenu` handler over a static body (markdown + tool +
-  // thinking) so `at0188` can drive real ⌘C / menu-Copy and assert the
-  // clipboard. Exercises the end-to-end reconstruction the probe can't.
-  registerCard({
-    componentId: "gallery-transcript-copy",
-    contentFactory: (_cardId) => <GalleryTranscriptCopy />,
-    defaultMeta: { title: "Transcript Copy", icon: "Clipboard", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.dataViews,
-  });
-
-  // Pre-baked variant: mounts with 1KB of static markdown — small
-  // enough that all blocks fit in one viewport, so block-container
-  // children render fully and are stable across re-mount. Used by
-  // the cold-boot selection harness test where deterministic
-  // anchor paths matter; the 50KB variant exercises the
-  // virtualization-aware path separately.
-  registerCard({
-    componentId: "gallery-markdown-1kb",
-    hidden: true,
-    contentFactory: (_cardId) => <GalleryMarkdownView staticContentSize="1kb" />,
-    defaultMeta: { title: "TugMarkdownView (1KB)", icon: "FileText", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.dataViews,
-  });
-
-  // Pre-baked variant: mounts with 50KB of static markdown loaded
-  // immediately. Used by [AT0014] / [AT0023] harness tests
-  // for predictable scrollable content; useful as a manual
-  // theme-debug fixture too. Same component code, distinct id.
-  registerCard({
-    componentId: "gallery-markdown-50kb",
-    hidden: true,
-    contentFactory: (_cardId) => <GalleryMarkdownView staticContentSize="50kb" />,
-    defaultMeta: { title: "TugMarkdownView (50KB)", icon: "FileText", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,
@@ -1130,33 +984,6 @@ export function registerGalleryCards(): void {
     componentId: "gallery-motion-bench",
     contentFactory: (_cardId) => <GalleryMotionBench />,
     defaultMeta: { title: "Motion bench", icon: "Activity", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.feedback,
-  });
-
-  // Pulse display — design spike for the PULSE's two-level grammar
-  // (intent headline over live activity), on the session-card strip and
-  // the Lens Sessions row (including the new two-line budget).
-  registerCard({
-    componentId: "gallery-pulse-display",
-    contentFactory: (_cardId) => <GalleryPulseDisplay />,
-    defaultMeta: { title: "Pulse Display", icon: "Activity", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.feedback,
-  });
-
-  // Session identity — design spike for the session-reference brief
-  // (roadmap/session-reference-brief.md): the callsign chip and its tint,
-  // the four density tiers (chip / line / row / masthead), the citation,
-  // and the fork-lineage grammar, each auditioned in its real context.
-  registerCard({
-    componentId: "gallery-session-identity",
-    contentFactory: (_cardId) => <GallerySessionIdentity />,
-    defaultMeta: { title: "Session Identity", icon: "Fingerprint", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,
@@ -1298,16 +1125,6 @@ export function registerGalleryCards(): void {
   });
 
   registerCard({
-    componentId: "gallery-slot-layout",
-    contentFactory: (_cardId) => <GallerySlotLayout />,
-    defaultMeta: { title: "Layouts Picker", icon: "Columns3", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.layout,
-  });
-
-  registerCard({
     componentId: "gallery-separator",
     contentFactory: (_cardId) => <GallerySeparator />,
     defaultMeta: { title: "TugSeparator", icon: "Minus", closable: true },
@@ -1357,26 +1174,6 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
-    componentId: "gallery-card-chrome",
-    contentFactory: (_cardId) => <GalleryCardChrome />,
-    defaultMeta: { title: "Card Chrome Tiers", icon: "PanelsTopLeft", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.layout,
-  });
-
-  registerCard({
-    componentId: "gallery-changes-dashes",
-    contentFactory: (_cardId) => <GalleryChangesDashes />,
-    defaultMeta: { title: "Changes and Dashes", icon: "Rows3", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.layout,
-  });
-
 
   // ===========================================================================
   // Overlays
@@ -1403,35 +1200,6 @@ export function registerGalleryCards(): void {
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPONENT_SIZE,
-    category: CATEGORIES.overlays,
-  });
-
-  // ConfigureTug happy-path design spike ([#step-9] onboarding-and-install.md):
-  // simulates the whole setup flow from local state so the wizard's copy,
-  // rhythm, and pulsing-dot step rows can be designed without a clean guest.
-  registerCard({
-    componentId: "gallery-configure-tug",
-    contentFactory: (_cardId) => <GalleryConfigureTug />,
-    defaultMeta: { title: "ConfigureTug", icon: "ListChecks", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: GALLERY_COMPLEX_SIZE,
-    category: CATEGORIES.overlays,
-  });
-
-  // Reference card for the unified modal-header convention
-  // (styles/tugx-header.css): the three header cases (one-line / two-line /
-  // alert) as static shipped/spec parity pairs, judged without live overlays.
-  registerCard({
-    componentId: "gallery-modal-headers",
-    contentFactory: (_cardId) => <GalleryModalHeaders />,
-    defaultMeta: { title: "Modal Headers", icon: "PanelTop", closable: true },
-    family: "maker",
-    acceptsFamilies: ["maker"],
-    sizePolicy: {
-      min: { width: 480, height: 400 },
-      preferred: { width: 800, height: 940 },
-    },
     category: CATEGORIES.overlays,
   });
 

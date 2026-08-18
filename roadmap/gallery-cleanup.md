@@ -528,15 +528,15 @@ Assertion 5 deliberately omits a `gallery-*` count. Spikes and fixtures are sets
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Hoist `.tug-petals` into `tug-button.css` | pending | — |
-| #step-2 | The `spikes/` substructure and its registry | pending | — |
-| #step-3 | The spike host's door onto the deck | pending | — |
-| #step-4 | Move the seven live spikes | pending | — |
-| #step-5 | Move the four closed-spike references | pending | — |
-| #step-6 | The `fixtures/` annex and the id renames | pending | — |
-| #step-7 | Gallery residuals and the taxonomy drift test | pending | — |
-| #step-8 | The `/tugplug:spike-card` skill | pending | — |
-| #step-9 | Integration checkpoint | pending | — |
+| #step-1 | Hoist `.tug-petals` into `tug-button.css` | done | `4ace07ac4` |
+| #step-2 | The `spikes/` substructure and its registry | done | `78cb8afb3` |
+| #step-3 | The spike host's door onto the deck | done | `3252e36b7` |
+| #step-4 | Move the seven live spikes | done | `78f2da107` |
+| #step-5 | Move the four closed-spike references | done | `230a496f5` |
+| #step-6 | The `fixtures/` annex and the id renames | done | `65200d6c7` |
+| #step-7 | Gallery residuals and the taxonomy drift test | done | `d40291507` |
+| #step-8 | The `/tugplug:spike-card` skill | done | `03f31aa82` |
+| #step-9 | Integration checkpoint | done | `19f35a2aa` |
 
 ---
 

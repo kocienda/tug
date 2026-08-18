@@ -5,7 +5,7 @@
  * Drives the actual handler the user triggers: a selection in a real
  * `useTranscriptCellMenu` body → ⌘C → `handleCopy` →
  * `selectionToTranscriptMarkdown` (fragment serializer) →
- * `clipboard.writeText`. The `gallery-transcript-copy` fixture mounts that
+ * `clipboard.writeText`. The `fixture-transcript-copy` card mounts that
  * hook over a static body of real components (markdown + Bash tool +
  * thinking + markdown).
  *
@@ -49,7 +49,7 @@
  * @covers tugdeck/src/components/tugways/text-selection-adapter.ts
  * @covers tugdeck/src/components/tugways/blocks/block-chrome.css
  * @covers tugdeck/src/components/tugways/blocks/block-chrome.tsx
- * @covers tugdeck/src/components/tugways/cards/gallery-transcript-copy.tsx
+ * @covers tugdeck/src/fixtures/fixture-transcript-copy.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -263,8 +263,8 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await app.seedDeckState({
             state: {
-              cards: [{ id: "A", componentId: "gallery-transcript-copy", title: "Transcript Copy", closable: true }],
-              panes: [{ id: "p1", position: { x: 40, y: 40 }, size: { width: 760, height: 560 }, cardIds: ["A"], activeCardId: "A", title: "", acceptsFamilies: ["maker"] }],
+              cards: [{ id: "A", componentId: "fixture-transcript-copy", title: "Transcript Copy", closable: true }],
+              panes: [{ id: "p1", position: { x: 40, y: 40 }, size: { width: 760, height: 560 }, cardIds: ["A"], activeCardId: "A", title: "", acceptsFamilies: ["fixture"] }],
               activePaneId: "p1",
               hasFocus: true,
             },

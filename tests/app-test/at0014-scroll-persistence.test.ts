@@ -7,7 +7,7 @@
  *
  *   A. **Tab switch round-trip.** Mount a markdown card with 50KB
  *      of baked-in static content (`componentId:
- *      "gallery-markdown-50kb"`). Scroll the inner
+ *      "fixture-markdown-50kb"`). Scroll the inner
  *      `data-tug-scroll-key="markdown-view"` container to a known
  *      offset. Tab-switch to a sibling card, then back. Assert
  *      scroll position survives.
@@ -18,7 +18,7 @@
  *
  * ## Why one component id per scenario
  *
- * The `gallery-markdown-50kb` registration mounts the card with
+ * The `fixture-markdown-50kb` registration mounts the card with
  * 50KB of static markdown loaded immediately via
  * `staticContentSize="50kb"`. The bake-in commits in the same
  * React render as mount (a `useLayoutEffect` in
@@ -54,7 +54,7 @@ function markdownScrollSelectorFor(cardId: string): string {
   return `[data-card-id="${cardId}"] [data-tug-scroll-key="markdown-view"]`;
 }
 
-describe.skipIf(!SHOULD_RUN)("m14: region scroll persistence on gallery-markdown-50kb", () => {
+describe.skipIf(!SHOULD_RUN)("m14: region scroll persistence on fixture-markdown-50kb", () => {
   test("region scroll survives tab switch + back", async () => {
     const app = await launchTugApp({ testName: "at0014-scroll-tab-switch" });
     try {
@@ -63,7 +63,7 @@ describe.skipIf(!SHOULD_RUN)("m14: region scroll persistence on gallery-markdown
       await app.seedDeckState({
         state: {
           cards: [
-            { id: "A", componentId: "gallery-markdown-50kb", title: "MD A", closable: true },
+            { id: "A", componentId: "fixture-markdown-50kb", title: "MD A", closable: true },
             { id: "B", componentId: "gallery-input", title: "FC B", closable: true },
           ],
           panes: [
@@ -74,7 +74,7 @@ describe.skipIf(!SHOULD_RUN)("m14: region scroll persistence on gallery-markdown
               cardIds: ["A", "B"],
               activeCardId: "A",
               title: "",
-              acceptsFamilies: ["maker"],
+              acceptsFamilies: ["fixture"],
             },
           ],
           activePaneId: "p1",
@@ -144,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("m14: region scroll persistence on gallery-markdown
       await app.seedDeckState({
         state: {
           cards: [
-            { id: "A", componentId: "gallery-markdown-50kb", title: "MD A", closable: true },
+            { id: "A", componentId: "fixture-markdown-50kb", title: "MD A", closable: true },
           ],
           panes: [
             {
@@ -154,7 +154,7 @@ describe.skipIf(!SHOULD_RUN)("m14: region scroll persistence on gallery-markdown
               cardIds: ["A"],
               activeCardId: "A",
               title: "",
-              acceptsFamilies: ["maker"],
+              acceptsFamilies: ["fixture"],
             },
           ],
           activePaneId: "p1",

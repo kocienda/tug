@@ -1,6 +1,6 @@
 /**
- * GalleryFocusLanguage — the canonical reference for the keyboard-focus visual
- * language (a permanent gallery card).
+ * spike-focus-language.tsx — the canonical reference for the keyboard-focus
+ * visual language.
  *
  * One static screen showing the whole language across the component-archetype
  * taxonomy, in BOTH themes (toggle brio/harmony in the gallery chrome). Every
@@ -24,8 +24,9 @@
  * React-driven style); [L19] gallery-card authoring.
  */
 
-import "./gallery.css";
-import "./gallery-focus-language.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-focus-language.css";
 
 import React from "react";
 
@@ -87,10 +88,10 @@ function Btn({
   );
 }
 
-export function GalleryFocusLanguage(): React.ReactElement {
+export function SpikeFocusLanguage(): React.ReactElement {
   return (
-    <div className="cg-content cg-focus-language" data-testid="gallery-focus-language">
-      <TugLabel className="cg-section-title">
+    <div className="sp-content sp-focus-language" data-testid="gallery-focus-language">
+      <TugLabel className="sp-section-title">
         Focus Language — the keyboard-focus treatment across the component-archetype
         taxonomy. Toggle the theme to see both. Each row shows the component's states
         (rest / hover / keyboard-cursor / selected) and its role colouring.
@@ -682,3 +683,14 @@ function QAnswers({
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "focus-language",
+  title: "Focus Language",
+  blurb: "The canonical reference for the keyboard-focus visual language: every ring, every state.",
+  icon: "Focus",
+  // This spike's subject IS the engine's focus stops, so it has to read with
+  // rings on at rest rather than only once the keyboard drives.
+  kbfAtRest: true,
+  component: () => <SpikeFocusLanguage />,
+};

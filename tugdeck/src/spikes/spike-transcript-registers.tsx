@@ -1,5 +1,5 @@
 /**
- * gallery-transcript-registers.tsx — design spike for the Code-route
+ * spike-transcript-registers.tsx — design spike for the Code-route
  * transcript's Voice-3 content register.
  *
  * The transcript stacks several kinds of content inside one turn: the
@@ -35,7 +35,9 @@
  * @module components/tugways/cards/gallery-transcript-registers
  */
 
-import "./gallery-transcript-registers.css";
+import "./spike.css";
+import type { SpikeDef } from "./spike-registry";
+import "./spike-transcript-registers.css";
 
 import React from "react";
 import {
@@ -54,9 +56,9 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { BashToolBlock } from "./blocks/bash-tool-block";
-import { TaskInlineToolBlock } from "./blocks/task-inline-tool-block";
-import type { ToolBlockProps } from "../blocks/types";
+import { BashToolBlock } from "@/components/tugways/cards/blocks/bash-tool-block";
+import { TaskInlineToolBlock } from "@/components/tugways/cards/blocks/task-inline-tool-block";
+import type { ToolBlockProps } from "@/components/tugways/blocks/types";
 import { PermissionDialog } from "@/components/tugways/chrome/session-permission-dialog";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
@@ -512,11 +514,11 @@ function ReferenceZone(): React.ReactElement {
 // Card
 // ---------------------------------------------------------------------------
 
-export function GalleryTranscriptRegisters(): React.ReactElement {
+export function SpikeTranscriptRegisters(): React.ReactElement {
   return (
-    <div className="cg-content" data-testid="gallery-transcript-registers">
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">Reference — the neighbors</TugLabel>
+    <div className="sp-content" data-testid="gallery-transcript-registers">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">Reference — the neighbors</TugLabel>
         <div className="gtr-blurb">
           Real components on mock data. The candidate below is judged against
           these. The two problem children — task updates and background
@@ -527,8 +529,8 @@ export function GalleryTranscriptRegisters(): React.ReactElement {
 
       <TugSeparator />
 
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">Quiet line — in situ</TugLabel>
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">Quiet line — in situ</TugLabel>
         <div className="gtr-blurb">
           The candidate: icon · label · muted subject · trailing meta, one row
           per event, sharing the tool-call header's line geometry. Both
@@ -541,8 +543,8 @@ export function GalleryTranscriptRegisters(): React.ReactElement {
 
       <TugSeparator />
 
-      <div className="cg-section">
-        <TugLabel className="cg-section-title">
+      <div className="sp-section">
+        <TugLabel className="sp-section-title">
           Quiet line — real-world catalog
         </TugLabel>
         <div className="gtr-blurb">
@@ -558,3 +560,10 @@ export function GalleryTranscriptRegisters(): React.ReactElement {
     </div>
   );
 }
+
+export const spike: SpikeDef = {
+  name: "transcript-registers",
+  title: "Transcript Registers",
+  blurb: "Can task updates and background notices join the transcript's content family instead of each being styled on its own?",
+  component: () => <SpikeTranscriptRegisters />,
+};
