@@ -11,12 +11,31 @@
  * reviewable result. The candidate is landed separately (a `changeset_join`
  * with the candidate) once the user confirms — this store never lands.
  *
- * **A run in flight is failed by a wire drop, never left running.** The ladder
- * answers exactly once, over a CONTROL frame that nothing replays; if the
- * socket goes down between the request and that frame the answer is gone, and a
- * state left in `resolving` is a dash whose Resolve button has vanished with
- * nothing in its place and no way back. The store watches
- * `connectionDidClose` and turns any run still in flight into a stated error.
+ * **A run in flight always ends.** The ladder answers exactly once, over a
+ * CONTROL frame that nothing replays — CONTROL is registered `LagPolicy::Warn`,
+ * so a client that falls behind has frames dropped outright, and a socket that
+ * dies mid-run takes the answer with it. A state left in `resolving` is a dash
+ * whose Resolve button has vanished with nothing in its place and no way back,
+ * for the life of the page. Two things close that, and neither needs to know
+ * what went wrong:
+ *
+ * 1. **The wire dropping**, which is detectable the instant it happens:
+ *    `connectionDidClose` fails every run in flight on the spot.
+ * 2. **{@link RESOLVE_IDLE_DEADLINE_MS} of silence**, which covers everything
+ *    else — a lagged stream, a server that died mid-ladder, a frame lost
+ *    somewhere nobody has thought of.
+ *
+ * The deadline counts SILENCE, not elapsed time: every frame for a dash
+ * restarts its clock. The AI rung emits a delta when it starts and one per
+ * accumulated chunk thereafter, so a scribe grinding for minutes is never quiet
+ * and never trips it; the only genuinely silent stretches are the algorithmic
+ * rungs (git work) and the wait for a first token.
+ *
+ * **And the deadline is impatience, not cancellation** — which is what makes it
+ * safe to keep short. Nothing here can stop tugcast's ladder, so an answer that
+ * arrives late is still true and still applies, flipping the face from the
+ * error to the result. A deadline that fires early costs a stale error for a
+ * few seconds, never a lost resolution.
  *
  * Attached once at boot with {@link attachChangesetJoinStore}; consumed via
  * {@link useChangesetJoinResolve}.
@@ -100,6 +119,21 @@ const IDLE: ResolveState = Object.freeze({
   reviewed: false,
 });
 
+/**
+ * How long a run may say NOTHING before it is declared lost.
+ *
+ * Silence, not duration: every frame for a dash restarts its clock, and the AI
+ * rung streams continuously, so this is never the ceiling on a run that is
+ * working — it is the ceiling on one that has stopped talking. Twelve seconds
+ * clears the two stretches that are legitimately quiet (the algorithmic rungs,
+ * and the wait for a first token from a model that may be loading) with room
+ * over, and is short enough that nobody is left watching a dead spinner.
+ *
+ * It can afford to be tight because firing early is nearly free: the run is not
+ * cancelled, and its answer still applies if it turns up.
+ */
+export const RESOLVE_IDLE_DEADLINE_MS = 12_000;
+
 function key(projectDir: string, dash: string): string {
   return `${projectDir}|${dash}`;
 }
@@ -120,9 +154,13 @@ export class ChangesetJoinStore {
   private readonly _listeners = new Set<() => void>();
   private _states = new Map<string, ResolveState>();
   private readonly _decoder = new TextDecoder();
+  /** One live idle timer per dash with a run in flight. */
+  private readonly _deadlines = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly _deadlineMs: number;
 
-  constructor(connection: TugConnection) {
+  constructor(connection: TugConnection, deadlineMs = RESOLVE_IDLE_DEADLINE_MS) {
     this._connection = connection;
+    this._deadlineMs = deadlineMs;
     this._unsubscribe = connection.onFrame(FeedId.CONTROL, (payload) =>
       this._onControl(payload),
     );
@@ -148,13 +186,50 @@ export class ChangesetJoinStore {
   private _failInFlight(): void {
     for (const [k, state] of [...this._states]) {
       if (state.phase !== "resolving") continue;
-      this._set(k, {
-        ...state,
-        phase: "error",
-        error:
-          "The connection dropped while the ladder was running — its result is gone. Press Resolve again.",
-      });
+      this._fail(
+        k,
+        "The connection dropped while the ladder was running — its result is gone. Press Resolve again.",
+      );
     }
+  }
+
+  /** End a run with a reason, and stop its clock. */
+  private _fail(k: string, reason: string): void {
+    const prev = this._states.get(k) ?? IDLE;
+    this._clearDeadline(k);
+    this._set(k, { ...prev, phase: "error", error: reason });
+  }
+
+  /**
+   * (Re)start a dash's silence clock. Called on the request and on every frame
+   * that follows it, so the deadline measures the gap between frames rather
+   * than the length of the run.
+   */
+  private _armDeadline(k: string): void {
+    this._clearDeadline(k);
+    this._deadlines.set(
+      k,
+      setTimeout(() => {
+        this._deadlines.delete(k);
+        // Guard the phase: a terminal frame clears its own timer, but arriving
+        // in the same tick as one that already fired must not resurrect an
+        // error over a result.
+        if (this._states.get(k)?.phase !== "resolving") return;
+        this._fail(
+          k,
+          `No answer from the resolution ladder in ${Math.round(
+            this._deadlineMs / 1000,
+          )} seconds — the result was lost on the way back. Press Resolve again.`,
+        );
+      }, this._deadlineMs),
+    );
+  }
+
+  private _clearDeadline(k: string): void {
+    const timer = this._deadlines.get(k);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this._deadlines.delete(k);
   }
 
   private _onControl(payload: Uint8Array): void {
@@ -185,6 +260,9 @@ export class ChangesetJoinStore {
       const status = typeof body.status === "string" ? body.status : "";
       const text = typeof body.text === "string" ? body.text : "";
       const progress = prev.progress.filter((p) => p.path !== path);
+      // The run is talking, so the silence clock goes back to zero. This is
+      // what lets a scribe stream for minutes under a twelve-second deadline.
+      this._armDeadline(k);
       this._set(k, {
         ...prev,
         phase: "resolving",
@@ -209,6 +287,11 @@ export class ChangesetJoinStore {
       const candidateCommit =
         typeof body.candidate_commit === "string" ? body.candidate_commit : null;
       const shape = typeof body.shape === "string" ? body.shape : null;
+      // A late answer still counts. The deadline never cancelled anything —
+      // the ladder ran to completion server-side whatever this client believed
+      // — so a result that turns up after the run was given up on is true, and
+      // takes the face back off the error it was showing.
+      this._clearDeadline(k);
       this._set(k, {
         ...prev,
         phase: unresolved.length > 0 ? "partial" : "resolved",
@@ -223,9 +306,10 @@ export class ChangesetJoinStore {
       return;
     }
 
-    // changeset_join_resolve_err
+    // changeset_join_resolve_err — the ladder's own refusal, which is a better
+    // answer than any this store could invent, late or not.
     const detail = typeof body.detail === "string" ? body.detail : "resolve failed";
-    this._set(k, { ...prev, phase: "error", error: detail });
+    this._fail(k, detail);
   }
 
   private _set(k: string, state: ResolveState): void {
@@ -237,9 +321,16 @@ export class ChangesetJoinStore {
     for (const listener of [...this._listeners]) listener();
   }
 
-  /** Send `changeset_join_resolve` and mark the dash resolving (fresh state). */
+  /**
+   * Send `changeset_join_resolve` and mark the dash resolving (fresh state),
+   * on a clock. Pressing again over a run that was given up on is deliberately
+   * legal: the ladder builds its candidate off to the side and touches no
+   * checkout, so a second run costs time and nothing else.
+   */
   resolve(projectDir: string, dash: string): void {
-    this._set(key(projectDir, dash), {
+    const k = key(projectDir, dash);
+    this._armDeadline(k);
+    this._set(k, {
       phase: "resolving",
       progress: [],
       resolved: [],
@@ -273,12 +364,16 @@ export class ChangesetJoinStore {
 
   /** Clear a dash's resolve state (cancel / after landing). */
   clear(projectDir: string, dash: string): void {
-    this._set(key(projectDir, dash), IDLE);
+    const k = key(projectDir, dash);
+    this._clearDeadline(k);
+    this._set(k, IDLE);
   }
 
   dispose(): void {
     this._unsubscribe();
     this._unobserveClose();
+    for (const timer of this._deadlines.values()) clearTimeout(timer);
+    this._deadlines.clear();
     this._listeners.clear();
   }
 
@@ -290,9 +385,13 @@ export class ChangesetJoinStore {
 
 let _activeStore: ChangesetJoinStore | null = null;
 
-export function attachChangesetJoinStore(conn: TugConnection): ChangesetJoinStore {
+export function attachChangesetJoinStore(
+  conn: TugConnection,
+  /** Overridable so a test can drive the real timer instead of faking a clock. */
+  deadlineMs?: number,
+): ChangesetJoinStore {
   if (_activeStore !== null) return _activeStore;
-  _activeStore = new ChangesetJoinStore(conn);
+  _activeStore = new ChangesetJoinStore(conn, deadlineMs);
   return _activeStore;
 }
 

@@ -221,3 +221,89 @@ describe("a run whose answer never arrives", () => {
     }
   });
 });
+
+/**
+ * The silence deadline, driven on the real timer at a compressed length —
+ * `attachChangesetJoinStore` takes the interval so these cases exercise the
+ * shipping `setTimeout` path rather than a faked clock.
+ */
+describe("the silence deadline", () => {
+  const DEADLINE = 20;
+  const settle = (ms: number): Promise<void> =>
+    new Promise((done) => setTimeout(done, ms));
+
+  test("a run that goes quiet is declared lost, and names the deadline", async () => {
+    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+    store.resolve("/p", "demo");
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+
+    await settle(DEADLINE * 3);
+
+    const lost = store.state("/p", "demo");
+    expect(lost.phase).toBe("error");
+    expect(lost.error).toContain("No answer");
+  });
+
+  test("a run that keeps talking outlives the deadline", async () => {
+    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+    store.resolve("/p", "demo");
+
+    // A scribe streaming its merge. Each delta restarts the clock, so the run
+    // survives a span several deadlines long — which is the whole reason the
+    // deadline can be short enough to be useful.
+    for (let i = 0; i < 5; i++) {
+      await settle(DEADLINE / 2);
+      _ingestJoinFrameForTest({
+        action: "changeset_join_resolve_delta",
+        ...K,
+        path: "a.rs",
+        rung: "ai",
+        status: "streaming",
+        text: `chunk ${i}`,
+      });
+      expect(store.state("/p", "demo").phase).toBe("resolving");
+    }
+  });
+
+  test("an answer that arrives late still lands", async () => {
+    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+    store.resolve("/p", "demo");
+    await settle(DEADLINE * 3);
+    expect(store.state("/p", "demo").phase).toBe("error");
+
+    // Nothing was cancelled — the ladder ran to completion on the server
+    // whatever this client concluded — so its result is still true and takes
+    // the face back off the error.
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_ok",
+      ...K,
+      resolved: [{ path: "a.rs", resolved_by: "driver", diff: "@@\n" }],
+      unresolved: [],
+      candidate_commit: "abc123",
+      shape: "squash",
+    });
+
+    const late = store.state("/p", "demo");
+    expect(late.phase).toBe("resolved");
+    expect(late.candidateCommit).toBe("abc123");
+    expect(late.error).toBeNull();
+  });
+
+  test("a terminal answer stops the clock", async () => {
+    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+    store.resolve("/p", "demo");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_ok",
+      ...K,
+      resolved: [{ path: "a.rs", resolved_by: "driver", diff: "@@\n" }],
+      unresolved: [],
+      candidate_commit: "abc123",
+      shape: "squash",
+    });
+
+    // The deadline that was live when the answer arrived must not fire behind
+    // it and paint an error over a result the user is reading.
+    await settle(DEADLINE * 3);
+    expect(store.state("/p", "demo").phase).toBe("resolved");
+  });
+});
