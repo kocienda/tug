@@ -23,8 +23,10 @@
  * ## What is pinned
  *
  * - The incident's state renders as designed: the named join fronts a dash the
- *   card is not bound to, under "the dash on this card", with **Adopt** (fronting
- *   is about what is being landed; the binding is about what the card works).
+ *   card is not bound to, under "dash this landing is aimed at", with **Adopt**
+ *   (fronting is about what is being landed; the binding is about what the card
+ *   works — so the fronted header names the landing, not a binding that is not
+ *   there).
  * - **Join** on a conflicted outcome is disabled and carries its reason.
  * - **Resolve** is enabled, and a click visibly registers at once — the offer
  *   face leaves the moment the store flips to `resolving`, before any server

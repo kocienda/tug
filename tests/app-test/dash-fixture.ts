@@ -203,6 +203,16 @@ export interface ConflictSubject {
  * Deriving rather than hardcoding is deliberate too: a pinned sha ages out of
  * the history, and the rewind has to stay shallow so the divergence is minimal
  * and `merge-tree` stays cheap.
+ *
+ * A path the developer has uncommitted work on is skipped. The dash side of
+ * the conflict is built in the dash's own worktree and never touches the
+ * checkout — but the landing preview reads the checkout too, and uncommitted
+ * work on a file the dash also changes is `base_overlap`, a different outcome
+ * than the `conflicted` these fixtures are staged to produce. That is the
+ * preview answering correctly about the repository it was handed; the fixture
+ * simply must not stage its conflict on a file the developer is mid-edit on.
+ * It bites exactly when the newest commit touched a file still being worked,
+ * which is the ordinary state of a checkout an hour after a commit.
  */
 export function smallConflictSubject(
   projectDir: string,
@@ -210,6 +220,7 @@ export function smallConflictSubject(
 ): ConflictSubject {
   const maxLines = opts.maxLines ?? 120;
   const maxCommits = opts.maxCommits ?? 25;
+  const dirty = dirtyPaths(projectDir);
   const log = gitRetry(
     projectDir,
     "log",
@@ -233,6 +244,8 @@ export function smallConflictSubject(
     if (commit === "") continue;
     // The dash rewinds to the parent, so a root commit is no use here.
     if (!revExists(projectDir, `${commit}~1`)) continue;
+    // Uncommitted work here would read as base overlap, not a conflict.
+    if (dirty.has(line)) continue;
     const blob = gitRetry(projectDir, "show", `${commit}:${line}`);
     if (blob.includes("\0")) continue; // binary — no content conflict to resolve
     if (blob.split("\n").length > maxLines) continue;
@@ -244,8 +257,26 @@ export function smallConflictSubject(
   }
   throw new Error(
     `dash-fixture: no commit in main's last ${maxCommits} first-parent commits ` +
-      `modified a text file of ${maxLines} lines or fewer`,
+      `modified a text file of ${maxLines} lines or fewer that is clean in the ` +
+      `working tree`,
   );
+}
+
+/**
+ * Every repo-relative path with uncommitted work of any kind — staged,
+ * unstaged, untracked, and both halves of a rename, since a rename is a
+ * deletion the preview sees on the old path.
+ */
+function dirtyPaths(projectDir: string): ReadonlySet<string> {
+  const paths = new Set<string>();
+  for (const line of gitRetry(projectDir, "status", "--porcelain").split("\n")) {
+    if (line.length < 4) continue;
+    for (const part of line.slice(3).split(" -> ")) {
+      const path = part.trim().replace(/^"(.*)"$/, "$1");
+      if (path.length > 0) paths.add(path);
+    }
+  }
+  return paths;
 }
 
 /** Whether a revision resolves — used to skip a commit with no parent. */

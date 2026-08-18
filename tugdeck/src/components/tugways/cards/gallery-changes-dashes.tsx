@@ -1,6 +1,10 @@
 /**
- * gallery-changes-headers.tsx — the Changes shade's section vocabulary, whole,
- * in one place.
+ * gallery-changes-dashes.tsx — the Changes shade, whole, in one place.
+ *
+ * It was called "Changes Headers" while a header treatment was the only thing
+ * being decided. The dash rows under those headers turned out to be the harder
+ * half — two naming registers, a fact run, a lane with nothing fronted — so the
+ * card is named for both subjects it actually carries.
  *
  * This began as two design spikes and is now the reference for what they
  * settled. Both questions are closed and neither is re-litigated here:
@@ -29,8 +33,8 @@
  *
  * **Everything here is the shipping thing.** `TugChangesList`,
  * `SessionChangesDashLane`, `TugSessionIdentity` and `DashSigil` are the
- * components; the header
- * strings come from `changes-section-labels.ts`, the module the shade reads;
+ * components; the header strings come from `changes-section-labels.ts`, the
+ * module the shade reads;
  * the styling is `tug-changes-list.css` and `session-changes-dash-lane.css`
  * with nothing overridden. This file contributes fixture data and a frame to
  * put it in. There is deliberately no variant switch left: a card that can
@@ -40,10 +44,10 @@
  * The lane is read-only: no `landing`, `binding`, or `discard` props, so no
  * row offers a verb and nothing here can reach a repository.
  *
- * @module components/tugways/cards/gallery-changes-headers
+ * @module components/tugways/cards/gallery-changes-dashes
  */
 
-import "./gallery-changes-headers.css";
+import "./gallery-changes-dashes.css";
 
 import React from "react";
 
@@ -193,13 +197,13 @@ function dash(
   };
 }
 
-const FRONTED = dash("changes-headers", {
+const FRONTED = dash("changes-and-dashes", {
   bound_sessions: [OWNER],
   stage: "implementing",
   step_current: 2,
   step_total: 5,
   step_title: "The header treatments, side by side",
-  plan_path: "roadmap/changes-headers.md",
+  plan_path: "roadmap/changes-and-dashes.md",
   rounds: 4,
 });
 
@@ -239,18 +243,18 @@ function Stage({
   children: React.ReactNode;
 }): React.ReactElement {
   return (
-    <section className="gallery-changes-headers-section">
-      <TugLabel size="2xs" emphasis="calm" className="gallery-changes-headers-caption">
+    <section className="gallery-changes-dashes-section">
+      <TugLabel size="2xs" emphasis="calm" className="gallery-changes-dashes-caption">
         {caption}
       </TugLabel>
-      <div className="gallery-changes-headers-stage">{children}</div>
+      <div className="gallery-changes-dashes-stage">{children}</div>
     </section>
   );
 }
 
-export function GalleryChangesHeaders(): React.ReactElement {
+export function GalleryChangesDashes(): React.ReactElement {
   return (
-    <div className="gallery-changes-headers" data-testid="gallery-changes-headers">
+    <div className="gallery-changes-dashes" data-testid="gallery-changes-dashes">
       <Stage caption="The shade as it stacks — four headers, and the dash rows under the last two">
         {/* The shade's own header, for the tier above the sections. It is card
             chrome, and it is here so a section header is read against the

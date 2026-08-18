@@ -48,10 +48,25 @@ export const ORPHANED_LABEL: SectionLabel = {
   qualifier: "claim to bring into this session",
 };
 
-/** The dash the host card is bound to, or the one a landing is aimed at. */
-export const DASH_FRONTED_LABEL: SectionLabel = {
-  name: "the dash on this card",
-};
+/**
+ * The fronted row's header, which is two headers because fronting is two
+ * situations.
+ *
+ * Usually the fronted dash is the one this session is mated to, and the label
+ * says so: the binding is the fact a reader acts on — it is what Unbind ends
+ * and what the card is working.
+ *
+ * But a join aimed by name (`/dash-join <name>`) fronts its target so the
+ * landing face has somewhere to mount, and that dash may be one this card never
+ * bound. Fronting is about what is being landed; the binding is about what the
+ * card works. One label covering both would claim a binding that does not exist
+ * — on precisely the row that offers **Adopt** to create it.
+ */
+export function dashFrontedLabel(bound: boolean): SectionLabel {
+  return bound
+    ? { name: "dash bound to this session" }
+    : { name: "dash this landing is aimed at" };
+}
 
 /**
  * The rest of the project's dashes. The count is the qualifier, because it is

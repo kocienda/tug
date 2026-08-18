@@ -44,6 +44,27 @@
   flex-wrap: wrap;
 }
 
+/* Optical outdent for whichever pill leads the row.
+
+   Both registers are enclosed — the worker's session atom and the unbound
+   caret run alike — and a pill holds its text a border plus its own inline
+   padding in from its edge. Set flush against the file rows above, the edges
+   agree and the *names* read a step right of every path in the shade. This
+   takes back part of that inset: enough that the eye reads one left margin
+   down the section, not so much that the pill hangs off the eyebrow above it.
+
+   Deliberately not the full inset. Pulling the border all the way to the
+   glyph column would align the text and misalign every enclosure with it, and
+   the enclosure is the part a reader actually sees first.
+
+   Applied to both registers together on purpose. They are the same slot of the
+   same row and a lane can show both at once; outdenting one would trade an
+   alignment against the file rows for a worse one against the row next door. */
+.session-changes-dash-workers,
+[data-slot="session-changes-dash-name"] {
+  margin-inline-start: calc(-1 * var(--tug-space-xs));
+}
+
 /* The unbound dash's name.
 
    The ENCLOSURE is not here and is not this file's to author: `DashSigil
@@ -79,31 +100,49 @@
   flex-direction: column;
 }
 
-/* The tooltip anchor around a Release that may be disabled — a disabled button
-   takes no pointer events, so the reason has to hang off something that does. */
-.session-changes-dash-row-release {
-  display: inline-flex;
-}
-
 .session-changes-dash-row-trailing {
   display: flex;
   align-items: center;
   gap: var(--tug-space-2xs);
 }
 
-/* The fact run: base · rounds · dirty · stage. Mono, because every part of it
-   is a git noun. */
+/* The fact run: base · rounds · uncommitted · stage · step.
+
+   This is the same metadata cluster a file row wears, and it is drawn the same
+   way on purpose: one rule divides the name from its facts, and bullets
+   separate the facts from each other. Small proportional type, because these
+   are read as a sentence about the dash rather than as identifiers to be typed
+   back — the name ahead of the pipe is the only run here anybody copies, and it
+   keeps its own family.
+
+   `flex: none` on the parts is what stopped them smashing. The run is a flex
+   line in a row that is allowed to be narrow, so every part was shrinking below
+   its own text and wrapping mid-phrase — "4 / rounds", "step / 2/5". A fact is
+   atomic: it is legible whole or it should not be on the line. Exactly one part
+   gives way, and it is the step title below, which is prose and elides
+   gracefully. */
 .session-changes-dash-facts {
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  /* Applied on both sides of each bullet span, so this is half the space
+     between two facts — the file row spells the same total as one 8px gap
+     because its bullets live inside the string. */
   gap: var(--tug-space-2xs);
   min-width: 0;
-  font-family: var(--tug-font-family-mono);
-  font-size: var(--tug-font-size-xs);
+  padding-left: var(--tug-space-md);
+  border-left: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-2xs);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
+.session-changes-dash-facts > * {
+  flex: none;
+  white-space: nowrap;
+}
+
 .session-changes-dash-base {
+  font-family: var(--tug-font-family-mono);
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
@@ -121,14 +160,22 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* The step's title rides beside its counter and is the run that gives way —
-   the counter keeps the state legible however hard the title elides. */
+/* The step's title rides beside its counter and is the one run that gives way
+   — the counter keeps the state legible however hard the title elides. It is
+   the sole exception to the `flex: none` above, and it earns it by being prose:
+   a half-shown sentence still reads, a half-shown "step 2/5" does not.
+
+   It is also the only part with no bullet ahead of it: the bullets separate
+   facts of one kind, and the title is a caption on the fact before it. The
+   larger gap says the same thing the missing bullet does. */
 .session-changes-dash-step-title {
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  color: var(--tug7-element-global-text-normal-muted-rest);
+  margin-left: var(--tug-space-xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
 /* The stale-review mark ([P07]): advisory, so it takes the same caution tone
@@ -167,11 +214,24 @@
 
 /* ---- The expanded detail ---- */
 
+/* The detail hangs under its row, so its content starts where the row's
+   content starts — which makes a dash's file list line up with the file lists
+   in the buckets above rather than sitting a few pixels proud of them.
+
+   The measure is the row's own, read from `TugListRow`'s tokens rather than
+   copied as a number: `padding-inline-compact` is declared at body scope
+   precisely so a sibling outside a row can line up with the rows beside it,
+   and the indicator gutter is the rest of what a row's start padding is made
+   of. A literal here would be correct until somebody nudges the row density. */
 .session-changes-dash-detail {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-xs);
   padding: var(--tug-space-2xs) var(--tug-space-sm) var(--tug-space-sm);
+  padding-inline-start: calc(
+    var(--tugx-list-row-padding-inline-compact) +
+      var(--tugx-list-row-indicator-gutter)
+  );
 }
 
 .session-changes-dash-subjects,

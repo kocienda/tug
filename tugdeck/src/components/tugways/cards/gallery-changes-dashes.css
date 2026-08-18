@@ -1,5 +1,5 @@
 /* ----------------------------------------------------------------------------
-   gallery-changes-headers.css — a frame around the Changes shade's sections.
+   gallery-changes-dashes.css — a frame around the Changes shade's sections.
    ----------------------------------------------------------------------------
    There is nothing here that styles a header or a dash name. Both questions
    are settled and both answers ship: the eyebrow lives in
@@ -9,7 +9,7 @@
    what the shade shows.
    ----------------------------------------------------------------------------- */
 
-.gallery-changes-headers {
+.gallery-changes-dashes {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-2xl);
@@ -18,18 +18,18 @@
   overflow: auto;
 }
 
-.gallery-changes-headers-section {
+.gallery-changes-dashes-section {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-sm);
   min-inline-size: 0;
 }
 
-.gallery-changes-headers-caption {
+.gallery-changes-dashes-caption {
   max-inline-size: 68ch;
 }
 
-.gallery-changes-headers-stage {
+.gallery-changes-dashes-stage {
   background: var(--tugx-pane-bg);
   border: 1px solid var(--tug7-element-global-divider-normal-default-rest);
   border-radius: var(--tug-radius-md);

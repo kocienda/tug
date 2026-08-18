@@ -32,7 +32,7 @@ import { GalleryTabBar } from "./gallery-tab-bar";
 import { GalleryDefaultButton } from "./gallery-default-button";
 import { GalleryTitleBar } from "./gallery-title-bar";
 import { GalleryCardChrome } from "./gallery-card-chrome";
-import { GalleryChangesHeaders } from "./gallery-changes-headers";
+import { GalleryChangesDashes } from "./gallery-changes-dashes";
 import { GalleryMutationTx } from "./gallery-mutation-tx";
 import { GalleryObservableProps } from "./gallery-observable-props";
 import { GalleryThemeEditor } from "./gallery-theme-editor";
@@ -1368,9 +1368,9 @@ export function registerGalleryCards(): void {
   });
 
   registerCard({
-    componentId: "gallery-changes-headers",
-    contentFactory: (_cardId) => <GalleryChangesHeaders />,
-    defaultMeta: { title: "Changes Headers", icon: "Rows3", closable: true },
+    componentId: "gallery-changes-dashes",
+    contentFactory: (_cardId) => <GalleryChangesDashes />,
+    defaultMeta: { title: "Changes and Dashes", icon: "Rows3", closable: true },
     family: "maker",
     acceptsFamilies: ["maker"],
     sizePolicy: GALLERY_COMPLEX_SIZE,

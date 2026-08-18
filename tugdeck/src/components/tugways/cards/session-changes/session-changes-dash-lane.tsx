@@ -2,8 +2,8 @@
  * `SessionChangesDashLane` — the Changes shade's dash lane.
  *
  * A dash is not a claim. Rendered in session-file grammar a dash branch reads
- * as one — so it gets its own species of row: name · base · rounds · dirty ·
- * stage, its own per-row fold, and no claim, disclaim, or hunk-election
+ * as one — so it gets its own species of row: name · base · rounds ·
+ * uncommitted · stage, its own per-row fold, and no claim, disclaim, or hunk-election
  * affordance anywhere inside it. The lane's one diff affordance is the whole-
  * range pop-out, because the server's range diff takes no pathspec and the dash
  * is the unit anyway.
@@ -53,7 +53,7 @@ import { dashReviewPaints, dashReviewTooltip } from "@/lib/dash-review";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { PopOutDiffButton, SectionLabelText } from "@/components/tugways/tug-changes-list";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
-import { DASH_FRONTED_LABEL, dashRestLabel } from "./changes-section-labels";
+import { dashFrontedLabel, dashRestLabel } from "./changes-section-labels";
 import { DashSigil } from "@/components/tugways/dash-sigil";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { useSessionIdentity } from "@/lib/session-identity";
@@ -762,7 +762,9 @@ export function SessionChangesDashLane({
             className="session-changes-dash-lane-label"
             data-slot="session-changes-dash-lane-fronted-label"
           >
-            <SectionLabelText label={DASH_FRONTED_LABEL} />
+            <SectionLabelText
+              label={dashFrontedLabel(fronted.owner_id === boundDashId)}
+            />
           </div>
           <DashRow
             // Keyed so a rebind swaps the row rather than reusing it: the
