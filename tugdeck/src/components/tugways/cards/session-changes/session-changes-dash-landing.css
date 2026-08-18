@@ -143,6 +143,32 @@
   color: var(--tug7-element-tone-text-normal-danger-rest);
 }
 
+/* The ladder is running. Present for the whole run, so the act has a receipt
+   even when the rungs below the AI one settle every file without streaming a
+   delta — the case where the list below this line stays empty from press to
+   result. */
+.session-changes-dash-landing-running {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.session-changes-dash-landing-spin {
+  flex: none;
+  animation: session-changes-dash-landing-spin 1s linear infinite;
+  /* Compositor promotion: the spin runs exactly while the ladder does. */
+  will-change: transform;
+}
+
+@keyframes session-changes-dash-landing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* The resolution ladder's per-file lane: the path, then the rung that is
    working it (or the one that settled it). One row per file, so a run reads as
    progress rather than as a wall of streamed text. */

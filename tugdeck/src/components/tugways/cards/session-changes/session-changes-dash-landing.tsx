@@ -22,6 +22,7 @@
 import "./session-changes-dash-landing.css";
 
 import React from "react";
+import { LoaderCircle } from "lucide-react";
 
 import { TugBadge, type TugBadgeRole } from "@/components/tugways/tug-badge";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -314,7 +315,12 @@ export function SessionChangesDashLanding({
           {OUTCOME_WORDS[outcome]}
         </TugBadge>
         <span className="session-changes-dash-landing-acts">
-          {resolveFace === "offer" ? (
+          {/* Offered while the ladder is the act that clears the conflict, and
+              offered AGAIN after a run that failed — a refusal the user cannot
+              answer is a dead end, and the ladder is the only door out of a
+              conflicted dash. `partial` keeps no button on purpose: the ladder
+              reached its honest end and re-running it decides nothing new. */}
+          {resolveFace === "offer" || resolveFace === "error" ? (
             <TugPushButton
               size="xs"
               emphasis="outlined"
@@ -325,7 +331,7 @@ export function SessionChangesDashLanding({
               onClick={() => actions.resolve(entry)}
               data-slot="session-changes-dash-resolve"
             >
-              Resolve
+              {resolveFace === "error" ? "Resolve again" : "Resolve"}
             </TugPushButton>
           ) : null}
           {interrupted ? (
@@ -411,7 +417,23 @@ export function SessionChangesDashLanding({
           })}
         </ul>
       ) : null}
+      {/* A ladder run says so for its whole duration, whether or not it has
+          anything to stream yet. The rungs below the AI one resolve without
+          emitting a delta, so a run that succeeds algorithmically produces an
+          empty progress list — and an empty list under a Resolve button that
+          just vanished is a press that did nothing. This line is the act's
+          receipt; the list is whatever detail the run happens to have. */}
       {resolveFace === "progress" ? (
+        <div
+          className="session-changes-dash-landing-running"
+          role="status"
+          data-slot="session-changes-dash-landing-running"
+        >
+          <LoaderCircle size={12} className="session-changes-dash-landing-spin" />
+          Resolving {entry.display_name}…
+        </div>
+      ) : null}
+      {resolveFace === "progress" && resolve.progress.length > 0 ? (
         <ul
           className="session-changes-dash-landing-rungs"
           data-slot="session-changes-dash-landing-progress"

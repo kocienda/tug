@@ -16,6 +16,15 @@
  * title, a commit subject) opts that one child back into giving way; nothing
  * else does.
  *
+ * **A run never paints outside its own box.** The parts are atomic, so a run
+ * that will not fit cannot shrink — and on a row whose leading and trailing
+ * slots are fixed, the overflow lands on top of the trailing controls. `fit`
+ * says what a run does when the line runs out: `"natural"` takes the width its
+ * parts need (correct where the run is sized by its content — a right-aligned
+ * tail in the Lens), `"clip"` bounds it to the box and fades the last visible
+ * fact out. The fade is self-gating: it covers the trailing edge of the BOX, so
+ * a run that fits is fading empty space and nothing shows.
+ *
  * **Two ways to separate the facts, and the run has to be told which.** Some
  * hosts hand over parts that already carry their own separator inside a string
  * ({@link TugMetaRun} cannot style what it cannot see); others emit
@@ -38,6 +47,7 @@ export function TugMetaRun({
   children,
   parts,
   separator = "gap",
+  fit = "natural",
   slot = "tug-meta-run",
   className,
 }: {
@@ -65,6 +75,14 @@ export function TugMetaRun({
    * `"bullet"` for a caller emitting {@link TugMetaBullet} between them.
    */
   separator?: "gap" | "bullet";
+  /**
+   * What the run does when its parts need more room than the line has.
+   * `"natural"` takes the width they need; `"clip"` bounds the run to its box
+   * and fades out at the trailing edge. Use `"clip"` on any row where the run
+   * shares a line with slotted controls — there is nothing else stopping it
+   * painting over them.
+   */
+  fit?: "natural" | "clip";
   slot?: string;
   className?: string;
 }): React.ReactElement {
@@ -78,6 +96,7 @@ export function TugMetaRun({
         className !== undefined ? `tug-meta-run ${className}` : "tug-meta-run"
       }
       data-slot={slot}
+      data-fit={fit}
       data-separator={present !== null ? "bullet" : separator}
     >
       {present !== null

@@ -7,12 +7,17 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 
 import {
+  ConnectionLifecycle,
+  getConnectionLifecycle,
+  registerConnectionLifecycle,
+} from "../connection-lifecycle";
+import {
   attachChangesetJoinStore,
   _resetChangesetJoinStoreForTest,
   _ingestJoinFrameForTest,
 } from "../changeset-join-store";
 
-const fakeConn = { onFrame: () => () => {} } as never;
+const fakeConn = { onFrame: () => () => {}, sendControlFrame: () => {} } as never;
 
 const K = { project_dir: "/p", dash: "demo" };
 
@@ -152,5 +157,67 @@ describe("changeset join resolve overlay", () => {
     expect(store.state("/other", "x").phase).toBe("idle");
     store.clear("/p", "demo");
     expect(store.state("/p", "demo").phase).toBe("idle");
+  });
+});
+
+/**
+ * The lifecycle the store will actually subscribe to.
+ *
+ * Registering one is not enough to know you have it: two suites in this repo
+ * `mock.module` the whole connection-lifecycle module, and bun keeps a module
+ * mock for the rest of the single-process run — so in a full sweep
+ * `registerConnectionLifecycle` is a no-op and the store subscribes to the
+ * mock's instance. Reading the singleton back after registering gets whichever
+ * instance is real in this run.
+ */
+function liveLifecycle(): ConnectionLifecycle {
+  registerConnectionLifecycle(new ConnectionLifecycle());
+  const live = getConnectionLifecycle();
+  if (live === null) throw new Error("no connection lifecycle to drop");
+  return live;
+}
+
+describe("a run whose answer never arrives", () => {
+  test("the wire dropping mid-ladder fails the run instead of latching it", () => {
+    try {
+      const lifecycle = liveLifecycle();
+      const store = attachChangesetJoinStore(fakeConn);
+      store.resolve("/p", "demo");
+      expect(store.state("/p", "demo").phase).toBe("resolving");
+
+      // The server finished and broadcast its result to a socket that was
+      // already gone. Nothing will replay a CONTROL reply, so the run has no
+      // answer coming — and `resolving` with no answer coming is the shade
+      // stuck with the Resolve button gone and nothing in its place.
+      lifecycle.notifyConnectionDidClose();
+
+      const dropped = store.state("/p", "demo");
+      expect(dropped.phase).toBe("error");
+      expect(dropped.error).toContain("connection dropped");
+    } finally {
+      registerConnectionLifecycle(null);
+    }
+  });
+
+  test("a result already in hand survives the wire dropping", () => {
+    try {
+      const lifecycle = liveLifecycle();
+      const store = attachChangesetJoinStore(fakeConn);
+      _ingestJoinFrameForTest({
+        action: "changeset_join_resolve_ok",
+        ...K,
+        resolved: [{ path: "a.rs", resolved_by: "driver", diff: "@@\n" }],
+        unresolved: [],
+        candidate_commit: "abc123",
+        shape: "squash",
+      });
+      lifecycle.notifyConnectionDidClose();
+
+      const done = store.state("/p", "demo");
+      expect(done.phase).toBe("resolved");
+      expect(done.candidateCommit).toBe("abc123");
+    } finally {
+      registerConnectionLifecycle(null);
+    }
   });
 });

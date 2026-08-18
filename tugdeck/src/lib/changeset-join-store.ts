@@ -11,6 +11,13 @@
  * reviewable result. The candidate is landed separately (a `changeset_join`
  * with the candidate) once the user confirms — this store never lands.
  *
+ * **A run in flight is failed by a wire drop, never left running.** The ladder
+ * answers exactly once, over a CONTROL frame that nothing replays; if the
+ * socket goes down between the request and that frame the answer is gone, and a
+ * state left in `resolving` is a dash whose Resolve button has vanished with
+ * nothing in its place and no way back. The store watches
+ * `connectionDidClose` and turns any run still in flight into a stated error.
+ *
  * Attached once at boot with {@link attachChangesetJoinStore}; consumed via
  * {@link useChangesetJoinResolve}.
  *
@@ -21,6 +28,7 @@ import { useSyncExternalStore } from "react";
 
 import type { TugConnection } from "../connection";
 import { FeedId } from "../protocol";
+import { getConnectionLifecycle } from "./connection-lifecycle";
 
 export type ResolvePhase = "idle" | "resolving" | "resolved" | "partial" | "error";
 
@@ -108,6 +116,7 @@ function readStringArray(value: unknown): string[] {
 export class ChangesetJoinStore {
   private readonly _connection: TugConnection;
   private readonly _unsubscribe: () => void;
+  private readonly _unobserveClose: () => void;
   private readonly _listeners = new Set<() => void>();
   private _states = new Map<string, ResolveState>();
   private readonly _decoder = new TextDecoder();
@@ -117,6 +126,35 @@ export class ChangesetJoinStore {
     this._unsubscribe = connection.onFrame(FeedId.CONTROL, (payload) =>
       this._onControl(payload),
     );
+    // A ladder run is a request whose only answer is a frame. If the wire drops
+    // between the request and that frame, the answer is gone for good — the
+    // server broadcast it to a socket that was already closed, and the
+    // post-reconnect handshake replays feeds, not a CONTROL reply that has
+    // already been sent. Without this the dash sits in `resolving` for the life
+    // of the page: Resolve gone, no progress, no error, no way back.
+    //
+    // Same channel `code-session-store` uses to fail a turn in flight, for the
+    // same reason.
+    this._unobserveClose =
+      getConnectionLifecycle()?.observeConnectionDidClose(() =>
+        this._failInFlight(),
+      ) ?? ((): void => {});
+  }
+
+  /**
+   * Turn every run still in flight into a stated failure. Terminal states are
+   * left alone — a result that already arrived survives the wire dropping.
+   */
+  private _failInFlight(): void {
+    for (const [k, state] of [...this._states]) {
+      if (state.phase !== "resolving") continue;
+      this._set(k, {
+        ...state,
+        phase: "error",
+        error:
+          "The connection dropped while the ladder was running — its result is gone. Press Resolve again.",
+      });
+    }
   }
 
   private _onControl(payload: Uint8Array): void {
@@ -240,6 +278,7 @@ export class ChangesetJoinStore {
 
   dispose(): void {
     this._unsubscribe();
+    this._unobserveClose();
     this._listeners.clear();
   }
 

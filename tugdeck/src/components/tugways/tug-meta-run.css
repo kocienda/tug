@@ -30,6 +30,34 @@ body {
   color: var(--tugx-meta-run-text);
 }
 
+/* A run that shares its line with slotted controls is bounded by its box, and
+   fades out where it meets the edge.
+
+   `overflow: hidden` is what stops the parts painting over a row's trailing
+   controls — the parts are atomic (below), so a run that will not fit cannot
+   shrink, and with visible overflow it simply keeps drawing. The mask is the
+   house cue for clipped content (`tug-clamp.css`), turned on its side.
+
+   It needs no measured `data-overflows` gate the way TugClamp does: the fade
+   covers the trailing edge of the BOX, and a run that fits ends well short of
+   it, so the gradient falls on empty space and paints nothing. It bites
+   exactly when there is something to cut. */
+.tug-meta-run[data-fit="clip"] {
+  overflow: hidden;
+  mask-image: linear-gradient(
+    to right,
+    rgb(0 0 0) 0,
+    rgb(0 0 0) calc(100% - 1.6em),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    rgb(0 0 0) 0,
+    rgb(0 0 0) calc(100% - 1.6em),
+    transparent 100%
+  );
+}
+
 /* A fact is legible whole or it is not on the line. A host with one run of
    prose among the facts overrides this for that child alone. */
 .tug-meta-run > * {

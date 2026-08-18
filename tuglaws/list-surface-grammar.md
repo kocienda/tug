@@ -37,6 +37,10 @@ Two ways to hand parts over, and the difference is real rather than stylistic:
 - **`parts`** — a fixed list where some entries may be absent. Nulls drop out and bullets go between whatever survives, so a run missing its middle fact never shows two bullets in a row. Entries must be elements; a bare string lands as an anonymous flex item that no selector can reach, and the atomicity rule would silently skip it.
 - **`children`** — for facts that are not a list. The dash lane interleaves conditional fragments, some carrying their own bullets and one (the step title) deliberately carrying none.
 
+**A run never paints outside its own box.** Atomicity has a cost: parts that will not shrink make a run that cannot shrink, and on a row whose leading and trailing slots are fixed, the excess lands *on top of* the trailing controls — fact text through a Bind button, which is what shipped until it was caught by eye. `fit` is the answer, and a row-borne run has to ask for it: `"clip"` bounds the run to its box and fades the last visible fact out at the trailing edge. `"natural"` stays the default, because a run sized by its own content — the Lens's right-aligned tail, a file row's metadata beside a path that truncates instead — is already correct, and clipping it would cut a fact that had the room.
+
+The fade needs no measured overflow gate the way `TugClamp` does. It covers the trailing edge of the *box*, and a run that fits ends short of that edge, so the gradient falls on empty space and paints nothing. It bites exactly when there is something to cut.
+
 ## A dash is named in one of two registers, and the register is the fact
 
 **Bound** — one session atom per live session mated to the dash, each carrying the dash inside it. A session is always shown WITH its bound dash; splitting the two onto one line would state the pairing twice and let the halves drift.

@@ -514,7 +514,7 @@ function DashRow({
           </span>
         }
       >
-        <TugMetaRun separator="bullet" className="session-changes-dash-facts">
+        <TugMetaRun separator="bullet" fit="clip" className="session-changes-dash-facts">
           <span className="session-changes-dash-base">{entry.base}</span>
           <TugMetaBullet />
           <span className="session-changes-dash-rounds">
