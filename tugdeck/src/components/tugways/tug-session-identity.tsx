@@ -204,6 +204,21 @@ export interface TugSessionIdentityProps
    * @default true
    */
   tooltip?: boolean;
+  /**
+   * The dash this session is on, when the caller already holds it.
+   *
+   * {@link SessionDashMarker} otherwise finds it by searching the changeset
+   * snapshot for the dash that lists this session — the right shape for a
+   * surface that knows only a session id. A surface rendering a specific
+   * dash's row already has the answer, and asking the store to re-derive it
+   * makes that row's atom depend on a feed having arrived in order to say
+   * something the row was built from.
+   *
+   * `null` is not "no dash": it is "ask the store", which is the default. A
+   * caller that means *this session is on no dash* passes nothing, because a
+   * session with no dash is what the store already reports.
+   */
+  dash?: { name: string; review: string | null };
 }
 
 /**
@@ -373,6 +388,7 @@ export const TugSessionIdentity = React.forwardRef<
     onOpen,
     hostCardId,
     tooltip = true,
+    dash,
     className,
     ...rest
   },
@@ -471,7 +487,17 @@ export const TugSessionIdentity = React.forwardRef<
         {/* The bound dash is part of the identity wherever the identity is
             met — a session on a dash is never named without it, so there is
             deliberately no prop to turn this run off. */}
-        {isMissing ? null : <SessionDashMarker sessionId={identity.id} />}
+        {isMissing ? null : dash !== undefined ? (
+          <DashSigil
+            name={dash.name}
+            review={dash.review}
+            slot="session-identity-dash"
+            title={`Working on dash ${dash.name}`}
+            ariaLabel={`On dash ${dash.name}`}
+          />
+        ) : (
+          <SessionDashMarker sessionId={identity.id} />
+        )}
       </span>
       {isMissing ? null : <SessionPrivacyMarker sessionId={identity.id} />}
     </span>

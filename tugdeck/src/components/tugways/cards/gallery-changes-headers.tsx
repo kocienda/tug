@@ -12,12 +12,14 @@
  *   meant (ownership, urgency, species, staleness) are all said in words a
  *   line below.
  *
- *   **A dash wears its caret and no box.** `DashSigil` — the same component a
- *   bound session's identity atom composes — so a dash named in the lane and
- *   the same dash named in a session's title are one rendering rather than two
- *   that agree by hand. The tinted chip it replaced said "tag" where the caret
- *   says "dash", and it was the loudest thing in a row whose news is the facts
- *   beside it.
+ *   **A dash is named in one of two registers, and the register is the fact.**
+ *   A dash somebody is working leads with that worker's session atom, the dash
+ *   riding inside it — because a session is always shown WITH its bound dash,
+ *   and splitting the two onto one line would state the pairing twice and let
+ *   the halves drift. A dash nobody is working has no atom to ride and takes
+ *   the mono caret run. Proportional in a pill means somebody is on this;
+ *   monospace means nobody is, and the lane sorts on that before a word is
+ *   read.
  *
  * What the card is FOR now that both are adopted: seeing all six section
  * headers and every dash-row shape at once — long names, short names, review
@@ -26,7 +28,8 @@
  * good day.
  *
  * **Everything here is the shipping thing.** `TugChangesList`,
- * `SessionChangesDashLane` and `DashSigil` are the components; the header
+ * `SessionChangesDashLane`, `TugSessionIdentity` and `DashSigil` are the
+ * components; the header
  * strings come from `changes-section-labels.ts`, the module the shade reads;
  * the styling is `tug-changes-list.css` and `session-changes-dash-lane.css`
  * with nothing overridden. This file contributes fixture data and a frame to
@@ -45,6 +48,8 @@ import "./gallery-changes-headers.css";
 import React from "react";
 
 import { TugLabel } from "@/components/tugways/tug-label";
+import { sessionNameStore } from "@/lib/session-name-store";
+import { sessionTagStore } from "@/lib/session-tag-store";
 import { BlockStrip } from "@/components/tugways/blocks/block-strip";
 import { GitCommitHorizontal } from "lucide-react";
 import {
@@ -69,8 +74,23 @@ import type {
 // ---------------------------------------------------------------------------
 
 const ROOT = "/Users/kocienda/Mounts/u/src/tugtool";
-const OWNER = "at-gallery-session";
+/** A uuid shape, because the identity resolver derives a short id from it. */
+const OWNER = "9a1c7f20-0000-4000-8000-000000000000";
 const TOUCHED = 1_760_000_000_000;
+
+/**
+ * The fixture session's name and callsign, written into the same two stores a
+ * `session_updated` push writes.
+ *
+ * The bound dash row leads with that session's atom, and the atom resolves its
+ * runs by id through `useSessionIdentity` — so without this the card would
+ * show the honest rendering of a session the ledger has never heard of (a bare
+ * short id), which is a truthful answer to a question the card is not asking.
+ * The id is gallery-scoped and matches no real session, so nothing outside
+ * this card reads either row.
+ */
+sessionNameStore.setName(OWNER, "Changes shade chrome");
+sessionTagStore.setTag(OWNER, "frothy-nurse-2");
 
 function file(
   path: string,
@@ -205,6 +225,7 @@ const OTHERS: DashChangesetEntry[] = [
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
 const NOOP_TOGGLE = (): void => {};
 
+
 // ---------------------------------------------------------------------------
 // The card
 // ---------------------------------------------------------------------------
@@ -276,6 +297,7 @@ export function GalleryChangesHeaders(): React.ReactElement {
           projectRoot={ROOT}
         />
       </Stage>
+
     </div>
   );
 }

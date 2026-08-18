@@ -34,23 +34,35 @@
   margin-top: var(--tug-space-lg);
 }
 
-/* The dash name, as `DashSigil` draws it everywhere else.
+/* Two or more workers on one dash is legal, so the atoms are a wrapping row
+   rather than a single slot. */
+.session-changes-dash-workers {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  min-inline-size: 0;
+  flex-wrap: wrap;
+}
 
-   The family and size are restated rather than inherited: the row primitive
-   types its CONTENT column from `[data-mono="true"]`, and the name rides the
-   leading slot, which that rule does not reach. `xs` is the value that rule
-   sets — the size a file path takes in `TugChangesList` two sections up — so a
-   dash name and a file name are the same size in the same shade, which is the
-   only reason this file names a size at all.
+/* The unbound dash's name.
 
-   The width ceiling is a share of the row in characters and never an authored
-   pixel count, so a name that fits is shown whole and a longer one ellipsizes
-   at the same place in every theme. */
+   The ENCLOSURE is not here and is not this file's to author: `DashSigil
+   atom` wears the settled session-atom skin, so the pill's radius, hairline,
+   padding and size scale are `tug-session-identity.css`'s and change with it.
+
+   What this file adds is the one thing the skin does not say: the family. A
+   worked dash rides its worker's atom in the proportional face; an unworked
+   one is monospace. That contrast IS the fact — it says whether anybody is on
+   this dash before a word is read — which is why a font family is worth
+   naming here and nothing else is.
+
+   No width ceiling. A name elides when the ROW is out of room and never
+   because of a number authored here — the same rule the identity run states
+   for itself. */
 [data-slot="session-changes-dash-name"] {
-  flex: none;
-  max-inline-size: 24ch;
+  flex: 0 1 auto;
+  min-inline-size: 0;
   font-family: var(--tug-font-family-mono);
-  font-size: var(--tug-font-size-xs);
 }
 
 .session-changes-dash-lane-label::after {

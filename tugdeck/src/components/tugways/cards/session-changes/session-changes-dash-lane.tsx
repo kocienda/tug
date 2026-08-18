@@ -55,6 +55,8 @@ import { PopOutDiffButton, SectionLabelText } from "@/components/tugways/tug-cha
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { DASH_FRONTED_LABEL, dashRestLabel } from "./changes-section-labels";
 import { DashSigil } from "@/components/tugways/dash-sigil";
+import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { useSessionIdentity } from "@/lib/session-identity";
 import {
   SessionChangesDashLanding,
   discardPreflightLine,
@@ -350,6 +352,65 @@ export function discardConfirmMessage(entry: DashChangesetEntry): string {
 // The row
 // ---------------------------------------------------------------------------
 
+/**
+ * A dash's name in the lane, in whichever of its two registers applies.
+ *
+ * **Bound** — one session atom per live session mated to this dash, each
+ * carrying this dash inside it. `bound_sessions` is a list because two cards
+ * on one dash is legal rather than a race, and the Lens already answers that
+ * with one chip per session; the lane answers it the same way rather than
+ * inventing a "+1 more".
+ *
+ * **Unbound** — the mono caret run. The register IS the fact: a proportional
+ * atom means somebody is working this, a monospace run means nobody is, and a
+ * reader can sort the lane on that without reading a word.
+ */
+function DashLaneName({ entry }: { entry: DashChangesetEntry }): React.ReactElement {
+  const bound = entry.bound_sessions ?? [];
+  const dash = { name: entry.display_name, review: entry.review ?? null };
+  if (bound.length === 0) {
+    return (
+      <DashSigil
+        name={entry.display_name}
+        review={entry.review ?? null}
+        slot="session-changes-dash-name"
+        atom
+      />
+    );
+  }
+  return (
+    <span className="session-changes-dash-workers">
+      {bound.map((sessionId) => (
+        <BoundWorkerAtom key={sessionId} sessionId={sessionId} dash={dash} />
+      ))}
+    </span>
+  );
+}
+
+/** One worker's atom, resolved by id, wearing the row's own dash. */
+function BoundWorkerAtom({
+  sessionId,
+  dash,
+}: {
+  sessionId: string;
+  dash: { name: string; review: string | null };
+}): React.ReactElement {
+  const identity = useSessionIdentity(sessionId);
+  return (
+    <TugSessionIdentity
+      identity={identity}
+      tier="chip"
+      size="2xs"
+      dash={dash}
+      tooltip={false}
+      // Deliberately NOT the unbound row's slot: that one carries the mono
+      // family, and a worked dash is proportional. Two slots because the two
+      // registers are two different statements, not one with a variant.
+      data-slot="session-changes-dash-worker"
+    />
+  );
+}
+
 function DashRow({
   entry,
   projectRoot,
@@ -425,18 +486,19 @@ function DashRow({
       <TugListRow
         variant="flush"
         density="compact"
-        // The name wears its caret and no box ([D138] naming): `DashSigil` is
-        // the same component a bound session's identity atom composes, so a
-        // dash named here and the same dash named in a session's title are one
-        // rendering. A tinted chip was the loudest thing in a row whose news is
-        // the facts beside it, and it said "tag" where the caret says "dash".
-        leading={
-          <DashSigil
-            name={entry.display_name}
-            review={entry.review ?? null}
-            slot="session-changes-dash-name"
-          />
-        }
+        // A session is always shown WITH its bound dash, so a worked dash
+        // leads with the worker's own atom and the dash rides inside it, where
+        // it rides on every other identity surface. Splitting the two would
+        // state the pairing twice and let them drift apart on the line.
+        //
+        // The dash is passed rather than looked up: this row IS that dash, so
+        // making the atom re-derive it from the changeset store would put a
+        // fact the row was built from behind a feed arriving.
+        //
+        // An unbound dash has no atom to ride, and takes the mono caret run —
+        // which is the differentiator, not a fallback. Sans in a pill means a
+        // session is working this; mono means nobody is.
+        leading={<DashLaneName entry={entry} />}
         trailing={
           <span className="session-changes-dash-row-trailing">
             {binding !== null ? (

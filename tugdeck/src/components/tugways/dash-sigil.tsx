@@ -38,6 +38,23 @@ export interface DashSigilProps {
   /** The run's hover sentence, when the surface has one to give. */
   title?: string;
   ariaLabel?: string;
+  /**
+   * Render the run as an **atom** — the citation register — rather than as
+   * bare presence.
+   *
+   * The pill is not authored here and has no values of its own: the wrapper
+   * wears `tug-session-identity` + `data-tier="chip"`, so the enclosure is the
+   * settled session-atom skin in `tug-session-identity.css`, the same rules a
+   * session citation gets, reached by the same selectors. A dash atom and a
+   * session atom are siblings by construction rather than by two sets of
+   * numbers kept equal by hand.
+   *
+   * This is the same borrowing the class names already do — the styling did
+   * not move, only the markup carrying it.
+   */
+  atom?: boolean;
+  /** Atom size, passed through to the skin's own `data-size` scale. */
+  atomSize?: "sm" | "2xs";
 }
 
 export function DashSigil({
@@ -46,8 +63,10 @@ export function DashSigil({
   slot,
   title,
   ariaLabel,
+  atom = false,
+  atomSize = "2xs",
 }: DashSigilProps): React.ReactElement {
-  return (
+  const run = (
     <span
       className="tug-session-identity-dash"
       data-slot={slot}
@@ -62,6 +81,12 @@ export function DashSigil({
         ^
       </span>
       <span className="tug-session-identity-dash-name">{name}</span>
+    </span>
+  );
+  if (!atom) return run;
+  return (
+    <span className="tug-session-identity" data-tier="chip" data-size={atomSize}>
+      {run}
     </span>
   );
 }
