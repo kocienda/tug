@@ -54,7 +54,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, commitRound, releaseDash } from "./dash-fixture";
+import { createDash, commitRound, discardDash } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -84,7 +84,7 @@ let dir = "";
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   dir = mkdtempSync(join(tmpdir(), "at0340-"));
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   const created = createDash(PROJECT_DIR, DASH, "at0340 changes-door fixture");
   // A round, so the dash is not empty — the landing face needs something to
   // land, and an empty dash's answer is release rather than join.
@@ -95,7 +95,7 @@ beforeAll(() => {
 afterAll(() => {
   if (dir !== "" && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
 });
 
 function deckShape() {
@@ -421,7 +421,7 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
         );
         await runCommand(app, `/dash-bind ${DASH}`);
         await app.waitForCondition<boolean>(
-          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]')?.textContent.trim() === ${JSON.stringify(`#${DASH}`)}`,
+          `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]')?.textContent.trim() === ${JSON.stringify(`◊${DASH}`)}`,
           { timeoutMs: 20000 },
         );
 

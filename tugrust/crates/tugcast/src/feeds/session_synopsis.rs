@@ -3181,7 +3181,8 @@ mod tests {
     }
 
     fn assert_grounded(line: &str, name: &str) {
-        if let GroundingVerdict::Ungrounded { rule, detail } = ground_synopsis(line, &digest(name)) {
+        if let GroundingVerdict::Ungrounded { rule, detail } = ground_synopsis(line, &digest(name))
+        {
             panic!("{line:?} refused against {name} by {rule} ({detail})");
         }
     }
@@ -3191,7 +3192,10 @@ mod tests {
     #[test]
     fn the_real_defective_lines_are_refused() {
         // A tool line copied straight through as the description.
-        assert_eq!(refusal("Bash make", "parts-list-tail").0, "tool-name-opener");
+        assert_eq!(
+            refusal("Bash make", "parts-list-tail").0,
+            "tool-name-opener"
+        );
         // The mid-token truncation seen on the row. `…` is `clip`'s marker.
         assert_eq!(refusal("Write jul29-p…", "one-line-goal").0, "path-bearing");
         assert_eq!(
@@ -3985,10 +3989,10 @@ mod tests {
     // The ask, end to end
     // -----------------------------------------------------------------------
 
+    use crate::session_ledger::SessionLedger;
     use crate::shared_agent::{
         AgentSpec, AgentWorkerSpawner, JobSpec, SharedAgentPool, TurnRequest,
     };
-    use crate::session_ledger::SessionLedger;
 
     /// How the scripted agent answers.
     #[derive(Clone, Copy)]
@@ -4363,9 +4367,7 @@ mod tests {
         let digest = next_digest(&mut h.digests).await;
         assert!(digest.starts_with(SESSION_RECENT_HEADING));
         assert!(digest.contains("make the watch loop resilient"));
-        assert!(digest.contains(&format!(
-            "{SESSION_PRESENT_HEADING}\n- Bash(cargo build)\n"
-        )));
+        assert!(digest.contains(&format!("{SESSION_PRESENT_HEADING}\n- Bash(cargo build)\n")));
     }
 
     #[tokio::test(start_paused = true)]
@@ -4640,9 +4642,7 @@ mod tests {
             .send(user_message_frame("s1", "now fix the parser"))
             .unwrap();
         let first = next_digest(&mut h.digests).await;
-        assert!(first.starts_with(&format!(
-            "{SESSION_RECENT_HEADING}\n- now fix the parser\n"
-        )));
+        assert!(first.starts_with(&format!("{SESSION_RECENT_HEADING}\n- now fix the parser\n")));
         // The ask the cache was carrying became the item this one closed.
         assert!(first.contains("make the watch loop resilient"));
 

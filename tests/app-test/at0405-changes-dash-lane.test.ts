@@ -20,7 +20,7 @@
  *
  * ## Release's reach
  *
- * Both sides of the rule are driven. A parked dash — one no live session is
+ * Both sides of the rule are driven. An unbound dash — one no live session is
  * mated to — offers Release from any shade, because there is nobody to take it
  * away from. A dash a *different* live session holds offers none at all: it is
  * that session's to release, and the refusal is permanent, so the control is
@@ -61,7 +61,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, releaseDash, tugutil } from "./dash-fixture";
+import { commitRound, createDash, discardDash, tugutil } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -83,8 +83,8 @@ const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-lab
 const DASH_NAME = "at0405-lane";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
 const ROW_FOLD = `${ROW} [data-slot="session-changes-dash-fold"]`;
-const LEAVE = `${ROW} [data-slot="session-changes-dash-leave"]`;
-const ADOPT = `${ROW} [data-slot="session-changes-dash-adopt"]`;
+const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
+const ADOPT = `${ROW} [data-slot="session-changes-dash-bind"]`;
 const RELEASE = `${ROW} [data-slot="session-changes-dash-release"]`;
 
 /** The checkout this file sits in — the project the aggregate composes, per
@@ -123,7 +123,7 @@ beforeAll(() => {
 afterAll(() => {
   if (!SHOULD_RUN) return;
   // Release discards the worktree and the branch, dirt included.
-  releaseDash(PROJECT_DIR, DASH_NAME);
+  discardDash(PROJECT_DIR, DASH_NAME);
 });
 
 function deckShape() {
@@ -375,14 +375,14 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           "the other-dashes fold no longer exists",
         ).toBe(0);
 
-        // Release reaches a parked dash. No live session is mated to this one,
+        // Discard reaches an unbound dash. No live session is mated to this one,
         // so it is nobody's to protect and this shade may clean it up — the
         // whole point of widening the gesture past the fronted row.
         expect(
           await app.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(RELEASE)}).length`,
           ),
-          "a parked dash offers Release",
+          "an unbound dash offers Discard",
         ).toBe(1);
 
         // ── The row reads in dash grammar ─────────────────────────────────
@@ -495,8 +495,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              return {
-               leave: row.querySelectorAll('[data-slot="session-changes-dash-leave"]').length,
-               adopt: row.querySelectorAll('[data-slot="session-changes-dash-adopt"]').length,
+               leave: row.querySelectorAll('[data-slot="session-changes-dash-unbind"]').length,
+               adopt: row.querySelectorAll('[data-slot="session-changes-dash-bind"]').length,
              };
            })()`,
         );

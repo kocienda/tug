@@ -48,7 +48,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, releaseDash } from "./dash-fixture";
+import { commitRound, createDash, discardDash } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -138,7 +138,7 @@ afterAll(() => {
     utimesSync(basePath, baseMtime, baseMtime);
     baseBefore = null;
   }
-  if (refusedReason === null) releaseDash(PROJECT_DIR, DASH_NAME);
+  if (refusedReason === null) discardDash(PROJECT_DIR, DASH_NAME);
 });
 
 function deckShape() {

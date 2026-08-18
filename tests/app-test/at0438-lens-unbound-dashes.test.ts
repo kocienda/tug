@@ -1,22 +1,22 @@
 /**
- * at0438-lens-parked-dashes.test.ts — a dash is in the Lens exactly once.
+ * at0438-lens-unbound-dashes.test.ts — a dash is in the Lens exactly once.
  *
  * The Lens has two surfaces that can talk about a dash, and the rule between
  * them is a partition rather than a preference: worked ⇒ the session's row in
  * the **Cards** section, which carries `#<dash>` in its identity run and the
- * stage line beneath it; unworked ⇒ the **Parked Dashes** section. Membership
+ * stage line beneath it; unworked ⇒ the **Unbound Dashes** section. Membership
  * is exactly `bound_sessions.length === 0`, so the two are complements and no
  * dash can be in both or in neither.
  *
  * That is what this drives, as one round trip against the real app: bind, and
- * the Parked section is *gone* — the band, not merely an empty body — while the
+ * the Unbound section is *gone* — the band, not merely an empty body — while the
  * session's row grows its dash line; unbind, and the section is back with the
  * dash's row while the line goes away. Asserting the band's absence is the
  * point of [P03]: an inbox at zero costs zero rail height, and a body that
  * renders nothing inside a permanent band would pass a weaker assertion while
  * looking exactly like the thing this replaced.
  *
- * Then Adopt is pressed for real. It sends the same `bind_dash` frame the
+ * Then Bind is pressed for real. It sends the same `bind_dash` frame the
  * Changes shade sends, so the row leaves, the section unmounts, and the dash
  * line returns — the partition asserted a third time, from the other direction
  * and through the new control.
@@ -51,7 +51,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, releaseDash, tugutilPath } from "./dash-fixture";
+import { createDash, discardDash, tugutilPath } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -61,13 +61,13 @@ const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
-const DASH_NAME = "at0438-parked";
+const DASH_NAME = "at0438-unbound";
 
 /** The band, not the body: [P03] says an empty section renders no DOM at all. */
-const PARKED = '.lens-section[data-lens-section="dashes"]';
-const PARKED_ROW = `${PARKED} [data-slot="lens-dashes-row"]`;
-const PARKED_NAME = `${PARKED} [data-slot="lens-parked-name"]`;
-const ADOPT = `${PARKED} [data-slot="lens-parked-adopt"]`;
+const UNBOUND = '.lens-section[data-lens-section="dashes"]';
+const UNBOUND_ROW = `${UNBOUND} [data-slot="lens-dashes-row"]`;
+const UNBOUND_NAME = `${UNBOUND} [data-slot="lens-unbound-name"]`;
+const BIND = `${UNBOUND} [data-slot="lens-bind"]`;
 
 const CARDS = '.lens-section[data-lens-section="cards"]';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
@@ -82,7 +82,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH_NAME);
+  discardDash(PROJECT_DIR, DASH_NAME);
 });
 
 function deckShape() {
@@ -174,12 +174,12 @@ async function clickUntil(
 
 describe.skipIf(!SHOULD_RUN)("AT0438: the partition law", () => {
   test(
-    "a dash is in the Cards section or the Parked section, never both",
+    "a dash is in the Cards section or the Unbound section, never both",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
       const app = await launchTugApp({
-        testName: "at0438-lens-parked-dashes",
+        testName: "at0438-lens-unbound-dashes",
         env: { TUGBANK_PATH: tugbankPath },
       });
       try {
@@ -212,40 +212,40 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the partition law", () => {
           { timeoutMs: 20000 },
         );
 
-        // ── Parked: the fixture dash has no session, so it is here ────────
+        // ── Unbound: the fixture dash has no session, so it is here ──────
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(PARKED_ROW)}) !== null`,
+          `document.querySelector(${JSON.stringify(UNBOUND_ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const parked = await app.evalJS<{
+        const unbound = await app.evalJS<{
           name: string;
           rowText: string;
           rows: number;
-          adopts: number;
+          binds: number;
         }>(
           `(() => {
-             const row = document.querySelector(${JSON.stringify(PARKED_ROW)});
-             const name = document.querySelector(${JSON.stringify(PARKED_NAME)});
+             const row = document.querySelector(${JSON.stringify(UNBOUND_ROW)});
+             const name = document.querySelector(${JSON.stringify(UNBOUND_NAME)});
              return {
                name: (name?.textContent ?? "").trim(),
                rowText: (row?.textContent ?? "").trim(),
-               rows: document.querySelectorAll(${JSON.stringify(PARKED_ROW)}).length,
-               adopts: document.querySelectorAll(${JSON.stringify(ADOPT)}).length,
+               rows: document.querySelectorAll(${JSON.stringify(UNBOUND_ROW)}).length,
+               binds: document.querySelectorAll(${JSON.stringify(BIND)}).length,
              };
            })()`,
         );
-        note("at0438 parked row", JSON.stringify(parked));
+        note("at0438 unbound row", JSON.stringify(unbound));
         // The name wears its sigil here too — a dash is named one way
         // everywhere, and this row is the one place with no session to carry it.
-        expect(parked.name).toBe(`#${DASH_NAME}`);
-        expect(parked.rowText).toContain(DASH_NAME);
+        expect(unbound.name).toBe(`◊${DASH_NAME}`);
+        expect(unbound.rowText).toContain(DASH_NAME);
         // A dash created and never worked is `created`, and its birth record is
         // what gives it an age at all.
-        expect(parked.rowText).toContain("created");
-        expect(parked.adopts).toBeGreaterThan(0);
+        expect(unbound.rowText).toContain("created");
+        expect(unbound.binds).toBeGreaterThan(0);
         // And the session is NOT working it, so there is no dash line.
         expect(await count(app, DASH_LINE)).toBe(0);
-        note("at0438 lens with the parked section", (await app.screenshot()).path);
+        note("at0438 lens with the unbound section", (await app.screenshot()).path);
 
         // ── Bind: the section vanishes, band and all ──────────────────────
         await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash bind ${DASH_NAME}`);
@@ -255,27 +255,27 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the partition law", () => {
         );
         // The whole point of [P03]: no band, no body, no DOM. A weaker
         // assertion — an empty body — would pass for the thing this replaced.
-        expect(await count(app, PARKED)).toBe(0);
+        expect(await count(app, UNBOUND)).toBe(0);
         note("at0438 lens with the section gone", (await app.screenshot()).path);
 
         // ── Unbind: it comes back, with its row ───────────────────────────
         await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(PARKED_ROW)}) !== null`,
+          `document.querySelector(${JSON.stringify(UNBOUND_ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
         expect(await count(app, DASH_LINE)).toBe(0);
-        expect(await count(app, PARKED_ROW)).toBe(1);
+        expect(await count(app, UNBOUND_ROW)).toBe(1);
 
-        // ── Adopt: the same partition, driven through the new control ─────
+        // ── Bind: the same partition, driven through the new control ──────
         // The press sends `bind_dash`; the row leaves because `bound_sessions`
         // moved in the aggregate, not because the click did anything local.
-        await clickUntil(app, ADOPT, PARKED, "absent");
+        await clickUntil(app, BIND, UNBOUND, "absent");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DASH_LINE)}) !== null`,
           { timeoutMs: 30000 },
         );
-        expect(await count(app, PARKED)).toBe(0);
+        expect(await count(app, UNBOUND)).toBe(0);
         expect(await count(app, DASH_LINE)).toBe(1);
 
         // The section unmounted under whatever the movement cursor was on.
@@ -296,7 +296,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the partition law", () => {
              return {
                connected: el.isConnected,
                inVanishedSection:
-                 el.closest(${JSON.stringify(PARKED)}) !== null,
+                 el.closest(${JSON.stringify(UNBOUND)}) !== null,
                slot: el.getAttribute("data-slot"),
              };
            })()`,

@@ -231,19 +231,19 @@ describe("landingNoticeDecision", () => {
   });
 });
 
-describe("release errors reach a reader", () => {
-  it("settles a changeset_release_err into the state the notice controller reads", () => {
+describe("discard errors reach a reader", () => {
+  it("settles a changeset_discard_err into the state the notice controller reads", () => {
     // The controller subscribes to exactly this; before it existed the detail
     // landed here and no surface in the app ever asked for it.
-    getChangesetVerbStore()?.release(ENTRY_KEY, PROJECT, "notice-lane");
+    getChangesetVerbStore()?.discard(ENTRY_KEY, PROJECT, "notice-lane");
     reply({
-      action: "changeset_release_err",
+      action: "changeset_discard_err",
       project_dir: PROJECT,
       dash: "notice-lane",
-      detail: "Cannot release: the worktree has uncommitted changes",
+      detail: "Cannot discard: the worktree has uncommitted changes",
     });
-    expect(getChangesetVerbStore()?.releaseState(ENTRY_KEY).error).toBe(
-      "Cannot release: the worktree has uncommitted changes",
+    expect(getChangesetVerbStore()?.discardState(ENTRY_KEY).error).toBe(
+      "Cannot discard: the worktree has uncommitted changes",
     );
   });
 });

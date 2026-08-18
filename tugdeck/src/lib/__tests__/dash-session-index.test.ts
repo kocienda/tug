@@ -80,14 +80,14 @@ describe("buildDashSessionIndex", () => {
   });
 
   test("an entry with no bound_sessions contributes nothing", () => {
-    const parked: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
+    const unbound: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
     const older: DashChangesetEntry = {
       ...GOLDEN_DASH,
       owner_id: "tugdash/older#2",
       bound_sessions: undefined,
     };
     expect(
-      buildDashSessionIndex({ projects: [projectWith([parked, older])] }).size,
+      buildDashSessionIndex({ projects: [projectWith([unbound, older])] }).size,
     ).toBe(0);
   });
 

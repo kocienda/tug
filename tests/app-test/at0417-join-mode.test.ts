@@ -54,7 +54,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, commitRound, releaseDash } from "./dash-fixture";
+import { createDash, commitRound, discardDash } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -72,7 +72,7 @@ const BULLETIN = ".tug-pane-bulletin";
 const CHIP =
   '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
 /** What that run reads: the identity's dash grammar, sigil included. */
-const chipText = (dash: string): string => `#${dash}`;
+const chipText = (dash: string): string => `◊${dash}`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
@@ -81,7 +81,7 @@ const DASH = "at0417-join";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   const created = createDash(PROJECT_DIR, DASH, "at0417 fixture");
   // A round, so the dash is not empty — an empty dash has no join to preview.
   writeFileSync(join(created.worktree, "at0417.txt"), "at0417\n");
@@ -90,7 +90,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
 });
 
 function deckShape() {
@@ -386,8 +386,8 @@ describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
              return {
                fronted: (rows[0] ?? null)?.getAttribute("data-dash") ?? null,
                landing: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-landing"]').length,
-               adopt: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-adopt"]').length,
-               leave: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-leave"]').length,
+               adopt: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-bind"]').length,
+               leave: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-unbind"]').length,
              };
            })()`,
         );

@@ -1,15 +1,15 @@
 /**
- * The Lens Parked Dashes section's projection and its collapsed summary, over
+ * The Lens Unbound Dashes section's projection and its collapsed summary, over
  * the shared golden snapshot.
  *
  * The fact worth pinning hardest is the **partition law**: membership is
  * exactly "no live session is working this", so a worked dash is never here
  * (the Cards section shows it, on the row of the session doing the work) and a
- * parked one is never anywhere else. The golden snapshot's own dash is worked,
+ * unbound one is never anywhere else. The golden snapshot's own dash is worked,
  * which makes the first assertion below a real one rather than a tautology.
  *
  * The second is that an older sender omitting `bound_sessions` entirely reads
- * as parked. Absence of evidence is not evidence that somebody is working.
+ * as unbound. Absence of evidence is not evidence that somebody is working.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -25,7 +25,7 @@ import {
   compareDashRows,
   dashRowsFromSnapshot,
   dashesCollapsedSummary,
-  resolveAdoptTarget,
+  resolveBindTarget,
   type DashRow,
 } from "../dashes-section";
 
@@ -41,7 +41,7 @@ const GOLDEN_DASH = DATA.projects
   .find((entry): entry is DashChangesetEntry => entry.kind === "dash")!;
 
 /** The golden dash with nobody on it — the only kind this section holds. */
-const PARKED: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
+const UNBOUND: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
 
 describe("dashRowsFromSnapshot — the partition law", () => {
   test("a worked dash is not here at all", () => {
@@ -52,7 +52,7 @@ describe("dashRowsFromSnapshot — the partition law", () => {
   });
 
   test("a dash with no bound sessions is", () => {
-    const rows = dashRowsFromSnapshot({ projects: [projectWith([PARKED])] });
+    const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
     expect(rows.length).toBe(1);
     const row = rows[0]!;
     expect(row.ownerId).toBe(GOLDEN_DASH.owner_id);
@@ -62,7 +62,7 @@ describe("dashRowsFromSnapshot — the partition law", () => {
     expect(row.steps).toBeNull();
   });
 
-  test("an absent bound_sessions field reads parked, never live", () => {
+  test("an absent bound_sessions field reads unbound, never live", () => {
     const older: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: undefined };
     const rows = dashRowsFromSnapshot({ projects: [projectWith([older])] });
     expect(rows.length).toBe(1);
@@ -71,7 +71,7 @@ describe("dashRowsFromSnapshot — the partition law", () => {
   test("the two halves partition: every dash lands on exactly one side", () => {
     const worked: DashChangesetEntry = { ...GOLDEN_DASH, display_name: "worked" };
     const napping: DashChangesetEntry = {
-      ...PARKED,
+      ...UNBOUND,
       owner_id: "tugdash/napping#2",
       display_name: "napping",
     };
@@ -88,26 +88,26 @@ describe("dashRowsFromSnapshot — the partition law", () => {
     expect(sessions.length).toBeGreaterThan(0);
     expect(
       dashRowsFromSnapshot({
-        projects: [projectWith([...sessions, PARKED])],
+        projects: [projectWith([...sessions, UNBOUND])],
       }).length,
     ).toBe(1);
   });
 
   test("step counters render only when both halves arrive", () => {
-    const half: DashChangesetEntry = { ...PARKED, step_current: 2 };
+    const half: DashChangesetEntry = { ...UNBOUND, step_current: 2 };
     expect(
       dashRowsFromSnapshot({ projects: [projectWith([half])] })[0]!.steps,
     ).toBeNull();
-    const both: DashChangesetEntry = { ...PARKED, step_current: 2, step_total: 5 };
+    const both: DashChangesetEntry = { ...UNBOUND, step_current: 2, step_total: 5 };
     expect(
       dashRowsFromSnapshot({ projects: [projectWith([both])] })[0]!.steps,
     ).toBe("step 2/5");
   });
 
   test("the row carries its project's dir and label, always", () => {
-    // Not a disambiguator: a parked dash may be the only thing on screen from
+    // Not a disambiguator: an unbound dash may be the only thing on screen from
     // its project, so the label is orientation. The dir is what a bind names.
-    const rows = dashRowsFromSnapshot({ projects: [projectWith([PARKED])] });
+    const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
     expect(rows[0]!.projectLabel).toBe(DATA.projects[0]!.display_name);
     expect(rows[0]!.projectDir).toBe(DATA.projects[0]!.project_dir);
   });
@@ -116,7 +116,7 @@ describe("dashRowsFromSnapshot — the partition law", () => {
     const second: ProjectChangeset = {
       ...projectWith([
         {
-          ...PARKED,
+          ...UNBOUND,
           owner_id: "tugdash/landing#2",
           display_name: "landing-one",
           stage: "landing",
@@ -127,7 +127,7 @@ describe("dashRowsFromSnapshot — the partition law", () => {
     };
     const rows = dashRowsFromSnapshot({
       projects: [
-        projectWith([{ ...PARKED, display_name: "napping", stage: "created" }]),
+        projectWith([{ ...UNBOUND, display_name: "napping", stage: "created" }]),
         second,
       ],
     });
@@ -234,12 +234,12 @@ describe("compareDashRows", () => {
   });
 });
 
-describe("resolveAdoptTarget", () => {
+describe("resolveBindTarget", () => {
   const HOME = { projectDir: "/tmp/tugtool", projectLabel: "tugtool" };
 
   test("the followed card's session, when its project owns the dash", () => {
     expect(
-      resolveAdoptTarget({
+      resolveBindTarget({
         ...HOME,
         followedCardId: "A",
         binding: { tugSessionId: "sess-1", projectDir: "/tmp/tugtool" },
@@ -249,19 +249,19 @@ describe("resolveAdoptTarget", () => {
 
   // Each refusal below names what is missing. A control that declines without
   // saying why is exactly the failure this section used to have — its old
-  // activation was a silent no-op on every parked row ([L31]).
+  // activation was a silent no-op on every unbound row ([L31]).
   test("no followed card names the gesture that would fix it", () => {
-    const target = resolveAdoptTarget({
+    const target = resolveBindTarget({
       ...HOME,
       followedCardId: null,
       binding: undefined,
     });
     expect(target.tugSessionId).toBeNull();
-    expect(target.reason).toBe("Focus a session card to adopt this dash");
+    expect(target.reason).toBe("Focus a session card to bind this dash");
   });
 
   test("a followed card with no session says so", () => {
-    const target = resolveAdoptTarget({
+    const target = resolveBindTarget({
       ...HOME,
       followedCardId: "A",
       binding: undefined,
@@ -271,7 +271,7 @@ describe("resolveAdoptTarget", () => {
   });
 
   test("a project mismatch names the project, so a real refusal is self-reporting", () => {
-    const target = resolveAdoptTarget({
+    const target = resolveBindTarget({
       ...HOME,
       followedCardId: "A",
       binding: { tugSessionId: "sess-1", projectDir: "/tmp/elsewhere" },
@@ -294,37 +294,37 @@ describe("resolveAdoptTarget", () => {
       },
     ];
     for (const input of cases) {
-      const target = resolveAdoptTarget({ ...HOME, ...input });
+      const target = resolveBindTarget({ ...HOME, ...input });
       expect((target.tugSessionId === null) !== (target.reason === null)).toBe(true);
     }
   });
 });
 
 describe("dashesCollapsedSummary", () => {
-  test("counts what is parked", () => {
+  test("counts what is unbound", () => {
     const rows = dashRowsFromSnapshot({
       projects: [
         projectWith([
-          PARKED,
-          { ...PARKED, owner_id: "tugdash/idle#2", display_name: "idle" },
+          UNBOUND,
+          { ...UNBOUND, owner_id: "tugdash/idle#2", display_name: "idle" },
         ]),
       ],
     });
-    expect(dashesCollapsedSummary(rows)).toBe("2 parked");
+    expect(dashesCollapsedSummary(rows)).toBe("2 unbound");
   });
 
-  test("one is still 'parked' — the word is the state, not a plural", () => {
+  test("one is still 'unbound' — the word is the state, not a plural", () => {
     expect(
       dashesCollapsedSummary(
-        dashRowsFromSnapshot({ projects: [projectWith([PARKED])] }),
+        dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] }),
       ),
-    ).toBe("1 parked");
+    ).toBe("1 unbound");
   });
 
   // Unreachable in the app, where the section hides itself rather than showing
   // a band that says nothing. Kept so the change of premise is a sentence
   // rather than a crash.
   test("an empty list still reads as a sentence", () => {
-    expect(dashesCollapsedSummary([])).toBe("No parked dashes");
+    expect(dashesCollapsedSummary([])).toBe("No unbound dashes");
   });
 });

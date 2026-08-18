@@ -167,7 +167,7 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 
 import { createStagedLanding, type StagedLanding } from "./staged-landing";
 import { LandingNoticeController } from "./landing-notice-controller";
-import { ReleaseErrorNoticeController } from "./release-error-notice-controller";
+import { DiscardErrorNoticeController } from "./discard-error-notice-controller";
 import { DashBindErrorNoticeController } from "./dash-bind-error-notice-controller";
 import { deriveColdRestoreActive } from "./session-card-restore-gate";
 import { REPLAY_SOFT_BUDGET_MS } from "@/lib/code-session-store";
@@ -4871,7 +4871,7 @@ export function SessionCardBody({
             <TransientNoticeController store={codeSessionStore} />
             <LandingNoticeController controller={commitModeController} />
             <LandingNoticeController controller={joinModeController} />
-            <ReleaseErrorNoticeController entryKey={changesController.entryKey} />
+            <DiscardErrorNoticeController entryKey={changesController.entryKey} />
             <ClaimErrorNoticeController entryKey={changesController.entryKey} />
             {boundSessionId !== null ? (
               <DashBindErrorNoticeController tugSessionId={boundSessionId} />

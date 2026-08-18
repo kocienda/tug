@@ -1,5 +1,5 @@
 /**
- * dashes-section.tsx — the Lens **Parked Dashes** section: the inbox of
+ * dashes-section.tsx — the Lens **Unbound Dashes** section: the inbox of
  * unattended work, across every open project.
  *
  * **A dash appears in the Lens exactly once.** Worked ⇒ its session's row in
@@ -18,7 +18,7 @@
  * rather than the section.
  *
  * An empty section renders **nothing at all**, band included ([P03]). The
- * everyday state is zero parked dashes, and an inbox at zero should cost zero
+ * everyday state is zero unbound dashes, and an inbox at zero should cost zero
  * rail height. Presence is published by a probe mounted outside this body,
  * because a body cannot decide it should not exist (see
  * `lens-section-presence.ts`).
@@ -31,29 +31,36 @@
  *
  * **The row carries verbs**, which the roster it replaced deliberately did not.
  * The old reasoning was that the binding verbs live in the Changes shade beside
- * the facts you would take a dash on for — true, and it does not cover a parked
- * dash, which has no session and therefore no shade to hold them. Adopt binds
+ * the facts you would take a dash on for — true, and it does not cover an unbound
+ * dash, which has no session and therefore no shade to hold them. Bind mates
  * the dash to the Lens's followed card, or refuses with a reachable reason
- * ([L31]); Release discards it behind a confirm. Neither is on row activation:
+ * ([L31]); Discard destroys it behind a confirm. Neither is on row activation:
  * fronting is what activating a row means everywhere else in the Lens, and one
  * list where Enter rebinds instead would be worse than the silence it replaced.
  *
  * Both verbs **destroy the surface they are pressed on** — that is the success
- * path, not an edge case, and on the last parked dash it takes the whole
- * section with it. So Adopt reports nothing locally (a refusal arrives on the
- * card-level bind-error surface, which outlives the row) and the release
+ * path, not an edge case, and on the last unbound dash it takes the whole
+ * section with it. So Bind reports nothing locally (a refusal arrives on the
+ * card-level bind-error surface, which outlives the row) and the discard
  * confirm anchors to the row element rather than to the button inside it.
  *
  * Rows are totally ordered: nearest-to-done first, then freshest first, then by
- * name. Stage leads because a parked `draft-ready` dash is one gesture from
+ * name. Stage leads because an unbound `draft-ready` dash is one gesture from
  * landing; freshness is the tiebreak a person actually wants, since the dash
- * parked an hour ago is the one they were just in. Name is the final tiebreak
+ * unbound an hour ago is the one they were just in. Name is the final tiebreak
  * rather than snapshot order, which is git-enumeration order — stable,
  * arbitrary, and reshuffled by any branch created or deleted.
  *
+ * The section's `kind` stays `"dashes"` though its title is Unbound Dashes.
+ * The kind is the registry key and the key `sectionOrder` and
+ * `collapsedSections` persist under in tugbank, so renaming it would silently
+ * reset every saved Lens order and re-expand a section somebody had collapsed
+ * — a real cost for a string nobody reads. The title is what a person reads,
+ * and the title is what moved.
+ *
  * Laws: [L02] the aggregate enters React through `useSyncExternalStore`;
  * [L03] the section's content declaration is a `useLayoutEffect`; [L06] the
- * parked mark and the row's tone are CSS on DOM attributes, never React state;
+ * unbound mark and the row's tone are CSS on DOM attributes, never React state;
  * [L19] rows compose `TugListView` / `TugListRow` rather than hand-rolling list
  * focus.
  *
@@ -93,7 +100,7 @@ import { useLensFollowedCard } from "@/components/lens/lens-followed-card";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { useChangesetAll } from "@/lib/changeset-all-store";
-import { useChangesetRelease } from "@/lib/changeset-verb-store";
+import { useChangesetDiscard } from "@/lib/changeset-verb-store";
 import type {
   DashChangesetEntry,
   ProjectChangeset,
@@ -110,7 +117,7 @@ const DASH_DOT_SIZE = 10;
 // Projection
 // ---------------------------------------------------------------------------
 
-/** One parked dash, flattened out of the aggregate for the section's list. */
+/** One unbound dash, flattened out of the aggregate for the section's list. */
 export interface DashRow {
   /** The dash's owner key — this row's identity, unique per incarnation. */
   ownerId: string;
@@ -131,7 +138,7 @@ export interface DashRow {
   /** The owning project's directory — what a bind has to name, and the test
    *  for whether a given card's session may take this dash on. */
   projectDir: string;
-  /** The owning project's name. Always present: a parked dash may belong to a
+  /** The owning project's name. Always present: an unbound dash may belong to a
    *  project with nothing else on screen, so the label is orientation rather
    *  than disambiguation. */
   projectLabel: string;
@@ -209,12 +216,12 @@ export function compareDashRows(a: DashRow, b: DashRow): number {
 }
 
 /**
- * Every **parked** dash across every open project, ordered by
+ * Every **unbound** dash across every open project, ordered by
  * {@link compareDashRows}.
  *
  * The filter is the partition law: a dash with any live bound session is the
  * Cards section's to show, and never appears here. An older sender omits
- * `bound_sessions` entirely, which reads as parked — the honest answer, since
+ * `bound_sessions` entirely, which reads as unbound — the honest answer, since
  * nothing has claimed anybody is working it.
  *
  * Project grouping is not an ordering key: the project label rides each row,
@@ -240,24 +247,24 @@ export function dashesCollapsedSummary(rows: readonly DashRow[]): string {
   // Unreachable while the section hides itself when empty ([P03]), and kept
   // anyway: a summary that reads as a crash when its own premise changes is
   // worse than one sentence nobody sees.
-  if (rows.length === 0) return "No parked dashes";
-  return `${rows.length} parked`;
+  if (rows.length === 0) return "No unbound dashes";
+  return `${rows.length} unbound`;
 }
 
 // ---------------------------------------------------------------------------
 // Leaves
 // ---------------------------------------------------------------------------
 
-/** The parked mark: a quiet glyph, deliberately not a dot at rest — a dash
+/** The unbound mark: a quiet glyph, deliberately not a dot at rest — a dash
  *  nobody is working is not a state of work. Unconditional here, because every
- *  row in this section is parked by construction. */
-function DashParkedMark(): React.ReactElement {
+ *  row in this section is unbound by construction. */
+function DashUnboundMark(): React.ReactElement {
   return (
-    <TugTooltip content="Parked — no live session is working this dash">
+    <TugTooltip content="Unbound — no live session is working this dash">
       <span
-        className="lens-dashes-parked"
-        data-slot="lens-dashes-parked"
-        aria-label="Parked"
+        className="lens-dashes-unbound"
+        data-slot="lens-dashes-unbound"
+        aria-label="Unbound"
       >
         <CircleDashed size={DASH_DOT_SIZE + 2} />
       </span>
@@ -294,31 +301,31 @@ class DashRowsDataSource implements TugListViewDataSource {
 // The verbs
 // ---------------------------------------------------------------------------
 
-/** Where an Adopt press would send this dash, or why it cannot. Exactly one of
+/** Where a Bind press would send this dash, or why it cannot. Exactly one of
  *  the two is non-null. */
-export interface AdoptTarget {
+export interface BindTarget {
   tugSessionId: string | null;
   reason: string | null;
 }
 
 /**
- * Resolve Adopt's target from the Lens's followed card (Table T01) — pure, so
+ * Resolve Bind's target from the Lens's followed card (Table T01) — pure, so
  * its whole truth table is a unit test rather than a DOM one.
  *
  * The ladder stops at the followed card deliberately. Reaching past it to some
- * other open card would make Adopt succeed more often at the cost of making its
+ * other open card would make Bind succeed more often at the cost of making its
  * destination invisible: a press could bind a dash into a card the reader was
  * not looking at. Every refusal names what is missing, because a control that
  * declines without saying why is the failure this section already had.
  */
-export function resolveAdoptTarget(input: {
+export function resolveBindTarget(input: {
   followedCardId: string | null;
   binding: { tugSessionId: string; projectDir: string } | undefined;
   projectDir: string;
   projectLabel: string;
-}): AdoptTarget {
+}): BindTarget {
   if (input.followedCardId === null) {
-    return { tugSessionId: null, reason: "Focus a session card to adopt this dash" };
+    return { tugSessionId: null, reason: "Focus a session card to bind this dash" };
   }
   if (input.binding === undefined) {
     return { tugSessionId: null, reason: "The focused card has no session" };
@@ -334,8 +341,8 @@ export function resolveAdoptTarget(input: {
   return { tugSessionId: input.binding.tugSessionId, reason: null };
 }
 
-/** {@link resolveAdoptTarget} against the live followed card and its binding. */
-function useAdoptTarget(row: DashRow): AdoptTarget {
+/** {@link resolveBindTarget} against the live followed card and its binding. */
+function useBindTarget(row: DashRow): BindTarget {
   const followedCardId = useLensFollowedCard();
   const bindings = useSyncExternalStore(
     cardSessionBindingStore.subscribe,
@@ -343,7 +350,7 @@ function useAdoptTarget(row: DashRow): AdoptTarget {
   );
   const binding =
     followedCardId !== null ? bindings.get(followedCardId) : undefined;
-  return resolveAdoptTarget({
+  return resolveBindTarget({
     followedCardId,
     binding,
     projectDir: row.projectDir,
@@ -352,35 +359,35 @@ function useAdoptTarget(row: DashRow): AdoptTarget {
 }
 
 /** What a row may ask of the section around it. */
-interface ParkedVerbs {
-  requestRelease: (row: DashRow, anchor: HTMLElement | null) => void;
+interface UnboundVerbs {
+  requestDiscard: (row: DashRow, anchor: HTMLElement | null) => void;
 }
 
-const ParkedVerbsContext = React.createContext<ParkedVerbs | null>(null);
+const UnboundVerbsContext = React.createContext<UnboundVerbs | null>(null);
 
 /**
  * Take this dash on.
  *
  * The press reports **nothing locally**, and that is the point: on success the
- * row leaves the section, and on the last parked dash the section unmounts —
+ * row leaves the section, and on the last unbound dash the section unmounts —
  * so a pending state or an error slot on the row would be reporting into a
  * component that is already gone. Success is legible as the row leaving;
  * a server-side refusal arrives on the card-level `dash-bind-error-store`
  * surface, which outlives both.
  */
-function AdoptControl({ row }: { row: DashRow }): React.ReactElement {
-  const target = useAdoptTarget(row);
+function BindControl({ row }: { row: DashRow }): React.ReactElement {
+  const target = useBindTarget(row);
   return (
     // The tooltip wraps a SPAN, not the button: a disabled button takes no
     // pointer events, so its own tooltip would never fire — and an unreachable
     // reason is not a reason ([L31]).
     <TugTooltip content={target.reason ?? `Bind ${row.name} to the focused session`}>
-      <span className="lens-dashes-adopt">
+      <span className="lens-dashes-bind">
         <TugPushButton
           size="2xs"
           subtype="text"
           disabled={target.reason !== null}
-          data-slot="lens-parked-adopt"
+          data-slot="lens-bind"
           onClick={() => {
             if (target.tugSessionId === null) return;
             // The same frame the Changes shade's lane sends, so there is one
@@ -394,7 +401,7 @@ function AdoptControl({ row }: { row: DashRow }): React.ReactElement {
             });
           }}
         >
-          Adopt
+          Bind
         </TugPushButton>
       </span>
     </TugTooltip>
@@ -402,29 +409,29 @@ function AdoptControl({ row }: { row: DashRow }): React.ReactElement {
 }
 
 /** Let this dash go. Arms the section's one confirm, anchored to the row. */
-function ReleaseControl({ row }: { row: DashRow }): React.ReactElement | null {
-  const verbs = React.useContext(ParkedVerbsContext);
+function DiscardControl({ row }: { row: DashRow }): React.ReactElement | null {
+  const verbs = React.useContext(UnboundVerbsContext);
   if (verbs === null) return null;
   return (
     <TugTooltip content={`Discard ${row.name} — its branch and worktree`}>
-      <span className="lens-dashes-release">
+      <span className="lens-dashes-discard">
         <TugPushButton
           size="2xs"
           subtype="text"
           role="danger"
-          data-slot="lens-parked-release"
+          data-slot="lens-discard"
           onClick={(event) => {
             // The anchor is the ROW element, never this button: the confirm
             // outlives the press, and a control in a trailing cluster can
             // unmount under its own popover.
             const button = event?.currentTarget as HTMLElement | undefined;
-            verbs.requestRelease(
+            verbs.requestDiscard(
               row,
               button?.closest(".tug-list-view-cell") as HTMLElement | null,
             );
           }}
         >
-          Release
+          Discard
         </TugPushButton>
       </span>
     </TugTooltip>
@@ -447,13 +454,13 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
       density="compact"
       data-slot="lens-dashes-row"
       data-dash={row.name}
-      data-parked="true"
+      data-unbound="true"
       data-age={age ?? undefined}
-      leading={<DashParkedMark />}
+      leading={<DashUnboundMark />}
       trailing={
-        <span className="lens-dashes-verbs" data-slot="lens-parked-verbs">
-          <AdoptControl row={row} />
-          <ReleaseControl row={row} />
+        <span className="lens-dashes-verbs" data-slot="lens-unbound-verbs">
+          <BindControl row={row} />
+          <DiscardControl row={row} />
         </span>
       }
     >
@@ -463,7 +470,7 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
         <DashSigil
           name={row.name}
           review={row.review}
-          slot="lens-parked-name"
+          slot="lens-unbound-name"
         />
         {row.steps !== null ? (
           <span className="lens-dashes-step">{row.steps}</span>
@@ -474,12 +481,12 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
         {/* Everything the reader needs to place the dash, and nothing they
             need to read first: stage, staleness, whose project, and the
             review advisory when it has something to say. */}
-        <span className="lens-dashes-meta" data-slot="lens-parked-meta">
+        <span className="lens-dashes-meta" data-slot="lens-unbound-meta">
           {row.stage !== null ? (
             <span className="lens-dashes-stage">{row.stage}</span>
           ) : null}
           {age !== null ? (
-            <span className="lens-dashes-age" data-slot="lens-parked-age">
+            <span className="lens-dashes-age" data-slot="lens-unbound-age">
               {age}
             </span>
           ) : null}
@@ -505,32 +512,32 @@ function DashesCollapsedSummary(): React.ReactElement {
 }
 
 /**
- * The section's one release round trip, keyed by the section rather than by
+ * The section's one discard round trip, keyed by the section rather than by
  * row.
  *
  * Section-keyed on purpose, matching the Changes lane's card-keyed slot: one
- * release at a time is the right number, and the state lives in a module store
+ * discard at a time is the right number, and the state lives in a module store
  * that outlives this body — which matters here more than it does there, because
- * releasing the last parked dash takes the whole section away.
+ * discarding the last unbound dash takes the whole section away.
  */
-const PARKED_RELEASE_KEY = "lens-parked-dashes";
+const UNBOUND_DISCARD_KEY = "lens-unbound-dashes";
 
 function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElement {
   const rows = useDashRows();
   const dataSource = useMemo(() => new DashRowsDataSource(rows), [rows]);
   const populated = rows.length > 0;
 
-  const releaseVerb = useChangesetRelease(PARKED_RELEASE_KEY);
+  const discardVerb = useChangesetDiscard(UNBOUND_DISCARD_KEY);
   // Which row's discard is armed, and the element the confirm hangs off. View
   // scope ([L24]): a half-armed confirm is not worth remembering, and closing
   // the Lens forgets it.
-  const [pendingRelease, setPendingRelease] = useState<{
+  const [pendingDiscard, setPendingDiscard] = useState<{
     row: DashRow;
     anchor: HTMLElement | null;
   } | null>(null);
-  const verbs = useMemo<ParkedVerbs>(
+  const verbs = useMemo<UnboundVerbs>(
     () => ({
-      requestRelease: (row, anchor) => setPendingRelease({ row, anchor }),
+      requestDiscard: (row, anchor) => setPendingDiscard({ row, anchor }),
     }),
     [],
   );
@@ -548,7 +555,7 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   }, [host.focusGroup, populated]);
 
   // Activation moves the cursor and nothing else. The walk this replaced went
-  // looking for a card working the dash — which for a parked dash is by
+  // looking for a card working the dash — which for an unbound dash is by
   // definition none, so it was a guaranteed silent no-op on every row this
   // section now holds ([L31]). Its verbs are named controls on the row instead.
   const delegate = useMemo<TugListViewDelegate>(() => ({}), []);
@@ -558,7 +565,7 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   if (!populated) return <></>;
 
   return (
-    <ParkedVerbsContext value={verbs}>
+    <UnboundVerbsContext value={verbs}>
       <div className="lens-dashes-section" data-slot="lens-dashes-section">
         <TugListView<DashRowsDataSource>
           dataSource={dataSource}
@@ -575,31 +582,31 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
             row armed it. `confirmRole="danger"` puts default focus on Cancel,
             so a reflexive Return can never destroy a dash. */}
         <TugConfirmPopover
-          open={pendingRelease !== null}
-          anchorEl={pendingRelease?.anchor ?? null}
+          open={pendingDiscard !== null}
+          anchorEl={pendingDiscard?.anchor ?? null}
           message={
-            pendingRelease !== null
-              ? `Discard ${pendingRelease.row.name}? Its branch and worktree go with it, and any uncommitted work in the worktree is handed back to the base checkout.`
+            pendingDiscard !== null
+              ? `Discard ${pendingDiscard.row.name}? Its branch and worktree go with it, and any uncommitted work in the worktree is handed back to the base checkout.`
               : ""
           }
           confirmLabel="Discard"
           confirmRole="danger"
           side="top"
           onConfirm={() => {
-            const armed = pendingRelease;
-            setPendingRelease(null);
+            const armed = pendingDiscard;
+            setPendingDiscard(null);
             if (armed !== null) {
-              releaseVerb.release(armed.row.projectDir, armed.row.name);
+              discardVerb.discard(armed.row.projectDir, armed.row.name);
             }
           }}
-          onCancel={() => setPendingRelease(null)}
+          onCancel={() => setPendingDiscard(null)}
         />
       </div>
-    </ParkedVerbsContext>
+    </UnboundVerbsContext>
   );
 }
 
-/** Register the Parked Dashes section. Called once at boot from `main.tsx`. */
+/** Register the Unbound Dashes section. Called once at boot from `main.tsx`. */
 export function registerDashesSection(): void {
   registerLensSection({
     // The `kind` stays `"dashes"` and always will: it is persisted in
@@ -610,10 +617,10 @@ export function registerDashesSection(): void {
     kind: SECTION_KIND,
     // A dash IS a branch plus a worktree, and this is the glyph that says so.
     glyph: <GitBranch size={14} />,
-    title: "Parked Dashes",
+    title: "Unbound Dashes",
     collapsedSummary: () => <DashesCollapsedSummary />,
     body: (host) => <DashesSectionBody host={host} />,
-    // No parked dashes is the everyday state, and an inbox at zero costs zero
+    // No unbound dashes is the everyday state, and an inbox at zero costs zero
     // rail height ([P03]). Evaluated by the always-mounted probe, never here.
     presence: () => useDashRows().length > 0,
   });

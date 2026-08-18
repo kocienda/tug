@@ -1288,9 +1288,9 @@ pub(crate) fn format_join_summary(
     format!("joined {short} · {dash} → {base} · {rounds} round(s)\n{message}")
 }
 
-/// The `/dash-release` receipt's durable summary (Spec S02).
+/// The `/dash-discard` receipt's durable summary (Spec S02).
 ///
-/// A release has no commit to name, so its identity is the dash and the size
+/// A discard has no commit to name, so its identity is the dash and the size
 /// of what it destroyed; the body is the round subjects the discard preflight
 /// showed, which makes the receipt a record of exactly what the confirm took.
 /// A clean dash renders the header line alone.
@@ -1299,14 +1299,17 @@ pub(crate) fn format_join_summary(
 /// `DashDetail.files` holds — the files the dash touched, committed or not.
 /// The word is plain `file(s)` for that reason: calling them dirty would name
 /// a worktree state most of them are not in.
-pub(crate) fn format_release_summary(
+pub(crate) fn format_discard_summary(
     dash: &str,
     rounds: u32,
     files: u32,
     round_subjects: &[String],
     plan_restored: Option<&str>,
 ) -> String {
-    let mut header = format!("released {dash} · discarded {rounds} round(s)");
+    // The verb leads and the count follows it bare. The header used to read
+    // `released … · discarded N round(s)`, which said the act twice once the
+    // verb itself became `discarded`.
+    let mut header = format!("discarded {dash} · {rounds} round(s)");
     if files > 0 {
         header.push_str(&format!(", {files} file(s)"));
     }
@@ -3043,8 +3046,8 @@ Some context.
     }
 
     #[test]
-    fn format_release_summary_lists_the_round_subjects() {
-        let s = format_release_summary(
+    fn format_discard_summary_lists_the_round_subjects() {
+        let s = format_discard_summary(
             "spike",
             2,
             3,
@@ -3053,26 +3056,26 @@ Some context.
         );
         assert_eq!(
             s,
-            "released spike · discarded 2 round(s), 3 file(s)\n\
+            "discarded spike · 2 round(s), 3 file(s)\n\
              first round\nsecond round"
         );
     }
 
     #[test]
-    fn format_release_summary_of_a_clean_dash_is_one_line() {
+    fn format_discard_summary_of_a_clean_dash_is_one_line() {
         assert_eq!(
-            format_release_summary("spike", 0, 0, &[], None),
-            "released spike · discarded 0 round(s)"
+            format_discard_summary("spike", 0, 0, &[], None),
+            "discarded spike · 0 round(s)"
         );
     }
 
     /// A discarded dash that had adopted a plan says where the plan went — the
-    /// receipt for the one thing a release hands back rather than destroys.
+    /// receipt for the one thing a discard hands back rather than destroys.
     #[test]
-    fn format_release_summary_says_where_the_plan_went() {
+    fn format_discard_summary_says_where_the_plan_went() {
         assert_eq!(
-            format_release_summary("spike", 0, 0, &[], Some("roadmap/x.md")),
-            "released spike · discarded 0 round(s)\n\
+            format_discard_summary("spike", 0, 0, &[], Some("roadmap/x.md")),
+            "discarded spike · 0 round(s)\n\
              Restored roadmap/x.md to the base checkout."
         );
     }

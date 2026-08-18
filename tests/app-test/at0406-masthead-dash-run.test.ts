@@ -55,7 +55,7 @@ import {
   createDash,
   makePlanStale,
   recordStampedPlan,
-  releaseDash,
+  discardDash,
   tugutilPath,
 } from "./dash-fixture";
 
@@ -92,7 +92,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH_NAME);
+  discardDash(PROJECT_DIR, DASH_NAME);
 });
 
 function deckShape() {
@@ -244,14 +244,14 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         note("at0406 title grammar", run.grammar);
         // The sigil is inside the run, so the run's own text carries it: an
         // ellipsized dash still says it is a dash.
-        expect(run.text).toBe(`#${DASH_NAME}`);
+        expect(run.text).toBe(`◊${DASH_NAME}`);
         // One format, spelled out end to end — the callsign is minted per
         // session, so it is the only part matched loosely. What is exact is
-        // the punctuation: a bare `:` and a bare `#`, no spaces anywhere.
+        // the punctuation: a bare `:` and a bare `◊`, no spaces anywhere.
         expect(run.grammar).toMatch(
-          new RegExp(`^${RENAME}:tugtool/[a-z0-9-]+#${DASH_NAME}$`),
+          new RegExp(`^${RENAME}:tugtool/[a-z0-9-]+◊${DASH_NAME}$`),
         );
-        // The glyph left the grammar when the `#` replaced it.
+        // The glyph left the grammar when the sigil replaced it.
         expect(run.svgCount).toBe(0);
         // Inside the identity itself — the run is part of the title's grammar,
         // not a slot beside it, which is what keeps it inside the width the

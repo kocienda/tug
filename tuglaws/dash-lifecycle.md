@@ -1,6 +1,6 @@
 # The dash lifecycle
 
-*What a dash **is**, what its states mean, and what a binding is. The companion file [dash-work-doctrine.md](dash-work-doctrine.md) covers the other half — how an **agent** behaves once it is working on one. Two audiences, two files: a person asking "why does this dash read as parked" and an agent asking "may I write here" are not asking the same question.*
+*What a dash **is**, what its states mean, and what a binding is. The companion file [dash-work-doctrine.md](dash-work-doctrine.md) covers the other half — how an **agent** behaves once it is working on one. Two audiences, two files: a person asking "why does this dash read as unbound" and an agent asking "may I write here" are not asking the same question.*
 
 ## What a dash is
 
@@ -19,12 +19,14 @@ There is no dash database. Every fact any surface renders about a dash is read f
 
 The owner key is `tugdash/<name>#<tugid>` (`dash_owner_key`). It is **opaque** — never a git ref, never displayed. Draft rows, session-binding rows, and the deck's `(workspace_key, owner_kind, owner_id)` draft-overlay key are all this same string, so entry, row, and overlay agree by construction.
 
-What the key buys is that two incarnations of a reused name are distinct: release `fix-join` and create it again and the second one is a different dash, so the first one's draft cannot surface under it.
+What the key buys is that two incarnations of a reused name are distinct: discard `fix-join` and create it again and the second one is a different dash, so the first one's draft cannot surface under it.
 
 - Anything that needs a **ref** reads the `branch` field. Never the owner key.
 - Anything that needs a **name** for a human reads `display_name`.
 - A dash created before ids existed keys under its bare branch ref. `legacy_owner_key` strips a key to that form, and `tugutil draft` reads through it and supersedes — the first resolution through the legacy key rewrites the row under the current key, so the population it serves shrinks to zero on its own.
 - **Read paths never mint.** `dash_owner_key` returns the bare ref when there is no `tugid`; only write-path verbs (`create`, `commit`, the `/api/dash` bind handler) call `ensure_dash_id`. A read that wrote git config would be a side-effecting read and a multi-process race on every feed recompute.
+
+**The sigil is `◊` (U+25CA).** Everywhere a dash is named to a person it wears one, with no opt-out, rendered by the single `DashSigil` component both surfaces compose. It was `#` until the collision became untenable: the transcript already numbers messages `#0001` and marks turns `#u12`, and markdown headings are hashes. The lozenge was picked on metrics rather than taste — it sits on the same baseline and reaches the same cap height as `#` in a 1000-unit em, so it drops into the identity run's baseline-aligned flex without moving anything, and it is present in every bundled Plex Sans and Plex Mono face. The `#` inside the **owner key** is a different `#` and does not move: that grammar is opaque and never displayed.
 
 ## The stages, and derive vs declare
 
@@ -48,7 +50,7 @@ What the key buys is that two incarnations of a reused name are distinct: releas
 
 A **bind** mates a live session to a dash. It is a UI concept: git has no idea it happened.
 
-- It lives in the per-instance `sessions.db` and is read back **live-sessions-only** (`bound_sessions_for`). That is exactly why a dash whose cards have all closed reads as *parked* — parked is not a stage, it is the absence of workers.
+- It lives in the per-instance `sessions.db` and is read back **live-sessions-only** (`bound_sessions_for`). That is exactly why a dash whose cards have all closed reads as *unbound* — unbound is not a stage, it is the absence of workers.
 - It is **per-card**. A session has at most one dash, which is why `unbind_dash`'s whole payload is the session id.
 - It **mints**: `bind_dash` naming a dash that does not exist succeeds anyway. Every sender therefore builds its frame from a snapshot row rather than from user text; the one place that accepts a typed name (`/dash-bind <name>`) matches the snapshot first and routes an unknown name to `dash create` through the shell, where the receipt says what was made.
 - Two cards on one dash is **legal**, not a race: `bound_sessions` is a list and the Lens renders one jump chip per bound session. A bind displaces only *this* card's previous binding.
@@ -64,7 +66,7 @@ A dash that implements a plan **owns** that plan: the worktree copy is the only 
 - **The ordering is the safety property.** The engine reads base, writes and commits on the branch, and only then touches base. On any failure the base copy is exactly as the user left it.
 - **Divergence is a refusal, never a silent state.** `dash step` refuses while a base copy is dirty or untracked, and the join preflight names the plan and `tugutil dash adopt-plan <name>` — because the generic "commit or stash it" is wrong here: committing a stale base copy enshrines a fork, and stashing hides it to detonate later.
 - **Progress is never the casualty.** When bodies differ, the base body wins and the worktree's ledger progress is replayed onto it row by row. `content_stamp` excludes status and commit cells, so a plan that was `reviewed` before adoption is `reviewed` after it.
-- **Release hands the plan back.** Adoption removed the base copy and release deletes the branch holding the only one, so `release_in` writes the plan back to the repo root before teardown and the discard receipt says so. The plan comes in when the dash adopts it and goes back out when the dash is discarded — a plan is not the work, it is the authored document that predates the dash and outlives it ([L23]).
+- **Discard hands the plan back.** Adoption removed the base copy and discard deletes the branch holding the only one, so `discard_in` writes the plan back to the repo root before teardown and the discard receipt says so. The plan comes in when the dash adopts it and goes back out when the dash is discarded — a plan is not the work, it is the authored document that predates the dash and outlives it ([L23]).
 
 ## Landing — by reference
 

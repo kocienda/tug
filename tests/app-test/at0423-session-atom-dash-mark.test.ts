@@ -35,7 +35,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { createDash, releaseDash, tugutilPath } from "./dash-fixture";
+import { createDash, discardDash, tugutilPath } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -61,7 +61,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH_NAME);
+  discardDash(PROJECT_DIR, DASH_NAME);
 });
 
 function deckShape() {
@@ -220,10 +220,10 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         );
 
         // B. The atom names the dash in its own ink, in the line tier's
-        // spelling — the glyph left the grammar when the `#` replaced it.
+        // spelling — the glyph left the grammar when the sigil replaced it.
         expect(mark.hasGlyph).toBe(false);
         expect(mark.hasName).toBe(true);
-        expect(mark.text).toBe(`#${DASH_NAME}`);
+        expect(mark.text).toBe(`◊${DASH_NAME}`);
         expect(mark.title).toBe(`Working on dash ${DASH_NAME}`);
         expect(mark.label).toBe(`On dash ${DASH_NAME}`);
 
@@ -234,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         // even if the dash name were somewhere in the string.
         const bound = await readPanel(app);
         expect(bound.marks).toBe(1);
-        expect(bound.atom).toBe(`${bare.atom}#${DASH_NAME}`);
+        expect(bound.atom).toBe(`${bare.atom}◊${DASH_NAME}`);
         // A. And the citation did not move.
         expect(bound.citation).toBe(bare.citation);
         expect(bound.citation).not.toContain(DASH_NAME);

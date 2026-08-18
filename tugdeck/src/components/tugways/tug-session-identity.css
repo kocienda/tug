@@ -70,7 +70,7 @@
   height: 1em;
 }
 
-/* The dash run — `#<dash-name>`, in the same quieted ink as the callsign. A
+/* The dash run — `◊<dash-name>`, in the same quieted ink as the callsign. A
    dash says where the session is working, which is the kind of thing the
    project already says, so it is spelled in the grammar rather than marked
    with a glyph beside it. The sigil abuts the name, which is why there is no

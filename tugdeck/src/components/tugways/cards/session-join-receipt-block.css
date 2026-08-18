@@ -1,4 +1,4 @@
-/* SessionJoinReceiptBlock — the `/dash-join` and `/dash-release` receipt
+/* SessionJoinReceiptBlock — the `/dash-join` and `/dash-discard` receipt
    headers ([P06]). Deliberately the commit receipt's skeleton: a landing is a
    commit on the base, and a reader should not have to learn a second shape for
    it. Appearance only ([L06]). */
@@ -14,8 +14,8 @@
   text-indent: -9ch;
 }
 
-/* A release has no sha to hang under, so it hangs under nothing. */
-.join-receipt-header-release {
+/* A discard has no sha to hang under, so it hangs under nothing. */
+.join-receipt-header-discard {
   padding-left: 0;
   text-indent: 0;
 }
@@ -34,6 +34,6 @@
 /* The chrome's body region carries no padding of its own — each body kind owns
    its spacing. The inline inset comes from the shared `.tugx-commit-message`. */
 [data-slot="join-receipt-detail"],
-[data-slot="release-receipt-detail"] {
+[data-slot="discard-receipt-detail"] {
   padding-block: var(--tug-space-sm);
 }

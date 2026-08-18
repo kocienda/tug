@@ -43,7 +43,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, releaseDash } from "./dash-fixture";
+import { commitRound, createDash, discardDash } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -164,7 +164,7 @@ function writeJournal(dash: string): void {
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   rmSync(journalPath(DASH), { force: true });
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   const dash = createDash(PROJECT_DIR, DASH, "at0436 fixture (a round to land)");
   dashId = dash.id;
   writeFileSync(join(dash.worktree, "at0436-work.txt"), "at0436\n");
@@ -180,7 +180,7 @@ afterAll(() => {
   // The journal first: a dash carrying one is a dash the release verb argues
   // with rather than tears down.
   rmSync(journalPath(DASH), { force: true });
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
   if (tugbankPath !== "") rmTempTugbank(tugbankPath);
 });

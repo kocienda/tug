@@ -494,7 +494,7 @@ pub enum ChangesetEntry {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stage: Option<String>,
         /// Live sessions mated to this dash ([P08]) — this instance's view
-        /// ([Q02]). Empty is how *parked* reads.
+        /// ([Q02]). Empty is how *unbound* reads.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         bound_sessions: Vec<String>,
         /// Declared step counters, from the latest step declaration ([P06]).

@@ -14,8 +14,8 @@
  * verbatim, and the receipt blocks parse the identical string live and on
  * restore, so the two rows are byte-identical.
  *
- * Join and release ride the same mechanism ([P06]). Each has one terminal edge
- * to hang a row off — join's `done`, release's `done` — and each appends only
+ * Join and discard ride the same mechanism ([P06]). Each has one terminal edge
+ * to hang a row off — join's `done`, discard's `done` — and each appends only
  * when the server actually sent a summary, so a landing this card merely
  * watched leaves no ink here.
  *
@@ -31,7 +31,7 @@ import {
   getChangesetVerbStore,
   type CommitPhase,
   type JoinPhase,
-  type ReleasePhase,
+  type DiscardPhase,
 } from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
@@ -46,7 +46,7 @@ export function useLandingReceipts(
     const commitKey = changesController.entryKey;
     let prevCommit: CommitPhase = verbStore.commitState(commitKey).phase;
     let prevJoin: JoinPhase = verbStore.joinState(commitKey).phase;
-    let prevRelease: ReleasePhase = verbStore.releaseState(commitKey).phase;
+    let prevDiscard: DiscardPhase = verbStore.discardState(commitKey).phase;
 
     /** Append one landing's summary as a shell-exchange row ([D111]). */
     const append = (command: string, output: string): void => {
@@ -81,13 +81,13 @@ export function useLandingReceipts(
       }
       prevJoin = joined.phase;
 
-      // Release: a discard is a landing too — it is the other way a dash stops
+      // Discard: a discard is a landing too — it is the other way a dash stops
       // existing, and the receipt is the only record of what it took.
-      const released = verbStore.releaseState(commitKey);
-      if (released.phase === "done" && prevRelease !== "done" && released.summary !== null) {
-        append("/dash-release", released.summary);
+      const discarded = verbStore.discardState(commitKey);
+      if (discarded.phase === "done" && prevDiscard !== "done" && discarded.summary !== null) {
+        append("/dash-discard", discarded.summary);
       }
-      prevRelease = released.phase;
+      prevDiscard = discarded.phase;
     };
 
     return verbStore.subscribe(onChange);

@@ -33,7 +33,7 @@ describe("blockerAct", () => {
     expect(blockerAct(blocker("stale-journal"), "main")).toBe(
       "Resume the interrupted teardown",
     );
-    expect(blockerAct(blocker("empty"), "main")).toBe("Release this dash");
+    expect(blockerAct(blocker("empty"), "main")).toBe("Discard this dash");
   });
 
   it("falls back to a pathless sentence when base-dirt names nothing", () => {

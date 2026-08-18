@@ -108,19 +108,19 @@ export interface SessionChangesDashLandingProps {
   /** The resolution ladder's live state for this dash. */
   resolve: ResolveState;
   /** What refuses the binding control on the row above, named so the face can
-   *  say which control it is — the row calls it Adopt or Leave by binding. */
+   *  say which control it is — the row calls it Bind or Unbind by binding. */
   bindingRefusal: { control: string; reason: string } | null;
-  /** Whether this shade may discard this dash at all. False renders no Release
+  /** Whether this shade may discard this dash at all. False renders no Discard
    *  control — the reach rule's refusal is permanent, and a disabled control
    *  would invite waiting for something that is not coming. */
-  releaseAvailable: boolean;
-  /** Why Release is unavailable right now, or null. Read from the lane's one
-   *  release bundle so the turn gate and the in-flight gate cannot disagree
+  discardAvailable: boolean;
+  /** Why Discard is unavailable right now, or null. Read from the lane's one
+   *  discard bundle so the turn gate and the in-flight gate cannot disagree
    *  with the same gates on the other rows. */
-  releaseDisabledReason: string | null;
-  /** Arm the lane's discard confirm for this dash. The face never releases
+  discardDisabledReason: string | null;
+  /** Arm the lane's discard confirm for this dash. The face never discards
    *  directly — one popover serves every row, and the lane owns it. */
-  onRequestRelease: () => void;
+  onRequestDiscard: () => void;
   actions: DashLandingActions;
 }
 
@@ -159,7 +159,7 @@ export function blockerAct(blocker: JoinBlocker, base: string): string | null {
     case "stale-journal":
       return "Resume the interrupted teardown";
     case "empty":
-      return "Release this dash";
+      return "Discard this dash";
     default:
       return null;
   }
@@ -168,7 +168,7 @@ export function blockerAct(blocker: JoinBlocker, base: string): string | null {
 /**
  * What a discard would destroy, as one clause. Pure, so the sentence the
  * confirm is measured against is testable without a surface. The lane's
- * `releaseConfirmMessage` composes it into the popover's fact sheet.
+ * `discardConfirmMessage` composes it into the popover's fact sheet.
  */
 export function discardPreflightLine(rounds: number, files: number): string {
   const parts: string[] = [];
@@ -254,9 +254,9 @@ export function SessionChangesDashLanding({
   turnInProgress,
   resolve,
   bindingRefusal,
-  releaseAvailable,
-  releaseDisabledReason,
-  onRequestRelease,
+  discardAvailable,
+  discardDisabledReason,
+  onRequestDiscard,
   actions,
 }: SessionChangesDashLandingProps): React.ReactElement {
   // The message lives in the composer, not here, so the affordance asks the
@@ -293,8 +293,8 @@ export function SessionChangesDashLanding({
     refusals.push({ control: "Resume teardown", reason: resumeHint });
   }
   if (disabledReason !== null) refusals.push({ control: "Join", reason: disabledReason });
-  if (releaseAvailable && releaseDisabledReason !== null) {
-    refusals.push({ control: "Release", reason: releaseDisabledReason });
+  if (discardAvailable && discardDisabledReason !== null) {
+    refusals.push({ control: "Discard", reason: discardDisabledReason });
   }
   if (bindingRefusal !== null) refusals.push(bindingRefusal);
 
@@ -354,16 +354,16 @@ export function SessionChangesDashLanding({
               chord or by typing a verb. One beat — it opens the lane's confirm
               popover, which names what the discard destroys and where the
               worktree's uncommitted files go. */}
-          {releaseAvailable ? (
+          {discardAvailable ? (
             <TugPushButton
               size="xs"
               emphasis="outlined"
               role="danger"
-              onClick={onRequestRelease}
-              disabled={releaseDisabledReason !== null}
-              data-slot="session-changes-dash-release"
+              onClick={onRequestDiscard}
+              disabled={discardDisabledReason !== null}
+              data-slot="session-changes-dash-discard"
             >
-              Release
+              Discard
             </TugPushButton>
           ) : null}
         </span>
@@ -388,7 +388,7 @@ export function SessionChangesDashLanding({
           className="session-changes-dash-landing-note"
           data-slot="session-changes-dash-landing-empty"
         >
-          Nothing to join — release this dash.
+          Nothing to join — discard this dash.
         </div>
       ) : null}
       {blockers.length > 0 ? (

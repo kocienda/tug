@@ -7,7 +7,7 @@
 //! config (`branch.tugdash/<name>.{tugbase,description}`); its activity is
 //! recorded in the per-project append-only dash-log. There is no database.
 //!
-//! Each verb (`create` / `commit` / `join` / `release` / `list` / `show`)
+//! Each verb (`create` / `commit` / `join` / `discard` / `list` / `show`)
 //! returns a typed outcome and never prints — the `tugdash` CLI (and the
 //! Changeset card, via tugcast) own presentation. Repo resolution is
 //! cwd-relative (`find_repo_root`), matching `git`'s own behaviour.
@@ -240,9 +240,9 @@ pub struct JoinBlocker {
     pub paths: Vec<String>,
 }
 
-/// Outcome of [`release`].
+/// Outcome of [`discard`].
 #[derive(Debug, Clone, Serialize)]
-pub struct ReleaseOutcome {
+pub struct DiscardOutcome {
     pub name: String,
     /// The plan handed back to the base checkout before teardown, when the
     /// dash's copy held bytes base did not. Additive: absent when there was
@@ -541,7 +541,7 @@ fn mint_tugid() -> String {
 ///
 /// **Read this before any teardown.** `git branch -D` deletes the branch's
 /// whole config section, `tugid` included, so a key resolved after a
-/// `join_in`/`release_in` returns can only ever be the legacy form — and every
+/// `join_in`/`discard_in` returns can only ever be the legacy form — and every
 /// id-keyed row it should have swept becomes unnameable ([P05], Risk R02).
 pub fn dash_owner_key(repo: &Path, name: &str) -> String {
     let branch = branch_name(name);
@@ -1126,7 +1126,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         .map(|out| parse_name_status(&out))
         .unwrap_or_default();
 
-        // Round subjects, newest first — what the release discard preflight
+        // Round subjects, newest first — what the discard preflight
         // lists ([P14]). Empty when the dash has no rounds.
         let round_subjects = if rounds > 0 {
             git_stdout(
@@ -1217,7 +1217,7 @@ pub struct DashStatus {
     pub join_journal_phase: Option<String>,
     /// Live sessions mated to this dash ([P08]); empty when unresolvable, when
     /// the binding column has not migrated in yet, or when every bound card
-    /// has closed — an empty list is how *parked* reads.
+    /// has closed — an empty list is how *unbound* reads.
     pub bound_sessions: Vec<String>,
     /// How far a stepped run has got, from the latest step declaration.
     pub step_current: Option<i64>,
@@ -1276,7 +1276,7 @@ pub fn derive_stage(
 /// **Live sessions only**, under the same predicate the tugcast-side query
 /// uses: bound-ness is defined over live sessions, so a row that outlived its
 /// card is never reported and a dash whose cards have all closed reads as
-/// parked. Best-effort throughout — no db, no table, no `dash_id` column (an
+/// unbound. Best-effort throughout — no db, no table, no `dash_id` column (an
 /// unmigrated ledger) all read as an empty list.
 fn bound_sessions_for(owner_key: &str) -> Vec<String> {
     let Some(db) = sessions_db_file() else {
@@ -2512,7 +2512,7 @@ fn project_spellings(dir: &Path) -> Vec<String> {
 /// the machine ledger.
 ///
 /// Note that `worktree_path` probes the filesystem (the `.tug/worktrees/` home,
-/// then the legacy `.tugtree/` one, else the new form), so for a **released**
+/// then the legacy `.tugtree/` one, else the new form), so for a **discarded**
 /// dash it answers the default spelling rather than where the worktree actually
 /// stood. That is acceptable for a best-effort legacy probe, and is said here so
 /// it is not later read as a bug.
@@ -2686,7 +2686,7 @@ fn untracked_overwrite_detail(paths: &[String], plan: Option<&str>, name: &str) 
 
 fn empty_detail(name: &str, base_branch: &str) -> String {
     format!(
-        "Nothing to join: dash '{}' has no commits past '{}'. Release it to discard.",
+        "Nothing to join: dash '{}' has no commits past '{}'. Discard it instead.",
         name, base_branch
     )
 }
@@ -2823,7 +2823,7 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     }
 
     // Empty is a *finding* on the preview path, not a refusal: the card's answer
-    // to it is the release affordance. The execute path auto-commits worktree
+    // to it is the discard affordance. The execute path auto-commits worktree
     // dirt before testing `ahead`, so dirt makes a dash non-empty here too.
     let ahead = git_stdout(
         repo_root,
@@ -2959,7 +2959,7 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
     // Auto-commit outstanding dash-worktree changes — FATAL on error now ([P14]).
     commit_worktree_dirt(&worktree)?;
 
-    // Nothing to integrate (no commits past base) — release, don't join.
+    // Nothing to integrate (no commits past base) — discard, don't join.
     let ahead = git_stdout(
         &repo_root,
         &[
@@ -2972,8 +2972,8 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
     .and_then(|s| s.parse::<i64>().ok())
     .unwrap_or(0);
     if ahead == 0 {
-        // Names the release verb generically ([P14]) — no raw terminal
-        // instruction; each surface fronts its own release affordance.
+        // Names the discard verb generically ([P14]) — no raw terminal
+        // instruction; each surface fronts its own discard affordance.
         return Err(empty_detail(name, &base_branch));
     }
 
@@ -3166,18 +3166,18 @@ fn finish_join_teardown(
 }
 
 /// Release a dash: tear down its worktree + branch without merging.
-pub fn release(name: &str, origin: Option<&str>) -> Result<ReleaseOutcome, String> {
+pub fn discard(name: &str, origin: Option<&str>) -> Result<DiscardOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
-    release_in(&repo_root, name, origin)
+    discard_in(&repo_root, name, origin)
 }
 
-/// Like [`release`], but against an explicit repo root instead of the process
+/// Like [`discard`], but against an explicit repo root instead of the process
 /// cwd — for callers such as tugcast.
-pub fn release_in(
+pub fn discard_in(
     repo_root: &Path,
     name: &str,
     origin: Option<&str>,
-) -> Result<ReleaseOutcome, String> {
+) -> Result<DiscardOutcome, String> {
     let repo_root = main_repo_root(repo_root);
     let mut warnings = Vec::new();
     migrate_worktrees(&repo_root, &mut warnings);
@@ -3193,21 +3193,21 @@ pub fn release_in(
     // uncommitted by design, so the worktree holds the only copy of it and
     // teardown would destroy it. Check for the one case that cannot be resolved
     // — the base has since acquired its own edit to the same path — before
-    // anything at all has moved, so a refused release changes nothing ([P08]).
+    // anything at all has moved, so a refused discard changes nothing ([P08]).
     let plan_rel = dash_plan_path(&repo_root, name);
     let hand = working_set_hand_back(&repo_root, &worktree, plan_rel.as_deref());
     if !hand.conflicts.is_empty() {
         return Err(format!(
-            "Cannot release '{name}': the base checkout has its own uncommitted changes to \
+            "Cannot discard '{name}': the base checkout has its own uncommitted changes to \
              {}, which the dash also changed without committing. Handing the dash's work back \
              would overwrite yours, so the dash is left standing. Commit or stash the base \
-             changes, then release again.",
+             changes, then discard again.",
             hand.conflicts.join(", ")
         ));
     }
 
     // Hand the plan back before anything is torn down. Adoption *removed* the
-    // base copy, and release deletes the branch holding the only one — so
+    // base copy, and discard deletes the branch holding the only one — so
     // without this, discarding a dash would permanently destroy the user's
     // plan document. A plan is not the work; it is the authored document that
     // predates the dash and outlives it.
@@ -3234,12 +3234,12 @@ pub fn release_in(
     append_dash_log(
         &repo_root,
         name,
-        "released",
+        "discarded",
         &origin.map_or(String::new(), |o| format!("via {o}")),
     )
     .map_err(|e| e.to_string())?;
 
-    Ok(ReleaseOutcome {
+    Ok(DiscardOutcome {
         name: name.to_string(),
         plan_restored,
         work_restored,
@@ -3247,14 +3247,14 @@ pub fn release_in(
     })
 }
 
-/// What release must do with the worktree's uncommitted work before the
+/// What discard must do with the worktree's uncommitted work before the
 /// worktree is deleted ([P08]).
 struct HandBack {
     /// Paths to copy back to the base checkout.
     restore: Vec<BaseDirtPath>,
     /// Paths the base already holds its own uncommitted edit to. Handing these
-    /// back would overwrite the user's other work to complete a release, so
-    /// release refuses instead.
+    /// back would overwrite the user's other work to complete a discard, so
+    /// discard refuses instead.
     conflicts: Vec<String>,
     /// Paths the worktree *deleted*. Deliberately not handed back: the base
     /// still holds the file, so keeping it loses no bytes, while handing the
@@ -3267,7 +3267,7 @@ struct HandBack {
 /// Scoped to *all* uncommitted worktree work, not only what arrived by
 /// `create --carry`: tracking provenance would mean new persisted state, and
 /// the broader rule is the more useful one anyway — work typed in a worktree
-/// and never committed is destroyed by a release today.
+/// and never committed is destroyed by a discard today.
 ///
 /// `plan_rel` is excluded because `restore_plan_to_base` owns that file and
 /// reads it from the branch rather than the worktree.
@@ -3335,7 +3335,7 @@ fn apply_hand_back(
 ///
 /// Read from the branch rather than the worktree so it works even if the
 /// worktree is already gone, and quiet by design: an untouched dash, or one
-/// that never adopted a plan, releases exactly as it did before.
+/// that never adopted a plan, discards exactly as it did before.
 fn restore_plan_to_base(
     repo_root: &Path,
     name: &str,
@@ -4272,15 +4272,15 @@ Some context.
     }
 
     /// Adoption removed the base copy, so the branch holds the only one —
-    /// and release deletes the branch. The plan has to come back out first.
+    /// and discard deletes the branch. The plan has to come back out first.
     #[serial]
     #[test]
-    fn release_hands_back_a_plan_that_was_untracked_on_base() {
+    fn discard_hands_back_a_plan_that_was_untracked_on_base() {
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
         create("discard-dash", None, Some("roadmap/plan.md"), false).unwrap();
         assert!(!root.join("roadmap/plan.md").exists(), "adoption took it");
 
-        let out = release("discard-dash", None).unwrap();
+        let out = discard("discard-dash", None).unwrap();
         assert_eq!(out.plan_restored.as_deref(), Some("roadmap/plan.md"));
         assert!(!branch_present(&root, "tugdash/discard-dash"));
         assert_eq!(
@@ -4291,10 +4291,10 @@ Some context.
     }
 
     /// The tracked-dirty shape: the user's uncommitted edits lived only on the
-    /// branch, so release puts them back in the base working tree.
+    /// branch, so discard puts them back in the base working tree.
     #[serial]
     #[test]
-    fn release_hands_back_the_users_uncommitted_plan_edits() {
+    fn discard_hands_back_the_users_uncommitted_plan_edits() {
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
         run_git(&root, &["add", "-A"]);
         run_git(&root, &["commit", "-m", "Add the plan"]);
@@ -4303,7 +4303,7 @@ Some context.
         create("edited-dash", None, Some("roadmap/plan.md"), false).unwrap();
         assert!(base_plan_status(&root).is_empty(), "adoption restored base");
 
-        let out = release("edited-dash", None).unwrap();
+        let out = discard("edited-dash", None).unwrap();
         assert_eq!(out.plan_restored.as_deref(), Some("roadmap/plan.md"));
         assert_eq!(
             fs::read_to_string(root.join("roadmap/plan.md")).unwrap(),
@@ -4317,18 +4317,18 @@ Some context.
 
     #[serial]
     #[test]
-    fn release_of_an_untouched_or_planless_dash_restores_nothing() {
+    fn discard_of_an_untouched_or_planless_dash_restores_nothing() {
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
         run_git(&root, &["add", "-A"]);
         run_git(&root, &["commit", "-m", "Add the plan"]);
 
         // No plan recorded at all.
         create("bare-dash", None, None, false).unwrap();
-        assert!(release("bare-dash", None).unwrap().plan_restored.is_none());
+        assert!(discard("bare-dash", None).unwrap().plan_restored.is_none());
 
         // A plan recorded, but the branch's copy is what base HEAD holds.
         create("same-dash", None, Some("roadmap/plan.md"), false).unwrap();
-        let out = release("same-dash", None).unwrap();
+        let out = discard("same-dash", None).unwrap();
         assert!(out.plan_restored.is_none());
         assert!(
             base_plan_status(&root).is_empty(),
@@ -4388,11 +4388,11 @@ Some context.
     }
 
     /// The abandon arm — the one that proves no path through the system loses
-    /// the document. Adoption removes the base copy and release deletes the
-    /// branch, so release has to hand the plan back on its way out.
+    /// the document. Adoption removes the base copy and discard deletes the
+    /// branch, so discard has to hand the plan back on its way out.
     #[serial]
     #[test]
-    fn a_released_dash_hands_its_plan_back_to_base() {
+    fn a_discarded_dash_hands_its_plan_back_to_base() {
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
 
         create("e2e-abandon", None, Some("roadmap/plan.md"), false).unwrap();
@@ -4400,7 +4400,7 @@ Some context.
         commit("e2e-abandon", "a round", None).unwrap();
         assert!(!root.join("roadmap/plan.md").exists());
 
-        let out = release("e2e-abandon", None).unwrap();
+        let out = discard("e2e-abandon", None).unwrap();
         assert_eq!(out.plan_restored.as_deref(), Some("roadmap/plan.md"));
         assert!(!branch_present(&root, "tugdash/e2e-abandon"));
         assert!(
@@ -4410,7 +4410,7 @@ Some context.
             )
             .unwrap()
             .is_empty(),
-            "no dash branch survives the release"
+            "no dash branch survives the discard"
         );
 
         let back = fs::read_to_string(root.join("roadmap/plan.md")).unwrap();
@@ -4642,16 +4642,16 @@ Some context.
     /// The abandon arm of the carry gesture. Carried work is uncommitted by
     /// design, so the worktree holds the only copy of it — without the
     /// hand-back, `--carry` would move a developer's work somewhere a routine
-    /// release destroys it, which is the tool creating the hazard.
+    /// discard destroys it, which is the tool creating the hazard.
     #[serial]
     #[test]
-    fn release_returns_carried_work_to_the_base() {
+    fn discard_returns_carried_work_to_the_base() {
         let (_temp, root) = repo_for_create(None);
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
         create("returner", None, None, true).unwrap();
         assert!(!root.join("scratch.txt").exists());
 
-        let out = release("returner", None).unwrap();
+        let out = discard("returner", None).unwrap();
         assert_eq!(out.work_restored, vec!["scratch.txt".to_string()]);
         assert_eq!(
             fs::read_to_string(root.join("scratch.txt")).unwrap(),
@@ -4661,18 +4661,18 @@ Some context.
     }
 
     /// The guard is not carry-specific: work typed in the worktree and never
-    /// committed is destroyed by a release today, and that is the more useful
+    /// committed is destroyed by a discard today, and that is the more useful
     /// rule as well as the one that needs no provenance tracking.
     #[serial]
     #[test]
-    fn release_returns_work_that_never_arrived_by_carry() {
+    fn discard_returns_work_that_never_arrived_by_carry() {
         let (_temp, root) = repo_for_create(None);
         create("typed", None, None, false).unwrap();
         let worktree = worktree_path(&root, "typed");
         fs::write(worktree.join("typed.txt"), "written in the dash\n").unwrap();
         fs::write(worktree.join("README.md"), "# edited in the dash\n").unwrap();
 
-        let out = release("typed", None).unwrap();
+        let out = discard("typed", None).unwrap();
         assert_eq!(out.work_restored, vec!["README.md", "typed.txt"]);
         assert_eq!(
             fs::read_to_string(root.join("typed.txt")).unwrap(),
@@ -4686,18 +4686,18 @@ Some context.
 
     /// The one case that cannot be resolved: handing the work back would
     /// overwrite the user's own uncommitted edit. The work stays reachable
-    /// rather than being destroyed to complete a release, and the refusal comes
+    /// rather than being destroyed to complete a discard, and the refusal comes
     /// before anything has moved.
     #[serial]
     #[test]
-    fn release_refuses_rather_than_overwrite_a_conflicting_base_edit() {
+    fn discard_refuses_rather_than_overwrite_a_conflicting_base_edit() {
         let (_temp, root) = repo_for_create(None);
         create("clash", None, None, false).unwrap();
         let worktree = worktree_path(&root, "clash");
         fs::write(worktree.join("README.md"), "# the dash's words\n").unwrap();
         fs::write(root.join("README.md"), "# the user's words\n").unwrap();
 
-        let err = release("clash", None).unwrap_err();
+        let err = discard("clash", None).unwrap_err();
         assert!(err.contains("README.md"), "{err}");
         assert_eq!(
             fs::read_to_string(root.join("README.md")).unwrap(),
@@ -4710,10 +4710,10 @@ Some context.
 
     #[serial]
     #[test]
-    fn release_of_a_clean_worktree_behaves_exactly_as_before() {
+    fn discard_of_a_clean_worktree_behaves_exactly_as_before() {
         let (_temp, root) = repo_for_create(None);
         create("spotless", None, None, false).unwrap();
-        let out = release("spotless", None).unwrap();
+        let out = discard("spotless", None).unwrap();
         assert!(out.work_restored.is_empty());
         assert!(out.warnings.is_empty(), "{:?}", out.warnings);
         assert!(!worktree_path(&root, "spotless").exists());
@@ -5230,7 +5230,7 @@ Some context.
             Some("WorktreeRemoved")
         );
 
-        // No sessions.db with a binding, so the dash reads as parked ([P08]).
+        // No sessions.db with a binding, so the dash reads as unbound ([P08]).
         assert!(landing.bound_sessions.is_empty());
 
         assert!(status("no-such-dash").is_err());
@@ -5242,7 +5242,7 @@ Some context.
     }
 
     /// `bound_sessions` counts **live** sessions only, so a dash whose only
-    /// bound card has closed reads as parked ([P08]) — the CLI-side face of
+    /// bound card has closed reads as unbound ([P08]) — the CLI-side face of
     /// the [L27] pin.
     #[serial]
     #[test]
@@ -5271,7 +5271,7 @@ Some context.
             std::env::set_var("TUG_SESSIONS_DB", &sessions_db);
         }
 
-        let owner_key = create("parked-dash", None, None, false)
+        let owner_key = create("unbound-dash", None, None, false)
             .unwrap()
             .id
             .unwrap();
@@ -5286,18 +5286,18 @@ Some context.
         }
 
         assert_eq!(
-            status("parked-dash").unwrap().bound_sessions,
+            status("unbound-dash").unwrap().bound_sessions,
             vec!["sess-live".to_string()],
             "a closed session's row is never reported as a mating"
         );
 
-        // With the last live session closed, the dash is parked.
+        // With the last live session closed, the dash is unbound.
         {
             let conn = rusqlite::Connection::open(&sessions_db).unwrap();
             conn.execute("UPDATE sessions SET state = 'closed'", [])
                 .unwrap();
         }
-        assert!(status("parked-dash").unwrap().bound_sessions.is_empty());
+        assert!(status("unbound-dash").unwrap().bound_sessions.is_empty());
 
         // SAFETY: serial test; see redirect_state_dir.
         unsafe {
@@ -5611,11 +5611,11 @@ Some context.
         );
     }
 
-    /// A release records its route the same way — its marker already carries
-    /// the word `released`, so the note carries the route alone.
+    /// A discard records its route the same way — its marker already carries
+    /// the word `discarded`, so the note carries the route alone.
     #[serial]
     #[test]
-    fn a_release_records_the_route_that_asked_for_it() {
+    fn a_discard_records_the_route_that_asked_for_it() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
@@ -5624,11 +5624,11 @@ Some context.
         std::env::set_current_dir(repo).unwrap();
 
         create("dropped", None, None, false).unwrap();
-        release("dropped", Some("cli")).unwrap();
+        discard("dropped", Some("cli")).unwrap();
 
         let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
         assert!(
-            dlog.contains("released  via cli"),
+            dlog.contains("discarded  via cli"),
             "dash-log should name the route: {dlog}"
         );
     }
@@ -6729,7 +6729,7 @@ Some context.
 
     #[serial]
     #[test]
-    fn test_dash_release_full_lifecycle() {
+    fn test_dash_discard_full_lifecycle() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
@@ -6741,7 +6741,7 @@ Some context.
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
 
-        let result = release("test-dash", None);
+        let result = discard("test-dash", None);
         assert!(result.is_ok());
 
         assert!(!worktree.exists());
@@ -6749,21 +6749,21 @@ Some context.
 
         let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
         assert!(
-            dlog.contains("released"),
-            "dash-log should record release: {dlog}"
+            dlog.contains("discarded"),
+            "dash-log should record discard: {dlog}"
         );
     }
 
     #[serial]
     #[test]
-    fn test_dash_release_nonexistent_fails() {
+    fn test_dash_discard_nonexistent_fails() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        let result = release("nonexistent", None);
+        let result = discard("nonexistent", None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }

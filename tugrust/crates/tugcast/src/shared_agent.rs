@@ -1743,7 +1743,10 @@ mod tests {
             2,
             "the classify answered on its own class's worker",
         );
-        describing.await.expect("join").expect("the synopsis answers");
+        describing
+            .await
+            .expect("join")
+            .expect("the synopsis answers");
     }
 
     /// The regression that took shell routing out entirely: a classify spawned
@@ -2110,9 +2113,7 @@ mod tests {
         // Classify's ceiling is the triad's Rust member; a sentence job stays
         // under the synopsis debounce.
         assert_eq!(job("classify").timeout, Duration::from_secs(2));
-        assert!(
-            job("synopsis").timeout < crate::feeds::session_synopsis::SYNOPSIS_MIN_INTERVAL
-        );
+        assert!(job("synopsis").timeout < crate::feeds::session_synopsis::SYNOPSIS_MIN_INTERVAL);
     }
 
     /// The only test that spawns a real `claude` and spends real tokens.

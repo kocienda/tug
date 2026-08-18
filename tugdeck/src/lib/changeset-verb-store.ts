@@ -207,28 +207,28 @@ const DISCLAIM_IDLE: DisclaimState = Object.freeze({
 });
 
 /**
- * One dash-release round trip's state, keyed by the initiating card entry.
+ * One dash-discard round trip's state, keyed by the initiating card entry.
  *
- * `done` is a terminal phase rather than a return to idle: the release's
+ * `done` is a terminal phase rather than a return to idle: the discard's
  * receipt hangs off that edge, and pending → idle would be indistinguishable
- * from a manual clear. `clearRelease` is still the way back to idle.
+ * from a manual clear. `clearDiscard` is still the way back to idle.
  */
-export type ReleasePhase = "idle" | "pending" | "error" | "done";
+export type DiscardPhase = "idle" | "pending" | "error" | "done";
 
-export interface ReleaseState {
-  phase: ReleasePhase;
+export interface DiscardState {
+  phase: DiscardPhase;
   error: string | null;
   /** The server-formatted discard summary (Spec S02) when `phase === "done"`. */
   summary: string | null;
 }
 
-const RELEASE_IDLE: ReleaseState = Object.freeze({
+const DISCARD_IDLE: DiscardState = Object.freeze({
   phase: "idle",
   error: null,
   summary: null,
 });
 
-/** Correlation key for a join/release reply: `project_dir` + dash name. */
+/** Correlation key for a join/discard reply: `project_dir` + dash name. */
 function verbKey(projectDir: string, dash: string): string {
   return `${projectDir}\x00${dash}`;
 }
@@ -330,10 +330,10 @@ export class ChangesetVerbStore {
   private _disclaims = new Map<string, DisclaimState>();
   /** project_dir → the entry key whose disclaim is in flight. */
   private _disclaimInflight = new Map<string, string>();
-  /** entry key → release round-trip state. Absent ⇒ idle. */
-  private _releases = new Map<string, ReleaseState>();
-  /** `verbKey(project_dir, dash)` → the entry key whose release is in flight. */
-  private _releaseInflight = new Map<string, string>();
+  /** entry key → discard round-trip state. Absent ⇒ idle. */
+  private _discards = new Map<string, DiscardState>();
+  /** `verbKey(project_dir, dash)` → the entry key whose discard is in flight. */
+  private _discardInflight = new Map<string, string>();
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
@@ -498,30 +498,30 @@ export class ChangesetVerbStore {
         blockers: [],
         summary: null,
       });
-    } else if (body.action === "changeset_release_ok") {
+    } else if (body.action === "changeset_discard_ok") {
       const dash = typeof body.dash === "string" ? body.dash : null;
       if (dash === null) return;
       const key = verbKey(projectDir, dash);
-      const entryKey = this._releaseInflight.get(key);
+      const entryKey = this._discardInflight.get(key);
       if (entryKey === undefined) return;
-      this._releaseInflight.delete(key);
+      this._discardInflight.delete(key);
       // Success: the aggregate recompute drops this dash entry shortly (no
       // client-side flip). The phase settles on `done` carrying the receipt's
-      // summary, which is the edge the transcript's release row hangs off.
-      this._setRelease(entryKey, {
+      // summary, which is the edge the transcript's discard row hangs off.
+      this._setDiscard(entryKey, {
         phase: "done",
         error: null,
         summary: typeof body.summary === "string" ? body.summary : null,
       });
-    } else if (body.action === "changeset_release_err") {
+    } else if (body.action === "changeset_discard_err") {
       const dash = typeof body.dash === "string" ? body.dash : null;
       if (dash === null) return;
       const key = verbKey(projectDir, dash);
-      const entryKey = this._releaseInflight.get(key);
+      const entryKey = this._discardInflight.get(key);
       if (entryKey === undefined) return;
-      this._releaseInflight.delete(key);
-      const detail = typeof body.detail === "string" ? body.detail : "release failed";
-      this._setRelease(entryKey, { phase: "error", error: detail, summary: null });
+      this._discardInflight.delete(key);
+      const detail = typeof body.detail === "string" ? body.detail : "discard failed";
+      this._setDiscard(entryKey, { phase: "error", error: detail, summary: null });
     }
   }
 
@@ -756,36 +756,36 @@ export class ChangesetVerbStore {
     this._setJoin(entryKey, JOIN_IDLE);
   }
 
-  private _setRelease(entryKey: string, state: ReleaseState): void {
+  private _setDiscard(entryKey: string, state: DiscardState): void {
     if (state.phase === "idle") {
-      this._releases.delete(entryKey);
+      this._discards.delete(entryKey);
     } else {
-      this._releases.set(entryKey, state);
+      this._discards.set(entryKey, state);
     }
     for (const listener of [...this._listeners]) listener();
   }
 
   /**
-   * Send `changeset_release` for `(projectDir, dash)`; mark `entryKey`
+   * Send `changeset_discard` for `(projectDir, dash)`; mark `entryKey`
    * in-flight. `sessionId` is the card's tug session id, which the server needs
-   * to leave the discard's receipt ([P06]); absent, the release still runs.
+   * to leave the discard's receipt ([P06]); absent, the discard still runs.
    */
-  release(entryKey: string, projectDir: string, dash: string, sessionId?: string): void {
-    this._releaseInflight.set(verbKey(projectDir, dash), entryKey);
-    this._setRelease(entryKey, { phase: "pending", error: null, summary: null });
-    this._connection.sendControlFrame("changeset_release", {
+  discard(entryKey: string, projectDir: string, dash: string, sessionId?: string): void {
+    this._discardInflight.set(verbKey(projectDir, dash), entryKey);
+    this._setDiscard(entryKey, { phase: "pending", error: null, summary: null });
+    this._connection.sendControlFrame("changeset_discard", {
       project_dir: projectDir,
       dash,
       ...(sessionId !== undefined ? { session_id: sessionId } : {}),
     });
   }
 
-  releaseState(entryKey: string): ReleaseState {
-    return this._releases.get(entryKey) ?? RELEASE_IDLE;
+  discardState(entryKey: string): DiscardState {
+    return this._discards.get(entryKey) ?? DISCARD_IDLE;
   }
 
-  clearRelease(entryKey: string): void {
-    this._setRelease(entryKey, RELEASE_IDLE);
+  clearDiscard(entryKey: string): void {
+    this._setDiscard(entryKey, DISCARD_IDLE);
   }
 
   dispose(): void {
@@ -939,11 +939,11 @@ export function useChangesetJoin(entryKey: string): JoinState & {
 }
 
 /**
- * React hook: the dash-release round-trip state for one dash entry plus its
+ * React hook: the dash-discard round-trip state for one dash entry plus its
  * triggers. Returns idle + no-op triggers when no store is attached.
  */
-export function useChangesetRelease(entryKey: string): ReleaseState & {
-  release: (projectDir: string, dash: string, sessionId?: string) => void;
+export function useChangesetDiscard(entryKey: string): DiscardState & {
+  discard: (projectDir: string, dash: string, sessionId?: string) => void;
   clear: () => void;
 } {
   const state = useSyncExternalStore(
@@ -952,14 +952,14 @@ export function useChangesetRelease(entryKey: string): ReleaseState & {
       if (store === null) return () => {};
       return store.subscribe(listener);
     },
-    () => _activeStore?.releaseState(entryKey) ?? RELEASE_IDLE,
-    () => RELEASE_IDLE,
+    () => _activeStore?.discardState(entryKey) ?? DISCARD_IDLE,
+    () => DISCARD_IDLE,
   );
-  const release = (projectDir: string, dash: string, sessionId?: string): void => {
-    _activeStore?.release(entryKey, projectDir, dash, sessionId);
+  const discard = (projectDir: string, dash: string, sessionId?: string): void => {
+    _activeStore?.discard(entryKey, projectDir, dash, sessionId);
   };
   const clear = (): void => {
-    _activeStore?.clearRelease(entryKey);
+    _activeStore?.clearDiscard(entryKey);
   };
-  return { ...state, release, clear };
+  return { ...state, discard, clear };
 }

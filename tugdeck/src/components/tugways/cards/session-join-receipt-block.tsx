@@ -1,6 +1,6 @@
 /**
- * `SessionJoinReceiptBlock` / `SessionReleaseReceiptBlock` — the bespoke
- * `/dash-join` and `/dash-release` command-block renderers ([P06]).
+ * `SessionJoinReceiptBlock` / `SessionDiscardReceiptBlock` — the bespoke
+ * `/dash-join` and `/dash-discard` command-block renderers ([P06]).
  *
  * A landed join and a discarded dash each leave one shell-exchange row whose
  * `output` is the server-formatted summary (Specs S01 / S02). These renderers
@@ -42,8 +42,8 @@ export interface ParsedJoinReceipt {
   message: string;
 }
 
-/** The display facts parsed from an S02 release summary. */
-export interface ParsedReleaseReceipt {
+/** The display facts parsed from an S02 discard summary. */
+export interface ParsedDiscardReceipt {
   dash: string;
   rounds: number;
   /** Files the dash touched, from its range diff; 0 when the header omits them. */
@@ -55,9 +55,15 @@ export interface ParsedReleaseReceipt {
 // The S01 / S02 headers, matched exactly — `·` is U+00B7 and `→` U+2192, so a
 // hand-typed arrow or dot never false-parses into a receipt.
 //   joined <sha> · <dash> → <base> · <N> round(s)
-//   released <dash> · discarded <N> round(s)[, <M> file(s)]
+//   discarded <dash> · <N> round(s)[, <M> file(s)]
 const JOIN_HEAD_RE = /^joined (\S+) · (\S+) → (\S+) · (\d+) round\(s\)$/;
-const RELEASE_HEAD_RE =
+const DISCARD_HEAD_RE = /^discarded (\S+) · (\d+) round\(s\)(?:, (\d+) file\(s\))?$/;
+
+// The header the verb wrote before it was renamed, when it led with `released`
+// and then said `discarded` again in front of the count. A transcript is
+// replayed from its JSONL on every card reload, so every receipt already
+// written keeps arriving here forever; this pattern is read and never written.
+const HISTORICAL_DISCARD_HEAD_RE =
   /^released (\S+) · discarded (\d+) round\(s\)(?:, (\d+) file\(s\))?$/;
 
 /**
@@ -79,10 +85,19 @@ export function parseJoinReceipt(output: string): ParsedJoinReceipt | null {
   };
 }
 
-/** Parse a `/dash-release` receipt, or `null` on a non-matching first line. */
-export function parseReleaseReceipt(output: string): ParsedReleaseReceipt | null {
+/**
+ * Parse a `/dash-discard` receipt, or `null` on a non-matching first line.
+ *
+ * The current header is tried first and the historical one second. Both yield
+ * the same facts in the same capture positions, but they are written as two
+ * patterns rather than one alternation because only one of them is a shape
+ * this code still produces.
+ */
+export function parseDiscardReceipt(output: string): ParsedDiscardReceipt | null {
   const lines = output.split("\n");
-  const head = RELEASE_HEAD_RE.exec(lines[0] ?? "");
+  const head =
+    DISCARD_HEAD_RE.exec(lines[0] ?? "") ??
+    HISTORICAL_DISCARD_HEAD_RE.exec(lines[0] ?? "");
   if (head === null) return null;
   return {
     dash: head[1],
@@ -131,21 +146,21 @@ export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactEl
   );
 }
 
-export function SessionReleaseReceiptBlock(props: CommandBlockProps): React.ReactElement {
-  const parsed = parseReleaseReceipt(props.message.output);
+export function SessionDiscardReceiptBlock(props: CommandBlockProps): React.ReactElement {
+  const parsed = parseDiscardReceipt(props.message.output);
   if (parsed === null) return <ShellExchangeBlock {...props} />;
   const { dash, rounds, files, subjects } = parsed;
-  // No sha: a release lands nothing. Its identity is the dash that stopped
+  // No sha: a discard lands nothing. Its identity is the dash that stopped
   // existing, and its body is what went with it.
   const identity = (
-    <span className="join-receipt-header join-receipt-header-release">
+    <span className="join-receipt-header join-receipt-header-discard">
       <code className="join-receipt-summary">{dash}</code>
     </span>
   );
   return (
     <ToolBlockHistoryCollapse toolUseId={props.message.exchangeId} defaultCollapsed={false}>
       <BlockChrome
-        rootSlot="release-receipt-block"
+        rootSlot="discard-receipt-block"
         variant="receipt"
         identity={identity}
         resultSummary={[
@@ -157,7 +172,7 @@ export function SessionReleaseReceiptBlock(props: CommandBlockProps): React.Reac
         copyText={props.message.output}
       >
         {subjects.length > 0 ? (
-          <CommitMessage body={subjects.join("\n")} dataSlot="release-receipt-detail" />
+          <CommitMessage body={subjects.join("\n")} dataSlot="discard-receipt-detail" />
         ) : null}
       </BlockChrome>
     </ToolBlockHistoryCollapse>
@@ -169,9 +184,19 @@ export function matchesJoinReceipt(command: string): boolean {
   return command === "/dash-join" || command.startsWith("/dash-join ");
 }
 
-/** Claims `/dash-release`, on the same terms. */
-export function matchesReleaseReceipt(command: string): boolean {
-  return command === "/dash-release" || command.startsWith("/dash-release ");
+/**
+ * Claims `/dash-discard`, on the same terms — and `/dash-release`, the command
+ * the verb wrote under its old name. Those rows are in session JSONL and are
+ * replayed on every card reload, so dropping the second spelling would turn
+ * every discard already recorded back into a raw shell row.
+ */
+export function matchesDiscardReceipt(command: string): boolean {
+  return (
+    command === "/dash-discard" ||
+    command.startsWith("/dash-discard ") ||
+    command === "/dash-release" ||
+    command.startsWith("/dash-release ")
+  );
 }
 
 // Registration is a side effect of importing this module (the import sits
@@ -179,7 +204,7 @@ export function matchesReleaseReceipt(command: string): boolean {
 // registered before the first resolve).
 registerCommandBlock("dash-join-receipt", matchesJoinReceipt, SessionJoinReceiptBlock);
 registerCommandBlock(
-  "dash-release-receipt",
-  matchesReleaseReceipt,
-  SessionReleaseReceiptBlock,
+  "dash-discard-receipt",
+  matchesDiscardReceipt,
+  SessionDiscardReceiptBlock,
 );

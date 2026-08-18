@@ -45,10 +45,10 @@ import {
 } from "@/components/tugways/tug-changes-list";
 import {
   SessionChangesDashLane,
-  canReleaseFromHere,
+  canDiscardFromHere,
   type DashLaneBinding,
   type DashLaneLanding,
-  type DashLaneRelease,
+  type DashLaneDiscard,
 } from "./session-changes-dash-lane";
 import type { DashLandingActions } from "./session-changes-dash-landing";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
@@ -60,7 +60,7 @@ import {
   useChangesetClaim,
   useChangesetDisclaim,
   useChangesetJoin,
-  useChangesetRelease,
+  useChangesetDiscard,
 } from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
@@ -144,9 +144,9 @@ export function SessionChangesView({
   // row alone — two rows previewing would share this slot.
   const join = useChangesetJoin(changesController.entryKey);
   // The card's one discard round trip ([L02]), keyed by the card's entry like
-  // the join above. That is why every row's Release is held while one is in
+  // the join above. That is why every row's Discard is held while one is in
   // flight: two rows sharing this slot would render each other's phase.
-  const releaseVerb = useChangesetRelease(changesController.entryKey);
+  const discardVerb = useChangesetDiscard(changesController.entryKey);
   // The resolution ladder's overlay, keyed by dash rather than by card. The
   // fronted dash is resolved from the same snapshot the lane orders by; an
   // unbound card watches the empty key, which is idle by construction.
@@ -323,7 +323,7 @@ export function SessionChangesView({
       </>
     ) : undefined;
 
-  // Adopt and Leave ([P05]). Both are CONTROL frames on the existing
+  // Bind and Unbind ([P05]). Both are CONTROL frames on the existing
   // connection, and **neither touches `cardSessionBindingStore`** — the
   // `bind_dash_ok` / `unbind_dash_ok` broadcasts are the only movers, which is
   // what leaves a card correctly bound to what it was when a bind is refused.
@@ -339,19 +339,19 @@ export function SessionChangesView({
     tugSessionId === undefined || project === null
       ? undefined
       : {
-          adopt: (entry) => {
+          bind: (entry) => {
             getConnection()?.sendControlFrame("bind_dash", {
               tug_session_id: tugSessionId,
               project_dir: project.project_dir,
               dash: entry.display_name,
             });
           },
-          leave: () => {
+          unbind: () => {
             getConnection()?.sendControlFrame("unbind_dash", {
               tug_session_id: tugSessionId,
             });
           },
-          // Adopting or leaving changes only which dash this card is bound
+          // Binding or unbinding changes only which dash this card is bound
           // to — no branch moves, nothing is checked out — so a turn in
           // flight is no reason to refuse it. A landing already in flight
           // is: rebinding under it would strand the join.
@@ -361,26 +361,26 @@ export function SessionChangesView({
   // Discard, for every row the reach rule allows ([P06]/[P12]). The reach is a
   // pure function of data already in this snapshot — no store, no subscription,
   // no new wire field — and the two gates are folded into one sentence so the
-  // fronted row's Release and a parked row's can never disagree.
+  // fronted row's Discard and an unbound row's can never disagree.
   //
-  // `release_in` is deliberately left unguarded: `tugutil dash release` is a
+  // `discard_in` is deliberately left unguarded: `tugutil dash discard` is a
   // power tool the app-test preamble's stranded-fixture sweep depends on, and
   // the one genuinely irreversible case — base dirt overlapping the dash's own
   // files — is already refused server-side before anything moves.
-  const laneRelease: DashLaneRelease | undefined =
+  const laneDiscard: DashLaneDiscard | undefined =
     project === null
       ? undefined
       : {
-          canRelease: (entry) =>
-            canReleaseFromHere(entry, changesController.tugSessionId, boundDashId),
-          release: (entry) =>
-            releaseVerb.release(
+          canDiscard: (entry) =>
+            canDiscardFromHere(entry, changesController.tugSessionId, boundDashId),
+          discard: (entry) =>
+            discardVerb.discard(
               project.project_dir,
               entry.display_name,
               changesController.tugSessionId,
             ),
           disabledReason:
-            releaseVerb.phase === "pending"
+            discardVerb.phase === "pending"
               ? "A discard is in flight"
               : turnInProgress
                 ? "Wait for the turn to finish"
@@ -459,7 +459,7 @@ export function SessionChangesView({
         projectRoot={project.project_dir}
         landing={laneLanding}
         binding={laneBinding}
-        release={laneRelease}
+        discard={laneDiscard}
       />
     </div>,
     headerActions,

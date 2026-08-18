@@ -597,8 +597,17 @@ async fn git_log_subjects(repo_dir: &Path, n: usize) -> Vec<String> {
 }
 
 /// Read the dash's per-round instruction lines from the well-known
-/// project-state-dir `dash-log.md` ([P23]), filtered to `dash_name`. The line
-/// format is `<iso8601>  <dash>  <marker>  <note>`; we keep `<note>`.
+/// project-state-dir `dash-log.md` ([P23]), filtered to `dash_name`.
+///
+/// The grammar is `tugdash_core`'s and is borrowed rather than re-derived: the
+/// same splitter and the same terminal-line test, so a dash name reused after
+/// a join or a discard starts its draft from an empty slate instead of
+/// inheriting the previous incarnation's instructions.
+///
+/// The *policy* is this engine's own and stays here — every non-empty `<note>`
+/// in the surviving generation is a per-round instruction, whatever marker
+/// carried it, which is why the birth record writes an empty note and so
+/// contributes nothing.
 fn read_dash_log(repo_dir: &Path, dash_name: &str) -> Vec<String> {
     let path = tugutil_core::paths::project_state_dir(repo_dir).join("dash-log.md");
     let Ok(content) = std::fs::read_to_string(path) else {
@@ -606,18 +615,18 @@ fn read_dash_log(repo_dir: &Path, dash_name: &str) -> Vec<String> {
     };
     let mut lines = Vec::new();
     for line in content.lines() {
-        let mut fields = line.splitn(4, "  ");
-        let _iso = fields.next();
-        let dash = fields.next();
-        let _marker = fields.next();
-        let note = fields.next();
-        if dash == Some(dash_name) {
-            if let Some(note) = note {
-                let note = note.trim();
-                if !note.is_empty() {
-                    lines.push(note.to_string());
-                }
-            }
+        let Some((_iso, dash, marker, note)) = tugdash_core::split_log_line(line) else {
+            continue;
+        };
+        if dash != dash_name {
+            continue;
+        }
+        if tugdash_core::is_terminal(marker, note) {
+            lines.clear();
+            continue;
+        }
+        if !note.is_empty() {
+            lines.push(note.to_string());
         }
     }
     lines
@@ -1300,5 +1309,69 @@ mod tests {
         // The min touch across the dirty repo-relative paths — never 0, as the
         // broken absolute-prefix strip produced.
         assert_eq!(earliest_dirty_touch(&events, &dirty), 200);
+    }
+
+    /// Redirect the data dir and hand back a repo root whose project state dir
+    /// holds `lines` as its dash-log. The redirect is why these are `#[serial]`.
+    fn log_repo(lines: &str) -> (tempfile::TempDir, tempfile::TempDir) {
+        let home = tempfile::tempdir().expect("tempdir");
+        // SAFETY: these tests are #[serial]; no other thread reads the
+        // environment concurrently while this runs.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let repo = tempfile::tempdir().expect("tempdir");
+        let state = tugutil_core::paths::project_state_dir(repo.path());
+        std::fs::create_dir_all(&state).expect("state dir");
+        std::fs::write(state.join("dash-log.md"), lines).expect("write log");
+        (home, repo)
+    }
+
+    fn log_line(dash: &str, marker: &str, note: &str) -> String {
+        format!("2026-08-14T12:00:00Z  {dash}  {marker}  {note}\n")
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn every_non_empty_note_in_the_generation_is_an_instruction() {
+        let log = format!(
+            "{}{}{}{}",
+            // The birth record's note is empty, which is the whole reason it
+            // contributes nothing here.
+            log_line("d", "created", ""),
+            log_line("d", "abc1234", "the first round"),
+            log_line("other", "abc1234", "a different dash"),
+            log_line("d", "abc5678", "the second round"),
+        );
+        let (_home, repo) = log_repo(&log);
+        assert_eq!(
+            read_dash_log(repo.path(), "d"),
+            vec!["the first round", "the second round"],
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_reused_name_starts_its_draft_from_an_empty_slate() {
+        // Both spellings of the teardown, and the join — each must end the
+        // generation, or the reused name's draft is authored from the previous
+        // incarnation's instructions.
+        for terminal in [
+            log_line("d", "discarded", ""),
+            log_line("d", "released", ""),
+            log_line("d", "a4477d5", "joined via card"),
+        ] {
+            let log = format!(
+                "{}{}{}",
+                log_line("d", "abc1234", "a round from the previous incarnation"),
+                terminal,
+                log_line("d", "abc5678", "the reused name's own first round"),
+            );
+            let (_home, repo) = log_repo(&log);
+            assert_eq!(
+                read_dash_log(repo.path(), "d"),
+                vec!["the reused name's own first round"],
+            );
+        }
     }
 }

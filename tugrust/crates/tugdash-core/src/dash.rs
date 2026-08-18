@@ -32,10 +32,13 @@ pub struct DashRoundMeta {
 /// Names must:
 /// - Match pattern: `^[a-z][a-z0-9-]*[a-z0-9]$`
 /// - Be at least 2 characters
-/// - Not be a reserved word: "release", "join", "status"
+/// - Not be a reserved word: "discard", "release", "join", "status". `release`
+///   stays reserved though its subcommand is gone: a dash named `release` would
+///   collide with the historical terminal marker still on disk, and with a
+///   decade of muscle memory, for no gain.
 pub fn validate_dash_name(name: &str) -> Result<(), TugError> {
     // Reserved words check
-    if name == "release" || name == "join" || name == "status" {
+    if name == "discard" || name == "release" || name == "join" || name == "status" {
         return Err(TugError::DashNameInvalid {
             name: name.to_string(),
             reason: format!("'{}' is a reserved word", name),
@@ -164,7 +167,7 @@ pub fn detect_default_branch(repo_root: &Path) -> Result<String, TugError> {
 /// The log is a flat, append-only, greppable markdown file — the whole
 /// visibility surface for dash activity. Each line is four space-separated
 /// fields: `<iso8601>  <dash>  <marker>  <note>`, where `<marker>` is the short
-/// commit hash for a commit round (or `released` for a discarded dash) and
+/// commit hash for a commit round (or `discarded` for a discarded dash) and
 /// `<note>` is the verbatim instruction (or the terminal action). The directory
 /// is created on first write.
 pub fn append_dash_log(
@@ -314,8 +317,14 @@ pub struct DashDeclarations {
 ///
 /// [`append_dash_log`] joins the four fields with two spaces and trims the
 /// note, so the note is whatever follows the third separator — including
-/// nothing at all, which is how a `released` line is written.
-fn split_log_line(line: &str) -> Option<(&str, &str, &str, &str)> {
+/// nothing at all, which is how a teardown line is written.
+///
+/// Public because the dash-log grammar has exactly one reader: `tugcast`'s
+/// draft engine reads the same file for a different purpose and shares this
+/// splitter and [`is_terminal`] rather than re-deriving them. Two independent
+/// parsers of one grammar is how a compatibility clause comes to hold in one
+/// of them and not the other.
+pub fn split_log_line(line: &str) -> Option<(&str, &str, &str, &str)> {
     let mut fields = line.trim_end().splitn(4, "  ");
     let timestamp = fields.next()?;
     let dash = fields.next()?;
@@ -330,16 +339,22 @@ fn split_log_line(line: &str) -> Option<(&str, &str, &str, &str)> {
 
 /// Whether a log line ends a dash generation.
 ///
-/// "Terminal" is spelled two ways because two writers spell it two ways: the
-/// join teardown records the squash's sha as the marker and `joined` as the
-/// note, and `release` records the marker `released` with no note.
+/// "Terminal" is spelled several ways because several writers spell it several
+/// ways: the join teardown records the squash's sha as the marker and `joined`
+/// as the note, and the discard teardown records a bare marker with no note.
 ///
-/// The join's note is matched by prefix, not equality, because it carries the
-/// route that landed it (`joined via card`). Narrowing this back to equality
-/// would silently stop ending generations, and a dash name reused after a join
-/// would be born carrying the previous generation's declarations.
-fn is_terminal(marker: &str, note: &str) -> bool {
-    marker == "released" || note == "joined" || note.starts_with("joined ")
+/// `released` is the discard teardown's *historical* spelling. Dash-logs are
+/// append-only and are never rewritten, so every log written before the verb
+/// was renamed still carries it. It is read here forever, is never written
+/// from here forward, and is not scheduled for removal — dropping it would
+/// silently stop ending generations in every log already on disk, and a dash
+/// name reused after a discard would be born carrying the previous
+/// generation's declarations.
+///
+/// The join's note is matched by prefix, not equality, for the same reason:
+/// it carries the route that landed it (`joined via card`).
+pub fn is_terminal(marker: &str, note: &str) -> bool {
+    marker == "discarded" || marker == "released" || note == "joined" || note.starts_with("joined ")
 }
 
 /// Read the `i`/`N` a step declaration's note leads with. An unparseable note
@@ -589,6 +604,11 @@ mod tests {
     #[serial]
     fn a_reused_name_inherits_nothing_across_a_terminal_line() {
         for terminal in [
+            log_line("d", "discarded", ""),
+            log_line("d", "discarded", "via cli"),
+            // The historical spelling. Every dash-log written before the verb
+            // was renamed carries it, and the log is never rewritten, so this
+            // arm is read forever.
             log_line("d", "released", ""),
             log_line("d", "released", "via cli"),
             log_line("d", "a4477d5", "joined"),
@@ -628,12 +648,19 @@ mod tests {
         let log = format!(
             "{}{}{}",
             log_line_at("2026-08-10T09:00:00Z", "d", "created", ""),
-            log_line_at("2026-08-11T09:00:00Z", "d", "step-start", "1/2 Step 1: First"),
+            log_line_at(
+                "2026-08-11T09:00:00Z",
+                "d",
+                "step-start",
+                "1/2 Step 1: First"
+            ),
             log_line_at("2026-08-12T09:00:00Z", "d", "built", ""),
         );
         let fixture = log_repo(&log);
         assert_eq!(
-            read_declarations(fixture.root(), "d").last_activity.as_deref(),
+            read_declarations(fixture.root(), "d")
+                .last_activity
+                .as_deref(),
             Some("2026-08-12T09:00:00Z"),
         );
     }
@@ -649,7 +676,9 @@ mod tests {
         );
         let fixture = log_repo(&log);
         assert_eq!(
-            read_declarations(fixture.root(), "d").last_activity.as_deref(),
+            read_declarations(fixture.root(), "d")
+                .last_activity
+                .as_deref(),
             Some("2026-08-12T09:00:00Z"),
             "the new generation's own age, not the released one's",
         );
@@ -756,6 +785,7 @@ mod tests {
         assert!(validate_dash_name("a").is_err());
 
         // Reserved words
+        assert!(validate_dash_name("discard").is_err());
         assert!(validate_dash_name("release").is_err());
         assert!(validate_dash_name("join").is_err());
         assert!(validate_dash_name("status").is_err());

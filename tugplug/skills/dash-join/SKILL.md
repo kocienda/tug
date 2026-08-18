@@ -1,6 +1,6 @@
 ---
 name: dash-join
-description: Land a dash into its base branch — preview the squash, land it with the dash's join draft as the message, clear the draft, and report the receipt. The user's landing gesture; never releases.
+description: Land a dash into its base branch — preview the squash, land it with the dash's join draft as the message, clear the draft, and report the receipt. The user's landing gesture; never discards.
 argument-hint: "[name] [message…]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, AskUserQuestion
@@ -73,9 +73,9 @@ Preflight refusals come back as errors from this same command — surface them v
 - *"Cannot join from inside the dash worktree"* → re-run from the repo root.
 - *"repo root worktree is on branch 'X' but dash targets 'Y'"* → the user checks out the base branch; do not switch branches for them.
 - *"the base worktree has uncommitted changes to files this dash also changed (…)"* → the preflight is intersection-aware, so only the named files block. Report them and let the user commit or stash. Never stash, reset, or check out on their behalf.
-- *"Nothing to join: dash '<name>' has no commits past '<base>'. Release it to discard."* → the dash is empty. This one is a **question**, not a stop: report it and raise an `AskUserQuestion` — *"Release it"* / *"Leave it"*. An empty dash is a real fork with two good answers (the work was abandoned, or it has not started yet) and no conventional default, which is exactly what a dialog is for.
+- *"Nothing to join: dash '<name>' has no commits past '<base>'. Discard it instead."* → the dash is empty. This one is a **question**, not a stop: report it and raise an `AskUserQuestion` — *"Discard it"* / *"Keep it"*. An empty dash is a real fork with two good answers (the work was abandoned, or it has not started yet) and no conventional default, which is exactly what a dialog is for.
 
-  On *"Release it"*, run `tugutil dash release <name>` — the dialog **is** the user's gesture, which is the only thing that ever authorizes it. On *"Leave it"*, stop and say the dash is still there. **Never release on your own initiative** — release is the one irreversible act in the workflow, so it needs the user to have said so, in the answer, that turn.
+  On *"Discard it"*, run `tugutil dash discard <name>` — the dialog **is** the user's gesture, which is the only thing that ever authorizes it. On *"Keep it"*, stop and say the dash is still there. (The second answer used to read *"Leave it"*, in the ordinary English sense of leaving it standing. It is *"Keep it"* now because **Unbind** is the button that used to say Leave, and an answer that reads as a verb from the same system while meaning something else entirely is a collision waiting to be misread.) **Never discard on your own initiative** — discard is the one irreversible act in the workflow, so it needs the user to have said so, in the answer, that turn.
 
 The other three above stay stops. They are correct refusals with one right answer, not unasked questions — the distinction is the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked).
 
@@ -112,7 +112,7 @@ On a stop instead of a land, report what blocked it, the exact CLI message, and 
 
 - **`tugutil dash join` does the git.** No `git merge`, `git rebase`, `git cherry-pick`, `git checkout`, `git stash`, or `git reset` — not to prepare the join, not to recover from one.
 - **Never compose the landing message.** No draft is a stop, not a prompt to write one.
-- **Never release on your own initiative.** `tugutil dash release` discards work. The one path that may run it is the empty-dash dialog, and only on the answer that asked for it — a release nobody chose, that turn, is never yours to make.
+- **Never discard on your own initiative.** `tugutil dash discard` destroys work. The one path that may run it is the empty-dash dialog, and only on the answer that asked for it — a discard nobody chose, that turn, is never yours to make.
 - **Preview before landing, always** — even when the user names the dash and the message. Beat 1 shows exactly what beat 2 does.
 - **Never resolve conflicts unasked.** `--resolve` rewrites the merge result; it runs on the user's word.
 - **Squash only.**

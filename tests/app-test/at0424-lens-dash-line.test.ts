@@ -46,7 +46,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, releaseDash, tugutilPath } from "./dash-fixture";
+import { createDash, discardDash, tugutilPath } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -72,7 +72,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH_NAME);
+  discardDash(PROJECT_DIR, DASH_NAME);
 });
 
 function deckShape() {
@@ -210,7 +210,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
         );
         note("at0424 dash line", JSON.stringify(line));
         // The name is the title run's to say; the line says only the doing.
-        expect(line.text).not.toContain(`#${DASH_NAME}`);
+        expect(line.text).not.toContain(`◊${DASH_NAME}`);
         // A freshly created dash with no round and no dirt is `created`.
         expect(line.text).toContain("created");
         expect(line.insideSessionRow).toBe(true);

@@ -166,17 +166,17 @@ describe("changeset join payload", () => {
     });
   });
 
-  test("release carries the session id too, and omits it when absent", () => {
-    h.store.release(ENTRY, PROJECT, DASH, "sess-1");
+  test("discard carries the session id too, and omits it when absent", () => {
+    h.store.discard(ENTRY, PROJECT, DASH, "sess-1");
     expect(h.sent[0]).toEqual({
-      action: "changeset_release",
+      action: "changeset_discard",
       body: { project_dir: PROJECT, dash: DASH, session_id: "sess-1" },
     });
 
     const bare = harness();
-    bare.store.release(ENTRY, PROJECT, DASH);
+    bare.store.discard(ENTRY, PROJECT, DASH);
     expect(bare.sent[0]).toEqual({
-      action: "changeset_release",
+      action: "changeset_discard",
       body: { project_dir: PROJECT, dash: DASH },
     });
   });

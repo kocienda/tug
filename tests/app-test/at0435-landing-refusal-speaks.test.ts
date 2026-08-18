@@ -36,7 +36,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, releaseDash } from "./dash-fixture";
+import { commitRound, createDash, discardDash } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -115,7 +115,7 @@ const landing = (dash: string): string =>
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   const dash = createDash(PROJECT_DIR, DASH, "at0435 fixture (a round to land)");
   dashId = dash.id;
   writeFileSync(join(dash.worktree, "at0435-work.txt"), "at0435\n");
@@ -128,7 +128,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
   if (tugbankPath !== "") rmTempTugbank(tugbankPath);
 });

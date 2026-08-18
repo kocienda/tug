@@ -58,7 +58,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             quiet,
         ),
         DashCommands::Replay { name } => return run_replay(&name, json, quiet),
-        DashCommands::Release { name } => run_release(&name, json, quiet),
+        DashCommands::Discard { name } => run_discard(&name, json, quiet),
         DashCommands::List => run_list(json, quiet),
         DashCommands::Show { name } => run_show(&name, json, quiet),
         DashCommands::Status { name } => run_status(&name, json, quiet),
@@ -222,7 +222,7 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
 
 /// The dash's owner key and the repo it lives in, resolved for a landing.
 ///
-/// Called **before** the verb runs, always. `join`/`release` end in
+/// Called **before** the verb runs, always. `join`/`discard` end in
 /// `git branch -D`, which deletes `branch.tugdash/<name>.tugid` with the
 /// branch — a key read afterwards is the legacy form and names none of the
 /// id-keyed rows the `dash_gone` sweep must reach ([L23], [P05], Risk R02).
@@ -380,17 +380,17 @@ fn run_join_resolve(
     Ok(())
 }
 
-fn run_release(name: &str, json: bool, quiet: bool) -> Result<(), String> {
+fn run_discard(name: &str, json: bool, quiet: bool) -> Result<(), String> {
     // Captured before the teardown, for the reason `capture_owner_key` states.
     let captured = capture_owner_key(name);
-    let data = ops::release(name, Some("cli"))?;
+    let data = ops::discard(name, Some("cli"))?;
     if let Some((repo, owner_key)) = captured {
         broadcast_dash_gone(&repo, &owner_key);
     }
     if json {
-        print_ok("dash release", &data);
+        print_ok("dash discard", &data);
     } else if !quiet {
-        println!("Released dash '{}'", data.name);
+        println!("Discarded dash '{}'", data.name);
         if let Some(plan) = data.plan_restored.as_deref() {
             println!("  Plan returned to the base checkout: {plan}");
         }
@@ -441,7 +441,7 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
             println!("Landing interrupted at: {}", phase);
         }
         if data.bound_sessions.is_empty() {
-            println!("Sessions: none (parked)");
+            println!("Sessions: none (unbound)");
         } else {
             println!("Sessions: {}", data.bound_sessions.join(", "));
         }

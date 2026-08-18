@@ -1991,17 +1991,17 @@ fn parse_changeset_join_resolve_payload(
     Ok(ChangesetJoinResolvePayload { project_dir, dash })
 }
 
-/// Parsed `changeset_release` request: the project checkout and the dash name.
-struct ChangesetReleasePayload {
+/// Parsed `changeset_discard` request: the project checkout and the dash name.
+struct ChangesetDiscardPayload {
     project_dir: String,
     dash: String,
     /// The calling card's tug session id, for the receipt's row ([P06]).
     session_id: Option<String>,
 }
 
-fn parse_changeset_release_payload(
+fn parse_changeset_discard_payload(
     payload: &[u8],
-) -> Result<ChangesetReleasePayload, ControlError> {
+) -> Result<ChangesetDiscardPayload, ControlError> {
     let value: serde_json::Value =
         serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
     let project_dir = value
@@ -2019,7 +2019,7 @@ fn parse_changeset_release_payload(
         .ok_or(ControlError::Malformed)?
         .to_string();
     let session_id = parse_optional_session_id(&value);
-    Ok(ChangesetReleasePayload {
+    Ok(ChangesetDiscardPayload {
         project_dir,
         dash,
         session_id,
@@ -2950,9 +2950,9 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "changeset_release" => match parse_changeset_release_payload(payload) {
+            "changeset_discard" => match parse_changeset_discard_payload(payload) {
                 Ok(parsed) => {
-                    self.do_changeset_release(&parsed).await;
+                    self.do_changeset_discard(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -5289,16 +5289,16 @@ impl AgentSupervisor {
         ));
     }
 
-    /// Handle a `changeset_release` CONTROL request: discard a dash (worktree +
+    /// Handle a `changeset_discard` CONTROL request: discard a dash (worktree +
     /// branch) without merging, via `tugdash-core`. Same guards as the join
     /// verb; fires the aggregate bump so the dash entry disappears from the
-    /// card. Broadcasts `changeset_release_ok {…}` / `changeset_release_err`.
-    async fn do_changeset_release(&self, request: &ChangesetReleasePayload) {
+    /// card. Broadcasts `changeset_discard_ok {…}` / `changeset_discard_err`.
+    async fn do_changeset_discard(&self, request: &ChangesetDiscardPayload) {
         let project_dir = request.project_dir.as_str();
         let dir = std::path::Path::new(project_dir);
 
         if self.registry.find_entry_by_path(dir).is_none() {
-            Self::send_changeset_release_err(
+            Self::send_changeset_discard_err(
                 &self.control_tx,
                 project_dir,
                 &request.dash,
@@ -5307,7 +5307,7 @@ impl AgentSupervisor {
             return;
         }
         if !crate::feeds::git::is_within_git_worktree(dir).await {
-            Self::send_changeset_release_err(
+            Self::send_changeset_discard_err(
                 &self.control_tx,
                 project_dir,
                 &request.dash,
@@ -5317,7 +5317,7 @@ impl AgentSupervisor {
         }
 
         // Resolved before the teardown, for the reason `do_changeset_join`
-        // states: `release_in` deletes the branch and its config with it
+        // states: `discard_in` deletes the branch and its config with it
         // ([L23], [P05], Risk R02).
         let owner_key = tugdash_core::ops::dash_owner_key(dir, &request.dash);
         // What the discard is about to destroy, read while it still exists —
@@ -5333,7 +5333,7 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugdash_core::release_in(&dir_owned, &dash, Some("card"))
+            tugdash_core::discard_in(&dir_owned, &dash, Some("card"))
         })
         .await;
 
@@ -5344,9 +5344,9 @@ impl AgentSupervisor {
                     rounds = discarded_rounds,
                     files = discarded_files,
                     plan_restored = outcome.plan_restored.is_some(),
-                    "dash-release: completed"
+                    "dash-discard: completed"
                 );
-                // The released dash's join draft dies with it ([P14]) — a
+                // The discarded dash's join draft dies with it ([P14]) — a
                 // reused name must never inherit the dead dash's message.
                 if let Some(ledger) = self.session_ledger.as_deref() {
                     Self::clear_dash_draft(ledger, project_dir, &owner_key);
@@ -5357,7 +5357,7 @@ impl AgentSupervisor {
                 self.registry.changeset_all_bump().notify_one();
                 // The discard's receipt (Spec S02): the header names what was
                 // destroyed, the body lists the subjects the preflight showed.
-                let summary = crate::feeds::changeset::format_release_summary(
+                let summary = crate::feeds::changeset::format_discard_summary(
                     &outcome.name,
                     discarded_rounds,
                     discarded_files,
@@ -5367,12 +5367,12 @@ impl AgentSupervisor {
                 Self::record_landing_receipt(
                     self.shell_ledger.as_ref(),
                     request.session_id.as_deref(),
-                    "/dash-release",
+                    "/dash-discard",
                     &summary,
                     project_dir,
                 );
                 let body = serde_json::json!({
-                    "action": "changeset_release_ok",
+                    "action": "changeset_discard_ok",
                     "project_dir": project_dir,
                     "dash": request.dash,
                     "name": outcome.name,
@@ -5381,11 +5381,11 @@ impl AgentSupervisor {
                 });
                 let _ = self.control_tx.send(Frame::new(
                     FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_release_ok serializes"),
+                    serde_json::to_vec(&body).expect("changeset_discard_ok serializes"),
                 ));
             }
             Ok(Err(detail)) => {
-                Self::send_changeset_release_err(
+                Self::send_changeset_discard_err(
                     &self.control_tx,
                     project_dir,
                     &request.dash,
@@ -5393,31 +5393,31 @@ impl AgentSupervisor {
                 );
             }
             Err(join_err) => {
-                Self::send_changeset_release_err(
+                Self::send_changeset_discard_err(
                     &self.control_tx,
                     project_dir,
                     &request.dash,
-                    &format!("release task failed: {join_err}"),
+                    &format!("discard task failed: {join_err}"),
                 );
             }
         }
     }
 
-    fn send_changeset_release_err(
+    fn send_changeset_discard_err(
         control_tx: &broadcast::Sender<Frame>,
         project_dir: &str,
         dash: &str,
         detail: &str,
     ) {
         let body = serde_json::json!({
-            "action": "changeset_release_err",
+            "action": "changeset_discard_err",
             "project_dir": project_dir,
             "dash": dash,
             "detail": detail,
         });
         let _ = control_tx.send(Frame::new(
             FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_release_err serializes"),
+            serde_json::to_vec(&body).expect("changeset_discard_err serializes"),
         ));
     }
 
@@ -5584,7 +5584,7 @@ impl AgentSupervisor {
         // reads — no new TCC surface.
         let claude_root = ledger.claude_projects_root().to_path_buf();
         // One `for-each-ref` per distinct repo among the bound rows, so a
-        // binding whose dash has since been joined or released reads as
+        // binding whose dash has since been joined or discarded reads as
         // unbound ([P05]) without a git call per row.
         let live_dashes_by_project: std::collections::HashMap<String, _> = {
             let projects: std::collections::HashSet<String> = rows
@@ -7857,17 +7857,17 @@ mod tests {
     }
 
     #[test]
-    fn changeset_release_payload_session_id_is_optional() {
+    fn changeset_discard_payload_session_id_is_optional() {
         let bare = br#"{"project_dir":"/p","dash":"d"}"#;
         assert_eq!(
-            parse_changeset_release_payload(bare)
+            parse_changeset_discard_payload(bare)
                 .expect("parse")
                 .session_id,
             None
         );
         let tagged = br#"{"project_dir":"/p","dash":"d","session_id":"sess-1"}"#;
         assert_eq!(
-            parse_changeset_release_payload(tagged)
+            parse_changeset_discard_payload(tagged)
                 .expect("parse")
                 .session_id
                 .as_deref(),
@@ -7876,7 +7876,7 @@ mod tests {
         // Whitespace is not a session id.
         let blank = br#"{"project_dir":"/p","dash":"d","session_id":"  "}"#;
         assert_eq!(
-            parse_changeset_release_payload(blank)
+            parse_changeset_discard_payload(blank)
                 .expect("parse")
                 .session_id,
             None
@@ -8515,7 +8515,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn changeset_release_discards_dash() {
+    async fn changeset_discard_discards_dash() {
         use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
@@ -8558,14 +8558,14 @@ mod tests {
         let root_str = root.to_string_lossy().to_string();
 
         let payload = serde_json::to_vec(&serde_json::json!({
-            "action": "changeset_release",
+            "action": "changeset_discard",
             "project_dir": root_str,
             "dash": "demo",
         }))
         .unwrap();
-        sup.handle_control("changeset_release", &payload, 1).await;
+        sup.handle_control("changeset_discard", &payload, 1).await;
         let done = next_control(&mut control_rx).await;
-        assert_eq!(done["action"], "changeset_release_ok");
+        assert_eq!(done["action"], "changeset_discard_ok");
         assert_eq!(done["name"], "demo");
 
         let branches = Command::new("git")
@@ -9204,7 +9204,7 @@ mod tests {
 
     /// **The [L27] pin.** Closing a session returns the acquisition its bind
     /// made, so a dash whose cards have all closed reports zero mated sessions
-    /// and reads as *parked* ([P08]).
+    /// and reads as *unbound* ([P08]).
     #[test]
     fn closing_a_bound_session_releases_its_binding() {
         let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
@@ -9226,7 +9226,7 @@ mod tests {
         ledger.mark_closed("sess-2").unwrap();
         assert!(
             ledger.get("sess-2").unwrap().unwrap().dash_id.is_none(),
-            "with every card closed the dash is parked, not still mated"
+            "with every card closed the dash is unbound, not still mated"
         );
     }
 

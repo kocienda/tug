@@ -255,7 +255,7 @@ pub enum Commands {
     #[command(subcommand)]
     Draft(DraftCommands),
 
-    /// Worktree-isolated work units (create/commit/join/release/list/show).
+    /// Worktree-isolated work units (create/commit/join/discard/list/show).
     #[command(subcommand)]
     Dash(DashCommands),
 
@@ -461,8 +461,8 @@ pub enum DashCommands {
         /// Dash name.
         name: String,
     },
-    /// Release a dash: discard its worktree + branch without merging.
-    Release {
+    /// Discard a dash: delete its worktree + branch without merging.
+    Discard {
         /// Dash name.
         name: String,
     },

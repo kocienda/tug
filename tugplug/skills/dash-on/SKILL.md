@@ -19,7 +19,7 @@ disallowed-tools: Task
 
 `/tugplug:dash-on <name> <instruction…>` — create the dash `<name>` if new (or continue it), then carry out `<instruction>`.
 
-That is the whole grammar. `<name>` is alphanumeric + hyphens, 2+ chars, and everything after it is the instruction — there are no reserved words, because there are no sub-verbs to collide with. Landing belongs to `/join` and `dash-join`, the readouts are `tugutil dash status|show|list`, and release is a bare CLI call the user makes.
+That is the whole grammar. `<name>` is alphanumeric + hyphens, 2+ chars, and everything after it is the instruction — there are no reserved words, because there are no sub-verbs to collide with. Landing belongs to `/join` and `dash-join`, the readouts are `tugutil dash status|show|list`, and discard is a bare CLI call the user makes.
 
 ## Lifecycle
 
@@ -71,13 +71,13 @@ Then **stop and let the user vet the build.** Don't merge.
 
 The landing is the user's gesture: **`/join <name>`** in the Session card, which previews the merge and lands the squash with the draft you left. If the user asks you to run it instead, `/tugplug:dash-join <name>` is the same landing in skill form.
 
-### Release
+### Discard
 
-`tugutil dash release <name>` discards the dash (worktree + branch) without merging. It is the one irreversible act in the lane, this skill has no verb for it, and you never reach for it on your own initiative — it is named here only so that rule has somewhere to live.
+`tugutil dash discard <name>` deletes the dash (worktree + branch) without merging. It is the one irreversible act in the lane, this skill has no verb for it, and you never reach for it on your own initiative — it is named here only so that rule has somewhere to live.
 
 ## Guardrails
 
 Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), plus:
 
 - **Leave the draft behind.** Stopping without one hands the user a landing gesture that cannot land.
-- **Never release on your own initiative.** Release discards work.
+- **Never discard on your own initiative.** Discard destroys work.

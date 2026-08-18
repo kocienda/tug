@@ -37,7 +37,7 @@
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* The project label is orientation, not disambiguation: a parked dash may be
+/* The project label is orientation, not disambiguation: an unbound dash may be
    the only thing on screen from its project, so it rides every row — and as
    the least urgent run on the line, it is the one that gives way first. */
 .lens-dashes-project {
@@ -49,9 +49,9 @@
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* The parked mark. Toned down from the live dot's palette on purpose: a dash
+/* The unbound mark. Toned down from the live dot's palette on purpose: a dash
    nobody is working must not read as a dash at rest between turns. */
-.lens-dashes-parked {
+.lens-dashes-unbound {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -60,7 +60,7 @@
 }
 
 /* The row's verbs. This section is not read-only, and it is the one place they
-   can live: a parked dash has no session card whose Changes shade could offer
+   can live: an unbound dash has no session card whose Changes shade could offer
    them. Both are always visible rather than hover-revealed — a control that
    appears under the pointer is one a keyboard reader never finds, and every row
    here is a to-do. */
@@ -73,8 +73,8 @@
 
 /* The tooltip anchors, which have to be real boxes: a disabled button takes no
    pointer events, so the span around it is what the hover lands on. */
-.lens-dashes-adopt,
-.lens-dashes-release {
+.lens-dashes-bind,
+.lens-dashes-discard {
   display: inline-flex;
 }
 

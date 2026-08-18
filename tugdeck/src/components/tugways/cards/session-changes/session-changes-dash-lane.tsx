@@ -25,12 +25,12 @@
  * first and render its blockers under the wrong name; landing is a gesture on
  * this card's own dash regardless.
  *
- * The two **binding** gestures go the other way. Every row carries one: Leave
- * on the fronted row, Adopt on all the rest, complements that never appear
+ * The two **binding** gestures go the other way. Every row carries one: Unbind
+ * on the fronted row, Bind on all the rest, complements that never appear
  * together. This is the room where a dash's facts already live, so the act of
  * taking a dash on belongs beside the facts you would take it on for — and
  * "non-fronted rows stay read-only" was always a rule about *landing*, a
- * gesture on work a card never touched. Adopting is how a card comes to touch
+ * gesture on work a card never touched. Binding is how a card comes to touch
  * it.
  *
  * Laws: [L02] the lane takes its data as props from the view's
@@ -234,9 +234,9 @@ export interface DashLaneLanding {
 /**
  * The lane's two binding gestures ([P05]).
  *
- * Unlike {@link DashLaneLanding}, this bundle goes to **every** row: Adopt's
+ * Unlike {@link DashLaneLanding}, this bundle goes to **every** row: Bind's
  * whole population is the rows the landing face never reaches, and a row picks
- * Adopt or Leave from its own `fronted` flag — the two are complements, so they
+ * Bind or Unbind from its own `fronted` flag — the two are complements, so they
  * never appear together and the cluster stays one affordance wide.
  *
  * Neither callback may move `cardSessionBindingStore`. The `bind_dash_ok` /
@@ -247,23 +247,23 @@ export interface DashLaneLanding {
  * The lane's discard gesture, for every row the reach rule allows.
  *
  * Like {@link DashLaneBinding} and unlike {@link DashLaneLanding}, this reaches
- * past the fronted row: a parked dash nobody is holding is exactly the kind a
+ * past the fronted row: an unbound dash nobody is holding is exactly the kind a
  * shade should be able to clean up, and the `empty` landing outcome's own
- * answer is release rather than a fix.
+ * answer is discard rather than a fix.
  */
-export interface DashLaneRelease {
-  /** Whether this shade may discard this dash ({@link canReleaseFromHere}). */
-  canRelease: (entry: DashChangesetEntry) => boolean;
-  /** Send `changeset_release`. Called by the confirm popover, never a button. */
-  release: (entry: DashChangesetEntry) => void;
+export interface DashLaneDiscard {
+  /** Whether this shade may discard this dash ({@link canDiscardFromHere}). */
+  canDiscard: (entry: DashChangesetEntry) => boolean;
+  /** Send `changeset_discard`. Called by the confirm popover, never a button. */
+  discard: (entry: DashChangesetEntry) => void;
   /**
-   * Why every Release on this lane is unavailable right now, or null.
+   * Why every Discard on this lane is unavailable right now, or null.
    *
    * Folds two gates. A turn in flight is the owner's rule — a dash is only
-   * released when no turn is running in the session bound to it, which is
+   * discarded when no turn is running in the session bound to it, which is
    * always *this* card's turn, because the reach rule renders no control for a
    * dash another live session holds. And a discard already in flight, because
-   * `ReleaseState` is one slot per card: arming a second row would let the two
+   * `DiscardState` is one slot per card: arming a second row would let the two
    * render each other's phase.
    */
   disabledReason: string | null;
@@ -271,9 +271,9 @@ export interface DashLaneRelease {
 
 export interface DashLaneBinding {
   /** Send `bind_dash` for this row's dash. */
-  adopt: (entry: DashChangesetEntry) => void;
+  bind: (entry: DashChangesetEntry) => void;
   /** Send `unbind_dash` for this card's session. */
-  leave: (entry: DashChangesetEntry) => void;
+  unbind: (entry: DashChangesetEntry) => void;
   /** Why both are unavailable right now, or null when they are available.
    *  Disabled with a reason rather than silently bouncing. */
   disabledReason: string | null;
@@ -282,14 +282,14 @@ export interface DashLaneBinding {
 /**
  * Whether this shade may discard this dash.
  *
- * A shade may release its own dash, and any dash no live session is holding. A
- * dash bound to *another* live session is that session's to release, and this
+ * A shade may discard its own dash, and any dash no live session is holding. A
+ * dash bound to *another* live session is that session's to discard, and this
  * one renders no control for it at all.
  *
  * `bound_sessions` already means exactly "live sessions mated to this dash" —
  * the server computes it that way and a test pins that a closed session's row
  * is never reported — so this introduces no second definition of bound-ness.
- * An older sender that omits the field entirely reads as parked, which is the
+ * An older sender that omits the field entirely reads as unbound, which is the
  * safe direction: the popover still names the stake, and the server still
  * refuses the one destructive case it can see.
  *
@@ -297,7 +297,7 @@ export interface DashLaneBinding {
  * *here* will ever make it available, and a disabled control invites waiting
  * for something that is not coming.
  */
-export function canReleaseFromHere(
+export function canDiscardFromHere(
   entry: DashChangesetEntry,
   ownTugSessionId: string | undefined,
   boundDashId: string | null,
@@ -314,7 +314,7 @@ export function canReleaseFromHere(
  * The discard confirm's message: a fact sheet, never "are you sure".
  *
  * Every clause names something the reader cannot see by looking at the row.
- * The hand-back sentence is the one that must never be dropped — `dash release`
+ * The hand-back sentence is the one that must never be dropped — `dash discard`
  * deliberately writes the worktree's uncommitted files back into the base
  * checkout rather than destroying them, and a person who has not been told that
  * has not agreed to it. The plan sentence is the same kind of fact:
@@ -327,9 +327,9 @@ export function canReleaseFromHere(
  *
  * Pure, so the sentence is testable without mounting the lane.
  */
-export function releaseConfirmMessage(entry: DashChangesetEntry): string {
+export function discardConfirmMessage(entry: DashChangesetEntry): string {
   const clauses = [
-    `Release ${entry.display_name}: deletes the branch and worktree.`,
+    `Discard ${entry.display_name}: deletes the branch and worktree.`,
   ];
   if (entry.rounds > 0 || entry.files.length > 0) {
     clauses.push(`${discardPreflightLine(entry.rounds, entry.files.length)}.`);
@@ -358,13 +358,13 @@ function DashRow({
   onToggle,
   landing,
   binding,
-  release,
-  onRequestRelease,
+  discard,
+  onRequestDiscard,
 }: {
   entry: DashChangesetEntry;
   projectRoot: string;
   fronted: boolean;
-  /** This card is mated to this dash — which is what Leave-vs-Adopt reads,
+  /** This card is mated to this dash — which is what Unbind-vs-Bind reads,
    *  and is not the same question as which row is fronted. */
   bound: boolean;
   expanded: boolean;
@@ -373,12 +373,12 @@ function DashRow({
   binding: DashLaneBinding | null;
   /** Discard, for every row the reach rule allows; omitted leaves the lane
    *  read-only. */
-  release: DashLaneRelease | null;
+  discard: DashLaneDiscard | null;
   /** Arm the lane's discard confirm against this row's element. The row is the
    *  anchor, never the button: a button inside a hover-revealed cluster can
    *  unmount under its own popover, which is the shape `TugConfirmPopover`'s
    *  docblock warns about. */
-  onRequestRelease: (entry: DashChangesetEntry, anchor: HTMLElement | null) => void;
+  onRequestDiscard: (entry: DashChangesetEntry, anchor: HTMLElement | null) => void;
 }): React.ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
   // Previewing costs a `merge-tree` run, so it is spent on the expand gesture
@@ -405,7 +405,7 @@ function DashRow({
   // show; offering the pop-out would open an empty card.
   const hasRange = entry.rounds > 0 || entry.worktree_dirty;
   // Absent, not disabled, when this shade has no business discarding this dash.
-  const canRelease = release !== null && release.canRelease(entry);
+  const canDiscard = discard !== null && discard.canDiscard(entry);
   const subjects = entry.round_subjects ?? [];
   const steps =
     entry.step_current !== undefined && entry.step_total !== undefined
@@ -438,18 +438,18 @@ function DashRow({
                 disabled={binding.disabledReason !== null}
                 data-slot={
                   bound
-                    ? "session-changes-dash-leave"
-                    : "session-changes-dash-adopt"
+                    ? "session-changes-dash-unbind"
+                    : "session-changes-dash-bind"
                 }
                 onClick={() =>
-                  bound ? binding.leave(entry) : binding.adopt(entry)
+                  bound ? binding.unbind(entry) : binding.bind(entry)
                 }
               >
-                {bound ? "Leave" : "Adopt"}
+                {bound ? "Unbind" : "Bind"}
               </TugPushButton>
             ) : null}
             {/* Discard, on the rows the landing face never reaches. The fronted
-                row's own Release lives in that face, beside Join, where the
+                row's own Discard lives in that face, beside Join, where the
                 acts that end a dash belong together.
 
                 Wrapped in a tooltip rather than carrying a `title`: a disabled
@@ -457,20 +457,20 @@ function DashRow({
                 fire, and the reason has to be reachable or it is not a reason
                 ([L06]). The fronted row says the same thing in its refusals
                 list, which is face text for the same purpose. */}
-            {!fronted && canRelease ? (
+            {!fronted && canDiscard ? (
               <TugTooltip
-                content={release.disabledReason ?? "Discard this dash"}
+                content={discard.disabledReason ?? "Discard this dash"}
               >
-                <span className="session-changes-dash-row-release">
+                <span className="session-changes-dash-row-discard">
                   <TugPushButton
                     size="2xs"
                     subtype="text"
                     role="danger"
-                    disabled={release.disabledReason !== null}
-                    data-slot="session-changes-dash-release"
-                    onClick={() => onRequestRelease(entry, rowRef.current)}
+                    disabled={discard.disabledReason !== null}
+                    data-slot="session-changes-dash-discard"
+                    onClick={() => onRequestDiscard(entry, rowRef.current)}
                   >
-                    Release
+                    Discard
                   </TugPushButton>
                 </span>
               </TugTooltip>
@@ -563,11 +563,11 @@ function DashRow({
               bindingRefusal={
                 binding === null || binding.disabledReason === null
                   ? null
-                  : { control: bound ? "Leave" : "Adopt", reason: binding.disabledReason }
+                  : { control: bound ? "Unbind" : "Bind", reason: binding.disabledReason }
               }
-              releaseAvailable={canRelease}
-              releaseDisabledReason={release?.disabledReason ?? null}
-              onRequestRelease={() => onRequestRelease(entry, rowRef.current)}
+              discardAvailable={canDiscard}
+              discardDisabledReason={discard?.disabledReason ?? null}
+              onRequestDiscard={() => onRequestDiscard(entry, rowRef.current)}
               actions={landing.actions}
             />
           ) : null}
@@ -619,7 +619,7 @@ export interface SessionChangesDashLaneProps {
   /** The project's dash entries, in snapshot order. */
   dashes: readonly DashChangesetEntry[];
   /** The owner key of the dash this card's session is mated to, if any. It
-   *  decides which row offers **Leave** rather than **Adopt**. */
+   *  decides which row offers **Unbind** rather than **Bind**. */
   boundDashId: string | null;
   /** The owner key of the row to front, when that is not the bound one — a
    *  landing aimed by name (`/dash-join <name>`) fronts its target so the
@@ -627,17 +627,17 @@ export interface SessionChangesDashLaneProps {
    *
    *  The two are deliberately separate: fronting is about *what is being
    *  landed*, the binding is about *what this card is working*, and a join
-   *  aimed at a dash the card never adopted must not offer to Leave it. */
+   *  aimed at a dash the card never bound must not offer to Unbind it. */
   frontedDashId?: string | null;
   /** Absolute checkout root — the range descriptor's `root`. */
   projectRoot: string;
   /** The fronted row's landing face; omitted leaves the lane read-only. */
   landing?: DashLaneLanding;
-  /** Adopt / Leave, for every row; omitted leaves the lane read-only. */
+  /** Bind / Unbind, for every row; omitted leaves the lane read-only. */
   binding?: DashLaneBinding;
   /** Discard, for every row the reach rule allows; omitted leaves the lane
    *  read-only. */
-  release?: DashLaneRelease;
+  discard?: DashLaneDiscard;
 }
 
 export function SessionChangesDashLane({
@@ -647,7 +647,7 @@ export function SessionChangesDashLane({
   projectRoot,
   landing,
   binding,
-  release,
+  discard,
 }: SessionChangesDashLaneProps): React.ReactElement | null {
   // Per-dash expansion overrides. The default is "expanded exactly when this
   // is the card's own dash", so a bind that arrives while the shade is open
@@ -658,17 +658,17 @@ export function SessionChangesDashLane({
   // remember, so nothing here is persisted and dismissing the shade forgets it.
   //
   // One popover instance serves every row — the documented in-list confirmation
-  // shape — which is what makes widening Release past the fronted row cost no
+  // shape — which is what makes widening Discard past the fronted row cost no
   // per-row state.
-  const [pendingRelease, setPendingRelease] = useState<{
+  const [pendingDiscard, setPendingDiscard] = useState<{
     entry: DashChangesetEntry;
     anchor: HTMLElement | null;
   } | null>(null);
-  const requestRelease = (
+  const requestDiscard = (
     entry: DashChangesetEntry,
     anchor: HTMLElement | null,
   ): void => {
-    setPendingRelease({ entry, anchor });
+    setPendingDiscard({ entry, anchor });
   };
 
   if (dashes.length === 0) return null;
@@ -710,8 +710,8 @@ export function SessionChangesDashLane({
             onToggle={(next) => toggle(fronted, next)}
             landing={landing ?? null}
             binding={binding ?? null}
-            release={release ?? null}
-            onRequestRelease={requestRelease}
+            discard={discard ?? null}
+            onRequestDiscard={requestDiscard}
           />
         </>
       ) : null}
@@ -733,11 +733,11 @@ export function SessionChangesDashLane({
               expanded={isExpanded(entry)}
               onToggle={(next) => toggle(entry, next)}
               landing={null}
-              // Unlike `landing`, this reaches every row — Adopt's whole
+              // Unlike `landing`, this reaches every row — Bind's whole
               // population is exactly the rows the landing face skips.
               binding={binding ?? null}
-              release={release ?? null}
-              onRequestRelease={requestRelease}
+              discard={discard ?? null}
+              onRequestDiscard={requestDiscard}
             />
           ))}
         </>
@@ -746,20 +746,20 @@ export function SessionChangesDashLane({
           armed it. `confirmRole="danger"` puts default focus on Cancel, so a
           reflexive Return can never destroy a dash. */}
       <TugConfirmPopover
-        open={pendingRelease !== null}
-        anchorEl={pendingRelease?.anchor ?? null}
+        open={pendingDiscard !== null}
+        anchorEl={pendingDiscard?.anchor ?? null}
         message={
-          pendingRelease !== null ? releaseConfirmMessage(pendingRelease.entry) : ""
+          pendingDiscard !== null ? discardConfirmMessage(pendingDiscard.entry) : ""
         }
         confirmLabel="Discard"
         confirmRole="danger"
         side="top"
         onConfirm={() => {
-          const armed = pendingRelease;
-          setPendingRelease(null);
-          if (armed !== null) release?.release(armed.entry);
+          const armed = pendingDiscard;
+          setPendingDiscard(null);
+          if (armed !== null) discard?.discard(armed.entry);
         }}
-        onCancel={() => setPendingRelease(null)}
+        onCancel={() => setPendingDiscard(null)}
       />
     </div>
   );

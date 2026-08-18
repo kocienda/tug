@@ -553,15 +553,15 @@ Every compatibility clause gets a test that feeds it the **historical** spelling
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Baseline the names that are about to change | pending | — |
-| #step-2 | One dash-log parser, accepting both terminal spellings | pending | — |
-| #step-3 | The Rust vocabulary: discard and unbound | pending | — |
-| #step-4 | The discard frame and the discard receipt, both sides at once | pending | — |
-| #step-5 | The deck's verbs: Bind, Unbind, Discard | pending | — |
-| #step-6 | The deck's section: Unbound Dashes | pending | — |
-| #step-7 | The sigil becomes `◊` | pending | — |
-| #step-8 | The doctrine, the skills, and the sweep | pending | — |
-| #step-9 | Integration checkpoint | pending | — |
+| #step-1 | Baseline the names that are about to change | done | `b1421f08b` |
+| #step-2 | One dash-log parser, accepting both terminal spellings | done | `000a109fd` |
+| #step-3 | The Rust vocabulary: discard and unbound | done | `4b8a0e9ca` |
+| #step-4 | The discard frame and the discard receipt, both sides at once | done | `021d1432f` |
+| #step-5 | The deck's verbs: Bind, Unbind, Discard | done | `c7ffee0c3` |
+| #step-6 | The deck's section: Unbound Dashes | done | `2d0b11a3b` |
+| #step-7 | The sigil becomes `◊` | done | `a349bedbf` |
+| #step-8 | The doctrine, the skills, and the sweep | done | `87dc84e29` |
+| #step-9 | Integration checkpoint | in progress | — |
 
 ---
 

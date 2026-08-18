@@ -14,10 +14,10 @@ import type {
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
 import {
-  canReleaseFromHere,
+  canDiscardFromHere,
   dashBranchRef,
   orderDashLane,
-  releaseConfirmMessage,
+  discardConfirmMessage,
 } from "../session-changes-dash-lane";
 
 const DATA = golden as WorkspacesChangesetSnapshot;
@@ -63,7 +63,7 @@ describe("orderDashLane", () => {
     const order = orderDashLane(DASHES, aimed.owner_id);
     expect(order.fronted).toBe(aimed);
     // Which row is fronted says nothing about which dash the card is mated to:
-    // the lane takes both, and Leave-vs-Adopt reads the binding.
+    // the lane takes both, and Unbind-vs-Bind reads the binding.
     expect(order.rest).not.toContain(aimed);
   });
 
@@ -81,7 +81,7 @@ describe("orderDashLane", () => {
   });
 });
 
-describe("canReleaseFromHere", () => {
+describe("canDiscardFromHere", () => {
   const OWN_SESSION = "session-here";
   const OWN_DASH = "tugdash/mine#1";
   const dash = (over: Partial<DashChangesetEntry> = {}): DashChangesetEntry => ({
@@ -95,51 +95,51 @@ describe("canReleaseFromHere", () => {
     // Even while this very session holds it — it is the session doing the
     // releasing, so there is nobody to take it away from.
     const own = dash({ owner_id: OWN_DASH, bound_sessions: [OWN_SESSION] });
-    expect(canReleaseFromHere(own, OWN_SESSION, OWN_DASH)).toBe(true);
+    expect(canDiscardFromHere(own, OWN_SESSION, OWN_DASH)).toBe(true);
   });
 
   test("a dash no live session holds is releasable", () => {
-    // Parked or orphaned — exactly the mess a shade should be able to clear.
-    const parked = dash({ bound_sessions: [] });
-    expect(canReleaseFromHere(parked, OWN_SESSION, OWN_DASH)).toBe(true);
+    // Unbound or orphaned — exactly the mess a shade should be able to clear.
+    const unbound = dash({ bound_sessions: [] });
+    expect(canDiscardFromHere(unbound, OWN_SESSION, OWN_DASH)).toBe(true);
   });
 
   test("a dash this session holds without fronting is releasable", () => {
     // A card can be mated to dash A while dash B also lists this session. The
     // predicate answers by fact rather than by which row happens to be fronted.
     const other = dash({ bound_sessions: [OWN_SESSION] });
-    expect(canReleaseFromHere(other, OWN_SESSION, OWN_DASH)).toBe(true);
+    expect(canDiscardFromHere(other, OWN_SESSION, OWN_DASH)).toBe(true);
   });
 
   test("a dash another live session holds is NOT releasable from here", () => {
     const theirs = dash({ bound_sessions: ["some-other-session"] });
-    expect(canReleaseFromHere(theirs, OWN_SESSION, OWN_DASH)).toBe(false);
+    expect(canDiscardFromHere(theirs, OWN_SESSION, OWN_DASH)).toBe(false);
   });
 
   test("a dash held by several sessions, none of them this one, is theirs", () => {
     const theirs = dash({ bound_sessions: ["a", "b", "c"] });
-    expect(canReleaseFromHere(theirs, OWN_SESSION, OWN_DASH)).toBe(false);
+    expect(canDiscardFromHere(theirs, OWN_SESSION, OWN_DASH)).toBe(false);
   });
 
-  test("an older sender that omits bound_sessions reads as parked", () => {
+  test("an older sender that omits bound_sessions reads as unbound", () => {
     // Absence is not evidence of a holder, and the safe direction is to offer
     // the gesture: the popover still names the stake, and the destructive
     // overlap case is refused server-side regardless.
     const legacy = dash({ bound_sessions: undefined });
-    expect(canReleaseFromHere(legacy, OWN_SESSION, OWN_DASH)).toBe(true);
+    expect(canDiscardFromHere(legacy, OWN_SESSION, OWN_DASH)).toBe(true);
   });
 
-  test("an unbound card can still release a parked dash", () => {
-    expect(canReleaseFromHere(dash(), OWN_SESSION, null)).toBe(true);
+  test("an unbound card can still discard an unbound dash", () => {
+    expect(canDiscardFromHere(dash(), OWN_SESSION, null)).toBe(true);
   });
 
   test("a card with no session id cannot claim another session's dash", () => {
     const theirs = dash({ bound_sessions: ["some-other-session"] });
-    expect(canReleaseFromHere(theirs, undefined, null)).toBe(false);
+    expect(canDiscardFromHere(theirs, undefined, null)).toBe(false);
   });
 });
 
-describe("releaseConfirmMessage", () => {
+describe("discardConfirmMessage", () => {
   const base: DashChangesetEntry = {
     ...DASHES[0]!,
     display_name: "sporty-snail",
@@ -151,14 +151,14 @@ describe("releaseConfirmMessage", () => {
   };
 
   test("names the dash and what teardown deletes, always", () => {
-    expect(releaseConfirmMessage(base)).toBe(
-      "Release sporty-snail: deletes the branch and worktree.",
+    expect(discardConfirmMessage(base)).toBe(
+      "Discard sporty-snail: deletes the branch and worktree.",
     );
   });
 
   test("a dash with no work carries no discards clause", () => {
     // Saying "discards 0 rounds" would invent a stake that is not there.
-    expect(releaseConfirmMessage(base)).not.toContain("Discards");
+    expect(discardConfirmMessage(base)).not.toContain("Discards");
   });
 
   test("rounds and files are counted into one discards clause", () => {
@@ -167,29 +167,29 @@ describe("releaseConfirmMessage", () => {
       rounds: 2,
       files: [DASHES[0]!.files[0]!].filter(Boolean),
     };
-    const message = releaseConfirmMessage(worked);
+    const message = discardConfirmMessage(worked);
     expect(message).toContain("Discards 2 rounds · 1 file");
   });
 
   test("a dirty worktree names the hand-back and its destination", () => {
-    // `dash release` writes the worktree's uncommitted files back into the
+    // `dash discard` writes the worktree's uncommitted files back into the
     // base checkout rather than destroying them. A reader who was not told
     // that has not consented to it.
     const dirty: DashChangesetEntry = { ...base, worktree_dirty: true };
-    expect(releaseConfirmMessage(dirty)).toContain(
+    expect(discardConfirmMessage(dirty)).toContain(
       "Uncommitted files in the worktree are handed back to main.",
     );
   });
 
   test("a clean worktree says nothing about a hand-back", () => {
-    expect(releaseConfirmMessage(base)).not.toContain("handed back");
+    expect(discardConfirmMessage(base)).not.toContain("handed back");
   });
 
   test("a dash driving a plan says where the plan goes", () => {
     // `restore_plan_to_base` runs before teardown precisely so discarding a
     // dash can never destroy the authored plan document.
     const planned: DashChangesetEntry = { ...base, plan_path: "roadmap/x.md" };
-    expect(releaseConfirmMessage(planned)).toContain(
+    expect(discardConfirmMessage(planned)).toContain(
       "The plan is restored to main.",
     );
   });
@@ -204,7 +204,7 @@ describe("releaseConfirmMessage", () => {
       rounds: 1,
       round_subjects: subjects,
     };
-    expect(releaseConfirmMessage(withSubjects)).not.toContain(subjects[0]!);
+    expect(discardConfirmMessage(withSubjects)).not.toContain(subjects[0]!);
   });
 });
 

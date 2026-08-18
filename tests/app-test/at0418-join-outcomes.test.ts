@@ -60,7 +60,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, releaseDash } from "./dash-fixture";
+import { commitRound, createDash, discardDash } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -81,7 +81,7 @@ const DASH_EMPTY = "at0418-empty";
 const DASH_RELEASE = "at0418-release";
 const RELEASE_SUBJECT = "at0418(round): the subject the discard names";
 
-const RELEASE_RECEIPT = `${CARD} [data-slot="release-receipt-block"]`;
+const DISCARD_RECEIPT = `${CARD} [data-slot="discard-receipt-block"]`;
 /** The lane's one discard confirm. It portals out of the card's subtree, so it
  *  is addressed from the document root rather than under `CARD`. */
 const CONFIRM_POPOVER = '[data-slot="tug-confirm-popover"]';
@@ -198,8 +198,8 @@ function writeJournal(dash: string): void {
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH_WORK);
-  releaseDash(PROJECT_DIR, DASH_EMPTY);
+  discardDash(PROJECT_DIR, DASH_WORK);
+  discardDash(PROJECT_DIR, DASH_EMPTY);
   rmSync(journalPath(DASH_WORK), { force: true });
   const work = createDash(PROJECT_DIR, DASH_WORK, "at0418 fixture (a round)");
   workId = work.id;
@@ -208,7 +208,7 @@ beforeAll(() => {
   // No round at all — the empty outcome is the absence of one.
   emptyId = createDash(PROJECT_DIR, DASH_EMPTY, "at0418 fixture (no rounds)").id;
 
-  releaseDash(PROJECT_DIR, DASH_RELEASE);
+  discardDash(PROJECT_DIR, DASH_RELEASE);
   const doomed = createDash(PROJECT_DIR, DASH_RELEASE, "at0418 fixture (to discard)");
   releaseId = doomed.id;
   writeFileSync(join(doomed.worktree, "at0418-release.txt"), "at0418\n");
@@ -224,10 +224,10 @@ afterAll(() => {
   // The journal first: a dash with one left over is a dash the release verb
   // has to argue with.
   rmSync(journalPath(DASH_WORK), { force: true });
-  releaseDash(PROJECT_DIR, DASH_WORK);
-  releaseDash(PROJECT_DIR, DASH_EMPTY);
+  discardDash(PROJECT_DIR, DASH_WORK);
+  discardDash(PROJECT_DIR, DASH_EMPTY);
   // Already gone if the discard did its job; this is the path where it did not.
-  releaseDash(PROJECT_DIR, DASH_RELEASE);
+  discardDash(PROJECT_DIR, DASH_RELEASE);
   if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
 });
 
@@ -542,7 +542,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         ).toBe(1);
         expect(
           await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(RELEASE_RECEIPT)}).length`,
+            `document.querySelectorAll(${JSON.stringify(DISCARD_RECEIPT)}).length`,
           ),
           "cancel sends no release",
         ).toBe(0);
@@ -566,11 +566,11 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // discard leaves the only record of what it took.
         await app.nativeClickAtElement(`${CONFIRM_POPOVER} [data-slot="tug-confirm-confirm"]`);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(RELEASE_RECEIPT)}).length === 1`,
+          `document.querySelectorAll(${JSON.stringify(DISCARD_RECEIPT)}).length === 1`,
           { timeoutMs: 40000 },
         );
         const receipt = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(RELEASE_RECEIPT)})?.textContent ?? "").trim()`,
+          `(document.querySelector(${JSON.stringify(DISCARD_RECEIPT)})?.textContent ?? "").trim()`,
         );
         note(`at0418 release receipt: ${JSON.stringify(receipt)}`);
         expect(receipt).toContain(DASH_RELEASE);
@@ -590,12 +590,12 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         );
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: PROJECT_DIR });
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(RELEASE_RECEIPT)}).length === 1`,
+          `document.querySelectorAll(${JSON.stringify(DISCARD_RECEIPT)}).length === 1`,
           { timeoutMs: 60000 },
         );
         expect(
           await app.evalJS<string>(
-            `(document.querySelector(${JSON.stringify(RELEASE_RECEIPT)})?.textContent ?? "").trim()`,
+            `(document.querySelector(${JSON.stringify(DISCARD_RECEIPT)})?.textContent ?? "").trim()`,
           ),
           "the restored discard receipt renders the same bytes as the live one",
         ).toBe(receipt);

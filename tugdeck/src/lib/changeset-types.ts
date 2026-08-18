@@ -140,7 +140,7 @@ export interface DashChangesetEntry {
   /** Derived lifecycle stage: `created` | `working` | `draft-ready` |
    *  `landing`. */
   stage?: string;
-  /** Live sessions mated to this dash. Empty is how *parked* reads. */
+  /** Live sessions mated to this dash. Empty is how *unbound* reads. */
   bound_sessions?: string[];
   /** Declared step counters, from the latest step declaration. */
   step_current?: number;

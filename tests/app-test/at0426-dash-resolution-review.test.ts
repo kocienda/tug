@@ -56,7 +56,7 @@ import {
   commitRound,
   createDash,
   gitRetry as git,
-  releaseDash,
+  discardDash,
   smallConflictSubject,
 } from "./dash-fixture";
 
@@ -141,7 +141,7 @@ beforeAll(() => {
   // text, so a fixture conflict can never replay onto real work — but it is
   // still the developer's repo, and the run puts it back as it found it.
   rrCacheBefore = rrCacheEntries();
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   const created = createDash(PROJECT_DIR, DASH, "at0426 resolution-review fixture");
 
   // A base commit that modified a SMALL text file, and that file. Rewinding
@@ -173,7 +173,7 @@ afterAll(() => {
   if (!SHOULD_RUN) return;
   unsetDriver();
   if (stubDir !== "") rmSync(stubDir, { recursive: true, force: true });
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   // Remove only what this run taught rerere.
   const dir = git(PROJECT_DIR, "rev-parse", "--git-path", "rr-cache").trim();
   const cacheRoot = dir.startsWith("/") ? dir : join(PROJECT_DIR, dir);

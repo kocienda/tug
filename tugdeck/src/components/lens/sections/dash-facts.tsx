@@ -3,9 +3,9 @@
  *
  * The run's consumer is the dash line nested under the session working it in
  * the Cards section — what this session is doing, said in dash grammar. The
- * Parked Dashes section used to render the identical run, which is what made
+ * Unbound Dashes section used to render the identical run, which is what made
  * the two surfaces a duplication rather than a division of labour; it now
- * composes its own row from these pieces, because a parked dash's row answers a
+ * composes its own row from these pieces, because an unbound dash's row answers a
  * different question and has a different shape.
  *
  * `DashReviewMark` stays shared: the review advisory means the same thing

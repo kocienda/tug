@@ -376,7 +376,7 @@ pub struct SessionRow {
     /// A binding is live-session state ([P08]): it is written at bind, cleared
     /// when the session closes ([L27]), and never reported for a row the
     /// ledger no longer calls live — a dash whose cards have all closed is
-    /// *parked*, not still mated.
+    /// *unbound*, not still mated.
     #[serde(default)]
     pub dash_id: Option<String>,
     /// The bound dash's name, denormalized so a display never needs a git
@@ -3733,7 +3733,7 @@ impl SessionLedger {
     /// Closing also **releases the dash binding** ([L27], [P08]): the
     /// acquisition a bind made is returned by the shorter-lived party. Without
     /// it a `dash_id` written once would report a mated session forever, and
-    /// the *parked* state — a dash with rounds and no live session — could
+    /// the *unbound* state — a dash with rounds and no live session — could
     /// never be reached.
     pub fn mark_closed(&self, session_id: &str) -> Result<bool, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
@@ -3803,7 +3803,7 @@ impl SessionLedger {
     /// The `state = 'live'` filter is where bound-ness is *defined*. The
     /// release on close ([L27]) is the primary mechanism; this is the guard
     /// that makes a row which escaped it harmless rather than wrong — and it
-    /// is what makes *parked* (rounds on file, no live session) reachable at
+    /// is what makes *unbound* (rounds on file, no live session) reachable at
     /// all.
     pub fn bound_sessions_by_dash(
         &self,

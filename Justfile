@@ -1302,8 +1302,8 @@ app-test *FILES:
     # names its dash after itself — so this can never reach a dash a
     # person made.
     #
-    # The reset before the release is load-bearing, not tidiness.
-    # `dash release` hands a worktree's UNCOMMITTED files back to the
+    # The reset before the discard is load-bearing, not tidiness.
+    # `dash discard` hands a worktree's UNCOMMITTED files back to the
     # base checkout, so that tearing down a dash can never destroy work
     # someone typed in it. That is right for a real dash and wrong for a
     # fixture: one stranded between its file write and its round commit
@@ -1311,10 +1311,14 @@ app-test *FILES:
     # an uncommitted modification nobody made. Resetting first leaves the
     # hand-back nothing to copy.
     #
-    # Best effort throughout, and it must stay that way: `release`
+    # Best effort throughout, and it must stay that way: `discard`
     # legitimately refuses when the base checkout has its own edit to a
     # path the dash also touched, and a refused sweep must never fail
-    # the run it is cleaning up for.
+    # the run it is cleaning up for. That silence is also why the verb
+    # name here has to move in lockstep with the CLI: `>/dev/null 2>&1
+    # || true` would swallow an unrecognized-subcommand error just as
+    # readily as a refusal, and the sweep would stop sweeping with no
+    # signal at all.
     while read -r DASH_BRANCH; do
         [ -n "$DASH_BRANCH" ] || continue
         DASH_NAME="${DASH_BRANCH#tugdash/}"
@@ -1325,7 +1329,7 @@ app-test *FILES:
             git -C "$DASH_TREE" reset --hard >/dev/null 2>&1 || true
             git -C "$DASH_TREE" clean -fd >/dev/null 2>&1 || true
         fi
-        tugrust/target/debug/tugutil dash release "$DASH_NAME" --json >/dev/null 2>&1 || true
+        tugrust/target/debug/tugutil dash discard "$DASH_NAME" --json >/dev/null 2>&1 || true
         echo "swept stranded fixture dash: $DASH_NAME"
     done < <(git branch --list 'tugdash/at04??-*' --format='%(refname:short)')
 

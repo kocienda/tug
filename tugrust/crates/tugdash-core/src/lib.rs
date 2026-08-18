@@ -10,7 +10,7 @@
 /// visibility log, and the stdin round-metadata shape.
 pub mod dash;
 
-/// Dash verb orchestration — `create` / `commit` / `join` / `release` /
+/// Dash verb orchestration — `create` / `commit` / `join` / `discard` /
 /// `list` / `show`, each returning a typed outcome.
 pub mod ops;
 
@@ -24,14 +24,14 @@ pub mod resolve;
 
 pub use dash::{
     DashDeclaration, DashDeclarations, DashRoundMeta, MarkStage, StepPhase, append_dash_log,
-    detect_default_branch, read_declarations, validate_dash_name,
+    detect_default_branch, is_terminal, read_declarations, split_log_line, validate_dash_name,
 };
 pub use ops::{
     BaseDirtPath, CommitOutcome, CreateOutcome, DashDetail, DashDetailFile, DashDraftKey,
-    DashListItem, DashStatus, JoinBlocker, JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome,
-    ReleaseOutcome, RoundItem, ShowOutcome, StepOutcome, commit, create, dash_detail_entries_in,
-    dash_draft_key, dash_plan_path, derive_stage, join, join_in, join_in_flight, join_preflight_in,
-    list, mark, release, release_in, show, status, status_in, step_done, step_start,
+    DashListItem, DashStatus, DiscardOutcome, JoinBlocker, JoinOptions, JoinOutcome, JoinStrategy,
+    MarkOutcome, RoundItem, ShowOutcome, StepOutcome, commit, create, dash_detail_entries_in,
+    dash_draft_key, dash_plan_path, derive_stage, discard, discard_in, join, join_in,
+    join_in_flight, join_preflight_in, list, mark, show, status, status_in, step_done, step_start,
 };
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{

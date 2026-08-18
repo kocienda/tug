@@ -157,10 +157,14 @@ fn deny_non_loopback(addr: &SocketAddr, route: &str) -> Option<Response> {
 
 /// The body is parsed here rather than by a `Json<T>` extractor so a malformed
 /// request is a plain 400 with this module's error shape.
-fn parse_body<T: for<'de> Deserialize<'de>>(bytes: &Bytes) -> Result<T, Response> {
+///
+/// The error is boxed because a `Response` is large enough that carrying it
+/// inline makes every `Ok` of this function pay for the failure path
+/// (`clippy::result_large_err`).
+fn parse_body<T: for<'de> Deserialize<'de>>(bytes: &Bytes) -> Result<T, Box<Response>> {
     serde_json::from_slice(bytes).map_err(|_| {
         let (status, body) = fs_error(StatusCode::BAD_REQUEST, "bad_request");
-        (status, axum::Json(body)).into_response()
+        Box::new((status, axum::Json(body)).into_response())
     })
 }
 
@@ -186,7 +190,7 @@ pub(crate) async fn post_prompt_history(
     }
     let body: AppendBody = match parse_body(&bytes) {
         Ok(body) => body,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     finish(tokio::task::spawn_blocking(move || append_prompt(&ledger, body)).await)
 }
@@ -214,7 +218,7 @@ pub(crate) async fn post_prompt_history_atom_path(
     }
     let body: AtomPathBody = match parse_body(&bytes) {
         Ok(body) => body,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     finish(tokio::task::spawn_blocking(move || patch_atom_path(&ledger, body)).await)
 }

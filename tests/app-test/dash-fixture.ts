@@ -1,5 +1,5 @@
 /**
- * dash-fixture.ts — creating, rounding, and releasing a real dash from an
+ * dash-fixture.ts — creating, rounding, and discarding a real dash from an
  * app-test, by the real CLI.
  *
  * Shared because the alternative is four copies, and because the one thing
@@ -18,7 +18,7 @@
  * any.
  *
  * Everything else about a dash fixture is deliberately unclever: the dash is
- * real, the round is a real commit, and the release really discards the branch
+ * real, the round is a real commit, and the discard really deletes the branch
  * and the worktree.
  */
 
@@ -383,8 +383,8 @@ export function makePlanStale(planPath: string): void {
 
 /** Discard the dash — branch and worktree, dirt included. Best effort: a
  *  cleanup that throws would mask the failure the test was reporting. */
-export function releaseDash(projectDir: string, name: string): void {
-  tugutil(["dash", "release", name, "--json"], {
+export function discardDash(projectDir: string, name: string): void {
+  tugutil(["dash", "discard", name, "--json"], {
     cwd: projectDir,
     required: false,
   });

@@ -8,7 +8,7 @@
  * drives the deck half against the **exact bytes the Rust formatters assert**
  * — the literals below are copied from
  * `format_join_summary_names_the_dash_the_base_and_the_rounds` and
- * `format_release_summary_lists_the_round_subjects`, which is what keeps the
+ * `format_discard_summary_lists_the_round_subjects`, which is what keeps the
  * two ends pinned to one format.
  *
  * ## What this cannot drive, and where that is covered
@@ -21,9 +21,9 @@
  * exactly one project, this checkout (at0332 records the same constraint), so
  * a dash in `/tmp` never reaches the card for `/dash-join` to resolve.
  *
- * A **release** has no such cost — it destroys a fixture dash and nothing
+ * A **discard** has no such cost — it destroys a fixture dash and nothing
  * else — so the end-to-end path that this file cannot walk (card → server →
- * shell ledger → Maker ▸ Reload → the same bytes) is walked by the release in
+ * shell ledger → Maker ▸ Reload → the same bytes) is walked by the discard in
  * `at0418-join-outcomes.test.ts`, over the same formatter, the same ledger
  * writer, the same hook, and the same block module.
  *
@@ -44,16 +44,16 @@ const TEST_TIMEOUT_MS = 180_000;
 const SID = "at0419-session";
 const CARD = '[data-card-id="A"]';
 const JOIN_RECEIPT = `${CARD} [data-slot="join-receipt-block"]`;
-const RELEASE_RECEIPT = `${CARD} [data-slot="release-receipt-block"]`;
+const DISCARD_RECEIPT = `${CARD} [data-slot="discard-receipt-block"]`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
 /** The exact S01 bytes `format_join_summary` produces. */
 const JOIN_SUMMARY =
   "joined 0123456789 · join-lane → main · 5 round(s)\n" +
   "tugdash(join-lane): land the join surface";
-/** The exact S02 bytes `format_release_summary` produces. */
-const RELEASE_SUMMARY =
-  "released spike · discarded 2 round(s), 3 file(s)\n" +
+/** The exact S02 bytes `format_discard_summary` produces. */
+const DISCARD_SUMMARY =
+  "discarded spike · 2 round(s), 3 file(s)\n" +
   "first round\nsecond round";
 /** A row from before the format existed: raw output, not a receipt. */
 const LEGACY_OUTPUT = "joined join-lane into main";
@@ -108,7 +108,7 @@ async function receiptRow(
   });
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0419: the join and release receipts", () => {
+describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
   test(
     "the two landings render as receipts, and a row the format does not claim stays raw",
     async () => {
@@ -160,26 +160,26 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and release receipts", () => {
         // A receipt, not a terminal: the fenced output body is gone.
         expect(joined.terminals).toBe(0);
 
-        // ── The release receipt ───────────────────────────────────────────
-        await receiptRow(app, "release-1", "/dash-release", RELEASE_SUMMARY);
+        // ── The discard receipt ───────────────────────────────────────────
+        await receiptRow(app, "discard-1", "/dash-discard", DISCARD_SUMMARY);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(RELEASE_RECEIPT)}).length === 1`,
+          `document.querySelectorAll(${JSON.stringify(DISCARD_RECEIPT)}).length === 1`,
           { timeoutMs: 20000 },
         );
-        const released = await app.evalJS<{ identity: string; body: string }>(
+        const discarded = await app.evalJS<{ identity: string; body: string }>(
           `(() => {
-             const block = document.querySelector(${JSON.stringify(RELEASE_RECEIPT)});
+             const block = document.querySelector(${JSON.stringify(DISCARD_RECEIPT)});
              return {
                identity: (block.querySelector(".join-receipt-header")?.textContent ?? "").trim(),
-               body: (block.querySelector('[data-slot="release-receipt-detail"]')?.textContent ?? "").trim(),
+               body: (block.querySelector('[data-slot="discard-receipt-detail"]')?.textContent ?? "").trim(),
              };
            })()`,
         );
-        note(`at0419 release receipt: ${JSON.stringify(released)}`);
+        note(`at0419 discard receipt: ${JSON.stringify(discarded)}`);
         // No sha to lead with — the dash IS the identity.
-        expect(released.identity).toBe("spike");
-        expect(released.body).toContain("first round");
-        expect(released.body).toContain("second round");
+        expect(discarded.identity).toBe("spike");
+        expect(discarded.body).toContain("first round");
+        expect(discarded.body).toContain("second round");
 
         // ── A row the parser does not claim renders raw ───────────────────
         // The fallback is the whole reason a parse miss returns null: the

@@ -57,7 +57,7 @@ import {
   commitRound,
   createDash,
   gitRetry as git,
-  releaseDash,
+  discardDash,
   smallConflictSubject,
 } from "./dash-fixture";
 
@@ -76,8 +76,8 @@ const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-lab
 
 const DASH = "at0425-conflict";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const ADOPT = `${ROW} [data-slot="session-changes-dash-adopt"]`;
-const LEAVE = `${ROW} [data-slot="session-changes-dash-leave"]`;
+const ADOPT = `${ROW} [data-slot="session-changes-dash-bind"]`;
+const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
 const OUTCOME = `${ROW} [data-slot="session-changes-dash-landing-outcome"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
 const JOIN = `${ROW} [data-slot="session-changes-dash-join"]`;
@@ -98,7 +98,7 @@ let baseSubject = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
   const created = createDash(PROJECT_DIR, DASH, "at0425 conflicted fixture");
 
   // A base commit that modified a small text file, and that file. Rewinding
@@ -124,7 +124,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  releaseDash(PROJECT_DIR, DASH);
+  discardDash(PROJECT_DIR, DASH);
 });
 
 function deckShape() {

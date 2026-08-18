@@ -40,7 +40,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, releaseDash } from "./dash-fixture";
+import { createDash, discardDash } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -56,7 +56,7 @@ const PICKER_ROWS = `${PICKER} [data-slot="dash-picker-row"]`;
 const CHIP =
   '[data-slot="session-masthead"] [data-slot="session-identity-dash"]';
 /** What that run reads: the identity's dash grammar, sigil included. */
-const chipText = (dash: string): string => `#${dash}`;
+const chipText = (dash: string): string => `◊${dash}`;
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
 const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -74,7 +74,7 @@ beforeAll(() => {
 // while every assertion in it passed.
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  for (const name of DASHES) releaseDash(PROJECT_DIR, name);
+  for (const name of DASHES) discardDash(PROJECT_DIR, name);
 }, 60_000);
 
 function deckShape() {

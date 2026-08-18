@@ -23,7 +23,7 @@ So `dash create` ends by saying what it left behind — the uncommitted paths, c
 
 When the work on the base *is* the work the dash is for — the "I was half-way through this before I realised it should be a dash" case — `--carry` moves it into the new worktree, uncommitted, and cleans the base. Uncommitted because it is in progress by definition: the dash's first round commits it with intent, rather than a machine writing a message for work it did not do. Content is carried, not index state, so a staged edit arrives unstaged.
 
-`dash release` is the inverse and needs no flag: it returns the worktree's uncommitted work to the base before teardown, the same way it already returns an adopted plan. If the base has since acquired its own uncommitted edit to one of those paths, release refuses and leaves the dash standing — the work stays reachable rather than being destroyed to complete a teardown. Commit or stash the base changes and release again.
+`dash discard` is the inverse and needs no flag: it returns the worktree's uncommitted work to the base before teardown, the same way it already returns an adopted plan. If the base has since acquired its own uncommitted edit to one of those paths, discard refuses and leaves the dash standing — the work stays reachable rather than being destroyed to complete a teardown. Commit or stash the base changes and discard again.
 
 ## When the base moves
 
