@@ -119,6 +119,18 @@ Width crosses on the same tween, as a `scaleX` term anchored at the frame's left
 
 Its prices, as measured on release: idle contribution exactly zero between gestures; three walks per gesture; nested descendant animations bounded (+9%); and the superadditive commit-in-window cost paid off by the notification hold (#residency) — deferral, never dropping, with a store-internal watchdog as the wedge guard ([L23]) and release as the clock.
 
+Arriving and departing frames are carried too, but not by FLIP, which has nothing to say about either: a frame that was not on screen when the settle armed has no First rect to invert, and a frame that left is gone before any effect could run on it. An arriving frame plays its own entrance at the geometry the commit gave it — a fade up over a short rise, `PANE_ENTER_RISE_PX` — on its own TugAnimator slot so it never cancels a neighbour's geometry tween. A departing one leaves a **ghost**: an inert tile at its last rect, carrying the chrome's ground and radius and nothing else, faded over `PANE_EXIT_GHOST_MS` and removed when the fade lands. Departures are derived from the First measurement rather than from any close handler — a pane the arm measured that no longer has a frame has left, whichever path closed it — which is what keeps the treatment from being one button's manners.
+
+### The accepted snaps {#accepted-snaps}
+
+The settle's promise is that a layout change travels rather than jumps, and `tests/app-test/at0450-imposer-cut-census.test.ts` holds it to that by watching every frame for the length of a gesture: it reports any pane that changed places, or arrived, with nothing animating it. Four movements are deliberately outside that promise. They are recorded here so a reader meets them as decisions rather than finding them as bugs, and they are absent from the census for the same reason.
+
+- **A theme swap, and a chrome-tier change.** Both move geometry from outside the store — token-derived chrome heights and radii resolve on the next paint — so no arrangement change arms a settle. Animating them would mean tweening on a signal the deck does not receive.
+- **The settled-resize retune.** Rails re-solve 200ms after the hand stops (`RESIZE_RETUNE_QUIET_MS`), and that motion *is* animated; what is accepted is the delay before it, which reads as a second movement after the gesture ended. Re-solving continuously during the drag would put the allocator on the resize's clock, which is the cost the quiet window exists to avoid.
+- **The content pop at settle release.** Session notifications held for the settle window flush when it closes (#residency), so a card whose content changed mid-settle repaints at the end of the motion rather than during it. This is the notification hold working as designed; the alternative is the superadditive commit-in-window cost it was built to pay off.
+
+Anything else the census reports is a defect. An entry there is not a tolerance — a gesture that stops cutting has its allowance taken to zero in the same change, or the test goes quiet about the regression it exists to catch.
+
 ---
 
 ## The falsification method — bench a primitive before shipping it {#falsification}

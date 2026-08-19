@@ -620,6 +620,31 @@ export function resolveContentWidthPx(
 export const IMPOSITION_SETTLE_MS = 300;
 
 /**
+ * How far a frame rises as it arrives, in pixels.
+ *
+ * A pane that was not on screen when the settle armed has no First rect, so
+ * there is no distance for it to cross and nothing FLIP can invert. It still
+ * may not simply materialize — the deck's promise is that a card never changes
+ * places in a single frame — so it fades up over a short rise instead. Short
+ * on purpose: a long travel would claim the card came from somewhere, and it
+ * did not come from anywhere.
+ */
+export const PANE_ENTER_RISE_PX = 8;
+
+/**
+ * How long a closing pane's ghost lingers, in milliseconds.
+ *
+ * React unmounts a closing frame within the commit, so the frame itself cannot
+ * be animated out — by the time there is anything to animate, there is no
+ * element. What outlives it is a ghost: a plain tile the canvas plants at the
+ * frame's last rect and fades. It rides its own duration rather than the
+ * settle's because it is not part of the arrangement — nothing is waiting on
+ * it, and a departure that lingers as long as a crossing reads as slower than
+ * the gesture that caused it.
+ */
+export const PANE_EXIT_GHOST_MS = 180;
+
+/**
  * Which side the pinned Lens holds, as a number: 0 is the left edge, 1 the
  * right. Registered as a `<number>` custom property in `tug-pane.css` so the
  * expression that reads it can compute with it — see {@link imposeSidebarStyle}.

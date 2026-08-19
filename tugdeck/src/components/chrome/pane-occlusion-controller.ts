@@ -230,8 +230,37 @@ function computeOccludedSet(
   return { frames, occluded };
 }
 
-/** Whether any pane frame is mid-motion (FLIP tween, collapse transition). */
-function anyFrameAnimating(frames: HTMLElement[]): boolean {
+/**
+ * Whether the deck is mid-motion — a FLIP tween, a collapse transition, or a
+ * settle window that has not closed yet.
+ *
+ * Hiding an occluded frame is a `visibility: hidden` on it and its whole
+ * subtree, so stamping one while the arrangement is still moving is how a pane
+ * flashes: the frame that was going to cover it has not arrived yet, and the
+ * one underneath disappears in the meantime.
+ *
+ * Asking each frame whether it is animating is not enough to know that. The
+ * settle is a sequence — frames finish at slightly different moments, a
+ * cancelled tween leaves its frame quiet for a tick before its replacement
+ * starts, and an entrance is running on a frame this set may not even contain
+ * yet. Any of those instants reads as quiet frame-by-frame while the
+ * arrangement as a whole is plainly still in motion. The container's
+ * `data-imposer-settling` marks the whole window rather than any one frame's
+ * share of it, so it is the honest question to ask.
+ */
+function anyFrameAnimating(
+  frames: HTMLElement[],
+  root: HTMLElement | null,
+): boolean {
+  // Both halves: the settle marks the frames' container, which may be the deck
+  // root itself or a descendant of it depending on where the canvas mounted.
+  if (
+    root !== null &&
+    (root.hasAttribute("data-imposer-settling") ||
+      root.querySelector("[data-imposer-settling]") !== null)
+  ) {
+    return true;
+  }
   for (const el of frames) {
     if (el.getAnimations().length > 0) return true;
   }
@@ -324,7 +353,7 @@ export function usePaneOcclusionController(
       const root = deckRootRef.current;
       if (root === null || gestureDepth > 0) return;
       const { frames, occluded } = computeOccludedSet(root, activePaneId);
-      if (anyFrameAnimating(frames)) {
+      if (anyFrameAnimating(frames, root)) {
         hideTimerRef.current = window.setTimeout(() => {
           hideTimerRef.current = null;
           passesRef.current.verifyHides();

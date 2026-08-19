@@ -76,6 +76,7 @@ import { readClipboardViaNative } from "./lib/tug-native-clipboard";
 import { parseClipboardSidecar } from "./components/tugways/tug-text-editor/clipboard-filters";
 import type { ListOverviewPostsOk, RateLimitInfo } from "./protocol";
 import { getTugbankClient } from "./lib/tugbank-singleton";
+import { cutDetector } from "./lib/cut-detector";
 import type { TaggedValue } from "./lib/tugbank-client";
 import type {
   LiveTurnPerf,
@@ -302,8 +303,16 @@ import {
  * defaults until the first change and are card-local afterwards, and the two
  * states look identical on screen; only the store says which one is in force.
  * Additive; major stays `2`.
+ *
+ * `2.9.0`: adds the cut-detector trio — {@link TugTestSurface.armCutDetector},
+ * {@link TugTestSurface.disarmCutDetector}, and
+ * {@link TugTestSurface.takeCutRecords}. The deck promises every layout change
+ * travels rather than jumps; armed, the detector samples each imposed frame per
+ * animation frame and records any that changed geometry with nothing animating
+ * it, which is the only way a test can hold the deck to that promise across a
+ * whole gesture rather than at two sampled instants. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.8.0" as const;
+export const SURFACE_VERSION = "2.9.0" as const;
 
 /**
  * `sessionStorage` key for the cross-reload generation counter.
@@ -1316,6 +1325,26 @@ export interface TugTestSurface {
    * clickable pixels, so raise-from-buried is driven here.
    */
   activateCard(cardId: string): void;
+
+  /**
+   * Arm the cut detector (SURFACE_VERSION 2.9.0) — start sampling every
+   * imposed frame's rect once per animation frame, recording any pane that
+   * changes geometry while nothing is animating it.
+   *
+   * The deck's promise is that a layout change travels rather than jumps, and
+   * this is how a test holds it to that. Armed only between this call and
+   * {@link TugTestSurface.disarmCutDetector}; nothing samples at rest.
+   */
+  armCutDetector(): void;
+
+  /** Stop the cut detector and drop its sampling state. */
+  disarmCutDetector(): void;
+
+  /**
+   * Hand back every cut recorded since the last take and clear the buffer.
+   * Each record names the pane and the per-axis delta it jumped by.
+   */
+  takeCutRecords(): unknown[];
 }
 
 // ---------------------------------------------------------------------------
@@ -2470,6 +2499,18 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         store,
         commitMutation: () => store.activateCard(cardId),
       });
+    },
+
+    armCutDetector(): void {
+      cutDetector.arm();
+    },
+
+    disarmCutDetector(): void {
+      cutDetector.disarm();
+    },
+
+    takeCutRecords(): unknown[] {
+      return cutDetector.take();
     },
   };
 }

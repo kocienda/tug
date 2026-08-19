@@ -94,6 +94,8 @@ import {
   DEFAULT_CONTENT_WIDTH,
   IMPOSITION_GAP_PX,
   IMPOSITION_SETTLE_MS,
+  PANE_ENTER_RISE_PX,
+  PANE_EXIT_GHOST_MS,
   RESIZE_RETUNE_QUIET_MS,
   effectiveRailOrder,
   imposeSidebarStyle,
@@ -1656,8 +1658,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * the frame crosses ([D135] — move and size share a clock or a pinned edge
    * is not pinned), and a fade when a rail mode flip reveals or retires it.
    */
+  /**
+   * The tweens a settle has in flight, by pane.
+   *
+   * `restores` rides along with them because a cancelled tween's inline residue
+   * has to be handed back on the SAME tick as the cancel. TugAnimator commits
+   * an animation's final value into `el.style` when it finishes — and
+   * `snap-to-end` finishes it — so a frame whose tween is retargeted mid-flight
+   * is left wearing a baked pixel `width`/`height` from the arrangement it was
+   * leaving. The completion handler that would normally take those back runs a
+   * microtask later, and a microtask is long enough to paint: the frame renders
+   * once at a stale size against fresh `calc()` geometry, which is a flash on
+   * exactly the gesture that is already the most confusing one to watch.
+   */
   const settleTweensRef = useRef<
-    Map<string, { el: HTMLElement; anims: TugAnimation[] }>
+    Map<
+      string,
+      { el: HTMLElement; anims: TugAnimation[]; restores: Array<() => void> }
+    >
   >(new Map());
   /**
    * Which frames a rail mode flip fades rather than moves, computed when the
@@ -1767,7 +1785,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     },
   );
 
-  useEffect(() => {
+  // First, and the arming. A LAYOUT effect, not a passive one ([L03]): this
+  // registers the store subscriber that measures every frame's outgoing
+  // geometry, and a subscription that lands after paint is a subscription that
+  // was not there for whatever the mount raced. An arrangement change committed
+  // in that gap arms nothing, and the frames it moves cut — the one defect on
+  // this surface that only ever shows up on a fresh mount, which is exactly
+  // where it is hardest to see.
+  useLayoutEffect(() => {
     const clearFlip = clearFlipRef.current;
     prevRailModesRef.current = new Map(
       sidebarRailsOf(store.getSnapshot()).map((rail) => [rail.side, rail.mode]),
@@ -1820,6 +1845,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const running = settleTweensRef.current.get(paneId);
         if (running !== undefined) {
           for (const anim of running.anims) anim.cancel("snap-to-end");
+          // Synchronously, before this tick can paint: `snap-to-end` finishes
+          // the tween, and TugAnimator commits its final value into the inline
+          // style on the way out. Waiting for the completion handler to hand
+          // those back would leave the frame wearing a stale baked size for a
+          // frame. The First rect above was already taken, so the restore
+          // cannot disturb the measurement.
+          for (const restore of running.restores) restore();
           clearFlip(paneId, frame, running.anims);
         }
       }
@@ -1949,14 +1981,84 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     const clearFlip = clearFlipRef.current;
     const duration = settleDurationRef.current;
     const fadePlan = settleFadePlanRef.current;
+    // Shared by every effect a frame can carry: the one that holds each
+    // geometry term it is crossing, the fade a mode flip gives it, and the
+    // entrance an arriving frame plays. They stay apart rather than merging
+    // because a faded frame never moves and an arriving one has nothing to
+    // move from, so there is no sum between them to keep honest; opacity is
+    // accelerable on its own, and merging it would cost that for nothing.
+    const settleOpts = {
+      // Raw ms: TugAnimator scales by getTugTiming() itself.
+      duration,
+      // No retained effect after the tween ends ([D6]).
+      fill: "none",
+      composite: "replace",
+      slotCancelMode: "snap-to-end",
+    } as const;
+    // Which frames this pass actually found. Whatever `arm` measured and this
+    // loop never reaches has left the DOM during the commit, which is the only
+    // notice a departing pane gives: by the time an effect could run on it,
+    // there is no element to run one on.
+    const survivors = new Set<string>();
     for (const frame of el.querySelectorAll<HTMLElement>(
       ".tug-pane[data-pane-id]",
     )) {
       const paneId = frame.getAttribute("data-pane-id");
       if (paneId === null) continue;
+      survivors.add(paneId);
       const firstRect = firstRects.get(paneId);
       if (firstRect === undefined) {
-        endEpisode(paneId);
+        // A frame that was not on screen when this settle armed: it is
+        // arriving, not travelling. FLIP has nothing to say about it — there
+        // is no First rect to invert — but the promise the settle keeps for
+        // every other frame is that a card never changes places in one frame,
+        // and a card that materializes at full opacity has broken it just as
+        // plainly as one that jumped. So it enters under its own effect,
+        // played at the geometry the commit already gave it: a fade up and a
+        // short rise, which reads as arriving without pretending it came from
+        // anywhere in particular.
+        //
+        // Reaching this branch at all means a settle is genuinely in flight —
+        // the guard above returns when no First rects were measured, which is
+        // the mount case, so a deck restoring at launch does not fade every
+        // card in.
+        //
+        // Its own slot key, because this is not the geometry effect and must
+        // not cancel one: a frame can arrive into a settle that is also moving
+        // its neighbours, and the two effects belong to different frames.
+        // The entrance bakes an opacity on its way out, exactly as the
+        // geometry effect bakes a width — so it is handed back the same way,
+        // and by the same restorer a cancel would run.
+        const enteringRestore = inlineRestorer(frame, "opacity");
+        const entering = animate(
+          frame,
+          {
+            opacity: [0, 1],
+            transform: [
+              `translateY(${PANE_ENTER_RISE_PX}px)`,
+              "translateY(0px)",
+            ],
+          },
+          {
+            ...settleOpts,
+            easing: "ease-out",
+            key: "imposer-enter",
+          },
+        );
+        settleTweensRef.current.set(paneId, {
+          el: frame,
+          anims: [entering],
+          restores: [enteringRestore],
+        });
+        void entering.finished.then(() => {
+          // The same residue rule the geometry effect follows: TugAnimator
+          // commits an animation's final value into `el.style` whatever `fill`
+          // says, and a frame left wearing a transform is a containing block
+          // for every `position: fixed` descendant it holds.
+          enteringRestore();
+          clearFlipRef.current(paneId, frame, [entering]);
+          endEpisode(paneId);
+        });
         continue;
       }
       // A frame the pointer took over since the settle armed: the drag owns
@@ -1969,19 +2071,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       const fade = fadePlan.get(paneId);
       const anims: TugAnimation[] = [];
       const restores: Array<() => void> = [];
-      // Shared by both of the effects a frame can carry: the one that holds
-      // every geometry term it is crossing, and — on a mode flip — a fade.
-      // Those two stay apart because a faded frame never moves, so there is no
-      // sum between them to keep honest; opacity is accelerable on its own, and
-      // merging it would cost that for nothing.
-      const settleOpts = {
-        // Raw ms: TugAnimator scales by getTugTiming() itself.
-        duration,
-        // No retained effect after the tween ends ([D6]).
-        fill: "none",
-        composite: "replace",
-        slotCancelMode: "snap-to-end",
-      } as const;
       if (fade !== undefined) {
         // A member a mode flip revealed or retired. It does not travel:
         // opacity is the only thing that animates, and the frame holds one
@@ -2098,7 +2187,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         endEpisode(paneId);
         continue;
       }
-      settleTweensRef.current.set(paneId, { el: frame, anims });
+      settleTweensRef.current.set(paneId, { el: frame, anims, restores });
       // One completion for the whole settle, after every tween's own commit
       // has landed — TugAnimator resolves `finished` after committing, so
       // the restorers here always run on the far side of the residue they
@@ -2113,6 +2202,34 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // width the tween committed on its way out.
         endEpisode(paneId);
       });
+    }
+    // The departures. A pane `arm` measured that no longer has a frame closed
+    // during this commit, and its last rect is the one thing still known about
+    // it — so the ghost goes exactly there, fades, and is taken away. Planted
+    // on the container rather than the frames' parent chain so nothing it
+    // outlives can strand it.
+    for (const [paneId, rect] of firstRects) {
+      if (survivors.has(paneId)) continue;
+      endEpisode(paneId);
+      const ghost = document.createElement("div");
+      ghost.className = "tug-pane-exit-ghost";
+      ghost.setAttribute("data-exit-ghost-for", paneId);
+      ghost.style.left = `${rect.left}px`;
+      ghost.style.top = `${rect.top}px`;
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.height = `${rect.height}px`;
+      el.appendChild(ghost);
+      const fading = animate(
+        ghost,
+        { opacity: [1, 0] },
+        {
+          duration: PANE_EXIT_GHOST_MS,
+          easing: "ease-out",
+          fill: "none",
+          key: "imposer-exit-ghost",
+        },
+      );
+      void fading.finished.then(() => ghost.remove());
     }
     firstRects.clear();
     fadePlan.clear();
