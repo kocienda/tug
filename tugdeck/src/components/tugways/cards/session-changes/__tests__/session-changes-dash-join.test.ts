@@ -13,7 +13,7 @@ import {
   discardPreflightLine,
   resolutionDiffPayload,
   resolutionReviewLine,
-} from "@/components/tugways/cards/session-changes/session-changes-dash-landing";
+} from "@/components/tugways/cards/session-changes/session-changes-dash-join";
 import { joinDisabledReason } from "@/lib/join-mode-controller";
 import type { DashJoinBlockerWire, DashResolvedFileWire } from "@/lib/changeset-types";
 
@@ -68,7 +68,7 @@ describe("discardPreflightLine", () => {
 describe("joinDisabledReason", () => {
   it("answers with the gate's own reason before it looks at the outcome", () => {
     expect(joinDisabledReason("turn", "clean")).toBe("Wait for the turn to finish");
-    expect(joinDisabledReason("pending", "clean")).toBe("Landing…");
+    expect(joinDisabledReason("pending", "clean")).toBe("Joining…");
   });
 
   it("names what the outcome is waiting on", () => {
@@ -188,12 +188,12 @@ describe("resolutionReviewLine", () => {
         { path: "b.ts", resolved_by: "ai", diff: "d" },
         { path: "c.ts", resolved_by: "rerere", diff: "d" },
       ]),
-    ).toBe("3 files resolved by ai, rerere — read this before it lands");
+    ).toBe("3 files resolved by ai, rerere — read this before it joins");
   });
 
   it("agrees with itself in the singular", () => {
     expect(resolutionReviewLine([{ path: "a.ts", resolved_by: "rerere", diff: "d" }])).toBe(
-      "1 file resolved by rerere — read this before it lands",
+      "1 file resolved by rerere — read this before it joins",
     );
   });
 });

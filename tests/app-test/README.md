@@ -166,7 +166,7 @@ Two things follow for anyone writing a dash fixture:
   is a row in the lane a fixture run sees. Assert on your own dash's row,
   never on a count of the lane.
 
-A fixture that needs a repository of its own — to land a join, say —
+A fixture that needs a repository of its own — to run a join, say —
 builds one with `git init` under the temp dir and passes `binaryRoot` so
 the CLI still comes from the checkout under test. `at0441` is the worked
 example, `TUG_DATA_DIR` redirect included.

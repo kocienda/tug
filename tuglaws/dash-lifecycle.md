@@ -30,11 +30,11 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 
 ## The stages, and derive vs declare
 
-`derive_stage(rounds, worktree_dirty, has_draft, landing, declared)` returns one of seven words, in this precedence:
+`derive_stage(rounds, worktree_dirty, has_draft, joining, declared)` returns one of seven words, in this precedence:
 
 | Stage | When | Kind |
 |---|---|---|
-| `landing` | a join journal exists — an interrupted teardown | derived |
+| `joining` | a join journal exists — an interrupted teardown | derived |
 | `implementing` | a `dash step` declaration is the latest | declared |
 | `built` | `dash mark built` | declared |
 | `audited` | `dash mark audited` | declared |
@@ -42,7 +42,7 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 | `working` | rounds past base, or a dirty worktree | derived |
 | `created` | none of the above | derived |
 
-`landing` outranks everything, including a declaration, because an interrupted teardown is the one state that actively needs a person.
+`joining` outranks everything, including a declaration, because an interrupted teardown is the one state that actively needs a person.
 
 **The rule: anything git can see is derived on every read and never stored; anything it cannot is declared once, in the dash-log, by a verb** ([D138]). Rounds, dirt, and the journal are visible to git, so they are recomputed every time and cannot go stale. "This build succeeded" and "I am on step 4 of 9" are not visible to git at all, so a verb writes them down. **A stage is never written to a config key** — that would make the derived half stale-able and the declared half duplicated.
 
@@ -54,7 +54,7 @@ A **bind** mates a live session to a dash. It is a UI concept: git has no idea i
 - It is **per-card**. A session has at most one dash, which is why `unbind_dash`'s whole payload is the session id.
 - It **mints**: `bind_dash` naming a dash that does not exist succeeds anyway. Every sender therefore builds its frame from a snapshot row rather than from user text; the one place that accepts a typed name (`/dash-bind <name>`) matches the snapshot first and routes an unknown name to `dash create` through the shell, where the receipt says what was made.
 - Two cards on one dash is **legal**, not a race: `bound_sessions` is a list and the Lens renders one jump chip per bound session. A bind displaces only *this* card's previous binding.
-- A bind is **never a landing authority**. It says who is working; it does not say who may land.
+- A bind is **never a join authority**. It says who is working; it does not say who may join.
 - The store moves on the **broadcast**, never on the gesture: `bind_dash_ok` / `unbind_dash_ok` are the only movers of `cardSessionBindingStore`, which is what leaves a card correctly bound to what it was when a bind is refused.
 
 ## Plan adoption
@@ -68,9 +68,9 @@ A dash that implements a plan **owns** that plan: the worktree copy is the only 
 - **Progress is never the casualty.** When bodies differ, the base body wins and the worktree's ledger progress is replayed onto it row by row. `content_stamp` excludes status and commit cells, so a plan that was `reviewed` before adoption is `reviewed` after it.
 - **Discard hands the plan back.** Adoption removed the base copy and discard deletes the branch holding the only one, so `discard_in` writes the plan back to the repo root before teardown and the discard receipt says so. The plan comes in when the dash adopts it and goes back out when the dash is discarded — a plan is not the work, it is the authored document that predates the dash and outlives it ([L23]).
 
-## Landing — by reference
+## Joining — by reference
 
-A dash lands by `/dash-join <name>` into its base: a preview runs on entry, the squash message is edited in the composer, and the land is the human's act. Skills draft; humans land.
+A dash joins by `/dash-join <name>` into its base: a preview runs on entry, the squash message is edited in the composer, and the join is the human’s act. Skills draft; humans join.
 
 The doctrine — the two beats, the one-slot `LandingMode`, and the five outcomes a join can reach — is held in [tracking-changes.md](tracking-changes.md#the-landing-workflow), where the capture and commit layer beneath it already lives. It is law where it stands and is deliberately not restated here.
 

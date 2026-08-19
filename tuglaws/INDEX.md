@@ -52,7 +52,7 @@
 ## Working on a dash
 
 - [dash-lifecycle.md](dash-lifecycle.md) — What a dash *is*: the four things it is made of, the owner-key identity model, the seven stages and the derive-vs-declare rule that assigns them, and what a binding means. Read this for "why does this dash read as parked"; read the doctrine below for "may I write here".
-- [dash-work-doctrine.md](dash-work-doctrine.md) — How an agent works on a dash worktree: the one-and-only-working-root rule, the verification bar, test discipline including the banned shapes, law discipline, round mechanics, the stop-before-landing obligation and its join draft, no plan numbers in durable artifacts. Cited by the dash-lane skills so the discipline lives in exactly one file.
+- [dash-work-doctrine.md](dash-work-doctrine.md) — How an agent works on a dash worktree: the one-and-only-working-root rule, the verification bar, test discipline including the banned shapes, law discipline, round mechanics, the stop-before-join obligation and its join draft, no plan numbers in durable artifacts. Cited by the dash-lane skills so the discipline lives in exactly one file.
 
 ## Templates
 

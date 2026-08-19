@@ -17,7 +17,7 @@
 //! **Never cached** — the blockers, and every ref and config read. Blockers
 //! answer to working-tree dirt, to which branch the base checkout has out, and
 //! to a journal file; none of those move a SHA. A blocker set cached against
-//! the two heads would keep refusing a landing whose real answer changed the
+//! the two heads would keep refusing a join whose real answer changed the
 //! moment the user cleaned their checkout — a face that lies, which is exactly
 //! what this whole seam was built to stop.
 //!
@@ -30,10 +30,12 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinState, DashResolvedFile,
+    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinState, DashJoinVerification,
+    DashResolvedFile,
 };
 use tugdash_core::ops::{self, DashDetail};
 use tugdash_core::resolve::{self, CandidateStatus};
+use tugdash_core::verify;
 
 /// The cacheable half of one dash's join facts, and the head pair it describes.
 #[derive(Clone)]
@@ -84,8 +86,12 @@ pub fn sweep(live_owner_keys: &[String]) {
 /// `current_branch` is read once per recompute by the caller and passed in,
 /// rather than read once per dash: it is a property of the repository, not of
 /// the dash, and the feed may be holding many.
-pub fn join_state_for(repo_root: &Path, detail: &DashDetail, current_branch: &str) -> DashJoinState {
-    // Uncached, always: what would refuse a landing right now.
+pub fn join_state_for(
+    repo_root: &Path,
+    detail: &DashDetail,
+    current_branch: &str,
+) -> DashJoinState {
+    // Uncached, always: what would refuse a join right now.
     let blockers: Vec<DashJoinBlocker> =
         ops::join_blockers_from_detail(repo_root, detail, current_branch)
             .into_iter()
@@ -123,6 +129,7 @@ pub fn join_state_for(repo_root: &Path, detail: &DashDetail, current_branch: &st
             resolved: Vec::new(),
             reviewed: false,
             stale_note,
+            verification: None,
         };
     }
 
@@ -149,6 +156,8 @@ pub fn join_state_for(repo_root: &Path, detail: &DashDetail, current_branch: &st
         "previewed"
     };
 
+    let verification = standing_verification(repo_root, detail, candidate.as_deref());
+
     DashJoinState {
         phase: phase.to_string(),
         blockers,
@@ -158,7 +167,42 @@ pub fn join_state_for(repo_root: &Path, detail: &DashDetail, current_branch: &st
         resolved,
         reviewed,
         stale_note,
+        verification,
     }
+}
+
+/// The candidate's verdict, but only while it still describes these two heads.
+///
+/// A verdict is a pure function of `(base_sha, candidate_sha)`, so it caches
+/// against that pair — and the instant either moves it stops being stale data
+/// and becomes a green about a tree nobody built. It is therefore *cleared*
+/// here rather than merely withheld, exactly as a stale candidate is: a fact
+/// the board will not report is a fact that must not survive to be read by
+/// something else.
+fn standing_verification(
+    repo_root: &Path,
+    detail: &DashDetail,
+    candidate: Option<&str>,
+) -> Option<DashJoinVerification> {
+    let name = detail.name.as_str();
+    let fact = verify::read_verification(repo_root, name)?;
+    let base_sha = ops::rev_parse(repo_root, &detail.base).ok()?;
+    let Some(candidate) = candidate else {
+        verify::clear_verification(repo_root, name);
+        return None;
+    };
+    if !fact.describes(&base_sha, candidate) {
+        verify::clear_verification(repo_root, name);
+        return None;
+    }
+    Some(DashJoinVerification {
+        tier0: fact.tier0.as_str().to_string(),
+        tier1: fact.tier1.as_str().to_string(),
+        failures: fact.failures,
+        notes: fact.notes,
+        base_sha: fact.base_sha,
+        candidate_sha: fact.candidate_sha,
+    })
 }
 
 /// The conflict probe, from cache when the head pair is unmoved.
@@ -359,7 +403,10 @@ mod tests {
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "main moves on"]);
         let stale = compose(repo);
-        assert!(stale.candidate.is_none(), "the stale candidate is not shown");
+        assert!(
+            stale.candidate.is_none(),
+            "the stale candidate is not shown"
+        );
         assert!(
             stale.stale_note.is_some(),
             "and the demotion carries a sentence"
@@ -444,5 +491,62 @@ mod tests {
         assert_eq!(conflicted.phase, "conflicted");
         assert!(!conflicted.conflicts.is_empty());
         assert!(probe_runs() > before, "and the probe runs then");
+    }
+
+    /// The verification verdict rides the join block while it describes these
+    /// two heads, and is **cleared** the moment either moves.
+    ///
+    /// Withholding a stale verdict would not be enough. It is a green about a
+    /// tree nobody built, and something else reading it back later — a face
+    /// after a reload, a gate — would believe it. The board drops it for the
+    /// same reason it drops a stale candidate.
+    #[test]
+    fn a_verdict_rides_the_join_block_until_a_head_moves() {
+        let temp = fixture();
+        let repo = temp.path();
+
+        // Resolve to a candidate the verdict can describe.
+        let resolved = tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        let candidate = resolved
+            .candidate_commit
+            .expect("the stub driver resolves it");
+        let base_sha = ops::rev_parse(repo, "main").unwrap();
+
+        verify::write_verification(
+            repo,
+            "demo",
+            &verify::Verification {
+                base_sha: base_sha.clone(),
+                candidate_sha: candidate.clone(),
+                tier0: verify::TierStatus::Green,
+                tier1: verify::TierStatus::Red,
+                failures: vec!["just app-test x.test.ts: 1 file failed".to_string()],
+                notes: vec!["1 test skipped as @foreground".to_string()],
+            },
+        )
+        .unwrap();
+
+        let state = compose(repo);
+        let v = state.verification.expect("the verdict rides the block");
+        assert_eq!(v.tier0, "green");
+        assert_eq!(v.tier1, "red");
+        assert_eq!(v.failures.len(), 1);
+        assert_eq!(v.notes.len(), 1);
+        assert_eq!(v.candidate_sha, candidate);
+
+        // Move the base. The candidate goes stale, and so does the verdict.
+        std::fs::write(repo.join("other.txt"), "moved\n").unwrap();
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base moves"]);
+
+        let after = compose(repo);
+        assert!(
+            after.verification.is_none(),
+            "a verdict about the old heads must not survive"
+        );
+        assert!(
+            verify::read_verification(repo, "demo").is_none(),
+            "and it is cleared, not merely withheld"
+        );
     }
 }

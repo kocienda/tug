@@ -20,7 +20,7 @@ import { beforeEach, afterEach, describe, expect, it } from "bun:test";
 import {
   JoinModeController,
   deriveJoinOutcome,
-  evaluateJoinLandGate,
+  evaluateJoinGate,
   joinDisabledReason,
   resolutionAwaitsReview,
   joinTargetFromEntry,
@@ -62,7 +62,7 @@ describe("joinDisabledReason", () => {
     // `pending` can only mean an execute in flight now that nothing previews,
     // so the sentence says that rather than describing a round trip that no
     // longer exists.
-    expect(joinDisabledReason("pending", "blocked")).toBe("Landing…");
+    expect(joinDisabledReason("pending", "blocked")).toBe("Joining…");
   });
 
   it("names the review as the act that clears it, whatever the outcome reads", () => {
@@ -135,7 +135,7 @@ describe("resolutionAwaitsReview", () => {
   });
 });
 
-describe("evaluateJoinLandGate", () => {
+describe("evaluateJoinGate", () => {
   const base = {
     turnInProgress: false,
     joinPhase: "idle" as const,
@@ -146,12 +146,12 @@ describe("evaluateJoinLandGate", () => {
   };
 
   it("passes over a clean merge with a message", () => {
-    expect(evaluateJoinLandGate(base)).toEqual({ ok: true });
+    expect(evaluateJoinGate(base)).toEqual({ ok: true });
   });
 
   it("fails first on a running turn, before every other reason", () => {
     expect(
-      evaluateJoinLandGate({
+      evaluateJoinGate({
         ...base,
         turnInProgress: true,
         joinPhase: "pending",
@@ -163,12 +163,12 @@ describe("evaluateJoinLandGate", () => {
 
   it("fails on a pending round trip before the outcome / message checks", () => {
     expect(
-      evaluateJoinLandGate({ ...base, joinPhase: "pending", outcome: "blocked", message: "" }),
+      evaluateJoinGate({ ...base, joinPhase: "pending", outcome: "blocked", message: "" }),
     ).toEqual({ ok: false, reason: "pending" });
   });
 
   it("fails on the outcome before the message check", () => {
-    expect(evaluateJoinLandGate({ ...base, outcome: "blocked", message: "" })).toEqual({
+    expect(evaluateJoinGate({ ...base, outcome: "blocked", message: "" })).toEqual({
       ok: false,
       reason: "outcome",
     });
@@ -176,7 +176,7 @@ describe("evaluateJoinLandGate", () => {
 
   it("refuses a dash the server reports blocked", () => {
     // The face that carries blockers derives `blocked`, and blocked never lands.
-    expect(evaluateJoinLandGate({ ...base, outcome: "blocked" })).toEqual({
+    expect(evaluateJoinGate({ ...base, outcome: "blocked" })).toEqual({
       ok: false,
       reason: "outcome",
     });
@@ -193,7 +193,7 @@ describe("evaluateJoinLandGate", () => {
       candidate: "cafe1234",
     });
     expect(outcome).toBe("clean");
-    expect(evaluateJoinLandGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
+    expect(evaluateJoinGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
       ok: true,
     });
   });
@@ -202,7 +202,7 @@ describe("evaluateJoinLandGate", () => {
     // The 2026-08-15 failure: a stale rerere replay built a candidate that
     // armed Join exactly as a clean preview would ([P31]).
     expect(
-      evaluateJoinLandGate({
+      evaluateJoinGate({
         ...base,
         outcome: "clean",
         candidateCommit: "cafe1234",
@@ -223,7 +223,7 @@ describe("evaluateJoinLandGate", () => {
       candidate: "cafe1234",
     });
     expect(outcome).toBe("blocked");
-    expect(evaluateJoinLandGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
+    expect(evaluateJoinGate({ ...base, outcome, candidateCommit: "cafe1234" })).toEqual({
       ok: false,
       reason: "outcome",
     });
@@ -231,13 +231,13 @@ describe("evaluateJoinLandGate", () => {
 
   it("fails on the outcome before the review — nothing to land outranks unread", () => {
     expect(
-      evaluateJoinLandGate({ ...base, outcome: "blocked", unreviewedResolution: true }),
+      evaluateJoinGate({ ...base, outcome: "blocked", unreviewedResolution: true }),
     ).toEqual({ ok: false, reason: "outcome" });
   });
 
   it("fails on the unread review before the message check", () => {
     expect(
-      evaluateJoinLandGate({
+      evaluateJoinGate({
         ...base,
         candidateCommit: "cafe1234",
         unreviewedResolution: true,
@@ -247,7 +247,7 @@ describe("evaluateJoinLandGate", () => {
   });
 
   it("fails on an empty (whitespace) message when everything else is ready", () => {
-    expect(evaluateJoinLandGate({ ...base, message: "   " })).toEqual({
+    expect(evaluateJoinGate({ ...base, message: "   " })).toEqual({
       ok: false,
       reason: "empty-message",
     });

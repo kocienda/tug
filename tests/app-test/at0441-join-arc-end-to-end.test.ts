@@ -66,7 +66,7 @@
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugdeck/src/lib/changeset-verb-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-landing.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugrust/crates/tugdash-core/src/resolve.rs
@@ -112,13 +112,13 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
 const DASH = "at0441-arc";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const LANDING = `${ROW} [data-slot="session-changes-dash-landing"]`;
+const LANDING = `${ROW} [data-slot="session-changes-dash-join"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
-const REVIEW = `${ROW} [data-slot="session-changes-dash-landing-review"]`;
-const REVIEWED = `${ROW} [data-slot="session-changes-dash-landing-reviewed"]`;
-const READY = `${ROW} [data-slot="session-changes-dash-landing-ready"]`;
-const CONFLICTS = `${ROW} [data-slot="session-changes-dash-landing-conflicts"]`;
-const BLOCKERS = `${ROW} [data-slot="session-changes-dash-landing-blockers"]`;
+const REVIEW = `${ROW} [data-slot="session-changes-dash-join-review"]`;
+const REVIEWED = `${ROW} [data-slot="session-changes-dash-join-reviewed"]`;
+const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
+const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
+const BLOCKERS = `${ROW} [data-slot="session-changes-dash-join-blockers"]`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
@@ -492,7 +492,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         );
         // With nothing to press on the row, this sentence is the entire way
         // forward — so it has to name the route, not merely assert readiness.
-        expect(readyLine).toContain("Ready to land");
+        expect(readyLine).toContain("Ready to join");
         expect(readyLine).toContain("/dash-join");
         note(`at0441 landable: ${JSON.stringify(readyLine)}`);
 

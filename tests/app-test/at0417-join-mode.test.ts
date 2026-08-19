@@ -385,7 +385,7 @@ describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
              const rows = document.querySelectorAll(${JSON.stringify(`${SHEET} [data-slot="session-changes-dash-row"]`)});
              return {
                fronted: (rows[0] ?? null)?.getAttribute("data-dash") ?? null,
-               landing: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-landing"]').length,
+               landing: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-join"]').length,
                adopt: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-bind"]').length,
                leave: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-unbind"]').length,
              };

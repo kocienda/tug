@@ -1,24 +1,24 @@
-/* SessionChangesDashLanding — the fronted dash row's landing face.
+/* SessionChangesDashJoin — the fronted dash row's landing face.
 
    Sits inside the row's expanded detail, above the facts it is a verdict
    about. Appearance only ([L06]); the outcome's tone dispatches off
    `data-outcome` so no React state carries a color. */
 
-.session-changes-dash-landing {
+.session-changes-dash-join {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-2xs);
   padding: var(--tug-space-xs) var(--tug-space-sm);
 }
 
-.session-changes-dash-landing-head {
+.session-changes-dash-join-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--tug-space-sm);
 }
 
-.session-changes-dash-landing-acts {
+.session-changes-dash-join-acts {
   display: flex;
   align-items: center;
   gap: var(--tug-space-2xs);
@@ -27,7 +27,7 @@
 /* The empty outcome's one line of prose. It asks the question the release
    affordance answers, and asks it in words because a dead control would be
    worse than a sentence that is already true. */
-.session-changes-dash-landing-note {
+.session-changes-dash-join-note {
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-xs);
   color: var(--tug7-element-global-text-normal-muted-rest);
@@ -37,7 +37,7 @@
    disabled button takes no pointer events, so its `title` can never be read;
    the reason lives here instead, in the same prose row the empty outcome and
    the review block already use. */
-.session-changes-dash-landing-refusals {
+.session-changes-dash-join-refusals {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -46,20 +46,20 @@
   list-style: none;
 }
 
-.session-changes-dash-landing-refusals > li {
+.session-changes-dash-join-refusals > li {
   display: flex;
   gap: var(--tug-space-2xs);
   align-items: baseline;
 }
 
-.session-changes-dash-landing-refusal-control {
+.session-changes-dash-join-refusal-control {
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-xs);
   color: var(--tug7-element-global-text-normal-rest);
 }
 
-.session-changes-dash-landing-blockers,
-.session-changes-dash-landing-conflicts {
+.session-changes-dash-join-blockers,
+.session-changes-dash-join-conflicts {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-2xs);
@@ -73,7 +73,7 @@
    under the path it explains. Indented rather than badged: it is the row's
    own footnote, and a conflict list that shouted its history twice over would
    bury the paths themselves. */
-.session-changes-dash-landing-archaeology {
+.session-changes-dash-join-archaeology {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -83,20 +83,20 @@
   border-left: 1px solid var(--tug7-element-global-border-normal-muted-rest);
 }
 
-.session-changes-dash-landing-archaeology > li {
+.session-changes-dash-join-archaeology > li {
   display: flex;
   gap: var(--tug-space-2xs);
   align-items: baseline;
 }
 
-.session-changes-dash-landing-archaeology-sha {
+.session-changes-dash-join-archaeology-sha {
   flex-shrink: 0;
   font-family: var(--tug-font-family-mono);
   font-size: var(--tug-font-size-2xs);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.session-changes-dash-landing-archaeology-subject {
+.session-changes-dash-join-archaeology-subject {
   min-width: 0;
   overflow: hidden;
   font-family: var(--tug-font-family-sans);
@@ -106,7 +106,7 @@
   white-space: nowrap;
 }
 
-.session-changes-dash-landing-blockers > li {
+.session-changes-dash-join-blockers > li {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -114,14 +114,14 @@
 
 /* The server's own sentence — the same bytes the execute path would refuse
    with, so the preview and the refusal read identically. */
-.session-changes-dash-landing-detail {
+.session-changes-dash-join-detail {
   font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-tone-text-normal-caution-rest);
 }
 
 /* The act that clears it. Quieter than the finding: the reader has already
    been told what is wrong, and this is only what to do about it. */
-.session-changes-dash-landing-act {
+.session-changes-dash-join-act {
   font-family: var(--tug-font-family-sans);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
@@ -129,13 +129,13 @@
 /* The path, then its history under it — so the row is a column, and the
    truncation lives on the path itself rather than on the row that now has a
    nested list inside it. */
-.session-changes-dash-landing-conflicts > li {
+.session-changes-dash-join-conflicts > li {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
-.session-changes-dash-landing-conflict-path {
+.session-changes-dash-join-conflict-path {
   font-family: var(--tug-font-family-mono);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -147,7 +147,7 @@
    even when the rungs below the AI one settle every file without streaming a
    delta — the case where the list below this line stays empty from press to
    result. */
-.session-changes-dash-landing-running {
+.session-changes-dash-join-running {
   display: flex;
   align-items: center;
   gap: var(--tug-space-xs);
@@ -156,14 +156,14 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.session-changes-dash-landing-spin {
+.session-changes-dash-join-spin {
   flex: none;
-  animation: session-changes-dash-landing-spin 1s linear infinite;
+  animation: session-changes-dash-join-spin 1s linear infinite;
   /* Compositor promotion: the spin runs exactly while the ladder does. */
   will-change: transform;
 }
 
-@keyframes session-changes-dash-landing-spin {
+@keyframes session-changes-dash-join-spin {
   to {
     transform: rotate(360deg);
   }
@@ -172,7 +172,7 @@
 /* The resolution ladder's per-file lane: the path, then the rung that is
    working it (or the one that settled it). One row per file, so a run reads as
    progress rather than as a wall of streamed text. */
-.session-changes-dash-landing-rungs {
+.session-changes-dash-join-rungs {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -183,21 +183,21 @@
   font-family: var(--tug-font-family-mono);
 }
 
-.session-changes-dash-landing-rungs > li {
+.session-changes-dash-join-rungs > li {
   display: flex;
   align-items: baseline;
   gap: var(--tug-space-2xs);
   min-width: 0;
 }
 
-.session-changes-dash-landing-rung-path {
+.session-changes-dash-join-rung-path {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-.session-changes-dash-landing-rung-word {
+.session-changes-dash-join-rung-word {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
@@ -206,7 +206,7 @@
    rule, one tone down, because this asks for attention rather than warning of
    loss. The diff document is bounded and scrolls: a merge the ladder resolved
    across several files must not push the lane's own controls off screen. */
-.session-changes-dash-landing-review {
+.session-changes-dash-join-review {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -215,13 +215,13 @@
   border-left: 2px solid var(--tug7-element-tone-border-normal-accent-rest);
 }
 
-.session-changes-dash-landing-review .tug-diff-document {
+.session-changes-dash-join-review .tug-diff-document {
   align-self: stretch;
   max-height: var(--session-changes-dash-review-max-height, 22rem);
   overflow-y: auto;
 }
 
-.session-changes-dash-landing-error {
+.session-changes-dash-join-error {
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-xs);
   color: var(--tug7-element-tone-text-normal-danger-rest);

@@ -325,6 +325,24 @@ export class ChangesetJoinStore {
     });
   }
 
+  /**
+   * Ask the server to run (or re-run) the candidate's verification.
+   *
+   * No candidate sha rides along, unlike {@link review}: a verification is
+   * always about whichever candidate stands *now*, and the tests are worth
+   * running only against the artifact that would actually join. `tier` names
+   * one exam — `tier0` for the build, `tier1` for the tests — or is omitted for
+   * both, in order. The verdict comes back on the dash's feed entry; this send
+   * only asks for it.
+   */
+  verify(workspaceKey: string, dash: string, tier?: "tier0" | "tier1"): void {
+    this._connection.sendControlFrame("changeset_join_verify", {
+      project_dir: workspaceKey,
+      dash,
+      ...(tier !== undefined ? { tier } : {}),
+    });
+  }
+
   /** Clear a dash's resolve state (cancel / after landing). */
   clear(workspaceKey: string, dash: string): void {
     const k = key(workspaceKey, dash);

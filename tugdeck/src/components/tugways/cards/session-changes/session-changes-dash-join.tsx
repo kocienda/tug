@@ -1,26 +1,26 @@
 /**
- * `SessionChangesDashLanding` — the dash row's landing face.
+ * `SessionChangesDashJoin` — the dash row's join face.
  *
- * One line answering "what would landing this dash do right now?", and **the
+ * One line answering "what would joining this dash do right now?", and **the
  * one act that advances it** — never a menu of acts, and never an act the gate
  * will then refuse. Blocked shows each blocker's server-written detail beside
  * the act that clears it; conflicted shows the paths and offers the ladder;
  * resolved shows what the ladder decided and offers the review that
- * acknowledges it; and landable shows a sentence and nothing else at all.
+ * acknowledges it; and joinable shows a sentence and nothing else at all.
  *
  * That last state is the point of the shape. There is no Join button here. The
  * one it replaces read as an action and performed a mode entry, so on every
- * state that could not land it stood there greyed out — a control offering a
- * press whose refusal was computed somewhere the press never reached. Landing
+ * state that could not join it stood there greyed out — a control offering a
+ * press whose refusal was computed somewhere the press never reached. Joining
  * lives in the composer (⌃⌘C, or `/dash-join`), where the message is typed and
  * where a refusal can be both computed and shown; the readiness line's job is
  * to name that route, because with no control on the row a sentence is the only
  * thing standing between the reader and a dead end.
  *
  * Every value here is read from the dash's server-owned join block, so the face
- * and the land gate answer the same question from the same bytes.
+ * and the join gate answer the same question from the same bytes.
  *
- * The face belongs to the **fronted** row only — landing is a gesture on this
+ * The face belongs to the **fronted** row only — joining is a gesture on this
  * card's own dash, and the composer it routes to is this card's own.
  *
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
@@ -28,10 +28,10 @@
  * `TugBadge` / `TugPushButton` rather than hand-rolling chrome; [L31] every
  * refusal is on screen as face text, next to the act that clears it.
  *
- * @module components/tugways/cards/session-changes/session-changes-dash-landing
+ * @module components/tugways/cards/session-changes/session-changes-dash-join
  */
 
-import "./session-changes-dash-landing.css";
+import "./session-changes-dash-join.css";
 
 import React from "react";
 import { LoaderCircle } from "lucide-react";
@@ -50,23 +50,23 @@ import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
 import type { GitDiffFile, GitDiffPayload } from "@/lib/git-diff-store";
 import {
   deriveJoinOutcome,
-  evaluateJoinLandGate,
+  evaluateJoinGate,
   joinDisabledReason,
   resolutionAwaitsReview,
   type JoinOutcome,
 } from "@/lib/join-mode-controller";
 
 /**
- * The lane's landing gestures, supplied by the card that owns the dash.
+ * The lane's join gestures, supplied by the card that owns the dash.
  *
- * There is deliberately no gesture here that lands, and none that opens the
- * join editor. Landing is the composer's — ⌃⌘C, or `/dash-join` — and the
+ * There is deliberately no gesture here that joins, and none that opens the
+ * join editor. Joining is the composer's — ⌃⌘C, or `/dash-join` — and the
  * composer's ⬆ is the only control that fires one. A row-level button that
  * *entered a mode* while reading as an action was the resting lie this lane
- * carried: it claimed a landing, and on every state that could not land it
+ * carried: it claimed a join, and on every state that could not join it
  * greyed itself out and said so in a place the press never reached.
  */
-export interface DashLandingActions {
+export interface DashJoinActions {
   /** Point the join mode at this dash without entering it — the row's expand. */
   aim: (entry: DashChangesetEntry) => void;
   /** Resume an interrupted teardown from the dash's join journal. */
@@ -79,11 +79,11 @@ export interface DashLandingActions {
 
 /**
  * What the resolve lane shows, derived from the ladder's phase and whether it
- * built anything landable ([#outcome-derivation]).
+ * built anything joinable ([#outcome-derivation]).
  *
  * - `offer` — conflicted and untried: the ladder is the act that clears it.
  * - `progress` — running, streaming per file.
- * - `resolved` — a candidate exists; the join is landable after all.
+ * - `resolved` — a candidate exists; the join is joinable after all.
  * - `error` / `none` — the ladder refused or reached its dead end, or has
  *   nothing to say here.
  */
@@ -94,7 +94,7 @@ export type ResolveFace = "none" | "offer" | "progress" | "resolved" | "error";
  * resolution survive a reload: the phase is a live overlay that dies with the
  * page, while the candidate is a git ref the server re-reports on every
  * recompute. Ranked the other way, reopening the deck after a successful
- * Resolve would show a clean dash with no review panel and land it unread.
+ * Resolve would show a clean dash with no review panel and join it unread.
  */
 export function deriveResolveFace(
   outcome: JoinOutcome,
@@ -107,28 +107,28 @@ export function deriveResolveFace(
   return outcome === "conflicted" || outcome === "stale" ? "offer" : "none";
 }
 
-/** The `data-slot` of every control this face can mount on the landing path. */
-export const LANDING_CONTROL = {
+/** The `data-slot` of every control this face can mount on the join path. */
+export const JOIN_CONTROL = {
   resume: "session-changes-dash-resume",
   resolve: "session-changes-dash-resolve",
-  reviewed: "session-changes-dash-landing-reviewed",
+  reviewed: "session-changes-dash-join-reviewed",
 } as const;
 
-export type LandingControl = (typeof LANDING_CONTROL)[keyof typeof LANDING_CONTROL];
+export type JoinControl = (typeof JOIN_CONTROL)[keyof typeof JOIN_CONTROL];
 
 /** What the face shows for one state: the words, and the single act. */
-export interface LandingFace {
+export interface JoinFace {
   outcome: JoinOutcome;
   resolve: ResolveFace;
   /**
-   * The one control that advances this landing, or `null` where the state
-   * advances by itself — a run in flight, a landing in flight, a turn to wait
-   * out, and the landable state, whose act is the composer's ⬆.
+   * The one control that advances this join, or `null` where the state
+   * advances by itself — a run in flight, a join in flight, a turn to wait
+   * out, and the joinable state, whose act is the composer's ⬆.
    */
-  control: LandingControl | null;
+  control: JoinControl | null;
   /**
-   * What the face states about landing, or `null` where the state's own block
-   * already is that sentence — see {@link LandingFace.statedBelow}.
+   * What the face states about joining, or `null` where the state's own block
+   * already is that sentence — see {@link JoinFace.statedBelow}.
    */
   line: string | null;
   /**
@@ -154,14 +154,14 @@ export interface LandingFace {
  * is how it ended up mounting a disabled Join beside a Resolve beside a review
  * panel and leaving the reader to guess which one it wanted.
  */
-export function deriveLandingFace(input: {
+export function deriveJoinFace(input: {
   join: DashJoinStateWire | null;
   resolvePhase: ResolvePhase;
   joinPhase: JoinPhase;
   turnInProgress: boolean;
-  /** The dash is mid-teardown from an interrupted landing (`stage === "landing"`). */
+  /** The dash is mid-teardown from an interrupted join (`stage === "joining"`). */
   interrupted: boolean;
-}): LandingFace {
+}): JoinFace {
   const { join, resolvePhase, joinPhase, turnInProgress, interrupted } = input;
   const outcome = deriveJoinOutcome(join);
   const candidate =
@@ -169,7 +169,7 @@ export function deriveLandingFace(input: {
   const staleNote =
     typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
   const resolve = deriveResolveFace(outcome, resolvePhase, candidate);
-  const gate = evaluateJoinLandGate({
+  const gate = evaluateJoinGate({
     turnInProgress,
     joinPhase,
     outcome,
@@ -183,14 +183,14 @@ export function deriveLandingFace(input: {
 
   // An interrupted teardown outranks everything: it refuses every other act
   // server-side, so it is the only door out of this state.
-  const control: LandingControl | null = interrupted
-    ? LANDING_CONTROL.resume
+  const control: JoinControl | null = interrupted
+    ? JOIN_CONTROL.resume
     : (join?.blockers ?? []).length > 0
       ? null
       : resolve === "offer" || resolve === "error"
-        ? LANDING_CONTROL.resolve
+        ? JOIN_CONTROL.resolve
         : resolve === "resolved" && resolutionAwaitsReview(join)
-          ? LANDING_CONTROL.reviewed
+          ? JOIN_CONTROL.reviewed
           : null;
 
   // Measured against what will render, never against the outcome word.
@@ -202,7 +202,7 @@ export function deriveLandingFace(input: {
       (outcome === "stale" && staleNote !== null) ||
       outcome === "empty");
   const line = gate.ok
-    ? "Ready to land — ⌃⌘C, or /dash-join"
+    ? "Ready to join — ⌃⌘C, or /dash-join"
     : statedBelow
       ? null
       : reason;
@@ -210,17 +210,17 @@ export function deriveLandingFace(input: {
   return { outcome, resolve, control, line, statedBelow };
 }
 
-export interface SessionChangesDashLandingProps {
+export interface SessionChangesDashJoinProps {
   /** The dash this face describes — always the card's own. */
   entry: DashChangesetEntry;
   /**
    * The dash's server-owned join state, straight off its feed entry: blockers,
    * conflicts, the candidate and what the ladder decided per path. Everything
-   * this face says about a landing is read from here, so the face and the land
+   * this face says about a join is read from here, so the face and the join
    * gate cannot disagree.
    */
   join: DashJoinStateWire | null;
-  /** The landing round trip's phase, for the pending gate. */
+  /** The join round trip's phase, for the pending gate. */
   joinPhase: JoinPhase;
   /** A verb-level refusal from an execute, if one came back. */
   error: string | null;
@@ -242,7 +242,7 @@ export interface SessionChangesDashLandingProps {
   /** Arm the lane's discard confirm for this dash. The face never discards
    *  directly — one popover serves every row, and the lane owns it. */
   onRequestDiscard: () => void;
-  actions: DashLandingActions;
+  actions: DashJoinActions;
 }
 
 /** The word the face fronts for each outcome. */
@@ -313,7 +313,7 @@ function resolutionStatus(unified: string): GitDiffFile["status"] {
 }
 
 /**
- * The ladder's resolutions as one diff document — what landing this candidate
+ * The ladder's resolutions as one diff document — what joining this candidate
  * would do to each file it decided ([P31]).
  *
  * The server sends one unified chunk per resolved path, which is exactly
@@ -362,10 +362,10 @@ export function resolutionDiffPayload(
 export function resolutionReviewLine(resolved: readonly DashResolvedFileWire[]): string {
   const count = resolved.length;
   const rungs = [...new Set(resolved.map((f) => f.resolved_by))].sort();
-  return `${count} file${count === 1 ? "" : "s"} resolved by ${rungs.join(", ")} — read this before it lands`;
+  return `${count} file${count === 1 ? "" : "s"} resolved by ${rungs.join(", ")} — read this before it joins`;
 }
 
-export function SessionChangesDashLanding({
+export function SessionChangesDashJoin({
   entry,
   join,
   joinPhase,
@@ -377,7 +377,7 @@ export function SessionChangesDashLanding({
   discardDisabledReason,
   onRequestDiscard,
   actions,
-}: SessionChangesDashLandingProps): React.ReactElement {
+}: SessionChangesDashJoinProps): React.ReactElement {
   const conflicts = join?.conflicts ?? [];
   const archaeology = join?.archaeology ?? [];
   const blockers = join?.blockers ?? [];
@@ -387,23 +387,23 @@ export function SessionChangesDashLanding({
   const reviewed = join?.reviewed === true;
   // A stale journal refuses every other act server-side, so the resume is the
   // one gesture that can make the rest reachable.
-  const interrupted = entry.stage === "landing";
-  // One decision, made once ({@link deriveLandingFace}) and rendered here.
-  const face = deriveLandingFace({
+  const interrupted = entry.stage === "joining";
+  // One decision, made once ({@link deriveJoinFace}) and rendered here.
+  const face = deriveJoinFace({
     join,
     resolvePhase: resolve.phase,
     joinPhase,
     turnInProgress,
     interrupted,
   });
-  const { outcome, resolve: resolveFace, control, line: landingLine } = face;
+  const { outcome, resolve: resolveFace, control, line: joinLine } = face;
   const reviewPayload = React.useMemo(
     () => resolutionDiffPayload(resolved, entry.owner_id),
     [resolved, entry.owner_id],
   );
   const resumeHint =
     joinPhase === "pending"
-      ? "A landing is in flight"
+      ? "A join is in flight"
       : turnInProgress
         ? "Wait for the turn to finish"
         : null;
@@ -421,26 +421,26 @@ export function SessionChangesDashLanding({
 
   return (
     <div
-      className="session-changes-dash-landing"
-      data-slot="session-changes-dash-landing"
+      className="session-changes-dash-join"
+      data-slot="session-changes-dash-join"
       data-outcome={outcome}
     >
-      <div className="session-changes-dash-landing-head">
+      <div className="session-changes-dash-join-head">
         <TugBadge
           emphasis="tinted"
           role={OUTCOME_ROLES[outcome]}
           size="2xs"
-          data-slot="session-changes-dash-landing-outcome"
+          data-slot="session-changes-dash-join-outcome"
         >
           {OUTCOME_WORDS[outcome]}
         </TugBadge>
-        <span className="session-changes-dash-landing-acts">
+        <span className="session-changes-dash-join-acts">
           {/* Offered while the ladder is the act that clears the conflict, and
               offered AGAIN after a run that failed — a refusal the user cannot
               answer is a dead end, and the ladder is the only door out of a
               conflicted dash. The ladder's own dead end — some files still
               conflicting — arrives as an error carrying their names. */}
-          {control === LANDING_CONTROL.resolve ? (
+          {control === JOIN_CONTROL.resolve ? (
             <TugPushButton
               size="xs"
               emphasis="outlined"
@@ -454,7 +454,7 @@ export function SessionChangesDashLanding({
               {resolveFace === "error" ? "Resolve again" : "Resolve"}
             </TugPushButton>
           ) : null}
-          {control === LANDING_CONTROL.resume ? (
+          {control === JOIN_CONTROL.resume ? (
             <TugPushButton
               size="xs"
               emphasis="filled"
@@ -484,26 +484,26 @@ export function SessionChangesDashLanding({
           ) : null}
         </span>
       </div>
-      {landingLine !== null ? (
+      {joinLine !== null ? (
         <div
-          className="session-changes-dash-landing-note"
-          data-slot="session-changes-dash-landing-ready"
+          className="session-changes-dash-join-note"
+          data-slot="session-changes-dash-join-ready"
           data-ready={control === null && outcome === "clean" ? "true" : "false"}
         >
-          {landingLine}
+          {joinLine}
         </div>
       ) : null}
       {refusals.length > 0 ? (
         <ul
-          className="session-changes-dash-landing-refusals"
-          data-slot="session-changes-dash-landing-refusals"
+          className="session-changes-dash-join-refusals"
+          data-slot="session-changes-dash-join-refusals"
         >
           {refusals.map((refusal) => (
             <li key={refusal.control}>
-              <span className="session-changes-dash-landing-refusal-control">
+              <span className="session-changes-dash-join-refusal-control">
                 {refusal.control}
               </span>
-              <span className="session-changes-dash-landing-note">{refusal.reason}</span>
+              <span className="session-changes-dash-join-note">{refusal.reason}</span>
             </li>
           ))}
         </ul>
@@ -513,34 +513,34 @@ export function SessionChangesDashLanding({
           to decide whether to resolve again. */}
       {staleNote !== null ? (
         <div
-          className="session-changes-dash-landing-note"
-          data-slot="session-changes-dash-landing-stale"
+          className="session-changes-dash-join-note"
+          data-slot="session-changes-dash-join-stale"
         >
           {staleNote}
         </div>
       ) : null}
       {outcome === "empty" ? (
         <div
-          className="session-changes-dash-landing-note"
-          data-slot="session-changes-dash-landing-empty"
+          className="session-changes-dash-join-note"
+          data-slot="session-changes-dash-join-empty"
         >
           Nothing to join — discard this dash.
         </div>
       ) : null}
       {blockers.length > 0 ? (
         <ul
-          className="session-changes-dash-landing-blockers"
-          data-slot="session-changes-dash-landing-blockers"
+          className="session-changes-dash-join-blockers"
+          data-slot="session-changes-dash-join-blockers"
         >
           {blockers.map((blocker, index) => {
             const act = blockerAct(blocker, entry.base);
             return (
               <li key={`${index}:${blocker.kind}`} data-blocker={blocker.kind}>
-                <span className="session-changes-dash-landing-detail">
+                <span className="session-changes-dash-join-detail">
                   {blocker.detail}
                 </span>
                 {act !== null ? (
-                  <span className="session-changes-dash-landing-act">{act}</span>
+                  <span className="session-changes-dash-join-act">{act}</span>
                 ) : null}
               </li>
             );
@@ -555,23 +555,23 @@ export function SessionChangesDashLanding({
           receipt; the list is whatever detail the run happens to have. */}
       {resolveFace === "progress" ? (
         <div
-          className="session-changes-dash-landing-running"
+          className="session-changes-dash-join-running"
           role="status"
-          data-slot="session-changes-dash-landing-running"
+          data-slot="session-changes-dash-join-running"
         >
-          <LoaderCircle size={12} className="session-changes-dash-landing-spin" />
+          <LoaderCircle size={12} className="session-changes-dash-join-spin" />
           Resolving {entry.display_name}…
         </div>
       ) : null}
       {resolveFace === "progress" && resolve.progress.length > 0 ? (
         <ul
-          className="session-changes-dash-landing-rungs"
-          data-slot="session-changes-dash-landing-progress"
+          className="session-changes-dash-join-rungs"
+          data-slot="session-changes-dash-join-progress"
         >
           {resolve.progress.map((file) => (
             <li key={file.path} data-status={file.status}>
-              <span className="session-changes-dash-landing-rung-path">{file.path}</span>
-              <span className="session-changes-dash-landing-rung-word">
+              <span className="session-changes-dash-join-rung-path">{file.path}</span>
+              <span className="session-changes-dash-join-rung-word">
                 {file.rung} · {file.status}
               </span>
             </li>
@@ -580,13 +580,13 @@ export function SessionChangesDashLanding({
       ) : null}
       {resolveFace === "resolved" ? (
         <ul
-          className="session-changes-dash-landing-rungs"
-          data-slot="session-changes-dash-landing-resolved"
+          className="session-changes-dash-join-rungs"
+          data-slot="session-changes-dash-join-resolved"
         >
           {resolved.map((file) => (
             <li key={file.path} data-resolved-by={file.resolved_by}>
-              <span className="session-changes-dash-landing-rung-path">{file.path}</span>
-              <span className="session-changes-dash-landing-rung-word">
+              <span className="session-changes-dash-join-rung-path">{file.path}</span>
+              <span className="session-changes-dash-join-rung-word">
                 {file.resolved_by}
               </span>
             </li>
@@ -596,23 +596,23 @@ export function SessionChangesDashLanding({
       {/* The review ([D115]). A candidate built out of per-file resolutions is
           a machine decision nobody has read: rerere replays a cache that can be
           stale, the driver and the AI rung guess. So the diffs render, and the
-          landing stays refused until the second beat acknowledges them — the
+          the join stays refused until the second beat acknowledges them — the
           same shape as the discard above, for the same reason. A rung-1 replay
-          resolves no files and never lands here. */}
+          resolves no files and never joins here. */}
       {resolveFace === "resolved" && resolved.length > 0 ? (
         <div
-          className="session-changes-dash-landing-review"
-          data-slot="session-changes-dash-landing-review"
+          className="session-changes-dash-join-review"
+          data-slot="session-changes-dash-join-review"
           data-reviewed={reviewed ? "true" : "false"}
         >
-          {control !== LANDING_CONTROL.reviewed ? (
-            <div className="session-changes-dash-landing-note">
+          {control !== JOIN_CONTROL.reviewed ? (
+            <div className="session-changes-dash-join-note">
               Reviewed — {resolved.length} resolved file
-              {resolved.length === 1 ? "" : "s"} ready to land.
+              {resolved.length === 1 ? "" : "s"} ready to join.
             </div>
           ) : (
             <>
-              <div className="session-changes-dash-landing-note">
+              <div className="session-changes-dash-join-note">
                 {resolutionReviewLine(resolved)}
               </div>
               {/* Open, not collapsed: an acknowledgement over a folded-away
@@ -623,7 +623,7 @@ export function SessionChangesDashLanding({
                 emphasis="filled"
                 role="action"
                 onClick={() => actions.markReviewed(entry)}
-                data-slot="session-changes-dash-landing-reviewed"
+                data-slot="session-changes-dash-join-reviewed"
               >
                 Reviewed
               </TugPushButton>
@@ -632,14 +632,14 @@ export function SessionChangesDashLanding({
         </div>
       ) : null}
       {resolveFace === "error" ? (
-        <div className="session-changes-dash-landing-error" role="alert">
+        <div className="session-changes-dash-join-error" role="alert">
           {resolve.error}
         </div>
       ) : null}
       {conflicts.length > 0 ? (
         <ul
-          className="session-changes-dash-landing-conflicts"
-          data-slot="session-changes-dash-landing-conflicts"
+          className="session-changes-dash-join-conflicts"
+          data-slot="session-changes-dash-join-conflicts"
         >
           {conflicts.map((path) => {
             // What the base did to this path while the dash was away. A
@@ -651,24 +651,24 @@ export function SessionChangesDashLanding({
             const elided = history === null ? 0 : history.total - commits.length;
             return (
               <li key={path}>
-                <span className="session-changes-dash-landing-conflict-path">{path}</span>
+                <span className="session-changes-dash-join-conflict-path">{path}</span>
                 {history !== null ? (
                   <ul
-                    className="session-changes-dash-landing-archaeology"
-                    data-slot="session-changes-dash-landing-archaeology"
+                    className="session-changes-dash-join-archaeology"
+                    data-slot="session-changes-dash-join-archaeology"
                   >
                     {commits.map((commit) => (
                       <li key={commit.sha}>
-                        <span className="session-changes-dash-landing-archaeology-sha">
+                        <span className="session-changes-dash-join-archaeology-sha">
                           {commit.sha}
                         </span>
-                        <span className="session-changes-dash-landing-archaeology-subject">
+                        <span className="session-changes-dash-join-archaeology-subject">
                           {commit.subject}
                         </span>
                       </li>
                     ))}
                     {elided > 0 ? (
-                      <li className="session-changes-dash-landing-note">
+                      <li className="session-changes-dash-join-note">
                         +{elided} earlier
                       </li>
                     ) : null}
@@ -680,7 +680,7 @@ export function SessionChangesDashLanding({
         </ul>
       ) : null}
       {error !== null ? (
-        <div className="session-changes-dash-landing-error" role="alert">
+        <div className="session-changes-dash-join-error" role="alert">
           {error}
         </div>
       ) : null}

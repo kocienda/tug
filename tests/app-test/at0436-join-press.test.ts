@@ -1,5 +1,5 @@
 /**
- * at0436-join-land-press.test.ts — the Join press reaches the wire, and a
+ * at0436-join-press.test.ts — the Join press reaches the wire, and a
  * server refusal reaches the user ([L31]).
  *
  * This is the gesture the corpus never made. On 2026-08-17 a Join press
@@ -122,7 +122,7 @@ function buildFixtureJsonl(cwd: string, sessionId: string): string {
 const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-landing"]`;
+  `${row(dash)} [data-slot="session-changes-dash-join"]`;
 
 /**
  * The join journal's home. `join_in` resolves the repo root from the card's
@@ -293,7 +293,7 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
       tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
       const app = await launchTugApp({
-        testName: "at0436-join-land-press",
+        testName: "at0436-join-press",
         env: { TUGBANK_PATH: tugbankPath },
       });
       try {

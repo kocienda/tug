@@ -22,6 +22,14 @@ pub mod replay;
 /// re-merge / structured-merge driver / AI seam, and the candidate builder.
 pub mod resolve;
 
+/// The workshop worktree — one stable checkout per dash where the merge is
+/// performed for real, so an agent has a tree and verification has a build.
+pub mod workshop;
+
+/// Join verification — the project's own declared build and test commands run
+/// against the joined tree, recorded as a fact anchored to two commits.
+pub mod verify;
+
 pub use dash::{
     DashDeclaration, DashDeclarations, DashRoundMeta, MarkStage, StepPhase, append_dash_log,
     detect_default_branch, is_terminal, read_declarations, split_log_line, validate_dash_name,
@@ -38,3 +46,8 @@ pub use resolve::{
     FileMergeRequest, FileMerger, FileResolution, JoinShape, ResolveOutcome, ResolvedBy,
     resolve_conflicts, resolve_conflicts_cwd, resolve_intent,
 };
+pub use verify::{
+    TierOutcome, TierStatus, Verification, clear_verification, read_verification, run_tier0,
+    verification_config_key, write_verification,
+};
+pub use workshop::{Workshop, workshop_branch, workshop_path};

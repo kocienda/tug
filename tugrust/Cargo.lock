@@ -2602,6 +2602,7 @@ dependencies = [
  "tempfile",
  "tugchanges-core",
  "tugcore",
+ "tuggram",
  "tugutil-core",
 ]
 

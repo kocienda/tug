@@ -575,7 +575,6 @@ pub enum ChangesetEntry {
     },
 }
 
-
 /// The join pipeline's state for one dash — the single durable source every
 /// client reads ([P01] of the join-pipeline plan).
 ///
@@ -595,7 +594,7 @@ pub struct DashJoinState {
     /// assembles; there is no state machine holding a phase that reality could
     /// drift away from.
     pub phase: String,
-    /// What would refuse a landing right now. Non-empty means `phase` is
+    /// What would refuse a join right now. Non-empty means `phase` is
     /// `blocked`.
     ///
     /// Never cached server-side: every one of these answers to working-tree
@@ -626,6 +625,34 @@ pub struct DashJoinState {
     /// when it says this, so the state demotes itself rather than lying.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stale_note: Option<String>,
+    /// What the project's own checks said about the joined tree ([P04]).
+    ///
+    /// Anchored to `(base_sha, candidate_sha)`, so it caches soundly and
+    /// self-demotes the moment either head moves — absent means nobody has
+    /// asked about *this* candidate, which is not the same as green.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification: Option<DashJoinVerification>,
+}
+
+/// A candidate's verification verdict, as the face reads it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinVerification {
+    /// `unrun` | `running` | `green` | `red` — the build tier.
+    pub tier0: String,
+    /// `unrun` | `running` | `green` | `red` — the test tier.
+    pub tier1: String,
+    /// The failing commands, as sentences. A red that cannot say why is the
+    /// silence the face exists to prevent, so these ride with the verdict.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
+    /// What qualifies the verdict — "project declares no verification", a
+    /// selector exit that forced a fallback, tests skipped as `@foreground`.
+    /// A green with notes is a green with exclusions, and says so.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+    /// The two commits this verdict describes.
+    pub base_sha: String,
+    pub candidate_sha: String,
 }
 
 /// One reason a landing would be refused.
@@ -1442,6 +1469,7 @@ mod tests {
                 rounds,
                 worktree_dirty,
                 files,
+                join,
                 ..
             } => {
                 assert_eq!(owner_id, "tugdash/fix-join");
@@ -1449,6 +1477,21 @@ mod tests {
                 assert_eq!(*rounds, 3);
                 assert!(!worktree_dirty);
                 assert_eq!(files.len(), 1);
+                // The verification verdict is the same bytes the tugdeck suite
+                // reads off this fixture — drift on either side of the mirror
+                // fails one of the two.
+                let v = join
+                    .as_ref()
+                    .and_then(|j| j.verification.as_ref())
+                    .expect("the golden dash carries a verification verdict");
+                assert_eq!(v.tier0, "green");
+                assert_eq!(v.tier1, "red");
+                assert_eq!(v.failures.len(), 1);
+                assert!(v.notes[0].contains("@foreground"));
+                assert_eq!(
+                    Some(&v.candidate_sha),
+                    join.as_ref().and_then(|j| j.candidate.as_ref())
+                );
             }
             other => panic!("expected dash entry, got {other:?}"),
         }

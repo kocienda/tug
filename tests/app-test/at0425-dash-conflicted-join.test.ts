@@ -1,5 +1,5 @@
 /**
- * at0425-dash-conflicted-landing.test.ts — the conflicted landing face, and
+ * at0425-dash-conflicted-join.test.ts — the conflicted landing face, and
  * per-control accountability on it.
  *
  * ## Why this exists
@@ -39,7 +39,7 @@
  * - **Adopt** round-trips for real: the click sends `bind_dash`, and the row
  *   flips to Leave only on the `bind_dash_ok` broadcast that comes back.
  *
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-landing.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts
@@ -83,13 +83,13 @@ const DASH = "at0425-conflict";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
 const ADOPT = `${ROW} [data-slot="session-changes-dash-bind"]`;
 const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
-const OUTCOME = `${ROW} [data-slot="session-changes-dash-landing-outcome"]`;
+const OUTCOME = `${ROW} [data-slot="session-changes-dash-join-outcome"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
-const READY = `${ROW} [data-slot="session-changes-dash-landing-ready"]`;
+const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
 const RELEASE = `${ROW} [data-slot="session-changes-dash-discard"]`;
-const CONFLICTS = `${ROW} [data-slot="session-changes-dash-landing-conflicts"]`;
-const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-landing-archaeology"]`;
-const DEAD_END = `${ROW} .session-changes-dash-landing-error`;
+const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
+const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-join-archaeology"]`;
+const DEAD_END = `${ROW} .session-changes-dash-join-error`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
@@ -169,7 +169,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
       const app = await launchTugApp({
-        testName: "at0425-dash-conflicted-landing",
+        testName: "at0425-dash-conflicted-join",
         env: { TUGBANK_PATH: tugbankPath },
       });
       try {
@@ -343,8 +343,8 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
           `(function(){
             var row = document.querySelector(${JSON.stringify(ROW)});
             if (row === null) return null;
-            if (row.querySelector('[data-slot="session-changes-dash-landing-resolved"]') !== null) return "resolved";
-            if (row.querySelector('.session-changes-dash-landing-error') !== null) return "error";
+            if (row.querySelector('[data-slot="session-changes-dash-join-resolved"]') !== null) return "resolved";
+            if (row.querySelector('.session-changes-dash-join-error') !== null) return "error";
             return null;
           })()`,
           { timeoutMs: 60000 },

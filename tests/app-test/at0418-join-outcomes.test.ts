@@ -44,9 +44,9 @@
  * in that same main checkout — the developer's live tree, mid-run — and the
  * blocker is already pinned where it is cheap and exact: the intersection in
  * `tugdash-core`'s `preview_reports_intersecting_base_dirt_and_names_the_paths`
- * and the act text in `session-changes-dash-landing.test.ts`.
+ * and the act text in `session-changes-dash-join.test.ts`.
  *
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-landing.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/components/tugways/tug-confirm-popover.tsx
@@ -154,7 +154,7 @@ function buildFixtureJsonl(cwd: string, sessionId: string): string {
 const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-landing"]`;
+  `${row(dash)} [data-slot="session-changes-dash-join"]`;
 
 /** Owner keys, captured from `dash create` — what `bind_dash_ok` carries. */
 let workId = "";
@@ -345,8 +345,8 @@ async function landingFace(
 ): Promise<{ ready: boolean; line: string; refusals: string }> {
   return app.evalJS<{ ready: boolean; line: string; refusals: string }>(
     `(() => {
-       const line = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-landing-ready"]`)});
-       const reasons = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-landing-refusals"]`)});
+       const line = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-join-ready"]`)});
+       const reasons = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-join-refusals"]`)});
        return {
          ready: line !== null && line.getAttribute("data-ready") === "true",
          line: line === null ? "" : (line.textContent ?? ""),
@@ -425,15 +425,15 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // A landable dash states that it is ready and names where landing
         // happens — the composer's ⬆ is what fires one.
         expect(clean.ready).toBe(true);
-        expect(clean.line).toContain("Ready to land");
+        expect(clean.line).toContain("Ready to join");
         expect(clean.line).toContain("/dash-join");
         // No blockers on a clean bill, and no release question either.
         const cleanFace = await app.evalJS<{ blockers: number; empty: number }>(
           `(() => {
              const face = document.querySelector(${JSON.stringify(landing(DASH_WORK))});
              return {
-               blockers: face.querySelectorAll('[data-slot="session-changes-dash-landing-blockers"] li').length,
-               empty: face.querySelectorAll('[data-slot="session-changes-dash-landing-empty"]').length,
+               blockers: face.querySelectorAll('[data-slot="session-changes-dash-join-blockers"] li').length,
+               empty: face.querySelectorAll('[data-slot="session-changes-dash-join-empty"]').length,
              };
            })()`,
         );
@@ -482,8 +482,8 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
           `(() => {
              const li = document.querySelector(${JSON.stringify(`${landing(DASH_WORK)} li[data-blocker="stale-journal"]`)});
              return {
-               detail: (li?.querySelector(".session-changes-dash-landing-detail")?.textContent ?? "").trim(),
-               act: (li?.querySelector(".session-changes-dash-landing-act")?.textContent ?? "").trim(),
+               detail: (li?.querySelector(".session-changes-dash-join-detail")?.textContent ?? "").trim(),
+               act: (li?.querySelector(".session-changes-dash-join-act")?.textContent ?? "").trim(),
              };
            })()`,
         );
@@ -523,7 +523,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         const emptyFace = await app.evalJS<{ note: string; buttons: number }>(
           `(() => {
              const face = document.querySelector(${JSON.stringify(landing(DASH_EMPTY))});
-             const note = face.querySelector('[data-slot="session-changes-dash-landing-empty"]');
+             const note = face.querySelector('[data-slot="session-changes-dash-join-empty"]');
              return {
                note: (note?.textContent ?? "").trim(),
                buttons: note === null ? -1 : note.querySelectorAll("button").length,

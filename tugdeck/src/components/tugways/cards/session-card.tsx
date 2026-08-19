@@ -47,9 +47,9 @@ import { AppTestAskDialog } from "../chrome/session-app-test-ask-dialog";
 import { pendingAskStore } from "@/lib/pending-ask-store";
 import {
   SessionChangesView,
-  type DashLandingSource,
+  type DashJoinSource,
 } from "./session-changes/session-changes-view";
-import type { DashLandingActions } from "./session-changes/session-changes-dash-landing";
+import type { DashJoinActions } from "./session-changes/session-changes-dash-join";
 import { SessionHistoryView } from "./session-history/session-history-view";
 import { useSessionPlacementSlots } from "./session-card-placement-experiment";
 import type { SessionTelemetryStatusRowHandle } from "./session-card-telemetry-renderers";
@@ -4607,7 +4607,7 @@ export function SessionCardBody({
   // supplies the round trip and the turn gate from its own reads. None of these
   // lands — landing is the composer's, and the composer is where a refusal can
   // be shown to the hand that made it.
-  const dashLandingActions = useMemo<DashLandingActions>(
+  const dashJoinActions = useMemo<DashJoinActions>(
     () => ({
       aim: (entry) => joinModeController.aim(joinTargetFromEntry(entry)),
       resumeTeardown: (entry) =>
@@ -4639,7 +4639,7 @@ export function SessionCardBody({
     }),
     [changesController, joinModeController],
   );
-  const dashLanding = useMemo<DashLandingSource>(
+  const dashJoin = useMemo<DashJoinSource>(
     () => ({
       // Which dash the landing is ABOUT, which is not always the one this card
       // is bound to: `/dash-join <name>` aims at a dash by name without
@@ -4650,9 +4650,9 @@ export function SessionCardBody({
       // target when a row is merely EXPANDED. Fronting on an aim would move the
       // lane under the reader for a dash they did not ask to land.
       dashId: joinSnapshot.active ? (joinSnapshot.dash?.ownerId ?? null) : null,
-      actions: dashLandingActions,
+      actions: dashJoinActions,
     }),
-    [joinSnapshot.active, joinSnapshot.dash, dashLandingActions],
+    [joinSnapshot.active, joinSnapshot.dash, dashJoinActions],
   );
   // A question put to the developer by a process outside the turn stream, with
   // that process blocked on the answer. The snapshot's `pendingAsk` reference
@@ -5115,10 +5115,10 @@ export function SessionCardBody({
                     codeSessionStore={codeSessionStore}
                     // A landing in flight supplies its own target, so an
                     // aimed-but-unbound dash still gets its face.
-                    dashLanding={
+                    dashJoin={
                       boundDashId !== null ||
                       (joinSnapshot.active && joinSnapshot.dash !== null)
-                        ? dashLanding
+                        ? dashJoin
                         : undefined
                     }
                     dismiss={changesDismiss}

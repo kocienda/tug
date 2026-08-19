@@ -1,6 +1,6 @@
 ---
 name: dash-join
-description: Land a dash into its base branch — preview the squash, land it with the dash's join draft as the message, clear the draft, and report the receipt. The user's landing gesture; never discards.
+description: Join a dash into its base branch — preview the squash, join it with the dash's join draft as the message, clear the draft, and report the receipt. The user's join gesture; never discards.
 argument-hint: "[name] [message…]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, AskUserQuestion
@@ -9,11 +9,11 @@ disallowed-tools: Task
 
 ## What this is
 
-`dash-join` is the **dash lane's landing gesture** — the twin of `/commit` on the main lane. A dash has been worked (by `/tugplug:dash-implement` or `/tugplug:dash-on`), the user has vetted the build, and this run lands it: preview the merge in memory, land the squash onto the base branch with the dash's join draft as the message, tear down the worktree + branch, clear the draft, and report.
+`dash-join` is the **dash lane's join gesture** — the twin of `/commit` on the main lane. A dash has been worked (by `/tugplug:dash-implement` or `/tugplug:dash-on`), the user has vetted the build, and this run joins it: preview the merge in memory, land the squash onto the base branch with the dash's join draft as the message, tear down the worktree + branch, clear the draft, and report.
 
-**This is the agentic entrance; the card has its own.** Typing `/dash-join` in the Session card no longer submits a turn — it opens **join mode**: the composer becomes the join-message editor over a merge the card previewed on entry, the Changes shade's dash row shows the outcome and whatever blocks it, and Z5's Join button lands it. Same `tugutil dash join` verb, same preflight, same receipt; what differs is who is driving. Reach for this skill when the landing is part of a run you are already carrying out. Its interactive twin is one keystroke away for the user, and neither entrance knows or cares about the other.
+**This is the agentic entrance; the card has its own.** Typing `/dash-join` in the Session card no longer submits a turn — it opens **join mode**: the composer becomes the join-message editor over a merge the card previewed on entry, the Changes shade's dash row shows the outcome and whatever blocks it, and Z5's Join button lands it. Same `tugutil dash join` verb, same preflight, same receipt; what differs is who is driving. Reach for this skill when the join is part of a run you are already carrying out. Its interactive twin is one keystroke away for the user, and neither entrance knows or cares about the other.
 
-**You do not decide whether to land.** The user invoked this skill; that invocation is the byline. Your job is to land it correctly, or to stop with a clear reading of why it cannot land yet.
+**You do not decide whether to join.** The user invoked this skill; that invocation is the byline. Your job is to join it correctly, or to stop with a clear reading of why it cannot join yet.
 
 Every git operation goes through **`tugutil dash join`**. Never `git merge`, never `git cherry-pick`, never a hand-rolled squash — the CLI owns the preflight, the in-memory preview, the journal, the trailers, and the teardown.
 
@@ -21,9 +21,9 @@ Every git operation goes through **`tugutil dash join`**. Never `git merge`, nev
 
 `/tugplug:dash-join [name] [message…]`
 
-- `/tugplug:dash-join <name>` — land the dash `<name>` with its maintained join draft.
-- `/tugplug:dash-join` — bare. Resolve the dash (see below), then land it.
-- `/tugplug:dash-join <name> <message…>` — land with `<message>` instead of the draft. Use only when the user typed a message; never invent one to pass here.
+- `/tugplug:dash-join <name>` — join the dash `<name>` with its maintained join draft.
+- `/tugplug:dash-join` — bare. Resolve the dash (see below), then join it.
+- `/tugplug:dash-join <name> <message…>` — join with `<message>` instead of the draft. Use only when the user typed a message; never invent one to pass here.
 
 ## Resolving the dash
 
@@ -40,7 +40,7 @@ tugutil dash list --json
 
 `tugutil dash join` must run from the **base checkout's repo root** — it refuses from inside the dash worktree, and it refuses when the repo root is not on the dash's base branch. If the working directory is inside a dash worktree, run the join with an explicit `cd <repo-root> && tugutil dash join …` (absolute path). Never `cd` into the worktree for a join.
 
-## The message it will land
+## The message it will join with
 
 The squash message is, in order: an explicit `--message`, else the dash's maintained **join draft**.
 
@@ -48,14 +48,14 @@ The squash message is, in order: an explicit `--message`, else the dash's mainta
 tugutil draft show --owner dash:<name>
 ```
 
-- **A draft exists** → that is the message. Show it in your report before landing.
+- **A draft exists** → that is the message. Show it in your report before joining.
 - **No draft** → **stop.** Report that the dash has no join draft, and print the command that writes one, on its own line and inside backticks so the Session card renders it as a clickable chip:
 
   `` `tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"` ``
 
-  The subject that command writes is **bare** — no `tugdash(<name>): ` prefix. The landing adds the scope itself, and a scope naming a different dash is stripped there rather than preserved.
+  The subject that command writes is **bare** — no `tugdash(<name>): ` prefix. The join adds the scope itself, and a scope naming a different dash is stripped there rather than preserved.
 
-  Do **not** compose the message yourself, and do not let the join fall through to the bare dash description. Message authorship needs the working context — what the rounds did and why — which the working skill has and this gesture does not; a message invented from log lines is exactly the durable lie the draft machinery exists to prevent. Whoever worked the dash writes the draft; this gesture lands it.
+  Do **not** compose the message yourself, and do not let the join fall through to the bare dash description. Message authorship needs the working context — what the rounds did and why — which the working skill has and this gesture does not; a message invented from log lines is exactly the durable lie the draft machinery exists to prevent. Whoever worked the dash writes the draft; this gesture joins it.
 
 ## Beat 1 — preview
 
@@ -66,7 +66,7 @@ tugutil dash join <name> --preview --json
 The preview runs the merge in memory (`git merge-tree`) and touches nothing. Read the result:
 
 - **Clean** → go to beat 2.
-- **Conflicts** → report every conflicted path plus the message that would have landed, and **stop**. Do not land, and do not run the resolution ladder on your own initiative. Offer the two real next steps: `--resolve` (the conflict-resolution ladder — replay probe, rerere, re-merge, structured-merge driver — which then lands the result), or resolving by hand on the dash worktree and re-running the join. Run `tugutil dash join <name> --resolve` only when the user says to.
+- **Conflicts** → report every conflicted path plus the message that would have landed, and **stop**. Do not join, and do not run the resolution ladder on your own initiative. Offer the two real next steps: `--resolve` (the conflict-resolution ladder — replay probe, rerere, re-merge, structured-merge driver — which then lands the result), or resolving by hand on the dash worktree and re-running the join. Run `tugutil dash join <name> --resolve` only when the user says to.
 
 Preflight refusals come back as errors from this same command — surface them verbatim and stop:
 
@@ -79,7 +79,7 @@ Preflight refusals come back as errors from this same command — surface them v
 
 The other three above stay stops. They are correct refusals with one right answer, not unasked questions — the distinction is the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked).
 
-## Beat 2 — land
+## Beat 2 — join
 
 ```bash
 tugutil dash join <name>
@@ -90,7 +90,7 @@ Squash-merges `tugdash/<name>` into its base and tears down the worktree + branc
 - A join interrupted mid-teardown (the command reports the journal) resumes with `tugutil dash join <name> --continue`. Run that; it is the resume, not a retry.
 - A non-preview join that hits conflicts exits non-zero with the working tree already restored. Report the paths; the options are the same two as beat 1.
 
-## After a successful land
+## After a successful join
 
 1. **Clear the join draft** — join drafts are keyed by reusable dash names, so an uncleaned draft haunts the *next* dash of the same name as a clobber-protected message describing work that already landed:
    ```bash
@@ -106,15 +106,15 @@ Squash-merges `tugdash/<name>` into its base and tears down the worktree + branc
 - Teardown: worktree and branch removed; draft cleared.
 - Any warnings the CLI emitted (a worktree it could not remove, a branch it could not delete) — verbatim, not paraphrased.
 
-On a stop instead of a land, report what blocked it, the exact CLI message, and the one next step that unblocks it.
+On a stop instead of a join, report what blocked it, the exact CLI message, and the one next step that unblocks it.
 
 ## Guardrails
 
 - **`tugutil dash join` does the git.** No `git merge`, `git rebase`, `git cherry-pick`, `git checkout`, `git stash`, or `git reset` — not to prepare the join, not to recover from one.
-- **Never compose the landing message.** No draft is a stop, not a prompt to write one.
+- **Never compose the join message.** No draft is a stop, not a prompt to write one.
 - **Never discard on your own initiative.** `tugutil dash discard` destroys work. The one path that may run it is the empty-dash dialog, and only on the answer that asked for it — a discard nobody chose, that turn, is never yours to make.
-- **Preview before landing, always** — even when the user names the dash and the message. Beat 1 shows exactly what beat 2 does.
+- **Preview before joining, always** — even when the user names the dash and the message. Beat 1 shows exactly what beat 2 does.
 - **Never resolve conflicts unasked.** `--resolve` rewrites the merge result; it runs on the user's word.
 - **Squash only.**
-- **Don't edit the tree.** This skill lands what exists; it does not fix a build, a test, or a lint on the way through. A dash that isn't ready goes back to `/tugplug:dash-on` or `/tugplug:dash-implement`.
-- **No AI attribution in the landed message. Ever.**
+- **Don't edit the tree.** This skill joins what exists; it does not fix a build, a test, or a lint on the way through. A dash that isn't ready goes back to `/tugplug:dash-on` or `/tugplug:dash-implement`.
+- **No AI attribution in the joined message. Ever.**

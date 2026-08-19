@@ -119,7 +119,7 @@ describe("dashRowsFromSnapshot — the partition law", () => {
           ...UNBOUND,
           owner_id: "tugdash/landing#2",
           display_name: "landing-one",
-          stage: "landing",
+          stage: "joining",
         },
       ]),
       display_name: "other-project",
@@ -166,7 +166,7 @@ describe("compareDashRows", () => {
     expect(
       order([
         row("c", "created"),
-        row("l", "landing"),
+        row("l", "joining"),
         row("w", "working"),
         row("b", "built"),
         row("d", "draft-ready"),

@@ -174,7 +174,7 @@ function rowFromEntry(
  * Exported so its test can be a table test rather than a DOM assertion.
  */
 export const DASH_STAGE_RANK: Record<string, number> = {
-  landing: 6,
+  joining: 6,
   "draft-ready": 5,
   audited: 4,
   built: 3,

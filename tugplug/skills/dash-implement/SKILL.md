@@ -11,7 +11,7 @@ disallowed-tools: Task
 
 `dash-implement` carries a plan document from start to a launchable, tested build, on its own git worktree, **driven by you — the main conversation — directly**. You read the plan, you do the work, you run the checkpoints, you commit each step. The worktree lifecycle rides the `tugutil dash` CLI; the plan is your checklist.
 
-**Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** It is the discipline every dash run works under — the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, the stop-before-landing obligation, and no plan numbers in durable artifacts. This skill states the flow; the doctrine states the rules, and it is not repeated here.
+**Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** It is the discipline every dash run works under — the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, the stop-before-join obligation, and no plan numbers in durable artifacts. This skill states the flow; the doctrine states the rules, and it is not repeated here.
 
 ## Input
 
@@ -92,7 +92,7 @@ Pragmatics:
 
   Raise the refusal as an `AskUserQuestion` rather than picking a repair yourself, because the wrong guess corrupts the durable record: *"Fix the plan and retry"* / *"Hand-edit the ledger this run"*. Quote what the verb said. A malformed document usually wants fixing; a document that genuinely cannot be made to parse wants the hand-edit — and which one this is depends on what the plan is *for*, which is the user's to know.
 - **A long run asks once, at its midpoint.** When a single invocation is walking **more than six** steps, stop at the halfway step and ask: *"Continue"* / *"Stop here and report"*. Once per run, at that one boundary — never per step, and never on a run of six or fewer. The threshold is stated so it is not re-invented each time.
-- Folding trivial or already-absorbed steps into a neighbor is fine — the landing squashes at the end, so per-step commit granularity is for *your* visibility during the run. When you fold a step, still run its `done` verb (pointing at the neighbor's commit) and close its task — no step is left dangling `in progress`.
+- Folding trivial or already-absorbed steps into a neighbor is fine — the join squashes at the end, so per-step commit granularity is for *your* visibility during the run. When you fold a step, still run its `done` verb (pointing at the neighbor's commit) and close its task — no step is left dangling `in progress`.
 - If a step's verification fails, fix it before committing. Never commit red.
 - When you reach the end of the requested selection, stop walking and report the ledger state — which steps are `done` and which remain.
 
@@ -112,15 +112,15 @@ tugutil dash mark <name> built
 
 **Stop here.** Do not merge. The build is the user's to vet and test.
 
-Before you stop, write the dash's **join draft** — the squash message the user's landing lands with. Compose it from the run's rounds (a subject line naming the plan's deliverable, then a terse digest of what the rounds landed), and write it:
+Before you stop, write the dash's **join draft** — the squash message the user's join lands with. Compose it from the run's rounds (a subject line naming the plan's deliverable, then a terse digest of what the rounds landed), and write it:
 
 ```bash
 tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
 ```
 
-**Write the subject bare — no `tugdash(<name>): ` prefix.** The landing adds the scope itself, so one written here is redundant; a scope naming a *different* dash is stripped at the landing rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
+**Write the subject bare — no `tugdash(<name>): ` prefix.** The join adds the scope itself, so one written here is redundant; a scope naming a *different* dash is stripped at the join rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
 
-Then point the user at the landing gesture: **`/join <name>`** in the Session card previews the merge and lands the squash with that draft as its message.
+Then point the user at the join gesture: **`/join <name>`** in the Session card previews the merge and lands the squash with that draft as its message.
 
 ### 4. Iterate (interactive)
 
@@ -131,9 +131,9 @@ The user tests and reports issues. Fix them on the worktree, run the relevant ch
 
 Loop until the user is satisfied. A follow-up "now do Steps 6-8" is just another `dash-implement` run against the same plan and dash.
 
-### 5. Join (the user's landing gesture)
+### 5. Join (the user's join gesture)
 
-The landing is the user's: **`/join <name>`** in the Session card previews the merge (in-memory `git merge-tree` — nothing is touched until it's clean) and squash-lands the dash into its base with the join draft you wrote in phase 3 as the message. Conflicts route into the shade's resolve flow. Do not run the join yourself, and do not merge on the user's behalf — your part ends at the draft. If the user reports the join blocked on base dirt, the preflight is intersection-aware: only base changes overlapping the dash's files block; unrelated base dirt should be committed or stashed first.
+The join is the user's: **`/join <name>`** in the Session card previews the merge (in-memory `git merge-tree` — nothing is touched until it's clean) and squash-lands the dash into its base with the join draft you wrote in phase 3 as the message. Conflicts route into the shade's resolve flow. Do not run the join yourself, and do not merge on the user's behalf — your part ends at the draft. If the user reports the join blocked on base dirt, the preflight is intersection-aware: only base changes overlapping the dash's files block; unrelated base dirt should be committed or stashed first.
 
 ## Guardrails
 

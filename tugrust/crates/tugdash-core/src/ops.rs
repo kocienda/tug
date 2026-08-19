@@ -168,8 +168,8 @@ pub struct JoinOptions {
     /// instead of integrating per `strategy`: fast-forward the base onto it
     /// (staleness-guarded), then run the normal journaled teardown.
     pub candidate: Option<String>,
-    /// Which route asked for this landing — `cli` or `card`. Recorded in the
-    /// dash-log's terminal note so a landing is attributable after the fact;
+    /// Which route asked for this join — `cli` or `card`. Recorded in the
+    /// dash-log's terminal note so a join is attributable after the fact;
     /// `None` writes the bare note the log carried before routes were recorded.
     pub origin: Option<String>,
 }
@@ -589,7 +589,7 @@ pub fn legacy_owner_key(owner_key: &str) -> &str {
 ///
 /// Each command runs via `sh -c`. The first non-zero exit aborts and returns
 /// the failing command's stderr, so the caller can roll the worktree back.
-fn run_post_create(repo: &Path, worktree: &Path) -> Result<(), String> {
+pub(crate) fn run_post_create(repo: &Path, worktree: &Path) -> Result<(), String> {
     let config = Config::load_from_project(repo).map_err(|e| e.to_string())?;
     for cmd in &config.tugtool.dash.post_create {
         let out = Command::new("sh")
@@ -1022,7 +1022,7 @@ pub struct DashDetail {
     pub files: Vec<DashDetailFile>,
     /// Round commit subjects, newest first; empty when the dash has no rounds.
     pub round_subjects: Vec<String>,
-    /// Derived stage ([P03]); `landing` requires the join journal, so callers
+    /// Derived stage ([P03]); `joining` requires the join journal, so callers
     /// that can also see a draft recompute with [`derive_stage`].
     pub stage: String,
     /// How far a stepped run has got, from the latest step declaration.
@@ -1038,17 +1038,17 @@ pub struct DashDetail {
     /// the dash already contains the base tip.
     pub base_ahead: u32,
     /// Base-checkout dirty tracked paths that this dash also changes. The join
-    /// preflight computes the same intersection at landing time; this says it
+    /// preflight computes the same intersection at join time; this says it
     /// the moment the overlap appears, which is usually hours earlier. A
     /// warning, never a trigger — uncommitted work on the base is the user's.
     ///
     /// Literally the same set, from the same function: the dash's changed set
     /// is its committed diff **plus** its worktree's uncommitted tracked paths,
-    /// because the join's preamble commits that dirt before landing and it
+    /// because the join's preamble commits that dirt before joining and it
     /// therefore blocks exactly as a committed change would.
     pub base_overlap: Vec<String>,
     /// The untracked half of the same intersection — base-checkout files git
-    /// does not track yet, which this dash would overwrite on landing.
+    /// does not track yet, which this dash would overwrite on joining.
     pub base_overlap_untracked: Vec<String>,
     /// Whether the worktree holds uncommitted changes to **tracked** files.
     ///
@@ -1106,7 +1106,7 @@ fn parse_name_status(output: &str) -> Vec<DashDetailFile> {
 pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
     // The same normalization the join verbs do: a card whose project is a
     // linked worktree must be told about the repository's dashes, keyed the
-    // way every other reader keys them — the derived `landing` stage reads the
+    // way every other reader keys them — the derived `joining` stage reads the
     // join journal out of the main root's state dir.
     let repo_root = &main_repo_root(repo_root);
     let Ok(branches) = git_stdout(
@@ -1189,7 +1189,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
 
         // How far the base has run ahead of this dash, and which of the base
         // checkout's uncommitted edits land on files the dash also changed —
-        // the divergence a landing would otherwise only reveal at the join.
+        // the divergence a join would otherwise only reveal at merge time.
         let base_ahead = git_stdout(
             repo_root,
             &["rev-list", "--count", &format!("{branch}..{base}")],
@@ -1273,7 +1273,7 @@ pub struct DashStatus {
     pub worktree_dirty: bool,
     /// Whether a maintained join draft is on file.
     pub draft: bool,
-    /// The join journal's phase when an interrupted landing left one.
+    /// The join journal's phase when an interrupted join left one.
     pub join_journal_phase: Option<String>,
     /// Live sessions mated to this dash ([P08]); empty when unresolvable, when
     /// the binding column has not migrated in yet, or when every bound card
@@ -1293,8 +1293,8 @@ pub struct DashStatus {
 
 /// The stage a dash is in, from what git derives and what the dash declared.
 ///
-/// Precedence is `landing > declared > draft-ready > working > created`
-/// ([P03]): a landing in flight outranks everything; otherwise the latest
+/// Precedence is `joining > declared > draft-ready > working > created`
+/// ([P03]): a join in flight outranks everything; otherwise the latest
 /// declaration wins, because the last thing a run said about itself is the
 /// truest current answer; only an undeclared dash falls through to the derived
 /// chain, where an authored draft outranks mere activity and any round or
@@ -1310,11 +1310,11 @@ pub fn derive_stage(
     rounds: i64,
     worktree_dirty: bool,
     has_draft: bool,
-    landing: bool,
+    joining: bool,
     declared: Option<DashDeclaration>,
 ) -> &'static str {
-    if landing {
-        "landing"
+    if joining {
+        "joining"
     } else if let Some(declaration) = declared {
         match declaration {
             DashDeclaration::Step { .. } => "implementing",
@@ -2816,7 +2816,7 @@ fn blocking_base_dirt(
 /// set above its loop, and already holds each dash's changed file list — can
 /// reach the same answer without re-running the reads, and, more importantly,
 /// without a second definition of what "blocking" means. The card's early
-/// warning and the landing's refusal are the same set because they are the same
+/// warning and the join's refusal are the same set because they are the same
 /// function.
 fn intersect_base_dirt(
     base_dirt: &[String],
@@ -2862,8 +2862,8 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     if !branch_exists(repo_root, &branch) {
         return Err(format!("Dash not found: {}", name));
     }
-    let detail = dash_detail_entry_in(repo_root, name)
-        .ok_or_else(|| format!("Dash not found: {}", name))?;
+    let detail =
+        dash_detail_entry_in(repo_root, name).ok_or_else(|| format!("Dash not found: {}", name))?;
     let current = current_branch(repo_root)?;
     Ok(join_blockers_from_detail(repo_root, &detail, &current))
 }
@@ -2874,7 +2874,7 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
 /// **Never cache this.** Every input is something that moves without moving a
 /// SHA: a journal file, which branch the base checkout has out, and the
 /// working-tree dirt on both sides. A blocker set cached against the two heads
-/// keeps refusing a landing whose real answer changed the moment the user
+/// keeps refusing a join whose real answer changed the moment the user
 /// cleaned their checkout — which is a face that lies, and the specific failure
 /// this whole seam exists to prevent. It is cheap instead of cached: every git
 /// read but one is already paid for by the detail walk, and the exception
@@ -3275,9 +3275,12 @@ fn finish_join_teardown(
 
     if journal.phase == JoinPhase::WorktreeRemoved {
         // The branch config section dies with the branch, but a loose ref does
-        // not — so the candidate is dropped explicitly, on every landing path,
+        // not — so the candidate is dropped explicitly, on every join path,
         // rather than being left to outlive the dash it described.
         crate::resolve::clear_candidate(repo_root, name);
+        // The workshop outlives every resolve on purpose; it does not outlive
+        // the dash. A `tugworkshop/*` ref standing past its dash is a leak.
+        crate::workshop::remove(repo_root, name, &mut warnings);
         if branch_exists(repo_root, branch) {
             match git_output(repo_root, &["branch", "-D", branch]) {
                 Ok(o) if !o.status.success() => warnings.push(format!(
@@ -3373,6 +3376,7 @@ pub fn discard_in(
     // A loose ref outlives the branch config it was written beside, so the
     // candidate is dropped explicitly here too.
     crate::resolve::clear_candidate(&repo_root, name);
+    crate::workshop::remove(&repo_root, name, &mut warnings);
 
     // Delete the branch (warn on failure).
     if branch_exists(&repo_root, &branch) {
@@ -3947,7 +3951,7 @@ Some context.
         assert!(!entry.plan_path.as_deref().unwrap().starts_with('/'));
     }
 
-    /// The divergence a landing would only reveal at the join, said on every
+    /// The divergence a join would only reveal at merge time, said on every
     /// recompute instead: how far the base has run ahead, and which of its
     /// uncommitted edits land on files this dash also changed.
     #[serial]
@@ -4729,7 +4733,7 @@ Some context.
     /// carried into a dash, committed there as a round, given an authored draft
     /// written from *inside the worktree* — the write that used to disappear —
     /// and landed. The base is clean at every step it should be, and the
-    /// message the landing commits is the message the author wrote.
+    /// message the join commits is the message the author wrote.
     #[serial]
     #[test]
     fn carried_work_becomes_a_round_and_lands_the_authored_draft() {
@@ -5322,7 +5326,7 @@ Some context.
         );
     }
 
-    /// The whole landing runs inside the universe: the preflight reads the
+    /// The whole join runs inside the universe: the preflight reads the
     /// universe's checked-out branch, and the squash lands on it — the base
     /// checkout's HEAD never moves (#landing-mechanics).
     #[serial]
@@ -5358,8 +5362,12 @@ Some context.
             base_head_before,
             "the base checkout's HEAD never moved"
         );
-        let dlog = fs::read_to_string(dash_log_path(&temp.path().join("state"), &universe)).unwrap();
-        assert!(dlog.contains("joined"), "the universe's dash-log records it");
+        let dlog =
+            fs::read_to_string(dash_log_path(&temp.path().join("state"), &universe)).unwrap();
+        assert!(
+            dlog.contains("joined"),
+            "the universe's dash-log records it"
+        );
     }
 
     /// Teardown is symmetric: a discard from inside the universe removes the
@@ -5514,7 +5522,7 @@ Some context.
         );
     }
 
-    /// The stage precedence table ([P03]): landing outranks a declaration, a
+    /// The stage precedence table ([P03]): a join outranks a declaration, a
     /// declaration outranks a draft, a draft outranks activity, activity
     /// outranks a fresh dash.
     #[test]
@@ -5527,9 +5535,9 @@ Some context.
         // A draft with no work yet is still draft-ready — the draft is the
         // stronger signal.
         assert_eq!(derive_stage(0, false, true, false, None), "draft-ready");
-        // A landing in flight outranks everything below it.
-        assert_eq!(derive_stage(3, true, true, true, None), "landing");
-        assert_eq!(derive_stage(0, false, false, true, None), "landing");
+        // A join in flight outranks everything below it.
+        assert_eq!(derive_stage(3, true, true, true, None), "joining");
+        assert_eq!(derive_stage(0, false, false, true, None), "joining");
 
         let stepping = Some(DashDeclaration::Step {
             current: 3,
@@ -5546,12 +5554,12 @@ Some context.
             derive_stage(2, true, true, false, Some(DashDeclaration::Audited)),
             "audited"
         );
-        // …and a landing still outranks a declaration.
-        assert_eq!(derive_stage(2, true, true, true, stepping), "landing");
+        // …and a join still outranks a declaration.
+        assert_eq!(derive_stage(2, true, true, true, stepping), "joining");
     }
 
     /// `status` walks a dash's whole lifecycle: fresh → a round → an authored
-    /// draft → an interrupted landing (Spec S05, [P06]).
+    /// draft → an interrupted join (Spec S05, [P06]).
     #[serial]
     #[test]
     fn test_dash_status_reports_each_stage() {
@@ -5631,7 +5639,7 @@ Some context.
         assert_eq!(drafted.stage, "draft-ready");
         assert!(drafted.draft);
 
-        // An interrupted landing leaves a journal, and outranks the draft.
+        // An interrupted join leaves a journal, and outranks the draft.
         // Written against the canonical repo path, which is what
         // `find_repo_root` (and so `status`) resolves — the state-dir slug
         // must agree.
@@ -5648,15 +5656,15 @@ Some context.
             },
         )
         .unwrap();
-        let landing = status("status-dash").unwrap();
-        assert_eq!(landing.stage, "landing");
+        let joining = status("status-dash").unwrap();
+        assert_eq!(joining.stage, "joining");
         assert_eq!(
-            landing.join_journal_phase.as_deref(),
+            joining.join_journal_phase.as_deref(),
             Some("WorktreeRemoved")
         );
 
         // No sessions.db with a binding, so the dash reads as unbound ([P08]).
-        assert!(landing.bound_sessions.is_empty());
+        assert!(joining.bound_sessions.is_empty());
 
         assert!(status("no-such-dash").is_err());
 
@@ -5970,7 +5978,14 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", Some("Test dash".to_string()), None, false, None).unwrap();
+        create(
+            "test-dash",
+            Some("Test dash".to_string()),
+            None,
+            false,
+            None,
+        )
+        .unwrap();
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("feature.txt"), "new feature\n").unwrap();
         commit("test-dash", "Add feature", None).unwrap();
@@ -6003,7 +6018,7 @@ Some context.
         );
     }
 
-    /// The route that asked for a landing is recorded in the dash-log's
+    /// The route that asked for a join is recorded in the dash-log’s
     /// terminal note, so a join is attributable to the CLI or the card after
     /// the fact rather than only to "something".
     #[serial]
@@ -6551,7 +6566,7 @@ Some context.
         .unwrap();
         // The receipt's body is the message the commit actually carries —
         // `integrate_message`'s composition, trailer and all, not the raw
-        // override the caller passed. The two are read off one landing rather
+        // override the caller passed. The two are read off one join rather
         // than composed twice, so the receipt cannot describe a commit that
         // says something else.
         let sha = landed.commit_hash.expect("a landed join has a commit");
@@ -6681,7 +6696,7 @@ Some context.
 
     /// A body may already open with this dash's scope — a draft authored in the
     /// conventional voice is the common case, and the doubled subject on the
-    /// first real landing is what the un-idempotent wrap looked like in the
+    /// first real join is what the un-idempotent wrap looked like in the
     /// commit log.
     #[serial]
     #[test]
@@ -6794,12 +6809,12 @@ Some context.
     /// lands it: when a maintained draft exists and no override is given, the
     /// squash commit's message is the authored draft, prefixed once, plus
     /// exactly the trailers — nothing added, reordered, or regenerated. The
-    /// first real dash landing is what this looks like broken, and a string
+    /// first real dash join is what this looks like broken, and a string
     /// equality is what makes any future writer or reader drift fail loudly
-    /// instead of landing someone else's words.
+    /// instead of committing someone else's words.
     #[serial]
     #[test]
-    fn the_landing_commits_the_authored_draft_byte_for_byte() {
+    fn the_join_commits_the_authored_draft_byte_for_byte() {
         let temp = TempDir::new().unwrap();
         seed_dash_with_a_round(&temp, "pinned");
         isolate_changes_db(&temp);
@@ -7499,9 +7514,11 @@ Some context.
         fs::write(worktree.join("fresh.txt"), "from the dash\n").unwrap();
         commit("kinds", "add fresh", None).unwrap();
         fs::write(repo.join("fresh.txt"), "untracked on base\n").unwrap();
-        assert!(same("untracked overlap")
-            .iter()
-            .any(|b| b.kind == "base-dirt"));
+        assert!(
+            same("untracked overlap")
+                .iter()
+                .any(|b| b.kind == "base-dirt")
+        );
         fs::remove_file(repo.join("fresh.txt")).unwrap();
 
         // off-base.
@@ -7519,9 +7536,11 @@ Some context.
             message: None,
         };
         write_join_journal(repo, &journal).unwrap();
-        assert!(same("stale journal")
-            .iter()
-            .any(|b| b.kind == "stale-journal"));
+        assert!(
+            same("stale journal")
+                .iter()
+                .any(|b| b.kind == "stale-journal")
+        );
         clear_join_journal(repo, "kinds");
 
         // empty: a dash with no rounds and no tracked worktree dirt.
@@ -7539,10 +7558,12 @@ Some context.
                 .map(|b| &b.kind)
                 .collect::<Vec<_>>(),
         );
-        assert!(join_preflight_in(repo, "hollow")
-            .unwrap()
-            .iter()
-            .any(|b| b.kind == "empty"));
+        assert!(
+            join_preflight_in(repo, "hollow")
+                .unwrap()
+                .iter()
+                .any(|b| b.kind == "empty")
+        );
     }
 
     /// Blockers answer to working-tree state, which moves without either head
@@ -7582,11 +7603,11 @@ Some context.
     }
 
     /// The dash's uncommitted work counts toward the overlap, because the
-    /// join's preamble commits it before landing. The detail walk's warning and
+    /// join's preamble commits it before joining. The detail walk's warning and
     /// the preflight's refusal are the same set.
     #[serial]
     #[test]
-    fn worktree_dirt_counts_toward_the_overlap_the_landing_will_hit() {
+    fn worktree_dirt_counts_toward_the_overlap_the_join_will_hit() {
         let temp = TempDir::new().unwrap();
         seed_dash_with_a_round(&temp, "wtdirt");
         let repo = temp.path();

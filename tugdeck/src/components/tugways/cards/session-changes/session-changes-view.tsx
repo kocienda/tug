@@ -56,10 +56,10 @@ import {
   SessionChangesDashLane,
   canDiscardFromHere,
   type DashLaneBinding,
-  type DashLaneLanding,
+  type DashLaneJoinFace,
   type DashLaneDiscard,
 } from "./session-changes-dash-lane";
-import type { DashLandingActions } from "./session-changes-dash-landing";
+import type { DashJoinActions } from "./session-changes-dash-join";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
 import { useChangesetJoinResolve } from "@/lib/changeset-join-store";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
@@ -93,12 +93,12 @@ export interface SessionChangesViewProps {
    */
   codeSessionStore: CodeSessionStore;
   /**
-   * The half of the fronted row's landing face only the card knows — which
-   * dash the landing is about, and the gestures. What a landing would do comes
+   * The half of the fronted row's join face only the card knows — which
+   * dash the join is about, and the gestures. What a join would do comes
    * off the dash's own feed entry. Absent leaves the lane read-only, which is
    * what an unbound card shows.
    */
-  dashLanding?: DashLandingSource;
+  dashJoin?: DashJoinSource;
   /**
    * The shade's own dismissal, at the trailing edge of the header. Absent
    * leaves the header without one, which is what a host that has no way to
@@ -119,13 +119,13 @@ export interface SessionChangesDismiss {
   onDismiss: () => void;
 }
 
-/** What the card hands the view for the fronted dash row's landing face. */
-export interface DashLandingSource {
-  /** Owner key of the dash the landing is about, or null when none is aimed.
+/** What the card hands the view for the fronted dash row's join face. */
+export interface DashJoinSource {
+  /** Owner key of the dash the join is about, or null when none is aimed.
    *  It outranks the card's binding for fronting: `/dash-join <name>` aims
    *  without binding, and the face has to appear on the dash being landed. */
   dashId: string | null;
-  actions: DashLandingActions;
+  actions: DashJoinActions;
 }
 
 export function SessionChangesView({
@@ -133,7 +133,7 @@ export function SessionChangesView({
   projectDir,
   changesController,
   codeSessionStore,
-  dashLanding,
+  dashJoin,
   dismiss,
 }: SessionChangesViewProps): React.ReactElement {
   const snap = useSyncExternalStore(
@@ -164,7 +164,7 @@ export function SessionChangesView({
   const disclaim = useChangesetDisclaim(changesController.entryKey);
   const disclaimPending = disclaim.phase === "pending";
   // The card's one join round trip ([L02]). It is keyed by the card's entry,
-  // not by dash, which is exactly why the landing face belongs to the fronted
+  // not by dash, which is exactly why the join face belongs to the fronted
   // row alone — two rows previewing would share this slot.
   const join = useChangesetJoin(changesController.entryKey);
   // The card's one discard round trip ([L02]), keyed by the card's entry like
@@ -174,12 +174,12 @@ export function SessionChangesView({
   // The resolution ladder's overlay, keyed by dash rather than by card. The
   // fronted dash is resolved from the same snapshot the lane orders by; an
   // unbound card watches the empty key, which is idle by construction.
-  // A landing in flight decides the fronted row; the card's binding decides it
+  // A join in flight decides the fronted row; the card's binding decides it
   // the rest of the time. `/dash-join <name>` aims at a dash without binding to
-  // it, and the landing face — outcome, blockers, the resolve ladder — is the
+  // it, and the join face — outcome, blockers, the resolve ladder — is the
   // fronted row's alone, so fronting by the binding would leave a named join
   // live in the composer with nothing in the room to explain a refusal.
-  const frontedDashId = dashLanding?.dashId ?? boundDashId;
+  const frontedDashId = dashJoin?.dashId ?? boundDashId;
   const frontedDash =
     frontedDashId !== null
       ? (snap.dashes.find((entry) => entry.owner_id === frontedDashId) ?? null)
@@ -385,12 +385,12 @@ export function SessionChangesView({
   // `bind_dash_ok` / `unbind_dash_ok` broadcasts are the only movers, which is
   // what leaves a card correctly bound to what it was when a bind is refused.
   //
-  // The gate is *a landing in flight*, and deliberately not the Join
-  // affordance's `evaluateJoinLandGate`: that one refuses on outcome and on
+  // The gate is *a join in flight*, and deliberately not the Join
+  // affordance's `evaluateJoinGate`: that one refuses on outcome and on
   // blockers, and a dash that is off-base or conflicted is precisely one
   // somebody should be able to take on. The only thing worth blocking is a
   // binding change that would move the lane's fronting out from under an open
-  // landing.
+  // join.
   const tugSessionId = cardSessionBindingStore.getBinding(cardId)?.tugSessionId;
   const laneBinding: DashLaneBinding | undefined =
     tugSessionId === undefined || project === null
@@ -410,9 +410,9 @@ export function SessionChangesView({
           },
           // Binding or unbinding changes only which dash this card is bound
           // to — no branch moves, nothing is checked out — so a turn in
-          // flight is no reason to refuse it. A landing already in flight
+          // flight is no reason to refuse it. A join already in flight
           // is: rebinding under it would strand the join.
-          disabledReason: join.phase === "pending" ? "A landing is in flight" : null,
+          disabledReason: join.phase === "pending" ? "A join is in flight" : null,
         };
 
   // Discard, for every row the reach rule allows ([P06]/[P12]). The reach is a
@@ -444,13 +444,13 @@ export function SessionChangesView({
                 : null,
         };
 
-  const laneLanding: DashLaneLanding | undefined =
-    dashLanding !== undefined
+  const laneJoinFace: DashLaneJoinFace | undefined =
+    dashJoin !== undefined
       ? {
           join,
           turnInProgress,
           resolve: resolveState,
-          actions: dashLanding.actions,
+          actions: dashJoin.actions,
         }
       : undefined;
 
@@ -510,7 +510,7 @@ export function SessionChangesView({
         boundDashId={boundDashId}
         frontedDashId={frontedDashId}
         projectRoot={project.project_dir}
-        landing={laneLanding}
+        joinFace={laneJoinFace}
         binding={laneBinding}
         discard={laneDiscard}
       />

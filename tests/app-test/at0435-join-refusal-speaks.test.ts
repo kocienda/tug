@@ -1,5 +1,5 @@
 /**
- * at0435-landing-refusal-speaks.test.ts — a refused land press says why, on
+ * at0435-join-refusal-speaks.test.ts — a refused land press says why, on
  * screen, in the real app ([L31]).
  *
  * The corpus had never pressed a land button. `at0417` asserts the button's
@@ -117,7 +117,7 @@ function buildFixtureJsonl(cwd: string, sessionId: string): string {
 const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-landing"]`;
+  `${row(dash)} [data-slot="session-changes-dash-join"]`;
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
@@ -231,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
       tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
       const app = await launchTugApp({
-        testName: "at0435-landing-refusal-speaks",
+        testName: "at0435-join-refusal-speaks",
         env: { TUGBANK_PATH: tugbankPath },
       });
       try {

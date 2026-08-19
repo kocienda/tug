@@ -28,7 +28,7 @@
  * The join is never fired. This test proves the gate, not the landing — landing
  * would rewrite the developer's `main`.
  *
- * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-landing.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/changeset-join-store.ts
@@ -76,11 +76,11 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
 const DASH = "at0426-review";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const OUTCOME = `${ROW} [data-slot="session-changes-dash-landing-outcome"]`;
+const OUTCOME = `${ROW} [data-slot="session-changes-dash-join-outcome"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
-const READY = `${ROW} [data-slot="session-changes-dash-landing-ready"]`;
-const REVIEW = `${ROW} [data-slot="session-changes-dash-landing-review"]`;
-const REVIEWED = `${ROW} [data-slot="session-changes-dash-landing-reviewed"]`;
+const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
+const REVIEW = `${ROW} [data-slot="session-changes-dash-join-review"]`;
+const REVIEWED = `${ROW} [data-slot="session-changes-dash-join-reviewed"]`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
@@ -330,9 +330,9 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the ladder's candidate is gated on a revie
           `(function(){
             var row = document.querySelector(${JSON.stringify(ROW)});
             if (row === null) return null;
-            if (row.querySelector('[data-slot="session-changes-dash-landing-review"]') !== null) return "review";
-            if (row.querySelector('.session-changes-dash-landing-error') !== null)
-              return "error: " + row.querySelector('.session-changes-dash-landing-error').textContent;
+            if (row.querySelector('[data-slot="session-changes-dash-join-review"]') !== null) return "review";
+            if (row.querySelector('.session-changes-dash-join-error') !== null)
+              return "error: " + row.querySelector('.session-changes-dash-join-error').textContent;
             return null;
           })()`,
           // The ladder checks out two scratch worktrees of this repo (the rerere

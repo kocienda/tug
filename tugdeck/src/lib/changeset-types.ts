@@ -200,7 +200,7 @@ export interface DashChangesetEntry {
   join?: DashJoinStateWire;
 }
 
-/** One reason a landing would be refused right now. */
+/** One reason a join would be refused right now. */
 export interface DashJoinBlockerWire {
   /** `off-base` | `base-dirt` | `stale-journal` | `empty`. */
   kind: string;
@@ -275,6 +275,32 @@ export interface DashJoinStateWire {
    * it says this, so the state demotes itself rather than standing as a lie.
    */
   stale_note?: string;
+  /**
+   * What the project's own checks said about the joined tree.
+   *
+   * Anchored to `(base_sha, candidate_sha)` server-side, so absent means
+   * nobody has asked about *this* candidate — which is not the same as green.
+   */
+  verification?: DashJoinVerificationWire;
+}
+
+/** A candidate's verification verdict, as the join face reads it. */
+export interface DashJoinVerificationWire {
+  /** `unrun` | `running` | `green` | `red` — the build tier. */
+  tier0: string;
+  /** `unrun` | `running` | `green` | `red` — the test tier. */
+  tier1: string;
+  /** The failing commands, as sentences; a red must be able to say why. */
+  failures?: string[];
+  /**
+   * What qualifies the verdict — "project declares no verification", a
+   * selector exit that forced a fallback, tests skipped as `@foreground`. A
+   * green carrying notes is a green *with exclusions*, and the face says so.
+   */
+  notes?: string[];
+  /** The two commits this verdict describes. */
+  base_sha: string;
+  candidate_sha: string;
 }
 
 export type ChangesetEntry = SessionChangesetEntry | DashChangesetEntry;

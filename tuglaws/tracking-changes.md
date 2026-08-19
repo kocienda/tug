@@ -265,7 +265,7 @@ The workflow layer over the soundness axioms above ([D116]): every change lands 
 | conflicted | conflicting paths, from the preview or an execute that cleanly aborted | Resolve; on a candidate, the ordinary Join lands it |
 | blocked | the preview's preflight (`off-base`, `base-dirt`, `stale-journal`), or a verb-level refusal | the server's own sentence, plus the one act that clears it |
 | empty | `Empty` from the preflight, or `rounds === 0` before any round trip | nothing to join — Release |
-| interrupted teardown | the dash's stage is `landing`, i.e. a join journal survives | Resume teardown, whatever the other four say |
+| interrupted teardown | the dash's stage is `joining`, i.e. a join journal survives | Resume teardown, whatever the other four say |
 
 The preview is the *same* preflight the execute path checks, reported rather than returned as an error, so a blocker's text is verbatim the refusal it predicts — the two cannot drift into disagreeing. The face belongs to the fronted row alone: the join round trip is one slot per card, not per dash, so a second row previewing would render its blockers under the wrong dash's name.
 

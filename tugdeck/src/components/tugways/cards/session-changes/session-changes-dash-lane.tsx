@@ -19,10 +19,10 @@
  * Per-row expansion stays view-scope state: the shade is a glance surface,
  * dismiss and forget, so nothing here is persisted.
  *
- * The fronted row — and only it — carries a landing face: the server's standing
+ * The fronted row — and only it — carries a join face: the server's standing
  * answer for that dash, plus the act that clears it. This is a scope choice,
  * not a data limitation: every dash's join state rides its own feed entry now,
- * so every row *could* show a face. It does not because landing is a gesture on
+ * so every row *could* show a face. It does not because joining is a gesture on
  * the card's own dash and the route it names is this card's composer, so a face
  * on a row the composer will not act on would name a control that is not aimed
  * at it.
@@ -31,7 +31,7 @@
  * on the fronted row, Bind on all the rest, complements that never appear
  * together. This is the room where a dash's facts already live, so the act of
  * taking a dash on belongs beside the facts you would take it on for — and
- * "non-fronted rows stay read-only" was always a rule about *landing*, a
+ * "non-fronted rows stay read-only" was always a rule about *joining*, a
  * gesture on work a card never touched. Binding is how a card comes to touch
  * it.
  *
@@ -60,10 +60,10 @@ import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { dashFrontedLabel, dashRestLabel } from "./changes-section-labels";
 import { TugDashName } from "@/components/tugways/tug-dash-name";
 import {
-  SessionChangesDashLanding,
+  SessionChangesDashJoin,
   discardPreflightLine,
-  type DashLandingActions,
-} from "./session-changes-dash-landing";
+  type DashJoinActions,
+} from "./session-changes-dash-join";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
 import type { DashChangesetEntry } from "@/lib/changeset-types";
 import type { JoinState } from "@/lib/changeset-verb-store";
@@ -124,7 +124,7 @@ function pathList(paths: ReadonlyArray<string>): string {
 
 /**
  * How far this dash has drifted from its base, said the moment it becomes true
- * rather than at landing time.
+ * rather than at join time.
  *
  * Four marks over the snapshot's divergence fields, most urgent first. A
  * conflicted replay is a state somebody has to resolve; base dirt overlapping
@@ -218,25 +218,25 @@ function DashDivergenceMarks({ entry }: { entry: DashChangesetEntry }) {
 }
 
 /**
- * Everything the fronted row's landing face needs, read once by the view and
+ * Everything the fronted row's join face needs, read once by the view and
  * handed down. Absent on every other row — see the module docblock for why the
  * face is the fronted row's alone.
  */
-export interface DashLaneLanding {
-  /** The card's one landing round trip ([L02], read by the view). */
+export interface DashLaneJoinFace {
+  /** The card's one join round trip ([L02], read by the view). */
   join: JoinState;
   /** A Claude turn is in flight — durable acts wait. */
   turnInProgress: boolean;
   /** The resolution ladder's live progress for the fronted dash. */
   resolve: ResolveState;
-  actions: DashLandingActions;
+  actions: DashJoinActions;
 }
 
 /**
  * The lane's two binding gestures ([P05]).
  *
- * Unlike {@link DashLaneLanding}, this bundle goes to **every** row: Bind's
- * whole population is the rows the landing face never reaches, and a row picks
+ * Unlike {@link DashLaneJoinFace}, this bundle goes to **every** row: Bind's
+ * whole population is the rows the join face never reaches, and a row picks
  * Bind or Unbind from its own `fronted` flag — the two are complements, so they
  * never appear together and the cluster stays one affordance wide.
  *
@@ -247,9 +247,9 @@ export interface DashLaneLanding {
 /**
  * The lane's discard gesture, for every row the reach rule allows.
  *
- * Like {@link DashLaneBinding} and unlike {@link DashLaneLanding}, this reaches
+ * Like {@link DashLaneBinding} and unlike {@link DashLaneJoinFace}, this reaches
  * past the fronted row: an unbound dash nobody is holding is exactly the kind a
- * shade should be able to clean up, and the `empty` landing outcome's own
+ * shade should be able to clean up, and the `empty` join outcome's own
  * answer is discard rather than a fix.
  */
 export interface DashLaneDiscard {
@@ -357,7 +357,7 @@ function DashRow({
   bound,
   expanded,
   onToggle,
-  landing,
+  joinFace,
   binding,
   discard,
   onRequestDiscard,
@@ -370,7 +370,7 @@ function DashRow({
   bound: boolean;
   expanded: boolean;
   onToggle: (next: boolean) => void;
-  landing: DashLaneLanding | null;
+  joinFace: DashLaneJoinFace | null;
   binding: DashLaneBinding | null;
   /** Discard, for every row the reach rule allows; omitted leaves the lane
    *  read-only. */
@@ -386,7 +386,7 @@ function DashRow({
   // the answer is already on the entry. The effect fires on the closed → open
   // edge (and on mount, since the fronted row opens with the shade), so the
   // composer's ⌃⌘C lands on the dash the reader is looking at.
-  const aim = landing?.actions.aim ?? null;
+  const aim = joinFace?.actions.aim ?? null;
   const wasExpandedRef = useRef(false);
   useEffect(() => {
     const wasExpanded = wasExpandedRef.current;
@@ -465,7 +465,7 @@ function DashRow({
                 {bound ? "Unbind" : "Bind"}
               </TugPushButton>
             ) : null}
-            {/* Discard, on the rows the landing face never reaches. The fronted
+            {/* Discard, on the rows the join face never reaches. The fronted
                 row's own Discard lives in that face, beside Join, where the
                 acts that end a dash belong together.
 
@@ -565,14 +565,14 @@ function DashRow({
       </TugListRow>
       {expanded ? (
         <div className="session-changes-dash-detail">
-          {landing !== null ? (
-            <SessionChangesDashLanding
+          {joinFace !== null ? (
+            <SessionChangesDashJoin
               entry={entry}
               join={entry.join ?? null}
-              joinPhase={landing.join.phase}
-              error={landing.join.error}
-              turnInProgress={landing.turnInProgress}
-              resolve={landing.resolve}
+              joinPhase={joinFace.join.phase}
+              error={joinFace.join.error}
+              turnInProgress={joinFace.turnInProgress}
+              resolve={joinFace.resolve}
               bindingRefusal={
                 binding === null || binding.disabledReason === null
                   ? null
@@ -581,7 +581,7 @@ function DashRow({
               discardAvailable={canDiscard}
               discardDisabledReason={discard?.disabledReason ?? null}
               onRequestDiscard={() => onRequestDiscard(entry, rowRef.current)}
-              actions={landing.actions}
+              actions={joinFace.actions}
             />
           ) : null}
           {subjects.length > 0 ? (
@@ -635,8 +635,8 @@ export interface SessionChangesDashLaneProps {
    *  decides which row offers **Unbind** rather than **Bind**. */
   boundDashId: string | null;
   /** The owner key of the row to front, when that is not the bound one — a
-   *  landing aimed by name (`/dash-join <name>`) fronts its target so the
-   *  landing face has somewhere to mount. Defaults to `boundDashId`.
+   *  join aimed by name (`/dash-join <name>`) fronts its target so the
+   *  join face has somewhere to mount. Defaults to `boundDashId`.
    *
    *  The two are deliberately separate: fronting is about *what is being
    *  landed*, the binding is about *what this card is working*, and a join
@@ -644,8 +644,8 @@ export interface SessionChangesDashLaneProps {
   frontedDashId?: string | null;
   /** Absolute checkout root — the range descriptor's `root`. */
   projectRoot: string;
-  /** The fronted row's landing face; omitted leaves the lane read-only. */
-  landing?: DashLaneLanding;
+  /** The fronted row's join face; omitted leaves the lane read-only. */
+  joinFace?: DashLaneJoinFace;
   /** Bind / Unbind, for every row; omitted leaves the lane read-only. */
   binding?: DashLaneBinding;
   /** Discard, for every row the reach rule allows; omitted leaves the lane
@@ -658,7 +658,7 @@ export function SessionChangesDashLane({
   boundDashId,
   frontedDashId,
   projectRoot,
-  landing,
+  joinFace,
   binding,
   discard,
 }: SessionChangesDashLaneProps): React.ReactElement | null {
@@ -707,7 +707,7 @@ export function SessionChangesDashLane({
           />
           <DashRow
             // Keyed so a rebind swaps the row rather than reusing it: the
-            // landing face's preview fires on mount, and a reused instance
+            // join face's preview fires on mount, and a reused instance
             // would show the new dash under the old dash's verdict.
             key={fronted.owner_id}
             entry={fronted}
@@ -716,7 +716,7 @@ export function SessionChangesDashLane({
             bound={fronted.owner_id === boundDashId}
             expanded={isExpanded(fronted)}
             onToggle={(next) => toggle(fronted, next)}
-            landing={landing ?? null}
+            joinFace={joinFace ?? null}
             binding={binding ?? null}
             discard={discard ?? null}
             onRequestDiscard={requestDiscard}
@@ -738,9 +738,9 @@ export function SessionChangesDashLane({
               bound={entry.owner_id === boundDashId}
               expanded={isExpanded(entry)}
               onToggle={(next) => toggle(entry, next)}
-              landing={null}
-              // Unlike `landing`, this reaches every row — Bind's whole
-              // population is exactly the rows the landing face skips.
+              joinFace={null}
+              // Unlike `joinFace`, this reaches every row — Bind's whole
+              // population is exactly the rows the join face skips.
               binding={binding ?? null}
               discard={discard ?? null}
               onRequestDiscard={requestDiscard}

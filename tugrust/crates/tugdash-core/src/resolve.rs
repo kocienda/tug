@@ -29,8 +29,8 @@ use std::process::Command;
 use serde::Serialize;
 
 use crate::ops::{
-    branch_exists, branch_name, commit_worktree_dirt, config_get, dash_base, git_output, git_stdout,
-    integrate_message, worktree_path,
+    branch_exists, branch_name, commit_worktree_dirt, config_get, dash_base, git_output,
+    git_stdout, integrate_message, worktree_path,
 };
 use crate::replay::{ReplayWalk, ReplayedRounds};
 
@@ -152,10 +152,7 @@ pub fn resolve_conflicts(
             let dash_head = git_stdout(repo, &["rev-parse", &branch_name(name)])?;
             write_candidate_ref(repo, name, candidate)?;
             clear_candidate_marks(repo, name);
-            let _ = git_output(
-                repo,
-                &["config", &join_source_config_key(name), &dash_head],
-            );
+            let _ = git_output(repo, &["config", &join_source_config_key(name), &dash_head]);
             for r in &outcome.resolved {
                 let value = format!("{}\t{}", r.path, r.resolved_by.as_str());
                 let _ = git_output(
@@ -1202,12 +1199,14 @@ fn clear_candidate_marks(repo: &Path, name: &str) {
 
 /// Drop a candidate and everything that described it, as one act.
 ///
-/// The ref and the three marks are written and cleared as a group so a
-/// half-written set cannot outlive a candidate — a stale `tugjoinreviewed`
-/// standing alone would bless whatever candidate came next.
+/// The ref and the marks are written and cleared as a group so a half-written
+/// set cannot outlive a candidate — a stale `tugjoinreviewed` standing alone
+/// would bless whatever candidate came next, and a stale verification verdict
+/// would report a green about a tree nobody built.
 pub fn clear_candidate(repo: &Path, name: &str) {
     delete_candidate_ref(repo, name);
     clear_candidate_marks(repo, name);
+    crate::verify::clear_verification(repo, name);
 }
 
 /// Whether the anchored candidate still describes the current heads.
@@ -1234,8 +1233,8 @@ pub fn candidate_status_in(repo: &Path, name: &str) -> Result<CandidateStatus, S
 /// on the base head, but the replay shape returns the tip of a chain of replayed
 /// rounds whose parent is the previous round — so a parent-equality test would
 /// call every multi-round replay candidate stale. Ancestry is also exactly what
-/// landing demands (`git merge --ff-only`), which is what keeps this verdict and
-/// the landing's verdict from ever disagreeing.
+/// the join demands (`git merge --ff-only`), which is what keeps this verdict and
+/// the join's verdict from ever disagreeing.
 pub fn candidate_status(repo: &Path, name: &str, base_branch: &str) -> CandidateStatus {
     let candidate = match read_candidate(repo, name) {
         Some(c) => c,
@@ -1537,7 +1536,7 @@ mod tests {
     #[test]
     fn a_resolution_carries_the_diff_it_would_land() {
         // The driver stub resolves f.txt to DRIVER; main is at C. The review the
-        // landing face gates on is this diff, so the outcome has to carry it.
+        // join face gates on is this diff, so the outcome has to carry it.
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
         set(repo, "f.txt", "C\n");
@@ -1550,9 +1549,9 @@ mod tests {
             .diff
             .as_deref()
             .expect("a landable resolution carries its diff");
-        // What landing does to this file, both sides of it: C leaves, DRIVER lands.
+        // What the join does to this file, both sides of it: C leaves, DRIVER lands.
         assert!(diff.contains("-C"), "the base's line leaving: {diff}");
-        assert!(diff.contains("+DRIVER"), "the resolution landing: {diff}");
+        assert!(diff.contains("+DRIVER"), "the resolution joining: {diff}");
         assert!(diff.contains("f.txt"), "the path in the header: {diff}");
         // One line out, one line in — git's count, beside the text it describes.
         assert_eq!((resolution.added, resolution.removed), (Some(1), Some(1)));
@@ -1725,7 +1724,7 @@ mod tests {
         // The multi-round replay shape: the candidate is the tip of a chain of
         // replayed rounds, so its *parent* is the previous round rather than
         // the base head. A parent-equality rule would call this stale; ancestry
-        // is the rule that gets it right, and it is the rule landing uses.
+        // is the rule that gets it right, and it is the rule the join uses.
         let temp = init(&[("f.txt", "B\n", "r1"), ("f.txt", "C\n", "r2")]);
         let repo = temp.path();
         set(repo, "f.txt", "B\n");

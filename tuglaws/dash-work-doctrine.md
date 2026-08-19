@@ -2,15 +2,15 @@
 
 *How an agent works on a dash worktree. The rules below hold for every dash — a quick plan-less task, a planned run walking a ledger, an audit that only reads. They are cited, not copied: a working skill states its own flow and points here for the discipline, so the discipline has exactly one home.*
 
-This document covers **how the work is done**. The dash's state model — what `created`, `working`, `implementing`, `built`, `audited`, `draft-ready`, and `landing` mean and how each is derived or declared — is a separate subject, and lives in [dash-lifecycle.md](dash-lifecycle.md) along with the identity and binding models.
+This document covers **how the work is done**. The dash's state model — what `created`, `working`, `implementing`, `built`, `audited`, `draft-ready`, and `joining` mean and how each is derived or declared — is a separate subject, and lives in [dash-lifecycle.md](dash-lifecycle.md) along with the identity and binding models.
 
 ## The one and only working root
 
 A dash *is* a git branch (`tugdash/<name>`) plus a worktree. `tugutil dash create <name> --json` returns that worktree's absolute path. **Capture it.** From that moment it is the only working root:
 
 - Address **every** read, write, edit, and test by absolute path into the worktree. A shell's cwd silently reverts to the base checkout between tool calls; a relative path is a coin flip.
-- **Never write to the base checkout.** Not code, not a plan, not a ledger, not a scratch file. The base branch is the user's; the only path back is their landing gesture.
-- A stray write to the base root also *blocks* the landing — the join preflight requires the base clean where it intersects the dash's files.
+- **Never write to the base checkout.** Not code, not a plan, not a ledger, not a scratch file. The base branch is the user's; the only path back is their join gesture.
+- A stray write to the base root also *blocks* the join — the join preflight requires the base clean where it intersects the dash's files.
 - If the document a run is driving lives on the base branch, a **verb** moves it into the worktree — `tugutil dash create <name> --plan <path>`, or `tugutil dash adopt-plan <name>` for a dash that already exists. Never copy it by hand: the dash owns its plan and there is exactly one live copy ([D139], [dash-lifecycle.md](dash-lifecycle.md#plan-adoption)).
 
 There is no canonical directory for anything. `roadmap/`, `.tugtool/`, and every other home are derived from what you were handed, never assumed.
@@ -27,14 +27,14 @@ When the work on the base *is* the work the dash is for — the "I was half-way 
 
 ## When the base moves
 
-A landing problem should surface the moment it becomes true, not the moment you try to land. A dash cut on Monday and landed on Thursday spent three days quietly diverging from a base nobody was watching, and the whole cost of that divergence arrived at once, at the join, in front of whoever pressed the button. The base-motion engine exists to spend that cost as it is incurred.
+A join problem should surface the moment it becomes true, not the moment you try to join. A dash cut on Monday and joined on Thursday spent three days quietly diverging from a base nobody was watching, and the whole cost of that divergence arrived at once, at the join, in front of whoever pressed the button. The base-motion engine exists to spend that cost as it is incurred.
 
 **The base moving is a wake, not a schedule.** Each workspace already runs one file watcher, and its git watch already broadcasts when the workspace's HEAD moves; the engine is one more subscriber. Two more wakes cover what a signal cannot: a workspace opening (a HEAD signal is an edge, and a dash that fell behind while Tug was not running would never be signalled about), and a turn ending (the gate below refuses to act mid-turn, and "the base moved during a turn" is the common shape of the problem).
 
 **A replay happens only when all of it is safe.** The gate is four conditions, and every one of them is a refusal to act over somebody's work:
 
 - The dash worktree is clean. Nothing moves a branch out from under uncommitted changes.
-- No landing is in flight for that dash.
+- No join is in flight for that dash.
 - No live session bound to the dash is mid-turn.
 - No replay for that dash is already running.
 
@@ -44,7 +44,7 @@ The move itself is a compare-and-swap — the worktree re-verified clean, its HE
 
 **Quiet, never silent.** A clean replay interrupts nobody: no dialog, no toast, no turn. Its record is a `replayed` line in the dash-log, the plan ledger's commit cells rewritten to the rounds' new ids, and a settled mark on the dash's lane row. History moved under the dash; saying nothing at all about that would be its own hazard.
 
-**A conflicted replay becomes an ordinary turn, never a rung.** The engine never resolves file content — that is a question for whoever is working the dash. Instead it composes one message naming what moved, which round the replay stopped at, the conflicting paths, and what the dash is *for*, and injects it into the dash's most recently used idle bound session as an ordinary submission. The agent resolves by rebasing in the dash worktree, with the full working tree and the tests in hand, and finishes with `tugutil dash replay <name>`, which finds the branch already current and does the bookkeeping only. If the conflict turns out to be a real design collision rather than a mechanical one, the right answer is `git rebase --abort` and saying so — the dash simply stays behind, and the landing-time resolution ladder is still there. That ladder remains the standing fallback for every case: a dash with no bound session gets a mark and nothing else.
+**A conflicted replay becomes an ordinary turn, never a rung.** The engine never resolves file content — that is a question for whoever is working the dash. Instead it composes one message naming what moved, which round the replay stopped at, the conflicting paths, and what the dash is *for*, and injects it into the dash's most recently used idle bound session as an ordinary submission. The agent resolves by rebasing in the dash worktree, with the full working tree and the tests in hand, and finishes with `tugutil dash replay <name>`, which finds the branch already current and does the bookkeeping only. If the conflict turns out to be a real design collision rather than a mechanical one, the right answer is `git rebase --abort` and saying so — the dash simply stays behind, and the join-time resolution ladder is still there. That ladder remains the standing fallback for every case: a dash with no bound session gets a mark and nothing else.
 
 **No server-initiated turn is ever unannounced.** This is the general rule, and it outranks convenience. Journaling an injection makes the turn real to the server and to a later reload, but it puts no row on screen — the transcript's live user row comes from the composer echoing its own submission, and an injection has no composer. So every injected turn carries a system-origin opener alongside it, rendered as a distinct row attributed to the subsystem that spoke. Attributing it to the user instead would be cheaper and would put words in their mouth in their own transcript. An agent that begins working with no visible cause is a worse ambush than the one this whole mechanism replaces.
 
@@ -100,11 +100,11 @@ Git records the diff; the log records the instruction git cannot see. `tug log` 
 
 **Never commit to the base branch.** Every commit goes through `tugutil dash commit` onto the dash worktree.
 
-## Stop before the landing
+## Stop before the join
 
-The build is the user's to vet. Bring up the debug instance from the worktree (`just app-debug`), report it, and stop — do not merge, and do not run the landing on the user's behalf.
+The build is the user's to vet. Bring up the debug instance from the worktree (`just app-debug`), report it, and stop — do not merge, and do not run the join on the user's behalf.
 
-Before stopping, leave the **join draft** behind: compose the squash message from what the rounds actually did and write it with `tugutil draft set --owner dash:<name> --message "…"`. The landing gesture lands that message; it does not compose one. A dash that arrives at the landing draftless stops there, which is a stall you caused one step earlier.
+Before stopping, leave the **join draft** behind: compose the squash message from what the rounds actually did and write it with `tugutil draft set --owner dash:<name> --message "…"`. The join gesture lands that message; it does not compose one. A dash that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 
 ## What never gets asked
 

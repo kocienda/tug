@@ -1146,7 +1146,8 @@ async fn dash_entries(
                     .plan_path
                     .as_deref()
                     .and_then(|plan| dash_review_state(Path::new(&detail.worktree_abs), plan));
-                let join = crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
+                let join =
+                    crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
                 (detail, review, join)
             })
             .collect::<Vec<_>>()
