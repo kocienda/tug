@@ -22,7 +22,7 @@
  * and the worktree.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 /** How many times a git-touching verb retries through a held `index.lock`. */
@@ -57,6 +57,35 @@ export function tugutilPath(projectDir: string): string {
     }
   }
   throw new Error(`dash-fixture: no built tugutil under ${roots.join(" or ")}`);
+}
+
+/**
+ * The checkout that owns `projectDir`'s dash state — the TypeScript mirror of
+ * `tugutil_core::find_repo_root_from`.
+ *
+ * Tests need this because dash state lives beside the resolved root: the
+ * `project_state_dir` slug (and so the join journal's home) is derived from it.
+ * A mirror that answered differently from the Rust would read the wrong
+ * directory and find nothing, which looks exactly like a feature that did not
+ * fire.
+ *
+ * `TUG_REPO_UNIVERSE` wins when set — the `app-test` recipe always sets it, so
+ * this is the live branch under `just`. Unset (a bare `bun test`), the hop
+ * applies: a linked worktree's state belongs to the checkout holding the
+ * common dir.
+ */
+export function universeRoot(projectDir: string): string {
+  const universe = process.env.TUG_REPO_UNIVERSE;
+  if (universe !== undefined && universe.trim() !== "") {
+    return realpathSync(universe.trim());
+  }
+  const commonDir = Bun.spawnSync(
+    ["git", "-C", projectDir, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    {},
+  )
+    .stdout.toString()
+    .trim();
+  return realpathSync(resolve(commonDir, ".."));
 }
 
 /**
@@ -124,6 +153,12 @@ function describeFailure(f: SpawnFailure): string {
 export interface TugutilRun {
   /** Where to run — the project the dash belongs to. */
   cwd: string;
+  /**
+   * Which checkout's built CLI to run, when that is not `cwd`. A fixture on a
+   * scratch repo has no `tugrust/target` of its own, so it names the checkout
+   * under test here and keeps `cwd` on the repo the verb should act upon.
+   */
+  binaryRoot?: string;
   /** JSON handed to the command on stdin (`dash commit`'s round metadata). */
   stdin?: string;
   /** Extra environment, merged over the caller's. */
@@ -134,7 +169,7 @@ export interface TugutilRun {
 
 /** Run one `tugutil` verb, retrying through a transient git lock. */
 export function tugutil(args: string[], opts: TugutilRun): string {
-  const bin = tugutilPath(opts.cwd);
+  const bin = tugutilPath(opts.binaryRoot ?? opts.cwd);
   let last = EMPTY_FAILURE;
   for (let attempt = 0; attempt <= LOCK_RETRIES; attempt += 1) {
     const out = Bun.spawnSync([bin, ...args], {
@@ -324,14 +359,42 @@ export interface CreatedDash {
  * release. A fixture asserting on a tip sha, a round list, or a worktree state
  * cannot have the ground moving under it.
  */
+export interface DashFixtureOpts {
+  /** Checkout whose built `tugutil` runs, when `projectDir` has none. */
+  binaryRoot?: string;
+  /**
+   * Extra environment for the verb. A fixture on a scratch repo redirects
+   * `TUG_DATA_DIR` here, so the dash state the CLI writes lands in the same
+   * root the app under test reads.
+   */
+  env?: Record<string, string>;
+}
+
+/**
+ * The branch `projectDir` has out, or `""` when detached.
+ *
+ * A dash forks from — and lands back onto — the branch its project is actually
+ * working on. Left to the default, a fixture created from a checkout parked off
+ * `main` would fork from content nobody has out, and its landing preflight
+ * would refuse over a base branch that is not the checked-out one.
+ */
+export function currentBranch(projectDir: string): string {
+  return gitRetry(projectDir, "branch", "--show-current").trim();
+}
+
 export function createDash(
   projectDir: string,
   name: string,
   description: string,
+  opts: DashFixtureOpts = {},
 ): CreatedDash {
+  const branch = currentBranch(projectDir);
+  const base = branch === "" ? [] : ["--base", branch];
   const out = JSON.parse(
-    tugutil(["dash", "create", name, "--description", description, "--json"], {
+    tugutil(["dash", "create", name, "--description", description, ...base, "--json"], {
       cwd: projectDir,
+      binaryRoot: opts.binaryRoot,
+      env: opts.env,
     }),
   ) as { data: { id: string; worktree: string } };
   gitRetry(projectDir, "config", `branch.tugdash/${name}.tugautoreplay`, "false");
@@ -343,9 +406,12 @@ export function commitRound(
   projectDir: string,
   name: string,
   subject: string,
+  opts: DashFixtureOpts = {},
 ): void {
   tugutil(["dash", "commit", name, "--message", subject, "--json"], {
     cwd: projectDir,
+    binaryRoot: opts.binaryRoot,
+    env: opts.env,
     stdin: JSON.stringify({ instruction: subject, summary: "app-test fixture round" }),
   });
 }
@@ -455,9 +521,15 @@ export function makePlanStale(planPath: string): void {
 
 /** Discard the dash — branch and worktree, dirt included. Best effort: a
  *  cleanup that throws would mask the failure the test was reporting. */
-export function discardDash(projectDir: string, name: string): void {
+export function discardDash(
+  projectDir: string,
+  name: string,
+  opts: DashFixtureOpts = {},
+): void {
   tugutil(["dash", "discard", name, "--json"], {
     cwd: projectDir,
+    binaryRoot: opts.binaryRoot,
+    env: opts.env,
     required: false,
   });
 }

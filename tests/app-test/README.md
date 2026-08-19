@@ -144,6 +144,33 @@ Each worktree's run is otherwise fully isolated: its own
 the one AX grant covers all of them), and `apptest-<wtslug>-<uuid>`
 instance ids whose cleanup sweeps match only that worktree's prefix.
 
+### Running from a worktree
+
+The corpus runs from whatever checkout you invoke it in — a dash
+worktree included. Nothing to set: the recipe exports
+`TUG_REPO_UNIVERSE="$(pwd -P)"`, which is the boundary
+`tugutil_core::find_repo_root_from` resolves dash verbs inside, so a
+fixture dash is born, listed, joined and torn down in the checkout under
+test rather than in the one that owns the shared `.git`. The doctrine is
+in [tuglaws/app-test-harness.md](../../tuglaws/app-test-harness.md#the-repo-universe-fixtures-stay-in-the-checkout-under-test).
+
+Two things follow for anyone writing a dash fixture:
+
+- **`--base` comes from the checkout, not from `main`.** `createDash` in
+  `dash-fixture.ts` derives it from the branch the project has out, so a
+  fixture forks from — and lands back onto — content that is actually
+  checked out. A test that hardcodes `main` as its dash's base passes
+  only from the main checkout.
+- **Refs are repo-global; paths are not.** The universe scopes where
+  state lives, not the `tugdash/*` namespace, so every dash you have open
+  is a row in the lane a fixture run sees. Assert on your own dash's row,
+  never on a count of the lane.
+
+A fixture that needs a repository of its own — to land a join, say —
+builds one with `git init` under the temp dir and passes `binaryRoot` so
+the CLI still comes from the checkout under test. `at0441` is the worked
+example, `TUG_DATA_DIR` redirect included.
+
 ## Environment variables
 
 | Variable                  | Purpose                                                      |
@@ -157,6 +184,7 @@ instance ids whose cleanup sweeps match only that worktree's prefix.
 | `APP_TEST_SKIP_RESIGN=1`  | Bypass the defensive re-sign in `just app-test`. Tests that need `CGEvent.post` will fail; tests that don't will pass. Diagnostic-only — see `tuglaws/code-signing-mac.md`. |
 | `TUG_APPTEST_STREAM=1`    | Print each file's raw `bun test` body as it runs. Off by default — see "Reading the output" below. |
 | `TUG_APPTEST_JSON=<path>` | Also write the run's results as a JSON document to `<path>`. Stdout is byte-identical either way. |
+| `TUG_REPO_UNIVERSE`       | The checkout dash verbs resolve inside. Exported by the recipe as the invoking checkout; a test should read it through `universeRoot()` rather than setting it. |
 
 ### Reading the output
 

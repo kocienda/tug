@@ -11,14 +11,19 @@
  *
  * ## Why the join is made to fail, and why that is the strongest safe test
  *
- * A join that succeeds squashes its dash onto its base branch. From a dash
- * worktree that base is the branch the run itself is committing to, and from
- * the main checkout it is the developer's own `main` — neither is a thing a
- * test may do (`at0418` declines the same landing for the same reason). So the
- * fixture is made *unlandable after its preview settles*: an interrupted-
- * teardown journal is written into the gap between the clean preview and the
- * press. The gate still passes — it judges the settled preview — the request
- * goes out for real, and the server refuses it with its own sentence.
+ * A join that succeeds squashes its dash onto its base branch. This fixture's
+ * dash lives in the checkout the corpus is running from, so that base is a
+ * branch somebody works on — not a thing this file may move (`at0418` declines
+ * the same landing for the same reason). So the fixture is made *unlandable
+ * after its preview settles*: an interrupted-teardown journal is written into
+ * the gap between the clean preview and the press. The gate still passes — it
+ * judges the settled preview — the request goes out for real, and the server
+ * refuses it with its own sentence.
+ *
+ * The landed half is not untestable, only untestable *here*: at0441 owns a
+ * scratch repository outright and presses the same control through to a squash
+ * commit on its own `main`. This file stays the press → wire → **refusal** pin;
+ * that one is the press → wire → **landed** pin.
  *
  * That refusal is the proof. `changeset_join_err` can only exist if the land
  * request reached the wire, which is exactly what did not happen in the
@@ -43,7 +48,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, discardDash } from "./dash-fixture";
+import { commitRound, createDash, discardDash, universeRoot } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -121,19 +126,13 @@ const landing = (dash: string): string =>
 
 /**
  * The join journal's home. `join_in` resolves the repo root from the card's
- * project dir, and for a linked worktree that lands on the main checkout — so
- * the state-dir slug is the main checkout's path (see at0418, and
+ * project dir, and the state-dir slug is derived from whatever that resolution
+ * returns — the pinned universe under `just app-test`, the common dir's owner
+ * otherwise (see at0418, `universeRoot` in `dash-fixture.ts`, and
  * `project_state_dir` / `join_journal_path` in `tugdash-core/src/ops.rs`).
  */
 function journalPath(dash: string): string {
-  const commonDir = Bun.spawnSync(
-    ["git", "-C", PROJECT_DIR, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-    {},
-  )
-    .stdout.toString()
-    .trim();
-  const mainCheckout = realpathSync(resolve(commonDir, ".."));
-  const slug = mainCheckout.replaceAll("/", "-");
+  const slug = universeRoot(PROJECT_DIR).replaceAll("/", "-");
   return join(
     homedir(),
     "Library/Application Support/Tug/projects",
@@ -230,6 +229,25 @@ async function clickUntil(app: App, target: string, expected: string, attempts =
   throw new Error(`at0436: ${expected} never appeared after clicking ${target}`);
 }
 
+/**
+ * Return the composer to the prompt route.
+ *
+ * `/commit` raised the shade in **commit** mode, and in that mode the editor
+ * is the commit message — a `/dash-join` typed into it is message text, not a
+ * command, and ⌘Return submits the commit rather than switching modes. So a
+ * slash command has to be typed from the prompt route, which is where every
+ * one of them is read.
+ */
+async function returnToPrompt(app: App): Promise<void> {
+  await app.nativeClickAtElement(EDITOR);
+  await settle();
+  await app.nativeKey("Escape");
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="prompt"][data-state="active"]`)}) !== null`,
+    { timeoutMs: 8000 },
+  );
+}
+
 /** Enter join mode on a dash by its named route — the row offers no control. */
 async function enterJoinMode(app: App, dash: string): Promise<void> {
   await app.nativeClickAtElement(EDITOR);
@@ -306,6 +324,7 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         // The landable row offers no control — the composer's ⬆ is the only
         // thing that lands — so the route the readiness line names is how the
         // editor opens.
+        await returnToPrompt(app);
         await enterJoinMode(app, DASH);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,

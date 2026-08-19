@@ -21,10 +21,11 @@
  *     which is what makes an old citation resolvable.
  *   - Both land together; neither appears without the other.
  *
- * The harness's resumed session carries no minted callsign, so the run
- * exercises the tagless shape; the tagged shape is pinned by the
- * `tugchanges_core::session_citation` unit tests. What only this test can see
- * is that the pair reaches a real commit at all, over the real route.
+ * Which of the two citation shapes the run exercises depends on whether the
+ * ledger minted a callsign for the resumed session, so both are accepted; the
+ * grammar of each is pinned by the `tugchanges_core::session_citation` unit
+ * tests. What only this test can see is that the pair reaches a real commit at
+ * all, over the real route.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -74,13 +75,21 @@ const encodeProjectDir = (absDir: string): string =>
 const TUGUTIL = join(import.meta.dir, "..", "..", "tugrust", "target", "debug", "tugutil");
 
 /**
- * `TUG_DATA_DIR=…` prefixed onto every `tugutil` line below.
+ * The environment prefixed onto every `tugutil` line below.
  *
- * The project here lives under `$TMPDIR`, and a dash op resolves its per-project
- * state dir from the data root. A `tugutil` spawned by the shell route inherits
- * the app's environment, not cargo's, so without this the run leaves a directory
- * in the user's live `Tug/projects/` — one per invocation, forever. `tugdash-core`
- * refuses the write outright in a debug build, which is the build this uses.
+ * `TUG_DATA_DIR` because the project here lives under `$TMPDIR`, and a dash op
+ * resolves its per-project state dir from the data root. A `tugutil` spawned by
+ * the shell route inherits the app's environment, not cargo's, so without this
+ * the run leaves a directory in the user's live `Tug/projects/` — one per
+ * invocation, forever. `tugdash-core` refuses the write outright in a debug
+ * build, which is the build this uses.
+ *
+ * The redirect would take the session ledger with it — the citation is read
+ * from `sessions.db` under the data root, and a scratch root holds no row, so
+ * `session_citation` omits **both** trailers silently by design and the
+ * assertions below would measure the redirect rather than the trailer grammar.
+ * `TUG_SESSIONS_DB` is what keeps the two apart, and it is set on the app's
+ * launch (see below) so the app and every shell child of it agree.
  */
 const REDIRECT = (dir: string): string => `TUG_DATA_DIR=${join(dir, ".tugdata")}`;
 
@@ -217,6 +226,15 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const app = await launchTugApp({
           testName: "at0353-shell-route-session-trailer",
+          // The session ledger, named explicitly and off in the scratch
+          // project. The app writes its `sessions` row here, and the shell
+          // child inherits the variable — which is what makes the citation
+          // survive the `TUG_DATA_DIR` redirect the commands carry: the
+          // redirect moves the data *root*, and the ledger the citation is
+          // read from lives under it. Named on the launch rather than typed
+          // into the shell line because the per-instance path contains a
+          // space, and an unquoted assignment would split mid-path.
+          env: { TUG_SESSIONS_DB: join(projectDir, "sessions.db") },
         });
         try {
           // `isEngineReady` reads a deck-trace event; without tracing on, the

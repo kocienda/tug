@@ -36,6 +36,10 @@ pub enum TugError {
     /// Dash name invalid
     #[error("invalid dash name '{name}': {reason}")]
     DashNameInvalid { name: String, reason: String },
+
+    /// The repo-universe boundary variable names something that is not a checkout
+    #[error("TUG_REPO_UNIVERSE='{value}' {reason}")]
+    RepoUniverseInvalid { value: String, reason: String },
 }
 
 #[cfg(test)]

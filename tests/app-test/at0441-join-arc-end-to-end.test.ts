@@ -23,33 +23,44 @@
  * conflicted → Resolve → progress → resolved, with each path's diff and the
  * rung that decided it → **reload the deck** → still resolved → Reviewed →
  * the row states its landing route and offers no control → enter join mode by
- * that route → type a message → the composer's land control is armed.
+ * that route → type a message → the composer's land control is armed → **press
+ * it, and the dash lands.**
  *
  * The reload is not decoration. Three candidates were built and abandoned in
  * one day because nothing durable held them; the candidate is a git ref now,
  * and this is where that claim is tested against a deck that has genuinely
  * forgotten everything it knew.
  *
- * ## Where it stops, and why
+ * ## Where it lands, and why that is safe
  *
- * It does not press the land control. A dash's base is the branch the base
- * checkout has out — the developer's `main` — so a real landing here would
- * squash a fixture commit onto their live branch. at0426 drew that line first
- * and it holds: the arc is driven until landing is armed and refused by
- * nothing, which is the last state the deck owns. What happens after the press
- * is `join_in`'s, and it is covered where it is safe to cover — the Rust
- * layer's `test_dash_join_lands_resolved_candidate`.
+ * The press was the one beat this file could never make. A join that succeeds
+ * squashes its dash onto its base branch **in that branch's live working
+ * tree**, and when the project is a checkout somebody works in, the base is
+ * their own branch — not a thing a test may move. That is why at0426 drew the
+ * line, and why at0436 can only prove the wire by making the server *refuse*.
+ *
+ * The line moved because the fixture owns its repository now. Everything here
+ * happens in a `git init`ed scratch repo under the system temp dir: the base
+ * commit, the dash, the conflict, the merge driver, the landing, and the
+ * squash commit that lands on its `main`. Nothing outside that directory is
+ * read or written, and `afterAll` deletes it whole. A landed arc costs the
+ * developer's checkout nothing, so the arc runs to its end.
+ *
+ * The scratch repo sits outside any pinned `TUG_REPO_UNIVERSE`, which is
+ * exactly the boundary's third case: an unrelated repository resolves by the
+ * ordinary rule, whatever universe the corpus itself was run from.
  *
  * ## The fixture
  *
- * Built the way at0426 builds its conflict, for the same reasons: rewind the
- * dash branch to the parent of a base commit that modified a small file, then
- * rewrite that file wholesale in the dash worktree. Both sides move the same
- * lines, so `merge-tree` genuinely conflicts and the `merge-file` rung
- * genuinely declines. A stub merge driver (rung 4) then resolves it to a fixed
- * body, so the ladder reaches a candidate without the AI rung and without this
- * repo's `rr-cache`. Nothing touches the base branch or the developer's
- * checkout.
+ * A one-file repository whose file both sides rewrite wholesale: the dash
+ * forks, the base rewrites the file, the dash rewrites the same lines. So
+ * `merge-tree` genuinely conflicts and the `merge-file` rung genuinely
+ * declines. A stub merge driver (rung 4) then resolves it to a fixed body, so
+ * the ladder reaches a candidate without the AI rung. The hygiene the old
+ * fixture needed — a nonce against a stale `rr-cache` entry, a scrub of what
+ * the run taught rerere, an unset of the driver config it borrowed from the
+ * real repo — is all structural now: a fresh repo has no rr-cache to poison
+ * and no config anybody else reads.
  *
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/changeset-join-store.ts
@@ -59,6 +70,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugrust/crates/tugdash-core/src/resolve.rs
+ * @covers tugrust/crates/tugdash-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
@@ -69,7 +81,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -83,13 +95,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import {
-  commitRound,
-  createDash,
-  gitRetry as git,
-  discardDash,
-  smallConflictSubject,
-} from "./dash-fixture";
+import { commitRound, createDash, gitRetry as git } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -116,38 +122,42 @@ const BLOCKERS = `${ROW} [data-slot="session-changes-dash-landing-blockers"]`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/**
+ * The checkout under test. Nothing here is the *project* — it is only where
+ * the built `tugutil` the fixture drives comes from.
+ */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
+/** The file both sides rewrite. One file is the whole repository. */
+const CONFLICT_FILE = "subject.txt";
+const FORK_BODY = "at0441 the body both sides will rewrite\n";
+const BASE_BODY = "at0441 base side — the whole file, rewritten\n";
+const DASH_BODY = "at0441 dash side — the whole file, rewritten\n";
 /** The body the stub driver resolves the conflict to, asserted verbatim. */
 const DRIVER_BODY = "at0441 resolved by the stub driver\n";
-
-/**
- * The dash side of the conflict, unique per run — the nonce keeps a rerere
- * entry from a killed run out of this one (at0426 explains the mechanism).
- */
-const DASH_BODY = `at0441 dash side — the whole file, rewritten (${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)})\n`;
+/** What the user types into the composer, and what the squash commit carries. */
+const LAND_MESSAGE = "the arc lands its own dash";
 
 /** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
 const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
-let conflictFile = "";
+/** The scratch repository — the project the app opens, and the only tree
+ *  anything in this file touches. */
+let scratch = "";
+/**
+ * Where Tug's own state for that repository lives.
+ *
+ * A dash writes project state — its dash-log, its join journal — under the
+ * data root, keyed by the repo's path. For a repo that exists only for this
+ * run, that state is garbage the moment the run ends, and a debug build
+ * refuses outright to write it into the developer's live data directory
+ * (`refuse_unredirected_temp_repo`). Redirecting the root is what the refusal
+ * asks for, and it must reach **both** halves: the fixture's CLI calls and the
+ * app, or the dash one of them writes is a dash the other cannot see.
+ */
+let dataRoot = "";
 let stubDir = "";
 let fixtureDir = "";
-let rrCacheBefore = new Set<string>();
-
-function unsetDriver(): void {
-  Bun.spawnSync(["git", "-C", PROJECT_DIR, "config", "--unset", "tugdash.mergedriver"], {});
-}
-
-function rrCacheEntries(): Set<string> {
-  const dir = git(PROJECT_DIR, "rev-parse", "--git-path", "rr-cache").trim();
-  const path = dir.startsWith("/") ? dir : join(PROJECT_DIR, dir);
-  try {
-    return new Set(readdirSync(path));
-  } catch {
-    return new Set();
-  }
-}
 
 /** One clean Claude turn, so the reload's `claude --resume` has something to replay. */
 function buildFixtureJsonl(cwd: string, sessionId: string): string {
@@ -201,42 +211,55 @@ function buildFixtureJsonl(cwd: string, sessionId: string): string {
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  unsetDriver();
-  rrCacheBefore = rrCacheEntries();
-  discardDash(PROJECT_DIR, DASH);
-  const created = createDash(PROJECT_DIR, DASH, "at0441 full-arc fixture");
 
-  const subject = smallConflictSubject(PROJECT_DIR);
-  conflictFile = subject.path;
-  git(created.worktree, "reset", "--hard", `${subject.commit}~1`);
-  writeFileSync(join(created.worktree, conflictFile), DASH_BODY);
-  commitRound(PROJECT_DIR, DASH, `at0441(round): rewrite ${conflictFile}`);
+  // `-b main` is explicit: the machine's `init.defaultBranch` may be anything,
+  // and the dash's base has to be a branch this repo actually has out.
+  scratch = realpathSync(mkdtempSync(join(tmpdir(), "at0441-")));
+  dataRoot = realpathSync(mkdtempSync(join(tmpdir(), "at0441-data-")));
+  git(scratch, "init", "-b", "main");
+  git(scratch, "config", "user.email", "app-test@tugtool.dev");
+  git(scratch, "config", "user.name", "at0441");
+  writeFileSync(join(scratch, CONFLICT_FILE), FORK_BODY);
+  git(scratch, "add", CONFLICT_FILE);
+  git(scratch, "commit", "-m", "at0441: the file both sides rewrite");
 
+  // The dash forks here — `createDash` derives `--base` from the branch the
+  // project has out, which is this repo's `main`. The CLI is the checkout
+  // under test's; the repo it acts upon is the scratch one.
+  const created = createDash(scratch, DASH, "at0441 full-arc fixture", {
+    binaryRoot: CHECKOUT,
+    env: { TUG_DATA_DIR: dataRoot },
+  });
+
+  // Both sides move the same lines, after the fork: a genuine conflict.
+  writeFileSync(join(scratch, CONFLICT_FILE), BASE_BODY);
+  git(scratch, "commit", "-am", "at0441: the base rewrites it");
+  writeFileSync(join(created.worktree, CONFLICT_FILE), DASH_BODY);
+  commitRound(scratch, DASH, `at0441(round): rewrite ${CONFLICT_FILE}`, {
+    binaryRoot: CHECKOUT,
+    env: { TUG_DATA_DIR: dataRoot },
+  });
+
+  // Rung 4's tool, configured in the scratch repo only.
   stubDir = mkdtempSync(join(tmpdir(), "at0441-driver-"));
   const stub = join(stubDir, "stub-driver.sh");
   writeFileSync(stub, `#!/bin/sh\nprintf '%s' '${DRIVER_BODY}' > "$4"\n`);
   chmodSync(stub, 0o755);
-  git(PROJECT_DIR, "config", "tugdash.mergedriver", stub);
+  git(scratch, "config", "tugdash.mergedriver", stub);
 
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(PROJECT_DIR));
+  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(scratch));
   mkdirSync(fixtureDir, { recursive: true });
-  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(PROJECT_DIR, SID));
+  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(scratch, SID));
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  unsetDriver();
+  // The repository IS the teardown: branch, worktree, config, rr-cache and
+  // dash all go with the directory.
+  if (scratch !== "") rmSync(scratch, { recursive: true, force: true });
+  if (dataRoot !== "") rmSync(dataRoot, { recursive: true, force: true });
   if (stubDir !== "") rmSync(stubDir, { recursive: true, force: true });
-  discardDash(PROJECT_DIR, DASH);
-  if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
-  // Remove only what this run taught rerere.
-  const dir = git(PROJECT_DIR, "rev-parse", "--git-path", "rr-cache").trim();
-  const cacheRoot = dir.startsWith("/") ? dir : join(PROJECT_DIR, dir);
-  for (const name of rrCacheEntries()) {
-    if (!rrCacheBefore.has(name)) {
-      rmSync(join(cacheRoot, name), { recursive: true, force: true });
-    }
-  }
+  if (fixtureDir !== "") rmSync(fixtureDir, { recursive: true, force: true });
 });
 
 function deckShape() {
@@ -311,6 +334,13 @@ async function refusalIsReachable(
   note(`at0441 ${beat}: refused, ${expectedSlot} mounted — line ${JSON.stringify(state.line)}`);
 }
 
+/** Whether the composer is on the changes route — join mode, live. */
+function inJoinMode(app: App): Promise<boolean> {
+  return app.evalJS<boolean>(
+    `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
+  );
+}
+
 /** Bring the card up on the fixture dash, with the lane composed. */
 async function openOnDash(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -322,22 +352,23 @@ async function openOnDash(app: App): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
   test(
-    "conflicted resolves, survives a reload, reviews, and arms the landing — every refusal pointing at a mounted control",
+    "conflicted resolves, survives a reload, reviews, and lands — every refusal pointing at a mounted control",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      // The source tree is where the app finds `tugdeck/dist` to serve, so it
+      // stays the checkout under test. The *project* is the scratch repo, and
+      // it reaches the server the only way a project ever does: a real session
+      // spawn, which registers its workspace and puts it in the open-project
+      // set the changeset aggregate enumerates.
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0441-join-arc-end-to-end",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: dataRoot },
       });
       try {
         await app.enableDeckTrace(true);
         await openOnDash(app);
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // The aggregate has composed the dash once the Lens roster lists it.
@@ -370,7 +401,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
             `(document.querySelector(${JSON.stringify(CONFLICTS)})?.textContent || "")`,
           ),
           "the conflicted face names the path it conflicts on",
-        ).toContain(conflictFile);
+        ).toContain(CONFLICT_FILE);
         // A blocked dash would point somewhere else entirely; this one points
         // at the ladder, and the ladder is on screen.
         expect(
@@ -393,8 +424,6 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         note("at0441 Resolve registered: the offer face left on the press");
 
         // ── Beat 3: resolved, with the diff and the rung that decided ─────
-        // The ladder checks out scratch worktrees of this repo, so it is
-        // slower here than against a tempdir fixture.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REVIEW)}) !== null`,
           { timeoutMs: 180000 },
@@ -402,7 +431,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         const reviewText = await app.evalJS<string>(
           `(document.querySelector(${JSON.stringify(REVIEW)})?.textContent || "")`,
         );
-        expect(reviewText, "the review names the file it resolved").toContain(conflictFile);
+        expect(reviewText, "the review names the file it resolved").toContain(CONFLICT_FILE);
         expect(reviewText, "and the rung that decided it").toContain("driver");
         expect(reviewText, "and what that rung actually chose").toContain(
           "at0441 resolved by the stub driver",
@@ -417,7 +446,12 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         // dropped socket, or a relaunch — threw it away silently.
         await app.appReload();
         await openOnDash(app);
-        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: PROJECT_DIR });
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
+        await app.awaitEngineReady("A", { timeoutMs: 20000 });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
+          { timeoutMs: 20000 },
+        );
         await runCommand(app, `/dash-join ${DASH}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REVIEW)}) !== null`,
@@ -463,7 +497,14 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         note(`at0441 landable: ${JSON.stringify(readyLine)}`);
 
         // ── Beat 7: the route the sentence named ──────────────────────────
-        await runCommand(app, `/dash-join ${DASH}`);
+        // `/dash-join` toggles: the beat-4 command that raised the lane left
+        // the card in join mode, and sending it again would leave it. So the
+        // route is entered only when it is not already the live one.
+        if (!(await inJoinMode(app))) await runCommand(app, `/dash-join ${DASH}`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
+          { timeoutMs: 12000 },
+        );
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${LAND_BUTTON}[aria-label="Join"]`)}) !== null`,
           { timeoutMs: 12000 },
@@ -482,9 +523,11 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         // ── Beat 8: a message, and a landing with nothing left refusing ───
         await app.nativeClickAtElement(EDITOR);
         await settle();
-        await app.nativeType("at0441: land this dash");
+        await app.nativeKey("a", ["cmd"]);
+        await app.nativeKey("Delete");
+        await app.nativeType(LAND_MESSAGE);
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this dash") !== -1`,
+          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf(${JSON.stringify(LAND_MESSAGE)}) !== -1`,
           { timeoutMs: 5000 },
         );
         const armed = await app.evalJS<{ disabled: boolean; label: string }>(
@@ -500,12 +543,41 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         expect(armed.disabled, "with a message and a reviewed candidate, nothing refuses").toBe(
           false,
         );
-        note("at0441 arc complete: the landing is armed with nothing left refusing it");
 
-        // Deliberately not pressed. The dash's base is the branch the base
-        // checkout has out — the developer's own — so firing this would squash
-        // a fixture commit onto their live branch. What happens after the press
-        // is covered where it is safe: `test_dash_join_lands_resolved_candidate`.
+        // ── Beat 9: the press, and the landing it produces ────────────────
+        // The repository is the fixture's own, so this may finally run. What
+        // it proves is the half at0436 cannot reach: a join that is not
+        // refused actually integrates. Waiting on the repository rather than
+        // on an animation — background windows run no rAF, so the staged
+        // landing may be the watchdog's to fire.
+        const before = git(scratch, "rev-parse", "main").trim();
+        await app.nativeKey("Return", ["cmd"]);
+        const landed = await waitForLanding(before);
+        note(`at0441 landed: ${JSON.stringify(landed.subject)}`);
+
+        // The subject wears the dash's scope. It is *not* the message typed
+        // above, and that is the designed behavior rather than a slip: landing
+        // a resolved candidate fast-forwards onto the commit the ladder
+        // already built, which carries the message composed when it was built.
+        // The typed message's job here was to clear the gate's empty-message
+        // refusal, which it did.
+        expect(landed.subject.startsWith(`tugdash(${DASH}): `), landed.subject).toBe(true);
+        // And it carries the resolution that was reviewed — not either side of
+        // the conflict. A landing that quietly took one side would pass every
+        // assertion above and still be the wrong tree.
+        expect(readFileSync(join(scratch, CONFLICT_FILE), "utf8")).toBe(DRIVER_BODY);
+        // The journaled teardown ran: nothing of the dash is left to land twice.
+        expect(branchExists(`tugdash/${DASH}`), "the dash branch is gone").toBe(false);
+        expect(worktreePaths().some((p) => p.includes(DASH)), "its worktree is gone").toBe(
+          false,
+        );
+
+        // And the lane agrees. A landed dash that keeps being offered is the
+        // same class of lie the whole campaign is about.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(ROW)}) === null`,
+          { timeoutMs: 60000 },
+        );
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -514,3 +586,39 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
     TEST_TIMEOUT_MS,
   );
 });
+
+/** Whether the scratch repo still carries `ref`. */
+function branchExists(ref: string): boolean {
+  return (
+    Bun.spawnSync(
+      ["git", "-C", scratch, "rev-parse", "--verify", "--quiet", `refs/heads/${ref}`],
+      {},
+    ).exitCode === 0
+  );
+}
+
+/** Every worktree the scratch repo still registers. */
+function worktreePaths(): string[] {
+  return git(scratch, "worktree", "list", "--porcelain")
+    .split("\n")
+    .filter((l) => l.startsWith("worktree "))
+    .map((l) => l.slice("worktree ".length));
+}
+
+/**
+ * Poll `main`'s tip until it moves off `before`, and return what landed.
+ *
+ * The repository is the signal rather than a bulletin: a successful join posts
+ * nothing (the notice controller speaks only failures), so the tip moving is
+ * the only place the outcome is written down.
+ */
+async function waitForLanding(before: string): Promise<{ subject: string }> {
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    if (git(scratch, "rev-parse", "main").trim() !== before) {
+      return { subject: git(scratch, "log", "-1", "--format=%s", "main").trim() };
+    }
+    await settle(500);
+  }
+  throw new Error(`at0441: the press never landed — main's tip is still ${before}`);
+}

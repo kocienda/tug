@@ -625,17 +625,38 @@ fn run_post_create(repo: &Path, worktree: &Path) -> Result<(), String> {
 /// the dash's first round commits it with intent. `carry` follows `plan`'s rule
 /// on the idempotent revisit: a re-run transplants whatever the base holds now,
 /// because a revisit is the repair path for both.
+///
+/// With `base`, the dash forks from that branch and records it as its
+/// `tugbase` instead of consulting [`detect_default_branch`]. A checkout parked
+/// off the default branch — a linked worktree under test, say — would otherwise
+/// fork a dash from content it is not working on, and the join preflight would
+/// later refuse over a base branch nobody has out. A base that does not exist
+/// is refused before anything is created. A revisit ignores it: a dash's base
+/// is set at birth.
 pub fn create(
     name: &str,
     description: Option<String>,
     plan: Option<&str>,
     carry: bool,
+    base: Option<&str>,
 ) -> Result<CreateOutcome, String> {
     validate_dash_name(name).map_err(|e| e.to_string())?;
 
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
-    let base_branch = detect_default_branch(&repo_root).map_err(|e| e.to_string())?;
+    let base_branch = match base {
+        Some(requested) => {
+            if !branch_exists(&repo_root, requested) {
+                return Err(format!(
+                    "base branch '{}' does not exist in {}",
+                    requested,
+                    repo_root.display()
+                ));
+            }
+            requested.to_string()
+        }
+        None => detect_default_branch(&repo_root).map_err(|e| e.to_string())?,
+    };
     let branch = branch_name(name);
     let worktree = worktree_path(&repo_root, name);
 
@@ -3718,7 +3739,7 @@ Some context.
     fn stepped_dash(name: &str) -> (TempDir, std::path::PathBuf) {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        create(name, None, None, false).unwrap();
+        create(name, None, None, false, None).unwrap();
 
         let worktree = worktree_path(&repo, name);
         fs::create_dir_all(worktree.join("roadmap")).unwrap();
@@ -4020,7 +4041,7 @@ Some context.
     fn adopting_dash(name: &str) -> (TempDir, std::path::PathBuf) {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        create(name, None, None, false).unwrap();
+        create(name, None, None, false, None).unwrap();
         let root = fs::canonicalize(&repo).unwrap();
         (temp, root)
     }
@@ -4033,7 +4054,7 @@ Some context.
         write_base_plan(&repo, TWO_STEP_PLAN);
         run_git(&repo, &["add", "-A"]);
         run_git(&repo, &["commit", "-m", "Add the plan"]);
-        create(name, None, None, false).unwrap();
+        create(name, None, None, false, None).unwrap();
         let root = fs::canonicalize(&repo).unwrap();
         (temp, root)
     }
@@ -4412,7 +4433,7 @@ Some context.
     #[test]
     fn discard_hands_back_a_plan_that_was_untracked_on_base() {
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
-        create("discard-dash", None, Some("roadmap/plan.md"), false).unwrap();
+        create("discard-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(!root.join("roadmap/plan.md").exists(), "adoption took it");
 
         let out = discard("discard-dash", None).unwrap();
@@ -4435,7 +4456,7 @@ Some context.
         run_git(&root, &["commit", "-m", "Add the plan"]);
         let edited = TWO_STEP_PLAN.replace("Some context.", "Some revised context.");
         write_base_plan(&root, &edited);
-        create("edited-dash", None, Some("roadmap/plan.md"), false).unwrap();
+        create("edited-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(base_plan_status(&root).is_empty(), "adoption restored base");
 
         let out = discard("edited-dash", None).unwrap();
@@ -4458,11 +4479,11 @@ Some context.
         run_git(&root, &["commit", "-m", "Add the plan"]);
 
         // No plan recorded at all.
-        create("bare-dash", None, None, false).unwrap();
+        create("bare-dash", None, None, false, None).unwrap();
         assert!(discard("bare-dash", None).unwrap().plan_restored.is_none());
 
         // A plan recorded, but the branch's copy is what base HEAD holds.
-        create("same-dash", None, Some("roadmap/plan.md"), false).unwrap();
+        create("same-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
         let out = discard("same-dash", None).unwrap();
         assert!(out.plan_restored.is_none());
         assert!(
@@ -4480,7 +4501,7 @@ Some context.
     fn a_plan_adopted_at_birth_survives_the_whole_run_and_lands() {
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
 
-        create("e2e-join", None, Some("roadmap/plan.md"), false).unwrap();
+        create("e2e-join", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(!root.join("roadmap/plan.md").exists(), "one live copy");
 
         step_start("e2e-join", 1, None).unwrap();
@@ -4530,7 +4551,7 @@ Some context.
     fn a_discarded_dash_hands_its_plan_back_to_base() {
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
 
-        create("e2e-abandon", None, Some("roadmap/plan.md"), false).unwrap();
+        create("e2e-abandon", None, Some("roadmap/plan.md"), false, None).unwrap();
         step_start("e2e-abandon", 1, None).unwrap();
         commit("e2e-abandon", "a round", None).unwrap();
         assert!(!root.join("roadmap/plan.md").exists());
@@ -4585,7 +4606,7 @@ Some context.
     #[test]
     fn create_over_a_clean_base_reports_nothing() {
         let (_temp, _root) = repo_for_create(None);
-        let out = create("tidy", None, None, false).unwrap();
+        let out = create("tidy", None, None, false, None).unwrap();
         assert!(out.base_dirt.is_empty(), "{:?}", out.base_dirt);
         assert_eq!(out.off_base, None);
     }
@@ -4598,7 +4619,7 @@ Some context.
     #[test]
     fn create_writes_one_birth_record_and_a_revisit_writes_none() {
         let (_temp, root) = repo_for_create(None);
-        create("newborn", None, None, false).unwrap();
+        create("newborn", None, None, false, None).unwrap();
 
         let log_path = tugutil_core::paths::project_state_dir(&root).join("dash-log.md");
         let count = |text: &str| {
@@ -4620,7 +4641,7 @@ Some context.
             "the created line carries no note: {line:?}"
         );
 
-        let revisit = create("newborn", None, None, false).unwrap();
+        let revisit = create("newborn", None, None, false, None).unwrap();
         assert!(!revisit.created);
         assert_eq!(count(&fs::read_to_string(&log_path).unwrap()), 1);
     }
@@ -4637,7 +4658,7 @@ Some context.
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
         fs::remove_file(root.join("base.rs")).ok();
 
-        let out = create("dirty", None, None, false).unwrap();
+        let out = create("dirty", None, None, false, None).unwrap();
         assert!(out.created);
 
         assert_eq!(dirt_entry(&out, "README.md").state, "tracked-dirty");
@@ -4670,7 +4691,7 @@ Some context.
         run_git(&root, &["commit", "-m", "add doomed"]);
         fs::remove_file(root.join("doomed.txt")).unwrap();
 
-        let out = create("gone", None, None, false).unwrap();
+        let out = create("gone", None, None, false, None).unwrap();
         let entry = dirt_entry(&out, "doomed.txt");
         assert_eq!(entry.state, "tracked-dirty");
         assert!(entry.deleted);
@@ -4685,7 +4706,7 @@ Some context.
         let (_temp, root) = repo_for_create(None);
         run_git(&root, &["checkout", "-q", "-b", "scratch"]);
 
-        let out = create("elsewhere", None, None, false).unwrap();
+        let out = create("elsewhere", None, None, false, None).unwrap();
         assert_eq!(out.off_base.as_deref(), Some("scratch"));
         assert_eq!(out.base_branch, "main");
     }
@@ -4696,7 +4717,7 @@ Some context.
     #[test]
     fn an_adopted_plan_is_not_censused_as_base_dirt() {
         let (_temp, _root) = repo_for_create(Some(TWO_STEP_PLAN));
-        let out = create("adopted", None, Some("roadmap/plan.md"), false).unwrap();
+        let out = create("adopted", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(
             out.base_dirt.iter().all(|d| d.path != "roadmap/plan.md"),
             "{:?}",
@@ -4720,7 +4741,7 @@ Some context.
         // Work already under way on the base.
         fs::write(root.join("feature.rs"), "half a feature\n").unwrap();
 
-        let created = create("walk", None, None, true).unwrap();
+        let created = create("walk", None, None, true, None).unwrap();
         assert!(created.base_dirt.iter().all(|d| d.carried));
         assert!(
             base_working_set_dirt(&root).is_empty(),
@@ -4783,7 +4804,7 @@ Some context.
     fn discard_returns_carried_work_to_the_base() {
         let (_temp, root) = repo_for_create(None);
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
-        create("returner", None, None, true).unwrap();
+        create("returner", None, None, true, None).unwrap();
         assert!(!root.join("scratch.txt").exists());
 
         let out = discard("returner", None).unwrap();
@@ -4802,7 +4823,7 @@ Some context.
     #[test]
     fn discard_returns_work_that_never_arrived_by_carry() {
         let (_temp, root) = repo_for_create(None);
-        create("typed", None, None, false).unwrap();
+        create("typed", None, None, false, None).unwrap();
         let worktree = worktree_path(&root, "typed");
         fs::write(worktree.join("typed.txt"), "written in the dash\n").unwrap();
         fs::write(worktree.join("README.md"), "# edited in the dash\n").unwrap();
@@ -4827,7 +4848,7 @@ Some context.
     #[test]
     fn discard_refuses_rather_than_overwrite_a_conflicting_base_edit() {
         let (_temp, root) = repo_for_create(None);
-        create("clash", None, None, false).unwrap();
+        create("clash", None, None, false, None).unwrap();
         let worktree = worktree_path(&root, "clash");
         fs::write(worktree.join("README.md"), "# the dash's words\n").unwrap();
         fs::write(root.join("README.md"), "# the user's words\n").unwrap();
@@ -4847,7 +4868,7 @@ Some context.
     #[test]
     fn discard_of_a_clean_worktree_behaves_exactly_as_before() {
         let (_temp, root) = repo_for_create(None);
-        create("spotless", None, None, false).unwrap();
+        create("spotless", None, None, false, None).unwrap();
         let out = discard("spotless", None).unwrap();
         assert!(out.work_restored.is_empty());
         assert!(out.warnings.is_empty(), "{:?}", out.warnings);
@@ -4866,7 +4887,7 @@ Some context.
         fs::write(root.join("README.md"), "# in progress\n").unwrap();
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
 
-        let out = create("carried", None, None, true).unwrap();
+        let out = create("carried", None, None, true, None).unwrap();
         let worktree = worktree_path(&root, "carried");
 
         assert_eq!(
@@ -4906,7 +4927,7 @@ Some context.
         run_git(&root, &["commit", "-m", "add doomed"]);
         fs::remove_file(root.join("doomed.txt")).unwrap();
 
-        create("deleter", None, None, true).unwrap();
+        create("deleter", None, None, true, None).unwrap();
         let worktree = worktree_path(&root, "deleter");
 
         assert!(
@@ -4931,7 +4952,7 @@ Some context.
         fs::write(root.join("README.md"), "staged\n").unwrap();
         run_git(&root, &["add", "README.md"]);
 
-        let out = create("staged", None, None, true).unwrap();
+        let out = create("staged", None, None, true, None).unwrap();
         let worktree = worktree_path(&root, "staged");
 
         assert_eq!(out.base_dirt[0].state, "tracked-dirty");
@@ -4957,7 +4978,7 @@ Some context.
         fs::write(root.join("fresh.rs"), "brand new\n").unwrap();
         run_git(&root, &["add", "fresh.rs"]);
 
-        let out = create("fresh", None, None, true).unwrap();
+        let out = create("fresh", None, None, true, None).unwrap();
         let worktree = worktree_path(&root, "fresh");
 
         assert_eq!(out.base_dirt[0].state, "staged-new");
@@ -4991,7 +5012,7 @@ Some context.
         fs::remove_dir_all(root.join("blocked")).unwrap();
         fs::write(root.join("blocked"), "now a file\n").unwrap();
 
-        let err = create("doomed-carry", None, None, true).unwrap_err();
+        let err = create("doomed-carry", None, None, true, None).unwrap_err();
         assert!(err.contains("blocked"), "{err}");
         assert!(!branch_present(&root, "tugdash/doomed-carry"));
         assert!(!new_worktree_path(&root, "doomed-carry").exists());
@@ -5018,7 +5039,7 @@ Some context.
         run_git(&root, &["commit", "-am", "main side"]);
         let _ = git_output(&root, &["merge", "other"]);
 
-        let err = create("unmerged", None, None, true).unwrap_err();
+        let err = create("unmerged", None, None, true, None).unwrap_err();
         assert!(err.contains("unmerged"), "{err}");
         assert!(err.contains("clash.txt"), "{err}");
         assert!(!branch_present(&root, "tugdash/unmerged"));
@@ -5028,7 +5049,7 @@ Some context.
     #[test]
     fn carry_over_a_clean_base_is_a_no_op() {
         let (_temp, root) = repo_for_create(None);
-        let out = create("nothing", None, None, true).unwrap();
+        let out = create("nothing", None, None, true, None).unwrap();
         assert!(out.created);
         assert!(out.base_dirt.is_empty());
         assert!(base_working_set_dirt(&root).is_empty());
@@ -5043,7 +5064,7 @@ Some context.
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
 
-        let out = create("both", None, Some("roadmap/plan.md"), true).unwrap();
+        let out = create("both", None, Some("roadmap/plan.md"), true, None).unwrap();
         let adopted = out.plan.expect("create --plan returns its receipt");
         assert_eq!(adopted.action, "committed");
 
@@ -5063,7 +5084,7 @@ Some context.
     fn create_with_a_plan_adopts_an_untracked_base_copy() {
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
 
-        let out = create("born-dash", None, Some("roadmap/plan.md"), false).unwrap();
+        let out = create("born-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(out.created);
         let adopted = out.plan.expect("create --plan returns its receipt");
         assert_eq!(adopted.action, "committed");
@@ -5087,7 +5108,7 @@ Some context.
         let edited = TWO_STEP_PLAN.replace("Some context.", "Some revised context.");
         write_base_plan(&root, &edited);
 
-        let adopted = create("carry-dash", None, Some("roadmap/plan.md"), false)
+        let adopted = create("carry-dash", None, Some("roadmap/plan.md"), false, None)
             .unwrap()
             .plan
             .unwrap();
@@ -5104,7 +5125,7 @@ Some context.
         run_git(&root, &["add", "-A"]);
         run_git(&root, &["commit", "-m", "Add the plan"]);
 
-        let adopted = create("clean-dash", None, Some("roadmap/plan.md"), false)
+        let adopted = create("clean-dash", None, Some("roadmap/plan.md"), false, None)
             .unwrap()
             .plan
             .unwrap();
@@ -5120,7 +5141,7 @@ Some context.
     #[test]
     fn create_with_a_plan_repairs_an_existing_dash() {
         let (_temp, root) = repo_for_create(None);
-        let first = create("repair-dash", None, None, false).unwrap();
+        let first = create("repair-dash", None, None, false, None).unwrap();
         assert!(first.created);
         assert!(
             first.plan.is_none(),
@@ -5128,7 +5149,7 @@ Some context.
         );
 
         write_base_plan(&root, TWO_STEP_PLAN);
-        let second = create("repair-dash", None, Some("roadmap/plan.md"), false).unwrap();
+        let second = create("repair-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(!second.created, "the dash was already there");
         let adopted = second.plan.expect("the resume exit adopts too");
         assert_eq!(adopted.action, "committed");
@@ -5143,7 +5164,7 @@ Some context.
     fn create_rolls_back_when_the_transplant_fails() {
         let (_temp, root) = repo_for_create(None);
 
-        let err = create("doomed-dash", None, Some("roadmap/missing.md"), false).unwrap_err();
+        let err = create("doomed-dash", None, Some("roadmap/missing.md"), false, None).unwrap_err();
         assert!(err.contains("plan not found"), "{err}");
         assert!(!branch_present(&root, "tugdash/doomed-dash"));
         assert!(!worktree_path(&root, "doomed-dash").exists());
@@ -5178,6 +5199,275 @@ Some context.
         );
     }
 
+    // --- dash verbs inside a scoped repo universe ---------------------------
+    //
+    // These tests set `TUG_REPO_UNIVERSE` for their own process. That is safe
+    // because the workspace runs under `cargo nextest`, which executes one
+    // process per test, and because every test here is `#[serial]` besides —
+    // the same regime `redirect_state_dir` already relies on.
+
+    /// Pin the repo universe for the rest of this test's process.
+    fn set_universe(path: &Path) {
+        // SAFETY: serial test under nextest; see redirect_state_dir.
+        unsafe {
+            std::env::set_var(tugutil_core::REPO_UNIVERSE_ENV, path);
+        }
+    }
+
+    /// A scratch base checkout on `main` plus a linked worktree on `feature`
+    /// that is itself the universe — the shape an app-test run has, where the
+    /// worktree is the project the instance under test has open.
+    ///
+    /// Returns `(base, universe)`, both canonicalized so they compare equal to
+    /// what the resolver returns, with the cwd left on the universe.
+    fn base_with_universe(temp: &TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
+        let base = temp.path().join("base");
+        fs::create_dir_all(&base).unwrap();
+        init_git_repo(&base);
+        redirect_state_dir(&temp.path().join("state"));
+        let universe = temp.path().join("universe");
+        run_git(
+            &base,
+            &[
+                "worktree",
+                "add",
+                universe.to_str().unwrap(),
+                "-b",
+                "feature",
+            ],
+        );
+        set_universe(&universe);
+        std::env::set_current_dir(&universe).unwrap();
+        (
+            fs::canonicalize(&base).unwrap(),
+            fs::canonicalize(&universe).unwrap(),
+        )
+    }
+
+    /// A dash created from inside a universe is born there: its worktree lives
+    /// under the universe, it forks from the branch the universe has out, and
+    /// the checkout that merely owns the common dir is left alone ([P01],
+    /// [P03], [P07] — refs stay shared, paths do not).
+    #[serial]
+    #[test]
+    fn test_universe_create_stays_inside_the_universe() {
+        let temp = TempDir::new().unwrap();
+        let (base, universe) = base_with_universe(&temp);
+
+        // Content that exists only on the universe's branch, so a dash forked
+        // from `main` instead would be visibly wrong.
+        fs::write(universe.join("scoped.txt"), "universe\n").unwrap();
+        run_git(&universe, &["add", "-A"]);
+        run_git(&universe, &["commit", "-m", "universe work"]);
+        let feature_tip = rev_parse_at(&universe, "feature");
+
+        let created = create("scoped", None, None, false, Some("feature")).unwrap();
+        assert!(created.created);
+        assert_eq!(created.base_branch, "feature");
+        assert_eq!(
+            created.worktree,
+            universe
+                .join(".tug/worktrees/scoped")
+                .to_string_lossy()
+                .into_owned(),
+            "the dash worktree is born inside the universe, not beside the base"
+        );
+        assert_eq!(rev_parse_at(&universe, "tugdash/scoped"), feature_tip);
+        assert!(
+            Path::new(&created.worktree).join("scoped.txt").exists(),
+            "the dash holds the universe's content"
+        );
+
+        // The base checkout is untouched: no worktree home, no dash-log, clean.
+        assert!(!base.join(".tug").exists(), "no worktree home under base");
+        assert!(
+            !dash_log_path(&temp.path().join("state"), &base).exists(),
+            "the base's project state records nothing"
+        );
+        let dirt = Command::new("git")
+            .arg("-C")
+            .arg(&base)
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&dirt.stdout).trim().is_empty(),
+            "base checkout stayed clean"
+        );
+    }
+
+    /// The read verbs answer about the universe: a caller standing in it is
+    /// told about its dashes, with worktree paths under it.
+    #[serial]
+    #[test]
+    fn test_universe_detail_entries_resolve_to_the_universe() {
+        let temp = TempDir::new().unwrap();
+        let (base, universe) = base_with_universe(&temp);
+        create("listed", None, None, false, Some("feature")).unwrap();
+
+        let entries = dash_detail_entries_in(&universe);
+        let entry = entries
+            .iter()
+            .find(|d| d.name == "listed")
+            .expect("the universe lists its own dash");
+        assert_eq!(entry.base, "feature");
+        assert!(
+            Path::new(&entry.worktree_abs).starts_with(&universe),
+            "worktree_abs under the universe, got {}",
+            entry.worktree_abs
+        );
+        assert!(
+            !Path::new(&entry.worktree_abs).starts_with(&base),
+            "and never under the checkout that owns the common dir"
+        );
+    }
+
+    /// The whole landing runs inside the universe: the preflight reads the
+    /// universe's checked-out branch, and the squash lands on it — the base
+    /// checkout's HEAD never moves (#landing-mechanics).
+    #[serial]
+    #[test]
+    fn test_universe_join_lands_on_the_universe_branch() {
+        let temp = TempDir::new().unwrap();
+        let (base, universe) = base_with_universe(&temp);
+        let base_head_before = rev_parse_at(&base, "HEAD");
+
+        create("lander", None, None, false, Some("feature")).unwrap();
+        let worktree = universe.join(".tug/worktrees/lander");
+        fs::write(worktree.join("landed.txt"), "from the dash\n").unwrap();
+        commit("lander", "r1", None).unwrap();
+
+        let blockers = join_preflight_in(&universe, "lander").unwrap();
+        assert!(
+            blockers.is_empty(),
+            "a coherent universe has nothing to refuse over: {blockers:?}"
+        );
+
+        let outcome = join_in(&universe, "lander", JoinOptions::default()).unwrap();
+        assert!(outcome.commit_hash.is_some(), "the squash landed");
+        assert_eq!(
+            fs::read_to_string(universe.join("landed.txt")).unwrap(),
+            "from the dash\n",
+            "the universe's working tree carries the landed content"
+        );
+        assert!(!worktree.exists(), "dash worktree torn down");
+        assert!(!branch_present(&universe, "tugdash/lander"));
+
+        assert_eq!(
+            rev_parse_at(&base, "HEAD"),
+            base_head_before,
+            "the base checkout's HEAD never moved"
+        );
+        let dlog = fs::read_to_string(dash_log_path(&temp.path().join("state"), &universe)).unwrap();
+        assert!(dlog.contains("joined"), "the universe's dash-log records it");
+    }
+
+    /// Teardown is symmetric: a discard from inside the universe removes the
+    /// branch and the worktree there, leaving the base alone.
+    #[serial]
+    #[test]
+    fn test_universe_discard_tears_down_inside_the_universe() {
+        let temp = TempDir::new().unwrap();
+        let (base, universe) = base_with_universe(&temp);
+        create("goner", None, None, false, Some("feature")).unwrap();
+        let worktree = universe.join(".tug/worktrees/goner");
+        assert!(worktree.exists());
+
+        discard_in(&universe, "goner", None).unwrap();
+
+        assert!(!worktree.exists(), "worktree gone");
+        assert!(!branch_present(&universe, "tugdash/goner"), "branch gone");
+        assert!(!base.join(".tug").exists());
+    }
+
+    /// The commit a revision names, as a full sha.
+    fn rev_parse_at(repo: &Path, rev: &str) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["rev-parse", rev])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git rev-parse {rev} failed");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// An explicit base forks the dash from that branch and records it, so a
+    /// checkout parked off the default branch makes a dash that holds the
+    /// content it is actually working on ([P03]).
+    #[serial]
+    #[test]
+    fn test_create_base_forks_from_the_named_branch() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        init_git_repo(repo);
+        redirect_state_dir(&temp.path().join("state"));
+        std::env::set_current_dir(repo).unwrap();
+
+        // A `feature` tip that `main` does not have.
+        run_git(repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("only-on-feature.txt"), "x\n").unwrap();
+        run_git(repo, &["add", "-A"]);
+        run_git(repo, &["commit", "-m", "feature work"]);
+        let feature_tip = rev_parse_at(repo, "feature");
+        run_git(repo, &["checkout", "main"]);
+        assert_ne!(feature_tip, rev_parse_at(repo, "main"));
+
+        let created = create("based", None, None, false, Some("feature")).unwrap();
+        assert!(created.created);
+        assert_eq!(created.base_branch, "feature");
+        assert_eq!(dash_base(repo, "based").unwrap(), "feature");
+        assert_eq!(rev_parse_at(repo, "tugdash/based"), feature_tip);
+        assert!(
+            Path::new(&created.worktree)
+                .join("only-on-feature.txt")
+                .exists(),
+            "the worktree holds the base branch's content"
+        );
+    }
+
+    /// A base that does not exist is refused before anything is created —
+    /// no branch, no worktree, no config residue.
+    #[serial]
+    #[test]
+    fn test_create_base_refuses_an_unknown_branch() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        init_git_repo(repo);
+        redirect_state_dir(&temp.path().join("state"));
+        std::env::set_current_dir(repo).unwrap();
+
+        let err = create("nobase", None, None, false, Some("no-such-branch")).unwrap_err();
+        assert!(
+            err.contains("no-such-branch"),
+            "the refusal must name the branch: {err}"
+        );
+        assert!(!branch_present(repo, "tugdash/nobase"));
+        assert!(!worktree_path(repo, "nobase").exists());
+        assert!(config_get(repo, "branch.tugdash/nobase.tugbase").is_none());
+    }
+
+    /// A dash's base is set at birth: a revisit reports the recorded base and
+    /// does not rewrite it ([P03]).
+    #[serial]
+    #[test]
+    fn test_create_base_is_ignored_on_a_revisit() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        init_git_repo(repo);
+        redirect_state_dir(&temp.path().join("state"));
+        std::env::set_current_dir(repo).unwrap();
+
+        let first = create("settled", None, None, false, None).unwrap();
+        assert_eq!(first.base_branch, "main");
+        run_git(repo, &["branch", "feature"]);
+
+        let again = create("settled", None, None, false, Some("feature")).unwrap();
+        assert!(!again.created);
+        assert_eq!(again.base_branch, "main");
+        assert_eq!(dash_base(repo, "settled").unwrap(), "main");
+    }
+
     /// `create` mints once and every later touch reports the same identity;
     /// a dash with no `tugid` reads under its legacy branch-ref key until a
     /// write verb backfills it ([P01], [P02], Risk R01).
@@ -5190,12 +5480,12 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        let first = create("id-dash", None, None, false).unwrap();
+        let first = create("id-dash", None, None, false, None).unwrap();
         let id = first.id.clone().expect("create mints an id");
         assert!(id.starts_with("tugdash/id-dash#"), "owner key shape: {id}");
 
         // The idempotent revisit reports the same identity, not a fresh mint.
-        let second = create("id-dash", None, None, false).unwrap();
+        let second = create("id-dash", None, None, false, None).unwrap();
         assert!(!second.created);
         assert_eq!(second.id.as_deref(), Some(id.as_str()));
 
@@ -5295,7 +5585,7 @@ Some context.
             std::env::set_var("TUG_CHANGES_DB", &changes_db);
         }
 
-        let created = create("status-dash", Some("Test".to_string()), None, false).unwrap();
+        let created = create("status-dash", Some("Test".to_string()), None, false, None).unwrap();
         let owner_key = created.id.clone().unwrap();
 
         let fresh = status("status-dash").unwrap();
@@ -5406,7 +5696,7 @@ Some context.
             std::env::set_var("TUG_SESSIONS_DB", &sessions_db);
         }
 
-        let owner_key = create("unbound-dash", None, None, false)
+        let owner_key = create("unbound-dash", None, None, false, None)
             .unwrap()
             .id
             .unwrap();
@@ -5449,7 +5739,7 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        let result = create("test-dash", Some("desc".to_string()), None, false);
+        let result = create("test-dash", Some("desc".to_string()), None, false, None);
         assert!(result.is_ok());
 
         assert!(repo.join(".tug/worktrees/test-dash").exists());
@@ -5474,9 +5764,9 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", Some("first".to_string()), None, false).unwrap();
+        create("test-dash", Some("first".to_string()), None, false, None).unwrap();
         // Second create returns the existing dash without error.
-        let result = create("test-dash", Some("second".to_string()), None, false);
+        let result = create("test-dash", Some("second".to_string()), None, false, None);
         assert!(!result.unwrap().created);
         assert!(repo.join(".tug/worktrees/test-dash").exists());
     }
@@ -5492,13 +5782,13 @@ Some context.
         write_config(repo, &["echo ran >> hook-marker.txt"]);
         std::env::set_current_dir(repo).unwrap();
 
-        create("hooky", None, None, false).unwrap();
+        create("hooky", None, None, false, None).unwrap();
         let marker = repo.join(".tug/worktrees/hooky/hook-marker.txt");
         assert!(marker.exists(), "post_create should run on creation");
         assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
 
         // Idempotent resume must NOT re-run the hook.
-        create("hooky", None, None, false).unwrap();
+        create("hooky", None, None, false, None).unwrap();
         assert_eq!(
             fs::read_to_string(&marker).unwrap().lines().count(),
             1,
@@ -5516,7 +5806,7 @@ Some context.
         write_config(repo, &["exit 1"]);
         std::env::set_current_dir(repo).unwrap();
 
-        let result = create("doomed", None, None, false);
+        let result = create("doomed", None, None, false, None);
         assert!(result.is_err(), "failing hook should fail create");
 
         // Rollback: neither worktree nor branch survive.
@@ -5525,7 +5815,7 @@ Some context.
 
         // A retry (with a passing hook) then succeeds cleanly.
         write_config(repo, &[]);
-        let retry = create("doomed", None, None, false);
+        let retry = create("doomed", None, None, false, None);
         assert!(retry.is_ok());
         assert!(repo.join(".tug/worktrees/doomed").exists());
     }
@@ -5540,7 +5830,7 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", Some("Test".to_string()), None, false).unwrap();
+        create("test-dash", Some("Test".to_string()), None, false, None).unwrap();
 
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("test.txt"), "content\n").unwrap();
@@ -5574,7 +5864,7 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", Some("Test".to_string()), None, false).unwrap();
+        create("test-dash", Some("Test".to_string()), None, false, None).unwrap();
 
         let result = commit("test-dash", "No changes", None);
         assert!(!result.unwrap().committed);
@@ -5600,7 +5890,7 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", None, None, false).unwrap();
+        create("test-dash", None, None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
 
@@ -5634,7 +5924,7 @@ Some context.
         std::env::set_current_dir(repo).unwrap();
         redirect_state_dir(&home);
 
-        create("test-dash", Some("Test".to_string()), None, false).unwrap();
+        create("test-dash", Some("Test".to_string()), None, false, None).unwrap();
 
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
@@ -5662,8 +5952,8 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        create("dash1", None, None, false).unwrap();
-        create("dash2", None, None, false).unwrap();
+        create("dash1", None, None, false, None).unwrap();
+        create("dash2", None, None, false, None).unwrap();
 
         assert_eq!(list().unwrap().len(), 2);
         assert!(show("dash1").is_ok());
@@ -5680,7 +5970,7 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", Some("Test dash".to_string()), None, false).unwrap();
+        create("test-dash", Some("Test dash".to_string()), None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("feature.txt"), "new feature\n").unwrap();
         commit("test-dash", "Add feature", None).unwrap();
@@ -5726,7 +6016,7 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create("routed", None, None, false).unwrap();
+        create("routed", None, None, false, None).unwrap();
         fs::write(repo.join(".tug/worktrees/routed/f.txt"), "work\n").unwrap();
         commit("routed", "Add f", None).unwrap();
 
@@ -5758,7 +6048,7 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create("dropped", None, None, false).unwrap();
+        create("dropped", None, None, false, None).unwrap();
         discard("dropped", Some("cli")).unwrap();
 
         let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
@@ -5818,7 +6108,7 @@ Some context.
             std::env::set_var("TUG_CHANGES_DB", &changes_db);
         }
 
-        create("draft-dash", Some("Test".to_string()), None, false).unwrap();
+        create("draft-dash", Some("Test".to_string()), None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/draft-dash");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
         commit("draft-dash", "Add f", None).unwrap();
@@ -5904,7 +6194,7 @@ Some context.
             std::env::set_var("TUG_CHANGES_DB", &changes_db);
         }
 
-        let created = create("id-draft-dash", Some("Test".to_string()), None, false).unwrap();
+        let created = create("id-draft-dash", Some("Test".to_string()), None, false, None).unwrap();
         let owner_key = created.id.expect("created dash has an owner key");
         assert!(owner_key.contains('#'), "id-qualified: {owner_key}");
 
@@ -5958,7 +6248,7 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create("trailer-dash", Some("Test".to_string()), None, false).unwrap();
+        create("trailer-dash", Some("Test".to_string()), None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/trailer-dash");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
         commit("trailer-dash", "Add f", None).unwrap();
@@ -6031,7 +6321,7 @@ Some context.
         run_git(repo, &["add", "-A"]);
         run_git(repo, &["commit", "-m", "seed f"]);
 
-        create("cand", None, None, false).unwrap();
+        create("cand", None, None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/cand");
         fs::write(worktree.join("f.txt"), "B\n").unwrap();
         commit("cand", "r1", None).unwrap();
@@ -6077,7 +6367,7 @@ Some context.
         run_git(repo, &["add", "-A"]);
         run_git(repo, &["commit", "-m", "seed f"]);
 
-        create("cand", None, None, false).unwrap();
+        create("cand", None, None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/cand");
         fs::write(worktree.join("f.txt"), "B\n").unwrap();
         commit("cand", "r1", None).unwrap();
@@ -6124,7 +6414,7 @@ Some context.
         init_git_repo(repo);
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", None, None, false).unwrap();
+        create("test-dash", None, None, false, None).unwrap();
         let branch = branch_name("test-dash");
         let worktree = worktree_path(repo, "test-dash");
         assert!(worktree.exists());
@@ -6174,7 +6464,7 @@ Some context.
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
 
         // A dash that changes shared.txt.
-        create("isect", None, None, false).unwrap();
+        create("isect", None, None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/isect");
         fs::write(worktree.join("shared.txt"), "base\ndash change\n").unwrap();
         commit("isect", "touch shared", None).unwrap();
@@ -6207,7 +6497,7 @@ Some context.
         fs::write(repo.join("shared.txt"), "base\n").unwrap();
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
-        create(name, None, None, false).unwrap();
+        create(name, None, None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees").join(name);
         fs::write(worktree.join("shared.txt"), "base\ndash change\n").unwrap();
         commit(name, "touch shared", None).unwrap();
@@ -6765,7 +7055,7 @@ Some context.
         fs::write(repo.join("shared.txt"), "base\n").unwrap();
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
-        create("hollow", None, None, false).unwrap();
+        create("hollow", None, None, false, None).unwrap();
 
         assert!(blocker(&preview("hollow"), "empty").is_some());
 
@@ -6830,7 +7120,7 @@ Some context.
         clear_join_journal(&root, "agree");
 
         // empty — a dash of its own, since the one above has a round.
-        create("agree2", None, None, false).unwrap();
+        create("agree2", None, None, false, None).unwrap();
         let out = preview("agree2");
         let b = blocker(&out, "empty").expect("empty blocker");
         let err = join("agree2", JoinOptions::default()).unwrap_err();
@@ -6846,7 +7136,7 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", Some("Test".to_string()), None, false).unwrap();
+        create("test-dash", Some("Test".to_string()), None, false, None).unwrap();
         Command::new("git")
             .arg("-C")
             .arg(repo)
@@ -6872,7 +7162,7 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", Some("Test".to_string()), None, false).unwrap();
+        create("test-dash", Some("Test".to_string()), None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
 
@@ -6912,7 +7202,7 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        create("test-dash", Some("Test".to_string()), None, false).unwrap();
+        create("test-dash", Some("Test".to_string()), None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
         commit("test-dash", "Add test", None).unwrap();
@@ -6997,7 +7287,7 @@ Some context.
         init_git_repo(&repo);
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(&repo).unwrap();
-        create(name, None, None, false).unwrap();
+        create(name, None, None, false, None).unwrap();
         let worktree = repo.join(format!(".tug/worktrees/{name}"));
         fs::write(worktree.join("f.txt"), "dash\n").unwrap();
         commit(name, &format!("{name}-only"), None).unwrap();
@@ -7064,7 +7354,7 @@ Some context.
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
 
-        create("pv", None, None, false).unwrap();
+        create("pv", None, None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/pv");
         fs::write(worktree.join("conflict.txt"), "dash line\n").unwrap();
         commit("pv", "dash edit", None).unwrap();
@@ -7108,7 +7398,7 @@ Some context.
         redirect_state_dir(&home);
         std::env::set_current_dir(repo).unwrap();
 
-        create("resume", None, None, false).unwrap();
+        create("resume", None, None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/resume");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
         commit("resume", "add f", None).unwrap();
@@ -7235,7 +7525,7 @@ Some context.
         clear_join_journal(repo, "kinds");
 
         // empty: a dash with no rounds and no tracked worktree dirt.
-        create("hollow", None, None, false).unwrap();
+        create("hollow", None, None, false, None).unwrap();
         let hollow_detail = dash_detail_entry_in(repo, "hollow").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
         assert_eq!(

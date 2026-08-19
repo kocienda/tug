@@ -48,7 +48,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, discardDash } from "./dash-fixture";
+import { commitRound, createDash, discardDash, universeRoot } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -67,17 +67,13 @@ const OVERLAP_MARK = `${ROW} [data-slot="session-changes-dash-divergence"][data-
 const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
 
 /**
- * The **main** repository root, which is where a dash's base checkout lives and
- * therefore the only tree whose dirt `base_overlap` reads. When this suite runs
- * from a dash worktree that is a different directory than `PROJECT_DIR`.
+ * The checkout a dash's base lives in, and therefore the only tree whose dirt
+ * `base_overlap` reads. Under `just app-test` that is the pinned universe —
+ * this file's own checkout, worktree or not. Bare, it is the checkout that owns
+ * the common dir. `universeRoot` is the one mirror of the Rust rule.
  */
 function mainRepoRoot(): string {
-  const commonDir = execFileSync(
-    "git",
-    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    { cwd: PROJECT_DIR, encoding: "utf8" },
-  ).trim();
-  return realpathSync(resolve(commonDir, ".."));
+  return universeRoot(PROJECT_DIR);
 }
 
 /**

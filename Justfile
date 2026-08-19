@@ -1016,38 +1016,25 @@ app-test *FILES:
     # file failures so the summary captures every file's status.
     set -uo pipefail
 
-    # The corpus runs from the main checkout, never from a dash worktree.
+    # Repo universe. Names the checkout that owns this run's repo universe,
+    # which is always the one the recipe was invoked from — worktree or main.
     #
-    # Every `tugutil dash` verb resolves the MAIN repo root before it does
-    # anything (tugdash-core::ops::main_repo_root, via find_repo_root_from),
-    # so a dash created from a linked worktree is created against the base
-    # checkout. The app under test has the WORKTREE open as its project, so
-    # its dash lane can never list the dash its own fixture just made — the
-    # lane tests time out waiting for a row that was written somewhere else.
-    # Worse, the run leaves branches, worktrees and dash-log lines behind in
-    # the developer's main checkout.
+    # Every `tugutil dash` verb resolves a repo root before it does anything
+    # (tugdash-core::ops::main_repo_root, via tugutil-core's
+    # find_repo_root_from), and that resolution hops from a linked worktree to
+    # the checkout that owns its common dir. Unscoped, a fixture dash made from
+    # a worktree is therefore created against the base checkout while the app
+    # under test has the WORKTREE open — the lane can never list the dash its
+    # own fixture just made, and the run leaves branches, worktrees and
+    # dash-log lines in someone else's checkout.
     #
-    # TUG_APPTEST_ALLOW_WORKTREE=1 proceeds anyway, for a test whose subject
-    # has nothing to do with dashes.
-    if [ "${TUG_APPTEST_ALLOW_WORKTREE:-}" != "1" ]; then
-        COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
-        TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)"
-        HEAD_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
-        if [ -n "$COMMON_DIR" ] && [ "$COMMON_DIR" != "$TOPLEVEL/.git" ]; then
-            REFUSAL="this is a linked worktree (git-common-dir is $COMMON_DIR)"
-        elif case "$HEAD_BRANCH" in tugdash/*) true;; *) false;; esac; then
-            REFUSAL="HEAD is the dash branch $HEAD_BRANCH"
-        fi
-        if [ -n "${REFUSAL:-}" ]; then
-            echo "==> REFUSED: app-test does not run from a dash worktree — $REFUSAL." >&2
-            echo "    tugutil's dash verbs resolve the main repo root, so a fixture dash is" >&2
-            echo "    created against the base checkout while the app under test has this" >&2
-            echo "    worktree open. The lane can never list it, and the run dirties the" >&2
-            echo "    main checkout. Run the corpus from the main checkout instead." >&2
-            echo "    Set TUG_APPTEST_ALLOW_WORKTREE=1 to proceed anyway." >&2
-            exit 1
-        fi
-    fi
+    # The export names the owner instead of letting the hop assume it, so
+    # fixtures are born, listed, joined and torn down inside the checkout under
+    # test. The semantics — containment, canonicalization, and what an invalid
+    # universe does — are specified beside find_repo_root_from in
+    # tugrust/crates/tugutil-core/src/worktree.rs. It reaches the app through
+    # forwardableEnv (every TUG* var), and tugcast inherits it from the app.
+    export TUG_REPO_UNIVERSE="$(pwd -P)"
 
     # App-test always drives the dedicated `dev.tugtool.app.apptest`
     # identity — the same one `build-app` produces and `app-test-grant`
@@ -1311,6 +1298,11 @@ app-test *FILES:
     # an uncommitted modification nobody made. Resetting first leaves the
     # hand-back nothing to copy.
     #
+    # The worktree is then removed at the path git itself lists it at, which
+    # is what reclaims a stranding whose worktree sits outside the universe
+    # discarding it — `dash discard` computes the path it expects from the
+    # resolved repo root, and cannot delete one recorded somewhere else.
+    #
     # Best effort throughout, and it must stay that way: `discard`
     # legitimately refuses when the base checkout has its own edit to a
     # path the dash also touched, and a refused sweep must never fail
@@ -1328,6 +1320,9 @@ app-test *FILES:
         if [ -n "$DASH_TREE" ] && [ -d "$DASH_TREE" ]; then
             git -C "$DASH_TREE" reset --hard >/dev/null 2>&1 || true
             git -C "$DASH_TREE" clean -fd >/dev/null 2>&1 || true
+        fi
+        if [ -n "$DASH_TREE" ]; then
+            git worktree remove --force "$DASH_TREE" >/dev/null 2>&1 || true
         fi
         tugrust/target/debug/tugutil dash discard "$DASH_NAME" --json >/dev/null 2>&1 || true
         echo "swept stranded fixture dash: $DASH_NAME"

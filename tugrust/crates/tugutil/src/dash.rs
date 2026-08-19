@@ -24,7 +24,16 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             description,
             plan,
             carry,
-        } => run_create(&name, description, plan.as_deref(), carry, json, quiet),
+            base,
+        } => run_create(
+            &name,
+            description,
+            plan.as_deref(),
+            carry,
+            base.as_deref(),
+            json,
+            quiet,
+        ),
         DashCommands::AdoptPlan { name, plan } => {
             run_adopt_plan(&name, plan.as_deref(), json, quiet)
         }
@@ -121,10 +130,11 @@ fn run_create(
     description: Option<String>,
     plan: Option<&str>,
     carry: bool,
+    base: Option<&str>,
     json: bool,
     quiet: bool,
 ) -> Result<(), String> {
-    let data = ops::create(name, description, plan, carry)?;
+    let data = ops::create(name, description, plan, carry, base)?;
     // The session that made the dash is working on it. Best-effort: a headless
     // run with no live instance loses nothing (binding is a UI concept), so a
     // failure warns and never fails the create.

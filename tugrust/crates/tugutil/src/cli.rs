@@ -407,6 +407,12 @@ pub enum DashCommands {
         /// base is reported and left exactly as it is.
         #[arg(long)]
         carry: bool,
+        /// Branch the dash forks from and lands back onto. Defaults to the
+        /// repository's default branch; name it explicitly when the checkout
+        /// is parked somewhere else and the dash belongs to *that* branch.
+        /// Ignored when the dash already exists — a base is set at birth.
+        #[arg(long)]
+        base: Option<String>,
     },
     /// Adopt a plan into an existing dash: the worktree copy becomes the only
     /// live one, with the worktree's ledger progress replayed onto it.

@@ -232,39 +232,25 @@ impl Project {
 
 /// The base repository root, when `project_dir` is a **linked worktree**.
 ///
-/// `git rev-parse --git-common-dir` names the shared `.git` directory: the
-/// checkout's own in an ordinary clone, the base repository's from inside a
-/// linked worktree. `None` for the ordinary case (there is nothing to
-/// substitute — the project dir already *is* the base root) and for anything
-/// that is not a git repository at all.
+/// This is the same resolution every dash verb runs — `find_repo_root_from`,
+/// which reads the shared `.git` directory from inside a linked worktree and
+/// honors an explicit `TUG_REPO_UNIVERSE` boundary when one is set. Going
+/// through the primitive rather than shelling `rev-parse` is what keeps a
+/// draft's key in the same universe the server composes entries in; a
+/// hand-rolled hop keys the draft on the base checkout while a scoped server
+/// looks for it under the worktree, and the entry silently carries no draft.
 ///
-/// The answer is git's own spelling, uncanonicalized: the CLI is not the
-/// canonicalization gateway ([L29]), so it names a directory and lets the
-/// server resolve how that directory is spelled.
+/// `None` for the ordinary case (there is nothing to substitute — the project
+/// dir already *is* the root) and for anything that is not a git repository.
+///
+/// The answer keeps its resolved spelling rather than being canonicalized
+/// here: the CLI is not the canonicalization gateway ([L29]), so it names a
+/// directory and lets the server resolve how that directory is spelled.
 fn dash_base_root(project_dir: &str) -> Option<PathBuf> {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(project_dir)
-        .args(["rev-parse", "--git-common-dir"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let common = String::from_utf8(out.stdout).ok()?;
-    let common = common.trim();
-    if common.is_empty() {
-        return None;
-    }
-    let common = std::path::Path::new(common);
-    let common = if common.is_absolute() {
-        common.to_path_buf()
-    } else {
-        std::path::Path::new(project_dir).join(common)
-    };
-    let base = common.parent()?.to_path_buf();
+    let start = std::path::Path::new(project_dir);
+    let root = tugutil_core::find_repo_root_from(start).ok()?;
     let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    (canon(&base) != canon(std::path::Path::new(project_dir))).then_some(base)
+    (canon(&root) != canon(start)).then_some(root)
 }
 
 /// Re-key a dash's draft onto its base repository root, superseding the

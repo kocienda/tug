@@ -34,4 +34,6 @@ pub use plan::{
     has_errors, lint, parse, review_state, set_review_stamp,
 };
 pub use resolve::{ResolveResult, ResolveStage, resolve_plan};
-pub use worktree::{find_repo_root, find_repo_root_from, sanitize_branch_name};
+pub use worktree::{
+    REPO_UNIVERSE_ENV, find_repo_root, find_repo_root_from, sanitize_branch_name,
+};

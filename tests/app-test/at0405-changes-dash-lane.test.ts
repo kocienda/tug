@@ -64,7 +64,13 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, discardDash, tugutil } from "./dash-fixture";
+import {
+  commitRound,
+  createDash,
+  currentBranch,
+  discardDash,
+  tugutil,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -361,10 +367,13 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
+        // The count is of THIS fixture's row, not of the lane. A dash's refs
+        // are repo-global, so any dash the developer has open is a row here
+        // too — a total is a fact about whoever is running the suite.
         const unfrontedState = await app.evalJS<{ fronted: number; rows: number }>(
           `(() => ({
              fronted: document.querySelectorAll(${JSON.stringify(FRONTED_LABEL)}).length,
-             rows: document.querySelectorAll(${JSON.stringify(`${LANE} [data-slot="session-changes-dash-row"]`)}).length,
+             rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
            }))()`,
         );
         expect(unfrontedState.fronted).toBe(0);
@@ -414,7 +423,10 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // blockifies them and would put a line break between the sigil and
         // the name it belongs to.
         expect(row.badge).toBe(`^${DASH_NAME}`);
-        expect(row.facts).toContain("main");
+        // The base is the branch this checkout has out — what the fixture
+        // forked from — not the repo's default. Run from a dash worktree, the
+        // two differ.
+        expect(row.facts).toContain(currentBranch(PROJECT_DIR));
         expect(row.facts).toContain("1 round");
         // The derived stage, rendered as the word the server sent.
         expect(row.facts).toContain("working");

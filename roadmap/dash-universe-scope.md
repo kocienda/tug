@@ -361,14 +361,14 @@ The `@covers` header keeps its current list and adds `tugrust/crates/tugdash-cor
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The universe seam in tugutil-core | pending | — |
-| #step-2 | `dash create --base` | pending | — |
-| #step-3 | Dash verbs proven under a scoped universe | pending | — |
-| #step-4 | Universe-aware TS fixtures and hop mirrors | pending | — |
-| #step-5 | Delete the refusal; the recipe pins the universe | pending | — |
-| #step-6 | at0441 lands, on a scratch repo | pending | — |
-| #step-7 | Documentation sync | pending | — |
-| #step-8 | Integration checkpoint | pending | — |
+| #step-1 | The universe seam in tugutil-core | done | `c9bb95110` |
+| #step-2 | `dash create --base` | done | `f185d5d52` |
+| #step-3 | Dash verbs proven under a scoped universe | done | `d8a11ef76` |
+| #step-4 | Universe-aware TS fixtures and hop mirrors | done | `a183edb1e` |
+| #step-5 | Delete the refusal; the recipe pins the universe | done | `ab63d764b` |
+| #step-6 | at0441 lands, on a scratch repo | done | `21bb1d6d3` |
+| #step-7 | Documentation sync | done | `6afcf233a` |
+| #step-8 | Integration checkpoint | done | `6ab3ac298` |
 
 #### Step 1: The universe seam in tugutil-core {#step-1}
 

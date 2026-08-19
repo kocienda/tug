@@ -22,10 +22,10 @@
  * ([#landing-fixture]) — crashing a real join mid-teardown is not reproducible
  * from a test, and the cause is not what is under test. Everything downstream
  * of the file is real: the derivation, the preflight, the feed, and the
- * affordance. The journal's state dir is keyed on the **main checkout**, which
- * is what `join_in` resolves as the repo root even when the card's project is a
- * linked worktree — the preview above proves the key is right by coming back
- * with the blocker.
+ * affordance. The journal's state dir is keyed on whatever `join_in` resolves
+ * as the repo root — the checkout under test when the run pins a repo universe,
+ * the common dir's owner otherwise — which `universeRoot` mirrors; the preview
+ * above proves the key is right by coming back with the blocker.
  *
  * The release half is the phase's one end-to-end landing: a purpose-created
  * dash is discarded from the row, and the server-formatted receipt it leaves
@@ -68,7 +68,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, discardDash } from "./dash-fixture";
+import { commitRound, createDash, discardDash, universeRoot } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -163,20 +163,15 @@ let releaseId = "";
 
 /**
  * The join journal's home. `join_in` resolves the repo root from the card's
- * project dir, and for a linked worktree that resolution lands on the main
- * checkout — so the state-dir slug is the main checkout's path, not this
- * file's. Read `project_state_dir` / `join_journal_path` in
- * `tugdash-core/src/ops.rs` before changing either half of this.
+ * project dir, and the state-dir slug is derived from whatever that resolution
+ * returns — the pinned universe under `just app-test`, the common dir's owner
+ * otherwise. `universeRoot` is the one mirror of that rule; read
+ * `project_state_dir` / `join_journal_path` in `tugdash-core/src/ops.rs` and
+ * `find_repo_root_from` in `tugutil-core/src/worktree.rs` before changing
+ * either half of this.
  */
 function journalPath(dash: string): string {
-  const commonDir = Bun.spawnSync(
-    ["git", "-C", PROJECT_DIR, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-    {},
-  )
-    .stdout.toString()
-    .trim();
-  const mainCheckout = realpathSync(resolve(commonDir, ".."));
-  const slug = mainCheckout.replaceAll("/", "-");
+  const slug = universeRoot(PROJECT_DIR).replaceAll("/", "-");
   return join(
     homedir(),
     "Library/Application Support/Tug/projects",
@@ -361,6 +356,25 @@ async function landingFace(
   );
 }
 
+/**
+ * Return the composer to the prompt route.
+ *
+ * `/commit` raised the shade in **commit** mode, and in that mode the editor
+ * is the commit message — a `/dash-join` typed into it is message text, not a
+ * command, and ⌘Return submits the commit rather than switching modes. So a
+ * slash command has to be typed from the prompt route, which is where every
+ * one of them is read.
+ */
+async function returnToPrompt(app: App): Promise<void> {
+  await app.nativeClickAtElement(EDITOR);
+  await settle();
+  await app.nativeKey("Escape");
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="prompt"][data-state="active"]`)}) !== null`,
+    { timeoutMs: 8000 },
+  );
+}
+
 /** Enter join mode on a dash by its named route, the way a user would. */
 async function enterJoinMode(app: App, dash: string): Promise<void> {
   await app.nativeClickAtElement(EDITOR);
@@ -429,6 +443,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // The route the readiness line named opens the join-message editor.
         // The route group is invariant, so the Changes segment is what goes
         // active; the Z5 button is what names the landing as a join.
+        await returnToPrompt(app);
         await enterJoinMode(app, DASH_WORK);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
