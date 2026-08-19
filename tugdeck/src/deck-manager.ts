@@ -2362,10 +2362,11 @@ export class DeckManager implements IDeckManagerStore {
    *
    * Because the chain packs tight, a card joining it moves every pane after it
    * as well — the lifecycle ledger below covers the whole chain, not just the
-   * card that was clicked. And because the assign changes what the chain IS,
-   * it is one of the moments the space allocator re-solves the rails for
-   * (see `retuneSidebarAllocation`): the deck was just asked to arrange
-   * itself, and it makes room for what it was asked to arrange.
+   * card that was clicked. A card JOINING the chain is also one of the moments
+   * the space allocator re-solves the rails for (see `retuneSidebarAllocation`):
+   * the deck makes room for what it was just asked to arrange. A card already
+   * in the chain moving to another slot is not — see {@link assignCardsToSlots},
+   * which draws that line.
    *
    * One card is the degenerate batch — {@link assignCardsToSlots} is the
    * implementation, so the single-card and multi-card gestures cannot drift.
@@ -2438,6 +2439,13 @@ export class DeckManager implements IDeckManagerStore {
       }
     }
 
+    // Which panes already stood in the chain, read BEFORE anything moves.
+    // This is what separates a card joining the chain from a card moving
+    // inside it, and the two get different answers below.
+    const chainBefore = new Set(
+      this.deckState.panes.filter((p) => p.slot !== undefined).map((p) => p.id),
+    );
+
     const targets = new Map<string, number>();
     for (const { cardId, slot } of entries) {
       // Re-read the host each pass: an earlier detach rebuilds the panes array.
@@ -2486,13 +2494,26 @@ export class DeckManager implements IDeckManagerStore {
       return slot === undefined ? p : ({ ...p, slot } as TugPaneState);
     });
     // Everything in the chain moves, including the panes that kept their
-    // slots: these cards' widths are now part of what precedes them. Committed
-    // through `_commitImposition`, so the space allocator re-solves for the
-    // chain the assign just changed: assigning a slot is the imposer's own
-    // verb — the user asked the deck to arrange itself, whichever door
-    // dispatched it — and it is one of the moments the rails' width is the
-    // deck's to spend (see `retuneSidebarAllocation`).
-    this._commitImposition(this.deckState.imposition, panes);
+    // slots: these cards' widths are now part of what precedes them.
+    //
+    // Whether the RAILS move too turns on membership, not on the verb. A pane
+    // ENTERING the chain — a loose card gaining a slot, or a card pulled out of
+    // a tab group into a pane of its own — changes what the chain is, and the
+    // deck makes room for what it was just asked to arrange; that is the moment
+    // `retuneSidebarAllocation` was written for. A pane that already had a slot
+    // taking a different one is not that gesture: membership is unchanged,
+    // nothing new needs room, and re-solving would hand the width freed by a
+    // tighter pack to the rails — growing a sidebar by most of a card on a
+    // chord that named one card.
+    //
+    // Which is the same fault, from the other side, that `setCardWidths` takes
+    // `retuneRails: false` for. Both verbs are card-addressed and neither may
+    // spend a rail; what licenses a re-solve is the Layouts click, the settled
+    // resize, and a change to who is in the chain.
+    const joinsChain = [...targets.keys()].some((id) => !chainBefore.has(id));
+    this._commitImposition(this.deckState.imposition, panes, {
+      retuneRails: joinsChain,
+    });
     return { ok: true };
   }
 
