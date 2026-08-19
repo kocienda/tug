@@ -48,6 +48,9 @@ pub enum ResolvedBy {
     Driver,
     /// The AI file-merge seam ([P32]) produced a validated result.
     Ai,
+    /// The resolver finished it in the workshop, with the whole project around
+    /// it — the rung above blob arithmetic.
+    Resolver,
 }
 
 /// One conflicted file's three blob stages plus the dash's intent, handed to the
@@ -116,6 +119,15 @@ pub struct ResolveOutcome {
     pub candidate_commit: Option<String>,
     pub base_branch: String,
     pub warnings: Vec<String>,
+    /// The tree holding the ladder's own resolutions — built whether or not
+    /// every file resolved, because a *partial* ladder run is exactly when
+    /// somebody else has to carry the work forward and would otherwise have to
+    /// redo it. The resolver's workshop checks these paths out of it, which
+    /// both writes the reconciled content and clears the conflict stages.
+    ///
+    /// Never serialized: it is a local git object with no meaning to the card.
+    #[serde(skip)]
+    pub staged_tree: Option<String>,
 }
 
 /// Like [`resolve_conflicts`], but discovering the repo root from the process
@@ -200,6 +212,7 @@ fn resolve_ladder(
             candidate_commit: Some(replayed.head),
             base_branch,
             warnings,
+            staged_tree: None,
         });
     }
 
@@ -218,6 +231,7 @@ fn resolve_ladder(
             candidate_commit: Some(candidate),
             base_branch,
             warnings,
+            staged_tree: Some(cand_tree),
         });
     }
 
@@ -312,6 +326,11 @@ fn resolve_ladder(
         record_rerere(repo, &base_head, &branch, &taught, &mut warnings);
     }
 
+    // The ladder's work, as a tree, on both arms. On the complete arm it
+    // becomes the candidate; on the partial arm it is what the resolver
+    // inherits instead of starting over.
+    let staged_tree = patch_tree(repo, scratch.path(), &cand_tree, &resolved)?;
+
     if !unresolved.is_empty() {
         return Ok(ResolveOutcome {
             shape: JoinShape::Squash,
@@ -320,12 +339,12 @@ fn resolve_ladder(
             candidate_commit: None,
             base_branch,
             warnings,
+            staged_tree: Some(staged_tree),
         });
     }
 
-    // Everything resolved — patch the candidate tree and build the commit.
-    let final_tree = patch_tree(repo, scratch.path(), &cand_tree, &resolved)?;
-    let candidate = commit_tree(repo, &final_tree, &base_head, &msg)?;
+    // Everything resolved — the staged tree is the candidate's tree.
+    let candidate = commit_tree(repo, &staged_tree, &base_head, &msg)?;
 
     Ok(ResolveOutcome {
         shape: JoinShape::Squash,
@@ -334,6 +353,7 @@ fn resolve_ladder(
         candidate_commit: Some(candidate),
         base_branch,
         warnings,
+        staged_tree: Some(staged_tree),
     })
 }
 
@@ -839,6 +859,16 @@ fn driver_rung(repo: &Path, scratch: &Path, path: &str, loaded: &LoadedStages) -
     }
 }
 
+/// The configured resolver stub command, if this repo names one.
+///
+/// The seam sits beside [`driver_program`] because it is the same seam one rung
+/// up: `tugdash.mergedriver` lets a test play a structured-merge driver in a few
+/// lines of shell, and `tugdash.joinresolver` lets it play the resolver the same
+/// way. Absent, tugcast spawns the real thing.
+pub fn resolver_program(repo: &Path) -> Option<String> {
+    crate::ops::config_get(repo, "tugdash.joinresolver").filter(|c| !c.trim().is_empty())
+}
+
 /// The structured-merge driver command: `tugdash.mergedriver` when configured,
 /// else `mergiraf` when it is on `PATH`, else `None`.
 fn driver_program(repo: &Path) -> Option<String> {
@@ -989,12 +1019,22 @@ fn write_scratch(scratch: &Path, tag: &str, ext: &str, bytes: &[u8]) -> Option<s
     Some(file)
 }
 
-/// The dash's intent: its maintained draft + round subjects.
+/// How much of an adopted plan the intent corpus carries before it is cut back
+/// to the document's prose half.
+const PLAN_INTENT_CAP: usize = 12_000;
+
+/// The dash's intent, as the whole corpus a reconciliation is adjudicated
+/// against: the maintained draft, the round subjects, the adopted plan
+/// document, the base branch's own motion since the merge base, and the two
+/// sides' name-status diffs.
 ///
-/// Read by the AI rung of the resolution ladder ([P32]) and by the base-motion
-/// engine, which puts it in front of an agent being asked to resolve a replay
-/// that conflicts — in both cases the question is "what is this dash for", and
-/// the answer is the same one.
+/// Read by the AI rung of the resolution ladder ([P32]), by the resolver
+/// charter, and by the base-motion engine, which puts it in front of an agent
+/// being asked to resolve a replay that conflicts — in every case the question
+/// is "what is this dash for, and what has the base been doing meanwhile", and
+/// the answer is the same one. A draft and a few subjects can say what a dash
+/// wanted; they cannot say which of two purposes a conflicting hunk serves,
+/// which is the judgment this corpus exists to support.
 pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
     let mut parts = Vec::new();
     if let Some(draft) = crate::ops::dash_draft_message(repo, branch) {
@@ -1012,7 +1052,68 @@ pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
             parts.push(format!("Round subjects:\n{}", subjects.trim()));
         }
     }
+    if let Some(plan) = dash_plan_text(repo, branch) {
+        parts.push(format!("The dash's plan:\n{}", plan));
+    }
+
+    // The base's own motion, read from the merge base rather than from
+    // `base..branch`: what the other side of this conflict has been doing.
+    let fork = git_stdout(repo, &["merge-base", base_branch, branch]).ok();
+    if let Some(fork) = fork.as_deref().filter(|f| !f.is_empty()) {
+        if let Ok(subjects) = git_stdout(
+            repo,
+            &["log", "--format=%s", &format!("{}..{}", fork, base_branch)],
+        ) {
+            if !subjects.trim().is_empty() {
+                parts.push(format!(
+                    "What {} has done since this dash forked:\n{}",
+                    base_branch,
+                    subjects.trim()
+                ));
+            }
+        }
+        for (label, tip) in [("This dash", branch), ("The base", base_branch)] {
+            if let Ok(names) = git_stdout(
+                repo,
+                &["diff", "--name-status", &format!("{}..{}", fork, tip)],
+            ) {
+                if !names.trim().is_empty() {
+                    parts.push(format!("{} touched:\n{}", label, names.trim()));
+                }
+            }
+        }
+    }
+
     parts.join("\n\n")
+}
+
+/// The adopted plan document as the dash branch holds it ([D139]), size-bounded.
+///
+/// A plan runs to hundreds of lines of execution steps, and the steps are the
+/// least useful half for adjudicating a conflict — the prose above them is what
+/// states the intent. So an oversized plan is cut at its Execution Steps
+/// heading rather than mid-sentence, and only hard-truncated when it has no
+/// such heading to cut at.
+fn dash_plan_text(repo: &Path, branch: &str) -> Option<String> {
+    let rel = config_get(repo, &format!("branch.{}.tugplan", branch))?;
+    let text = git_stdout(repo, &["show", &format!("{}:{}", branch, rel)]).ok()?;
+    if text.trim().is_empty() {
+        return None;
+    }
+    if text.len() <= PLAN_INTENT_CAP {
+        return Some(text);
+    }
+    if let Some(cut) = text.find("\n### Execution Steps") {
+        let head = &text[..cut];
+        if head.len() <= PLAN_INTENT_CAP {
+            return Some(format!("{}\n\n[execution steps omitted]", head.trim_end()));
+        }
+    }
+    let mut cut = PLAN_INTENT_CAP;
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    Some(format!("{}\n\n[truncated]", &text[..cut]))
 }
 
 /// Ensure `rerere.enabled` + `rerere.autoUpdate` are set on the repo (idempotent).
@@ -1049,11 +1150,6 @@ pub fn candidate_ref_name(name: &str) -> String {
     format!("refs/tug/join/{}", name)
 }
 
-/// Which candidate sha the user has read the resolutions of.
-pub fn reviewed_config_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinreviewed", name)
-}
-
 /// The dash head the ladder ran against, recorded because the candidate's own
 /// parentage cannot say it (the replay shape parents onto its previous round).
 pub fn join_source_config_key(name: &str) -> String {
@@ -1078,6 +1174,7 @@ impl ResolvedBy {
             ResolvedBy::MergeFile => "merge-file",
             ResolvedBy::Driver => "driver",
             ResolvedBy::Ai => "ai",
+            ResolvedBy::Resolver => "resolver",
         }
     }
 
@@ -1089,6 +1186,7 @@ impl ResolvedBy {
             "merge-file" => Some(ResolvedBy::MergeFile),
             "driver" => Some(ResolvedBy::Driver),
             "ai" => Some(ResolvedBy::Ai),
+            "resolver" => Some(ResolvedBy::Resolver),
             _ => None,
         }
     }
@@ -1141,24 +1239,6 @@ pub fn read_resolved_rungs(repo: &Path, name: &str) -> Vec<(String, ResolvedBy)>
         .collect()
 }
 
-/// Which candidate sha the user has reviewed, if any.
-pub fn read_reviewed(repo: &Path, name: &str) -> Option<String> {
-    config_get(repo, &reviewed_config_key(name))
-}
-
-/// Record that a candidate's resolutions have been read.
-pub fn write_reviewed(repo: &Path, name: &str, candidate: &str) -> Result<(), String> {
-    let out = git_output(repo, &["config", &reviewed_config_key(name), candidate])?;
-    if !out.status.success() {
-        return Err(format!(
-            "failed to record the review for {}: {}",
-            name,
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    Ok(())
-}
-
 /// One resolved path's diff against the base, for a caller rebuilding the
 /// review payload from git rather than from the run that produced it.
 ///
@@ -1186,12 +1266,149 @@ pub struct CandidateDiff {
     pub removed: Option<u32>,
 }
 
+/// Anchor a candidate somebody other than the ladder built, with the dash head
+/// it was built against.
+///
+/// The ladder does this inline at its own success arm; the resolver needs the
+/// same act from the workshop, and doing it through one function is what keeps
+/// the ref, the source mark, and the cleared stale marks moving together. A
+/// half-written set is how a superseded candidate ends up blessed by the marks
+/// of the one before it.
+pub fn anchor_candidate(
+    repo: &Path,
+    name: &str,
+    candidate: &str,
+    dash_head: &str,
+) -> Result<(), String> {
+    write_candidate_ref(repo, name, candidate)?;
+    clear_candidate_marks(repo, name);
+    let _ = git_output(repo, &["config", &join_source_config_key(name), dash_head]);
+    Ok(())
+}
+
+/// Record which rung decided one path, for the candidate that stands.
+pub fn record_resolved_rung(repo: &Path, name: &str, path: &str, rung: ResolvedBy) {
+    let value = format!("{}\t{}", path, rung.as_str());
+    let _ = git_output(
+        repo,
+        &["config", "--add", &join_resolved_config_key(name), &value],
+    );
+}
+
+/// Where a candidate's resolver report is pointed from: `<candidate>:<blob>`.
+///
+/// The report itself is a git blob rather than a config value — it is prose,
+/// and prose in `.git/config` is a formatting accident waiting to happen. The
+/// config carries the pointer *and* the candidate it describes, which is what
+/// makes the report self-demote the moment the candidate does, exactly like the
+/// verification verdict beside it.
+pub fn report_config_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinreport", name)
+}
+
+/// Why the last resolve stopped short: `<dash_head>:<reason>`.
+///
+/// Anchored to the dash head rather than to a candidate, because a stuck
+/// resolve is precisely the case where no candidate was produced. A new round
+/// on the dash moves the head and the reason stops applying, which is the
+/// self-demotion every join fact gets.
+pub fn stuck_config_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinstuck", name)
+}
+
+/// Store a resolver report for a candidate, as a blob the config points at.
+pub fn write_report(repo: &Path, name: &str, candidate: &str, json: &str) -> Result<(), String> {
+    let blob = hash_blob(repo, json.as_bytes())?;
+    let value = format!("{}:{}", candidate, blob);
+    let out = git_output(repo, &["config", &report_config_key(name), &value])?;
+    if !out.status.success() {
+        return Err(format!(
+            "failed to record the resolver report for {}: {}",
+            name,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Read the resolver report standing for `candidate`, if the stored one
+/// describes it.
+pub fn read_report(repo: &Path, name: &str, candidate: &str) -> Option<String> {
+    let value = config_get(repo, &report_config_key(name))?;
+    let (for_candidate, blob) = value.split_once(':')?;
+    if for_candidate != candidate {
+        return None;
+    }
+    git_stdout(repo, &["cat-file", "blob", blob]).ok()
+}
+
+/// Record why a resolve stopped short, against the dash head it ran on.
+pub fn write_stuck(repo: &Path, name: &str, dash_head: &str, reason: &str) {
+    let one_line = reason.replace('\n', " ");
+    let value = format!("{}:{}", dash_head, one_line);
+    let _ = git_output(repo, &["config", &stuck_config_key(name), &value]);
+}
+
+/// The standing stuck reason, if one describes the dash's current head.
+pub fn read_stuck(repo: &Path, name: &str, dash_head: &str) -> Option<String> {
+    let value = config_get(repo, &stuck_config_key(name))?;
+    let (for_head, reason) = value.split_once(':')?;
+    if for_head != dash_head {
+        return None;
+    }
+    Some(reason.to_string())
+}
+
+/// Drop the standing stuck reason — what a resolve does when it starts, so a
+/// retry never renders under the last attempt's refusal.
+pub fn clear_stuck(repo: &Path, name: &str) {
+    let _ = git_output(repo, &["config", "--unset-all", &stuck_config_key(name)]);
+}
+
+/// Where the escalation a resolve is blocked on is pointed from:
+/// `<dash_head>:<blob>`.
+///
+/// The question itself is a git blob rather than a config value, for the
+/// reason the report is: it is model-authored prose with quotes and newlines
+/// in it, and a config value is the wrong container for that — the shape that
+/// forced the change was a question whose own apostrophes did not survive the
+/// round trip. Anchored to the *dash head* rather than a candidate, because a
+/// question exists precisely when there is no candidate yet.
+pub fn question_config_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinquestion", name)
+}
+
+/// Record the question a resolve is blocked on, so a reload re-renders it.
+pub fn write_question(repo: &Path, name: &str, dash_head: &str, json: &str) {
+    let Ok(blob) = hash_blob(repo, json.as_bytes()) else {
+        return;
+    };
+    let value = format!("{}:{}", dash_head, blob);
+    let _ = git_output(repo, &["config", &question_config_key(name), &value]);
+}
+
+/// The standing question, if one describes the dash's current head.
+pub fn read_question(repo: &Path, name: &str, dash_head: &str) -> Option<String> {
+    let value = config_get(repo, &question_config_key(name))?;
+    let (for_head, blob) = value.split_once(':')?;
+    if for_head != dash_head {
+        return None;
+    }
+    git_stdout(repo, &["cat-file", "blob", blob]).ok()
+}
+
+/// Drop the standing question — what answering, expiring, or starting a fresh
+/// resolve each do.
+pub fn clear_question(repo: &Path, name: &str) {
+    let _ = git_output(repo, &["config", "--unset-all", &question_config_key(name)]);
+}
+
 /// Clear every mark that describes a candidate, without touching the ref.
 fn clear_candidate_marks(repo: &Path, name: &str) {
     for key in [
-        reviewed_config_key(name),
         join_source_config_key(name),
         join_resolved_config_key(name),
+        report_config_key(name),
     ] {
         let _ = git_output(repo, &["config", "--unset-all", &key]);
     }
@@ -1200,9 +1417,9 @@ fn clear_candidate_marks(repo: &Path, name: &str) {
 /// Drop a candidate and everything that described it, as one act.
 ///
 /// The ref and the marks are written and cleared as a group so a half-written
-/// set cannot outlive a candidate — a stale `tugjoinreviewed` standing alone
-/// would bless whatever candidate came next, and a stale verification verdict
-/// would report a green about a tree nobody built.
+/// set cannot outlive a candidate — a stale verification verdict would report
+/// a green about a tree nobody built, and a stale report would describe a
+/// resolution nobody made.
 pub fn clear_candidate(repo: &Path, name: &str) {
     delete_candidate_ref(repo, name);
     clear_candidate_marks(repo, name);

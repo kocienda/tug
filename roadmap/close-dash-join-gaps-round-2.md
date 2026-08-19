@@ -439,12 +439,12 @@ Anything else in a terminal position (prose, a fenced block, a half-object) is a
 | #step-2 | The workshop worktree | done | `f01614f06` |
 | #step-3 | Verification facts and the Tier 0 runner | done | `5519ffda9` |
 | #step-4 | Tier 1: the derived selection exam | done | `a4cd8772e` |
-| #step-5 | The resolver seam and charter | pending | — |
-| #step-6 | Resolver orchestration in the resolve flow | pending | — |
-| #step-7 | The escalation question frame | pending | — |
-| #step-8 | The join face: new states, review gate retired | pending | — |
-| #step-9 | The pressed arcs: at0441 extension + new fixtures | pending | — |
-| #step-10 | Integration checkpoint and documentation sync | pending | — |
+| #step-5 | The resolver seam and charter | done | `f9bd8df4d` |
+| #step-6 | Resolver orchestration in the resolve flow | done | `f9bd8df4d` |
+| #step-7 | The escalation question frame | done | `32ec49e71` |
+| #step-8 | The join face: new states, review gate retired | done | `e9a468c88` |
+| #step-9 | The pressed arcs: at0441 extension + new fixtures | done | `e9a468c88` |
+| #step-10 | Integration checkpoint and documentation sync | done | `8762e2f0e` |
 
 #### Step 1: The dash act is named join {#step-1}
 

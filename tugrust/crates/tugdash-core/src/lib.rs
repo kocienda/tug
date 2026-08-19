@@ -44,7 +44,7 @@ pub use ops::{
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{
     FileMergeRequest, FileMerger, FileResolution, JoinShape, ResolveOutcome, ResolvedBy,
-    resolve_conflicts, resolve_conflicts_cwd, resolve_intent,
+    resolve_conflicts, resolve_conflicts_cwd, resolve_intent, resolver_program,
 };
 pub use verify::{
     TierOutcome, TierStatus, Verification, clear_verification, read_verification, run_tier0,

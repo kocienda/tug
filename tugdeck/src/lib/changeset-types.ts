@@ -282,6 +282,70 @@ export interface DashJoinStateWire {
    * nobody has asked about *this* candidate — which is not the same as green.
    */
   verification?: DashJoinVerificationWire;
+  /**
+   * What the resolver did and why, for the candidate that stands — anchored to
+   * the candidate sha server-side, so it never outlives the resolution it
+   * describes.
+   */
+  report?: DashJoinReportWire;
+  /**
+   * Why the resolve stopped short, when it did. A join that will not proceed
+   * and cannot say why is the one state the face must never render.
+   */
+  stuck?: string;
+  /**
+   * The intent question the resolver is waiting on. Durable state rather than
+   * a live frame, so a reload re-renders the question instead of losing it and
+   * leaving the resolver blocked on an answer nobody can give.
+   */
+  question?: DashJoinQuestionWire;
+}
+
+/** An escalation from the resolver, phrased as intent — never as a diff. */
+export interface DashJoinQuestionWire {
+  /** Identifies this ask, so an answer cannot resolve a different one. */
+  request_id: string;
+  question: string;
+  options: DashJoinQuestionOptionWire[];
+}
+
+/** One concrete resolution offered on an escalation. */
+export interface DashJoinQuestionOptionWire {
+  label: string;
+  description?: string;
+}
+
+/** The resolver's account of a candidate — what the review panel's space now shows. */
+export interface DashJoinReportWire {
+  files: DashJoinReportFileWire[];
+  iterations?: DashJoinReportIterationWire[];
+  question?: DashJoinReportQuestionWire;
+  notes?: string;
+}
+
+/** One file's account in the resolver's report. */
+export interface DashJoinReportFileWire {
+  path: string;
+  resolved_by?: string;
+  what_each_side_did?: string;
+  reconciliation?: string;
+  /**
+   * `kept` | `redone` for a path an algorithmic rung decided and the resolver
+   * reviewed; absent for one the resolver finished itself.
+   */
+  audit?: string;
+}
+
+/** One pass of the build-tier loop, as the resolver recorded it. */
+export interface DashJoinReportIterationWire {
+  tier0: string;
+  detail?: string;
+}
+
+/** The escalation the resolver raised and the answer it was given. */
+export interface DashJoinReportQuestionWire {
+  question: string;
+  answer?: string;
 }
 
 /** A candidate's verification verdict, as the join face reads it. */

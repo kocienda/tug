@@ -25,7 +25,9 @@ import {
 } from "../changeset-join-store";
 import {
   JOIN_CONTROL,
+  QUESTION_DECLINED_TO_CHOOSE,
   deriveJoinFace,
+  joinQuestionAsParsed,
   type JoinFace,
 } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
 import {
@@ -44,6 +46,29 @@ const RESOLVED: DashJoinStateWire = {
   conflicts: ["a.rs"],
   candidate: "cafe1234",
   resolved: [{ path: "a.rs", resolved_by: "driver" }],
+};
+
+/** The same candidate, with the project's own checks green over it. */
+const VERIFIED: DashJoinStateWire = {
+  ...RESOLVED,
+  verification: {
+    tier0: "green",
+    tier1: "green",
+    base_sha: "base0000",
+    candidate_sha: "cafe1234",
+  },
+};
+
+/** …and red, which is the state the override exists for. */
+const RED: DashJoinStateWire = {
+  ...RESOLVED,
+  verification: {
+    tier0: "red",
+    tier1: "unrun",
+    base_sha: "base0000",
+    candidate_sha: "cafe1234",
+    failures: ["cargo check: exited 101"],
+  },
 };
 
 /** The face for a feed state, with everything else at rest. */
@@ -100,21 +125,41 @@ describe("one control per state (Table T01)", () => {
     expect(running.control).toBeNull();
   });
 
-  test("resolved and unread: the review, and the sentence that names it", () => {
-    const unread = face(RESOLVED);
-    expect(unread.outcome).toBe("clean");
-    expect(unread.resolve).toBe("resolved");
-    expect(unread.control).toBe(JOIN_CONTROL.reviewed);
-    expect(unread.line).toBe("Review what the ladder resolved first");
+  test("resolved and unverified: the exam, and the sentence that names it", () => {
+    const unrun = face(RESOLVED);
+    expect(unrun.outcome).toBe("clean");
+    expect(unrun.resolve).toBe("resolved");
+    expect(unrun.control).toBe(JOIN_CONTROL.verify);
+    expect(unrun.line).toBe("Verify the joined tree first");
   });
 
-  test("resolved and read: no control at all, and a line naming the route", () => {
+  test("resolved and red: the override, and the failure it is a decision about", () => {
+    // The one state on this face that offers a way past a refusal rather than
+    // a way to clear it — because the fix for a red is another resolve, and
+    // the override is what the user chooses in view of the failure.
+    const red = face(RED);
+    expect(red.control).toBe(JOIN_CONTROL.override);
+    expect(red.line).toBe("Verification failed — join anyway to proceed");
+  });
+
+  test("resolved and green: no control at all, and a line naming the route", () => {
     // The state the JOIN button used to occupy. With no control on the row the
     // sentence is the only thing between the reader and a dead end, so it has
-    // to name where landing happens rather than merely asserting readiness.
-    const read = face({ ...RESOLVED, reviewed: true });
-    expect(read.control).toBeNull();
-    expect(read.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
+    // to name where joining happens rather than merely asserting readiness.
+    const verified = face(VERIFIED);
+    expect(verified.control).toBeNull();
+    expect(verified.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
+  });
+
+  test("a red the user has overridden joins like a green", () => {
+    // The override is scoped to the candidate it was decided over, so the same
+    // press against a different sha does nothing — which is what stops one
+    // Join anyway from blessing every candidate that follows it.
+    const overridden = face(RED, { redOverrideFor: "cafe1234" });
+    expect(overridden.control).toBeNull();
+    expect(overridden.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
+    const stale = face(RED, { redOverrideFor: "beef5678" });
+    expect(stale.control).toBe(JOIN_CONTROL.override);
   });
 
   test("clean: same — a sentence and no button", () => {
@@ -207,7 +252,8 @@ describe("every refusal points at a control that state mounts ([P08])", () => {
       join: { phase: "previewed", stale_note: "main moved since this was resolved" },
       reason: "outcome",
     },
-    { name: "resolved but unread", join: RESOLVED, reason: "unreviewed" },
+    { name: "resolved but unverified", join: RESOLVED, reason: "unverified" },
+    { name: "resolved and red", join: RED, reason: "verification-red" },
   ];
 
   for (const c of cases) {
@@ -275,7 +321,7 @@ describe("the overlay never outranks what is in git", () => {
     });
     // The overlay is back to idle; the resolved face is the feed's doing.
     expect(phase()).toBe("idle");
-    expect(face(RESOLVED, { resolvePhase: phase() }).control).toBe(JOIN_CONTROL.reviewed);
+    expect(face(RESOLVED, { resolvePhase: phase() }).control).toBe(JOIN_CONTROL.verify);
   });
 
   test("a resolution survives the overlay it was built under", () => {
@@ -300,5 +346,36 @@ describe("the overlay never outranks what is in git", () => {
     const f = face(CONFLICTED, { resolvePhase: state.phase });
     expect(f.resolve).toBe("error");
     expect(f.control).toBe(JOIN_CONTROL.resolve);
+  });
+});
+
+describe("the escalation, narrowed for the wizard", () => {
+  test("a resolver question becomes one single-select question", () => {
+    // Single-select and never multi: the resolver asks which reconciliation to
+    // make, and two incompatible intents cannot both be taken. The description
+    // rides along because it is what makes an option a *concrete resolution*
+    // rather than a label the reader has to decode.
+    const [parsed] = joinQuestionAsParsed({
+      request_id: "join-demo-7",
+      question: "Which name wins?",
+      options: [
+        { label: "the dash", description: "keep the dash's rename" },
+        { label: "the base", description: "keep what main renamed it to" },
+      ],
+    });
+    expect(parsed.question).toBe("Which name wins?");
+    expect(parsed.multiSelect).toBe(false);
+    expect(parsed.options).toEqual([
+      { label: "the dash", description: "keep the dash's rename" },
+      { label: "the base", description: "keep what main renamed it to" },
+    ]);
+  });
+
+  test("declining to choose is an answer, not a silence", () => {
+    // The wizard always offers Cancel, and a blocked resolver has no turn to
+    // interrupt — so Cancel has to *say something*, or the resolve waits out
+    // its whole deadline over a dialog nobody is looking at any more.
+    expect(QUESTION_DECLINED_TO_CHOOSE).toContain("declined to choose");
+    expect(QUESTION_DECLINED_TO_CHOOSE).toContain("without guessing");
   });
 });

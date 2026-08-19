@@ -20,11 +20,12 @@
  *
  * ## The arc
  *
- * conflicted → Resolve → progress → resolved, with each path's diff and the
- * rung that decided it → **reload the deck** → still resolved → Reviewed →
- * the row states its landing route and offers no control → enter join mode by
- * that route → type a message → the composer's land control is armed → **press
- * it, and the dash lands.**
+ * conflicted → Resolve → progress → the resolver reconciles it in the workshop
+ * and reports what it did → the project's own Tier 0 runs over that tree and
+ * comes back green → **reload the deck** → still resolved, still reported,
+ * still green → the row states its join route and offers no control → enter
+ * join mode by that route → type a message → the composer's land control is
+ * armed → **press it, and the dash joins.**
  *
  * The reload is not decoration. Three candidates were built and abandoned in
  * one day because nothing durable held them; the candidate is a git ref now,
@@ -73,6 +74,9 @@
  * @covers tugrust/crates/tugdash-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
+ * @covers tugrust/crates/tugdash-core/src/workshop.rs
+ * @covers tugrust/crates/tugdash-core/src/verify.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
  */
 
@@ -114,8 +118,8 @@ const DASH = "at0441-arc";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
 const LANDING = `${ROW} [data-slot="session-changes-dash-join"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
-const REVIEW = `${ROW} [data-slot="session-changes-dash-join-review"]`;
-const REVIEWED = `${ROW} [data-slot="session-changes-dash-join-reviewed"]`;
+const VERDICT = `${ROW} [data-slot="session-changes-dash-join-verdict"]`;
+const REPORT = `${ROW} [data-slot="session-changes-dash-join-report"]`;
 const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
 const BLOCKERS = `${ROW} [data-slot="session-changes-dash-join-blockers"]`;
@@ -133,8 +137,14 @@ const CONFLICT_FILE = "subject.txt";
 const FORK_BODY = "at0441 the body both sides will rewrite\n";
 const BASE_BODY = "at0441 base side — the whole file, rewritten\n";
 const DASH_BODY = "at0441 dash side — the whole file, rewritten\n";
-/** The body the stub driver resolves the conflict to, asserted verbatim. */
-const DRIVER_BODY = "at0441 resolved by the stub driver\n";
+/**
+ * The body the stub resolver reconciles the conflict to, asserted verbatim.
+ *
+ * It carries the sentinel the fixture's Tier 0 command greps for, so the
+ * project's own check passes over exactly the tree the resolver produced —
+ * which is the point of running one at all.
+ */
+const RESOLVER_BODY = "at0441 SENTINEL reconciled by the resolver\n";
 /** What the user types into the composer, and what the squash commit carries. */
 const LAND_MESSAGE = "the arc lands its own dash";
 
@@ -220,7 +230,17 @@ beforeAll(() => {
   git(scratch, "config", "user.email", "app-test@tugtool.dev");
   git(scratch, "config", "user.name", "at0441");
   writeFileSync(join(scratch, CONFLICT_FILE), FORK_BODY);
-  git(scratch, "add", CONFLICT_FILE);
+  // The project declares its own verification ([P11]). Tier 0 is a sentinel
+  // grep — seconds cheap, no toolchain, and it can genuinely go red — and
+  // there is deliberately **no** Tier 1: a fixture join runs inside an
+  // app-test that already holds the machine-wide apptest gate, so a real
+  // tier-1 command would queue on the gate its own run is holding.
+  mkdirSync(join(scratch, ".tugtool"), { recursive: true });
+  writeFileSync(
+    join(scratch, ".tugtool", "config.toml"),
+    `[tugtool.dash]\nverify_tier0 = ["grep -q SENTINEL ${CONFLICT_FILE}"]\n`,
+  );
+  git(scratch, "add", "-A");
   git(scratch, "commit", "-m", "at0441: the file both sides rewrite");
 
   // The dash forks here — `createDash` derives `--base` from the branch the
@@ -240,12 +260,21 @@ beforeAll(() => {
     env: { TUG_DATA_DIR: dataRoot },
   });
 
-  // Rung 4's tool, configured in the scratch repo only.
-  stubDir = mkdtempSync(join(tmpdir(), "at0441-driver-"));
-  const stub = join(stubDir, "stub-driver.sh");
-  writeFileSync(stub, `#!/bin/sh\nprintf '%s' '${DRIVER_BODY}' > "$4"\n`);
+  // The resolver, configured in the scratch repo only. It speaks the two
+  // terminal shapes over stdio — one JSON line per user message in, one per
+  // terminal turn out — which is the identical parse-and-wait path the real
+  // spawn takes; only the transport differs.
+  stubDir = mkdtempSync(join(tmpdir(), "at0441-resolver-"));
+  const stub = join(stubDir, "stub-resolver.sh");
+  writeFileSync(
+    stub,
+    `#!/bin/sh\nws="$1"\nread -r _charter\nprintf '%s' '${RESOLVER_BODY}' > "$ws/${CONFLICT_FILE}"\n` +
+      `printf '%s\\n' '{"files":[{"path":"${CONFLICT_FILE}","resolved_by":"resolver",` +
+      `"what_each_side_did":"both sides rewrote the whole file",` +
+      `"reconciliation":"kept the dash intent and the base sentinel"}],"notes":"at0441"}'\n`,
+  );
   chmodSync(stub, 0o755);
-  git(scratch, "config", "tugdash.mergedriver", stub);
+  git(scratch, "config", "tugdash.joinresolver", stub);
 
   fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(scratch));
   mkdirSync(fixtureDir, { recursive: true });
@@ -352,7 +381,7 @@ async function openOnDash(app: App): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
   test(
-    "conflicted resolves, survives a reload, reviews, and lands — every refusal pointing at a mounted control",
+    "conflicted resolves, is audited and verified, survives a reload, and joins — every refusal pointing at a mounted control",
     async () => {
       const tugbankPath = mkTempTugbank();
       // The source tree is where the app finds `tugdeck/dist` to serve, so it
@@ -423,23 +452,34 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         );
         note("at0441 Resolve registered: the offer face left on the press");
 
-        // ── Beat 3: resolved, with the diff and the rung that decided ─────
+        // ── Beat 3: resolved, audited, and verified ───────────────────────
+        // What stands where the review panel used to is the resolver's own
+        // account plus the project's verdict. The human is no longer the
+        // auditor of machine text decisions: the resolver read every
+        // resolution against the dash's intent and had to account for each
+        // one, and the checks ran over the tree that would actually land.
+        // The verdict is the beat, not the candidate. The ladder anchors a
+        // candidate of its own before the resolver has even opened the
+        // workshop, so waiting on the panel alone would read the arc one stage
+        // early — which is precisely the seam this file exists to hold still.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(REVIEW)}) !== null`,
+          `document.querySelector(${JSON.stringify(VERDICT)})?.getAttribute("data-verdict") === "green"`,
           { timeoutMs: 180000 },
         );
-        const reviewText = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(REVIEW)})?.textContent || "")`,
+        const stuck = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(`${ROW} [data-slot="session-changes-dash-join-stuck"]`)})?.textContent || "")`,
         );
-        expect(reviewText, "the review names the file it resolved").toContain(CONFLICT_FILE);
-        expect(reviewText, "and the rung that decided it").toContain("driver");
-        expect(reviewText, "and what that rung actually chose").toContain(
-          "at0441 resolved by the stub driver",
+        expect(stuck, "the resolve did not stick").toBe("");
+        const reportText = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(REPORT)})?.textContent || "")`,
         );
-        await refusalIsReachable(app, "resolved but unread", REVIEWED);
+        expect(reportText, "the report names the file it reconciled").toContain(CONFLICT_FILE);
+        expect(reportText, "and says how it reconciled it").toContain("kept the dash intent");
+        note("at0441 verified: the project's own Tier 0 ran over the resolver's tree and passed");
 
         // ── Beat 4: the reload ────────────────────────────────────────────
-        // The candidate is a git ref and the review mark is branch config, so
+        // The candidate is a git ref, the report is a blob the config points
+        // at, and the verdict is branch config anchored to the two heads — so
         // a deck that has forgotten everything must come back to the same
         // state. This is the beat three abandoned candidates paid for: before
         // it, the resolution lived only in a client store, and a reload — or a
@@ -454,35 +494,18 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         );
         await runCommand(app, `/dash-join ${DASH}`);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(REVIEW)}) !== null`,
+          `document.querySelector(${JSON.stringify(VERDICT)})?.getAttribute("data-verdict") === "green"`,
           { timeoutMs: 60000 },
         );
         expect(
-          await app.evalJS<string | null>(
-            `document.querySelector(${JSON.stringify(REVIEW)})?.getAttribute("data-reviewed") ?? null`,
-          ),
-          "the resolution survived the reload, and is still unread",
-        ).toBe("false");
-        expect(
           await app.evalJS<string>(
-            `(document.querySelector(${JSON.stringify(REVIEW)})?.textContent || "")`,
+            `(document.querySelector(${JSON.stringify(REPORT)})?.textContent || "")`,
           ),
-          "with the same diff it had before",
-        ).toContain("at0441 resolved by the stub driver");
-        await refusalIsReachable(app, "resolved after reload", REVIEWED);
-        note("at0441 reload beat: the candidate came back from git, still unreviewed");
+          "with the same account it had before",
+        ).toContain(CONFLICT_FILE);
+        note("at0441 reload beat: the candidate, its report, and its verdict all came back from git");
 
-        // ── Beat 5: the review, which is a round trip ─────────────────────
-        // The mark is written server-side against this candidate's sha and
-        // comes back on the feed, so the face flips on the recomposed entry
-        // rather than on a local boolean.
-        await revealAndClick(app, REVIEWED);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(REVIEW)})?.getAttribute("data-reviewed") === "true"`,
-          { timeoutMs: 30000 },
-        );
-
-        // ── Beat 6: landable — a sentence, and no control ─────────────────
+        // ── Beat 5: landable — a sentence, and no control ─────────────────
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(READY)})?.getAttribute("data-ready") === "true"`,
           { timeoutMs: 30000 },
@@ -496,7 +519,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         expect(readyLine).toContain("/dash-join");
         note(`at0441 landable: ${JSON.stringify(readyLine)}`);
 
-        // ── Beat 7: the route the sentence named ──────────────────────────
+        // ── Beat 6: the route the sentence named ──────────────────────────
         // `/dash-join` toggles: the beat-4 command that raised the lane left
         // the card in join mode, and sending it again would leave it. So the
         // route is entered only when it is not already the live one.
@@ -520,7 +543,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           "empty-message points at the composer, which is on screen",
         ).toBe(true);
 
-        // ── Beat 8: a message, and a landing with nothing left refusing ───
+        // ── Beat 7: a message, and a landing with nothing left refusing ───
         await app.nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("a", ["cmd"]);
@@ -544,7 +567,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           false,
         );
 
-        // ── Beat 9: the press, and the landing it produces ────────────────
+        // ── Beat 8: the press, and the landing it produces ────────────────
         // The repository is the fixture's own, so this may finally run. What
         // it proves is the half at0436 cannot reach: a join that is not
         // refused actually integrates. Waiting on the repository rather than
@@ -565,7 +588,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         // And it carries the resolution that was reviewed — not either side of
         // the conflict. A landing that quietly took one side would pass every
         // assertion above and still be the wrong tree.
-        expect(readFileSync(join(scratch, CONFLICT_FILE), "utf8")).toBe(DRIVER_BODY);
+        expect(readFileSync(join(scratch, CONFLICT_FILE), "utf8")).toBe(RESOLVER_BODY);
         // The journaled teardown ran: nothing of the dash is left to land twice.
         expect(branchExists(`tugdash/${DASH}`), "the dash branch is gone").toBe(false);
         expect(worktreePaths().some((p) => p.includes(DASH)), "its worktree is gone").toBe(

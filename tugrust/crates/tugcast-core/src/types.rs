@@ -565,7 +565,7 @@ pub enum ChangesetEntry {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         replay_conflict_paths: Vec<String>,
         /// The join pipeline's entire durable state for this dash — blockers,
-        /// conflicts, the verified candidate, and whether it has been reviewed.
+        /// conflicts, the resolved candidate, and what verification said of it.
         ///
         /// This is the join arc's single source of truth ([P01]); the client
         /// holds no durable copy of any of it. Absent from an older server,
@@ -612,14 +612,9 @@ pub struct DashJoinState {
     /// `resolved`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate: Option<String>,
-    /// The ladder's per-file results, for the review panel.
+    /// The ladder's per-file results — the resolver report's citation layer.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resolved: Vec<DashResolvedFile>,
-    /// Whether the user has read what the ladder decided **for this candidate**.
-    /// Pinned to a sha server-side, so reviewing one candidate never blesses
-    /// the next one.
-    #[serde(default)]
-    pub reviewed: bool,
     /// A candidate existed but no longer describes the current heads: the
     /// sentence names which side moved. The board drops the stale candidate
     /// when it says this, so the state demotes itself rather than lying.
@@ -632,6 +627,99 @@ pub struct DashJoinState {
     /// asked about *this* candidate, which is not the same as green.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification: Option<DashJoinVerification>,
+    /// What the resolver did and why, for the candidate that stands ([P10]).
+    ///
+    /// Anchored to the candidate sha the same way the verdict is, so a report
+    /// never outlives the resolution it describes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<DashJoinReport>,
+    /// Why the resolve stopped short, when it did.
+    ///
+    /// A resolve that fails must say so in a sentence somebody can act on — a
+    /// protocol violation, an unaccounted path, an exhausted iteration budget.
+    /// Silence here would be the face's worst state: a join that will not
+    /// proceed and cannot say why.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stuck: Option<String>,
+    /// The intent question the resolver is waiting on, if it raised one.
+    ///
+    /// Durable state rather than a live CONTROL frame, because CONTROL is
+    /// droppable by design: a reload during a blocked resolve must re-render
+    /// the question, not lose it and leave the resolver waiting on an answer
+    /// nobody can give.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<DashJoinQuestion>,
+}
+
+/// An escalation from the resolver, phrased as intent ([P06]).
+///
+/// What each side was trying to do, and 2–4 concrete resolutions — never a
+/// diff. A diff shown as a question is the workflow this whole round retired.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinQuestion {
+    /// Identifies this ask, so an answer cannot resolve a different one.
+    pub request_id: String,
+    pub question: String,
+    pub options: Vec<DashJoinQuestionOption>,
+}
+
+/// One concrete resolution offered on an escalation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinQuestionOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+/// The resolver's account of a candidate (Spec S02) — what it finished, what it
+/// audited, what verification said each pass, and what it asked.
+///
+/// This is what the retired review panel's space now renders. The difference is
+/// who read the resolutions: the human was being asked to; the resolver has,
+/// and this is the reading.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinReport {
+    pub files: Vec<DashJoinReportFile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub iterations: Vec<DashJoinReportIteration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<DashJoinReportQuestion>,
+    #[serde(default)]
+    pub notes: String,
+}
+
+/// One file's account in the resolver's report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinReportFile {
+    pub path: String,
+    #[serde(default)]
+    pub resolved_by: String,
+    #[serde(default)]
+    pub what_each_side_did: String,
+    #[serde(default)]
+    pub reconciliation: String,
+    /// `kept` | `redone` for a path an algorithmic rung decided and the
+    /// resolver reviewed; absent for one the resolver finished itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit: Option<String>,
+}
+
+/// One pass of the Tier 0 loop, as the resolver recorded it — what keeps the
+/// account honest about retries ([P05]).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinReportIteration {
+    pub tier0: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// The escalation the resolver raised and the answer it was given, kept so the
+/// question survives past the dialog that answered it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinReportQuestion {
+    pub question: String,
+    #[serde(default)]
+    pub answer: String,
 }
 
 /// A candidate's verification verdict, as the face reads it.

@@ -73,39 +73,95 @@ export interface JoinGateInput {
   outcome: JoinOutcome;
   /** A candidate commit from the resolution ladder, if one was built. */
   candidateCommit: string | null;
+  /** What the project's own checks said about the joined tree ([P04]). */
+  verdict: JoinVerdict;
   /**
-   * The ladder resolved files by machine and the user has not yet read what it
-   * decided ({@link resolutionAwaitsReview}).
+   * The user has looked at a red verdict and chosen to join past it ([P07]).
+   *
+   * Pinned to a candidate sha by whoever supplies it, so an override is a
+   * decision about the tree it was made in view of and never carries to the
+   * next one.
    */
-  unreviewedResolution: boolean;
+  redOverride: boolean;
   /** The trimmed join message. */
   message: string;
 }
 
+/**
+ * What verification says about the candidate that stands.
+ *
+ * `not-applicable` is the ordinary clean join: nothing was resolved by
+ * machine, so there is no candidate and nothing to examine — that join gates
+ * exactly as it always did. Every other value belongs to a candidate.
+ */
+export type JoinVerdict =
+  | "not-applicable"
+  | "unrun"
+  | "running"
+  | "green"
+  | "red";
+
 /** Why a join press was refused. */
-export type JoinGateReason = "turn" | "pending" | "outcome" | "unreviewed" | "empty-message";
+export type JoinGateReason =
+  | "turn"
+  | "pending"
+  | "outcome"
+  | "unverified"
+  | "verifying"
+  | "verification-red"
+  | "empty-message";
 
 /** The join-gate verdict — `ok`, or the first failing reason. */
 export type JoinGate = { ok: true } | { ok: false; reason: JoinGateReason };
 
 /**
- * Whether the ladder's per-file decisions still await the user's eyes ([D115]).
+ * What the project's own checks said about the candidate that would join
+ * ([P04], [P07]).
  *
- * Only a candidate built out of *per-file* resolutions asks for this. A rung-1
- * replay and a clean one-shot squash resolve nothing by machine — their
- * `resolved` list is empty — so they join as they always did. Everything above
- * that rung is a guess or a replayed cache entry: the 2026-08-15 join proved
- * a stale rerere resolution can keep one side wholesale and discard the other,
- * build green, and break at runtime.
+ * This replaced a gate that asked the *human* to read a diff. That framing was
+ * wrong twice over: it made the person the auditor of machine text decisions,
+ * and it caught nothing a careless click could not wave through. What matters
+ * about a resolved tree is whether it builds and passes — and whether the
+ * resolver accounted for every file it touched ([P10]), which the report
+ * carries. So the gate reads a verdict.
  *
- * Read off the feed's join block, which is where the review mark lives: it is
- * a candidate sha in the dash's branch config, so a reload cannot forget a
- * review and a re-resolved candidate cannot inherit one.
+ * Absence is `unrun`, never green: nobody having asked about this candidate is
+ * a different fact from the checks having passed on it, and conflating them is
+ * how a tree nobody built would join looking verified. The verdict is anchored
+ * to `(base_sha, candidate_sha)` server-side, so it cannot survive either head
+ * moving.
  */
-export function resolutionAwaitsReview(join: DashJoinStateWire | null | undefined): boolean {
-  if (join === null || join === undefined) return false;
-  if (typeof join.candidate !== "string" || join.candidate === "") return false;
-  return (join.resolved ?? []).length > 0 && join.reviewed !== true;
+export function verificationVerdict(
+  join: DashJoinStateWire | null | undefined,
+): JoinVerdict {
+  if (join === null || join === undefined) return "not-applicable";
+  if (typeof join.candidate !== "string" || join.candidate === "") {
+    return "not-applicable";
+  }
+  const verification = join.verification;
+  if (verification === undefined) return "unrun";
+  const tiers = [verification.tier0, verification.tier1];
+  if (tiers.includes("red")) return "red";
+  if (tiers.includes("running")) return "running";
+  if (tiers.includes("unrun")) return "unrun";
+  return "green";
+}
+
+/**
+ * Whether a standing red override is about *this* candidate ([P07]).
+ *
+ * The comparison is the whole point. The override is recorded against the sha
+ * it was decided over, so a re-resolve — the ordinary response to a red — puts
+ * a new candidate up and the override stops applying to it. Without the
+ * comparison, one press of Join anyway would wave through every candidate that
+ * dash ever produced afterwards.
+ */
+export function redOverrideStands(
+  candidateCommit: string | null,
+  resolve: { redOverrideFor: string | null } | null,
+): boolean {
+  if (candidateCommit === null || resolve === null) return false;
+  return resolve.redOverrideFor === candidateCommit;
 }
 
 /**
@@ -117,9 +173,9 @@ export function resolutionAwaitsReview(join: DashJoinStateWire | null | undefine
  *
  * `outcome` passes on a clean preview, or on any state carrying a candidate
  * commit: a resolved conflict is a joinable dash even though its history is
- * `conflicted`. `unreviewed` sits immediately after it, because it is the same
- * question one level finer — not *is* there something to join, but *has anyone
- * looked at what the machine decided to join*.
+ * `conflicted`. The verdict sits immediately after it, because it is the same
+ * question one level finer — not *is* there something to join, but *does what
+ * would join survive the project's own checks*.
  */
 export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   if (input.turnInProgress) return { ok: false, reason: "turn" };
@@ -131,7 +187,16 @@ export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   // joinable through it, which is the shade saying "blocked" and the button
   // saying "go".
   if (input.outcome !== "clean") return { ok: false, reason: "outcome" };
-  if (input.unreviewedResolution) return { ok: false, reason: "unreviewed" };
+  // The verdict sits immediately after the outcome, because it is the same
+  // question one level finer — not *is* there something to join, but *does
+  // what would join survive the project's own checks*. A red is refused unless
+  // the user has looked at it and said join anyway: an override is a decision
+  // made in view of the failure, never a default and never a trap.
+  if (input.verdict === "red" && !input.redOverride) {
+    return { ok: false, reason: "verification-red" };
+  }
+  if (input.verdict === "running") return { ok: false, reason: "verifying" };
+  if (input.verdict === "unrun") return { ok: false, reason: "unverified" };
   if (input.message.trim().length === 0) return { ok: false, reason: "empty-message" };
   return { ok: true };
 }
@@ -158,9 +223,15 @@ export function joinDisabledReason(
   // preview, reads "This join is not ready yet" — which names nothing the user
   // can act on when all that is missing is the message.
   if (reason === "empty-message") return "Write a join message";
-  // Named as the act that clears it, and it says *where*: the composer's Join
-  // shows this sentence too, and the diffs it points at live on the dash row.
-  if (reason === "unreviewed") return "Review what the ladder resolved first";
+  // Each names the act that clears it. The red one names the *override*
+  // rather than a fix, because the override is the only thing on this surface
+  // that moves a red join forward — the fix is another resolve, and saying so
+  // here would point at a control that is not on screen.
+  if (reason === "unverified") return "Verify the joined tree first";
+  if (reason === "verifying") return "Verification is running";
+  if (reason === "verification-red") {
+    return "Verification failed — join anyway to proceed";
+  }
   switch (outcome) {
     case "conflicted":
       return "Resolve the conflicts first";
@@ -209,7 +280,16 @@ export const REFUSAL_REACHABILITY = {
   // The conflicted and stale readings of `outcome`; see
   // {@link refusalReachability} for the two that answer to a different act.
   outcome: { slot: "session-changes-dash-resolve", where: "join-face" },
-  unreviewed: { slot: "session-changes-dash-join-reviewed", where: "join-face" },
+  // The verdict's three refusals, each pointing at the control that moves it:
+  // the exam for an unrun one, nothing at all for one already running, and the
+  // override for a red — which is the only control on this surface that can
+  // carry a red join forward.
+  unverified: { slot: "session-changes-dash-join-verify", where: "join-face" },
+  verifying: { slot: null, where: "time" },
+  "verification-red": {
+    slot: "session-changes-dash-join-override",
+    where: "join-face",
+  },
   // The message is the composer's document, so the editor is the control.
   "empty-message": { slot: "tug-prompt-entry", where: "composer" },
 } satisfies Record<JoinGateReason, ReachabilityRow>;
@@ -252,7 +332,8 @@ export function joinGateFacts(input: JoinGateInput): Record<string, unknown> {
     joinPhase: input.joinPhase,
     outcome: input.outcome,
     candidateCommit: input.candidateCommit,
-    unreviewedResolution: input.unreviewedResolution,
+    verdict: input.verdict,
+    redOverride: input.redOverride,
     messageLen: input.message.trim().length,
   };
 }
@@ -399,7 +480,16 @@ export class JoinModeController implements LandingMode {
       joinPhase,
       outcome,
       candidateCommit,
-      unreviewedResolution: resolutionAwaitsReview(join),
+      verdict: verificationVerdict(join),
+      redOverride: redOverrideStands(
+        candidateCommit,
+        this.target === null
+          ? null
+          : getChangesetJoinStore()?.state(
+              changesController.workspaceKey,
+              this.target.name,
+            ) ?? null,
+      ),
       message: "x", // ignore message emptiness here (CSS-gated on data-commit-empty)
     });
     // The same sentence the fronted row's join face shows, carried to the
@@ -667,7 +757,14 @@ export class JoinModeController implements LandingMode {
       joinPhase: getChangesetVerbStore()?.joinState(changesController.entryKey).phase ?? "idle",
       outcome: deriveJoinOutcome(join),
       candidateCommit: typeof candidate === "string" && candidate !== "" ? candidate : null,
-      unreviewedResolution: resolutionAwaitsReview(join),
+      verdict: verificationVerdict(join),
+      redOverride: redOverrideStands(
+        typeof candidate === "string" && candidate !== "" ? candidate : null,
+        getChangesetJoinStore()?.state(
+          changesController.workspaceKey,
+          target.name,
+        ) ?? null,
+      ),
       message,
     };
   }

@@ -2635,7 +2635,7 @@ pub(crate) fn dash_draft_message(repo: &Path, branch: &str) -> Option<String> {
 /// The three skills that author join drafts are told to write a bare subject,
 /// so both ends are closed: nothing produces a scope here, and a hand-typed one
 /// cannot double.
-pub(crate) fn integrate_message(
+pub fn integrate_message(
     repo: &Path,
     name: &str,
     branch: &str,

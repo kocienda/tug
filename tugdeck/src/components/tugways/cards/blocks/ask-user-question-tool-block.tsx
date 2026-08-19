@@ -89,7 +89,7 @@ import {
   applyQuestionSelection,
   initialQuestionSelections,
   parseQuestions,
-  QuestionWizard,
+  SessionQuestionWizard,
   type ParsedQuestion,
 } from "@/components/tugways/chrome/session-question-dialog";
 import {
@@ -508,7 +508,7 @@ export const AskUserQuestionToolBlock: React.FC<ToolBlockProps> = ({
         caution={caution}
         forceExpanded
       >
-        <QuestionWizard
+        <SessionQuestionWizard
           request={pendingQuestion}
           session={session}
           onResolve={setSubmitted}

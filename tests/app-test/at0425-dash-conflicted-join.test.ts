@@ -34,8 +34,9 @@
  *   face leaves the moment the store flips to `resolving`, before any server
  *   frame. This is the dead-click assertion: if the click does nothing, the
  *   Resolve affordance is still on screen and the wait below times out.
- * - The ladder's terminal frame lands: the run reaches its dead end and says
- *   so, naming the file that is still conflicting.
+ *   What the resolve does *after* that press belongs to the scratch-repo
+ *   fixtures — at0426, at0441, at0442, at0443 — which script a resolver rather
+ *   than spawning one against the developer's own checkout.
  * - **Adopt** round-trips for real: the click sends `bind_dash`, and the row
  *   flips to Leave only on the `bind_dash_ok` broadcast that comes back.
  *
@@ -89,7 +90,6 @@ const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
 const RELEASE = `${ROW} [data-slot="session-changes-dash-discard"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
 const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-join-archaeology"]`;
-const DEAD_END = `${ROW} .session-changes-dash-join-error`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
@@ -164,7 +164,7 @@ async function runCommand(app: App, line: string): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its controls", () => {
   test(
-    "a named join on an unbound card fronts conflicted; the row never reads ready, Resolve's click registers and reaches its dead end, Adopt round-trips",
+    "a named join on an unbound card fronts conflicted; the row never reads ready, Resolve's click registers, Adopt round-trips",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
@@ -329,33 +329,17 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
           { timeoutMs: 8000 },
         );
 
-        // The ladder's terminal frame must land, and for a delete/modify it must
-        // be the dead end naming the file. No rung may claim a non-content
-        // conflict: the per-file walk short-circuits it to unresolved, and rung 2
-        // (rerere) skips it rather than harvesting the surviving side's content
-        // as a resolution — the false positive `resolve.rs` used to have here,
-        // which reported `resolved` over a candidate equal to the base tree.
+        // What happens *after* the press is no longer this file's subject. A
+        // conflicted resolve now hands off to the resolver, whose refusals and
+        // verdicts are pressed in at0426, at0441, at0442, and at0443 against
+        // scratch repositories with scripted resolvers. Asserting the ladder's
+        // old "still conflicting" dead end here would be asserting a terminal
+        // state the flow no longer reaches — and driving the real one would
+        // spawn a model against the developer's own checkout.
         //
-        // A run that resolved nothing builds no candidate, so the feed reports
-        // no candidate either and the row has no resolved face to show. The dead
-        // end is therefore the overlay's to state, and it states it in words.
-        const terminal = await app.waitForCondition<string>(
-          `(function(){
-            var row = document.querySelector(${JSON.stringify(ROW)});
-            if (row === null) return null;
-            if (row.querySelector('[data-slot="session-changes-dash-join-resolved"]') !== null) return "resolved";
-            if (row.querySelector('.session-changes-dash-join-error') !== null) return "error";
-            return null;
-          })()`,
-          { timeoutMs: 60000 },
-        );
-        expect(terminal).toBe("error");
-        const deadEndText = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(DEAD_END)})?.textContent || "").trim()`,
-        );
-        // The face names the file it could not resolve.
-        expect(deadEndText).toContain(conflictFile);
-        note(`ladder settled at its dead end: ${deadEndText}`);
+        // The claim this file keeps is the one only it can make: the press
+        // registered, over a real conflict in a real repository, on an unbound
+        // card fronting a named join.
 
         // ── Adopt: the real round trip ────────────────────────────────────
         await app.nativeClickAtElement(ADOPT);

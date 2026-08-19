@@ -83,12 +83,27 @@ export interface ResolveState {
   progress: readonly FileProgress[];
   /** Error detail when `phase === "error"`. */
   error: string | null;
+  /**
+   * The candidate sha the user has chosen to join past a red verdict on
+   * ([P07]), or `null` for the ordinary case.
+   *
+   * A sha rather than a flag, and that is the whole design: an override is a
+   * decision made *in view of* a specific failure, so it must die with the
+   * tree it was about. A boolean would silently bless the next candidate — a
+   * re-resolve after a real fix would join without anyone looking at whether
+   * the fix worked.
+   *
+   * Client-side because the decision is: nothing durable should record that a
+   * red was waved through, and nothing should carry it to another deck.
+   */
+  redOverrideFor: string | null;
 }
 
 const IDLE: ResolveState = Object.freeze({
   phase: "idle",
   progress: Object.freeze([]) as readonly FileProgress[],
   error: null,
+  redOverrideFor: null,
 });
 
 /**
@@ -235,9 +250,18 @@ export class ChangesetJoinStore {
       const status = typeof body.status === "string" ? body.status : "";
       const text = typeof body.text === "string" ? body.text : "";
       const progress = prev.progress.filter((p) => p.path !== path);
-      // The run is talking, so the silence clock goes back to zero. This is
-      // what lets a scribe stream for minutes under a twelve-second deadline.
-      this._armDeadline(k);
+      // A resolve blocked on an escalation is silent **because it is waiting
+      // on a person**, and a person may take half an hour. The deadline exists
+      // to catch a run that has died, so it must not fire on one that is doing
+      // exactly what it should — it is disarmed while the question stands, and
+      // the next delta of any kind re-arms it.
+      if (rung === "resolver" && status === "asking") {
+        this._clearDeadline(k);
+      } else {
+        // The run is talking, so the silence clock goes back to zero. This is
+        // what lets a scribe stream for minutes under a twelve-second deadline.
+        this._armDeadline(k);
+      }
       this._set(k, {
         ...prev,
         phase: "resolving",
@@ -263,6 +287,7 @@ export class ChangesetJoinStore {
           phase: "error",
           progress: prev.progress,
           error: `Still conflicting — resolve by hand: ${unresolved.join(", ")}`,
+          redOverrideFor: prev.redOverrideFor,
         });
         return;
       }
@@ -297,7 +322,15 @@ export class ChangesetJoinStore {
   resolve(workspaceKey: string, dash: string): void {
     const k = key(workspaceKey, dash);
     this._armDeadline(k);
-    this._set(k, { phase: "resolving", progress: [], error: null });
+    // A fresh run drops any standing override: the candidate it was decided
+    // over is about to be superseded, and an override that outlived its tree
+    // would bless a resolution nobody looked at.
+    this._set(k, {
+      phase: "resolving",
+      progress: [],
+      error: null,
+      redOverrideFor: null,
+    });
     this._connection.sendControlFrame("changeset_join_resolve", {
       project_dir: workspaceKey,
       dash,
@@ -340,6 +373,47 @@ export class ChangesetJoinStore {
       project_dir: workspaceKey,
       dash,
       ...(tier !== undefined ? { tier } : {}),
+    });
+  }
+
+  /**
+   * Record that the user has looked at a red verdict and chosen to join past
+   * it ([P07]).
+   *
+   * Scoped to `candidate`, so a resolution built after this decision has to be
+   * decided about on its own terms. Nothing is sent: the override changes what
+   * *this deck* will let the user do, and recording server-side that a failing
+   * tree was waved through would make it a fact about the dash rather than
+   * about one person's press.
+   */
+  overrideRed(workspaceKey: string, dash: string, candidate: string): void {
+    const k = key(workspaceKey, dash);
+    const current = this._states.get(k) ?? IDLE;
+    this._set(k, { ...current, redOverrideFor: candidate });
+  }
+
+  /**
+   * Answer the escalation a blocked resolve raised ([P06]).
+   *
+   * `requestId` is what makes the answer safe: the resolver may have expired,
+   * or a later resolve may have asked something else, and an answer must never
+   * resolve a question it was not written for. `answer` is an option label or
+   * the user's own words, and reaches the resolver verbatim either way.
+   *
+   * The reply says whether anybody was still waiting — a question that expired
+   * refuses rather than absorbing the press.
+   */
+  answerQuestion(
+    workspaceKey: string,
+    dash: string,
+    requestId: string,
+    answer: string,
+  ): void {
+    this._connection.sendControlFrame("changeset_join_question_answer", {
+      project_dir: workspaceKey,
+      dash,
+      request_id: requestId,
+      answer,
     });
   }
 

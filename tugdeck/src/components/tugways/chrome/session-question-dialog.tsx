@@ -243,20 +243,28 @@ export interface QuestionDialogProps {
  * adapter's job).
  */
 export interface QuestionWizardProps {
-  request: ControlRequestForward;
-  session: CodeSessionStore;
   /**
-   * Fired the instant the user resolves the wizard — answers (the option
-   * round-trip) or a freeform `response` (the decline path) — just before
-   * the outbound frame goes out. The host (`AskUserQuestionToolBlock`)
-   * captures this so its durable summary paints immediately from the
-   * just-submitted data, with no empty-answer flash during the window
-   * between `pendingQuestion` clearing and the tool_result arriving.
+   * The identity this wizard answers under — its `[A9]` preservation key and
+   * its focus group, both of which must be stable across a re-mount on the
+   * same question and distinct across different ones.
+   *
+   * An identity, not a transport: the wizard never sends anything keyed by it.
    */
-  onResolve?: (payload: {
-    answers?: Record<string, string>;
-    response?: string;
-  }) => void;
+  requestId: string;
+  /** The questions to walk, already narrowed by {@link parseQuestions}. */
+  questions: ReadonlyArray<ParsedQuestion>;
+  /**
+   * Whether this question is still awaiting an answer. The host owns the
+   * external-state read ([L02]) and passes the answer down; the wizard renders
+   * `null` when it goes false.
+   */
+  isPending: boolean;
+  /** The option round-trip, keyed by question text. */
+  onSubmit: (answers: Record<string, string>) => void;
+  /** `Chat about this` — the decline-and-reply path, with the reply verbatim. */
+  onDecline: (response: string) => void;
+  /** The unified Stop / Escape gesture. */
+  onCancel: () => void;
   /** Forwarded class name for cascade-scoped customization. */
   className?: string;
 }
@@ -1095,29 +1103,22 @@ function PanelHeading({
 // ---------------------------------------------------------------------------
 
 export const QuestionWizard: React.FC<QuestionWizardProps> = ({
-  request,
-  session,
-  onResolve,
+  requestId,
+  questions,
+  isPending,
+  onSubmit,
+  onDecline,
+  onCancel,
   className,
 }) => {
-  const requestId = request.request_id;
-  const onResolveRef = React.useRef(onResolve);
-  onResolveRef.current = onResolve;
-
-  const questions = React.useMemo(() => parseQuestions(request), [request]);
-
-  // [L02] — "is this request still the session's pendingQuestion?" is
-  // external state; it enters through `useSyncExternalStore`. The
-  // moment `respondQuestion` dispatches, the reducer clears
-  // `pendingQuestion` and notifies synchronously, so this flips to
-  // `false` and the component renders `null` without an async gap.
-  const isPending = React.useSyncExternalStore(
-    session.subscribe,
-    React.useCallback(
-      () => session.getSnapshot().pendingQuestion?.request_id === requestId,
-      [session, requestId],
-    ),
-  );
+  // Held in refs so the callbacks below do not re-create on every host render
+  // — the focus and preservation effects key off their identities.
+  const onSubmitRef = React.useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
+  const onDeclineRef = React.useRef(onDecline);
+  onDeclineRef.current = onDecline;
+  const onCancelRef = React.useRef(onCancel);
+  onCancelRef.current = onCancel;
 
   // [L23] / [D13] — answer state is user data and must survive reload
   // / cross-pane / cold boot. The scoped key is per-request so a
@@ -1481,18 +1482,12 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
     setCurrentIndex(newIndex);
   }, [questions.length, currentIndex, markVisited, focusGroup, wouldAllBeAnswered]);
 
-  const respond = React.useCallback(
-    (answers: Record<string, string>) => {
-      // Re-check against the live store rather than the rendered
-      // `isPending` — robust against a double-click or a stale closure.
-      const stillPending =
-        session.getSnapshot().pendingQuestion?.request_id === requestId;
-      if (!stillPending) return;
-      onResolveRef.current?.({ answers });
-      session.respondQuestion(requestId, { answers });
-    },
-    [session, requestId],
-  );
+  // The host owns the double-submit guard, because the host owns the live
+  // state that answers "is this still pending" — the rendered `isPending` is a
+  // frame old, and a double-click resolves inside that frame.
+  const respond = React.useCallback((answers: Record<string, string>) => {
+    onSubmitRef.current(answers);
+  }, []);
 
   const handleSubmit = React.useCallback(() => {
     respond(buildQuestionAnswers(questions, selections, freeTexts));
@@ -1526,12 +1521,8 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   // or a stale (no-longer-pending) request.
   const respondDecline = React.useCallback(() => {
     if (declineText.trim() === "") return;
-    const stillPending =
-      session.getSnapshot().pendingQuestion?.request_id === requestId;
-    if (!stillPending) return;
-    onResolveRef.current?.({ response: declineText });
-    session.respondQuestion(requestId, { response: declineText });
-  }, [session, requestId, declineText]);
+    onDeclineRef.current(declineText);
+  }, [declineText]);
 
   // [P06]/[P09] The reply field's submit semantics come from the substrate's
   // `returnAction="newline"` contract: plain Return inserts a newline,
@@ -1551,8 +1542,8 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
   // answers branch the assistant can misread as "user chose
   // defaults."
   const handleCancel = React.useCallback(() => {
-    session.popInteractive();
-  }, [session]);
+    onCancelRef.current();
+  }, []);
 
   // Escape routing ([P09]). In decline mode Escape returns to the questions
   // (you can't tear the whole question down from the reply sub-mode — `Back`
@@ -2365,20 +2356,125 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({
 };
 
 /**
- * `QuestionDialog` — dispatch adapter for {@link QuestionWizard}. Maps
- * the dispatch's `{ input, context }` shape onto the wizard's direct
- * `{ request, session }` props. Kept as a thin shim while the foot-slot
- * call site still routes through the `kind: "question"` RenderInput;
- * the durable surface is moving to `AskUserQuestionToolBlock`.
+ * The session-bound host adapter: everything a conversational turn's question
+ * needs that the wizard itself must not know.
+ *
+ * The wizard renders questions and answers callbacks; *who* it answers is the
+ * host's business. For a transcript question that is the `CodeSessionStore` —
+ * `pendingQuestion` for liveness ([L02]), `respondQuestion` for both answer
+ * shapes, `popInteractive` for the unified cancel. A join's question has none
+ * of those, which is exactly why they live here rather than inside the
+ * component.
+ */
+function useSessionQuestionHost(
+  session: CodeSessionStore,
+  request: ControlRequestForward,
+  onResolve?: (payload: {
+    answers?: Record<string, string>;
+    response?: string;
+  }) => void,
+): Omit<QuestionWizardProps, "className"> {
+  const requestId = request.request_id;
+  const onResolveRef = React.useRef(onResolve);
+  onResolveRef.current = onResolve;
+
+  const questions = React.useMemo(() => parseQuestions(request), [request]);
+
+  // [L02] — "is this request still the session's pendingQuestion?" is external
+  // state; it enters through `useSyncExternalStore`. The moment
+  // `respondQuestion` dispatches, the reducer clears `pendingQuestion` and
+  // notifies synchronously, so this flips to `false` and the wizard renders
+  // `null` without an async gap.
+  const isPending = React.useSyncExternalStore(
+    session.subscribe,
+    React.useCallback(
+      () => session.getSnapshot().pendingQuestion?.request_id === requestId,
+      [session, requestId],
+    ),
+  );
+
+  // Re-checked against the live store rather than the rendered `isPending` —
+  // robust against a double-click or a stale closure.
+  const stillPending = React.useCallback(
+    () => session.getSnapshot().pendingQuestion?.request_id === requestId,
+    [session, requestId],
+  );
+
+  const onSubmit = React.useCallback(
+    (answers: Record<string, string>) => {
+      if (!stillPending()) return;
+      onResolveRef.current?.({ answers });
+      session.respondQuestion(requestId, { answers });
+    },
+    [session, requestId, stillPending],
+  );
+
+  const onDecline = React.useCallback(
+    (response: string) => {
+      if (!stillPending()) return;
+      onResolveRef.current?.({ response });
+      session.respondQuestion(requestId, { response });
+    },
+    [session, requestId, stillPending],
+  );
+
+  const onCancel = React.useCallback(() => {
+    session.popInteractive();
+  }, [session]);
+
+  return { requestId, questions, isPending, onSubmit, onDecline, onCancel };
+}
+
+/** A {@link QuestionWizard} bound to a conversational turn's question. */
+export interface SessionQuestionWizardProps {
+  session: CodeSessionStore;
+  request: ControlRequestForward;
+  /**
+   * Fired the instant the user resolves — answers or a freeform `response` —
+   * just before the outbound frame goes out. `AskUserQuestionToolBlock`
+   * captures it so its durable summary paints immediately from the
+   * just-submitted data, with no empty-answer flash during the window between
+   * `pendingQuestion` clearing and the tool_result arriving.
+   */
+  onResolve?: (payload: {
+    answers?: Record<string, string>;
+    response?: string;
+  }) => void;
+  className?: string;
+}
+
+/**
+ * The wizard, wired to a session.
+ *
+ * A component rather than a bare hook because every call site mounts it
+ * conditionally — on a question being live — and a hook cannot be called
+ * inside that branch.
+ */
+export const SessionQuestionWizard: React.FC<SessionQuestionWizardProps> = ({
+  session,
+  request,
+  onResolve,
+  className,
+}) => {
+  const host = useSessionQuestionHost(session, request, onResolve);
+  return <QuestionWizard {...host} className={className} />;
+};
+
+/**
+ * `QuestionDialog` — dispatch adapter for {@link QuestionWizard}. Maps the
+ * dispatch's `{ input, context }` shape onto the session host above. Kept as a
+ * thin shim while the foot-slot call site still routes through the
+ * `kind: "question"` RenderInput; the durable surface is
+ * `AskUserQuestionToolBlock`.
  */
 export const QuestionDialog: React.FC<QuestionDialogProps> = ({
   input,
   context,
   className,
 }) => (
-  <QuestionWizard
-    request={input.request}
+  <SessionQuestionWizard
     session={context.session}
+    request={input.request}
     className={className}
   />
 );

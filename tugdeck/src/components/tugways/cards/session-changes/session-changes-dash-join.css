@@ -201,12 +201,12 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* The review ([P31]): what the ladder decided, before it can land. Marked off
+/* The verdict panel ([P31]): what the ladder decided, before it can land. Marked off
    by an accent rule — the same "read this" grammar as the discard's danger
    rule, one tone down, because this asks for attention rather than warning of
    loss. The diff document is bounded and scrolls: a merge the ladder resolved
    across several files must not push the lane's own controls off screen. */
-.session-changes-dash-join-review {
+.session-changes-dash-join-verdict {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -215,13 +215,75 @@
   border-left: 2px solid var(--tug7-element-tone-border-normal-accent-rest);
 }
 
-.session-changes-dash-join-review .tug-diff-document {
+/* Tone follows the verdict, through the attribute — never through React
+   state ([L06]). A red is the one state here that is asking to be read
+   before it is acted on, so it takes the danger rule the discard uses. */
+.session-changes-dash-join-verdict[data-verdict="red"] {
+  border-left-color: var(--tug7-element-tone-border-normal-danger-rest);
+}
+
+.session-changes-dash-join-report,
+.session-changes-dash-join-failures,
+.session-changes-dash-join-verdict-notes {
   align-self: stretch;
-  max-height: var(--session-changes-dash-review-max-height, 22rem);
-  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+}
+
+.session-changes-dash-join-report > li {
+  display: flex;
+  gap: var(--tug-space-xs);
+  align-items: baseline;
+}
+
+.session-changes-dash-join-report-path {
+  font-family: var(--tug-font-family-mono);
+  color: var(--tug7-element-tone-text-normal-neutral-rest);
+}
+
+.session-changes-dash-join-report-what {
+  color: var(--tug7-element-tone-text-muted-neutral-rest);
+}
+
+/* A path the resolver redid rather than kept is the one the audit earned, so
+   it reads at full strength while the kept ones recede. */
+.session-changes-dash-join-report > li[data-audit="redone"] .session-changes-dash-join-report-what {
+  color: var(--tug7-element-tone-text-normal-accent-rest);
+}
+
+.session-changes-dash-join-failures > li {
+  font-family: var(--tug-font-family-mono);
+  color: var(--tug7-element-tone-text-normal-danger-rest);
+}
+
+.session-changes-dash-join-verdict-notes > li {
+  color: var(--tug7-element-tone-text-muted-neutral-rest);
+}
+
+/* The escalation's surface is the shipped question wizard; the face gives it
+   room and nothing else. */
+.session-changes-dash-join-question {
+  align-self: stretch;
 }
 
 .session-changes-dash-join-error {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-tone-text-normal-danger-rest);
+}
+
+/* The server's own account of why a resolve stopped. Danger-toned like the
+   overlay's error beside it, but durable: it comes back on the feed after a
+   reload, because a resolve is minutes long and the deck that started it is
+   often not the deck that comes back to it. */
+.session-changes-dash-join-stuck {
+  align-self: stretch;
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-xs);
   color: var(--tug7-element-tone-text-normal-danger-rest);

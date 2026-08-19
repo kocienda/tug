@@ -38,21 +38,25 @@ import { LoaderCircle } from "lucide-react";
 
 import { TugBadge, type TugBadgeRole } from "@/components/tugways/tug-badge";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TugDiffDocument } from "@/components/tugways/tug-diff-document";
+import {
+  QuestionWizard,
+  type ParsedQuestion,
+} from "@/components/tugways/chrome/session-question-dialog";
 import type {
   DashChangesetEntry,
   DashJoinBlockerWire,
+  DashJoinQuestionWire,
   DashJoinStateWire,
   DashResolvedFileWire,
 } from "@/lib/changeset-types";
 import type { JoinPhase } from "@/lib/changeset-verb-store";
 import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
-import type { GitDiffFile, GitDiffPayload } from "@/lib/git-diff-store";
 import {
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
-  resolutionAwaitsReview,
+  redOverrideStands,
+  verificationVerdict,
   type JoinOutcome,
 } from "@/lib/join-mode-controller";
 
@@ -73,8 +77,25 @@ export interface DashJoinActions {
   resumeTeardown: (entry: DashChangesetEntry) => void;
   /** Run the resolution ladder over a conflicted join. */
   resolve: (entry: DashChangesetEntry) => void;
-  /** Acknowledge what the ladder decided — the beat that clears the gate. */
-  markReviewed: (entry: DashChangesetEntry) => void;
+  /** Run (or re-run) the project's own checks over the candidate ([P04]). */
+  verify: (entry: DashChangesetEntry) => void;
+  /**
+   * Join past a red verdict ([P07]) — a decision made in view of the failures
+   * this face is showing, scoped to the candidate they describe.
+   */
+  overrideRed: (entry: DashChangesetEntry) => void;
+  /**
+   * Answer the intent question a blocked resolver raised ([P06]).
+   *
+   * `answer` is an option's label or the user's own words; both reach the
+   * resolver verbatim, because deciding which one the user "really meant" is
+   * not the face's call.
+   */
+  answerQuestion: (
+    entry: DashChangesetEntry,
+    requestId: string,
+    answer: string,
+  ) => void;
 }
 
 /**
@@ -111,7 +132,8 @@ export function deriveResolveFace(
 export const JOIN_CONTROL = {
   resume: "session-changes-dash-resume",
   resolve: "session-changes-dash-resolve",
-  reviewed: "session-changes-dash-join-reviewed",
+  verify: "session-changes-dash-join-verify",
+  override: "session-changes-dash-join-override",
 } as const;
 
 export type JoinControl = (typeof JOIN_CONTROL)[keyof typeof JOIN_CONTROL];
@@ -161,6 +183,8 @@ export function deriveJoinFace(input: {
   turnInProgress: boolean;
   /** The dash is mid-teardown from an interrupted join (`stage === "joining"`). */
   interrupted: boolean;
+  /** The candidate sha a red verdict has been overridden for, if any ([P07]). */
+  redOverrideFor?: string | null;
 }): JoinFace {
   const { join, resolvePhase, joinPhase, turnInProgress, interrupted } = input;
   const outcome = deriveJoinOutcome(join);
@@ -169,12 +193,16 @@ export function deriveJoinFace(input: {
   const staleNote =
     typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
   const resolve = deriveResolveFace(outcome, resolvePhase, candidate);
+  const verdict = verificationVerdict(join);
   const gate = evaluateJoinGate({
     turnInProgress,
     joinPhase,
     outcome,
     candidateCommit: candidate,
-    unreviewedResolution: resolutionAwaitsReview(join),
+    verdict,
+    redOverride: redOverrideStands(candidate, {
+      redOverrideFor: input.redOverrideFor ?? null,
+    }),
     // The message lives in the composer, so the row asks the gate everything
     // except that: opening the editor is what supplies it.
     message: "x",
@@ -189,9 +217,15 @@ export function deriveJoinFace(input: {
       ? null
       : resolve === "offer" || resolve === "error"
         ? JOIN_CONTROL.resolve
-        : resolve === "resolved" && resolutionAwaitsReview(join)
-          ? JOIN_CONTROL.reviewed
-          : null;
+        : // Derived from the gate's own refusal rather than from the verdict,
+          // so an overridden red mounts nothing — the control and the reason
+          // it answers cannot disagree, which is what
+          // {@link REFUSAL_REACHABILITY} promises.
+          !gate.ok && gate.reason === "unverified"
+          ? JOIN_CONTROL.verify
+          : !gate.ok && gate.reason === "verification-red"
+            ? JOIN_CONTROL.override
+            : null;
 
   // Measured against what will render, never against the outcome word.
   const statedBelow =
@@ -302,67 +336,28 @@ export function discardPreflightLine(rounds: number, files: number): string {
   return `Discards ${parts.join(" · ")}`;
 }
 
-/**
- * The status a resolution's own diff header declares. git says so explicitly for
- * a create and a delete; everything else is a modification.
- */
-function resolutionStatus(unified: string): GitDiffFile["status"] {
-  if (/^new file mode /m.test(unified)) return "added";
-  if (/^deleted file mode /m.test(unified)) return "deleted";
-  return "modified";
-}
+export const QUESTION_DECLINED_TO_CHOOSE =
+  "The user declined to choose. Stop and report what you found, without guessing past this conflict.";
 
 /**
- * The ladder's resolutions as one diff document — what joining this candidate
- * would do to each file it decided ([P31]).
+ * The resolver's escalation, narrowed to the one question the wizard walks.
  *
- * The server sends one unified chunk per resolved path, which is exactly
- * `GitDiffFile.unified`, so the review renders through the same
- * {@link TugDiffDocument} the Changes shade and the Diff card use rather than a
- * private diff surface. Pure, so what the review shows is testable without
- * mounting the shade. A resolution with no diff is dropped: it changes nothing
- * on the base, and an empty accordion row would read as one that does.
- *
- * The stat is the server's, which is git's. It is deliberately not counted off
- * the `unified` text beside it: that text is capped, and counting a capped view
- * reports `+0 −395` for a resolution that removed 2050 lines and added one —
- * wrong exactly when the diff is large enough for a reviewer to need the number
- * instead of reading it.
+ * Single-select and never multi: the resolver is asking which reconciliation
+ * to make, and two incompatible intents cannot both be taken.
  */
-export function resolutionDiffPayload(
-  resolved: readonly DashResolvedFileWire[],
-  workspaceKey: string,
-): GitDiffPayload {
-  const files: GitDiffFile[] = resolved
-    .filter(
-      (file): file is DashResolvedFileWire & { diff: string } =>
-        typeof file.diff === "string" && file.diff !== "",
-    )
-    .map((file) => ({
-      path: file.path,
-      status: resolutionStatus(file.diff),
-      added: file.added ?? 0,
-      removed: file.removed ?? 0,
-      binary: false,
-      unified: file.diff,
-    }));
-  return {
-    request_id: "dash-resolution-review",
-    workspace_key: workspaceKey,
-    base: "candidate",
-    no_repo: false,
-    file_count: files.length,
-    total_added: files.reduce((sum, f) => sum + f.added, 0),
-    total_removed: files.reduce((sum, f) => sum + f.removed, 0),
-    files,
-  };
-}
-
-/** The review's own header line — what the ladder did, and by which rungs. */
-export function resolutionReviewLine(resolved: readonly DashResolvedFileWire[]): string {
-  const count = resolved.length;
-  const rungs = [...new Set(resolved.map((f) => f.resolved_by))].sort();
-  return `${count} file${count === 1 ? "" : "s"} resolved by ${rungs.join(", ")} — read this before it joins`;
+export function joinQuestionAsParsed(
+  question: DashJoinQuestionWire,
+): ParsedQuestion[] {
+  return [
+    {
+      question: question.question,
+      multiSelect: false,
+      options: question.options.map((option) => ({
+        label: option.label,
+        description: option.description,
+      })),
+    },
+  ];
 }
 
 export function SessionChangesDashJoin({
@@ -384,7 +379,12 @@ export function SessionChangesDashJoin({
   const resolved = join?.resolved ?? [];
   const staleNote =
     typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
-  const reviewed = join?.reviewed === true;
+  const question = join?.question ?? null;
+  const stuck = typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
+  const report = join?.report ?? null;
+  const verdict = verificationVerdict(join);
+  const failures = join?.verification?.failures ?? [];
+  const notes = join?.verification?.notes ?? [];
   // A stale journal refuses every other act server-side, so the resume is the
   // one gesture that can make the rest reachable.
   const interrupted = entry.stage === "joining";
@@ -395,12 +395,9 @@ export function SessionChangesDashJoin({
     joinPhase,
     turnInProgress,
     interrupted,
+    redOverrideFor: resolve.redOverrideFor,
   });
   const { outcome, resolve: resolveFace, control, line: joinLine } = face;
-  const reviewPayload = React.useMemo(
-    () => resolutionDiffPayload(resolved, entry.owner_id),
-    [resolved, entry.owner_id],
-  );
   const resumeHint =
     joinPhase === "pending"
       ? "A join is in flight"
@@ -593,42 +590,131 @@ export function SessionChangesDashJoin({
           ))}
         </ul>
       ) : null}
-      {/* The review ([D115]). A candidate built out of per-file resolutions is
-          a machine decision nobody has read: rerere replays a cache that can be
-          stale, the driver and the AI rung guess. So the diffs render, and the
-          the join stays refused until the second beat acknowledges them — the
-          same shape as the discard above, for the same reason. A rung-1 replay
-          resolves no files and never joins here. */}
-      {resolveFace === "resolved" && resolved.length > 0 ? (
+      {/* Where the review panel stood ([P07]). The human is no longer the
+          auditor of machine text decisions: the resolver read every resolution
+          against the dash's intent and had to account for each one ([P10]),
+          and the project's own checks ran over the tree that would land. So
+          what shows here is the resolver's account and the verdict — and the
+          one control that moves this state, which is the exam when nobody has
+          run it and the override when it came back red. */}
+      {resolveFace === "resolved" ? (
         <div
-          className="session-changes-dash-join-review"
-          data-slot="session-changes-dash-join-review"
-          data-reviewed={reviewed ? "true" : "false"}
+          className="session-changes-dash-join-verdict"
+          data-slot="session-changes-dash-join-verdict"
+          data-verdict={verdict}
         >
-          {control !== JOIN_CONTROL.reviewed ? (
-            <div className="session-changes-dash-join-note">
-              Reviewed — {resolved.length} resolved file
-              {resolved.length === 1 ? "" : "s"} ready to join.
-            </div>
-          ) : (
-            <>
-              <div className="session-changes-dash-join-note">
-                {resolutionReviewLine(resolved)}
-              </div>
-              {/* Open, not collapsed: an acknowledgement over a folded-away
-                  diff is a checkbox, which is the thing this replaces. */}
-              <TugDiffDocument payload={reviewPayload} openAllByDefault />
-              <TugPushButton
-                size="xs"
-                emphasis="filled"
-                role="action"
-                onClick={() => actions.markReviewed(entry)}
-                data-slot="session-changes-dash-join-reviewed"
-              >
-                Reviewed
-              </TugPushButton>
-            </>
-          )}
+          {report !== null ? (
+            <ul
+              className="session-changes-dash-join-report"
+              data-slot="session-changes-dash-join-report"
+            >
+              {report.files.map((file) => (
+                <li key={file.path} data-audit={file.audit ?? "finished"}>
+                  <span className="session-changes-dash-join-report-path">
+                    {file.path}
+                  </span>
+                  <span className="session-changes-dash-join-report-what">
+                    {file.reconciliation}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {report !== null && report.notes !== undefined && report.notes !== "" ? (
+            <div className="session-changes-dash-join-note">{report.notes}</div>
+          ) : null}
+          {/* A red that cannot say why is the silence this whole surface
+              exists to prevent, so the failures render beside the override
+              rather than behind it. */}
+          {failures.length > 0 ? (
+            <ul
+              className="session-changes-dash-join-failures"
+              data-slot="session-changes-dash-join-failures"
+            >
+              {failures.map((failure) => (
+                <li key={failure}>{failure}</li>
+              ))}
+            </ul>
+          ) : null}
+          {notes.length > 0 ? (
+            <ul
+              className="session-changes-dash-join-verdict-notes"
+              data-slot="session-changes-dash-join-verdict-notes"
+            >
+              {notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : null}
+          {control === JOIN_CONTROL.verify ? (
+            <TugPushButton
+              size="xs"
+              emphasis="filled"
+              role="action"
+              onClick={() => actions.verify(entry)}
+              data-slot={JOIN_CONTROL.verify}
+            >
+              Verify
+            </TugPushButton>
+          ) : null}
+          {control === JOIN_CONTROL.override ? (
+            <TugPushButton
+              size="xs"
+              emphasis="filled"
+              role="danger"
+              onClick={() => actions.overrideRed(entry)}
+              data-slot={JOIN_CONTROL.override}
+            >
+              Join anyway
+            </TugPushButton>
+          ) : null}
+        </div>
+      ) : null}
+      {/* The escalation ([P06]). The resolver reconciles from intent and asks
+          only when the two sides want incompatible things — so what mounts
+          here is the question, never a diff. `QuestionWizard` is the shipped
+          surface for exactly this shape, taken through its host seam: the join
+          supplies the transport, the wizard supplies the surface. */}
+      {question !== null ? (
+        <div
+          className="session-changes-dash-join-question"
+          data-slot="session-changes-dash-join-question"
+        >
+          <QuestionWizard
+            requestId={question.request_id}
+            questions={joinQuestionAsParsed(question)}
+            isPending
+            onSubmit={(answers) => {
+              const answer = answers[question.question];
+              if (typeof answer !== "string" || answer === "") return;
+              actions.answerQuestion(entry, question.request_id, answer);
+            }}
+            onDecline={(response) =>
+              actions.answerQuestion(entry, question.request_id, response)
+            }
+            onCancel={() =>
+              actions.answerQuestion(
+                entry,
+                question.request_id,
+                QUESTION_DECLINED_TO_CHOOSE,
+              )
+            }
+          />
+        </div>
+      ) : null}
+      {/* Why the last resolve stopped short. Durable and server-written, so
+          unlike the overlay's error below it survives a reload — which matters
+          because a resolve is minutes long and the deck that started it is
+          often not the deck that comes back to it. A join that will not
+          proceed and cannot say why is the one state this face must never
+          render ([L31]). */}
+      {stuck !== null ? (
+        <div
+          className="session-changes-dash-join-stuck"
+          data-slot="session-changes-dash-join-stuck"
+          role="alert"
+        >
+          {stuck}
         </div>
       ) : null}
       {resolveFace === "error" ? (

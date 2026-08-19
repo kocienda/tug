@@ -106,6 +106,37 @@ The build is the user's to vet. Bring up the debug instance from the worktree (`
 
 Before stopping, leave the **join draft** behind: compose the squash message from what the rounds actually did and write it with `tugutil draft set --owner dash:<name> --message "…"`. The join gesture lands that message; it does not compose one. A dash that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 
+## The join finishes itself
+
+A join whose merge conflicts is **not** handed back to you, and not handed to
+the user as a diff to read. The server runs a resolution ladder, then hands the
+result to a resolver: an agent working in the dash's own **workshop** worktree,
+where the merge is a real tree with the whole project around it. It finishes
+what the ladder could not, **audits every file the ladder's machine rungs
+decided** against the dash's recorded intent, and reports what it did. Then the
+project's own declared checks run over the tree that would actually land.
+
+Three consequences for anyone working in this lane:
+
+- **A conflicted join is not a stall.** Do not resolve conflicts by hand on the
+  dash worktree to "help it along". The resolve path owns that work, and a hand
+  resolution is one nothing audited.
+- **The verdict is the gate, not a reading.** Green joins; red names its failing
+  commands and offers an explicit override; nobody has run the checks yet is
+  *unverified*, which is a different fact from passing. There is no diff to
+  acknowledge and no acknowledgement that opens the gate.
+- **An escalation is the user's, and only an intent question.** When the two
+  sides want genuinely incompatible things the resolver asks — once, phrased as
+  what each side was trying to do, with concrete resolutions. It reaches the
+  join face and waits. Answer it there; a resolve blocked on a question is
+  blocked on a person, not broken.
+
+What the project's checks *are* is per-project configuration, not built-in
+knowledge: `[tugtool.dash].verify_tier0` and `verify_tier1` in
+`.tugtool/config.toml`, beside `post_create`. A project that declares neither
+gets a stated green with a note, which is the right answer for a repository that
+has no build.
+
 ## What never gets asked
 
 A skill in this lane may raise a dialog at a real decision point — an unsettleable design question, a judgment call with no technically correct answer, a stale plan, a refused ledger edit, a disposition the user owns. That licence is narrow, and it comes with a boundary, because a run that asks about everything is worse than one that asks about nothing: it trains the user to click through the dialog that mattered.

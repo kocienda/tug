@@ -22,7 +22,8 @@ import {
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
-  resolutionAwaitsReview,
+  verificationVerdict,
+  redOverrideStands,
   joinTargetFromEntry,
   type JoinTarget,
 } from "@/lib/join-mode-controller";
@@ -65,14 +66,20 @@ describe("joinDisabledReason", () => {
     expect(joinDisabledReason("pending", "blocked")).toBe("Joining…");
   });
 
-  it("names the review as the act that clears it, whatever the outcome reads", () => {
+  it("names each verdict's own act, whatever the outcome reads", () => {
     // The outcome word is `clean` here — a resolved candidate derives clean —
     // so the sentence has to come from the reason, not from the outcome.
-    expect(joinDisabledReason("unreviewed", "clean")).toBe(
-      "Review what the ladder resolved first",
+    expect(joinDisabledReason("unverified", "clean")).toBe(
+      "Verify the joined tree first",
     );
-    expect(joinDisabledReason("unreviewed", "conflicted")).toBe(
-      "Review what the ladder resolved first",
+    expect(joinDisabledReason("verifying", "conflicted")).toBe(
+      "Verification is running",
+    );
+    // The red one names the override rather than a fix: the fix is another
+    // resolve, and the override is the only thing on this surface that moves
+    // a red join forward.
+    expect(joinDisabledReason("verification-red", "clean")).toBe(
+      "Verification failed — join anyway to proceed",
     );
   });
 
@@ -103,35 +110,53 @@ describe("joinDisabledReason", () => {
   });
 });
 
-describe("resolutionAwaitsReview", () => {
-  const resolvedFile = { path: "a.rs", resolved_by: "driver" };
-
-  it("asks for a review only where the ladder decided per file", () => {
-    // A rung-1 replay and a clean one-shot squash resolve nothing by machine:
-    // their `resolved` list is empty, and they land as they always did.
-    expect(resolutionAwaitsReview({ phase: "resolved", candidate: "abc", resolved: [] })).toBe(
-      false,
+describe("verificationVerdict", () => {
+  it("reads the candidate's verdict, and calls absence unrun rather than green", () => {
+    // No candidate: an ordinary clean join, with nothing resolved by machine
+    // and so nothing to examine.
+    expect(verificationVerdict({ phase: "conflicted" })).toBe("not-applicable");
+    // A candidate nobody has asked about. This is the distinction the whole
+    // type exists for: "nobody ran the checks" is not "the checks passed", and
+    // conflating them is how a tree nobody built joins looking verified.
+    expect(verificationVerdict({ phase: "resolved", candidate: "abc" })).toBe(
+      "unrun",
     );
-    // No candidate ⇒ nothing to land ⇒ nothing to review.
-    expect(resolutionAwaitsReview({ phase: "conflicted", resolved: [resolvedFile] })).toBe(false);
-    // A candidate built out of per-file resolutions, unread.
-    expect(
-      resolutionAwaitsReview({ phase: "resolved", candidate: "abc", resolved: [resolvedFile] }),
-    ).toBe(true);
-    // …and read.
-    expect(
-      resolutionAwaitsReview({
+    const verdict = (tier0: string, tier1: string) =>
+      verificationVerdict({
         phase: "resolved",
         candidate: "abc",
-        resolved: [resolvedFile],
-        reviewed: true,
-      }),
-    ).toBe(false);
+        verification: {
+          tier0,
+          tier1,
+          base_sha: "b",
+          candidate_sha: "abc",
+        },
+      });
+    expect(verdict("green", "green")).toBe("green");
+    // Red outranks running: a failure already known is not made provisional by
+    // another tier still working.
+    expect(verdict("red", "running")).toBe("red");
+    expect(verdict("green", "running")).toBe("running");
+    // One tier green and the other never run is not a green.
+    expect(verdict("green", "unrun")).toBe("unrun");
   });
 
   it("asks nothing of a dash the feed has said nothing about", () => {
-    expect(resolutionAwaitsReview(undefined)).toBe(false);
-    expect(resolutionAwaitsReview(null)).toBe(false);
+    expect(verificationVerdict(undefined)).toBe("not-applicable");
+    expect(verificationVerdict(null)).toBe("not-applicable");
+  });
+});
+
+describe("redOverrideStands", () => {
+  it("holds only for the candidate it was decided over", () => {
+    // The comparison is the whole design. A re-resolve — the ordinary answer
+    // to a red — puts a new candidate up, and one press of Join anyway must
+    // not wave through every candidate the dash produces afterwards.
+    expect(redOverrideStands("cafe1234", { redOverrideFor: "cafe1234" })).toBe(true);
+    expect(redOverrideStands("beef5678", { redOverrideFor: "cafe1234" })).toBe(false);
+    expect(redOverrideStands("cafe1234", { redOverrideFor: null })).toBe(false);
+    expect(redOverrideStands(null, { redOverrideFor: "cafe1234" })).toBe(false);
+    expect(redOverrideStands("cafe1234", null)).toBe(false);
   });
 });
 
@@ -141,7 +166,8 @@ describe("evaluateJoinGate", () => {
     joinPhase: "idle" as const,
     outcome: "clean" as const,
     candidateCommit: null,
-    unreviewedResolution: false,
+    verdict: "not-applicable" as const,
+    redOverride: false,
     message: "land it",
   };
 
@@ -198,7 +224,7 @@ describe("evaluateJoinGate", () => {
     });
   });
 
-  it("refuses a candidate whose per-file resolutions nobody has read", () => {
+  it("refuses a candidate nobody has verified, and one that came back red", () => {
     // The 2026-08-15 failure: a stale rerere replay built a candidate that
     // armed Join exactly as a clean preview would ([P31]).
     expect(
@@ -206,9 +232,25 @@ describe("evaluateJoinGate", () => {
         ...base,
         outcome: "clean",
         candidateCommit: "cafe1234",
-        unreviewedResolution: true,
+        verdict: "unrun",
       }),
-    ).toEqual({ ok: false, reason: "unreviewed" });
+    ).toEqual({ ok: false, reason: "unverified" });
+    expect(
+      evaluateJoinGate({
+        ...base,
+        candidateCommit: "cafe1234",
+        verdict: "red",
+      }),
+    ).toEqual({ ok: false, reason: "verification-red" });
+    // …and passes it once the user has looked at the red and said so.
+    expect(
+      evaluateJoinGate({
+        ...base,
+        candidateCommit: "cafe1234",
+        verdict: "red",
+        redOverride: true,
+      }),
+    ).toEqual({ ok: true });
   });
 
   it("refuses a candidate the base still blocks — resolving is not committing", () => {
@@ -229,21 +271,21 @@ describe("evaluateJoinGate", () => {
     });
   });
 
-  it("fails on the outcome before the review — nothing to land outranks unread", () => {
+  it("fails on the outcome before the verdict — nothing to join outranks unverified", () => {
     expect(
-      evaluateJoinGate({ ...base, outcome: "blocked", unreviewedResolution: true }),
+      evaluateJoinGate({ ...base, outcome: "blocked", verdict: "unrun" }),
     ).toEqual({ ok: false, reason: "outcome" });
   });
 
-  it("fails on the unread review before the message check", () => {
+  it("fails on the verdict before the message check", () => {
     expect(
       evaluateJoinGate({
         ...base,
         candidateCommit: "cafe1234",
-        unreviewedResolution: true,
+        verdict: "unrun",
         message: "",
       }),
-    ).toEqual({ ok: false, reason: "unreviewed" });
+    ).toEqual({ ok: false, reason: "unverified" });
   });
 
   it("fails on an empty (whitespace) message when everything else is ready", () => {
@@ -518,14 +560,19 @@ describe("JoinModeController", () => {
     });
     expect(controller.getSnapshot().outcome).toBe("clean");
     expect(controller.getSnapshot().landBlockedReason).toBe(
-      "Review what the ladder resolved first",
+      "Verify the joined tree first",
     );
 
     changesController._setJoin({
       phase: "resolved",
       candidate: "cafe1234",
       resolved: [{ path: "a.rs", resolved_by: "driver" }],
-      reviewed: true,
+      verification: {
+        tier0: "green",
+        tier1: "green",
+        base_sha: "base0000",
+        candidate_sha: "cafe1234",
+      },
     });
     expect(controller.getSnapshot().canLandIgnoringMessage).toBe(true);
     controller.dispose();

@@ -97,6 +97,17 @@ impl Workshop {
         Ok(ws)
     }
 
+    /// Open a workshop **without touching its tree** — for a caller that is
+    /// working the tree an earlier `open_*` left, across a task boundary.
+    ///
+    /// The reset every other opener performs is what makes them safe to call
+    /// cold; this one is the opposite promise, and exists because the resolver's
+    /// edits live in the worktree between the turn that made them and the
+    /// commit that captures them.
+    pub fn open_existing(repo: &Path, name: &str) -> Result<Self, String> {
+        Self::ensure(repo, name)
+    }
+
     /// Reset the workshop to an existing candidate, so commands can run against
     /// the tree a join would produce.
     pub fn open_candidate(repo: &Path, name: &str, sha: &str) -> Result<Self, String> {
@@ -109,21 +120,16 @@ impl Workshop {
     /// base head — the same shape the ladder's candidate has, so
     /// [`crate::ops::join_in`] fast-forwards onto it unchanged.
     ///
-    /// Refuses a tree that still holds an unresolved index: a commit built over
-    /// conflict stages would be a candidate nobody resolved.
+    /// **Refuses a tree that still carries conflict markers**, and that is the
+    /// check that matters rather than the index's.
+    ///
+    /// Whoever works this tree edits files; nobody stages. The resolver in
+    /// particular has no shell and no git by charter, so an unmerged index at
+    /// this point says nothing about whether the work was done — staging is
+    /// this method's own first act. What a resolution cannot survive is
+    /// markers left in the content, which is exactly what a worker that
+    /// reported done without touching anything leaves behind.
     pub fn commit(&self, message: &str) -> Result<String, String> {
-        let unmerged = git_stdout(&self.path, &["diff", "--name-only", "--diff-filter=U"])?;
-        if !unmerged.trim().is_empty() {
-            return Err(format!(
-                "workshop still holds unresolved paths: {}",
-                unmerged
-                    .lines()
-                    .map(str::trim)
-                    .filter(|l| !l.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
         let out = git_output(&self.path, &["add", "-A"])?;
         if !out.status.success() {
             return Err(format!(
@@ -131,8 +137,83 @@ impl Workshop {
                 String::from_utf8_lossy(&out.stderr).trim()
             ));
         }
+        // Only what this candidate would actually change is scanned — a
+        // whole-tree read would cost the project's size on every pass to
+        // re-answer a question about a handful of files.
+        let touched: Vec<String> = git_stdout(
+            &self.path,
+            &["diff", "--cached", "--name-only", &self.base_head],
+        )?
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+        let markers = self.marker_paths(&touched);
+        if !markers.is_empty() {
+            return Err(format!(
+                "the merge is unfinished — conflict markers remain in {}",
+                markers.join(", ")
+            ));
+        }
+
         let tree = git_stdout(&self.path, &["write-tree"])?;
         commit_tree(&self.repo, &tree, &self.base_head, message)
+    }
+
+    /// Check the named paths out of a tree the ladder already built, staging
+    /// them — which both writes the reconciled content and clears each path's
+    /// conflict stages from the index.
+    ///
+    /// This is how the ladder's work reaches the resolver instead of being
+    /// thrown away: a `rerere` replay or a driver resolution the machines
+    /// already earned arrives as settled content, and the resolver's job over
+    /// it is the audit ([P10]) rather than the merge.
+    ///
+    /// Paths that are not in the tree are skipped rather than failed — a
+    /// resolution the ladder recorded for a path the merge later dropped is a
+    /// mismatch to leave to the resolver, not a reason to refuse the workshop.
+    pub fn apply_staged(&self, tree: &str, paths: &[String]) -> Result<(), String> {
+        for path in paths {
+            let _ = git_output(&self.path, &["checkout", tree, "--", path]);
+        }
+        Ok(())
+    }
+
+    /// The paths still holding conflict stages — what the resolver must finish.
+    pub fn unresolved(&self) -> Result<Vec<String>, String> {
+        Ok(
+            git_stdout(&self.path, &["diff", "--name-only", "--diff-filter=U"])?
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect(),
+        )
+    }
+
+    /// Which of the named paths still carry conflict markers in their content.
+    ///
+    /// The index answering "resolved" is not the same question: `git add` on a
+    /// file whose markers were never removed clears the stages and leaves the
+    /// markers, which is precisely what a resolver that did nothing but say it
+    /// was done would produce.
+    pub fn marker_paths(&self, paths: &[String]) -> Vec<String> {
+        paths
+            .iter()
+            .filter(|path| {
+                let Ok(bytes) = std::fs::read(self.path.join(path)) else {
+                    return false;
+                };
+                String::from_utf8_lossy(&bytes).lines().any(|l| {
+                    l.starts_with("<<<<<<<")
+                        || l.starts_with("=======")
+                        || l.starts_with(">>>>>>>")
+                        || l.starts_with("|||||||")
+                })
+            })
+            .cloned()
+            .collect()
     }
 
     /// Return the workshop to a clean base checkout and leave it hydrated.
@@ -209,12 +290,25 @@ impl Workshop {
         if !self.path.join(".git").exists() {
             return false;
         }
+        // Compared canonically, never as strings. `git worktree list` prints
+        // the resolved path, so a repo sited under a symlink — every macOS
+        // tempdir, and plenty of real checkouts — would never match its own
+        // workshop, and `ensure` would tear the workshop down and rebuild it on
+        // every open. That is the precise opposite of the stability this whole
+        // design is built on: the warm `target/`, `node_modules/`, and
+        // DerivedData would be discarded before every verification.
+        let Ok(want) = self.path.canonicalize() else {
+            return false;
+        };
         git_stdout(&self.repo, &["worktree", "list", "--porcelain"])
             .map(|list| {
-                let want = self.path.to_string_lossy().to_string();
                 list.lines()
                     .filter_map(|l| l.strip_prefix("worktree "))
-                    .any(|p| p.trim() == want)
+                    .any(|p| {
+                        std::path::Path::new(p.trim())
+                            .canonicalize()
+                            .is_ok_and(|p| p == want)
+                    })
             })
             .unwrap_or(false)
     }
@@ -406,11 +500,14 @@ mod tests {
         let repo = temp.path();
 
         let ws = Workshop::open_merge(repo, "demo").unwrap();
+        // Straight off the merge the file is markers, and no amount of staging
+        // changes that — the refusal is about content, not about the index.
         let err = ws.commit("candidate").unwrap_err();
-        assert!(err.contains("unresolved"), "{err}");
+        assert!(err.contains("conflict markers remain"), "{err}");
+        assert!(err.contains("f.txt"), "{err}");
 
+        // The worker edits; nobody stages. Committing is what stages.
         set(ws.path(), "f.txt", "RECONCILED\n");
-        git(ws.path(), &["add", "f.txt"]);
         let sha = ws.commit("candidate").unwrap();
 
         assert_eq!(

@@ -4620,18 +4620,37 @@ export function SessionCardBody({
           changesController.workspaceKey,
           entry.display_name,
         ),
-      // The review's second beat ([D115]). It pins the acknowledgment to the
-      // candidate's sha server-side, so the mark cannot outlive the artifact it
-      // answered; the face flips when the feed comes back saying so.
-      markReviewed: (entry) => {
+      // The candidate's exam ([P04]). No sha rides along: a verification is
+      // always about whichever candidate stands now, and running the checks
+      // against a superseded one would answer a question nobody asked.
+      verify: (entry) =>
+        getChangesetJoinStore()?.verify(
+          changesController.workspaceKey,
+          entry.display_name,
+        ),
+      // Joining past a red ([P07]). Pinned to the candidate's sha, so the
+      // decision dies with the tree it was made about — a re-resolve after a
+      // real fix has to be decided about on its own terms.
+      overrideRed: (entry) => {
         const candidate = entry.join?.candidate;
         if (typeof candidate !== "string" || candidate === "") return;
-        getChangesetJoinStore()?.review(
+        getChangesetJoinStore()?.overrideRed(
           changesController.workspaceKey,
           entry.display_name,
           candidate,
         );
       },
+      // The escalation's answer ([P06]). Addressed by `request_id` rather than
+      // by dash, because the resolve that raised it may already have expired
+      // and a later one may be asking something else — an answer must never
+      // resolve a question it was not written for.
+      answerQuestion: (entry, requestId, answer) =>
+        getChangesetJoinStore()?.answerQuestion(
+          changesController.workspaceKey,
+          entry.display_name,
+          requestId,
+          answer,
+        ),
       // Discard is deliberately absent here. It reaches past the fronted row —
       // any dash no live session holds is releasable from this shade — so it
       // rides the lane's own release bundle, which the view builds, rather than

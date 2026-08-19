@@ -66,7 +66,9 @@ tugutil dash join <name> --preview --json
 The preview runs the merge in memory (`git merge-tree`) and touches nothing. Read the result:
 
 - **Clean** → go to beat 2.
-- **Conflicts** → report every conflicted path plus the message that would have landed, and **stop**. Do not join, and do not run the resolution ladder on your own initiative. Offer the two real next steps: `--resolve` (the conflict-resolution ladder — replay probe, rerere, re-merge, structured-merge driver — which then lands the result), or resolving by hand on the dash worktree and re-running the join. Run `tugutil dash join <name> --resolve` only when the user says to.
+- **Conflicts** → report every conflicted path plus the message that would have landed, and **stop**. Do not join, and do not resolve on your own initiative.
+
+  The next step is the card's, not yours. Pressing **Resolve** on the dash row runs the ladder and then hands the merge to the resolver — an agent that finishes it in the dash's workshop worktree, audits what the machine rungs decided, asks the user one intent question if the two sides genuinely conflict, and reports; the project's own declared checks then run over the tree that would land. Say that is what the row offers, and let the user press it. `tugutil dash join <name> --resolve` is the CLI equivalent and it **lands** what it resolves, so run it only when the user says to, and never as a probe. Resolving by hand on the dash worktree and re-running the join is the other real option, and the one nothing audits.
 
 Preflight refusals come back as errors from this same command — surface them verbatim and stop:
 

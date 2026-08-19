@@ -22,7 +22,17 @@
  * and the worktree.
  */
 
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 /** How many times a git-touching verb retries through a held `index.lock`. */
@@ -532,4 +542,118 @@ export function discardDash(
     env: opts.env,
     required: false,
   });
+}
+
+// ---------------------------------------------------------------------------
+// The join fixtures' scratch repository
+// ---------------------------------------------------------------------------
+
+/** A scratch repo built for a join arc, and everything needed to tear it down. */
+export interface JoinScratchRepo {
+  /** The repository the app opens — the only tree the fixture touches. */
+  repo: string;
+  /** Tug's data root for it, redirected away from the developer's own. */
+  dataRoot: string;
+  /** Where the stub scripts live. */
+  stubDir: string;
+  /** The dash worktree the round was committed on. */
+  worktree: string;
+}
+
+/** How a join scratch repo is shaped. */
+export interface JoinScratchOpts {
+  /** Prefix for the temp directories, so a failed run is identifiable. */
+  prefix: string;
+  /** The dash's name. */
+  dash: string;
+  /** The dash's one-line description. */
+  description: string;
+  /** The checkout whose built `tugutil` drives the fixture. */
+  checkout: string;
+  /** The file both sides rewrite. */
+  file: string;
+  /** Its body at the fork, then the base's rewrite, then the dash's. */
+  fork: string;
+  base: string;
+  dashBody: string;
+  /**
+   * The project's declared Tier 0 command ([P11]).
+   *
+   * Every join fixture declares one and none declares a Tier 1: a fixture join
+   * runs inside an app-test that already holds the machine-wide apptest gate,
+   * so a real tier-1 command would queue on the gate its own run is holding.
+   * The tier-0 command is a sentinel grep — seconds cheap, no toolchain, and
+   * able to go genuinely red, which is what a red-path fixture needs.
+   */
+  verifyTier0: string;
+  /** The resolver stub's script body, with `$1` the workshop path. */
+  resolver: string;
+  /** An optional merge-driver stub body, for an arc that needs a ladder-clean candidate. */
+  mergeDriver?: string;
+}
+
+/**
+ * Build a scratch repository holding one genuine conflict, a declared Tier 0,
+ * and a scripted resolver.
+ *
+ * A repository per fixture rather than the developer's checkout, and that is
+ * safety rather than tidiness: a join that succeeds squashes its dash onto the
+ * base branch **in that branch's live working tree**, which for the checkout
+ * would be the developer's own `main`. Owning the repository is what lets these
+ * arcs run to their end instead of stopping one beat short.
+ */
+export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), `${opts.prefix}-`)));
+  const dataRoot = realpathSync(mkdtempSync(join(tmpdir(), `${opts.prefix}-data-`)));
+  const stubDir = mkdtempSync(join(tmpdir(), `${opts.prefix}-stubs-`));
+  const env = { TUG_DATA_DIR: dataRoot };
+
+  // `-b main` is explicit: the machine's `init.defaultBranch` may be anything,
+  // and the dash's base has to be a branch this repo actually has out.
+  gitRetry(repo, "init", "-b", "main");
+  gitRetry(repo, "config", "user.email", "app-test@tugtool.dev");
+  gitRetry(repo, "config", "user.name", opts.prefix);
+  writeFileSync(join(repo, opts.file), opts.fork);
+  mkdirSync(join(repo, ".tugtool"), { recursive: true });
+  writeFileSync(
+    join(repo, ".tugtool", "config.toml"),
+    `[tugtool.dash]\nverify_tier0 = ["${opts.verifyTier0}"]\n`,
+  );
+  gitRetry(repo, "add", "-A");
+  gitRetry(repo, "commit", "-m", `${opts.prefix}: the file both sides rewrite`);
+
+  const created = createDash(repo, opts.dash, opts.description, {
+    binaryRoot: opts.checkout,
+    env,
+  });
+
+  // Both sides move the same lines, after the fork: a genuine conflict.
+  writeFileSync(join(repo, opts.file), opts.base);
+  gitRetry(repo, "commit", "-am", `${opts.prefix}: the base rewrites it`);
+  writeFileSync(join(created.worktree, opts.file), opts.dashBody);
+  commitRound(repo, opts.dash, `${opts.prefix}(round): rewrite ${opts.file}`, {
+    binaryRoot: opts.checkout,
+    env,
+  });
+
+  const script = (name: string, body: string): string => {
+    const path = join(stubDir, name);
+    writeFileSync(path, body);
+    chmodSync(path, 0o755);
+    return path;
+  };
+  gitRetry(repo, "config", "tugdash.joinresolver", script("stub-resolver.sh", opts.resolver));
+  if (opts.mergeDriver !== undefined) {
+    gitRetry(repo, "config", "tugdash.mergedriver", script("stub-driver.sh", opts.mergeDriver));
+  }
+
+  return { repo, dataRoot, stubDir, worktree: created.worktree };
+}
+
+/** Delete everything {@link makeJoinScratchRepo} made. */
+export function rmJoinScratchRepo(scratch: JoinScratchRepo | null): void {
+  if (scratch === null) return;
+  for (const dir of [scratch.repo, scratch.dataRoot, scratch.stubDir]) {
+    if (dir !== "") rmSync(dir, { recursive: true, force: true });
+  }
 }

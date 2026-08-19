@@ -4,7 +4,9 @@
 
 This is a brief, not a plan. Each round gets its own `/tugplug:plan-devise` pass when picked up; the open questions below are the ones devise must ask before writing steps.
 
-**Terminology, binding on everything below and on all work under it:** dashes are **joined**. There is no "landing" process separate from joining, and the words *land / landed / landing* are retired from this lane's vocabulary (decision 2026-08-19). Where this brief quotes current code or UI that still says "land," the quote is a rename target, not an endorsement.
+**Terminology, binding on everything below and on all work under it:** dashes are **joined**. There is no "landing" process separate from joining, and *land / landed / landing* are retired wherever they name the dash act (decision 2026-08-19).
+
+**Refined the same day, on seeing `LandingKind = "commit" | "join"`:** the word survives as the **umbrella over the two composer modes**. `landing-mode.ts`, `LandOutcome`, `landing-press-receipt.ts`, and `landing-notice.ts` keep their names, because what they describe is not the dash act — it is the shared substrate the commit lane and the join lane both ride. The rule is per use: does this occurrence mean *the dash act* (rename) or *the umbrella* (keep)? A mechanical global replace is wrong in both directions. Where this brief quotes code or UI that says "land" of a dash, the quote is a rename target, not an endorsement.
 
 ---
 

@@ -30,8 +30,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinState, DashJoinVerification,
-    DashResolvedFile,
+    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinQuestion, DashJoinReport,
+    DashJoinState, DashJoinVerification, DashResolvedFile,
 };
 use tugdash_core::ops::{self, DashDetail};
 use tugdash_core::resolve::{self, CandidateStatus};
@@ -127,9 +127,11 @@ pub fn join_state_for(
             archaeology: Vec::new(),
             candidate,
             resolved: Vec::new(),
-            reviewed: false,
             stale_note,
             verification: None,
+            report: None,
+            stuck: standing_stuck(repo_root, detail),
+            question: standing_question(repo_root, detail),
         };
     }
 
@@ -139,13 +141,9 @@ pub fn join_state_for(
         None => (Vec::new(), Vec::new()),
     };
 
-    let (resolved, reviewed) = match &candidate {
-        Some(sha) => {
-            let files = candidate_files(repo_root, detail, sha, probe.as_ref());
-            let reviewed = resolve::read_reviewed(repo_root, name).as_deref() == Some(sha.as_str());
-            (files, reviewed)
-        }
-        None => (Vec::new(), false),
+    let resolved = match &candidate {
+        Some(sha) => candidate_files(repo_root, detail, sha, probe.as_ref()),
+        None => Vec::new(),
     };
 
     let phase = if candidate.is_some() {
@@ -157,6 +155,11 @@ pub fn join_state_for(
     };
 
     let verification = standing_verification(repo_root, detail, candidate.as_deref());
+    let report = candidate
+        .as_deref()
+        .and_then(|sha| standing_report(repo_root, name, sha));
+    let stuck = standing_stuck(repo_root, detail);
+    let question = standing_question(repo_root, detail);
 
     DashJoinState {
         phase: phase.to_string(),
@@ -165,10 +168,48 @@ pub fn join_state_for(
         archaeology,
         candidate,
         resolved,
-        reviewed,
         stale_note,
         verification,
+        report,
+        stuck,
+        question,
     }
+}
+
+/// The escalation a resolve is blocked on, while it still describes the dash
+/// head it was raised against.
+///
+/// Read on every recompute rather than held in memory, because the whole point
+/// of persisting it is that a reload — a fresh process, an empty memory — must
+/// still render the question the resolver is waiting on.
+fn standing_question(repo_root: &Path, detail: &DashDetail) -> Option<DashJoinQuestion> {
+    let head = ops::rev_parse(repo_root, &detail.branch).ok()?;
+    let json = resolve::read_question(repo_root, detail.name.as_str(), &head)?;
+    serde_json::from_str(&json).ok()
+}
+
+/// The resolver's account of the candidate that stands.
+///
+/// Anchored to the candidate sha, so a report about a superseded resolution is
+/// simply not found — the same self-demotion the verdict beside it gets, and
+/// for the same reason: a report describing a tree that is no longer the
+/// candidate would be read as describing the one that is.
+fn standing_report(repo_root: &Path, name: &str, candidate: &str) -> Option<DashJoinReport> {
+    let json = resolve::read_report(repo_root, name, candidate)?;
+    serde_json::from_str(&json).ok()
+}
+
+/// Why the last resolve stopped short, while it still describes the dash head
+/// it ran on.
+///
+/// A new round on the dash means the refusal was about a state that no longer
+/// exists, so it stops being reported — but unlike the candidate facts it is
+/// not *cleared* here. A resolve clears it when it starts, which is the moment
+/// it stops being true; clearing it on a recompute would erase the account of a
+/// failure nobody had read yet.
+fn standing_stuck(repo_root: &Path, detail: &DashDetail) -> Option<String> {
+    let head = ops::rev_parse(repo_root, &detail.branch).ok()?;
+    resolve::read_stuck(repo_root, detail.name.as_str(), &head)
 }
 
 /// The candidate's verdict, but only while it still describes these two heads.
@@ -381,7 +422,6 @@ mod tests {
         let resolved = compose(repo);
         assert_eq!(resolved.phase, "resolved");
         assert_eq!(resolved.candidate.as_deref(), Some(candidate.as_str()));
-        assert!(!resolved.reviewed, "a fresh candidate is unreviewed");
         assert_eq!(resolved.resolved.len(), 1, "the review payload rides along");
         assert_eq!(resolved.resolved[0].path, "f.txt");
         assert_eq!(
@@ -392,10 +432,6 @@ mod tests {
             resolved.resolved[0].diff.is_some(),
             "and its diff, recomputed from git"
         );
-
-        // Reviewing pins the sha.
-        tugdash_core::resolve::write_reviewed(repo, "demo", &candidate).unwrap();
-        assert!(compose(repo).reviewed);
 
         // The base advances past the candidate → the state demotes itself and
         // says why, and the stale ref is gone rather than left standing.
@@ -411,7 +447,6 @@ mod tests {
             stale.stale_note.is_some(),
             "and the demotion carries a sentence"
         );
-        assert!(!stale.reviewed, "a moved base cannot inherit a review");
         assert_eq!(tugdash_core::resolve::read_candidate(repo, "demo"), None);
     }
 

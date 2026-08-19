@@ -106,6 +106,33 @@ describe("changeset join resolve overlay", () => {
     ]);
   });
 
+  test("answering an escalation carries the request id that scopes it", () => {
+    // The request id is the whole safety of this send. A resolve that already
+    // expired, or a later one asking something else, must not be resolved by
+    // an answer written for a different question — so the answer names which
+    // one it belongs to and the server matches on that, not on the dash.
+    const sent: { action: string; body: Record<string, unknown> }[] = [];
+    const conn = {
+      onFrame: () => () => {},
+      sendControlFrame: (action: string, body: Record<string, unknown>) => {
+        sent.push({ action, body });
+      },
+    } as never;
+    const store = attachChangesetJoinStore(conn);
+    store.answerQuestion("/u/src/tugtool", "demo", "join-demo-7", "the dash");
+    expect(sent).toEqual([
+      {
+        action: "changeset_join_question_answer",
+        body: {
+          project_dir: "/u/src/tugtool",
+          dash: "demo",
+          request_id: "join-demo-7",
+          answer: "the dash",
+        },
+      },
+    ]);
+  });
+
   test("ok with unresolved files names them, because the feed cannot", () => {
     // The ladder's honest dead end. The dash's conflicts are still on the feed,
     // but nothing on the entry says a run just tried them and stopped — so

@@ -1991,51 +1991,6 @@ fn parse_changeset_join_resolve_payload(
     Ok(ChangesetJoinResolvePayload { project_dir, dash })
 }
 
-/// Parsed `changeset_join_review` request (Spec S02): the project checkout, the
-/// dash, and **which candidate** is being acknowledged.
-///
-/// The candidate sha is required rather than implied. A review is an
-/// acknowledgment of a specific artifact, so pinning it to the sha is what stops
-/// a review of one candidate from silently blessing whichever one happens to
-/// stand when the message arrives.
-struct ChangesetJoinReviewPayload {
-    project_dir: String,
-    dash: String,
-    candidate: String,
-}
-
-fn parse_changeset_join_review_payload(
-    payload: &[u8],
-) -> Result<ChangesetJoinReviewPayload, ControlError> {
-    let value: serde_json::Value =
-        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
-    let project_dir = value
-        .get("project_dir")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or(ControlError::InvalidProjectDir {
-            reason: "missing_project_dir",
-        })?
-        .to_string();
-    let dash = value
-        .get("dash")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or(ControlError::Malformed)?
-        .to_string();
-    let candidate = value
-        .get("candidate")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or(ControlError::Malformed)?
-        .to_string();
-    Ok(ChangesetJoinReviewPayload {
-        project_dir,
-        dash,
-        candidate,
-    })
-}
-
 /// Run the project's declared verification against the dash's standing
 /// candidate, recording the verdict as it goes.
 ///
@@ -2168,6 +2123,49 @@ fn parse_changeset_join_verify_payload(
         project_dir,
         dash,
         tier,
+    })
+}
+
+/// Parsed `changeset_join_question_answer` request ([P06]): the user's answer
+/// to a resolver escalation.
+///
+/// The `request_id` is what makes the answer safe: a resolve that already
+/// expired, or a second one raised since, must not be resolved by an answer to
+/// a different question.
+struct ChangesetJoinQuestionAnswerPayload {
+    project_dir: String,
+    dash: String,
+    request_id: String,
+    /// An option label or free text — handed to the resolver verbatim.
+    answer: String,
+}
+
+fn parse_changeset_join_question_answer_payload(
+    payload: &[u8],
+) -> Result<ChangesetJoinQuestionAnswerPayload, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::InvalidProjectDir {
+            reason: "missing_project_dir",
+        })?
+        .to_string();
+    let field = |key: &str| {
+        value
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or(ControlError::Malformed)
+    };
+    Ok(ChangesetJoinQuestionAnswerPayload {
+        project_dir,
+        dash: field("dash")?,
+        request_id: field("request_id")?,
+        answer: field("answer")?,
     })
 }
 
@@ -3130,13 +3128,6 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
-            "changeset_join_review" => match parse_changeset_join_review_payload(payload) {
-                Ok(parsed) => {
-                    self.do_changeset_join_review(&parsed).await;
-                    Ok(())
-                }
-                Err(e) => return ControlOutcome::Error(e),
-            },
             "changeset_join_verify" => match parse_changeset_join_verify_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_join_verify(&parsed).await;
@@ -3144,6 +3135,15 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            "changeset_join_question_answer" => {
+                match parse_changeset_join_question_answer_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_join_question_answer(&parsed);
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
+                }
+            }
             "changeset_discard" => match parse_changeset_discard_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_discard(&parsed).await;
@@ -5362,93 +5362,6 @@ impl AgentSupervisor {
         ));
     }
 
-    /// Handle a `changeset_join_review` CONTROL request (Spec S02): record that
-    /// the user has read what the ladder decided for a specific candidate.
-    ///
-    /// The mark is a sha rather than a boolean, and the request names the
-    /// candidate it acknowledges, so a review can never carry over to a
-    /// different candidate than the one that was read. A review naming a
-    /// candidate that no longer stands is refused with the reason rather than
-    /// written and forgotten.
-    ///
-    /// The reply is a liveness hint; the truth is the feed recompute this
-    /// fires ([P09]).
-    async fn do_changeset_join_review(&self, request: &ChangesetJoinReviewPayload) {
-        let project_dir = request.project_dir.as_str();
-        let dir = std::path::Path::new(project_dir);
-
-        if self.registry.find_entry_by_path(dir).is_none() {
-            Self::send_changeset_join_review_err(
-                &self.control_tx,
-                project_dir,
-                &request.dash,
-                "not an open project",
-            );
-            return;
-        }
-        if !crate::feeds::git::is_within_git_worktree(dir).await {
-            Self::send_changeset_join_review_err(
-                &self.control_tx,
-                project_dir,
-                &request.dash,
-                "not a git repository",
-            );
-            return;
-        }
-
-        let dir_owned = dir.to_path_buf();
-        let dash = request.dash.clone();
-        let candidate = request.candidate.clone();
-        let outcome =
-            tokio::task::spawn_blocking(move || match tugdash_core::resolve::candidate_status_in(
-                &dir_owned, &dash,
-            )? {
-                tugdash_core::resolve::CandidateStatus::Valid(sha) if sha == candidate => {
-                    tugdash_core::resolve::write_reviewed(&dir_owned, &dash, &sha)
-                }
-                tugdash_core::resolve::CandidateStatus::Valid(_) => {
-                    Err("that resolution has been superseded — review the current one".to_string())
-                }
-                tugdash_core::resolve::CandidateStatus::Stale(note) => Err(note),
-                tugdash_core::resolve::CandidateStatus::None => {
-                    Err("there is no resolved candidate to review".to_string())
-                }
-            })
-            .await;
-
-        // Fire the recompute before replying, on every arm: a refused review
-        // means the face was showing something that is no longer true, and the
-        // recompute is what corrects it.
-        self.registry.changeset_all_bump().notify_one();
-
-        match outcome {
-            Ok(Ok(())) => {
-                let body = serde_json::json!({
-                    "action": "changeset_join_review_ok",
-                    "project_dir": project_dir,
-                    "dash": request.dash,
-                    "candidate": request.candidate,
-                });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_join_review_ok serializes"),
-                ));
-            }
-            Ok(Err(detail)) => Self::send_changeset_join_review_err(
-                &self.control_tx,
-                project_dir,
-                &request.dash,
-                &detail,
-            ),
-            Err(join_err) => Self::send_changeset_join_review_err(
-                &self.control_tx,
-                project_dir,
-                &request.dash,
-                &format!("review task failed: {join_err}"),
-            ),
-        }
-    }
-
     /// Handle a `changeset_join_verify` CONTROL request ([P04], [P09]): run the
     /// project's declared exam against the candidate that stands now, and record
     /// the verdict as a fact the feed will report.
@@ -5549,24 +5462,6 @@ impl AgentSupervisor {
         ));
     }
 
-    fn send_changeset_join_review_err(
-        control_tx: &broadcast::Sender<Frame>,
-        project_dir: &str,
-        dash: &str,
-        detail: &str,
-    ) {
-        let body = serde_json::json!({
-            "action": "changeset_join_review_err",
-            "project_dir": project_dir,
-            "dash": dash,
-            "detail": detail,
-        });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_review_err serializes"),
-        ));
-    }
-
     /// Handle a `changeset_join_resolve` CONTROL request (Spec S12, [P31]/[P32]):
     /// run the tugdash-core resolution ladder with the scribe AI rung injected,
     /// streaming per-file progress. The ladder builds a candidate commit off to
@@ -5614,6 +5509,10 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let result = tokio::task::spawn_blocking(move || {
+            // Last attempt's refusal stops applying the moment this one starts;
+            // leaving it standing would render a running resolve under the
+            // sentence that ended the one before it.
+            tugdash_core::resolve::clear_stuck(&dir_owned, &dash);
             let merger_ref = merger.as_ref().map(|m| m as &dyn tugdash_core::FileMerger);
             tugdash_core::resolve_conflicts(&dir_owned, &dash, merger_ref)
         })
@@ -5637,26 +5536,86 @@ impl AgentSupervisor {
                     candidate = outcome.candidate_commit.as_deref().unwrap_or("-"),
                     "dash-join: ladder ran"
                 );
-                let mut body =
-                    serde_json::to_value(&outcome).unwrap_or_else(|_| serde_json::json!({}));
-                if let Some(map) = body.as_object_mut() {
-                    map.insert(
-                        "action".into(),
-                        serde_json::Value::String("changeset_join_resolve_ok".into()),
-                    );
-                    map.insert(
-                        "project_dir".into(),
-                        serde_json::Value::String(project_dir.to_string()),
-                    );
-                    map.insert(
-                        "dash".into(),
-                        serde_json::Value::String(request.dash.clone()),
-                    );
+
+                // The resolver finishes what the ladder left **and audits what
+                // it decided** ([P10]) — so it runs on every conflicted join,
+                // including one the ladder resolved completely. A machine
+                // resolution nobody read is the failure class the retired
+                // review gate existed for; skipping the audit when the ladder
+                // happened to succeed would drop that guarantee rather than
+                // relocate it.
+                let conflicted = !outcome.resolved.is_empty() || !outcome.unresolved.is_empty();
+                if conflicted {
+                    let ctx = crate::feeds::join_resolver::ResolverContext {
+                        repo: dir.to_path_buf(),
+                        dash: request.dash.clone(),
+                        project_dir: project_dir.to_string(),
+                        model: match &self.scribe {
+                            Some(scribe) => scribe.model.clone(),
+                            None => Arc::new(|| "sonnet".to_string()),
+                        },
+                        control_tx: self.control_tx.clone(),
+                        bump: self.registry.changeset_all_bump(),
+                        // A build with a scribe wired is a build with a real
+                        // model available; one without has no business
+                        // spawning one, and says so rather than reaching.
+                        production: self.scribe.as_ref().map(|_| {
+                            Arc::new(crate::feeds::join_resolver::ClaudeJoinResolverSpawner)
+                                as Arc<dyn crate::feeds::join_resolver::JoinResolverSpawner>
+                        }),
+                    };
+
+                    // **Detached, and that is not an optimization.** The
+                    // resolver may block on an escalation for as long as the
+                    // user takes to answer it, and the answer arrives as
+                    // another CONTROL request — so awaiting the flow here would
+                    // hold the control path against the very message that
+                    // unblocks it. A join waiting on a question would wait
+                    // forever, by construction.
+                    //
+                    // Nothing is lost by returning early, because nothing here
+                    // was the result: the candidate, the report, and the
+                    // verdict are git facts the feed recomputes from, and the
+                    // deltas keep the face moving meanwhile ([P09]).
+                    let control_tx = self.control_tx.clone();
+                    let bump = self.registry.changeset_all_bump();
+                    let dir_owned = dir.to_path_buf();
+                    let dash = request.dash.clone();
+                    let project_dir_owned = project_dir.to_string();
+                    let outcome_owned = outcome.clone();
+                    tokio::spawn(async move {
+                        match crate::feeds::join_resolver::finish_join(&ctx, &outcome_owned).await {
+                            Ok(()) => {
+                                bump.notify_one();
+                                Self::send_changeset_join_resolve_ok(
+                                    &control_tx,
+                                    &project_dir_owned,
+                                    &dash,
+                                    &outcome_owned,
+                                );
+                            }
+                            Err(detail) => {
+                                Self::record_join_stuck(&dir_owned, &dash, &detail);
+                                bump.notify_one();
+                                tracing::info!(dash = %dash, detail = %detail, "dash-join: resolver stuck");
+                                Self::send_changeset_join_resolve_err(
+                                    &control_tx,
+                                    &project_dir_owned,
+                                    &dash,
+                                    &detail,
+                                );
+                            }
+                        }
+                    });
+                    return;
                 }
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_join_resolve_ok serializes"),
-                ));
+
+                Self::send_changeset_join_resolve_ok(
+                    &self.control_tx,
+                    project_dir,
+                    &request.dash,
+                    &outcome,
+                );
             }
             Ok(Err(detail)) => {
                 tracing::info!(dash = %request.dash, detail = %detail, "dash-join: ladder refused");
@@ -5676,6 +5635,84 @@ impl AgentSupervisor {
                 );
             }
         }
+    }
+
+    /// Handle a `changeset_join_question_answer` CONTROL request ([P06]):
+    /// hand the user's answer to whichever resolve is blocked on it.
+    ///
+    /// Synchronous, and deliberately: the answer's whole job is to unblock a
+    /// task already waiting, and the reply says only whether it reached one.
+    /// An answer that reaches nobody — the question expired, the resolve died
+    /// — is reported as a refusal with its reason, never swallowed ([L31]).
+    fn do_changeset_join_question_answer(&self, request: &ChangesetJoinQuestionAnswerPayload) {
+        let delivered = crate::feeds::join_resolver::answer_question(
+            &request.request_id,
+            request.answer.clone(),
+        );
+        let body = if delivered {
+            serde_json::json!({
+                "action": "changeset_join_question_answer_ok",
+                "project_dir": request.project_dir,
+                "dash": request.dash,
+                "request_id": request.request_id,
+            })
+        } else {
+            serde_json::json!({
+                "action": "changeset_join_question_answer_err",
+                "project_dir": request.project_dir,
+                "dash": request.dash,
+                "request_id": request.request_id,
+                "detail": "that question is no longer waiting for an answer — resolve the join again",
+            })
+        };
+        let _ = self.control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_join_question_answer reply serializes"),
+        ));
+        self.registry.changeset_all_bump().notify_one();
+    }
+
+    /// The run's terminal frame: the ladder's outcome, plus who it is about.
+    ///
+    /// The outcome is serialized whole rather than summarized, which is what
+    /// keeps the card's overlay able to say "still conflicting on b.rs" — the
+    /// one terminal fact the feed genuinely cannot state, because the dash's
+    /// conflicts look identical whether or not a run just tried them.
+    fn send_changeset_join_resolve_ok(
+        control_tx: &broadcast::Sender<Frame>,
+        project_dir: &str,
+        dash: &str,
+        outcome: &tugdash_core::ResolveOutcome,
+    ) {
+        let mut body = serde_json::to_value(outcome).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(map) = body.as_object_mut() {
+            map.insert(
+                "action".into(),
+                serde_json::Value::String("changeset_join_resolve_ok".into()),
+            );
+            map.insert(
+                "project_dir".into(),
+                serde_json::Value::String(project_dir.to_string()),
+            );
+            map.insert("dash".into(), serde_json::Value::String(dash.to_string()));
+        }
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_join_resolve_ok serializes"),
+        ));
+    }
+
+    /// Record why a resolve stopped, against the dash head it ran on.
+    ///
+    /// CONTROL carries the same sentence back as `_err`, but CONTROL is
+    /// droppable by design — a dropped frame would leave the face with a join
+    /// that will not proceed and no account of why. The durable fact is what
+    /// the board renders; the frame is the liveness hint.
+    fn record_join_stuck(dir: &std::path::Path, dash: &str, detail: &str) {
+        let Ok(head) = tugdash_core::ops::rev_parse(dir, &format!("tugdash/{dash}")) else {
+            return;
+        };
+        tugdash_core::resolve::write_stuck(dir, dash, &head, detail);
     }
 
     fn send_changeset_join_resolve_err(
@@ -9049,6 +9086,26 @@ mod tests {
         std::fs::write(root.join("f.txt"), "C\n").unwrap();
         git(&root, &["commit", "-am", "main to C"]);
 
+        // Every conflicted join runs the resolver's audit pass ([P10]), so one
+        // is scripted here: it keeps the AI rung's resolution and says so. The
+        // stub is what keeps this test off a live model — the seam never
+        // reaches for one on its own.
+        let stub = root.join("stub-resolver.sh");
+        std::fs::write(
+            &stub,
+            "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"ai\",\"what_each_side_did\":\"both rewrote it\",\"reconciliation\":\"the AI rung merged it\",\"audit\":\"kept\"}],\"notes\":\"audited\"}'\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git(
+            &root,
+            &["config", "tugdash.joinresolver", &stub.to_string_lossy()],
+        );
+
         let cancel = CancellationToken::new();
         let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
         let root_str = root.to_string_lossy().to_string();
@@ -9104,98 +9161,6 @@ mod tests {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&show.stdout), "MERGED\n");
-
-        cancel.cancel();
-    }
-
-    /// A review is an acknowledgment of a *specific* candidate, so the mark is
-    /// a sha and the request names it. Reviewing a superseded candidate is
-    /// refused with the reason rather than written and forgotten.
-    #[tokio::test]
-    async fn join_review_pins_the_candidate_sha_and_refuses_a_superseded_one() {
-        use std::process::Command;
-
-        fn git(dir: &std::path::Path, args: &[&str]) {
-            let ok = Command::new("git")
-                .current_dir(dir)
-                .args(args)
-                .status()
-                .unwrap()
-                .success();
-            assert!(ok, "git {args:?} failed");
-        }
-
-        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
-
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
-        git(&root, &["init", "-b", "main"]);
-        git(&root, &["config", "user.name", "t"]);
-        git(&root, &["config", "user.email", "t@t"]);
-        std::fs::write(root.join("f.txt"), "A\n").unwrap();
-        git(&root, &["add", "-A"]);
-        git(&root, &["commit", "-m", "base"]);
-        git(&root, &["branch", "tugdash/demo"]);
-        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
-        git(&root, &["switch", "-q", "tugdash/demo"]);
-        std::fs::write(root.join("f.txt"), "B\n").unwrap();
-        git(&root, &["commit", "-am", "r1"]);
-        git(&root, &["switch", "-q", "main"]);
-        std::fs::write(root.join("f.txt"), "C\n").unwrap();
-        git(&root, &["commit", "-am", "main to C"]);
-
-        // A stub driver resolves the conflict, so the ladder reaches a
-        // candidate without needing the scribe.
-        let stub = root.join("stub-driver.sh");
-        std::fs::write(&stub, "#!/bin/sh\nprintf 'RESOLVED\\n' > \"$4\"\n").unwrap();
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        git(
-            &root,
-            &["config", "tugdash.mergedriver", &stub.to_string_lossy()],
-        );
-
-        let cancel = CancellationToken::new();
-        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
-        let root_str = root.to_string_lossy().to_string();
-
-        let outcome = tugdash_core::resolve::resolve_conflicts(&root, "demo", None).unwrap();
-        let candidate = outcome.candidate_commit.clone().expect("candidate");
-
-        // A review naming a candidate that is not the one standing is refused.
-        let wrong = serde_json::to_vec(&serde_json::json!({
-            "action": "changeset_join_review",
-            "project_dir": root_str,
-            "dash": "demo",
-            "candidate": "0000000000000000000000000000000000000000",
-        }))
-        .unwrap();
-        sup.handle_control("changeset_join_review", &wrong, 1).await;
-        let body = drain_for(&mut control_rx, "changeset_join_review").await;
-        assert_eq!(body["action"], "changeset_join_review_err", "{body}");
-        assert_eq!(
-            tugdash_core::resolve::read_reviewed(&root, "demo"),
-            None,
-            "a refused review writes nothing"
-        );
-
-        // The right sha marks it.
-        let right = serde_json::to_vec(&serde_json::json!({
-            "action": "changeset_join_review",
-            "project_dir": root_str,
-            "dash": "demo",
-            "candidate": candidate,
-        }))
-        .unwrap();
-        sup.handle_control("changeset_join_review", &right, 1).await;
-        let body = drain_for(&mut control_rx, "changeset_join_review").await;
-        assert_eq!(body["action"], "changeset_join_review_ok", "{body}");
-        assert_eq!(
-            tugdash_core::resolve::read_reviewed(&root, "demo").as_deref(),
-            Some(candidate.as_str())
-        );
 
         cancel.cancel();
     }

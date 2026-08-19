@@ -240,6 +240,45 @@ latency is allowed up to 20s for cold-start claude; full-turn up to
 60s. Failure surfaces the last 50 lines of tugcode's stdout/stderr to
 stderr.
 
+## The join fixtures, and why none of them runs a model
+
+A conflicted dash join is finished by an agent: it reconciles the merge in a
+workshop worktree, audits what the algorithmic rungs decided, may ask one
+intent question, and reports. Four fixtures press that arc — `at0426` (the
+audit), `at0441` (the whole arc, through a join), `at0442` (the escalation),
+`at0443` (a red verdict and the override past it) — and **none of them spawns
+a model.** Three seams make that possible, and a new join fixture should use
+all three.
+
+**The resolver is scripted.** `git config tugdash.joinresolver <script>` in the
+fixture's repo makes tugcast run that command instead of `claude`. It speaks the
+same two terminal shapes the real spawn does — one JSON line per user message in
+on stdin, one per terminal turn out on stdout, either `{"ask":{…}}` or the
+report — so the orchestrator's parse-and-wait path is the identical one. A few
+lines of `sh` can play any resolver behavior: resolve-and-report, ask-then-
+resolve, never-repair, report-nothing. This is the `tugdash.mergedriver` stub
+pattern one rung up. **Without a stub the seam does not fall back to a model —
+it refuses**, which is what keeps a stray fixture from quietly spending a
+minute of API time.
+
+**Verification is declared, and Tier 1 is deliberately absent.** A fixture repo
+writes `.tugtool/config.toml` with `[tugtool.dash] verify_tier0 = [...]` and
+**no `verify_tier1`**. Tier 0 is a sentinel grep — seconds cheap, needs no
+toolchain, and able to go genuinely red, which is what `at0443` requires. Tier 1
+is omitted because a fixture join runs *inside* an app-test invocation that
+already holds the machine-wide `apptest` gate: a real tier-1 command would spawn
+app-tests that queue on the gate their own run is holding, and the join would
+hang until something timed out. A project that declares no tier is green with a
+note, which is the posture a fixture wants.
+
+**The repository is the fixture's own.** `makeJoinScratchRepo` in
+`dash-fixture.ts` builds one: a `git init`ed repo under the system temp dir with
+one genuine conflict, a redirected `TUG_DATA_DIR`, the declared Tier 0, and the
+stub scripts. Owning the repository is what lets these arcs run all the way
+through a join — a successful join squashes onto the base branch **in that
+branch's live working tree**, which for the checkout would be the developer's
+own `main`. `rmJoinScratchRepo` deletes the lot.
+
 ## Selectors that mirror the product
 
 Product strings and ids a test queries — an `aria-label`, a dialog island class,
