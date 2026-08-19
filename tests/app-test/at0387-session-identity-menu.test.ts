@@ -303,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // no card around it, so the menu is the only way from the name to the
         // session. The ref resolves through the real `resolve_sessions` round
         // trip against the ledger row `bindSession` recorded.
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OVERVIEW)}) !== null`,
           { timeoutMs: 10_000 },

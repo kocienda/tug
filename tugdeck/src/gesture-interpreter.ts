@@ -99,6 +99,18 @@ export interface GestureClassification {
   placement: "place" | "suppressed" | "skip";
   /** Whether the paired mousedown's browser focus default is prevented. */
   preventMousedownDefault: boolean;
+  /**
+   * The modifiers held when the gesture began.
+   *
+   * Recorded here so a surface that means something by them — a list building a
+   * multi-selection, where ⌘ toggles and ⇧ extends — reads the same record as
+   * everything else rather than re-deriving from an event it may see at a
+   * different phase. The interpreter already reads `metaKey` for its own
+   * activation decision (⌘-click interacts with a background pane without
+   * raising it); publishing the pair costs nothing and keeps one source.
+   */
+  metaKey: boolean;
+  shiftKey: boolean;
   /** Named reasons, for the dev log and tests. */
   reasons: string[];
 }
@@ -249,6 +261,7 @@ interface GestureInput {
   target: EventTarget | null;
   button: number;
   metaKey: boolean;
+  shiftKey?: boolean;
 }
 
 function classify(
@@ -468,6 +481,8 @@ function classify(
     activationTransfer,
     promotion,
     placement,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey === true,
     preventMousedownDefault,
     reasons,
   };

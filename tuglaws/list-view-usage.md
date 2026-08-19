@@ -107,6 +107,21 @@ Pick the mechanism by the list's intent — do not invent a third path.
 | Pick-to-confirm (commit on OK) | consumer-owned: `delegate.onSelect` → `useState` | model / effort picker |
 | Read-only display | none + `interactive={false}` | skills / agents / help listings |
 | Tool-output display | none + `inline` | transcript body-kinds |
+| Many rows selected at once, acted on together | `multiSelect` — consumer-owned SET: the host supplies `selectedIds` and receives `onPick` / `onToggle` / `onExtendTo` | lens Cards (the layout selection) |
+
+The multi-select row is the fifth path, not a variant of the others, and its
+ownership is the point. The set lives in the consumer's store because it
+outlives the list: the Lens's Cards selection is what the deck's layout verbs
+act on, and it has to survive the section collapsing away. The list renders the
+set (`data-selected` on every member row, painted by CSS, [L06]) and reports
+intents; it decides nothing about membership.
+
+`onPick` is not `delegate.onSelect`, and a consumer needs both. A plain click
+means two things — pick this row, and front what it names — so it fires both
+callbacks; a ⌘-click or ⇧-click means only the first, so it fires `onPick`'s
+siblings and no `onSelect` at all. A list that fronted a card on every
+modifier click would raise every card the user touched while building a
+selection.
 
 ## Consumer inventory
 
@@ -126,7 +141,7 @@ adding a consumer.
 | dev session picker (`session-picker-cells`) | `TugListRow` title/subtitle (both filter-highlighted) + trailing trash | `selectionRequired` | filtered by `TugFilterField` |
 | dev recents (`session-picker-cells`) | `TugListRow` `children` (RTL path + `<mark>`, justified) | `selectionRequired` | |
 | `/resume` overlay (`resume-sheet`) | the session-picker cells | none | filtered by `TugFilterField` |
-| lens Cards (`cards-section`) | four cell models over `TugListRow`: the session monitor (leading dot + trailing sparkline), the one-line card row (leading close box + slot picker on the title line), the generic indented subrow, and the group-header row (leading kind glyph + count, a trailing `BlockFoldCue` — the section band's own affordance one size down — and Space toggles the group) | none, cursor only | filtered by `TugFilterField`; one-line rows take striping + measure from `lens-list-presentation.ts`. Headers are `"cell"`-role, NOT the inert `"header"` role, so the arrow walk reaches them — which is why the section always passes an `initialSelectedIndex` (the cursor must seed onto a card, never onto a collapse toggle) |
+| lens Cards (`cards-section`) | four cell models over `TugListRow`: the session monitor (leading dot + trailing sparkline), the one-line card row (leading close box + slot picker on the title line), the generic indented subrow, and the group-header row (leading kind glyph + count, a trailing `BlockFoldCue` — the section band's own affordance one size down — and Space toggles the group) | `multiSelect` (the layout selection) + cursor | filtered by `TugFilterField`; one-line rows take striping + measure from `lens-list-presentation.ts`. Headers are `"cell"`-role, NOT the inert `"header"` role, so the arrow walk reaches them — which is why the section always passes an `initialSelectedIndex` (the cursor must seed onto a card, never onto a collapse toggle) |
 | Jots card (`jots-card`) | `TugListRow` `children` (incipit, drag source + inline markdown) | `selectionRequired` | filtered by `TugFilterField`; one-line list — striping + measure from `lens-list-presentation.ts` |
 | `gallery-list-view-filter` | custom path cells | none | the `useFilteredDataSource` wrapper's living contract |
 | `rewind-sheet` | `TugListRow` title/subtitle | consumer | |

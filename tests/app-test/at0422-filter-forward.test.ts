@@ -64,11 +64,16 @@ const TEST_TIMEOUT_MS = 180_000;
 const encodeProjectDir = (absDir: string): string =>
   absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
+// The first row's title carries FRAGMENT as a LITERAL substring, and that is
+// load-bearing: the per-keystroke assertion below reads the selected row's own
+// text, so a fixture that only matches the query as a subsequence fails at the
+// second character. It has been eaten once already, by a global rename that
+// took "gazette provenance links" to a word with no "gaz" in it.
 const SEEDED = [
   {
     id: "a7c04220-0000-4000-8000-0000000000b1",
-    prompt: "overview provenance links",
-    title: "overview provenance links",
+    prompt: "gazebo provenance links",
+    title: "gazebo provenance links",
   },
   {
     id: "a7c04220-0000-4000-8000-0000000000b2",

@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
         testName: "at0368-overview-session-citations",
       });
       try {
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
@@ -350,7 +350,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
     async () => {
       const app = await launchTugApp({ testName: "at0368-overview-post-atom" });
       try {
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },

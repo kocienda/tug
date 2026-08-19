@@ -950,7 +950,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
     async () => {
       const app = await launchTugApp({ testName: "at0365-overview-attachments" });
       try {
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIELD)}) !== null`,
           { timeoutMs: 10_000 },

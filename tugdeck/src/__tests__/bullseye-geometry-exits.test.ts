@@ -5,7 +5,7 @@
  * a gesture saying "this pane is exactly this wide, here" and a posture
  * saying "this pane is comfy, centered" cannot both be true, and the
  * explicit gesture wins. `DeckManager._clearBullseyeFor` is its one
- * implementation, and three paths write a pane's `position`, `size`, or
+ * implementation, and four paths write a pane's `position`, `size`, or
  * `slot`:
  *
  *   - `movePane` — the drag and resize commits, AND every width door, which
@@ -15,10 +15,12 @@
  *     would miss all of them.
  *   - `setContentWidth` — builds its pane array inline for `_commitImposition`,
  *     bypassing `movePane` entirely.
- *   - `assignCardToSlot` — writes `slot` on its own path.
+ *   - `setCardWidths` — the card-addressed width verb, same inline shape.
+ *   - `assignCardsToSlots` — writes `slot` on its own path. `assignCardToSlot`
+ *     is a one-element batch through it and therefore has no clear of its own.
  *
- * WHAT THIS TEST CATCHES: a clear being dropped from one of the three, and
- * a fourth call site appearing without this file being updated to say why.
+ * WHAT THIS TEST CATCHES: a clear being dropped from one of the four, and
+ * a fifth call site appearing without this file being updated to say why.
  * WHAT IT DOES NOT: a brand-new geometry mutator written with no clear at
  * all — no source grep can see the absence of a call it was never told to
  * expect. The behavioral half is `at0372-bullseye.test.ts`, which drives
@@ -78,8 +80,19 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
     expect(body).toContain("this._clearBullseyeFor(");
   });
 
-  test("assignCardToSlot clears — it writes slot on its own path", () => {
+  test("assignCardsToSlots clears — it writes slot on its own path", () => {
+    const body = stripComments(bodyOf("  assignCardsToSlots("));
+    expect(body).toContain("this._clearBullseyeFor(");
+  });
+
+  test("assignCardToSlot delegates, so it needs no clear of its own", () => {
     const body = stripComments(bodyOf("  assignCardToSlot("));
+    expect(body).toContain("this.assignCardsToSlots(");
+    expect(body).not.toContain("_clearBullseyeFor");
+  });
+
+  test("setCardWidths clears — it bypasses movePane, as setContentWidth does", () => {
+    const body = stripComments(bodyOf("  setCardWidths("));
     expect(body).toContain("this._clearBullseyeFor(");
   });
 
@@ -89,11 +102,11 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
     expect(body).toContain("this.movePane(");
   });
 
-  test("there are exactly three honoring call sites", () => {
-    // Pinned so a fourth site cannot arrive without this file being updated
+  test("there are exactly four honoring call sites", () => {
+    // Pinned so a fifth site cannot arrive without this file being updated
     // to say which path it is and why it needs its own clear.
     const calls = stripComments(SRC).match(/this\._clearBullseyeFor\(/g) ?? [];
-    expect(calls.length).toBe(3);
+    expect(calls.length).toBe(4);
   });
 });
 

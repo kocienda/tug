@@ -96,7 +96,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
         testName: "at0369-overview-post-navigation",
       });
       try {
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },

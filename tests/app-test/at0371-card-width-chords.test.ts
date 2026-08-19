@@ -28,10 +28,22 @@
  *     rests on in `host-menu-state.ts`. A probe swapping one for the other
  *     passes, and the docblock says so rather than claiming a guarantee
  *     this fixture cannot make.)
- *  4. **A rail is inert.** A sidebar's width is the allocator's answer, never
- *     a preset ([P04]), which is the same condition the title bar hides its
- *     popup behind. Selecting the Lens and pressing the chord has to move
- *     nothing — and the Lens is the pane that would be most visibly wrong.
+ *  4. **A rail is inert as a TARGET, and does not swallow the chord.** A
+ *     sidebar's width is the allocator's answer, never a preset ([P04]),
+ *     which is the same condition the title bar hides its popup behind. So
+ *     the Lens never takes a width — and the Lens is the pane that would be
+ *     most visibly wrong. But "the Lens is focused" no longer means "the
+ *     chord does nothing": the verb resolves through the LAYOUT SELECTION,
+ *     which drops rails and keeps the content cards, so a chord typed with
+ *     the keyboard in the Lens lands on the card the user last worked in
+ *     instead of dying silently. Both halves are asserted below — with a
+ *     selection the chord travels to it, and with none it refuses.
+ *  5. **A rail's own width is not spent by a card's width chord.** The verb
+ *     commits with the space allocator held off, unlike the deck-wide Card
+ *     Width default. Re-solving here would shrink the Lens to its floor on
+ *     an ordinary ⌃⌘-digit — the user's rail spent by a gesture that never
+ *     mentioned it. The Lens's measured width after every press is what
+ *     holds that.
  *
  * Widths are read off the painted frame rather than the store, which is what
  * makes this an app-test rather than a unit test: slim (675) and comfy (800)
@@ -182,15 +194,41 @@ describe.skipIf(!SHOULD_RUN)(
           // ...and the pane that was focused a moment ago kept its width.
           expect(await paneWidth(app, "p1")).toBe(WIDE);
 
-          // --- A rail is inert. ---------------------------------------------
-          // The command does not apply to a sidebar, so the chord reaches a
-          // disabled item and nothing moves — neither the Lens nor the card
-          // that held the width last.
+          // --- A rail is inert, and does not swallow the chord. -------------
+          // Fronting the Lens makes a RAIL the first responder. The command
+          // does not apply to a sidebar, so the Lens itself never takes a
+          // width — but the chord is not therefore dead: it resolves through
+          // the layout selection, which still names the card the user was
+          // last in, and lands there. That is the whole point of the resolver
+          // (at0451): a chord typed with the keyboard in the Lens is typed at
+          // the moment the user is most likely to type one.
           await focusCard(app, "L");
           await app.nativeKey("2", ["ctrl", "cmd"]);
           await wait(AFTER_LAND_MS);
+          expect(
+            await paneWidth(app, "pLens"),
+            "a rail never takes a preset, whoever is focused",
+          ).toBe(LENS_WIDTH);
+          expect(
+            await paneWidth(app, "p2"),
+            "the chord travels to the layout selection instead of dying",
+          ).toBe(COMFY);
+          expect(await paneWidth(app, "p1")).toBe(WIDE);
+
+          // --- With NOTHING to resolve to, it genuinely refuses. ------------
+          // The Lens is still the first responder and the selection is empty,
+          // so the ladder runs out: no content card, no width written, and
+          // nothing on the deck moves.
+          await app.evalJS<null>(
+            `(window.__tug.setLayoutSelection([]), null)`,
+          );
+          await app.nativeKey("1", ["ctrl", "cmd"]);
+          await wait(AFTER_LAND_MS);
           expect(await paneWidth(app, "pLens")).toBe(LENS_WIDTH);
-          expect(await paneWidth(app, "p2")).toBe(SLIM);
+          expect(
+            await paneWidth(app, "p2"),
+            "a chord with nothing to act on writes nothing",
+          ).toBe(COMFY);
           expect(await paneWidth(app, "p1")).toBe(WIDE);
         } finally {
           await app.close();

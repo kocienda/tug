@@ -1601,9 +1601,23 @@ export class DeckManager implements IDeckManagerStore {
   private _commitImposition(
     imposition: DeckImposition,
     panes: readonly TugPaneState[],
+    opts?: {
+      /**
+       * Let the space allocator re-solve the rails in this commit. TRUE for
+       * every caller that is one of THE MOMENTS (see
+       * {@link retuneSidebarAllocation}) — a Layouts click, a slot assignment,
+       * a settled canvas resize. FALSE for a commit that merely wants the
+       * one-notify shape: a rail's width is the user's, and a gesture that did
+       * not ask the deck to arrange itself may not spend it.
+       */
+      readonly retuneRails: boolean;
+    },
   ): void {
+    const retuneRails = opts?.retuneRails ?? true;
     const { panesBySide } = this._sidebarRails(panes, imposition);
-    const allocated = this._allocatedRailWidths(panes, imposition);
+    const allocated = retuneRails
+      ? this._allocatedRailWidths(panes, imposition)
+      : null;
     const widthByPaneId = new Map<string, number>();
     if (allocated !== null) {
       for (const [side, sidePanes] of panesBySide) {
@@ -2337,80 +2351,115 @@ export class DeckManager implements IDeckManagerStore {
    * it is one of the moments the space allocator re-solves the rails for
    * (see `retuneSidebarAllocation`): the deck was just asked to arrange
    * itself, and it makes room for what it was asked to arrange.
+   *
+   * One card is the degenerate batch — {@link assignCardsToSlots} is the
+   * implementation, so the single-card and multi-card gestures cannot drift.
    */
   assignCardToSlot(cardId: string, slot: number): void {
+    this.assignCardsToSlots([{ cardId, slot }]);
+  }
+
+  /**
+   * Assign several cards to slots as one arrangement.
+   *
+   * The batch is the multi-card gesture's whole point: the FLIP settle in
+   * `deck-canvas.tsx` measures where the frames were on the store event and
+   * where they landed after React's commit, so a gesture that notifies once
+   * per card offers that measurement a half-moved deck each time and re-arms
+   * the settle window on every one of them. All the slot writes land in ONE
+   * geometry commit, the same reasoning that made `setContentWidth` one
+   * commit rather than one per pane.
+   *
+   * The detaches and the raises still run per card, ahead of the geometry,
+   * because that is what they are: pulling a card out of a tab strip changes
+   * what the strip IS, and a raise moves nothing (the settle's arrangement
+   * signature is z-blind), so neither arms a window of its own. The cards come
+   * forward in the order given, which leaves the last one first responder.
+   *
+   * GROUP REFUSAL. The batch is validated whole before anything moves: one
+   * ineligible card refuses all of them. A gesture that half-applies is worse
+   * than one that refuses, because the user cannot see which half took.
+   */
+  assignCardsToSlots(
+    entries: readonly { readonly cardId: string; readonly slot: number }[],
+  ): void {
+    if (entries.length === 0) return;
     const kind = this.deckState.imposition.kind;
     if (kind === undefined) {
       console.warn(
-        `assignCardToSlot: no active imposition; cannot slot card "${cardId}"`,
-      );
-      return;
-    }
-    const host = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
-    if (!host) {
-      console.warn(`assignCardToSlot: no pane holds card "${cardId}"`);
-      return;
-    }
-    const hostsSidebar = this.deckState.cards.some(
-      (c) => host.cardIds.includes(c.id) && isSidebarCard(c.componentId),
-    );
-    if (hostsSidebar) {
-      // A sidebar card pins to a deck edge and insets the band — it is the
-      // imposition's fixed end, not the chain's to place.
-      console.warn(
-        `assignCardToSlot: card "${cardId}" is hosted in the sidebar pane "${host.id}"`,
+        "assignCardsToSlots: no active imposition; cannot slot cards",
       );
       return;
     }
 
-    // `_detachCard` returns null when the card is alone in its pane — that is
-    // exactly the "slot the existing host" branch, no detach needed.
-    const detachedPaneId =
-      host.cardIds.length > 1
-        ? this._detachCard(host.id, cardId, host.position)
-        : null;
-    const targetPaneId = detachedPaneId ?? host.id;
+    for (const { cardId } of entries) {
+      const host = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
+      if (!host) {
+        console.warn(`assignCardsToSlots: no pane holds card "${cardId}"`);
+        return;
+      }
+      const hostsSidebar = this.deckState.cards.some(
+        (c) => host.cardIds.includes(c.id) && isSidebarCard(c.componentId),
+      );
+      if (hostsSidebar) {
+        // A sidebar card pins to a deck edge and insets the band — it is the
+        // imposition's fixed end, not the chain's to place.
+        console.warn(
+          `assignCardsToSlots: card "${cardId}" is hosted in the sidebar pane "${host.id}"`,
+        );
+        return;
+      }
+    }
 
-    // Raise BEFORE the geometry, in its own commit.
-    //
-    // Assigning always raises: the slotted card becomes the active one, as a
-    // first-class activation. Doing it after the geometry commit would leave
-    // the frame crossing to its slot underneath the panes it is on its way to
-    // sitting in front of — the raise is a precondition of the motion, not its
-    // epilogue. z-order moves nothing, so this commit is not an arrangement
-    // change and arms no settle window of its own (`deck-canvas.tsx`'s
-    // `arrangementSignature`); the geometry commit below is what the imposer
-    // crosses on.
-    //
-    // A raw `activateCard` here would flip the first responder but skip the
-    // focus transfer — the outgoing card (the Lens, whose list dispatched the
-    // assign) would never save its bag, and the slotted card would never
-    // receive its focus claim (no caret until the user clicks into it).
-    // Detaching has already raised and activated the new pane, in which case
-    // this is the same-bit refresh.
-    transferFocusForActivation({
-      outgoingCardId: this.getFirstResponderCardId(),
-      incomingCardId: cardId,
-      store: this,
-      commitMutation: () => this.activateCard(cardId),
+    const targets = new Map<string, number>();
+    for (const { cardId, slot } of entries) {
+      // Re-read the host each pass: an earlier detach rebuilds the panes array.
+      const host = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
+      if (!host) continue;
+
+      // `_detachCard` returns null when the card is alone in its pane — that is
+      // exactly the "slot the existing host" branch, no detach needed.
+      const detachedPaneId =
+        host.cardIds.length > 1
+          ? this._detachCard(host.id, cardId, host.position)
+          : null;
+      const targetPaneId = detachedPaneId ?? host.id;
+
+      // Raise BEFORE the geometry, in its own commit.
+      //
+      // Assigning always raises: the slotted card becomes the active one, as a
+      // first-class activation. Doing it after the geometry commit would leave
+      // the frame crossing to its slot underneath the panes it is on its way to
+      // sitting in front of — the raise is a precondition of the motion, not its
+      // epilogue.
+      //
+      // A raw `activateCard` here would flip the first responder but skip the
+      // focus transfer — the outgoing card (the Lens, whose list dispatched the
+      // assign) would never save its bag, and the slotted card would never
+      // receive its focus claim (no caret until the user clicks into it).
+      // Detaching has already raised and activated the new pane, in which case
+      // this is the same-bit refresh.
+      transferFocusForActivation({
+        outgoingCardId: this.getFirstResponderCardId(),
+        incomingCardId: cardId,
+        store: this,
+        commitMutation: () => this.activateCard(cardId),
+      });
+
+      targets.set(targetPaneId, clampSlot(kind, slot));
+    }
+    if (targets.size === 0) return;
+
+    // Re-placing a pane ends its bullseye. This path writes `slot` on its own
+    // rather than through `movePane`, so it honors the rule explicitly.
+    for (const paneId of targets.keys()) this._clearBullseyeFor(paneId);
+
+    const panes = this.deckState.panes.map((p) => {
+      const slot = targets.get(p.id);
+      return slot === undefined ? p : ({ ...p, slot } as TugPaneState);
     });
-
-    // Read the target back AFTER the raise: the flip rebuilds the panes array.
-    const target = this.deckState.panes.find((p) => p.id === targetPaneId);
-    if (!target) return;
-
-    const clamped = clampSlot(kind, slot);
-    const updated: TugPaneState = { ...target, slot: clamped };
-
-    // Re-placing the pane ends its bullseye. This path writes `slot` on its
-    // own rather than through `movePane`, so it honors the rule explicitly.
-    this._clearBullseyeFor(targetPaneId);
-
-    const panes = this.deckState.panes.map((p) =>
-      p.id === targetPaneId ? updated : p,
-    );
     // Everything in the chain moves, including the panes that kept their
-    // slots: this card's width is now part of what precedes them. Committed
+    // slots: these cards' widths are now part of what precedes them. Committed
     // through `_commitImposition`, so the space allocator re-solves for the
     // chain the assign just changed: assigning a slot is the imposer's own
     // verb — the user asked the deck to arrange itself, whichever door
@@ -3966,6 +4015,59 @@ export class DeckManager implements IDeckManagerStore {
       { ...this.deckState.imposition, contentWidth: preset },
       panes,
     );
+  }
+
+  /**
+   * Put the panes hosting `cardIds` on a named width, in one commit.
+   *
+   * The card-addressed sibling of {@link setContentWidth}: same clamp, same
+   * stamp, same one-commit discipline — but it reaches only the panes named,
+   * and it does NOT move the deck's default. Choosing a width for a selection
+   * is a statement about those cards, not about how content reads here.
+   *
+   * Sidebar panes among the ids are skipped rather than refused: a rail's width
+   * belongs to the allocator, and dropping it from the batch is what lets a
+   * width chord work on a mixed selection instead of dying on it.
+   *
+   * And the rails are left ALONE — `retuneRails: false`, unlike every other
+   * caller of `_commitImposition`. That is the difference between this verb and
+   * `setContentWidth`: choosing the deck's content width is a Layouts click,
+   * one of the moments the deck is licensed to re-arrange itself, while sizing
+   * the card you are looking at is not. Re-solving here shrank the Lens to its
+   * floor on an ordinary ⌃⌘-digit, which is the user's rail spent on a gesture
+   * that never mentioned it.
+   */
+  setCardWidths(cardIds: readonly string[], preset: ContentWidth): void {
+    if (cardIds.length === 0) return;
+    const wanted = new Set(cardIds);
+    const targetPaneIds = new Set(
+      this.deckState.panes
+        .filter(
+          (pane) =>
+            pane.cardIds.some((cid) => wanted.has(cid)) &&
+            this._sidebarComponentIdOfPane(pane.id) === undefined,
+        )
+        .map((pane) => pane.id),
+    );
+    if (targetPaneIds.size === 0) return;
+
+    const panes = this.deckState.panes.map((pane) => {
+      if (!targetPaneIds.has(pane.id)) return pane;
+      const policy = getStackSizePolicy(this._componentIdsOfPane(pane));
+      const width = resolveContentWidthPx(
+        preset,
+        policy.min.width,
+        policy.max?.width,
+      );
+      return { ...pane, size: { ...pane.size, width }, widthPreset: preset };
+    });
+    // Re-widthing ends the pane's bullseye, honored explicitly because this
+    // path builds its pane array inline and hands it to `_commitImposition`,
+    // bypassing `movePane` — deliberately, so the settle measures once.
+    for (const paneId of targetPaneIds) this._clearBullseyeFor(paneId);
+    this._commitImposition(this.deckState.imposition, panes, {
+      retuneRails: false,
+    });
   }
 
   // ---- Cascade positioning ----

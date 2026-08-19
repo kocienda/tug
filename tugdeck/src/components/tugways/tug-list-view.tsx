@@ -89,6 +89,10 @@ import React from "react";
 
 import { currentGesture, targetRefusesFocus } from "@/gesture-interpreter";
 import {
+  multiSelectIntentFor,
+  type MultiSelectIntent,
+} from "./list-multi-select";
+import {
   RESIZE_PRESERVE_BEGIN,
   RESIZE_SETTLE_TAIL_MS,
   trackElementAnchor,
@@ -435,15 +439,16 @@ export interface TugListViewCellProps<
   /** The active data source. Cell renderers query it for content. */
   dataSource: DS;
   /**
-   * `true` when this row is the `selectionRequired`-owned selected
-   * row. The list view computes it from its owned selected index and
-   * passes it alongside the wrapper's `data-selected` attribute, so a
-   * cell renderer can forward selection into a presentational child
-   * (e.g. `TugListRow`'s `selected` prop) without re-deriving it.
+   * `true` when this row is selected — the `selectionRequired`-owned
+   * selected row, or a member of a {@link TugListViewProps.multiSelect}
+   * set. The list view computes it and passes it alongside the wrapper's
+   * `data-selected` attribute, so a cell renderer can forward selection
+   * into a presentational child (e.g. `TugListRow`'s `selected` prop)
+   * without re-deriving it.
    *
-   * Always `false` when `selectionRequired` is off — the list view
-   * holds no selection then and the consumer owns it (typically
-   * through its own context, read inside the cell renderer).
+   * Always `false` when the list holds no selection of either kind — the
+   * consumer owns it then (typically through its own context, read inside
+   * the cell renderer).
    */
   selected: boolean;
 }
@@ -1192,6 +1197,32 @@ export interface TugListViewProps<
   singleSelect?: boolean;
 
   /**
+   * Opt into **consumer-owned multi-select**: the host holds the selected-id
+   * set and receives selection intents, and the list renders the set.
+   *
+   * The set is the host's because it outlives the list — the Cards section's
+   * selection is what the deck's layout verbs act on, and it must survive the
+   * section collapsing away. The list is a view of it, per [L02]; every member
+   * row is stamped `data-selected`, and the paint is CSS's ([L06]).
+   *
+   * Three intents, and the list never decides between them twice: a ⌘-click
+   * toggles membership, a ⇧-click (or ⇧+Arrow / Home / End) extends from the
+   * anchor, and a plain click picks. The modifiers come off the gesture record,
+   * and the rule is `multiSelectIntentFor`.
+   *
+   * `onPick` is deliberately NOT `delegate.onSelect`: a plain click means both
+   * things (pick this row AND front its card) while a modifier click means only
+   * the first, so the two callbacks fire on different gestures. Only member
+   * rows participate — a group header is never selectable.
+   */
+  multiSelect?: {
+    readonly selectedIds: ReadonlySet<string>;
+    readonly onPick: (id: string) => void;
+    readonly onToggle: (id: string) => void;
+    readonly onExtendTo: (id: string) => void;
+  };
+
+  /**
    * Carry the selection with the movement cursor on a `selectionRequired` list
    * — the arrow / Home / End / Page keys commit the landed row exactly as they
    * do under {@link singleSelect}, so the fill and the cursor bar are never on
@@ -1735,6 +1766,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       focusPolicy,
       keyboardSubordinate = false,
       singleSelect = false,
+      multiSelect,
       selectionFollowsCursor = false,
       initialSelectedIndex,
       seedSelection = false,
@@ -1950,6 +1982,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // current values at fire time [L07].
     const selectionRequiredRef = React.useRef(selectionRequired);
     selectionRequiredRef.current = selectionRequired;
+    const multiSelectRef = React.useRef(multiSelect);
+    multiSelectRef.current = multiSelect;
     const activateOnDoubleClickRef = React.useRef(activateOnDoubleClick);
     activateOnDoubleClickRef.current = activateOnDoubleClick;
     const onSelectionChangeRef = React.useRef(onSelectionChange);
@@ -5895,6 +5929,26 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // separate Space step ([P12] picker shape).
         if (commitOnMoveRef.current) selectCursorRow();
       } else if (next >= 0) scrollIndexIntoView(next, "nearest");
+      // ⇧ + a movement key EXTENDS the multi-selection to the row the cursor
+      // landed on. `focus-language.md`: a bare arrow never selects; a
+      // modifier-extended arrow is a selection gesture.
+      //
+      // This rides the backstop and only the backstop. Bare arrows are taken by
+      // the spatial cursor handle before the delegate ever runs, but both the
+      // navigator and the liveliness net bail on `shiftKey`, so a ⇧-arrow
+      // arrives here and nowhere else. Home / End have no spatial counterpart
+      // and are always served here. Page keys move the cursor without
+      // extending: a screenful is a scroll gesture, not a range the user
+      // picked out.
+      if (
+        e.shiftKey &&
+        next >= 0 &&
+        multiSelectRef.current !== undefined &&
+        e.key !== "PageUp" &&
+        e.key !== "PageDown"
+      ) {
+        commitMultiSelect(next, "extend");
+      }
       return true;
     };
     handleListKeyRef.current = handleListKey;
@@ -5916,6 +5970,29 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // CLICK instead, which only arrives if the gesture stayed a click. A drag
     // swallows its own trailing click, so it selects nothing.
     const deferredSelectIndexRef = React.useRef<number | null>(null);
+    // The intent that deferred press carried. Classified at pointerdown, where
+    // the gesture record is live, and replayed on the click — by then the
+    // gesture is over and the modifiers are gone, so a click that re-asked
+    // would read every deferred ⌘-click as a plain pick.
+    const deferredSelectIntentRef = React.useRef<MultiSelectIntent>("pick");
+
+    // Commit a row's selection under the multi-select contract, or report that
+    // the list is not in multi-select mode so the caller runs the ordinary
+    // `onSelect` path. A modifier gesture routes to the store and NOTHING else:
+    // it must not front the row's card ([P06] — building a selection by
+    // clicking would raise every card it touched).
+    const commitMultiSelect = (
+      index: number,
+      intent: MultiSelectIntent,
+    ): boolean => {
+      const ms = multiSelectRef.current;
+      if (ms === undefined) return false;
+      const id = dataSourceRef.current.idForIndex(index);
+      if (intent === "toggle") ms.onToggle(id);
+      else if (intent === "extend") ms.onExtendTo(id);
+      else ms.onPick(id);
+      return intent !== "pick";
+    };
 
     function getCellCallbacks(index: number): CellCallbacks {
       const registry = cellCallbacksRef.current;
@@ -5998,14 +6075,20 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         //
         // Selection is list state and commits whether or not the focus engine
         // is running; only the cursor / key-view half below is engine state.
+        const intent = multiSelectIntentFor(currentGesture());
         if (!e.defaultPrevented) {
           deferredSelectIndexRef.current = null;
-          delegateRef.current?.onSelect?.(index);
-          if (selectionRequiredRef.current || focusEngineActiveRef.current) {
-            setSelectedIndex(index);
+          // A modifier gesture is a selection edit and stops there: no
+          // `onSelect` (which fronts the card), no owned-index move.
+          if (!commitMultiSelect(index, intent)) {
+            delegateRef.current?.onSelect?.(index);
+            if (selectionRequiredRef.current || focusEngineActiveRef.current) {
+              setSelectedIndex(index);
+            }
           }
         } else {
           deferredSelectIndexRef.current = index;
+          deferredSelectIntentRef.current = intent;
         }
         if (!focusEngineActiveRef.current) return;
         // The gesture's own placement decision governs the engine half. The
@@ -6056,6 +6139,10 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // Space on a descended-onto close box synthesizes a click that bubbles
         // here; it is still the action's gesture, not the row's.
         if (targetIsRowAction(e)) return;
+        // A deferred press replays the intent it was classified with; a
+        // keyboard-synthesized click carries no gesture and reads as a pick.
+        const intent = deferred ? deferredSelectIntentRef.current : "pick";
+        if (commitMultiSelect(index, intent)) return;
         delegateRef.current?.onSelect?.(index);
         // `selectionRequired` mode — the list view owns the selected index; a
         // cell activation moves it. `delegate.onSelect` above still fires, so
@@ -6337,7 +6424,14 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
             // renderer forwards into a presentational child). The
             // wrapper attribute is absent entirely when the feature
             // is off, keeping the default-cell DOM shape unchanged.
-            const cellSelected = effectiveSelectedIndex === index;
+            // Multi-select membership paints through the same attribute as the
+            // owned single selection: one row-selected look, whichever mode put
+            // the row there. A list in multi-select mode is normally not also
+            // `selectionRequired`, so the two rarely meet — and where they do,
+            // either being true means "this row is in the selection".
+            const cellSelected =
+              effectiveSelectedIndex === index ||
+              multiSelect?.selectedIds.has(id) === true;
             const wrapperSelectedAttr = cellSelected ? "true" : undefined;
             // No per-cell height styling FROM RENDER. `inline` mode mounts
             // every cell at its real, measured height — no estimates, no

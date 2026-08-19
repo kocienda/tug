@@ -587,10 +587,29 @@ export function initActionDispatch(
   // than relying on which card is focused — the popup you opened is the pane
   // you meant.
   registerAction(TUG_ACTIONS.SET_CARD_WIDTH, (payload) => {
-    const paneId = payload.paneId;
     const preset = payload.preset;
-    if (typeof paneId !== "string" || !isContentWidth(preset)) {
-      console.warn("set-card-width: missing or invalid paneId/preset", payload);
+    if (!isContentWidth(preset)) {
+      console.warn("set-card-width: missing or invalid preset", payload);
+      return;
+    }
+    // Card-addressed and plural, or pane-addressed and single. The title bar's
+    // width popup names a pane, because that is what it sits on; the ⌃⌘-digit
+    // chord names the layout selection, which is cards. The plural path
+    // commits all of the widths at once for the settle's sake.
+    if (Array.isArray(payload.cardIds)) {
+      const cardIds = payload.cardIds.filter(
+        (id): id is string => typeof id === "string",
+      );
+      if (cardIds.length !== payload.cardIds.length) {
+        console.warn("set-card-width: invalid cardIds", payload);
+        return;
+      }
+      deckManager.setCardWidths(cardIds, preset);
+      return;
+    }
+    const paneId = payload.paneId;
+    if (typeof paneId !== "string") {
+      console.warn("set-card-width: missing or invalid paneId", payload);
       return;
     }
     deckManager.setPaneWidth(paneId, preset);
@@ -677,9 +696,17 @@ export function initActionDispatch(
   // indistinguishable from a chord that did not land at all — so the flash is
   // the gesture's receipt, not a decoration on the motion ([P04], [L06]).
   registerAction("assign-slot", (payload) => {
-    const cardId = payload.cardId;
-    if (typeof cardId !== "string") {
-      console.warn("assign-slot: missing or invalid cardId", payload);
+    // One card or several, through one door. `cardIds` is what the ⌘-digit
+    // chord sends once the deck has a layout selection; `cardId` is the
+    // SlotPicker's single-row shape. Both land in the batched mutator, which
+    // commits the whole group's geometry once — a notify per card would
+    // re-arm the FLIP settle mid-flight and break the motion.
+    const raw = Array.isArray(payload.cardIds)
+      ? payload.cardIds
+      : [payload.cardId];
+    const cardIds = raw.filter((id): id is string => typeof id === "string");
+    if (cardIds.length === 0 || cardIds.length !== raw.length) {
+      console.warn("assign-slot: missing or invalid cardId(s)", payload);
       return;
     }
     const slot = payload.slot;
@@ -687,15 +714,19 @@ export function initActionDispatch(
       console.warn("assign-slot: missing or invalid slot", payload);
       return;
     }
-    deckManager.assignCardToSlot(cardId, slot);
-    // Read the pane back AFTER the call: a card pulled out of a tab group
+    deckManager.assignCardsToSlots(cardIds.map((cardId) => ({ cardId, slot })));
+    // Read the panes back AFTER the call: a card pulled out of a tab group
     // lands in a pane that did not exist before it. `slot` being set is what
-    // separates an assignment that happened from one `assignCardToSlot`
-    // refused (no imposition, sidebar host) — a refusal must not flash.
-    const landed = deckManager
-      .getSnapshot()
-      .panes.find((p) => p.cardIds.includes(cardId));
-    if (landed?.slot !== undefined) flashPaneBorder(landed.id);
+    // separates an assignment that happened from one the mutator refused (no
+    // imposition, sidebar host) — a refusal must not flash.
+    const panes = deckManager.getSnapshot().panes;
+    const flashed = new Set<string>();
+    for (const cardId of cardIds) {
+      const landed = panes.find((p) => p.cardIds.includes(cardId));
+      if (landed?.slot === undefined || flashed.has(landed.id)) continue;
+      flashed.add(landed.id);
+      flashPaneBorder(landed.id);
+    }
   });
 
   // focus-session-card: activate a specific card (front its pane + promote the

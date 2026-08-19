@@ -169,7 +169,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         testName: "at0370-overview-follow-bottom",
       });
       try {
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },

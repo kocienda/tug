@@ -89,7 +89,7 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
     async () => {
       const app = await launchTugApp({ testName: "at0367-overview-scrollback" });
       try {
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },

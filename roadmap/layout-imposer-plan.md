@@ -451,10 +451,10 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 | #step-2 | C: pane enter and exit motion | done | `9acdb5c26` |
 | #step-3 | C: timing-hazard fixes | done | `37ca7468f` |
 | #step-4 | C: integration checkpoint + doctrine notes | done | `1ce2ada5d` |
-| #step-5 | A: selection store, resolver, batched mutators | pending | — |
-| #step-6 | A: TugListView multi-select + law amendments | pending | — |
-| #step-7 | A: Cards section wiring + command retarget | pending | — |
-| #step-8 | A: integration checkpoint | pending | — |
+| #step-5 | A: selection store, resolver, batched mutators | done | `a3ff99a14` |
+| #step-6 | A: TugListView multi-select + law amendments | done | `19b1d2873` |
+| #step-7 | A: Cards section wiring + command retarget | done | `a4c65b50e` |
+| #step-8 | A: integration checkpoint | done | `130bfd289` |
 | #step-9 | B: nudge-slot commands + chord doctrine | pending | — |
 | #step-10 | B: integration checkpoint | pending | — |
 | #step-11 | D: flow geometry + mode bit | pending | — |

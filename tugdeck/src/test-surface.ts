@@ -77,6 +77,7 @@ import { parseClipboardSidecar } from "./components/tugways/tug-text-editor/clip
 import type { ListOverviewPostsOk, RateLimitInfo } from "./protocol";
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import { cutDetector } from "./lib/cut-detector";
+import { lensSelectionStore } from "./components/lens/lens-selection-store";
 import type { TaggedValue } from "./lib/tugbank-client";
 import type {
   LiveTurnPerf,
@@ -311,8 +312,16 @@ import {
  * animation frame and records any that changed geometry with nothing animating
  * it, which is the only way a test can hold the deck to that promise across a
  * whole gesture rather than at two sampled instants. Additive; major stays `2`.
+ *
+ * `2.10.0`: adds {@link TugTestSurface.setLayoutSelection} and
+ * {@link TugTestSurface.getLayoutSelection}. The layout selection is what the
+ * deck's slot and width verbs act on, and it is built by pointer gestures with
+ * modifiers held in a rail's list — reproducible, but a long way from the
+ * behavior under test when what is under test is the VERB. These two write and
+ * read the set directly so a chord can be driven against a known selection.
+ * Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.9.0" as const;
+export const SURFACE_VERSION = "2.10.0" as const;
 
 /**
  * `sessionStorage` key for the cross-reload generation counter.
@@ -1345,6 +1354,19 @@ export interface TugTestSurface {
    * Each record names the pane and the per-axis delta it jumped by.
    */
   takeCutRecords(): unknown[];
+
+  /**
+   * Put the layout selection on exactly these cards (SURFACE_VERSION 2.10.0),
+   * anchored on the last of them — the state a run of ⌘/⇧ clicks in the Lens's
+   * Cards list would leave behind.
+   *
+   * An empty array clears it, which is how a test drives the resolver's
+   * first-responder fallback rather than its selection rung.
+   */
+  setLayoutSelection(cardIds: readonly string[]): void;
+
+  /** The layout selection's card ids, in selection order. */
+  getLayoutSelection(): readonly string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -2511,6 +2533,19 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     takeCutRecords(): unknown[] {
       return cutDetector.take();
+    },
+
+    setLayoutSelection(cardIds: readonly string[]): void {
+      if (cardIds.length === 0) {
+        lensSelectionStore.clear();
+        return;
+      }
+      lensSelectionStore.pickOnly(cardIds[0]);
+      for (const cardId of cardIds.slice(1)) lensSelectionStore.toggle(cardId);
+    },
+
+    getLayoutSelection(): readonly string[] {
+      return lensSelectionStore.getSnapshot().ids;
     },
   };
 }

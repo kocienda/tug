@@ -145,7 +145,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
     async () => {
       const app = await launchTugApp({ testName: "at0366-overview-copy" });
       try {
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
@@ -215,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
     async () => {
       const app = await launchTugApp({ testName: "at0366-overview-copy-commit" });
       try {
-        await app.nativeKey("g", ["cmd", "ctrl"]);
+        await app.nativeKey("o", ["cmd", "ctrl"]);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },

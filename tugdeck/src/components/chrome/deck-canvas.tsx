@@ -83,6 +83,8 @@ import {
   springSettleKeyframes,
 } from "@/lib/pane-flip";
 import { dispatchCommand } from "@/command-dispatch";
+import { attachLensSelectionToDeck } from "@/components/lens/lens-selection-store";
+import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
 import {
   isSidebarPinned,
   sidebarSide,
@@ -1005,11 +1007,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const kind = deck.imposition.kind;
         if (kind === undefined) return;
         if (event.value < 1 || event.value > slotCount(kind)) return;
-        const cardId = store.getFirstResponderCardId();
-        if (cardId === null) return;
-        const card = deck.cards.find((c) => c.id === cardId);
-        if (!card || isSidebarCard(card.componentId)) return;
-        dispatchCommand("assign-slot", { cardId, slot: event.value - 1 });
+        // The layout selection, not the first responder. With the keyboard in
+        // the Lens the first responder IS the Lens card — a rail — so reading
+        // it alone refused every slot chord typed while the Cards list had
+        // focus, which is exactly when one is most likely to be typed.
+        const cardIds = contentCardsInLayoutSelection(store);
+        if (cardIds.length === 0) return;
+        dispatchCommand("assign-slot", { cardIds, slot: event.value - 1 });
       },
       // ⌃⌘1..3 — put the selected card's pane at a named width. The canvas
       // owns this for the same reason it owns ⌘1..9: the chord walks past
@@ -1021,21 +1025,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // deselected deck has no pane to set it on.
       [TUG_ACTIONS.SET_PANE_WIDTH]: (event: ActionEvent) => {
         if (!isContentWidth(event.value)) return;
-        const deck = store.getSnapshot();
-        const cardId = store.getFirstResponderCardId();
-        if (cardId === null) return;
-        const pane = deck.panes.find((p) => p.cardIds.includes(cardId));
-        if (!pane) return;
-        if (
-          pane.cardIds.some((cid) => {
-            const card = deck.cards.find((c) => c.id === cid);
-            return card !== undefined && isSidebarCard(card.componentId);
-          })
-        ) {
-          return;
-        }
+        const cardIds = contentCardsInLayoutSelection(store);
+        if (cardIds.length === 0) return;
         dispatchCommand(TUG_ACTIONS.SET_CARD_WIDTH, {
-          paneId: pane.id,
+          cardIds,
           preset: event.value,
         });
       },
@@ -1559,6 +1552,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // exactly what this effect writes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railSummary]);
+
+  // ---------------------------------------------------------------------------
+  // Layout selection reconciliation
+  // ---------------------------------------------------------------------------
+  // The layout selection is the Lens's to build and the deck's to honor, so it
+  // is reconciled here rather than in the Lens: the canvas is mounted for as
+  // long as there is a deck, and the Lens is not. Pruning closed cards out of
+  // the set and collapsing it when the user fronts something else both need to
+  // happen whether the Cards section is on screen or collapsed away.
+  // [L03] — a subscription registered in a layout effect, torn down with it.
+  useLayoutEffect(() => attachLensSelectionToDeck(store), [store]);
 
   // ---------------------------------------------------------------------------
   // Settled-resize re-tune

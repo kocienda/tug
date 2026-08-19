@@ -72,6 +72,7 @@ import {
   setSectionAttachedList,
   setSectionContent,
 } from "@/components/lens/lens-section-content";
+import { lensSelectionStore } from "@/components/lens/lens-selection-store";
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
 import { SlotPicker } from "@/components/lens/slot-picker";
@@ -102,6 +103,7 @@ import { sessionTagStore } from "@/lib/session-tag-store";
 
 import {
   displayPath,
+  idOfRow,
   useLensCardsDataSource,
   type CardIdentity,
   type CardsRow,
@@ -266,6 +268,7 @@ function OneLineRow({
   showClose,
   closesPane,
   trailing,
+  selected,
 }: {
   identity: CardIdentity;
   glyph: React.ReactNode;
@@ -284,6 +287,9 @@ function OneLineRow({
    */
   closesPane?: { paneId: string; cardCount: number };
   trailing?: React.ReactNode;
+  /** This row's card is in the layout selection — the list computed it and the
+   *  row paints it with `TugListRow`'s own selection fill. */
+  selected: boolean;
 }): React.ReactElement {
   const ctx = useCellContext();
   const hoverPath = identity.path !== null ? displayPath(identity.path) : "";
@@ -293,6 +299,7 @@ function OneLineRow({
       : `Close ${identity.title}`;
   return (
     <TugListRow
+      selected={selected}
       className={
         subrow
           ? "lens-cards-oneline lens-cards-subrow"
@@ -452,6 +459,7 @@ const GroupHeaderCell: TugListViewCellRenderer<LensCardsDataSource> = ({
 const SessionPaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
   index,
   dataSource,
+  selected,
 }: TugListViewCellProps<LensCardsDataSource>) => {
   const row = dataSource.rowAt(index);
   const ctx = useCellContext();
@@ -460,6 +468,7 @@ const SessionPaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
   if (identity.tugSessionId === null || identity.projectDir === null) {
     return (
       <OneLineRow
+        selected={selected}
         identity={identity}
         glyph={registrationGlyph(identity)}
         disambiguator={null}
@@ -473,6 +482,7 @@ const SessionPaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
   }
   return (
     <CardsSessionRow
+      selected={selected}
       cardId={identity.cardId}
       tugSessionId={identity.tugSessionId}
       projectDir={identity.projectDir}
@@ -488,11 +498,13 @@ const SessionPaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
 const FilePaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
   index,
   dataSource,
+  selected,
 }: TugListViewCellProps<LensCardsDataSource>) => {
   const row = dataSource.rowAt(index);
   if (row.type !== "pane") return null;
   return (
     <OneLineRow
+      selected={selected}
       identity={row.identity}
       glyph={fileGlyph(row.identity)}
       disambiguator={row.disambiguator}
@@ -511,11 +523,13 @@ const FilePaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
 const ToolPaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
   index,
   dataSource,
+  selected,
 }: TugListViewCellProps<LensCardsDataSource>) => {
   const row = dataSource.rowAt(index);
   if (row.type !== "pane") return null;
   return (
     <OneLineRow
+      selected={selected}
       identity={row.identity}
       glyph={registrationGlyph(row.identity)}
       disambiguator={null}
@@ -541,11 +555,13 @@ const ToolPaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
 const StackPaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
   index,
   dataSource,
+  selected,
 }: TugListViewCellProps<LensCardsDataSource>) => {
   const row = dataSource.rowAt(index);
   if (row.type !== "pane") return null;
   return (
     <OneLineRow
+      selected={selected}
       identity={row.identity}
       glyph={registrationGlyph(row.identity)}
       disambiguator={null}
@@ -571,6 +587,7 @@ const StackPaneCell: TugListViewCellRenderer<LensCardsDataSource> = ({
 const SubcardCell: TugListViewCellRenderer<LensCardsDataSource> = ({
   index,
   dataSource,
+  selected,
 }: TugListViewCellProps<LensCardsDataSource>) => {
   const row = dataSource.rowAt(index);
   if (row.type !== "card") return null;
@@ -580,6 +597,7 @@ const SubcardCell: TugListViewCellRenderer<LensCardsDataSource> = ({
       : registrationGlyph(row.identity);
   return (
     <OneLineRow
+      selected={selected}
       identity={row.identity}
       glyph={glyph}
       disambiguator={null}
@@ -933,6 +951,74 @@ function CardsSectionBody({
     return { onSelect: activate, onActivate: activate };
   }, [dataSource, onToggleGroup]);
 
+  // ---- The layout selection ----
+  //
+  // The list is a VIEW of the selection ([L02]); the set itself lives in
+  // `lensSelectionStore` because it outlives this section — the deck's slot and
+  // width verbs resolve through it whether the Lens is open or collapsed.
+  //
+  // Two id spaces meet here and the section is the translator. The list speaks
+  // row ids (`pane:…` / `card:…` / `header:…`, from `idOfRow`) because that is
+  // what identifies a row; the store speaks CARD ids, because that is what a
+  // layout verb acts on. A card shows as a pane row when it is its pane's
+  // identity card and as a subrow when it is not, so the mapping has to be read
+  // off the live rows rather than assumed from either spelling.
+  const selection = useSyncExternalStore(
+    lensSelectionStore.subscribe,
+    lensSelectionStore.getSnapshot,
+  );
+  const { selectedRowIds, cardIdByRowId, visibleCardOrder } = useMemo(() => {
+    const selected = new Set(selection.ids);
+    const rowIds = new Set<string>();
+    const byRowId = new Map<string, string>();
+    const order: string[] = [];
+    const seen = new Set<string>();
+    for (let i = 0; i < dataSource.numberOfItems(); i += 1) {
+      const row = dataSource.rowAt(i);
+      if (row === undefined || row.type === "group-header") continue;
+      const rowId = idOfRow(row);
+      const cardId = row.identity.cardId;
+      byRowId.set(rowId, cardId);
+      if (selected.has(cardId)) rowIds.add(rowId);
+      // A stack's identity card owns two rows — the pane row and its own
+      // subrow. The order carries it once, at its first appearance, so a range
+      // never depends on which of the two the user happened to click.
+      if (!seen.has(cardId)) {
+        seen.add(cardId);
+        order.push(cardId);
+      }
+    }
+    return {
+      selectedRowIds: rowIds,
+      cardIdByRowId: byRowId,
+      visibleCardOrder: order,
+    };
+  }, [dataSource, selection]);
+
+  const multiSelect = useMemo(
+    () => ({
+      selectedIds: selectedRowIds,
+      // A plain pick collapses the set to the row picked. The delegate's
+      // `onSelect` fires alongside it and fronts the card — the two halves of
+      // a plain click ([P06]).
+      onPick: (rowId: string): void => {
+        const cardId = cardIdByRowId.get(rowId);
+        if (cardId !== undefined) lensSelectionStore.pickOnly(cardId);
+      },
+      onToggle: (rowId: string): void => {
+        const cardId = cardIdByRowId.get(rowId);
+        if (cardId !== undefined) lensSelectionStore.toggle(cardId);
+      },
+      onExtendTo: (rowId: string): void => {
+        const cardId = cardIdByRowId.get(rowId);
+        if (cardId !== undefined) {
+          lensSelectionStore.extendTo(cardId, visibleCardOrder);
+        }
+      },
+    }),
+    [selectedRowIds, cardIdByRowId, visibleCardOrder],
+  );
+
   return (
     <div className="lens-cards-section">
       {count === 0 ? (
@@ -968,6 +1054,7 @@ function CardsSectionBody({
               focusGroup={hasContent ? host.focusGroup : undefined}
               attachedFilter={sectionAttachedFilter(host.focusGroup)}
               commitOnEnter="act"
+              multiSelect={multiSelect}
               initialSelectedIndex={initialSelectedIndex}
               {...LENS_LIST_PRESENTATION}
               className="lens-cards-list"

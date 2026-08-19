@@ -961,10 +961,14 @@ describe("initActionDispatch: imposition verbs", () => {
       setImposition(kind: string | null): void {
         impositions.push(kind);
       },
-      assignCardToSlot(cardId: string, slot: number): void {
-        assignments.push({ cardId, slot });
-        const pane = panes.find((p) => p.cardIds.includes(cardId));
-        if (pane) pane.slot = slot;
+      assignCardsToSlots(
+        entries: readonly { cardId: string; slot: number }[],
+      ): void {
+        for (const { cardId, slot } of entries) {
+          assignments.push({ cardId, slot });
+          const pane = panes.find((p) => p.cardIds.includes(cardId));
+          if (pane) pane.slot = slot;
+        }
       },
       getSnapshot() {
         return { panes };
@@ -1008,10 +1012,25 @@ describe("initActionDispatch: imposition verbs", () => {
     ]);
   });
 
+  it("passes a multi-card assignment through as one batch", () => {
+    const { assignments } = wire();
+    dispatchAction({
+      action: "assign-slot",
+      cardIds: ["card-1", "card-2"],
+      slot: 2,
+    });
+    expect(assignments).toEqual([
+      { cardId: "card-1", slot: 2 },
+      { cardId: "card-2", slot: 2 },
+    ]);
+  });
+
   it("refuses a missing or non-string cardId", () => {
     const { assignments } = wire();
     dispatchAction({ action: "assign-slot", slot: 1 });
     dispatchAction({ action: "assign-slot", cardId: 7, slot: 1 });
+    dispatchAction({ action: "assign-slot", cardIds: [], slot: 1 });
+    dispatchAction({ action: "assign-slot", cardIds: ["card-1", 7], slot: 1 });
     expect(assignments).toEqual([]);
   });
 

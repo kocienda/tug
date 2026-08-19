@@ -90,6 +90,8 @@ export interface CardsSessionRowProps {
   orderKey: string;
   filterQuery: string;
   onRowPointerDown: (orderKey: string, event: React.PointerEvent) => void;
+  /** This row's card is in the layout selection. */
+  selected: boolean;
 }
 
 /** One monitor row: the shared `SessionIdentityRow`, at the Lens's settings.
@@ -106,10 +108,12 @@ export function CardsSessionRow({
   orderKey,
   filterQuery,
   onRowPointerDown,
+  selected,
 }: CardsSessionRowProps): React.ReactElement {
   const dashLine = useSessionDashLine(tugSessionId);
   return (
     <SessionIdentityRow
+      selected={selected}
       className="session-row-content lens-cards-row"
       sessionId={tugSessionId}
       cardId={cardId}
