@@ -227,6 +227,8 @@ This plan follows the devise-skeleton anchor and label conventions: explicit keb
 
 **Decision:** `nudge-slot:left` / `nudge-slot:right` bind ⌥⇧⌘[ and ⌥⇧⌘], deliberately unpromoted to any menu (the same [Q02]-comment pattern as ⌘1..9 in `command-registry.ts`), with a residents entry added to `tuglaws/chord-tiers.md` recording the R1 reading.
 
+**Confirmed at Step 9, and the fallback stays unspent.** The chord was briefly moved to ⌃⌘[/] on a misreading — a page-level `keydown` probe showed no ⌥⇧⌘ bracket press arriving, which was taken for an AppKit key-equivalent claim by the promoted ⌥⌘[/] neighbours. The probe could not have shown otherwise: a matched chord is consumed with `stopImmediatePropagation`, so a handled chord and a swallowed one read identically. The real fault was a missing `CommandEntry` for `nudge-slot-selection`, which broke the verb under *either* chord. With that fixed, ⌥⇧⌘[/] drive the deck in the real app (`at0452`).
+
 **Rationale:**
 - Mechanically free: the only bracket chords in the codebase are ⇧⌘[/] (lateral card ring) and ⌥⌘[/] (stack ring); plain ⌘[/] is pool-reserved for back/forward; ⌥⇧⌘ brackets are unclaimed by Tug, macOS, and WebKit.
 - Doctrinal reading: ⇧⌘[/] moves *attention* laterally across the cards; the ⌥ operator means "same verb, altered object" — ⌥⇧⌘[/] moves *the card itself* laterally. Same keys, same axis, altered object.
@@ -235,6 +237,7 @@ This plan follows the devise-skeleton anchor and label conventions: explicit keb
 **Implications:**
 - Unpromoted means no Swift menu item and no `codeToKeyEquivalent` asymmetry (which would render ⌥⌘{ / ⌥⌘}).
 - The chord-tiers residents table gains the pair with its reading, in the same commit as the binding (laws travel with steps).
+- Verify a new chord by pressing it and watching the deck, never by a page-level `keydown` probe: a matched chord is consumed with `stopImmediatePropagation`, so such a probe reports a working chord and a swallowed one identically. Applies to Step 18's split family too.
 
 #### [P08] Nudges clamp as a group and refuse visibly (DECIDED) {#p08-group-clamp}
 
@@ -455,8 +458,8 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 | #step-6 | A: TugListView multi-select + law amendments | done | `19b1d2873` |
 | #step-7 | A: Cards section wiring + command retarget | done | `a4c65b50e` |
 | #step-8 | A: integration checkpoint | done | `130bfd289` |
-| #step-9 | B: nudge-slot commands + chord doctrine | pending | — |
-| #step-10 | B: integration checkpoint | pending | — |
+| #step-9 | B: nudge-slot commands + chord doctrine | done | `24b56a61c` |
+| #step-10 | B: integration checkpoint | done | `24b56a61c` |
 | #step-11 | D: flow geometry + mode bit | pending | — |
 | #step-12 | D: offset plumbing + reveal-on-activation | pending | — |
 | #step-13 | D: Layouts UI + pane-model doc | pending | — |
@@ -672,7 +675,7 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 
 **Depends on:** #step-8
 
-**Commit:** `tugdeck(nudge-slot): ⌥⇧⌘ bracket nudges over the layout selection; chord-tiers residents entry`
+**Commit:** `tugdeck(nudge-slot): ⌃⌘ bracket nudges over the layout selection; chord-tiers residents entry`
 
 **References:** [P07] nudge chord, [P08] group clamp, [P04], Spec S03, (#ground-today)
 

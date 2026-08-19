@@ -641,6 +641,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.OPEN_FILE,
   TUG_ACTIONS.REVEAL_IN_FINDER,
   TUG_ACTIONS.MOVE_TO_SLOT,
+  TUG_ACTIONS.NUDGE_SLOT,
   TUG_ACTIONS.SET_PANE_WIDTH,
   TUG_ACTIONS.TOGGLE_BULLSEYE,
   TUG_ACTIONS.NEW_TEXT_CARD,
@@ -1025,6 +1026,22 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         const cardIds = contentCardsInLayoutSelection(store);
         if (cardIds.length === 0) return;
         dispatchCommand("assign-slot", { cardIds, slot: event.value - 1 });
+      },
+      // ⌥⇧⌘[ / ⌥⇧⌘] — move the layout selection one slot along the
+      // arrangement. The canvas owns it for the same reason it owns ⌘1..9,
+      // and it resolves the same selection, so the two verbs cannot disagree
+      // about what they are acting on: one names a slot, the other names a
+      // direction. The arithmetic and the group clamp live behind
+      // `nudge-slot-selection`, which is where the refusal flash is decided.
+      [TUG_ACTIONS.NUDGE_SLOT]: (event: ActionEvent) => {
+        if (event.value !== -1 && event.value !== 1) return;
+        if (store.getSnapshot().imposition.kind === undefined) return;
+        const cardIds = contentCardsInLayoutSelection(store);
+        if (cardIds.length === 0) return;
+        dispatchCommand("nudge-slot-selection", {
+          cardIds,
+          delta: event.value,
+        });
       },
       // ⌃⌘1..3 — put the selected card's pane at a named width. The canvas
       // owns this for the same reason it owns ⌘1..9: the chord walks past

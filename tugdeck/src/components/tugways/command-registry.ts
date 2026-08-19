@@ -598,6 +598,50 @@ const SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
 );
 
 /**
+ * ⌥⇧⌘[ / ⌥⇧⌘] — move the layout selection one slot along the arrangement.
+ *
+ * **The tier, derived** (tuglaws/chord-tiers.md): ⇧⌘[/] moves attention
+ * laterally across the cards and ⌥⌘[/] moves it through one slot's stack; ⌥ is
+ * the variant operator, so ⌥⇧⌘[/] reads as the same lateral verb with the
+ * object altered — it moves the card itself rather than the attention on it.
+ * Same keys, same axis, altered object. Plain ⌘[/] is left alone: the pool
+ * reserves it for back/forward.
+ *
+ * The ⌥⌘[/] neighbours are menu-promoted, so whether AppKit would claim the
+ * ⌥⇧⌘ press too was checked rather than assumed. It does not — the
+ * key-equivalent scan matches modifier masks exactly, so a promoted chord
+ * shadows itself and not its composed neighbours.
+ *
+ * Two entries rather than one signed command, for the same reason the width
+ * row is three: each direction is separately rebindable and each is one row in
+ * the keymap pane.
+ *
+ * **Unpromoted**, like ⌘1..9 and for the neighbouring reason ([Q02]): the
+ * nudge acts on the layout selection, which is a fact about the Lens's list
+ * and not about the frontmost card, so there is nothing for a menu item's
+ * `validate` to read that would tell a live nudge from a dead one. A menu item
+ * that is always enabled and sometimes inert is worse than no menu item, and
+ * an unpromoted chord keeps the refusal where the user can see it — on the
+ * blocking pane's border.
+ */
+const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
+  { dir: "left", delta: -1, key: "BracketLeft", label: "[" },
+  { dir: "right", delta: 1, key: "BracketRight", label: "]" },
+].map(({ dir, delta, key, label }) => ({
+  id: `${TUG_ACTIONS.NUDGE_SLOT}:${dir}`,
+  title: dir === "left" ? "Nudge Card Left" : "Nudge Card Right",
+  routing: "first-responder" as const,
+  action: TUG_ACTIONS.NUDGE_SLOT,
+  payload: delta,
+  bindings: [
+    chord(
+      { key, meta: true, alt: true, shift: true, label },
+      { preventDefault: true },
+    ),
+  ],
+}));
+
+/**
  * ⌃⌘1/2/3 — the focused card's width, as one of the three named presets.
  *
  * Three entries and not one cycling command, because the set is static and
@@ -1333,6 +1377,7 @@ export const COMMANDS: readonly CommandEntry[] = [
     state: (chain) => chain.menu.bullseye?.on === true,
   },
   ...SLOT_COMMANDS,
+  ...NUDGE_SLOT_COMMANDS,
   {
     // Its door is the pane's close box — a targeted control, invisible to
     // a lint that can only see menu items and chords.
@@ -1428,6 +1473,16 @@ export const COMMANDS: readonly CommandEntry[] = [
     title: "Assign Slot",
     routing: "registry",
     parameterized: true,
+  },
+  {
+    // The relative sibling of `assign-slot`, and its own entry because the two
+    // differ in what success looks like: an absolute assign always flashes,
+    // while a nudge that took has moved the deck and needs no receipt beyond
+    // the motion. Its only door is the ⌃⌘ bracket pair.
+    id: "nudge-slot-selection",
+    title: "Nudge Slot Selection",
+    routing: "registry",
+    internal: true,
   },
   {
     // Its door is a Lens Sessions monitor row.

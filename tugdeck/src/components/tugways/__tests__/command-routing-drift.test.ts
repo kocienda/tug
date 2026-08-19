@@ -416,6 +416,17 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // above: ⌃⌘ carries Tug's layout and card-posture vocabulary generally,
   // of which the sidebar toggles are one family.
   ["⌃⌘B", TUG_ACTIONS.TOGGLE_BULLSEYE],
+  // The nudge pair. ⇧⌘[/] moves attention across the cards and ⌥⌘[/] moves it
+  // through one slot's stack; ⌥⇧⌘[/] is both twists at once — the same lateral
+  // verb with the object altered, so it moves the card itself. It RENDERS as
+  // ⌥⌘{ / ⌥⌘} because a shifted-pair key spends its ⇧ on the character, the
+  // rule Zoom In (⌘+) and Previous Card (⌘{) already read by.
+  //
+  // Reaching the web view past the promoted ⌥⌘[/] neighbours is the part worth
+  // pinning: AppKit's key-equivalent scan matches modifier masks exactly, so a
+  // promoted chord shadows itself and not the chords one modifier away from it.
+  ["⌥⌘{", `${TUG_ACTIONS.NUDGE_SLOT}:left`],
+  ["⌥⌘}", `${TUG_ACTIONS.NUDGE_SLOT}:right`],
   // The case pair — an anomaly by the algebra (⌥ composes on no base) and
   // recorded as one in chord-tiers.md; a mnemonic pair, U for upper and L
   // for lower.
@@ -546,6 +557,58 @@ describe("every registry-routed command has a body to run", () => {
     const wire = commandWire(entry);
     test(`${wire} is registered in action-dispatch`, () => {
       expect(registered.has(wire)).toBe(true);
+    });
+  }
+
+});
+
+/**
+ * The other end of the same wire, and the one that actually bit.
+ *
+ * `dispatchCommand` looks its id up in `COMMANDS_BY_ID` FIRST and
+ * warns-and-returns-false on a miss — so a `registerAction` body with no entry
+ * beside it is unreachable through the call every chain handler uses to reach
+ * it. The handler exists, a direct `dispatchAction` finds it, and the chord
+ * does nothing. `nudge-slot-selection` shipped that way for an afternoon.
+ *
+ * The check is NOT "every registered wire needs an entry": most of them are
+ * host-originated control frames (`app-lifecycle`, `voiceover-changed`, …)
+ * that arrive through `dispatchAction`, which resolves the handler map
+ * directly and never consults the registry. The invariant is narrower and
+ * exact — every id tugdeck hands to `dispatchCommand` as a literal must
+ * resolve.
+ */
+describe("every dispatchCommand literal names a real command", () => {
+  const root = join(import.meta.dir, "../../..");
+  const ids = new Map<string, string>();
+  for (const rel of new Bun.Glob("**/*.{ts,tsx}").scanSync({ cwd: root })) {
+    if (rel.includes("__tests__")) continue;
+    const text = readFileSync(join(root, rel), "utf8");
+    // Both spellings a call site uses: a bare wire string for the internal
+    // registry actions, and `TUG_ACTIONS.NAME` for the ones with a vocabulary
+    // constant. Template forms (`${TUG_ACTIONS.X}:${runtime}`) resolve to an
+    // id nothing static can name and are left to their own tests.
+    for (const m of text.matchAll(
+      /dispatchCommand\(\s*(?:"([^"]+)"|TUG_ACTIONS\.([A-Z_]+))\s*[,)]/g,
+    )) {
+      const id =
+        m[1] ?? (TUG_ACTIONS as Record<string, string>)[m[2] as string];
+      if (id !== undefined) ids.set(id, rel);
+    }
+  }
+
+  test("the scan found call sites to check", () => {
+    // A canary on the regex, not a target: a rewrite that stopped matching
+    // would otherwise turn every assertion below into a loop over nothing.
+    expect(ids.size).toBeGreaterThan(10);
+  });
+
+  for (const [id, rel] of ids) {
+    test(`${id} resolves (${rel})`, () => {
+      expect(
+        COMMANDS.some((c) => c.id === id),
+        `dispatchCommand("${id}") in ${rel} has no CommandEntry — it warns and returns false`,
+      ).toBe(true);
     });
   }
 });

@@ -227,6 +227,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌥⌘W | `close-all` | Close All Tabs | JS, global |
 | ⌥⌘[ | `previous-stack-card` | Previous Card in Stack | JS, global |
 | ⌥⌘] | `next-stack-card` | Next Card in Stack | JS, global |
+| ⌥⌘{ | `nudge-slot:left` | Nudge Card Left | JS, global |
+| ⌥⌘} | `nudge-slot:right` | Nudge Card Right | JS, global |
 | ⌥⌘↑ | `previous-turn` | Previous Turn | menu bar (swept) |
 | ⌥⌘↓ | `next-turn` | Next Turn | menu bar (swept) |
 | ⎋ | `cancel-dialog` | Cancel | JS, global |

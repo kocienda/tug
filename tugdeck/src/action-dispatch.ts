@@ -34,6 +34,7 @@ import { dispatchCommand } from "./command-dispatch";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
 import { neighborSlot } from "@/lib/neighbor-slot";
 import { flashCardPane, flashPaneBorder } from "@/lib/flash-pane-border";
+import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { isDiffDescriptor } from "@/lib/git-diff-store";
 import {
   isContentWidth,
@@ -727,6 +728,61 @@ export function initActionDispatch(
       flashed.add(landed.id);
       flashPaneBorder(landed.id);
     }
+  });
+
+  // nudge-slot-selection: move every named card one slot along the
+  // arrangement. The relative sibling of `assign-slot`, and a separate door
+  // rather than a payload on that one because the two differ in what success
+  // looks like: an absolute assign always flashes, because landing on the slot
+  // you were already in is otherwise indistinguishable from a chord that never
+  // arrived, while a nudge that took has moved the deck and needs no receipt
+  // beyond the motion ([P08]). What a nudge flashes is the REFUSAL.
+  //
+  // Cards with no slot of their own drop out rather than refusing the gesture —
+  // a card in a tab group travels with its host and has no independent place to
+  // be nudged from. A selection made entirely of those has nothing to move, and
+  // says so in the dev log rather than dying silently.
+  registerAction("nudge-slot-selection", (payload) => {
+    const raw = Array.isArray(payload.cardIds) ? payload.cardIds : [];
+    const cardIds = raw.filter((id): id is string => typeof id === "string");
+    if (cardIds.length === 0 || cardIds.length !== raw.length) {
+      console.warn("nudge-slot-selection: missing or invalid cardIds", payload);
+      return;
+    }
+    const delta = payload.delta;
+    if (delta !== -1 && delta !== 1) {
+      console.warn("nudge-slot-selection: delta must be -1 or 1", payload);
+      return;
+    }
+
+    const panes = deckManager.getSnapshot().panes;
+    const entries: { cardId: string; slot: number }[] = [];
+    for (const cardId of cardIds) {
+      const host = panes.find((p) => p.cardIds.includes(cardId));
+      if (host?.slot === undefined) continue;
+      entries.push({ cardId, slot: host.slot + delta });
+    }
+    if (entries.length === 0) {
+      tugDevLogStore.debug("nudge-slot", "no slotted card in the selection", {
+        cardIds: cardIds.length,
+        delta,
+      });
+      return;
+    }
+
+    // The clamp lives in the mutator, so every caller gets the group rule: one
+    // member already against the edge in the travel direction refuses the whole
+    // nudge, and the selection keeps the arrangement the user was moving.
+    const result = deckManager.assignCardsToSlots(entries);
+    if (result.ok) return;
+    if (result.blockedCardId !== undefined) {
+      flashCardPane(deckManager, result.blockedCardId);
+      return;
+    }
+    tugDevLogStore.debug("nudge-slot", "refused with nothing to blame", {
+      cardIds: cardIds.length,
+      delta,
+    });
   });
 
   // focus-session-card: activate a specific card (front its pane + promote the

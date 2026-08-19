@@ -227,3 +227,27 @@ Recorded so a reader takes them as debt rather than as precedent.
 **Its gate is focus-granular, not selection-granular**, and that is a consequence of R6 rather than a shortcut. A mirrored gate is computed when the menuState is pushed; dragging out a selection pushes nothing. A gate that asked "is there a selection?" would therefore still read *disabled* with the text sitting right there — and because the chord is a menu key equivalent, AppKit would eat ⌘E with a beep before the web view saw the keydown. So the item is live wherever a find surface is focused and an empty selection is a no-op at the responder, which is the answer Edit ▸ Delete already gives for the same reason.
 
 **Not a toggle.** ⌘F summons and dismisses; ⌘E only ever seeds. A bar already up is re-seeded in place, because "search for this" can never mean "stop searching".
+
+---
+
+## The lateral bracket family
+
+The bracket keys carry three commands, and they carry the same axis in all three: left and right along the deck.
+
+| Command | Chord | Derivation |
+|---|---|---|
+| `previous-tab` / `next-tab` | **⇧⌘[ / ⇧⌘]** | The base pair. Moves *attention* laterally across the cards. |
+| `previous-stack-card` / `next-stack-card` | **⌥⌘[ / ⌥⌘]** | R1: the ⌥-variant of the base — the same lateral motion taken through the depth of one slot's stack instead of across the deck. |
+| `nudge-slot:left` / `nudge-slot:right` | **⌥⇧⌘[ / ⌥⇧⌘]** | R1 with both twists. ⇧ names the lateral axis and ⌥ alters the object: the same sideways verb, applied to the card rather than to the attention on it. |
+
+**Why the composed set is right here.** ⌥⇧⌘ is defined as both twists at once, and a nudge is exactly that reading: it moves what ⇧⌘[/] moves *over*. A reader who knows ⇧⌘] can guess ⌥⇧⌘] without being told, which is the whole return on having an algebra.
+
+**Why not plain ⌘[/].** The free pool reserves it for a future back/forward concept, and R3 does not override a reservation — rearranging the deck is a deliberate act, not a many-times-an-hour verb.
+
+**⌃⌘[/] was the recorded fallback** if the R1 reading had been rejected: brackets are free on the Tug tier, and a slot is Tug's own layout vocabulary. The R1 reading held, so the fallback stays unspent.
+
+**The composed chord reaches the web view, and that was checked rather than assumed.** ⌥⌘[/] one modifier away are menu-promoted, which raised the question of whether AppKit's key-equivalent scan would claim the ⌥⇧⌘ press too. It does not: the scan matches modifier masks exactly, so a promoted chord shadows itself and not its composed neighbours. Worth stating because the opposite was briefly believed and written down — the misreading came from a page-level `keydown` probe, which cannot see a chord the keymap already matched and consumed (`responder-chain-provider.tsx` calls `stopImmediatePropagation` on a handled match). **A probe of that shape can never distinguish "AppKit ate it" from "we handled it"; only pressing the chord and watching the deck can.**
+
+**Unpromoted, deliberately.** The nudge acts on the *layout selection* — a fact about the Lens's Cards list, not about the frontmost card — and a mirrored `validate` is computed when the menuState is pushed, which a selection change does not push. A menu item would therefore be permanently enabled and intermittently inert.
+
+**Refusal is a group property.** A nudge moves the whole selection or none of it; one member already against the travel edge refuses all of them, and the blocked member's border flashes. Per-member clamping would pile the selection onto the end slot — destroying the arrangement the gesture exists to preserve.

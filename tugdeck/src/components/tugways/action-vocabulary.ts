@@ -327,6 +327,14 @@ export const TUG_ACTIONS = {
   //                 imposition, when nothing is selected, when the
   //                 selection is the Lens, or when N exceeds the
   //                 arrangement's slot count.
+  // NUDGE_SLOT:     payload — `value: number`, either -1 (left) or +1
+  //                 (right). Deck-level: move every card in the layout
+  //                 selection that many slots along the arrangement. Used
+  //                 by ⌥⇧⌘[ / ⌥⇧⌘], handled by the deck canvas beside
+  //                 MOVE_TO_SLOT. Relative where MOVE_TO_SLOT is absolute,
+  //                 and so the one slot verb that can run off the end: the
+  //                 group either moves whole or refuses whole, and the
+  //                 refusal flashes the member that blocked it.
   // SET_PANE_WIDTH: payload — `value: string` (a `ContentWidth`: slim /
   //                 comfy / wide). Deck-level: put the SELECTED card's pane
   //                 at that named width. Used by ⌃⌘1..3 (Window ▸ Slim /
@@ -491,6 +499,7 @@ export const TUG_ACTIONS = {
   FOCUS_PREVIOUS: "focus-previous",
   FOCUS_PROMPT:   "focus-prompt",
   MOVE_TO_SLOT:   "move-to-slot",
+  NUDGE_SLOT:     "nudge-slot",
   SET_PANE_WIDTH: "set-pane-width",
   TOGGLE_BULLSEYE: "toggle-bullseye",
   REVEAL_STACK:   "reveal-stack",

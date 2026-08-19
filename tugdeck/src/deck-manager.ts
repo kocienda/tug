@@ -188,6 +188,21 @@ export interface TeardownSaveResult {
  * `ok: false` never blocks or delays the quit; it makes the failure named
  * instead of silent, which is the whole point of the pipeline.
  */
+/**
+ * Whether a slot arrangement took.
+ *
+ * `assignCardsToSlots` refuses the whole batch rather than half-applying it,
+ * so the caller needs to hear which of the two happened before it decides
+ * whether to show a receipt or a refusal. `blockedCardId` is present when the
+ * refusal has a member to blame — a slot outside the arrangement — and absent
+ * when the batch never had a subject at all (no imposition, no such card, a
+ * sidebar host), which is a programming fault rather than an edge the user
+ * pressed into.
+ */
+export type SlotAssignment =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly blockedCardId?: string };
+
 export interface TerminationVerdict {
   /** True when every phase below came back clean. */
   ok: boolean;
@@ -2355,8 +2370,8 @@ export class DeckManager implements IDeckManagerStore {
    * One card is the degenerate batch — {@link assignCardsToSlots} is the
    * implementation, so the single-card and multi-card gestures cannot drift.
    */
-  assignCardToSlot(cardId: string, slot: number): void {
-    this.assignCardsToSlots([{ cardId, slot }]);
+  assignCardToSlot(cardId: string, slot: number): SlotAssignment {
+    return this.assignCardsToSlots([{ cardId, slot }]);
   }
 
   /**
@@ -2379,24 +2394,33 @@ export class DeckManager implements IDeckManagerStore {
    * GROUP REFUSAL. The batch is validated whole before anything moves: one
    * ineligible card refuses all of them. A gesture that half-applies is worse
    * than one that refuses, because the user cannot see which half took.
+   *
+   * A slot outside the arrangement is one of those ineligibilities rather than
+   * something to clamp. Clamping is right when the arrangement itself shrinks
+   * (`clampSlot` on a kind change pulls orphaned panes back in); it is wrong
+   * for a gesture, because a group clamped against the edge arrives with its
+   * members stacked on one slot — the arrangement the user was moving,
+   * destroyed by the move. The refusal names the card that blocked it so the
+   * caller can point at it.
    */
   assignCardsToSlots(
     entries: readonly { readonly cardId: string; readonly slot: number }[],
-  ): void {
-    if (entries.length === 0) return;
+  ): SlotAssignment {
+    if (entries.length === 0) return { ok: false };
     const kind = this.deckState.imposition.kind;
     if (kind === undefined) {
       console.warn(
         "assignCardsToSlots: no active imposition; cannot slot cards",
       );
-      return;
+      return { ok: false };
     }
 
-    for (const { cardId } of entries) {
+    const lastSlot = slotCount(kind) - 1;
+    for (const { cardId, slot } of entries) {
       const host = this.deckState.panes.find((p) => p.cardIds.includes(cardId));
       if (!host) {
         console.warn(`assignCardsToSlots: no pane holds card "${cardId}"`);
-        return;
+        return { ok: false };
       }
       const hostsSidebar = this.deckState.cards.some(
         (c) => host.cardIds.includes(c.id) && isSidebarCard(c.componentId),
@@ -2407,7 +2431,10 @@ export class DeckManager implements IDeckManagerStore {
         console.warn(
           `assignCardsToSlots: card "${cardId}" is hosted in the sidebar pane "${host.id}"`,
         );
-        return;
+        return { ok: false };
+      }
+      if (!Number.isFinite(slot) || slot < 0 || slot > lastSlot) {
+        return { ok: false, blockedCardId: cardId };
       }
     }
 
@@ -2448,7 +2475,7 @@ export class DeckManager implements IDeckManagerStore {
 
       targets.set(targetPaneId, clampSlot(kind, slot));
     }
-    if (targets.size === 0) return;
+    if (targets.size === 0) return { ok: false };
 
     // Re-placing a pane ends its bullseye. This path writes `slot` on its own
     // rather than through `movePane`, so it honors the rule explicitly.
@@ -2466,6 +2493,7 @@ export class DeckManager implements IDeckManagerStore {
     // dispatched it — and it is one of the moments the rails' width is the
     // deck's to spend (see `retuneSidebarAllocation`).
     this._commitImposition(this.deckState.imposition, panes);
+    return { ok: true };
   }
 
   /** Per-pane position/size deltas between two pane arrays of the same shape,
