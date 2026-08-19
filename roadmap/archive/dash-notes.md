@@ -49,6 +49,8 @@ One final note on terminology this like: "Ready to land"
 🢁 You have invented this *land* term, when the term should be *join*. That's it: dashes are joined. Period. There is no *landing* process separate from *joining*. Fix this everywhere.
 
 
+This deal where we cut a dash just to run a test *must stop*. I thought we did this whole pile of work in commit ad22043f6. WHY are we still cutting these throwaway dashes. I *DONT WANT THIS. THIS IS A MISUSE OF DASHES*. The main usage for dashes is to *implement plans, not to run tests*.
+
 
 
 
