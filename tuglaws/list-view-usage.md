@@ -107,7 +107,7 @@ Pick the mechanism by the list's intent — do not invent a third path.
 | Pick-to-confirm (commit on OK) | consumer-owned: `delegate.onSelect` → `useState` | model / effort picker |
 | Read-only display | none + `interactive={false}` | skills / agents / help listings |
 | Tool-output display | none + `inline` | transcript body-kinds |
-| Many rows selected at once, acted on together | `multiSelect` — consumer-owned SET: the host supplies `selectedIds` and receives `onPick` / `onToggle` / `onExtendTo` | lens Cards (the layout selection) |
+| Many rows selected at once, acted on together | `multiSelect` — consumer-owned SET: the host supplies `selectedIds` and receives `onPick` / `onToggle` / `onExtendTo`, each answering whether it took the row, plus `onClear` for the `Escape` the list captures while a set stands | lens Cards (the layout selection) |
 
 The multi-select row is the fifth path, not a variant of the others, and its
 ownership is the point. The set lives in the consumer's store because it
@@ -122,6 +122,26 @@ callbacks; a ⌘-click or ⇧-click means only the first, so it fires `onPick`'s
 siblings and no `onSelect` at all. A list that fronted a card on every
 modifier click would raise every card the user touched while building a
 selection.
+
+`Space` is a selection gesture on such a list and does NOT reach `onSelect`
+either — `Enter` is the activating key. See `focus-language.md`; the short of
+it is that a list where both keys act has no way to name a row without opening
+it.
+
+The intents return a boolean because a list can hold rows that are not
+selection material and only the consumer knows which. The Cards list files its
+group headers as `"cell"` so the arrow walk reaches them; they map to no card,
+answer `false`, and the gesture falls back to the ordinary commit path — which
+is how `Space` on a header still folds its group. Answering `false` is a
+statement about the ROW, never a way to decline a gesture wholesale.
+
+`onClear` is `Escape`'s, and the list claims `Escape` — through the same
+`captures` predicate the type-select shadow uses — for exactly as long as the
+set is non-empty. It has to: every rung of the engine's Escape ladder outranks
+the responder chain's `CANCEL_DIALOG`, so without the capture the press would
+clear the selection only when the surface happened not to be holding the
+keyboard mode, which is a difference the user cannot see or predict. An
+attached filter's query is more local and keeps its own first `Escape`.
 
 ## Consumer inventory
 

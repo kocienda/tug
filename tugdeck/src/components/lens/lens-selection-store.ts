@@ -145,6 +145,35 @@ export class LensSelectionStore {
 /** The process-wide layout selection. */
 export const lensSelectionStore = new LensSelectionStore();
 
+// ---------------------------------------------------------------------------
+// The cursor card
+// ---------------------------------------------------------------------------
+//
+// Where the keyboard is standing in the Cards list, when it is standing
+// anywhere. Deliberately NOT part of the selection snapshot: the cursor moves
+// on every arrow, and folding it into the store the list renders from would
+// re-render the list at key-repeat rate to paint nothing new.
+//
+// Nothing subscribes. `resolveLayoutSelection` reads it at gesture time, which
+// is the only moment the answer matters — the same way the deck's first
+// responder is read rather than watched.
+//
+// `null` means the keyboard is not in the list, published by the list itself
+// from the projection that paints the cursor, so a stale cursor can never
+// answer for a list nobody is in.
+
+let cursorCardId: string | null = null;
+
+/** Publish the card the Cards list's cursor is on, or `null`. */
+export function setLayoutCursorCard(cardId: string | null): void {
+  cursorCardId = cardId;
+}
+
+/** The card the Cards list's cursor is on, or `null`. */
+export function getLayoutCursorCard(): string | null {
+  return cursorCardId;
+}
+
 /**
  * Keep `selection` reconciled against `deck`: prune on every deck change, and
  * collapse the set when a content card outside it becomes first responder.

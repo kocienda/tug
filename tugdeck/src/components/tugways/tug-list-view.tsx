@@ -1212,15 +1212,44 @@ export interface TugListViewProps<
    *
    * `onPick` is deliberately NOT `delegate.onSelect`: a plain click means both
    * things (pick this row AND front its card) while a modifier click means only
-   * the first, so the two callbacks fire on different gestures. Only member
-   * rows participate — a group header is never selectable.
+   * the first, so the two callbacks fire on different gestures.
+   *
+   * Each intent returns whether it TOOK the row. A list may hold rows that are
+   * not selection material — this data source files its group headers as
+   * `"cell"` on purpose, so the arrow walk reaches them — and only the consumer
+   * knows which those are. Answering `false` puts the gesture back on the
+   * ordinary `delegate.onSelect` path, so Space on a group header still folds
+   * the group instead of quietly selecting nothing.
+   *
+   * `onClear` is Escape's, and it is why the set can be taken back the same way
+   * no matter how it was built: while the list holds the keyboard and the set is
+   * non-empty, the list CAPTURES Escape ahead of every rung of the engine's
+   * Escape ladder, so "leave the keyboard mode" can never spend the press the
+   * user meant for the selection. Return `true` if the press cleared something.
    */
   multiSelect?: {
     readonly selectedIds: ReadonlySet<string>;
-    readonly onPick: (id: string) => void;
-    readonly onToggle: (id: string) => void;
-    readonly onExtendTo: (id: string) => void;
+    readonly onPick: (id: string) => boolean;
+    readonly onToggle: (id: string) => boolean;
+    readonly onExtendTo: (id: string) => boolean;
+    readonly onClear: () => boolean;
   };
+
+  /**
+   * The movement cursor moved, or stopped being anywhere.
+   *
+   * Fires with the cursor row's id while this list holds the keyboard, and with
+   * `null` the moment it does not — the same gate the cursor's own paint runs
+   * (`projectCursor`), so the callback and what the user can see never
+   * disagree. A consumer that wants to answer "which row is the keyboard on
+   * right now" reads it from here rather than querying the DOM for
+   * `data-key-cursor`.
+   *
+   * The cursor is engine state and moves on every arrow, so this is a DOM-rate
+   * notification: do not set React state from it. Publish it somewhere
+   * imperative and read it when a gesture asks.
+   */
+  onCursorChange?(id: string | null): void;
 
   /**
    * Carry the selection with the movement cursor on a `selectionRequired` list
@@ -1767,6 +1796,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       keyboardSubordinate = false,
       singleSelect = false,
       multiSelect,
+      onCursorChange,
       selectionFollowsCursor = false,
       initialSelectedIndex,
       seedSelection = false,
@@ -1984,6 +2014,17 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     selectionRequiredRef.current = selectionRequired;
     const multiSelectRef = React.useRef(multiSelect);
     multiSelectRef.current = multiSelect;
+    const onCursorChangeRef = React.useRef(onCursorChange);
+    onCursorChangeRef.current = onCursorChange;
+    // The id last published, so the callback fires on a real move rather than
+    // on every re-projection — the cursor is re-projected after every commit.
+    const reportedCursorIdRef = React.useRef<string | null>(null);
+    // `commitMultiSelect` is defined further down, beside the cell callbacks it
+    // was written for; the keyboard paths above it reach it through this ref
+    // ([L07], the same shape the cursor handle uses).
+    const commitMultiSelectRef = React.useRef<
+      (index: number, intent: MultiSelectIntent) => MultiSelectIntent | null
+    >(() => null);
     const activateOnDoubleClickRef = React.useRef(activateOnDoubleClick);
     activateOnDoubleClickRef.current = activateOnDoubleClick;
     const onSelectionChangeRef = React.useRef(onSelectionChange);
@@ -4932,6 +4973,20 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // otherwise a clicked list keeps a bar the kbd-loss clear can never reach
     // (it never held the key view), and a later keyboard entry into a sibling
     // list shows two bars at once.
+    /**
+     * Tell the consumer where the cursor is, deduped against the last answer.
+     * Called from both projection paths so "the cursor is on this row" and
+     * "the cursor is painted on this row" are the same statement — including
+     * the `null` a list that no longer holds the keyboard must publish, which
+     * is what keeps a stale cursor from answering for a list nobody is in.
+     */
+    const reportCursor = React.useCallback((index: number): void => {
+      const id =
+        index < 0 ? null : (dataSourceRef.current.idForIndex(index) ?? null);
+      if (id === reportedCursorIdRef.current) return;
+      reportedCursorIdRef.current = id;
+      onCursorChangeRef.current?.(id);
+    }, []);
     const projectCursor = React.useCallback((): void => {
       const target = keyboardIsInList(scrollContainerRef.current)
         ? cursorIndexRef.current
@@ -4940,12 +4995,14 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         if (i === target) el.setAttribute(KEY_CURSOR_ATTRIBUTE, "");
         else el.removeAttribute(KEY_CURSOR_ATTRIBUTE);
       }
-    }, []);
+      reportCursor(target);
+    }, [reportCursor]);
     const clearCursorVisual = React.useCallback((): void => {
       for (const el of cellElementMapRef.current.values()) {
         el.removeAttribute(KEY_CURSOR_ATTRIBUTE);
       }
-    }, []);
+      reportCursor(-1);
+    }, [reportCursor]);
 
     // ---- The attached-list cursor ([P08]) ----
     // A second, independent highlight for the case where a text field drives
@@ -5099,6 +5156,34 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       delegateRef.current?.onSelect?.(i);
       scrollIndexIntoView(i, "nearest");
     }, [isCursorableRow, scrollIndexIntoView]);
+
+    /**
+     * What SPACE does — which is not what a click does, on a multi-select list.
+     *
+     * Space TOGGLES the cursor row's membership and stops there. It does not
+     * reach `delegate.onSelect`, which is the click's callback and means
+     * "select this and open it": a list where Space and Return both act has no
+     * key that names a row without also opening it, and naming rows a verb will
+     * act on later is the whole purpose of a selection.
+     *
+     * Toggle rather than replace, because replace would leave the keyboard
+     * unable to build a set at all — ⌘+arrow walks the cursor past rows without
+     * disturbing the selection precisely so Space can pick up the ones the walk
+     * stops on. With nothing selected the two readings coincide, which is the
+     * common case and reads simply as "select this row".
+     *
+     * A row the consumer declines (a group header) falls through to the
+     * ordinary commit path, so Space there still folds its group.
+     */
+    const spaceCursorRow = React.useCallback((): void => {
+      const i = cursorIndexRef.current;
+      if (!isCursorableRow(i)) return;
+      if (commitMultiSelectRef.current(i, "toggle") !== null) {
+        scrollIndexIntoView(i, "nearest");
+        return;
+      }
+      selectCursorRow();
+    }, [isCursorableRow, scrollIndexIntoView, selectCursorRow]);
     // The attached filter ([L07] live ref): the binding is read at keystroke
     // time, so a field mounting after this list (a sheet's lead control, a
     // collapsed section's band) is reachable the moment it arrives.
@@ -5500,8 +5585,19 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         //
         // An empty or absent filter claims neither, so a list without one
         // behaves exactly as it always did.
+        //
+        // **Escape, again**: a standing multi-selection claims it too, on the
+        // same terms. The ladder's rungs are all reasons to spend Escape on
+        // something the user cannot see going away — leaving the keyboard mode,
+        // popping a cycle — and every one of them sits ABOVE the chain's
+        // `CANCEL_DIALOG` dispatch, which is the only rung a consumer can reach.
+        // So a selection made with the keyboard was cleared by Escape and one
+        // made with the mouse was not, for no reason the user could name. The
+        // capture is the fix: while there is a set, Escape is the list's.
         captures: (k: FocusKey) =>
           (captureKeySet?.has(k.key) ?? false) ||
+          (k.key === "Escape" &&
+            (multiSelectRef.current?.selectedIds.size ?? 0) > 0) ||
           ((k.key === "Escape" || k.key === " " || k.key === "Spacebar") &&
             (attachedFilterRef.current?.field()?.hasQuery() ?? false)),
         // A single-select list keeps select-on-arrow (the cursor IS the selection —
@@ -5524,7 +5620,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           !enterActs &&
           rowFirstFocusableId(cursorIndexRef.current) !== null,
         commitOnEnter: enterActs ? "act" : undefined,
-        onSelect: selectCursorRow,
+        onSelect: spaceCursorRow,
         onAct: enterActs ? actCursorRow : selectCursorRow,
         onDescend: descendCursorRow,
         // Chained last on purpose: the list's movement keys, then the
@@ -5543,6 +5639,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         captureKeySet,
         rowFirstFocusableId,
         selectCursorRow,
+        spaceCursorRow,
         actCursorRow,
         descendCursorRow,
       ],
@@ -5765,7 +5862,36 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // behavior thunk stays stable while always running current closures
     // ([L07], same pattern as the cursor handle).
     const handleListKey = (e: KeyboardEvent): boolean => {
-      if (e.metaKey || e.ctrlKey) return false;
+      // ⌘ + a movement key is a SELECTION gesture on a multi-select list —
+      // walk the cursor without disturbing the set, the discontiguous half of
+      // the model whose other half is Space. Everywhere else ⌘ still means a
+      // chord and the list keeps its hands off it. (⌃ always does.)
+      const metaSelects =
+        e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        multiSelectRef.current !== undefined &&
+        (e.key === "ArrowUp" ||
+          e.key === "ArrowDown" ||
+          e.key === "Home" ||
+          e.key === "End");
+      if ((e.metaKey && !metaSelects) || e.ctrlKey) return false;
+      // Escape drops the selection before anything above it on the ladder gets
+      // a turn. A standing selection is the nearest thing a list has to an open
+      // modal state, and the answer to "how do I take it back" must not depend
+      // on how it was made — the `captures` predicate claims Escape for exactly
+      // as long as there is a set to clear, so the rungs beyond it (leave the
+      // keyboard mode, fold the section, dismiss the sheet) are reached the
+      // moment there is not. An attached filter's query is more local still and
+      // keeps its own first Escape.
+      if (e.key === "Escape") {
+        const ms = multiSelectRef.current;
+        if (ms === undefined || ms.selectedIds.size === 0) return false;
+        if (attachedFilterRef.current?.field()?.hasQuery() === true) {
+          return false;
+        }
+        return ms.onClear();
+      }
       const scrollEl = scrollContainerRef.current;
       if (scrollEl === null) return false;
       if (e.key.startsWith("Arrow")) {
@@ -5900,6 +6026,36 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // clamping here. The arrow cases below stay as the delegate's backstop for
       // any path that bypasses the spatial plane; Home / End / Page have no
       // spatial counterpart and are only ever served here.
+      // A modifier-arrow with NOTHING selected picks up the row it starts on
+      // before it goes anywhere. Without this the origin row is the one row a
+      // ⇧-walk can never reach: extension names where the cursor LANDS, so a
+      // ⇧↓ from an empty selection would select the row below and silently
+      // leave behind the row the user was looking at when they pressed it.
+      //
+      // Gated on the MOVEMENT key, not on the modifier being down: a bare ⇧
+      // keydown is `shiftKey: true` and would otherwise select the cursor row
+      // just for resting a finger on the key, with no gesture behind it.
+      const seedsMovement =
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown" ||
+        e.key === "Home" ||
+        e.key === "End";
+      const seedsSelection =
+        seedsMovement &&
+        (e.shiftKey || metaSelects) &&
+        multiSelectRef.current !== undefined &&
+        multiSelectRef.current.selectedIds.size === 0 &&
+        isCursorableRow(cur);
+      if (seedsSelection) {
+        commitMultiSelect(cur, "pick");
+        // ⇧ spends the whole press on the seed and the cursor stays put: a
+        // press that seeded AND moved would select two rows at once, which is
+        // never what the first ⇧↓ of a walk means. ⌘ does move — it extends
+        // nothing, so the seeded row is still the only one selected when it
+        // lands somewhere else.
+        if (e.shiftKey) return true;
+      }
+
       let next = -1;
       switch (e.key) {
         case "ArrowDown":
@@ -5940,6 +6096,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // and are always served here. Page keys move the cursor without
       // extending: a screenful is a scroll gesture, not a range the user
       // picked out.
+      //
+      // ⌘ deliberately does NOT extend. It walks the cursor over a selection it
+      // leaves standing, so the user can step past rows they do not want and
+      // pick up the ones they do with Space — which is the gesture ⇧ cannot
+      // make, and the reason both modifiers are here.
       if (
         e.shiftKey &&
         next >= 0 &&
@@ -5976,23 +6137,32 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // would read every deferred ⌘-click as a plain pick.
     const deferredSelectIntentRef = React.useRef<MultiSelectIntent>("pick");
 
-    // Commit a row's selection under the multi-select contract, or report that
-    // the list is not in multi-select mode so the caller runs the ordinary
-    // `onSelect` path. A modifier gesture routes to the store and NOTHING else:
-    // it must not front the row's card ([P06] — building a selection by
-    // clicking would raise every card it touched).
+    // Commit a row's selection under the multi-select contract. Returns the
+    // intent it committed, or `null` when the list is not in multi-select mode
+    // and the caller should run the ordinary `onSelect` path instead.
+    //
+    // What the caller does NEXT is the caller's, because the three gestures
+    // that reach here mean different things about activation: a plain click
+    // selects AND fronts, a modifier click only selects ([P06] — building a
+    // selection by clicking would raise every card it touched), and Space only
+    // selects (Enter is the activating key, and a list that acts on both has
+    // no way to say "this one" without opening it).
     const commitMultiSelect = (
       index: number,
       intent: MultiSelectIntent,
-    ): boolean => {
+    ): MultiSelectIntent | null => {
       const ms = multiSelectRef.current;
-      if (ms === undefined) return false;
+      if (ms === undefined) return null;
       const id = dataSourceRef.current.idForIndex(index);
-      if (intent === "toggle") ms.onToggle(id);
-      else if (intent === "extend") ms.onExtendTo(id);
-      else ms.onPick(id);
-      return intent !== "pick";
+      const took =
+        intent === "toggle"
+          ? ms.onToggle(id)
+          : intent === "extend"
+            ? ms.onExtendTo(id)
+            : ms.onPick(id);
+      return took ? intent : null;
     };
+    commitMultiSelectRef.current = commitMultiSelect;
 
     function getCellCallbacks(index: number): CellCallbacks {
       const registry = cellCallbacksRef.current;
@@ -6079,8 +6249,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         if (!e.defaultPrevented) {
           deferredSelectIndexRef.current = null;
           // A modifier gesture is a selection edit and stops there: no
-          // `onSelect` (which fronts the card), no owned-index move.
-          if (!commitMultiSelect(index, intent)) {
+          // `onSelect` (which fronts the card), no owned-index move. A PLAIN
+          // click is both halves — it moves the selection onto this row and
+          // fronts it — so it falls through to `onSelect` as well.
+          const committed = commitMultiSelect(index, intent);
+          if (committed === null || committed === "pick") {
             delegateRef.current?.onSelect?.(index);
             if (selectionRequiredRef.current || focusEngineActiveRef.current) {
               setSelectedIndex(index);
@@ -6142,7 +6315,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // A deferred press replays the intent it was classified with; a
         // keyboard-synthesized click carries no gesture and reads as a pick.
         const intent = deferred ? deferredSelectIntentRef.current : "pick";
-        if (commitMultiSelect(index, intent)) return;
+        const committed = commitMultiSelect(index, intent);
+        if (committed !== null && committed !== "pick") return;
         delegateRef.current?.onSelect?.(index);
         // `selectionRequired` mode — the list view owns the selected index; a
         // cell activation moves it. `delegate.onSelect` above still fires, so

@@ -83,7 +83,10 @@ import {
   springSettleKeyframes,
 } from "@/lib/pane-flip";
 import { dispatchCommand } from "@/command-dispatch";
-import { attachLensSelectionToDeck } from "@/components/lens/lens-selection-store";
+import {
+  attachLensSelectionToDeck,
+  lensSelectionStore,
+} from "@/components/lens/lens-selection-store";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
 import {
   isSidebarPinned,
@@ -671,6 +674,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     cardTitleStore.subscribe,
     cardTitleStore.version,
   );
+  // Whether a layout selection stands — read as a boolean, so the canvas
+  // re-renders when the set goes empty or non-empty and not on every change
+  // within it. The root responder's `CANCEL_DIALOG` entry is registered off
+  // this bit and nothing else reads it ([L02]).
+  const hasLayoutSelection = useSyncExternalStore(
+    lensSelectionStore.subscribe,
+    () => lensSelectionStore.getSnapshot().ids.length > 0,
+  );
   // The Lens pane carries no marker of its own — it is the pane hosting the
   // Lens card ([P04]). Resolved once here and reused by the z-order and the
   // placements memo.
@@ -1131,6 +1142,33 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       [TUG_ACTIONS.CLEAR_RECENT_DOCUMENTS]: (_event: ActionEvent) => {
         clearRecentDocuments();
       },
+      // Escape's last-resort meaning while a layout selection stands: drop it.
+      //
+      // The selection is deck state, not Lens state — it is what the next
+      // layout verb acts on, and it outlives both the gesture that made it and
+      // the keyboard's presence in the Lens. A plain click on a Cards row
+      // FRONTS the card it names, which takes the keyboard out of the Lens
+      // entirely; the Lens's own responder is then off the chain, and without
+      // this entry the standing selection had no key that could take it back.
+      //
+      // Registered CONDITIONALLY, and that is the whole safety argument: an
+      // unconditional entry on the root responder would mark every Escape in
+      // the app handled (the chain has no way for a handler to decline), which
+      // is why the Lens's responder was content-local in the first place. The
+      // key is present only while there is a set to clear, so every other
+      // Escape in the app walks off the root exactly as it did before.
+      //
+      // Sited at the root, it is also the LAST thing to see the press: a sheet,
+      // a popover, a live drag's document listener, and the engine's own Escape
+      // ladder all resolve ahead of the chain, so this can only spend an Escape
+      // nothing else wanted.
+      ...(hasLayoutSelection
+        ? {
+            [TUG_ACTIONS.CANCEL_DIALOG]: (_event: ActionEvent) => {
+              lensSelectionStore.clear();
+            },
+          }
+        : {}),
       // Through `transferFocusForActivation` rather than `activateCard`
       // alone: a menu pick has to fire the full outgoing-save → commit →
       // incoming-focus transition, not just reorder z.

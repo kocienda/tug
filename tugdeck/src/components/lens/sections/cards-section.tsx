@@ -22,8 +22,12 @@
  * thing that folds — travel tells the two apart, so a press that goes nowhere
  * does nothing.
  *
- * The list is one Tab stop in the Lens; arrows rove the movement cursor,
- * Enter/click fronts the row's card (`focus-session-card`). Two things carry,
+ * The list is one Tab stop in the Lens; arrows rove the movement cursor, and
+ * the three commit keys mean three different things: Enter and a click front
+ * the row's card (`focus-session-card`), while SPACE only toggles it in the
+ * layout selection — the set the deck's slot and width verbs act on. ⇧+arrow
+ * extends that selection and ⌘+arrow walks past rows without disturbing it,
+ * both seeding the row they start from. Two things carry,
  * both on the shared `useBlockReorder` FLIP: a pane row within its own group
  * (committing `cardsRowOrder`), and a whole GROUP by its header — the header
  * and every row under it move as one block (committing `cardsGroupOrder`).
@@ -72,7 +76,10 @@ import {
   setSectionAttachedList,
   setSectionContent,
 } from "@/components/lens/lens-section-content";
-import { lensSelectionStore } from "@/components/lens/lens-selection-store";
+import {
+  lensSelectionStore,
+  setLayoutCursorCard,
+} from "@/components/lens/lens-selection-store";
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
 import { SlotPicker } from "@/components/lens/slot-picker";
@@ -932,9 +939,15 @@ function CardsSectionBody({
     ],
   );
 
-  // A card row has no "selected but not activated" state: Space/click
-  // (`onSelect`) and Enter (`onActivate`) both act. On a card row that means
-  // fronting it; on a group header it means toggling the group.
+  // `onSelect` is the CLICK's callback and `onActivate` is Enter's, and on this
+  // list they are no longer the same act. A click both moves the selection onto
+  // the row (the primitive's own `onPick`, below) and fronts its card; Enter
+  // fronts the cursor row. Space reaches neither — it is a selection gesture and
+  // the primitive keeps it, which is what gives the keyboard a way to say "this
+  // row is what I mean" without also opening it.
+  //
+  // A group header is the exception at both doors: it has no card to front, so
+  // either key toggles the group.
   const delegate = useMemo<TugListViewDelegate>(() => {
     const activate = (index: number): void => {
       const row: CardsRow | undefined = dataSource.rowAt(index);
@@ -995,29 +1008,61 @@ function CardsSectionBody({
     };
   }, [dataSource, selection]);
 
+  // A group header maps to no card, so every intent answers `false` for one and
+  // the primitive puts the gesture back on the activate path — which for a
+  // header means folding its group, the meaning it has always had.
   const multiSelect = useMemo(
     () => ({
       selectedIds: selectedRowIds,
-      // A plain pick collapses the set to the row picked. The delegate's
-      // `onSelect` fires alongside it and fronts the card — the two halves of
-      // a plain click ([P06]).
-      onPick: (rowId: string): void => {
+      // A plain pick collapses the set to the row picked. On a click the
+      // delegate's `onSelect` fires alongside it and fronts the card — the two
+      // halves of a plain click ([P06]) — while Space stops here.
+      onPick: (rowId: string): boolean => {
         const cardId = cardIdByRowId.get(rowId);
-        if (cardId !== undefined) lensSelectionStore.pickOnly(cardId);
+        if (cardId === undefined) return false;
+        lensSelectionStore.pickOnly(cardId);
+        return true;
       },
-      onToggle: (rowId: string): void => {
+      onToggle: (rowId: string): boolean => {
         const cardId = cardIdByRowId.get(rowId);
-        if (cardId !== undefined) lensSelectionStore.toggle(cardId);
+        if (cardId === undefined) return false;
+        lensSelectionStore.toggle(cardId);
+        return true;
       },
-      onExtendTo: (rowId: string): void => {
+      onExtendTo: (rowId: string): boolean => {
         const cardId = cardIdByRowId.get(rowId);
-        if (cardId !== undefined) {
-          lensSelectionStore.extendTo(cardId, visibleCardOrder);
-        }
+        if (cardId === undefined) return false;
+        lensSelectionStore.extendTo(cardId, visibleCardOrder);
+        return true;
+      },
+      // Escape, whenever there is a set — the same clear the Lens's own
+      // `CANCEL_DIALOG` responder runs, reached from the one place the ladder
+      // could otherwise outrank it: while the list holds the keyboard.
+      onClear: (): boolean => {
+        if (lensSelectionStore.getSnapshot().ids.length === 0) return false;
+        lensSelectionStore.clear();
+        return true;
       },
     }),
     [selectedRowIds, cardIdByRowId, visibleCardOrder],
   );
+
+  // Publish where the keyboard is standing, so a slot or width chord typed with
+  // the caret on a row and nothing selected acts on THAT row
+  // (`resolveLayoutSelection`'s second rung). The list hands back `null` the
+  // moment it stops holding the keyboard, and a header maps to no card, so the
+  // published answer is only ever a card the user is actually pointed at.
+  const publishCursor = useCallback(
+    (rowId: string | null): void => {
+      setLayoutCursorCard(
+        rowId === null ? null : (cardIdByRowId.get(rowId) ?? null),
+      );
+    },
+    [cardIdByRowId],
+  );
+  // The section can unmount with the keyboard still in it (a collapse, a Lens
+  // close), and a cursor nobody can see must not go on answering for one.
+  useLayoutEffect(() => () => setLayoutCursorCard(null), []);
 
   return (
     <div className="lens-cards-section">
@@ -1055,6 +1100,7 @@ function CardsSectionBody({
               attachedFilter={sectionAttachedFilter(host.focusGroup)}
               commitOnEnter="act"
               multiSelect={multiSelect}
+              onCursorChange={publishCursor}
               initialSelectedIndex={initialSelectedIndex}
               {...LENS_LIST_PRESENTATION}
               className="lens-cards-list"

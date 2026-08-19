@@ -37,7 +37,9 @@
  *     which drops rails and keeps the content cards, so a chord typed with
  *     the keyboard in the Lens lands on the card the user last worked in
  *     instead of dying silently. Both halves are asserted below — with a
- *     selection the chord travels to it, and with none it refuses.
+ *     selection the chord travels to it, and with none it falls to the row
+ *     the Lens's own caret is standing on. The ladder is at0451's subject;
+ *     what is pinned here is that the rail never takes the width either way.
  *  5. **A rail's own width is not spent by a card's width chord.** The verb
  *     commits with the space allocator held off, unlike the deck-wide Card
  *     Width default. Re-solving here would shrink the Lens to its floor on
@@ -215,21 +217,33 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(COMFY);
           expect(await paneWidth(app, "p1")).toBe(WIDE);
 
-          // --- With NOTHING to resolve to, it genuinely refuses. ------------
-          // The Lens is still the first responder and the selection is empty,
-          // so the ladder runs out: no content card, no width written, and
-          // nothing on the deck moves.
+          // --- Empty the selection and the caret still answers. -------------
+          // The next rung down is the row the Lens's Cards list has its cursor
+          // on, which is where the keyboard is standing and therefore what the
+          // user plainly means. The Lens is still the first responder and still
+          // takes no width; the caret's row takes it instead.
+          //
+          // Which row that is belongs to the Lens's own seeding rules, so this
+          // asserts the SHAPE of the answer — the rail is untouched, exactly one
+          // content pane moved, and it is not the one the previous chord left at
+          // comfy. The ladder itself is at0451's subject.
           await app.evalJS<null>(
             `(window.__tug.setLayoutSelection([]), null)`,
           );
           await app.nativeKey("1", ["ctrl", "cmd"]);
           await wait(AFTER_LAND_MS);
-          expect(await paneWidth(app, "pLens")).toBe(LENS_WIDTH);
+          expect(
+            await paneWidth(app, "pLens"),
+            "the rail still takes no preset, whatever the chord resolved to",
+          ).toBe(LENS_WIDTH);
+          expect(
+            await paneWidth(app, "p1"),
+            "the caret's row takes the width — a chord in the Lens is not dead",
+          ).toBe(SLIM);
           expect(
             await paneWidth(app, "p2"),
-            "a chord with nothing to act on writes nothing",
+            "and nothing else moves",
           ).toBe(COMFY);
-          expect(await paneWidth(app, "p1")).toBe(WIDE);
         } finally {
           await app.close();
         }

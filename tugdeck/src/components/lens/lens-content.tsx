@@ -22,13 +22,24 @@
  *     only on drop ([P08], [L06]/[L08]).
  *   - Keep the FocusManager group-walk order in lock-step with the
  *     rendered order via `setGroupOrder` ([P08], [L22]).
- *   - Focus-out on Escape: a content-local `CANCEL_DIALOG` responder
- *     re-dispatches `FOCUS_LENS` (the deck-canvas toggle-out restores the
- *     stashed prior card, [P05]). It lives here, NOT at the deck-canvas
- *     level, so it is only in the chain when focus is actually inside the
- *     Lens — a deck-canvas `CANCEL_DIALOG` entry would consume every
- *     Escape (marking it handled → preventDefault), blocking unrelated
- *     Escape gestures such as a mid-drag abort.
+ *   - Escape, in two jobs and one press: while a layout selection stands it
+ *     DROPS that selection; with nothing selected it focuses out, a
+ *     content-local `CANCEL_DIALOG` responder re-dispatching `FOCUS_LENS`
+ *     (the deck-canvas toggle-out restores the stashed prior card, [P05]).
+ *     The focus-out half lives here, NOT at the deck-canvas level, so it is
+ *     only in the chain when focus is actually inside the Lens — an
+ *     unconditional deck-canvas `CANCEL_DIALOG` entry would consume every
+ *     Escape (marking it handled → preventDefault), blocking unrelated Escape
+ *     gestures such as a mid-drag abort.
+ *
+ *     The CLEARING half has two siblings, because a selection is deck state and
+ *     outlives the keyboard's presence here: the Cards list captures Escape
+ *     while it holds the keyboard and a set stands (the engine's ladder
+ *     outranks the whole chain, so this responder would otherwise never see the
+ *     press), and `deck-canvas` registers the same clear CONDITIONALLY — only
+ *     while a set stands at all — for the case a click fronted a card and took
+ *     the keyboard out of the Lens with it. Between the three, the answer to
+ *     Escape does not depend on how the selection was made.
  *
  * @module components/lens/lens-content
  */
@@ -48,6 +59,7 @@ import {
   useSeedKeyView,
 } from "@/components/tugways/use-focusable";
 import { BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
+import { lensSelectionStore } from "./lens-selection-store";
 import { lensSpatialOrder } from "./lens-spatial-order";
 import {
   getRegisteredLensSections,
@@ -224,15 +236,32 @@ export function LensContent({ cardId }: LensContentProps): React.ReactElement {
     },
   });
 
-  // Escape inside the Lens focuses back out: re-dispatch FOCUS_LENS via
-  // the registry (the same path Cmd-L-again takes), which the deck-canvas
-  // handler turns into a toggle-out restoring the stashed prior card. This
-  // responder is only in the chain when focus is inside the Lens.
+  // Escape inside the Lens has two jobs now, in this order.
+  //
+  // FIRST, it drops the layout selection. A selection is a standing statement
+  // about what the next verb acts on, and it outlives the gesture that made it
+  // — so the user needs a way to take it back that is not "select something
+  // else". Escape is that key everywhere else in the app, and a selection is
+  // the nearest thing the Lens has to an open modal state.
+  //
+  // THEN, with nothing selected, it focuses back out: re-dispatch FOCUS_LENS
+  // via the registry (the same path Cmd-L-again takes), which the deck-canvas
+  // handler turns into a toggle-out restoring the stashed prior card.
+  //
+  // One press, one job — the two never happen together, because a press that
+  // both cleared a selection and threw the keyboard out of the Lens would give
+  // the user no way to see what they had just undone.
+  //
+  // This responder is only in the chain when focus is inside the Lens.
   const responderId = useId();
   const { ResponderScope, responderRef } = useResponder({
     id: responderId,
     actions: {
       [TUG_ACTIONS.CANCEL_DIALOG]: () => {
+        if (lensSelectionStore.getSnapshot().ids.length > 0) {
+          lensSelectionStore.clear();
+          return;
+        }
         dispatchCommand(TUG_ACTIONS.FOCUS_LENS);
       },
     },

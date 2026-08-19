@@ -278,6 +278,23 @@ export const BASE_FOCUS_MODE = "base";
  * tag, id, the focus-identity attributes, and the first couple of classes —
  * enough to name the element in a log line without dumping the node.
  */
+/**
+ * A key that moves a cursor rather than naming a command — the set ⌘ is allowed
+ * to carry through to a key view's `onKey` delegate. Deliberately does not
+ * include Page keys: a screenful is a scroll, and scrolling with ⌘ held is not
+ * a gesture anything asks for.
+ */
+function isMovementKey(key: string): boolean {
+  return (
+    key === "ArrowUp" ||
+    key === "ArrowDown" ||
+    key === "ArrowLeft" ||
+    key === "ArrowRight" ||
+    key === "Home" ||
+    key === "End"
+  );
+}
+
 function describeElementForInvariant(el: Element | null): string {
   if (el === null) return "(nothing)";
   const tag = el.tagName.toLowerCase();
@@ -2918,10 +2935,18 @@ export class FocusManager {
    * provider's `keyViewDelegateListener` calls this after the walk / spatial /
    * bindings / act stages decline a key. Structurally gated: never in
    * dom-granted mode (the granted surface really holds DOM focus and owns its
-   * keys) and never for ⌘/⌃ chords (bindings territory).
+   * keys) and never for ⌃ or ⌘ chords (bindings territory).
+   *
+   * ⌘ + a MOVEMENT key is the one exception, and it is a narrow one. Those keys
+   * are bound to no command anywhere in the registry — a bare-⌘ arrow has never
+   * meant anything in this app — while a multi-select list needs them to mean
+   * "walk the cursor without disturbing the selection", which is a statement
+   * about a surface's own contents and could not be a global binding if it
+   * tried. Everything else with ⌘ still stops here, and ⌃ stops unconditionally.
    */
   dispatchKeyToKeyView(event: KeyboardEvent): boolean {
-    if (event.metaKey || event.ctrlKey) return false;
+    if (event.ctrlKey) return false;
+    if (event.metaKey && !isMovementKey(event.key)) return false;
     if (this.keyboardRoute() === "dom-granted") return false;
     return this.activeContext().dispatchKeyToKeyView(event);
   }
