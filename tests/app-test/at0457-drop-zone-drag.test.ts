@@ -31,6 +31,9 @@
  *      the generalization instead of being orphaned by it ([P10] (d)).
  *   6. **⌘ frees the card.** No indicator while it is held, and the drop puts
  *      the card at free pixels with no slot ([P13]).
+ *   7. **The two vocabularies do not meet.** A content card dropped over a rail
+ *      does not join it — rails are not zones for content cards ([P10]).
+ *      at0401 asserts the other half from the rail side.
  *
  * The indicator is asserted by presence and place rather than by appearance:
  * what matters is that something stands in the zone the release will use, and
@@ -280,6 +283,15 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
             "a zone is indicated while the drag is in flight",
           ).not.toBeNull();
           await app.nativeKey("Escape");
+          // Wait for the cancel to land before releasing. The gesture is over
+          // the moment Escape is handled, and the indicator going away is the
+          // observable edge of that — so this is a wait and an assertion at
+          // once, and the mouseUp below arrives at a pointer nothing is
+          // listening to.
+          await app.waitForCondition<boolean>(
+            `document.querySelector(".tug-drop-zone-indicator") === null`,
+            { timeoutMs: 5_000 },
+          );
           await app.nativeMouseUp(target);
           await wait(AFTER_LAND_MS);
 
@@ -383,6 +395,35 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
             "⌘ is what takes a card out of the arrangement",
           ).toBeNull();
           note("cmd-drag evicted p1 to free pixels");
+        }
+
+        // ── 7. The two vocabularies do not meet. ──
+        //
+        // A content card dropped over the Lens's rail does not join the rail:
+        // rails are not zones for a content card, and content slots are not
+        // zones for a sidebar card ([P10]). at0401 asserts the other half —
+        // a pinned card dragged deep into the content band stays on its rail.
+        // Cross-place drops are a later feature, and the way they stay a later
+        // feature is that neither vocabulary can name the other's places.
+        {
+          const railsBefore = await app.evalJS<string>(
+            `JSON.stringify(window.tugdeck.diag.getDeckState().imposition.sidebars || {})`,
+          );
+          await app.nativeDragElement(titleBar("p4"), {
+            selector: `${frame("pLens")} .tug-pane-title-bar`,
+          });
+          await wait(AFTER_LAND_MS);
+          expect(
+            await app.evalJS<string>(
+              `JSON.stringify(window.tugdeck.diag.getDeckState().imposition.sidebars || {})`,
+            ),
+            "a content card cannot pin itself to a rail by being dropped on one",
+          ).toBe(railsBefore);
+          expect(
+            await slotOf(app, "p4"),
+            "it lands in a content slot, because that is the whole of its vocabulary",
+          ).not.toBeNull();
+          note("rails and content slots stayed out of each other's vocabularies");
         }
       } finally {
         await app.close();

@@ -29,18 +29,22 @@
  *   6. Re-stacking restores today's behavior byte for byte — two frames the
  *      browser cannot tell apart.
  *
+ *   7. **⌘ is the way out.** A plain title-bar drag keeps a pinned card on its
+ *      rail, wherever the pointer goes; holding ⌘ at the release unpins it to
+ *      free pixels ([P13]).
+ *
  * Every gesture here is the door the user has, driven by a real pointer: the
  * badge menu by a real click on the real badge, the seam by a real drag, and
- * the reorder by a real title-bar drag down the rail's own column — which is
- * the corridor gesture end to end, latch to commit.
+ * the reorder by a real title-bar drag down the rail's own column.
  *
- * Not here, deliberately: the corridor drag's mid-gesture EXIT, where a
- * trajectory leaving the rail's band converts the reorder into a free drag.
- * The harness's pointer path cannot honestly express a mid-gesture trajectory
- * change, and faking it with synthetic PointerEvents would assert the fake
- * rather than the gesture. What that branch lands on is covered from both
- * sides: the reorder it converts FROM is asserted here, and the free drag's
- * unpin-on-drop it converts TO is asserted in at0230.
+ * The reorder runs on the **drop-zone engine** ([P11]) — the same engine the
+ * content-side drag runs on, which at0457 covers from the other side. A rail
+ * member's advertised places are its own rail's positions and nothing else, so
+ * the gesture that used to be defined by a corridor — a horizontal band the
+ * pointer had to stay inside — is now defined by the zones it can land in. The
+ * corridor's mid-gesture exit is gone with it: a drag no longer converts to a
+ * free drag by wandering, because wandering is not a statement. Case 7 is what
+ * replaced it.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/deck-manager.ts
@@ -762,6 +766,63 @@ describe.skipIf(!SHOULD_RUN)(
               expect(
                 zStacked[lowerPane] > zStacked[upperPane],
                 "the stack shows the card the split showed in front",
+              ).toBe(true);
+            }
+
+            // ── 7. ⌘ is the way out ([P13]). ──
+            //
+            // The corridor used to unpin by accident: a drag that wandered far
+            // enough sideways stopped being a reorder and became a free drag,
+            // so leaving the rail was something you discovered rather than
+            // something you asked for. On the engine a rail member's only
+            // advertised places are its own rail's, so no amount of wandering
+            // takes it off — and the way out is stated instead, on the same key
+            // that frees an imposed content card.
+            {
+              const standing = await railRects(app);
+              const paneId = Object.keys(standing)[0];
+              const rect = standing[paneId];
+              // Deep into the content band, which under the corridor's rule was
+              // as far outside as a pointer could get.
+              const away = { x: 200, y: Math.round(rect.top + 200) };
+
+              await app.nativeDragElement(
+                `${frame(paneId)} .tug-pane-title-bar`,
+                away,
+              );
+              await settled(app);
+              expect(
+                await app.evalJS<number>(
+                  `document.querySelectorAll('.tug-pane[data-lens="right"]').length`,
+                ),
+                "a plain drag keeps a pinned card on its rail, wherever the pointer goes",
+              ).toBe(2);
+
+              await app.withModifiersHeld(["cmd"], async () => {
+                await app.nativeDragElementWithoutRelease(
+                  `${frame(paneId)} .tug-pane-title-bar`,
+                  away,
+                );
+                await app.nativeMouseUp(away);
+              });
+              await settled(app);
+              expect(
+                await app.evalJS<boolean>(
+                  `(function () {
+                    var state = window.tugdeck.diag.getDeckState();
+                    var pane = state.panes.find(function (p) {
+                      return p.id === ${JSON.stringify(paneId)};
+                    });
+                    if (pane === undefined) return false;
+                    var card = state.cards.find(function (c) {
+                      return c.id === pane.activeCardId;
+                    });
+                    if (card === undefined) return false;
+                    var entry = (state.imposition.sidebars || {})[card.componentId];
+                    return entry !== undefined && entry.pinned === false;
+                  })()`,
+                ),
+                "⌘ at the release unpins it to free pixels",
               ).toBe(true);
             }
           } finally {

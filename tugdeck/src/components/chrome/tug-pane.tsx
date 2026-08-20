@@ -1357,89 +1357,6 @@ function releaseImposedFrame(
 }
 
 /**
- * How far outside a split rail's horizontal band the pointer may stray before a
- * reorder drag converts to a free drag.
- *
- * Beside {@link DRAG_MOVE_THRESHOLD_PX} because it is the same gesture's other
- * pointer-travel constant, and here rather than in the pure imposer because it
- * tunes a drag: the imposer has no geometry that reads it, and putting it there
- * would only mean the drag machine importing the imposer to learn about its own
- * threshold.
- *
- * Too tight and a slightly diagonal reorder unpins the card the user meant to
- * shuffle; too loose and a deliberate drag-out feels sticky.
- */
-const RAIL_CORRIDOR_SLOP_PX = 80;
-
-/** How long a sibling takes to slide to its previewed place during a reorder.
- *  Shorter than the imposer's settle: this is a preview answering the hand,
- *  not the deck coming to rest. */
-const RAIL_REORDER_SHUFFLE_MS = 140;
-
-/**
- * One member of the rail a reorder drag is shuffling, snapshotted at the latch.
- * Geometry is in LAYOUT pixels — the space transforms are written in — so
- * nothing downstream has to remember to divide by the zoom twice.
- */
-interface RailReorderMember {
-  componentId: string;
-  paneId: string;
-  el: HTMLElement;
-  /** Where the member stood when the drag latched. */
-  top: number;
-  height: number;
-}
-
-/** A reorder drag in flight: the rail it is shuffling and where it has got to. */
-interface RailReorderState {
-  side: SidebarSide;
-  /** The corridor: pointer x inside this band keeps the gesture a reorder. */
-  bandMin: number;
-  bandMax: number;
-  members: readonly RailReorderMember[];
-  /** The dragged member's componentId. */
-  dragging: string;
-  /** The order as the preview currently shows it. */
-  order: string[];
-  /** Where the members' run starts, in layout pixels. */
-  runTop: number;
-  /** The shuffle tweens in flight, by componentId. Held so the transforms can
-   *  be taken off without a still-running tween painting them back on. */
-  tweens: Map<string, TugAnimation>;
-}
-
-/** Stop every shuffle tween of `state`, leaving each sibling at the pose it was
- *  travelling to — which the caller is about to replace outright. */
-function endRailReorderTweens(state: RailReorderState): void {
-  for (const tween of state.tweens.values()) tween.cancel("snap-to-end");
-  state.tweens.clear();
-}
-
-/**
- * Where each member of `order` would stand, in layout pixels.
- *
- * Heights travel with their cards, because shares are keyed by componentId: a
- * reorder moves cards past one another and never hands a departing card's
- * height to whoever takes its place. That is what makes a reorder a pure
- * translate, with no vertical scale in the settle that follows.
- */
-function railReorderTops(
-  state: RailReorderState,
-  order: readonly string[],
-): Map<string, number> {
-  const heights = new Map(
-    state.members.map((member) => [member.componentId, member.height]),
-  );
-  const tops = new Map<string, number>();
-  let top = state.runTop;
-  for (const componentId of order) {
-    tops.set(componentId, top);
-    top += (heights.get(componentId) ?? 0) + IMPOSITION_GAP_PX;
-  }
-  return tops;
-}
-
-/**
  * How far the pointer must travel before a press becomes a gesture — on the
  * title bar (drag), on a resize handle, and on the Lens's deck-facing edge.
  *
@@ -1612,13 +1529,6 @@ export interface TugPaneProps {
    */
   columnMember?: ColumnMemberPlacement;
   /**
-   * Commit a new vertical order for the rail this pane stands on — the
-   * corridor drag's ending. A gesture's commit rather than an action, because
-   * nothing but the gesture that shuffled the rail has any business stating
-   * what order it ended in ([P11]).
-   */
-  onSetRailOrder?: (side: SidebarSide, order: readonly string[]) => void;
-  /**
    * Set on the pane hosting the Lens card, pinned or not. Separate from
    * {@link sidebarStack}, which says only where a PINNED rail stands: a Lens
    * dragged off its pin is an ordinary free pane for geometry purposes but is
@@ -1722,7 +1632,6 @@ export function TugPane({
   slotStack = EMPTY_SLOT_STACK,
   onRevealPane,
   sidebarStack,
-  onSetRailOrder,
   isLensPane = false,
   bullseye = false,
   bullseyeExit,
@@ -2289,53 +2198,25 @@ export function TugPane({
   // on the commit that lands the new arrangement.
   const pendingZoneDropRef = useRef<HTMLElement | null>(null);
 
-  // The reorder in flight, or null for every other drag in the deck. Set at the
-  // move latch on a split-rail member and cleared either at the corridor exit
-  // (the gesture becomes a free drag) or at the drop.
-  const railReorderRef = useRef<RailReorderState | null>(null);
-  // A reorder whose order has been committed but whose preview transforms are
-  // still holding the frames where the hand left them. Consumed by the layout
-  // effect below, on the commit that lands the new order.
-  const pendingRailReorderRef = useRef<RailReorderState | null>(null);
-  // The gesture reads these live rather than through its own closure, so a
-  // drag that began before the rail was split cannot act on a stale mode.
-  const sidebarStackRef = useRef(sidebarStack);
-  sidebarStackRef.current = sidebarStack;
-  const railSplitRef = useRef(railSplit);
-  railSplitRef.current = railSplit;
-  const onSetRailOrderRef = useRef(onSetRailOrder);
-  onSetRailOrderRef.current = onSetRailOrder;
-
   /**
-   * Take the reorder's preview transforms off, on the commit that made them
-   * redundant ([L03] — a layout effect, so it runs after the DOM is updated and
-   * before anything is painted or measured against it).
+   * Take the drop's parking transform off, on the commit that made it redundant
+   * ([L03] — a layout effect, so it runs after the DOM is updated and before
+   * anything is painted or measured against it).
    *
    * A layout effect rather than a frame callback because the thing being waited
    * for is a React commit, and rAF's timing against one is a browser detail
-   * rather than a contract ([L05]). Being a child of `DeckCanvas`, this runs
-   * before the settle's own Last-measure effect — which is what leaves the
-   * siblings measured un-transformed there while their First was measured, in a
-   * store subscriber before this render, still previewed.
+   * rather than a contract ([L05]).
+   *
+   * Two equal and opposite changes in one frame: the commit just moved this
+   * pane's layout to where the transform was holding it, so taking the
+   * transform off cannot flicker.
    */
   useLayoutEffect(() => {
     const parked = pendingZoneDropRef.current;
-    if (parked !== null) {
-      // Two equal and opposite changes in one frame: the commit just moved this
-      // pane's layout to where the transform was holding it, so taking the
-      // transform off cannot flicker. Same shape as the reorder's cleanup
-      // below, and in the same effect so a drop can never leave one of them
-      // pending while the other runs.
-      pendingZoneDropRef.current = null;
-      parked.style.transform = "";
-      parked.removeAttribute("data-gesture");
-    }
-    const pending = pendingRailReorderRef.current;
-    if (pending === null) return;
-    pendingRailReorderRef.current = null;
-    endRailReorderTweens(pending);
-    for (const member of pending.members) member.el.style.transform = "";
-    frameRef.current?.removeAttribute("data-gesture");
+    if (parked === null) return;
+    pendingZoneDropRef.current = null;
+    parked.style.transform = "";
+    parked.removeAttribute("data-gesture");
   });
 
   /**
@@ -2453,161 +2334,6 @@ export function TugPane({
     guideRef.current = [];
   }
 
-  /**
-   * Snapshot the rail a reorder is about to shuffle, or `null` when this pane
-   * is not a member of a split one — which is every pane in the deck but two
-   * or three, and the answer that keeps the free drag untouched.
-   */
-  function beginRailReorder(frame: HTMLElement): RailReorderState | null {
-    const side = sidebarStackRef.current?.side;
-    if (side === undefined || !railSplitRef.current) return null;
-    const zoom = getTugZoom() || 1;
-    const canvas = frame.parentElement;
-    if (canvas === null) return null;
-    const canvasRect = canvas.getBoundingClientRect();
-    const members: RailReorderMember[] = [];
-    for (const el of canvas.querySelectorAll<HTMLElement>(
-      `.tug-pane[data-rail-split][data-lens="${side}"]`,
-    )) {
-      const paneId = el.getAttribute("data-pane-id");
-      const componentId = el.getAttribute("data-rail-member");
-      if (paneId === null || componentId === null) continue;
-      const rect = el.getBoundingClientRect();
-      members.push({
-        componentId,
-        paneId,
-        el,
-        top: (rect.top - canvasRect.top) / zoom,
-        height: rect.height / zoom,
-      });
-    }
-    if (members.length < 2) return null;
-    members.sort((a, b) => a.top - b.top);
-    const dragging = members.find((member) => member.paneId === id)?.componentId;
-    if (dragging === undefined) return null;
-    const ownRect = frame.getBoundingClientRect();
-    return {
-      side,
-      bandMin: ownRect.left - RAIL_CORRIDOR_SLOP_PX * zoom,
-      bandMax: ownRect.right + RAIL_CORRIDOR_SLOP_PX * zoom,
-      members,
-      dragging,
-      order: members.map((member) => member.componentId),
-      runTop: members[0].top,
-      tweens: new Map(),
-    };
-  }
-
-  /**
-   * One frame of a reorder: move the dragged member, shuffle the preview if it
-   * has crossed a sibling, and answer whether the gesture is still a reorder.
-   *
-   * The translate is the RAW pointer delta, deliberately unclamped. A clamp to
-   * the rail's run would cost a jump at the conversion out of the corridor: the
-   * free drag that takes over re-adds the full pointer delta from the gesture's
-   * start, so the frame lands where the eye last saw it only while the reorder
-   * was showing that same full delta.
-   */
-  function applyRailReorderFrame(
-    frame: HTMLElement,
-    state: RailReorderState,
-    zoom: number,
-  ): boolean {
-    const pointer = latestDragPointer.current;
-    if (pointer.x < state.bandMin || pointer.x > state.bandMax) return false;
-
-    const dragged = state.members.find(
-      (member) => member.componentId === state.dragging,
-    );
-    if (dragged === undefined) return false;
-    const delta = (pointer.y - dragStartPointer.current.y) / zoom;
-    frame.style.transform = `translateY(${delta}px)`;
-
-    // A member changes places when the dragged frame covers HALF of it: the
-    // threshold is the crossed member's own middle, and what crosses it is the
-    // dragged frame's leading edge — its bottom going down, its top going up.
-    //
-    // Both terms are resting geometry, the tiles the members held when the drag
-    // latched. Those are the edges the eye is reading, and reading them keeps
-    // the predicate stable frame to frame and monotone in the pointer delta;
-    // the siblings' LIVE preview positions are the answer being computed, so
-    // consulting them would chase its own tail.
-    //
-    // Two things it must not be. Not the run the siblings would take with the
-    // dragged member lifted OUT — that pulls every sibling up by the dragged
-    // member's whole height, which on a two-member rail puts the crossing above
-    // the dragged card's own resting middle and flips the order before the hand
-    // has moved. And not middle against middle: with members of different
-    // heights that fires only once the dragged card has travelled PAST the
-    // place the swap will put it, so the shuffle snaps backwards under the
-    // hand. Half-overlap always fires short of the destination, by the same
-    // fraction in both directions, whatever the two heights are.
-    //
-    // Which edge leads is decided by resting position rather than by the sign
-    // of the delta — a sibling the dragged member started above is passed by
-    // travelling down over it, and that stays true no matter which way the hand
-    // is moving at this instant. Direction read off the delta would let a
-    // wobble at the crossing swap the leading edge and toggle the order.
-    const top = dragged.top + delta;
-    const bottom = top + dragged.height;
-    const others: string[] = [];
-    let index = 0;
-    for (const member of state.members) {
-      if (member.componentId === state.dragging) continue;
-      others.push(member.componentId);
-      const middle = member.top + member.height / 2;
-      // Counting the siblings that end up ABOVE the dragged member: a resting
-      // neighbour stays above until the dragged frame's top edge has cleared
-      // its middle, and one resting below moves above once the dragged frame's
-      // bottom edge has covered its middle. `state.members` is in resting top
-      // order, so that count IS the insertion index.
-      if (member.top < dragged.top ? top >= middle : bottom > middle) {
-        index += 1;
-      }
-    }
-    const next = [...others];
-    next.splice(index, 0, state.dragging);
-    if (next.some((componentId, i) => componentId !== state.order[i])) {
-      state.order = next;
-      const tops = railReorderTops(state, next);
-      for (const member of state.members) {
-        if (member.componentId === state.dragging) continue;
-        const target = (tops.get(member.componentId) ?? member.top) - member.top;
-        const from = member.el.style.transform;
-        const to = target === 0 ? "" : `translateY(${target}px)`;
-        member.el.style.transform = to;
-        // A short crossing rather than a cut, on its own key so a shuffle and
-        // the imposer's settle never share a tween slot ([L13]).
-        state.tweens.set(
-          member.componentId,
-          animate(
-            member.el,
-            [
-              { transform: from === "" ? "translateY(0px)" : from },
-              { transform: to === "" ? "translateY(0px)" : to },
-            ],
-            {
-              duration: RAIL_REORDER_SHUFFLE_MS,
-              easing: "ease-out",
-              fill: "none",
-              composite: "replace",
-              key: "rail-reorder",
-              slotCancelMode: "snap-to-end",
-            },
-          ),
-        );
-      }
-    }
-    return true;
-  }
-
-  /** Take every preview transform back off, dragged member included — the state
-   *  the free drag and the un-shuffled rail both start from. */
-  function clearRailReorder(state: RailReorderState): void {
-    endRailReorderTweens(state);
-    for (const member of state.members) member.el.style.transform = "";
-  }
-
   const handleDragStart = useCallback(
     (event: React.PointerEvent) => {
       // Drag-start focus save. The pane
@@ -2704,9 +2430,11 @@ export function TugPane({
 
       /**
        * Latch the drag into zone mode, or answer null for a gesture with
-       * nowhere to land — a free pane, an unimposed deck, a canvas with no
-       * host, or a sidebar pane, whose places are still the corridor's until
-       * rails come across ([P11]).
+       * nowhere to land — a free pane, an unimposed deck, an unpinned sidebar
+       * card, or a canvas with no host.
+       *
+       * A PINNED sidebar card does land somewhere: its rail's positions are
+       * zones like any other ([P11]), which is what let the corridor retire.
        */
       function beginZoneDrag(): {
         zones: readonly DropZone[];
@@ -2714,7 +2442,6 @@ export function TugPane({
       } | null {
         const host = dropZonesRef.current;
         if (host === undefined) return null;
-        if (sidebarStackRef.current !== undefined) return null;
         const tabBars = new Map<string, Rect>();
         for (const entry of dragTabBarCache.current) {
           const canvas = dragCanvasBounds.current;
@@ -2807,16 +2534,12 @@ export function TugPane({
           // pointer with no tween running is exactly the quiescent state it
           // waits for. It also keeps the drop's unconditional `end()` paired.
           paneOcclusionGesture.begin();
-          // A member of a SPLIT rail latches into reorder mode instead: the
-          // drag shuffles it within its rail rather than tearing it out. Only
-          // the release is conditional — everything else on this path is
-          // today's, byte for byte, because every other pane in the deck
-          // depends on it.
-          const reorder = beginRailReorder(frame);
-          const zoneSet = reorder === null ? beginZoneDrag() : null;
-          if (reorder !== null) {
-            railReorderRef.current = reorder;
-          } else if (zoneSet !== null) {
+          // One latch for every arrangeable pane, content and rail alike
+          // ([P11]). A rail member's places are its rail's positions and a
+          // content card's are the content-side vocabulary; which it gets is
+          // the engine's to answer, and the gesture no longer has to know.
+          const zoneSet = beginZoneDrag();
+          if (zoneSet !== null) {
             // A zone drag never releases the frame. The pane keeps its derived
             // geometry for the whole gesture and travels on a transform, so a
             // release that lands on a zone — which is every unmodified release
@@ -2832,29 +2555,9 @@ export function TugPane({
           }
         }
 
-        // Reorder mode owns the rest of the frame: the member follows the
-        // pointer's vertical delta by transform (its `left`/`top` are calc
-        // pins that a pixel write would fight), its siblings preview-shuffle,
-        // and the corridor decides whether the gesture is still a reorder.
-        const reordering = railReorderRef.current;
-        if (reordering !== null) {
-          if (applyRailReorderFrame(frame, reordering, dragZoom)) return;
-          // Out of the corridor: the gesture converts, one way, into the free
-          // drag it would have been. Exactly the two lines the reorder latch
-          // skipped, and in this ORDER — `releaseImposedFrame` measures a
-          // transform-inclusive rect and does not clear the transform itself,
-          // so releasing with the translate still on would bank the drag
-          // offset into `left`/`top` AND leave the transform on top of it,
-          // doubling the frame's travel at the conversion.
-          clearRailReorder(reordering);
-          railReorderRef.current = null;
-          const released = releaseImposedFrame(frame, dragCanvasBounds.current);
-          dragStartPosition.current = { x: released.x, y: released.y };
-        }
-
-        // Zone mode owns the rest of the frame for the same reason reorder
-        // mode does: the pane is still derived, so its travel is a transform
-        // and its `left`/`top` stay the arrangement's.
+        // Zone mode owns the rest of the frame: the pane is still derived, so
+        // its travel is a transform and its `left`/`top` stay the
+        // arrangement's — a pixel write would fight the calc pins.
         const zoneDrag = zoneDragRef.current;
         if (zoneDrag !== null) {
           applyZoneDragFrame(zoneDrag);
@@ -2965,19 +2668,14 @@ export function TugPane({
        * nothing else, so an interrupted gesture left `data-gesture`, the
        * occlusion bracket, and any preview transforms behind it.
        *
-       * It unwinds a rail corridor gesture too. The handlers are live for every
-       * pane drag, so until rails come across to the engine ([P11]) a cancel
-       * that only knew about zones would leave a half-shuffled rail standing.
+       * One unwind covers every drag in the deck, which is what unifying rails
+       * onto the engine bought ([P11]): there is no second drag grammar left
+       * with its own preview state for a cancel to have to know about.
        */
       function cancelDrag(pointerId: number | null): void {
         if (!dragActive.current) return;
         endGestureListeners(pointerId);
 
-        const reordering = railReorderRef.current;
-        if (reordering !== null) {
-          clearRailReorder(reordering);
-          railReorderRef.current = null;
-        }
         zoneDragRef.current = null;
         dropZonesRef.current?.indicate(null);
 
@@ -3050,19 +2748,13 @@ export function TugPane({
 
         // Re-enable height transition now that the drag gesture is complete. [D07]
         //
-        // A gesture that ENDS as a reorder keeps the attribute a little
-        // longer: the order commit below arms a settle, and the settle must
-        // skip this frame — it already rests at its final visual position, and
-        // both of the settle's passes would measure it through the inline
-        // transform that puts it there. The choice is made on the mode the
-        // gesture ends in, never on the branch it latched through: one that
-        // converted out of the corridor IS a free drag by now, and drops its
+        // A gesture that ENDS on a zone keeps the attribute a little longer:
+        // the commit below arms a settle, and the settle must skip this frame —
+        // it already rests at its final visual position, and both of the
+        // settle's passes would measure it through the inline transform that
+        // puts it there. The choice is made on how the gesture ENDS, never on
+        // how it latched: a ⌘-freed drop is a free drag by then and drops its
         // attribute exactly where every other drag does.
-        const reorderDrop = railReorderRef.current;
-        // A zone drop keeps it for the reason a reorder drop does: the frame is
-        // parked at the zone by transform, the commit below arms the settle,
-        // and the settle must skip a frame that is already standing where it
-        // will land. A ⌘-freed drop is a free drag by then and keeps nothing.
         const zoneState = zoneDragRef.current;
         const zoneDrop = latestMetaKey.current ? null : zoneState;
         // ⌘ at the release is what frees the card ([P13]), and the conversion
@@ -3072,9 +2764,7 @@ export function TugPane({
         const freedFromZone = zoneState !== null && latestMetaKey.current;
         zoneDragRef.current = null;
         dropZonesRef.current?.indicate(null);
-        if (reorderDrop === null && zoneDrop === null) {
-          frame.removeAttribute("data-gesture");
-        }
+        if (zoneDrop === null) frame.removeAttribute("data-gesture");
 
         // Remove snap guides immediately on drop. [D03]
         // Must happen before any early return (e.g. merge) to prevent guide leaks.
@@ -3113,50 +2803,32 @@ export function TugPane({
         // geometry through the controller's store subscription.
         paneOcclusionGesture.end();
 
-        // A reorder ends here, and it ends without a measurement.
-        //
-        // The dragged member is parked at the position its new index gives it,
-        // so the commit that follows changes its LAYOUT to exactly that place
-        // and the transform holding it there becomes exactly redundant. Taking
-        // the transform off in the layout effect that runs on that same commit
-        // is therefore not a tween that has to land — it is two equal and
-        // opposite changes in one frame, which is the one arrangement that
-        // cannot flicker. The siblings need no help at all: they still wear
-        // their preview transforms when the settle measures First (so First is
-        // where the user actually sees them), the same layout effect clears
-        // those transforms before the settle measures Last, and the settle
-        // crosses them from one to the other for free.
-        if (reorderDrop !== null) {
-          railReorderRef.current = null;
-          const tops = railReorderTops(reorderDrop, reorderDrop.order);
-          const dragged = reorderDrop.members.find(
-            (member) => member.componentId === reorderDrop.dragging,
-          );
-          if (dragged !== undefined) {
-            const target = (tops.get(dragged.componentId) ?? dragged.top) - dragged.top;
-            frame.style.transform = target === 0 ? "" : `translateY(${target}px)`;
-          }
-          pendingRailReorderRef.current = reorderDrop;
-          onSetRailOrderRef.current?.(reorderDrop.side, reorderDrop.order);
-          dragOtherRects.current = [];
-          latestAltKey.current = false;
-          lastSnapResult.current = null;
-          return;
-        }
-
         // A zone drop lands where the indicator said it would.
         //
-        // The frame is parked at the live zone's tile before the commit, and
-        // keeps `data-gesture` so the settle skips it — the same handoff the
-        // reorder drop makes, and for the same reason: the commit changes this
-        // pane's LAYOUT to the place the transform is already holding it, so
-        // the two cancel out in one frame instead of racing.
+        // The frame is parked at the live zone's tile before the commit and
+        // keeps `data-gesture`, so the settle skips it: the commit changes this
+        // pane's LAYOUT to the place the transform is already holding it, and
+        // the two cancel out in one frame instead of racing. Every OTHER frame
+        // the commit moves is carried by that same settle, which is what makes
+        // a drop an arrangement change rather than a jump.
         //
         // A refusal is an outcome, not a silence ([P09]). The frame goes home,
         // the pane flashes, and nothing is left parked at a zone that never
         // took it.
         if (zoneDrop !== null) {
-          const live = zoneDrop.live;
+          // Re-picked from the RELEASE point rather than read off the last
+          // frame that happened to run. The gesture's frames are scheduled on
+          // rAF and the drop cancels whichever one is pending, so a release
+          // that lands within a frame of the last processed move would
+          // otherwise commit the zone the pointer was leaving — the indicator
+          // and the outcome disagreeing exactly at the moment they must not.
+          // Same incumbent, same hysteresis, so nothing about the feel changes;
+          // only the last read is made to exist.
+          const live = pickLiveZone(
+            zoneDrop.zones,
+            pointerOnCanvas({ x: e.clientX, y: e.clientY }),
+            zoneDrop.live,
+          );
           if (live !== null && live.kind === "tab-bar") {
             // The one zone whose commit was already written: the merge keeps
             // its own insert index and its own verb ([P10]).

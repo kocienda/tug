@@ -2770,13 +2770,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   );
 
   // The corridor drag's commit: the order the hand left the rail in.
-  const handleSetRailOrder = useCallback(
-    (side: SidebarSide, order: readonly string[]) => {
-      store.setRailOrder(side, order);
-    },
-    [store],
-  );
-
   /**
    * The canvas's half of the drop-zone drag ([P09], Spec S03).
    *
@@ -2897,11 +2890,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             store.setColumnOrder(zone.slot, order, draggedPaneId);
             return true;
           }
-          // The tab-bar merge and the rail reorder are the gesture's own to
-          // commit — the first through `onCardMerged` with the insert index it
-          // hit-tests, the second through the rail order it has been shuffling.
+          case "rail-index": {
+            // A rail is keyed by card TYPE, not by pane: a member's place
+            // survives its card being closed and reopened, which a pane id
+            // could never do. The zone counts positions, so the mapping back to
+            // componentIds happens here, where the rail's own reading is.
+            const rail = sidebarRailsOf(state).find((r) => r.side === zone.side);
+            if (rail === undefined) return false;
+            const dragged = rail.members.find((m) => m.paneId === draggedPaneId);
+            if (dragged === undefined) return false;
+            const order = rail.members
+              .filter((m) => m.paneId !== draggedPaneId)
+              .map((m) => m.componentId);
+            order.splice(zone.index, 0, dragged.componentId);
+            store.setRailOrder(zone.side, order);
+            return true;
+          }
+          // The merge is the gesture's own to commit, through `onCardMerged`
+          // with the insert index it hit-tests along the bar ([P10]).
           case "tab-bar":
-          case "rail-index":
             return true;
         }
       },
@@ -3048,7 +3055,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             slotStack={slotStackByPaneId.get(stackState.id)}
             columnMember={columnMemberByPaneId.get(stackState.id)}
             onRevealPane={handleRevealPane}
-            onSetRailOrder={handleSetRailOrder}
             sidebarStack={stackByPaneId.get(stackState.id)}
             isLensPane={stackState.id === lensPaneId}
             onCardMoved={store.handlePaneMoved}
