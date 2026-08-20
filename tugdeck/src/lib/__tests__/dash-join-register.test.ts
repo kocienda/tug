@@ -136,6 +136,56 @@ describe("what the register says", () => {
     expect(reg(null, { stage: "implementing" })).toBeNull();
     expect(reg({ phase: "previewed" }, { stage: "implementing" })).toBeNull();
   });
+
+  test("a fresh dash's `empty` blocker is not a join refusal", () => {
+    // A dash created a moment ago has no rounds, so the board reports an
+    // `empty` blocker meaning "nothing here yet". Read as a join failure it
+    // would put a red register on every new dash in the Lens — the arc has not
+    // begun, so the register says nothing at all.
+    const fresh = reg(
+      {
+        phase: "blocked",
+        blockers: [{ kind: "empty", detail: "nothing to join" }],
+      },
+      { stage: "created" },
+    );
+    expect(fresh).toBeNull();
+
+    // The same blocker on a dash that IS built is a real refusal.
+    const built = reg({
+      phase: "blocked",
+      blockers: [{ kind: "empty", detail: "nothing to join" }],
+    });
+    expect(built?.word).toBe("blocked");
+  });
+
+  test("anything that implies somebody acted speaks whatever the stage says", () => {
+    // A live run, a beat, a standing question and a stated refusal cannot
+    // happen to a dash nobody has touched, so each is worth saying even before
+    // the dash reaches `built`.
+    const running = reg({ phase: "conflicted", run: "resolve" }, { stage: "implementing" });
+    expect(running?.word).toBe("reconciling");
+
+    const asked = reg(
+      {
+        phase: "conflicted",
+        question: { request_id: "r1", question: "which side?", options: [] },
+      },
+      { stage: "implementing" },
+    );
+    expect(asked?.word).toBe("question");
+
+    const joining = reg(null, {
+      stage: "implementing",
+      landBeat: { beat: "squash", status: "start" },
+    });
+    expect(joining?.word).toBe("joining");
+
+    const stuck = reg({ phase: "conflicted", stuck: "the resolver gave up" }, {
+      stage: "implementing",
+    });
+    expect(stuck?.word).toBe("stuck");
+  });
 });
 
 describe("precedence — the part that gets re-derived wrongly", () => {

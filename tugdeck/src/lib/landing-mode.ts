@@ -17,6 +17,7 @@
  * @module lib/landing-mode
  */
 
+import type { DashJoinRegister } from "@/lib/dash-join-register";
 import type { DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import type { CommitPhase, JoinPhase } from "@/lib/changeset-verb-store";
 
@@ -136,6 +137,16 @@ export interface LandingSnapshot {
   landRefusal: LandingRefusal | null;
   /** Draft error detail to surface, or null. */
   draftError: string | null;
+  /**
+   * What the join arc is doing, for the composer's status row — or null when
+   * this landing has no arc to report ([P04]).
+   *
+   * Derived by the mode rather than by the composer, which is what keeps the
+   * entry ignorant of which landing it is hosting: commit mode has no dash and
+   * always returns null, join mode returns the same reading the Lens row and
+   * the shade row show, because all three call one derivation.
+   */
+  register: DashJoinRegister | null;
 }
 
 /**

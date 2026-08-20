@@ -39,6 +39,7 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { sendLandingReceipt } from "@/lib/landing-press-receipt";
 import { getChangesetDraftStore, type DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
+import { dashJoinRegister } from "@/lib/dash-join-register";
 
 /** The dash a join mode is aimed at — the identity plus what the face reads. */
 export interface JoinTarget {
@@ -424,6 +425,14 @@ export class JoinModeController implements LandingMode {
     if (draftStore !== null) {
       this.unsubscribes.push(draftStore.subscribe(() => this.recompute()));
     }
+    // The join's beats and the ladder's progress both live here, and both feed
+    // the register the composer shows ([P03], [P04]). Without this subscription
+    // the composer's status row would freeze on whichever beat happened to be
+    // current when some *other* store last moved.
+    const joinStore = getChangesetJoinStore();
+    if (joinStore !== null) {
+      this.unsubscribes.push(joinStore.subscribe(() => this.recompute()));
+    }
   }
 
   // ── Store surface ([L02]) ──────────────────────────────────────────────
@@ -526,6 +535,26 @@ export class JoinModeController implements LandingMode {
       seedMessage: this.seedMessage,
       canLandIgnoringMessage: gate.ok,
       landBlockedReason,
+      // The same reading the Lens row and the shade row show, because all
+      // three call one derivation ([P04]). The composer is where somebody who
+      // typed `/dash-join` is actually looking.
+      register:
+        this.target === null
+          ? null
+          : dashJoinRegister({
+              dash: this.target.name,
+              base: this.target.base,
+              stage: entry?.stage ?? null,
+              join,
+              resolvePhase: getChangesetJoinStore()?.state(
+                changesController.workspaceKey,
+                this.target.name,
+              ).phase,
+              landBeat: getChangesetJoinStore()?.landProgress(
+                changesController.workspaceKey,
+                this.target.name,
+              ),
+            }),
       landReady: this.active && gate.ok && messagePresent,
       landPhase: joinPhase,
       landError,

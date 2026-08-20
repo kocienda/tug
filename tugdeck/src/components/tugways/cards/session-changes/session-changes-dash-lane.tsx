@@ -59,6 +59,8 @@ import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { DashMetaLine } from "@/components/tugways/dash-meta-line";
+import { DashJoinRegister } from "@/components/tugways/dash-join-register";
+import { useChangesetJoinLand } from "@/lib/changeset-join-store";
 import { dashFrontedLabel, dashRestLabel } from "./changes-section-labels";
 import { TugDashName } from "@/components/tugways/tug-dash-name";
 import {
@@ -277,6 +279,9 @@ function DashRow({
   onRequestDiscard: (entry: DashChangesetEntry, anchor: HTMLElement | null) => void;
 }): React.ReactElement {
   const rowRef = useRef<HTMLDivElement | null>(null);
+  // The beats of a join in flight on THIS dash ([L02], [P03]). Subscribed per
+  // row so one dash landing does not re-render every other row in the lane.
+  const landBeat = useChangesetJoinLand(projectRoot, entry.display_name);
   // Opening a row points the join mode at its dash and asks the server nothing:
   // the answer is already on the entry. The effect fires on the closed → open
   // edge (and on mount, since the fronted row opens with the shade), so the
@@ -408,6 +413,21 @@ function DashRow({
           atom: line 1 is who, line 2 is what the dash is doing. */}
       <span className="session-changes-dash-meta">
         <DashMetaLine entry={entry} />
+      </span>
+      {/* What the JOIN is doing, in the one shared register — the same
+          sentence the Lens row and the composer show, because all three call
+          one derivation. It states and never asks: every act in the arc lives
+          in Z5 or in the prompt. */}
+      <span className="session-changes-dash-register">
+        <DashJoinRegister
+          dash={entry.display_name}
+          base={entry.base ?? "main"}
+          stage={entry.stage}
+          join={entry.join ?? null}
+          resolvePhase={joinFace?.resolve.phase}
+          landBeat={landBeat}
+          altitude="entry"
+        />
       </span>
       {expanded ? (
         <div className="session-changes-dash-detail">

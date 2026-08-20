@@ -44,6 +44,20 @@
   padding-inline-start: var(--tug-space-sm);
 }
 
+/* The join register sits under the metadata line, on the same indent: line 1
+   is who, line 2 is what the dash is doing, line 3 is what its join is doing.
+   Empty until there is a join arc — the register returns null before then, so
+   this box collapses rather than reserving a blank row. */
+.session-changes-dash-register {
+  display: flex;
+  min-width: 0;
+  padding-inline-start: var(--tug-space-sm);
+}
+
+.session-changes-dash-register:empty {
+  display: none;
+}
+
 /* ---- The expanded detail ---- */
 
 /* The detail hangs under its row, so its content starts where the row's

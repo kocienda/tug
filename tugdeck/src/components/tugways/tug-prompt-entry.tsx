@@ -107,6 +107,7 @@ import { TugProgressIndicator } from "./tug-progress-indicator";
 import { PencilSparkles } from "./tug-icons";
 import { TugPushButton } from "./tug-push-button";
 import { TugTooltip } from "./tug-tooltip";
+import { DashJoinRegisterView } from "./dash-join-register";
 import { TugActionTooltip } from "./tug-action-tooltip";
 import { TugConfirmPopover } from "./tug-confirm-popover";
 import { resolveSubmitButtonView } from "./tug-prompt-entry-submit-button";
@@ -3861,9 +3862,18 @@ export const TugPromptEntry = React.forwardRef<
     </>
   );
 
+  // The join arc's register, when the active landing has one ([P04]). The
+  // entry reads it off the landing snapshot rather than deriving it, which is
+  // what keeps this component ignorant of which landing it is hosting: commit
+  // mode reports null, join mode reports the same reading the Lens row and the
+  // shade row show.
+  const landingRegister = landingActive ? (landingSnap?.register ?? null) : null;
+
   // Render the status row only when there is something to put in it.
   const hasStatusRow =
-    statusContent !== undefined || cautionContent !== undefined;
+    statusContent !== undefined ||
+    cautionContent !== undefined ||
+    landingRegister !== null;
 
   return (
       <ResponderScope>
@@ -3902,6 +3912,7 @@ export const TugPromptEntry = React.forwardRef<
               <div className="tug-prompt-entry-status">
                 <div className="tug-prompt-entry-status-content">
                   {statusContent}
+                  <DashJoinRegisterView register={landingRegister} />
                 </div>
                 {cautionContent !== undefined && (
                   <div

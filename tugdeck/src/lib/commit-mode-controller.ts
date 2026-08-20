@@ -235,6 +235,10 @@ export class CommitModeController implements LandingMode {
       seedMessage: this.seedMessage,
       canLandIgnoringMessage: gate.ok,
       landBlockedReason: gate.ok ? null : commitDisabledReason(gate.reason),
+      // A commit has no dash and so no join arc to narrate. Returning null
+      // rather than composing something keeps the composer ignorant of which
+      // landing it is hosting.
+      register: null,
       landReady: this.active && gate.ok && messagePresent,
       fileCount,
       claimableCount,

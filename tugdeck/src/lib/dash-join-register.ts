@@ -92,6 +92,24 @@ export function dashJoinRegister(
   const { dash, base, join, landBeat } = input;
   const connected = input.connected ?? true;
 
+  // **The arc begins at `built`.** Before that there is nothing to say: a dash
+  // being worked is not trying to join, and its blockers are not a join
+  // failure — a freshly created dash with no rounds carries an `empty` blocker
+  // that means "nothing here yet", which read as a join refusal would put a
+  // red register on every new dash in the Lens.
+  //
+  // The exception is anything that implies somebody already acted. A live
+  // join, a run in flight, a standing question or a stated refusal cannot
+  // happen to a dash nobody has touched, and each of them is worth saying
+  // whatever the stage reads.
+  const acted =
+    (landBeat !== null && landBeat !== undefined) ||
+    (join?.run ?? null) !== null ||
+    input.resolvePhase === "resolving" ||
+    (join?.question ?? null) !== null ||
+    (typeof join?.stuck === "string" && join.stuck !== "");
+  if (input.stage !== "built" && !acted) return null;
+
   if (!connected) {
     return {
       phase: "idle",
@@ -170,9 +188,7 @@ export function dashJoinRegister(
     return { phase: "in_flight", line: "Building the joined tree", word: "checking" };
   }
 
-  // A dash still being worked has no join arc yet, and `null` is how that is
-  // said. Composing a sentence here would put a join status on a row that is
-  // not about joining — and a register with nothing to report should not
-  // mount at all rather than mount empty.
+  // Reachable only through the `acted` exception above: a run that has ended
+  // on a dash that never reached `built`. Nothing to report.
   return null;
 }

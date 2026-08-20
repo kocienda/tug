@@ -64,7 +64,33 @@ export function DashJoinRegister({
   className,
   ...input
 }: DashJoinRegisterProps): React.ReactElement | null {
-  const register = dashJoinRegister(input);
+  return (
+    <DashJoinRegisterView
+      register={dashJoinRegister(input)}
+      {...(altitude !== undefined ? { altitude } : {})}
+      {...(className !== undefined ? { className } : {})}
+    />
+  );
+}
+
+/**
+ * The register's chrome, over an already-derived reading.
+ *
+ * For the caller that has run the derivation somewhere else — the composer
+ * reads its register off the landing snapshot, because the snapshot is the one
+ * slot the entry drives both landing modes through and the entry must stay
+ * ignorant of which landing it is hosting. Same chrome, same `data-slot`, so
+ * the composer's register and the shade's are the same element.
+ */
+export function DashJoinRegisterView({
+  register,
+  altitude,
+  className,
+}: {
+  register: ReturnType<typeof dashJoinRegister>;
+  altitude?: BlockAltitude;
+  className?: string;
+}): React.ReactElement | null {
   if (register === null) return null;
   return (
     <div

@@ -67,6 +67,8 @@ import { GitBranch } from "lucide-react";
 import { LENS_LIST_PRESENTATION } from "@/components/lens/lens-list-presentation";
 import { setSectionContent } from "@/components/lens/lens-section-content";
 import { DashMetaLine } from "@/components/tugways/dash-meta-line";
+import { DashJoinRegister } from "@/components/tugways/dash-join-register";
+import { useChangesetJoinLand } from "@/lib/changeset-join-store";
 import { DashSigil } from "@/components/tugways/dash-sigil";
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
@@ -442,10 +444,36 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
         <span className="lens-dashes-meta-line">
           <DashMetaLine entry={entry} />
         </span>
+        {/* And what its JOIN is doing, in the one shared register — the same
+            sentence the shade and the composer show, because all three call
+            one derivation. Renders nothing until there is a join arc. */}
+        <DashJoinRow row={row} />
       </span>
     </TugListRow>
   );
 };
+
+/**
+ * The dash's join register, with the beats its own store read supplies.
+ *
+ * A separate component so the `useSyncExternalStore` subscription belongs to
+ * the row that needs it ([L02]) rather than re-rendering every row in the
+ * section on every beat of one dash's join.
+ */
+function DashJoinRow({ row }: { row: DashRow }): React.ReactElement | null {
+  const entry = row.entry;
+  const landBeat = useChangesetJoinLand(row.projectDir, entry.display_name);
+  return (
+    <DashJoinRegister
+      dash={entry.display_name}
+      base={entry.base ?? "main"}
+      stage={entry.stage}
+      join={entry.join}
+      landBeat={landBeat}
+      altitude="section"
+    />
+  );
+}
 
 const DASH_CELL_RENDERERS = { dash: DashCell };
 
