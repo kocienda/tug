@@ -64,6 +64,16 @@ This applies to a pill in a row's leading slot, which is where `TugDashName` put
 
 The outdent is also why a row does not need a second mark saying the dash is unbound. The register already says it: proportional in a pill means somebody is on this, the mono caret run means nobody is, and in the Lens's Dashes section the eyebrow's right side says it a second way (a worker's atom, or the Bind and Discard verbs). A dashed-circle glyph ahead of the name once said it a third time and was removed for exactly that redundancy.
 
+### A line stacked under an atom starts on the atom's NAME
+
+A dash block is two lines and sometimes three: who, then what the dash is doing, then what its join is doing. The lines below the first hang under the **name**, not under the pill that holds it — and the pill's text is a border plus its inline padding in from its own edge, which is a number no spacing token knows.
+
+**Indent by that inset, never by a space token that resembles it.** `tug-session-identity.css` publishes it (`--tugx-session-atom-text-inset`, and `-2xs` for the small chip) beside the padding it describes, so retuning the skin retunes what hangs under it. The Lens's Dashes section takes it directly; the Changes shade takes `--tugx-dash-stack-indent`, which is the same inset plus the row's own content indent minus the outdent above, because the shade's stacked lines are siblings of the row rather than children of it.
+
+The failure this prevents is specific and it shipped once. A near-miss is worse than no indent at all: a second line two pixels short of the name in the Lens, and nine short of it in the shade, reads as two lines that *missed* each other rather than as a column. Nothing could catch it, because the surfaces were compared by eye against a design that used the same components at a different offset. `at0407` and `at0405` now assert the two lefts are equal, measured against the rendered name so the assertion cannot outlive a retune.
+
+**The block is separated from its neighbour by a step, not a hairline.** The eyebrow's rule divides one dash from the next *within* a line; it cannot also make a two-line block read as a unit. At a hairline of padding the second line of one dash sits as close to the eyebrow of the next as to its own.
+
 ## Vocabulary
 
 - **`uncommitted`**, never `dirty`. `worktree_dirty` is the wire's spelling and stays the wire's; no surface shows the word.

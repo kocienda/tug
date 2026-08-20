@@ -541,15 +541,22 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   // controls on the eyebrow ([L31]).
   const delegate = useMemo<TugListViewDelegate>(() => ({}), []);
 
-  // The empty state keeps the band: the shared empty label, standing in for
-  // the list at one row's height, exactly as an empty Cards section reads.
+  // The empty state keeps the band, at the shared empty label's height and
+  // tone — but it names the way in rather than saying "None".
+  //
+  // An empty Cards section is self-evident and self-correcting: the reader has
+  // no cards and knows how to open one. An empty Dashes band is the one place
+  // a reader may not know the verb at all, and a section whose whole argument
+  // is that it holds a fixed address is worth one sentence that earns it.
   if (!populated) {
     return (
       <div
         className="lens-section-empty lens-dashes-empty"
         data-slot="lens-dashes-empty"
       >
-        None
+        <span>
+          No dashes. <code>tugutil dash create</code> starts one.
+        </span>
       </div>
     );
   }

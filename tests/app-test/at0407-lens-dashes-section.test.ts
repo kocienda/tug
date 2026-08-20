@@ -261,6 +261,55 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         expect(meta.noteText).toBe("The only step");
         note("at0407 meta line", await app.screenshot().then((s) => s.path));
 
+        // ── The block is two lines on ONE left margin ─────────────────────
+        // The metadata line hangs under the dash's NAME, not under the pill
+        // that holds it. The distinction is the whole reason this assertion
+        // exists: the atom keeps its text 8px in from its own edge, and a
+        // metadata line indented by a space token that merely resembles that
+        // number lands a pixel or two short — near enough that the two lines
+        // read as a mistake rather than as a second column. It shipped that
+        // way once because nothing here could tell the difference.
+        //
+        // Measured against the rendered name rather than against a constant,
+        // so retuning the atom's padding moves the expectation with it.
+        const stack = await app.evalJS<{
+          name: number;
+          mark: number;
+          blocks: number[][];
+        }>(
+          `(() => {
+             const rows = Array.from(document.querySelectorAll(${JSON.stringify(`${SECTION} [data-slot="lens-dashes-row"]`)}));
+             const L = (el) => Math.round(el.getBoundingClientRect().left * 10) / 10;
+             const first = rows[0];
+             return {
+               name: L(first.querySelector('[data-slot="lens-dashes-name"]')),
+               mark: L(first.querySelector(".lens-dashes-meta-line .tug-dash-meta-line > *")),
+               blocks: rows.map((r) => {
+                 const b = r.getBoundingClientRect();
+                 return [Math.round(b.top), Math.round(b.bottom)];
+               }),
+             };
+           })()`,
+        );
+        note("at0407 stack", JSON.stringify(stack));
+        expect(stack.mark, "line 2 starts on the dash name's own margin").toBe(
+          stack.name,
+        );
+
+        // And one dash is separated from the next by a real step, not a
+        // hairline. At 2px of block padding the two-line blocks touched, and
+        // the second line of one dash sat as close to the eyebrow of the next
+        // as to its own — which is what makes a block stop reading as a unit.
+        if (stack.blocks.length >= 2) {
+          const gap = stack.blocks[1]![0]! - stack.blocks[0]![1]!;
+          const height = stack.blocks[0]![1]! - stack.blocks[0]![0]!;
+          // Rows are flush, so the air lives inside them: what has to hold is
+          // that a block is tall enough to carry a full step of padding around
+          // its two lines.
+          expect(gap, "rows are flush; the air is the block's own").toBe(0);
+          expect(height, "each block carries a step of air").toBeGreaterThan(48);
+        }
+
         // ── The ordering, in the DOM ──────────────────────────────────────
         // Both fixtures are unbound, so the stage rank decides: this dash is
         // `implementing` (a step is open on it), the other is `created`.

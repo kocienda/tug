@@ -515,6 +515,33 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         expect(fronted.first).toBe(DASH_NAME);
         expect(fronted.expanded).toBe("true");
 
+        // ── The stack is one left margin ──────────────────────────────────
+        // Line 1 is who, line 2 is what the dash is doing, line 3 is what its
+        // join is doing — and all three start on the dash NAME's margin.
+        //
+        // Getting there is arithmetic this lane cannot avoid: the metadata
+        // line and the register are siblings of the row, so they begin at its
+        // border box while the atom above them begins at its content box and
+        // is then optically outdented on top of that. Three offsets, and the
+        // lane once took a space token instead and landed nine pixels left of
+        // the name. Measured against the rendered name so the row's density,
+        // the atom's padding and the outdent can all move without this
+        // becoming a lie.
+        const stack = await app.evalJS<{ name: number; mark: number }>(
+          `(() => {
+             const row = document.querySelector(${JSON.stringify(ROW)});
+             const L = (el) => Math.round(el.getBoundingClientRect().left * 10) / 10;
+             return {
+               name: L(row.querySelector(".tug-session-identity-dash")),
+               mark: L(row.querySelector(".session-changes-dash-meta .tug-dash-meta-line > *")),
+             };
+           })()`,
+        );
+        note("at0405 stack", JSON.stringify(stack));
+        expect(stack.mark, "line 2 starts on the dash name's own margin").toBe(
+          stack.name,
+        );
+
         // ── The complement rule ───────────────────────────────────────────
         // Unbind on the fronted row, Bind on none of it — a menu carrying both
         // at once would say the card can take on and put down the same dash.

@@ -99,6 +99,19 @@
   display: inline-flex;
 }
 
-/* The empty state: the band stays, and the label is the shared
-   `.lens-section-empty` (lens-content.css) — "None", centered, at one row's
-   height, exactly as an empty Cards section reads. Nothing to add here. */
+/* The empty state: the band stays, at the shared `.lens-section-empty`'s
+   height and tone (lens-content.css). What this section adds is where the
+   line sits — flush left on the section's own margin rather than centered,
+   because the sentence names a command and a centered command reads as a
+   caption rather than as something to type. */
+/* Scoped under `.lens-content` to match the shared rule's specificity — a
+   bare class here loses to `.lens-content .lens-section-empty` and the line
+   silently stays centered. */
+.lens-content .lens-dashes-empty {
+  justify-content: flex-start;
+}
+
+.lens-dashes-empty code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.95em;
+}
