@@ -39,6 +39,8 @@
  * @module components/tugways/cards/join-prompt-sheet
  */
 
+import "./join-prompt-sheet.css";
+
 import React, { useCallback, useLayoutEffect, useRef } from "react";
 
 import {

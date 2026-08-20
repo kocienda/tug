@@ -74,6 +74,7 @@ import {
 import { useUnavailableModelBulletin } from "@/lib/use-unavailable-model-bulletin";
 import { persistModelCatalog } from "@/lib/model-catalog";
 import { useRewindSheet } from "./rewind-sheet";
+import { useJoinPromptSheet } from "./join-prompt-sheet";
 import { useSkillsSheet } from "./skills-sheet";
 import { useAgentsSheet } from "./agents-sheet";
 import { useMemorySheet } from "./memory-sheet";
@@ -2547,6 +2548,31 @@ export function SessionCardBody({
   );
   const joinActive = joinSnapshot.active;
 
+  /**
+   * The bound dash's own feed entry, or null — the read the join prompt and
+   * the Changes door both make ([L02]).
+   *
+   * Two subscriptions because two stores move independently: the binding
+   * changes when the card is mated or unmated, the changeset when the
+   * repository does. Missing either would leave the prompt reading a dash the
+   * card is no longer about, or one whose decision has already been made.
+   */
+  const dashBindingId = useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    () => cardSessionBindingStore.getBinding(cardId)?.dash?.id ?? null,
+  );
+  const changesVersion = useSyncExternalStore(
+    changesController.subscribe,
+    () => changesController.getSnapshot(),
+  );
+  const boundDashEntry = useMemo(
+    () =>
+      dashBindingId === null
+        ? null
+        : (changesVersion.dashes.find((row) => row.owner_id === dashBindingId) ?? null),
+    [dashBindingId, changesVersion],
+  );
+
   /** Retired verb spellings this card has already named ([P08]). */
   const retiredVerbsSeenRef = useRef(new Set<string>());
 
@@ -3438,6 +3464,32 @@ export function SessionCardBody({
   const rewindSheet = useRewindSheet({
     codeSessionStore,
     showSheet: cardPickerSheet.showSheet,
+  });
+
+  // The join arc's one decision ([P06]). Nothing opens this — the feed causes
+  // it, on the card of a session bound to that dash and nowhere else. It
+  // yields while this card's composer is already landing something; a running
+  // turn is not a reason to yield, because the decision is about a dash rather
+  // than about Claude.
+  useJoinPromptSheet({
+    prompt: boundDashEntry?.join?.prompt ?? null,
+    landingActive: commitModeActive || joinActive,
+    showSheet: cardPickerSheet.showSheet,
+    onAnswer: (requestId, answer) => {
+      if (boundDashEntry === null) return;
+      getChangesetJoinStore()?.answerPrompt(
+        changesController.workspaceKey,
+        boundDashEntry.display_name,
+        requestId,
+        answer,
+      );
+    },
+    // The same entry `/dash-join` takes, so the composer opens on the message
+    // the run maintained rather than on an empty document.
+    onReviewFirst: () => {
+      if (boundDashEntry === null) return;
+      joinModeController.enter(joinTargetFromEntry(boundDashEntry));
+    },
   });
 
   // `/resume` focused sessions overlay ([#step-8]), card-scoped per [D15].
