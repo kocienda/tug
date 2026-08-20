@@ -468,8 +468,8 @@ App-tests must drive real code paths on real content; every new cell carries an 
 | #step-9 | G — integration checkpoint | done | `42d5b8237` |
 | #step-10 | I — overflow geometry, pure | done | `d5e5bc682` |
 | #step-11 | I — offsets, clamp, reveal | done | `77971e85f` |
-| #step-12 | I — UI, miniature, doctrine | in progress | — |
-| #step-13 | I — integration checkpoint | pending | — |
+| #step-12 | I — UI, miniature, doctrine | done | `2db61188e` |
+| #step-13 | I — integration checkpoint | done | `2db61188e` |
 | #step-14 | H — zone model and enumeration | pending | — |
 | #step-15 | H — the gesture: free drag, snap, release | pending | — |
 | #step-16 | H — rails unify, corridor retires | pending | — |
