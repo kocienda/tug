@@ -164,6 +164,24 @@ export interface SidebarEntry {
 /** How a side's sidebar cards stand against one another. */
 export type RailMode = "stack" | "split";
 
+/** How the content cards sharing one slot stand against one another. The same
+ *  two words a rail uses, and deliberately a separate name: a slot is a
+ *  different place, and a column mode is read from a different record. */
+export type ColumnMode = "stack" | "split";
+
+/** Where a move-in-column chord sends its member: one place either way, or all
+ *  the way to an end ([P12]). */
+export type ColumnMoveTarget = "up" | "down" | "top" | "bottom";
+
+/** Narrow an unknown (an action payload) to a move target. */
+export function isColumnMoveTarget(
+  value: unknown,
+): value is ColumnMoveTarget {
+  return (
+    value === "up" || value === "down" || value === "top" || value === "bottom"
+  );
+}
+
 /**
  * How one side's rail is arranged: stacked front-to-back (the default, and what
  * a rail has always been) or divided vertically so every member is visible at
@@ -194,6 +212,50 @@ export interface RailArrangement {
    *
    * Weights rather than positions: membership churns, and a positional array
    * would hand a departing card's height to whoever inherits its index.
+   */
+  shares?: Record<string, number>;
+}
+
+/**
+ * How the content cards sharing one slot stand against one another: the same
+ * three fields a rail carries, over a place that runs down a column of the deck
+ * rather than down an edge.
+ *
+ * Deliberately the same shape as {@link RailArrangement}, because a slot and a
+ * rail are the same kind of place — a run of vertical space several cards may
+ * either take turns in or divide. Sharing the shape is what lets
+ * {@link railSeamFractions} and {@link railSharesFromFractions} serve both
+ * without a fork; they take an arrangement's parts rather than a side, so they
+ * were already place-agnostic before a column existed.
+ *
+ * The one real difference is what a member is called. A rail keys its members
+ * by `componentId`, because a sidebar card is a singleton: one componentId, one
+ * pane, one card, all the way down. A slot has no such identity to borrow. Two
+ * Session cards are two cards, so componentId cannot name a member; and a slot
+ * holds *panes*, each of which may itself be a tab stack of several cards, so
+ * neither can a card id — a member named by the card it is showing would be
+ * renamed by switching tabs, and the arrangement would move under a gesture
+ * that changed nothing about the layout.
+ *
+ * So a column keys its members by **pane id**, which is what a member actually
+ * is. The persistence strength is the same as a card id's and weaker than a
+ * rail's either way: a pane id dies with its pane, so a closed member's entries
+ * here are inert residue that no reopened card will reclaim ([Q03]). That is
+ * accepted — residue is harmless, since nothing standing is named by it — and
+ * it is the cost of a place whose occupants have no type-level identity.
+ */
+export interface ColumnArrangement {
+  /** Absent reads as `"stack"` — cards in a slot take turns, as they always did. */
+  mode?: ColumnMode;
+  /**
+   * The members' vertical order, top to bottom, by pane id. Absent means the
+   * slot's own pane order — see {@link effectiveColumnOrder}, which also
+   * tolerates ids named here that are no longer standing in the slot.
+   */
+  order?: string[];
+  /**
+   * Each member's height weight, keyed by pane id; an unnamed member weighs 1,
+   * so an absent record is an equal division.
    */
   shares?: Record<string, number>;
 }
@@ -241,6 +303,19 @@ export interface DeckImposition {
    * about whether they are stacked.
    */
   rails?: { left?: RailArrangement; right?: RailArrangement };
+  /**
+   * How the cards in each slot are arranged, keyed by slot index. Absent — for
+   * a slot or for the record — reads as a stack, which is what every slot was
+   * before splitting reached the content columns.
+   *
+   * Keyed by slot rather than by pane because the arrangement belongs to the
+   * place: a slot keeps the division the user chose while its cards come and
+   * go, exactly as `rails` keeps a side's. Entries for slots the current
+   * {@link ImpositionKind} does not reach are kept rather than pruned — a deck
+   * dropped from six-up to three-up remembers how its fourth column stood, and
+   * gets it back on the way up.
+   */
+  columns?: Record<number, ColumnArrangement>;
 }
 
 /** Where a sidebar card stands when nothing has ever said otherwise. */
@@ -517,6 +592,98 @@ export interface RailMemberPlacement {
 /** Narrow an unknown (a parsed blob field, an action payload) to a side. */
 export function isSidebarSide(value: unknown): value is SidebarSide {
   return value === "left" || value === "right";
+}
+
+// ---- Columns: the same arrangement, over a slot ----
+
+/** The arrangement slot `slot` stands under; absent reads as a stack. */
+export function columnModeOf(
+  imposition: Pick<DeckImposition, "columns">,
+  slot: number,
+): ColumnMode {
+  return imposition.columns?.[slot]?.mode === "split" ? "split" : "stack";
+}
+
+/** Narrow an unknown (a parsed blob field, an action payload) to a column mode. */
+export function isColumnMode(value: unknown): value is ColumnMode {
+  return value === "stack" || value === "split";
+}
+
+/** The slot's arrangement with one field replaced, the others untouched. */
+function withColumnField(
+  imposition: DeckImposition,
+  slot: number,
+  patch: Partial<ColumnArrangement>,
+): DeckImposition {
+  const current = imposition.columns?.[slot] ?? {};
+  return {
+    ...imposition,
+    columns: { ...imposition.columns, [slot]: { ...current, ...patch } },
+  };
+}
+
+/** The imposition with `slot` stacked or split, keeping its order and shares —
+ *  a re-split lands on the arrangement the user last chose, not on a default. */
+export function withColumnMode(
+  imposition: DeckImposition,
+  slot: number,
+  mode: ColumnMode,
+): DeckImposition {
+  return withColumnField(imposition, slot, { mode });
+}
+
+/** The imposition with `slot`'s members in `order`, top to bottom. */
+export function withColumnOrder(
+  imposition: DeckImposition,
+  slot: number,
+  order: readonly string[],
+): DeckImposition {
+  return withColumnField(imposition, slot, { order: [...order] });
+}
+
+/** The imposition with `slot`'s height weights replaced. */
+export function withColumnShares(
+  imposition: DeckImposition,
+  slot: number,
+  shares: Record<string, number>,
+): DeckImposition {
+  return withColumnField(imposition, slot, { shares: { ...shares } });
+}
+
+/** The imposition with `slot`'s height weights removed — an equal division,
+ *  keeping the slot's mode and order. */
+export function withoutColumnShares(
+  imposition: DeckImposition,
+  slot: number,
+): DeckImposition {
+  const current = imposition.columns?.[slot];
+  if (current?.shares === undefined) return imposition;
+  const { shares: _dropped, ...rest } = current;
+  return { ...imposition, columns: { ...imposition.columns, [slot]: rest } };
+}
+
+/**
+ * The order slot `slot`'s members stand in, top to bottom, given the pane ids
+ * actually standing there.
+ *
+ * The exact shape of {@link effectiveRailOrder}, and for the same reasons: the
+ * stored order is a preference over members that come and go, so ids it names
+ * that are not standing are skipped, and ids standing that it does not name
+ * follow in the order they were handed in. A slot with no stored order takes
+ * that order whole, which is the slot's own pane order — the depth order a
+ * stack already shows.
+ */
+export function effectiveColumnOrder(
+  imposition: Pick<DeckImposition, "columns">,
+  slot: number,
+  paneIds: readonly string[],
+): readonly string[] {
+  const stored = imposition.columns?.[slot]?.order;
+  if (stored === undefined) return paneIds;
+  const standing = new Set(paneIds);
+  const named = stored.filter((id) => standing.has(id));
+  const claimed = new Set(named);
+  return [...named, ...paneIds.filter((id) => !claimed.has(id))];
 }
 
 /** Narrow an unknown (a parsed blob field, an action payload) to a width. */
@@ -1017,20 +1184,30 @@ export function imposeStyle(
   placement: ImposedPlacement,
   slotWidth: number,
   pinned?: PinnedFrame,
+  options: { member?: ColumnMemberPlacement } = {},
 ): React.CSSProperties {
   const frameWidth = pinned?.width ?? slotWidth;
+  // The vertical run the frame takes. Undivided this is the top gap down to the
+  // deeper bottom one; in a split column it is this member's share, pinned to
+  // the seams either side of it. `columnMemberPins` answers with the undivided
+  // pins when there is no member or its column holds one, so the two cases are
+  // one expression rather than a branch.
+  const run = columnMemberPins(options.member);
   const style: React.CSSProperties =
     pinned?.height === undefined
       ? {
           width: `${frameWidth}px`,
           height: "auto",
-          top: GAP,
-          bottom: GAP_BOTTOM,
+          top: run.top,
+          bottom: run.bottom,
         }
       : {
+          // A size-locked card centres inside whatever run it was given, so a
+          // split column shrinks the box it centres in rather than taking it
+          // out of the division.
           width: `${frameWidth}px`,
           height: `${pinned.height}px`,
-          top: `calc(${GAP} + max(0px, (100% - ${GAP} - ${GAP_BOTTOM} - ${pinned.height}px) / 2))`,
+          top: `calc(${run.top} + max(0px, (100% - ${run.top} - ${run.bottom} - ${pinned.height}px) / 2))`,
         };
 
   const band = `(100% - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;
@@ -2002,12 +2179,34 @@ const RAIL_SEAM_HALF_GAP = `${IMPOSITION_GAP_PX / 2}px`;
 function railMemberPins(
   member: RailMemberPlacement | undefined,
 ): { top: string; bottom: string } {
-  if (member === undefined || member.count < 2) {
-    return { top: GAP, bottom: GAP_BOTTOM };
-  }
-  const { side, index, count } = member;
+  if (member === undefined) return { top: GAP, bottom: GAP_BOTTOM };
+  return memberPins(member, (j) => railSeamProperty(member.side, j));
+}
+
+/**
+ * A split member's `top` and `bottom`, given the place it stands in and the
+ * property carrying each seam of that place.
+ *
+ * The whole of what a rail member and a column member share, which is
+ * everything but the property name: both divide the same vertical run, both
+ * take half a gap either side of a seam, and both pin their outer edge to the
+ * run's own endpoint rather than to a fraction. That last part is what makes a
+ * split read as a division of the card the eye already knew — the top member
+ * and a stacked card share a top edge to the pixel.
+ *
+ * A place of fewer than two members is not divided, so it gets the undivided
+ * pins. That is the byte-identity the split feature rests on: a slot or a side
+ * that has never been split, or has dropped to one member, produces exactly the
+ * frame it produced before either could be split at all.
+ */
+function memberPins(
+  member: { index: number; count: number },
+  seamProperty: (index: number) => string,
+): { top: string; bottom: string } {
+  const { index, count } = member;
+  if (count < 2) return { top: GAP, bottom: GAP_BOTTOM };
   const seam = (j: number): string =>
-    `var(${railSeamProperty(side, j)}, ${(j + 1) / count})`;
+    `var(${seamProperty(j)}, ${(j + 1) / count})`;
   return {
     top:
       index === 0
@@ -2018,5 +2217,41 @@ function railMemberPins(
         ? GAP_BOTTOM
         : `calc(${GAP_BOTTOM} + (1 - ${seam(index)}) * ${RAIL_RUN} + ${RAIL_SEAM_HALF_GAP})`,
   };
+}
+
+/**
+ * The custom property carrying seam `index` of slot `slot`, as a plain number
+ * in (0, 1) — the fraction of the run the seam sits at.
+ *
+ * The place-keyed twin of {@link railSeamProperty}, and unregistered for the
+ * same reason: every expression reading one supplies the equal-division
+ * fraction as its `var()` fallback, so a frame rendered before the properties
+ * land still tiles its column.
+ */
+export function columnSeamProperty(slot: number, index: number): string {
+  return `--tug-slot-${slot}-seam-${index}`;
+}
+
+/** One split member's place in its column: which slot, which position, and how
+ *  many members it divides the run with. */
+export interface ColumnMemberPlacement {
+  slot: number;
+  index: number;
+  count: number;
+}
+
+/**
+ * A column member's `top` and `bottom` — the column's own endpoints for the
+ * first and last member, and the seam either side of it for the rest.
+ *
+ * Byte-identical to the undivided frame when the member is absent or its column
+ * holds one member, which is what lets {@link imposeStyle} take the option
+ * unconditionally.
+ */
+export function columnMemberPins(
+  member: ColumnMemberPlacement | undefined,
+): { top: string; bottom: string } {
+  if (member === undefined) return { top: GAP, bottom: GAP_BOTTOM };
+  return memberPins(member, (j) => columnSeamProperty(member.slot, j));
 }
 

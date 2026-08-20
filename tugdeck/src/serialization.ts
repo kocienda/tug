@@ -39,6 +39,7 @@ import {
   isImpositionLayout,
   isRailMode,
   isSidebarPinned,
+  isColumnMode,
   isSidebarSide,
   DEFAULT_IMPOSITION_KIND,
   DEFAULT_CONTENT_WIDTH,
@@ -46,6 +47,7 @@ import {
   isContentWidth,
   type DeckImposition,
   type ImpositionKind,
+  type ColumnArrangement,
   type RailArrangement,
   type SidebarEntry,
   type SidebarSide,
@@ -388,6 +390,71 @@ function parseRails(
   return Object.keys(rails).length > 0 ? rails : undefined;
 }
 
+/**
+ * The `columns` record from an imposition record — how the cards in each slot
+ * stand against one another.
+ *
+ * Read exactly as defensively as {@link parseRails}, with two differences that
+ * follow from a column being keyed by slot and by pane id rather than by side
+ * and by componentId:
+ *
+ * - the keys are slot indices, so a key that is not a non-negative integer is
+ *   dropped. Slots the current kind does not reach are *kept*: a deck dropped
+ *   to three-up remembers its fourth column, and the imposer only ever asks
+ *   about slots it has.
+ * - the members are pane ids, which have no rename history, so nothing here
+ *   runs through `migrateComponentId`. Unknown ids are kept for the same
+ *   reason the rails keep theirs — the panes are parsed alongside, not before,
+ *   and `effectiveColumnOrder` filters to the members actually standing.
+ */
+function parseColumns(
+  impositionRecord: Record<string, unknown> | undefined,
+): DeckImposition["columns"] {
+  const raw = impositionRecord?.["columns"];
+  if (raw === null || typeof raw !== "object") return undefined;
+  const columns: NonNullable<DeckImposition["columns"]> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const slot = Number(key);
+    if (!Number.isInteger(slot) || slot < 0) continue;
+    if (value === null || typeof value !== "object") continue;
+    const entry = value as Record<string, unknown>;
+    const arrangement: ColumnArrangement = {};
+
+    const mode = entry["mode"];
+    if (mode !== undefined) {
+      // As with a rail: a mode this build cannot read means the whole column
+      // is unreadable, because the order and heights below describe an
+      // arrangement nobody would have chosen under a guessed mode.
+      if (!isColumnMode(mode)) continue;
+      arrangement.mode = mode;
+    }
+
+    const order = entry["order"];
+    if (Array.isArray(order)) {
+      const ids = order.filter((id): id is string => typeof id === "string");
+      if (ids.length > 0) arrangement.order = ids;
+    }
+
+    const shares = entry["shares"];
+    if (shares !== null && typeof shares === "object") {
+      const weights: Record<string, number> = {};
+      for (const [paneId, weight] of Object.entries(
+        shares as Record<string, unknown>,
+      )) {
+        if (typeof weight !== "number") continue;
+        if (!Number.isFinite(weight) || weight <= 0) continue;
+        weights[paneId] = weight;
+      }
+      if (Object.keys(weights).length > 0) arrangement.shares = weights;
+    }
+
+    // Nothing survived: the slot is absent, which is what a stack already is.
+    if (Object.keys(arrangement).length === 0) continue;
+    columns[slot] = arrangement;
+  }
+  return Object.keys(columns).length > 0 ? columns : undefined;
+}
+
 // ---- Internal: v4 parser ----
 
 /**
@@ -475,6 +542,7 @@ function parseV4(
   }
   const rawContentWidth = impositionRecord?.["contentWidth"];
   const rails = parseRails(impositionRecord);
+  const columns = parseColumns(impositionRecord);
   // Additive-optional like `rails`: a blob written before the mode existed
   // carries no `layout` and comes back fit, which is what it was. An
   // unreadable value is dropped rather than defaulted to flow — a mode is
@@ -487,6 +555,7 @@ function parseV4(
       : DEFAULT_CONTENT_WIDTH,
     sidebars,
     ...(rails !== undefined ? { rails } : {}),
+    ...(columns !== undefined ? { columns } : {}),
     ...(isImpositionLayout(rawLayout) ? { layout: rawLayout } : {}),
   };
 

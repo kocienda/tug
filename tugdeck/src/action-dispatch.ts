@@ -40,6 +40,7 @@ import {
   isContentWidth,
   isImpositionKind,
   isImpositionLayout,
+  isColumnMode,
   isRailMode,
   isSidebarSide,
 } from "@/lib/layout-imposer";
@@ -698,6 +699,37 @@ export function initActionDispatch(
       return;
     }
     deckManager.equalizeRail(side);
+  });
+
+  // set-column-mode: stack or split the cards sharing one numbered slot.
+  // Dispatched by the title bar's stack badge menu, the Lens Layouts section's
+  // per-slot column row, and ⌃⌘S. A slot is a stack or a split — all of its
+  // members participate, which is why the payload names a slot rather than a
+  // pair of cards.
+  registerAction(TUG_ACTIONS.SET_COLUMN_MODE, (payload) => {
+    const slot = payload.slot;
+    const mode = payload.mode;
+    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
+      console.warn("set-column-mode: missing or invalid slot", payload);
+      return;
+    }
+    if (!isColumnMode(mode)) {
+      console.warn("set-column-mode: missing or invalid mode", payload);
+      return;
+    }
+    deckManager.setColumnMode(slot, mode);
+  });
+
+  // equalize-column: divide a split column's run equally again. Dispatched by
+  // the stack badge menu and by a double-click on the seam. The slot's mode and
+  // member order survive — only the heights a seam drag set are discarded.
+  registerAction(TUG_ACTIONS.EQUALIZE_COLUMN, (payload) => {
+    const slot = payload.slot;
+    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 0) {
+      console.warn("equalize-column: missing or invalid slot", payload);
+      return;
+    }
+    deckManager.equalizeColumn(slot);
   });
 
   // assign-slot: put a card's pane at a numbered position in the active

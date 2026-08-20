@@ -101,6 +101,11 @@ const ALLOWED_CUTS: Record<string, { max: number; why: string }> = {
     why: "display flips inside flushSync while the pane keeps its box",
   },
   imposition: { max: 0, why: "carried by the settle" },
+  "column-split": {
+    max: 0,
+    why: "the column mode and its seams are signature terms, so the flip arms a settle",
+  },
+  "column-stack": { max: 0, why: "and so is re-stacking" },
 };
 
 interface CutRecord {
@@ -407,6 +412,63 @@ describe.skipIf(!SHOULD_RUN)(
               `(window.__tug.dispatchControlAction("set-imposition-layout", { layout: "fit" }), null)`,
             );
           });
+
+          // ── The column split, in fit ────────────────────────────────────
+          // A mode flip moves every member's vertical pins while no pane
+          // changes slot, width, or kind — so the pane terms of the signature
+          // hold still throughout and the column terms are the only thing that
+          // can arm the settle. The two cells below are what fails if those
+          // terms are dropped, and they are here rather than only in at0455
+          // because this file is the census the whole surface answers to.
+          //
+          // The gesture needs a slot with two cards in it, which the battery
+          // above has already produced: `flow:slot-move` put A alongside B in
+          // slot 1 and nothing since has separated them.
+          found["column-split"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "split" }), null)`,
+            );
+          });
+          // The cell has to have DONE something, or "no cuts" is the trivial
+          // truth about a gesture that moved nothing. A slot that never gained
+          // its second card would report a clean census forever.
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll(".tug-pane[data-column-split]").length`,
+            ),
+            "the column-split cell actually divided slot 1",
+          ).toBeGreaterThan(1);
+
+          found["column-stack"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "stack" }), null)`,
+            );
+          });
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll(".tug-pane[data-column-split]").length`,
+            ),
+            "the column-stack cell actually re-stacked slot 1",
+          ).toBe(0);
+
+          // And once in flow, where a split member's `left` rides the strip
+          // expression rather than the travel fraction.
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-imposition-layout", { layout: "flow" }), null)`,
+          );
+          await wait(AFTER_LAND_MS);
+          await takeCuts(app);
+          found["flow:column-split"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "split" }), null)`,
+            );
+          });
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll(".tug-pane[data-column-split]").length`,
+            ),
+            "the flow:column-split cell actually divided slot 1",
+          ).toBeGreaterThan(1);
 
           await disarmDetector(app);
 

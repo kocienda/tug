@@ -12,6 +12,8 @@ import { describe, test, expect } from "bun:test";
 import type { CardState, DeckState, TugPaneState } from "../layout-tree";
 import {
   bullseyePaneIdOf,
+  deckColumnsOf,
+  deckFlowStrip,
   isFocusDestination,
   slotStackOf,
 } from "../deck-store-selectors";
@@ -201,5 +203,163 @@ describe("bullseyePaneIdOf", () => {
     const s = bullseyed("pane-1");
     expect(bullseyePaneIdOf(s)).toBe(bullseyePaneIdOf(s));
     expect(s.bullseyePaneId).toBe("pane-1");
+  });
+});
+
+describe("deckColumnsOf", () => {
+  /** A three-up deck whose slots hold the panes named, at the widths named. */
+  function slottedState(
+    slots: Record<string, { slot: number; width: number }>,
+    imposition: Partial<DeckState["imposition"]> = {},
+  ): DeckState {
+    const ids = Object.keys(slots);
+    return {
+      cards: ids.map((id) => makeCard(`card-${id}`)),
+      panes: ids.map((id) => ({
+        ...makePane(id, [`card-${id}`], `card-${id}`),
+        slot: slots[id].slot,
+        size: { width: slots[id].width, height: 300 },
+      })),
+      imposition: {
+        kind: "three-up",
+        sidebars: { lens: { side: "right" } },
+        ...imposition,
+      },
+      hasFocus: true,
+    };
+  }
+
+  test("a free deck has no columns", () => {
+    // A slot is a place in an arrangement, and a deck with no imposition has
+    // none — not even for the panes carrying a stale slot from a previous one.
+    const state = slottedState({ "pane-a": { slot: 0, width: 800 } });
+    expect(deckColumnsOf({ ...state, imposition: { sidebars: {} } })).toEqual([]);
+  });
+
+  test("one column per OCCUPIED slot, in slot order", () => {
+    const columns = deckColumnsOf(
+      slottedState({
+        "pane-c": { slot: 2, width: 800 },
+        "pane-a": { slot: 0, width: 800 },
+      }),
+    );
+    expect(columns.map((c) => c.slot)).toEqual([0, 2]);
+    // Slot 1 is empty, and an empty place has nothing to arrange.
+    expect(columns.every((c) => c.members.length === 1)).toBe(true);
+  });
+
+  test("a stacked column has no seams", () => {
+    // A stack has no gaps to place: every member draws the same rect and
+    // z-order decides which you see.
+    const columns = deckColumnsOf(
+      slottedState({
+        "pane-a": { slot: 0, width: 800 },
+        "pane-b": { slot: 0, width: 800 },
+      }),
+    );
+    expect(columns[0].mode).toBe("stack");
+    expect(columns[0].seams).toEqual([]);
+    expect(columns[0].members.length).toBe(2);
+  });
+
+  test("a split column divides at its stored weights", () => {
+    const columns = deckColumnsOf(
+      slottedState(
+        {
+          "pane-a": { slot: 0, width: 800 },
+          "pane-b": { slot: 0, width: 800 },
+        },
+        {
+          columns: {
+            0: {
+              mode: "split",
+              order: ["pane-a", "pane-b"],
+              shares: { "pane-a": 3, "pane-b": 1 },
+            },
+          },
+        },
+      ),
+    );
+    expect(columns[0].members).toEqual(["pane-a", "pane-b"]);
+    expect(columns[0].seams).toEqual([0.75]);
+  });
+
+  test("the fallback order is NOT the panes array's order", () => {
+    // The panes array is z-order and `activateCard` rewrites it. Taking it
+    // here would make two unarranged members of a split column trade places
+    // when the user clicked the lower one. The same state with the array
+    // reversed must read the same column.
+    const state = slottedState(
+      {
+        "pane-b": { slot: 0, width: 800 },
+        "pane-a": { slot: 0, width: 800 },
+      },
+      { columns: { 0: { mode: "split" } } },
+    );
+    const raised: DeckState = { ...state, panes: [...state.panes].reverse() };
+    expect(deckColumnsOf(state)[0].members).toEqual(
+      deckColumnsOf(raised)[0].members,
+    );
+  });
+
+  test("a stored order governs, and residue leaves no hole", () => {
+    const columns = deckColumnsOf(
+      slottedState(
+        {
+          "pane-a": { slot: 0, width: 800 },
+          "pane-b": { slot: 0, width: 800 },
+        },
+        {
+          columns: {
+            0: { mode: "split", order: ["closed-long-ago", "pane-b", "pane-a"] },
+          },
+        },
+      ),
+    );
+    expect(columns[0].members).toEqual(["pane-b", "pane-a"]);
+    // Two members, one seam — the gone pane contributes no gap.
+    expect(columns[0].seams.length).toBe(1);
+  });
+
+  test("a slot past the kind's last one pulls in, and shares the column there", () => {
+    // `clampSlot` is what places the pane, so the column has to be keyed by
+    // the same clamped number or a pulled-in pane would arrange under a slot
+    // it does not stand in.
+    const columns = deckColumnsOf(
+      slottedState({
+        "pane-a": { slot: 2, width: 800 },
+        "pane-b": { slot: 9, width: 800 },
+      }),
+    );
+    expect(columns.map((c) => c.slot)).toEqual([2]);
+    expect(columns[0].members.length).toBe(2);
+  });
+});
+
+describe("a split column in flow", () => {
+  test("contributes ONE extent to the strip: its widest member", () => {
+    // [P11]: panes sharing a slot share its place in the strip. A split column
+    // is still one slot, so it takes the width of the widest frame in it —
+    // summing the members would open a gap the deck has nothing to put in.
+    const state: DeckState = {
+      cards: [makeCard("card-a"), makeCard("card-b"), makeCard("card-c")],
+      panes: [
+        { ...makePane("pane-a", ["card-a"], "card-a"), slot: 0, size: { width: 500, height: 300 } },
+        { ...makePane("pane-b", ["card-b"], "card-b"), slot: 0, size: { width: 900, height: 300 } },
+        { ...makePane("pane-c", ["card-c"], "card-c"), slot: 1, size: { width: 400, height: 300 } },
+      ],
+      imposition: {
+        kind: "three-up",
+        layout: "flow",
+        sidebars: { lens: { side: "right" } },
+        columns: { 0: { mode: "split", order: ["pane-a", "pane-b"] } },
+      },
+      hasFocus: true,
+    };
+    const strip = deckFlowStrip(state);
+    expect(strip?.positions.get(0)).toBe(0);
+    // 900 (the widest member) + one gap, not 500 + 900 + gaps.
+    expect(strip?.positions.get(1)).toBe(905);
+    expect(strip?.width).toBe(1305);
   });
 });

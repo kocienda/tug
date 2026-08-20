@@ -58,7 +58,9 @@ import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { getJotsStore } from "@/lib/jots-store";
 import {
   bullseyePaneIdOf,
+  deckColumnsOf,
   deckFlowStrip,
+  type DeckColumn,
   findLensPane,
   findSidebarPanes,
   paneRenderWidthOf,
@@ -90,13 +92,20 @@ import {
   lensSelectionStore,
 } from "@/components/lens/lens-selection-store";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
+import { flashCardPane } from "@/lib/flash-pane-border";
+import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import {
   isSidebarPinned,
   sidebarSide,
   isContentWidth,
   resolvePlacement,
   resolveContentWidthPx,
+  clampSlot,
+  columnSeamProperty,
   imposeStyle,
+  isColumnMoveTarget,
+  type ColumnMemberPlacement,
+  type ColumnMode,
   slotCount,
   DEFAULT_CONTENT_WIDTH,
   IMPOSITION_GAP_PX,
@@ -172,6 +181,27 @@ const SIDEBAR_PANE_ZINDEX_MAX_RANK = 9;
  * edges that matter most.
  */
 const RAIL_SEAM_ZINDEX = SIDEBAR_PANE_ZINDEX_BASE + SIDEBAR_PANE_ZINDEX_MAX_RANK;
+
+/**
+ * How deep a column's seam sweep reaches, per slot.
+ *
+ * A rail borrows {@link SIDEBAR_PANE_ZINDEX_MAX_RANK} for its sweep, because a
+ * rail's members are z-ranked and that number already bounds them. A slot has
+ * no z-rank ceiling to borrow, so the bound is stated here: it is the deepest
+ * column the split UI will ever put seams in, and the sweep removes every index
+ * from the live seam count up to it so a column going three members to two
+ * cannot leave seam 1 standing for a frame to pin itself against.
+ *
+ * Deliberately generous — nothing enforces a member limit, and an over-long
+ * sweep costs a handful of `removeProperty` calls on a property that is not
+ * there, while a short one leaves a live lie in the CSS.
+ */
+const COLUMN_SEAM_MAX_INDEX = 9;
+
+/** Every slot the sweep clears, whatever the current kind: the largest
+ *  arrangement's slot count, so dropping from six-up to three-up removes the
+ *  seams of the columns the deck no longer has. */
+const COLUMN_SEAM_MAX_SLOT = slotCount("six-up") - 1;
 
 /** One member of a side's rail, in the rail's own vertical order: the order the
  *  imposition records, falling back to registration order — never z-order. */
@@ -335,7 +365,26 @@ function arrangementSignature(state: DeckState): string {
   // The offset, rounded to the pixel it is written at. Sub-pixel churn is not
   // an arrangement change, and the property carries the rounded value anyway.
   const flow = `${layout}:${Math.round(state.flowOffset ?? 0)}`;
-  return `${state.imposition.kind ?? ""}|${flow}|${bullseye}|${rails}|${panes.join(",")}`;
+  // A slot's MODE and its SEAM FRACTIONS are terms for exactly the reasons a
+  // rail's are: a split flip changes every member's height, and a seam drag
+  // changes two. The pane terms above would not cover either — a flip moves no
+  // pane between slots and changes no stored width, so without this the one
+  // gesture the feature exists for would CUT.
+  //
+  // The MEMBER ORDER is a term too, and it is not redundant with the pane
+  // terms: reordering a split column swaps two frames' vertical pins while
+  // every pane keeps its slot and its width, so the sorted pane list is
+  // identical either side of the move.
+  const columns = deckColumnsOf(state)
+    .filter((column) => column.mode === "split")
+    .map(
+      (column) =>
+        `${column.slot}:${column.members.join("+")}:${column.seams
+          .map((f) => f.toFixed(3))
+          .join("+")}`,
+    )
+    .join(";");
+  return `${state.imposition.kind ?? ""}|${flow}|${bullseye}|${rails}|${columns}|${panes.join(",")}`;
 }
 
 /**
@@ -388,43 +437,77 @@ function railFrontmostPaneId(
   return frontmost;
 }
 
-/** The shortest each member of `rail` may be, in order — read through the same
- *  stack policy the pane's own chrome uses, so a multi-card rail pane cannot
- *  disagree with itself about its floor. */
+/** The shortest the pane named by `paneId` may be — read through the same stack
+ *  policy the pane's own chrome uses, so a multi-card pane cannot disagree with
+ *  itself about its floor. */
+function paneMinHeight(state: DeckState, paneId: string): number {
+  const pane = state.panes.find((p) => p.id === paneId);
+  if (pane === undefined) return 0;
+  return getStackSizePolicy(
+    state.cards
+      .filter((card) => pane.cardIds.includes(card.id))
+      .map((card) => card.componentId),
+  ).min.height;
+}
+
+/** The shortest each member of `rail` may be, in the rail's own order. */
 function railMemberMinHeights(
   state: DeckState,
   rail: SidebarRail,
 ): readonly number[] {
-  return rail.members.map((member) => {
-    const pane = state.panes.find((p) => p.id === member.paneId);
-    if (pane === undefined) return 0;
-    return getStackSizePolicy(
-      state.cards
-        .filter((card) => pane.cardIds.includes(card.id))
-        .map((card) => card.componentId),
-    ).min.height;
-  });
+  return rail.members.map((member) => paneMinHeight(state, member.paneId));
 }
 
-interface RailSeamProps {
-  side: SidebarSide;
-  /** Which gap this is: the boundary between members `index` and `index + 1`. */
-  index: number;
-  /** The rail's width, as the `var()` fallback its horizontal pins take. */
-  railWidth: number;
-  /** Every seam of the rail, so a drag can clamp against its neighbours. */
-  fractions: readonly number[];
-  /** Each member's minimum height, in the rail's own order. */
-  minHeights: readonly number[];
-  onCommit: (side: SidebarSide, fractions: readonly number[]) => void;
+/** The shortest each member of `column` may be, in the column's own order. */
+function columnMemberMinHeights(
+  state: DeckState,
+  column: DeckColumn,
+): readonly number[] {
+  return column.members.map((paneId) => paneMinHeight(state, paneId));
 }
 
 /**
- * The boundary between two split rail members, and the handle that moves it.
+ * Which place a seam divides. The deck has two kinds — a side's rail and a
+ * numbered slot's column — and the seam between two members is the same object
+ * in both: the same drag, the same clamp, the same equalize, over a different
+ * custom property and a different commit.
+ */
+type SeamPlace =
+  | { kind: "rail"; side: SidebarSide }
+  | { kind: "column"; slot: number };
+
+/** The custom property carrying seam `index` of `place`. */
+function seamPropertyOf(place: SeamPlace, index: number): string {
+  return place.kind === "rail"
+    ? railSeamProperty(place.side, index)
+    : columnSeamProperty(place.slot, index);
+}
+
+interface PlaceSeamProps {
+  place: SeamPlace;
+  /** Which gap this is: the boundary between members `index` and `index + 1`. */
+  index: number;
+  /**
+   * The place's own horizontal pins, straight from the imposer — the rail's
+   * pin for a rail, the slot's anchor for a column. Resolved by the caller
+   * rather than here so the seam reads the SAME expression its frames do
+   * (including, on a flow deck, the strip position and viewport offset) rather
+   * than a second expression that says the same thing.
+   */
+  frameStyle: React.CSSProperties;
+  /** Every seam of the place, so a drag can clamp against its neighbours. */
+  fractions: readonly number[];
+  /** Each member's minimum height, in the place's own order. */
+  minHeights: readonly number[];
+  onCommit: (place: SeamPlace, fractions: readonly number[]) => void;
+}
+
+/**
+ * The boundary between two split members, and the handle that moves it.
  *
- * Positioned from the SAME properties the frames are — its horizontal pins come
- * from `imposeSidebarStyle` itself rather than from a second expression that
- * says the same thing — so a seam cannot drift from the rail it divides.
+ * Positioned from the SAME properties the frames are — its horizontal pins are
+ * the imposer's own output, handed in — so a seam cannot drift from the run it
+ * divides.
  *
  * It does **not** participate in the settle: that walks `.tug-pane[data-pane-id]`
  * frames and a seam is not one, so on a mode flip it appears at its final
@@ -441,14 +524,14 @@ interface RailSeamProps {
  * the bracket to keep visible. (The reorder drag needs one for exactly the
  * reason this does not.)
  */
-function RailSeam({
-  side,
+function PlaceSeam({
+  place,
   index,
-  railWidth,
+  frameStyle,
   fractions,
   minHeights,
   onCommit,
-}: RailSeamProps): React.ReactElement {
+}: PlaceSeamProps): React.ReactElement {
   const fractionsRef = useRef(fractions);
   fractionsRef.current = fractions;
   const minHeightsRef = useRef(minHeights);
@@ -463,7 +546,7 @@ function RailSeam({
       const container = seam.parentElement;
       if (container === null) return;
 
-      const property = railSeamProperty(side, index);
+      const property = seamPropertyOf(place, index);
       const zoom = getTugZoom() || 1;
       const startClientY = event.clientY;
       const startFractions = [...fractionsRef.current];
@@ -545,39 +628,45 @@ function RailSeam({
         container.style.setProperty(property, String(fraction));
         const next = [...startFractions];
         next[index] = fraction;
-        onCommit(side, next);
+        onCommit(place, next);
       };
 
       seam.addEventListener("pointermove", onPointerMove);
       seam.addEventListener("pointerup", onPointerUp);
     },
-    [side, index, onCommit],
+    [place, index, onCommit],
   );
 
   const handleDoubleClick = useCallback(() => {
-    dispatchCommand(TUG_ACTIONS.EQUALIZE_RAIL, { side });
-  }, [side]);
+    if (place.kind === "rail") {
+      dispatchCommand(TUG_ACTIONS.EQUALIZE_RAIL, { side: place.side });
+    } else {
+      dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot: place.slot });
+    }
+  }, [place]);
 
-  // The horizontal pins come from the imposer itself, so the seam spans exactly
-  // the rail it divides. Only the vertical placement is the seam's own: its
-  // centre is the same expression the frames either side of it read.
-  const railStyle = imposeSidebarStyle(side, railWidth) as React.CSSProperties;
+  // Only the vertical placement is the seam's own: its centre is the same
+  // expression the frames either side of it read.
   const centre =
-    `calc(${IMPOSITION_GAP_PX}px + var(${railSeamProperty(side, index)}, ` +
+    `calc(${IMPOSITION_GAP_PX}px + var(${seamPropertyOf(place, index)}, ` +
     `${(index + 1) / (fractions.length + 1)})` +
     ` * (100% - ${IMPOSITION_GAP_PX}px - ${IMPOSITION_GAP_BOTTOM_PX}px))`;
 
   return (
     <div
-      className="tug-rail-seam"
-      data-testid="tug-rail-seam"
-      data-rail-seam={`${side}:${index}`}
+      className="tug-place-seam"
+      data-testid={
+        place.kind === "rail" ? "tug-rail-seam" : "tug-column-seam"
+      }
+      {...(place.kind === "rail"
+        ? { "data-rail-seam": `${place.side}:${index}` }
+        : { "data-column-seam": `${place.slot}:${index}` })}
       role="separator"
       aria-orientation="horizontal"
       onPointerDown={handlePointerDown}
       onDoubleClick={handleDoubleClick}
       style={{
-        ...railStyle,
+        ...frameStyle,
         position: "absolute",
         top: `calc(${centre} - ${RAIL_SEAM_HIT_PX / 2}px)`,
         bottom: "auto",
@@ -641,6 +730,8 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.REVEAL_IN_FINDER,
   TUG_ACTIONS.MOVE_TO_SLOT,
   TUG_ACTIONS.NUDGE_SLOT,
+  TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
+  TUG_ACTIONS.MOVE_IN_COLUMN,
   TUG_ACTIONS.SET_PANE_WIDTH,
   TUG_ACTIONS.TOGGLE_BULLSEYE,
   TUG_ACTIONS.NEW_TEXT_CARD,
@@ -705,6 +796,29 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // in this file is load-bearing.
   const flowStrip = useMemo(() => deckFlowStrip(deckState), [deckState]);
   const flowOffset = deckState.flowOffset ?? 0;
+  // The occupied slots and how each one's panes stand — the deck's ONE reading
+  // of its columns ([P11]). Declared here for the same reason the strip is: the
+  // inset effect below publishes the seam fractions, and the effect order in
+  // this file is load-bearing.
+  const deckColumns = useMemo(() => deckColumnsOf(deckState), [deckState]);
+  // Each member's standing in its column, for the panes that have one. Only a
+  // SPLIT column of two or more contributes: a stacked column and a column of
+  // one take the undivided run, which is the frame they had before a slot could
+  // be divided at all.
+  const columnMemberByPaneId = useMemo(() => {
+    const map = new Map<string, ColumnMemberPlacement>();
+    for (const column of deckColumns) {
+      if (column.mode !== "split" || column.members.length < 2) continue;
+      column.members.forEach((paneId, index) => {
+        map.set(paneId, {
+          slot: column.slot,
+          index,
+          count: column.members.length,
+        });
+      });
+    }
+    return map;
+  }, [deckColumns]);
   const railWidthOf = (side: SidebarSide): number =>
     sidebarRails.find((rail) => rail.side === side)?.width ?? 0;
   // Each member's standing on its rail: which side, how many share it, how they
@@ -1047,6 +1161,55 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           cardIds,
           delta: event.value,
         });
+      },
+      // ⌃⌘S — split or re-stack the slot the layout selection stands in. The
+      // canvas owns it because a slot is a fact about the arrangement and not
+      // about a card: the chord resolves the same selection ⌘1..9 and the
+      // nudge pair do, takes its FIRST card (a split names one place, and a
+      // multi-card selection spanning two slots has no single answer), and
+      // asks that card's pane which slot it stands in.
+      [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT]: () => {
+        const state = store.getSnapshot();
+        if (state.imposition.kind === undefined) return;
+        const cardIds = contentCardsInLayoutSelection(store);
+        if (cardIds.length === 0) return;
+        const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
+        if (host?.slot === undefined) return;
+        const slot = clampSlot(state.imposition.kind, host.slot);
+        const column = deckColumnsOf(state).find((c) => c.slot === slot);
+        // A slot with one card is already unsplit and has nothing to divide.
+        // The refusal is VISIBLE — the pane flashes — because a chord that
+        // does nothing and says nothing is indistinguishable from one that
+        // never arrived ([P08]).
+        if (column === undefined || column.members.length < 2) {
+          tugDevLogStore.debug(
+            "toggle-column-split",
+            "the selection's slot holds one card; nothing to divide",
+            { slot, cardId: cardIds[0] },
+          );
+          flashCardPane(store, cardIds[0]);
+          return;
+        }
+        dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, {
+          slot,
+          mode: column.mode === "split" ? "stack" : "split",
+        });
+      },
+      // ⌃⌘↑/↓ and ⌃⇧⌘↑/↓ — move the resolved card within its own column. What
+      // "up" means is the store's to decide, not the chord's: split, it is the
+      // member order; stacked, it is z. Refusal at an edge flashes the pane,
+      // which is the same receipt the nudge pair gives.
+      [TUG_ACTIONS.MOVE_IN_COLUMN]: (event: ActionEvent) => {
+        if (!isColumnMoveTarget(event.value)) return;
+        const state = store.getSnapshot();
+        if (state.imposition.kind === undefined) return;
+        const cardIds = contentCardsInLayoutSelection(store);
+        if (cardIds.length === 0) return;
+        const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
+        if (host === undefined) return;
+        if (!store.moveInColumn(host.id, event.value)) {
+          flashCardPane(store, cardIds[0]);
+        }
       },
       // ⌃⌘1..3 — put the selected card's pane at a named width. The canvas
       // owns this for the same reason it owns ⌘1..9: the chord walks past
@@ -1577,9 +1740,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // the next reflow — and the clamp `imposeStyle` writes over them is what
   // answers a window resize with no JS in the loop at all.
   //
+  // The COLUMN seams ride here too, for the fourth time the same reason a rail's
+  // do: a split column's member pins are fractions of the run, so the fractions
+  // are the one number a seam drag rewrites and a window resize re-resolves for
+  // free.
+  //
   // NOTE the dependency: this effect is keyed on the SUMMARY STRING below, not
   // on the values, so anything it writes has to be in the summary or the write
-  // never re-runs. The flow terms are appended for exactly that reason.
+  // never re-runs. The flow and column terms are appended for exactly that
+  // reason.
   const railSummary = `${sidebarRails
     .map(
       (rail) =>
@@ -1587,7 +1756,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           .map((f) => f.toFixed(4))
           .join("+")}`,
     )
-    .join(";")}|${flowStrip === null ? "" : `${flowStrip.width}:${Math.round(flowOffset)}`}`;
+    .join(";")}|${flowStrip === null ? "" : `${flowStrip.width}:${Math.round(flowOffset)}`}|${deckColumns
+    .map(
+      (column) =>
+        `${column.slot}:${column.mode}:${column.seams
+          .map((f) => f.toFixed(4))
+          .join("+")}`,
+    )
+    .join(";")}`;
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -1617,6 +1793,28 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         el.style.removeProperty(railSeamProperty(side, index));
       }
     }
+    // The column seams, written per slot and swept the same way the rails' are:
+    // every index past a column's live seam count is removed, and every slot
+    // the largest arrangement could have is visited whether or not it currently
+    // holds panes. A column that lost a member — or a whole slot that emptied,
+    // or a kind change that took the slot away — would otherwise leave a seam
+    // property standing for a frame to pin itself against.
+    const seamsBySlot = new Map(
+      deckColumns.map((column) => [column.slot, column.seams]),
+    );
+    for (let slot = 0; slot <= COLUMN_SEAM_MAX_SLOT; slot += 1) {
+      const seams = seamsBySlot.get(slot) ?? [];
+      seams.forEach((fraction, index) => {
+        el.style.setProperty(columnSeamProperty(slot, index), String(fraction));
+      });
+      for (
+        let index = seams.length;
+        index <= COLUMN_SEAM_MAX_INDEX;
+        index += 1
+      ) {
+        el.style.removeProperty(columnSeamProperty(slot, index));
+      }
+    }
     // Both flow properties are written together or removed together: a strip
     // width standing without an offset (or the reverse) would clamp one frame
     // against a viewport the other does not believe in. In fit they are absent
@@ -1628,9 +1826,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(flowOffset)}px`);
       el.style.setProperty(FLOW_STRIP_PROPERTY, `${flowStrip.width}px`);
     }
-    // `railWidthOf` and the seam sweep both read `sidebarRails`, which
-    // `railSummary` summarises — the widths, modes, and fractions in it are
-    // exactly what this effect writes.
+    // `railWidthOf` and both seam sweeps read `sidebarRails` and `deckColumns`,
+    // which `railSummary` summarises — the widths, modes, and fractions in it
+    // are exactly what this effect writes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [railSummary]);
 
@@ -1790,6 +1988,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   /** Each rail's mode as of the last settle, so a mode flip is detectable
    *  when the next one arms. */
   const prevRailModesRef = useRef<Map<SidebarSide, RailMode> | null>(null);
+  /** Each column's mode as of the last settle, keyed by slot — the same record
+   *  the rails keep, over the other kind of place. */
+  const prevColumnModesRef = useRef<Map<number, ColumnMode> | null>(null);
   /** The raw (unscaled) settle duration read back for the current gesture. */
   const settleDurationRef = useRef(IMPOSITION_SETTLE_MS);
   /**
@@ -1882,6 +2083,9 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     prevRailModesRef.current = new Map(
       sidebarRailsOf(store.getSnapshot()).map((rail) => [rail.side, rail.mode]),
     );
+    prevColumnModesRef.current = new Map(
+      deckColumnsOf(store.getSnapshot()).map((c) => [c.slot, c.mode]),
+    );
     const arm = (): void => {
       const el = containerRef.current;
       if (el === null) return;
@@ -1965,6 +2169,34 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       }
       prevRailModesRef.current = new Map(
         rails.map((rail) => [rail.side, rail.mode]),
+      );
+
+      // A COLUMN whose mode flipped is the same choreography over the other
+      // kind of place, and the survivor rule transfers unchanged: the frame the
+      // stack actually shows is the z-frontmost member, not the top of the
+      // column's order, so that is the one that moves and every other one
+      // fades. Picking the top member instead would grow a frame that ends up
+      // hidden while the card the stack goes on to display arrived by a cut.
+      const columns = deckColumnsOf(state);
+      const prevColumnModes = prevColumnModesRef.current;
+      if (motion && prevColumnModes !== null) {
+        for (const column of columns) {
+          const prevMode = prevColumnModes.get(column.slot);
+          if (prevMode === undefined || prevMode === column.mode) continue;
+          if (column.members.length < 2) continue;
+          const members = new Set(column.members);
+          let survivor: string | undefined;
+          for (const pane of state.panes) {
+            if (members.has(pane.id)) survivor = pane.id;
+          }
+          for (const paneId of column.members) {
+            if (paneId === survivor) continue;
+            fadePlan.set(paneId, column.mode === "split" ? "in" : "out");
+          }
+        }
+      }
+      prevColumnModesRef.current = new Map(
+        columns.map((column) => [column.slot, column.mode]),
       );
 
       el.style.setProperty(
@@ -2450,16 +2682,30 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // coexistence a rail edge drag already has.
   const railMembersRef = useRef(sidebarRails);
   railMembersRef.current = sidebarRails;
+  const deckColumnsRef = useRef(deckColumns);
+  deckColumnsRef.current = deckColumns;
   const handleSeamCommit = useCallback(
-    (side: SidebarSide, fractions: readonly number[]) => {
-      const rail = railMembersRef.current.find((r) => r.side === side);
-      if (rail === undefined) return;
-      store.setRailShares(
-        side,
-        railSharesFromFractions(
-          rail.members.map((member) => member.componentId),
-          fractions,
-        ),
+    (place: SeamPlace, fractions: readonly number[]) => {
+      // One handler for both places, because one component raises both. The
+      // fork is the record the weights land in and the ids they are keyed by —
+      // componentIds on a rail, pane ids in a column — and nothing else.
+      if (place.kind === "rail") {
+        const rail = railMembersRef.current.find((r) => r.side === place.side);
+        if (rail === undefined) return;
+        store.setRailShares(
+          place.side,
+          railSharesFromFractions(
+            rail.members.map((member) => member.componentId),
+            fractions,
+          ),
+        );
+        return;
+      }
+      const column = deckColumnsRef.current.find((c) => c.slot === place.slot);
+      if (column === undefined) return;
+      store.setColumnShares(
+        place.slot,
+        railSharesFromFractions(column.members, fractions),
       );
     },
     [store],
@@ -2610,6 +2856,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             }
             contentWidthPx={contentWidthPx}
             slotStack={slotStackByPaneId.get(stackState.id)}
+            columnMember={columnMemberByPaneId.get(stackState.id)}
             onRevealPane={handleRevealPane}
             onSetRailOrder={handleSetRailOrder}
             sidebarStack={stackByPaneId.get(stackState.id)}
@@ -2654,17 +2901,48 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           it is. */}
       {sidebarRails.flatMap((rail) =>
         rail.seams.map((_fraction, index) => (
-          <RailSeam
-            key={`${rail.side}:${index}`}
-            side={rail.side}
+          <PlaceSeam
+            key={`rail:${rail.side}:${index}`}
+            place={{ kind: "rail", side: rail.side }}
             index={index}
-            railWidth={rail.width}
+            frameStyle={
+              imposeSidebarStyle(rail.side, rail.width) as React.CSSProperties
+            }
             fractions={rail.seams}
             minHeights={railMemberMinHeights(deckState, rail)}
             onCommit={handleSeamCommit}
           />
         )),
       )}
+      {/* And one per gap of every split COLUMN. Its horizontal pins are the
+          slot's own — through `placementFor`, so on a flow deck the seam rides
+          the strip with the frames it divides rather than standing at a fit
+          anchor nothing is at. */}
+      {deckColumns.flatMap((column) => {
+        const pane = panes.find((p) => p.id === column.members[0]);
+        const placement = pane === undefined ? undefined : placementFor(pane);
+        if (placement === undefined) return [];
+        // The column's width is its widest member's, the same extent the strip
+        // reads — a seam narrower than the widest frame would stop short of the
+        // edge it divides.
+        const width = Math.max(
+          ...column.members.map(
+            (paneId) =>
+              panes.find((p) => p.id === paneId)?.size.width ?? 0,
+          ),
+        );
+        return column.seams.map((_fraction, index) => (
+          <PlaceSeam
+            key={`column:${column.slot}:${index}`}
+            place={{ kind: "column", slot: column.slot }}
+            index={index}
+            frameStyle={imposeStyle(placement, width)}
+            fractions={column.seams}
+            minHeights={columnMemberMinHeights(deckState, column)}
+            onCommit={handleSeamCommit}
+          />
+        ));
+      })}
       {cards.map((card) => {
         const hostStackId = hostStackIdByCardId.get(card.id);
         if (!hostStackId) return null;

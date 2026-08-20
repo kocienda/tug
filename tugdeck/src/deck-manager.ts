@@ -52,6 +52,7 @@ import {
 import { LENS_CARD_ID } from "./lib/lens-card-id";
 import {
   bullseyePaneIdOf,
+  deckColumnsOf,
   deckFlowStrip,
   findLensPane,
   findSidebarPanes,
@@ -98,6 +99,7 @@ import {
   sidebarSide,
   isSidebarSide,
   clampFlowOffset,
+  columnModeOf,
   effectiveRailOrder,
   flowRevealOffset,
   impositionLayout,
@@ -105,6 +107,10 @@ import {
   railModeOf,
   withRailMode,
   withRailOrder,
+  withColumnMode,
+  withColumnOrder,
+  withColumnShares,
+  withoutColumnShares,
   withRailShares,
   withoutRailShares,
   CONTENT_WIDTH_SLIM_PX,
@@ -117,7 +123,9 @@ import {
   type ContentWidth,
   type DeckImposition,
   type ImpositionKind,
+  type ColumnMode,
   type ImpositionLayout,
+  type ColumnMoveTarget,
   type RailMode,
   type RailPolicy,
   type RailWidths,
@@ -1450,6 +1458,184 @@ export class DeckManager implements IDeckManagerStore {
   equalizeRail(side: SidebarSide): void {
     const imposition = this.deckState.imposition;
     const equalized = withoutRailShares(imposition, side);
+    if (equalized === imposition) return;
+    this._reimpose(equalized);
+  }
+
+  /**
+   * The pane ids standing in `slot`, in the order the slot's column puts them —
+   * top to bottom when it is split, and the same list held in reserve when it
+   * is stacked.
+   *
+   * Read through `deckColumnsOf` rather than derived here, because that is the
+   * order the deck DRAWS. Two readings of one column would agree only by luck,
+   * and the frame they disagreed in is the one where a member is laid out at
+   * another member's pins.
+   */
+  private _columnOrder(slot: number): readonly string[] {
+    return (
+      deckColumnsOf(this.deckState).find((column) => column.slot === slot)
+        ?.members ?? []
+    );
+  }
+
+  /** The panes standing in `slot`, back to front — the deck's z-order, which is
+   *  the panes array's own order. */
+  private _columnZOrder(slot: number): readonly string[] {
+    const kind = this.deckState.imposition.kind;
+    if (kind === undefined) return [];
+    return this.deckState.panes
+      .filter(
+        (pane) =>
+          pane.slot !== undefined && clampSlot(kind, pane.slot) === slot,
+      )
+      .map((pane) => pane.id);
+  }
+
+  /**
+   * Move `paneId` within its column — the move-in-column chords' commit.
+   *
+   * Returns false when the move is refused, which the caller turns into a
+   * visible flash: a pane in no column, a column of one, or a member already
+   * at the end it was asked to travel to. A silent false would be a chord that
+   * looks broken rather than one that hit an edge.
+   *
+   * **What "up" means depends on how the column stands, and deliberately so.**
+   * Split, the members divide the run and up is up: the chord reorders the
+   * stored order and the frames swap pins. Stacked, nothing is above anything
+   * — every member draws the same rect — so the only ordering the user can see
+   * is z, and up is toward the front. One chord, one meaning per arrangement,
+   * and never dead on an unsplit slot ([P12]).
+   */
+  moveInColumn(paneId: string, where: ColumnMoveTarget): boolean {
+    const kind = this.deckState.imposition.kind;
+    if (kind === undefined) return false;
+    const pane = this.deckState.panes.find((p) => p.id === paneId);
+    if (pane?.slot === undefined) return false;
+    const slot = clampSlot(kind, pane.slot);
+    const split = columnModeOf(this.deckState.imposition, slot) === "split";
+    // Split: top-to-bottom, the order the eye reads. Stacked: back-to-front,
+    // reversed so index 0 is the front and "up" is one index earlier in both.
+    const order = split
+      ? [...this._columnOrder(slot)]
+      : [...this._columnZOrder(slot)].reverse();
+    if (order.length < 2) return false;
+    const from = order.indexOf(paneId);
+    if (from === -1) return false;
+    const to =
+      where === "up"
+        ? from - 1
+        : where === "down"
+          ? from + 1
+          : where === "top"
+            ? 0
+            : order.length - 1;
+    if (to === from || to < 0 || to >= order.length) return false;
+
+    if (split) {
+      const next = [...order];
+      next.splice(from, 1);
+      next.splice(to, 0, paneId);
+      this.setColumnOrder(slot, next);
+      return true;
+    }
+
+    // Stacked, and therefore a z move. Reaching the FRONT is an activation:
+    // bringing a buried card all the way up is asking to look at it, and the
+    // focus transfer is what a raise means everywhere else in the deck.
+    if (to === 0) {
+      const card = pane.activeCardId;
+      transferFocusForActivation({
+        outgoingCardId: this.getFirstResponderCardId(),
+        incomingCardId: card,
+        store: this,
+        commitMutation: () => this.activateCard(card),
+      });
+      return true;
+    }
+    // Every other z move is a reorder and nothing else: `sendPaneBehind` puts
+    // one pane immediately below another, which expresses both directions —
+    // promoting past the neighbour in front is that neighbour dropping behind
+    // this one.
+    this.sendPaneBehind(
+      where === "up" ? order[to] : paneId,
+      where === "up" ? paneId : order[to],
+    );
+    return true;
+  }
+
+  /**
+   * Stack or split `slot`'s column — the content-side twin of
+   * {@link setRailMode}, reached from the stack badge, the Lens's Layouts
+   * section, and ⌃⌘S.
+   *
+   * Splitting materializes the slot's `order` in the same imposition for the
+   * same reason a rail does: a split column's vertical order is stored state
+   * from the first frame rather than a fallback a later raise could move. One
+   * commit carrying both fields arms exactly one settle.
+   *
+   * Re-stacking keeps order and shares, so a re-split lands where the user left
+   * it rather than on a default.
+   */
+  setColumnMode(slot: number, mode: ColumnMode): void {
+    const imposition = this.deckState.imposition;
+    if (columnModeOf(imposition, slot) === mode) return;
+    const next = withColumnMode(imposition, slot, mode);
+    this._reimpose(
+      mode === "split"
+        ? withColumnOrder(next, slot, this._columnOrder(slot))
+        : next,
+    );
+  }
+
+  /**
+   * Put `slot`'s members in `order`, top to bottom — what a corridor drag and
+   * the move-in-column chords commit.
+   *
+   * Filtered to panes that actually stand in `slot`, so a caller cannot record
+   * a pane from another slot, a free pane, or a rail as a member of a column.
+   * Unlike {@link setRailOrder}, ids the column does not currently hold are
+   * *dropped* rather than kept: a rail member's place survives its card being
+   * closed because a rail is keyed by card type, and a column is keyed by pane
+   * id, which nothing will ever bring back. Keeping them would grow the record
+   * forever to preserve places no member can return to.
+   */
+  setColumnOrder(slot: number, order: readonly string[]): void {
+    const standing = new Set(
+      this.deckState.panes.filter((p) => p.slot === slot).map((p) => p.id),
+    );
+    const members = order.filter((paneId) => standing.has(paneId));
+    const current = this.deckState.imposition.columns?.[slot]?.order;
+    if (current !== undefined && current.length === members.length) {
+      if (current.every((id, i) => id === members[i])) return;
+    }
+    this._reimpose(withColumnOrder(this.deckState.imposition, slot, members));
+  }
+
+  /**
+   * Set `slot`'s height weights — the column seam drag's commit. Weights that
+   * are not positive finite numbers are dropped rather than stored, exactly as
+   * {@link setRailShares} drops them: an unnamed member already weighs 1.
+   */
+  setColumnShares(slot: number, shares: Record<string, number>): void {
+    const standing = new Set(
+      this.deckState.panes.filter((p) => p.slot === slot).map((p) => p.id),
+    );
+    const weights: Record<string, number> = {};
+    for (const [paneId, weight] of Object.entries(shares)) {
+      if (!standing.has(paneId)) continue;
+      if (typeof weight !== "number") continue;
+      if (!Number.isFinite(weight) || weight <= 0) continue;
+      weights[paneId] = weight;
+    }
+    this._reimpose(withColumnShares(this.deckState.imposition, slot, weights));
+  }
+
+  /** Divide `slot`'s run equally again, keeping its mode and order — what the
+   *  badge's "Equalize Heights" and a double-click on a column seam ask for. */
+  equalizeColumn(slot: number): void {
+    const imposition = this.deckState.imposition;
+    const equalized = withoutColumnShares(imposition, slot);
     if (equalized === imposition) return;
     this._reimpose(equalized);
   }

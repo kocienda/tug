@@ -12,7 +12,11 @@
  */
 
 import type { DeckState, CardStateBag } from "./layout-tree";
-import type { ContentWidth, SidebarSide } from "./lib/layout-imposer";
+import type {
+  ColumnMoveTarget,
+  ContentWidth,
+  SidebarSide,
+} from "./lib/layout-imposer";
 import type { CardLifecycleObserver } from "./lib/card-lifecycle";
 import type { ComponentStatePreservationRegistry } from "./components/tugways/component-state-preservation-registry";
 import type { CardAssembler } from "./card-state-orchestrator";
@@ -239,6 +243,25 @@ export interface IDeckManagerStore {
    * is.
    */
   setRailOrder: (side: SidebarSide, order: readonly string[]) => void;
+
+  /**
+   * Set a slot's height weights — the column seam drag's commit, and a
+   * gesture's commit for the same reason {@link setRailShares} is. Weights are
+   * per PANE id: a slot holds panes, and a pane may itself be a tab stack, so
+   * there is no card-level identity to key a member by ([P11]).
+   */
+  setColumnShares: (slot: number, shares: Record<string, number>) => void;
+
+  /** Put a slot's members in a stated vertical order — the move-in-column
+   *  chords' commit, filtered to the panes actually standing in that slot. */
+  setColumnOrder: (slot: number, order: readonly string[]) => void;
+
+  /**
+   * Move a pane within its own column — the move-in-column chords' commit.
+   * Returns false when the move is refused (no column, a column of one, or a
+   * member already at that end), which the caller turns into a visible flash.
+   */
+  moveInColumn: (paneId: string, where: ColumnMoveTarget) => boolean;
 
 
   /**

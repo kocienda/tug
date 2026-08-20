@@ -67,6 +67,7 @@ import "./layouts-section.css";
 import React, {
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useSyncExternalStore,
 } from "react";
@@ -87,6 +88,7 @@ import {
   IMPOSITION_KINDS,
   isContentWidth,
   isImpositionKind,
+  isColumnMode,
   isImpositionLayout,
   impositionLayout,
   isRailMode,
@@ -100,10 +102,13 @@ import {
   type ContentWidth,
   type DeckImposition,
   type ImpositionKind,
+  type ColumnMode,
   type ImpositionLayout,
   type RailMode,
   type SidebarSide,
 } from "@/lib/layout-imposer";
+import { deckColumnsOf, type DeckColumn } from "@/deck-store-selectors";
+import type { DeckState } from "@/layout-tree";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugChoiceGroup } from "@/components/tugways/tug-choice-group";
@@ -123,6 +128,7 @@ const LAYOUT_SENDER_ID = "lens-layouts-layout";
 const WIDTH_SENDER_ID = "lens-layouts-width";
 const SIDE_SENDER_PREFIX = "lens-layouts-side:";
 const RAIL_SENDER_PREFIX = "lens-layouts-rail:";
+const COLUMN_SENDER_PREFIX = "lens-layouts-column:";
 
 /** Ids of the captions, so each group can point `aria-labelledby` at its own
  *  `TugLabel`. */
@@ -131,6 +137,7 @@ const LAYOUT_CAPTION_ID = "lens-layouts-layout-caption";
 const WIDTH_CAPTION_ID = "lens-layouts-width-caption";
 const SIDE_CAPTION_ID_PREFIX = "lens-layouts-side-caption-";
 const RAIL_CAPTION_ID_PREFIX = "lens-layouts-rail-caption-";
+const COLUMN_CAPTION_ID_PREFIX = "lens-layouts-column-caption-";
 
 /** The groups' focus orders. Distinct, and declared rather than defaulted,
  *  because they are separate stops: sharing an order would give two groups one
@@ -139,7 +146,10 @@ const RAIL_CAPTION_ID_PREFIX = "lens-layouts-rail-caption-";
  *  separately ordered is also what makes them separate rows of the Lens's arrow
  *  plane, so a vertical arrow steps from one group to the next. The sidebar
  *  groups take the orders after these, one each, in registration order, and the
- *  rail rows the orders after those. */
+ *  rail rows the orders after those, and the per-slot column rows after the
+ *  rails. The column rows are indexed over the rows actually RENDERED rather
+ *  than over slot numbers: their set is membership-dependent, so a ladder dense
+ *  over slots would leave holes in the walk wherever a slot held one card. */
 const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
@@ -190,6 +200,21 @@ const RAIL_CAPTIONS: Record<SidebarSide, string> = {
   right: "Right Rail",
 };
 
+/** The two arrangements a shared slot can stand under, in the order the control
+ *  offers them — the same two words a rail takes, over the other kind of place. */
+const COLUMN_MODES: readonly ColumnMode[] = ["stack", "split"];
+
+const COLUMN_MODE_LABELS: Record<ColumnMode, string> = {
+  stack: "Stack",
+  split: "Split",
+};
+
+/** The caption for a slot's column row. One-based, matching the ⌘-digit chords
+ *  and every other place the deck names a slot to the user. */
+function columnCaption(slot: number): string {
+  return `Column ${slot + 1}`;
+}
+
 /** A sidebar card the deck can place, as this section needs it. */
 interface SidebarEntry {
   componentId: string;
@@ -234,19 +259,42 @@ function railsOf(
   return rails;
 }
 
-/** The deck's imposition record — every axis — straight from the store ([L02]). */
-function useImposition(): DeckImposition {
+/** The deck's whole snapshot, or `null` before the store exists ([L02]). */
+function useDeck(): DeckState | null {
   const deckStore = getDeckStore();
-  const deck = useSyncExternalStore(
+  return useSyncExternalStore(
     deckStore?.subscribe ?? (() => () => {}),
     deckStore !== null ? deckStore.getSnapshot : () => null,
     () => null,
   );
+}
+
+/** The deck's imposition record — every axis — straight from the store ([L02]). */
+function useImposition(): DeckImposition {
+  const deck = useDeck();
   return (
     deck?.imposition ?? {
       sidebars: { [LENS_CARD_ID]: { side: DEFAULT_SIDEBAR_SIDE } },
     }
   );
+}
+
+/**
+ * The deck's occupied slots and how each one is arranged.
+ *
+ * The one place this section reads PANES rather than the imposition alone, and
+ * it has to: a column row is offered only for a slot that holds two or more
+ * cards, which is a fact about membership. The rail rows deliberately do the
+ * opposite — they read registrations and are always present — because a split
+ * side dropping to one card would otherwise take the only way to un-split it
+ * away with it. A slot cannot reach that trap: a column of one is already
+ * unsplit and has nothing to restore, so a row that comes and goes with
+ * membership costs nothing and mirroring the rails would put up to six
+ * permanently disabled rows under the two that are already there.
+ */
+function useDeckColumns(): readonly DeckColumn[] {
+  const deck = useDeck();
+  return useMemo(() => (deck === null ? [] : deckColumnsOf(deck)), [deck]);
 }
 
 /** Live collapsed summary: the active kind's label. The side is not summarized
@@ -303,6 +351,8 @@ interface PlanLayer {
   width: ContentWidth;
   /** Which geometry this drawing stands under. */
   layout: ImpositionLayout;
+  /** Which slots this drawing divides, and into how many shares. */
+  columnSplits: Record<number, number>;
 }
 
 /** The caption's values, with a muted separator between them and the first
@@ -375,6 +425,20 @@ function LayoutsSectionBody({
   // holds its place.
   const isShared = (side: SidebarSide): boolean => (rails[side] ?? 0) > 1;
   const sharedSides = SIDES.filter(isShared);
+  // The slots that can be arranged at all: two or more cards standing in one
+  // place. A slot with one card is already unsplit, so it gets no row (see
+  // `useDeckColumns`).
+  const columns = useDeckColumns();
+  const shareableColumns = columns.filter(
+    (column) => column.members.length > 1,
+  );
+  /** Which slots the miniature draws divided, and into how many shares. */
+  const columnSplits: Record<number, number> = {};
+  for (const column of columns) {
+    if (column.mode === "split" && column.members.length > 1) {
+      columnSplits[column.slot] = column.members.length;
+    }
+  }
 
   // Every control reports selection by dispatching `selectValue` up the
   // responder chain ([L11]) — there are no change callbacks — so the section
@@ -390,6 +454,16 @@ function LayoutsSectionBody({
           const side = sender.slice(RAIL_SENDER_PREFIX.length);
           if (isSidebarSide(side) && isRailMode(value)) {
             dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, { side, mode: value });
+          }
+          return;
+        }
+        if (
+          typeof sender === "string" &&
+          sender.startsWith(COLUMN_SENDER_PREFIX)
+        ) {
+          const slot = Number(sender.slice(COLUMN_SENDER_PREFIX.length));
+          if (Number.isInteger(slot) && slot >= 0 && isColumnMode(value)) {
+            dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: value });
           }
           return;
         }
@@ -488,6 +562,10 @@ function LayoutsSectionBody({
     ...(layout === "flow" ? [LAYOUT_LABELS[layout]] : []),
   ];
 
+  // Every layer below draws the deck's CURRENT column arrangement unless it is
+  // itself a column proposal — a preview changes one axis and states what the
+  // others would keep. Folded in once, after the list, rather than repeated in
+  // each literal.
   const layers: PlanLayer[] = [
     ...IMPOSITION_KINDS.map((k) => ({
       previewId: `kind:${k}`,
@@ -551,7 +629,33 @@ function LayoutsSectionBody({
         layout,
       })),
     ),
-  ];
+  ].map((layer) => ({ ...layer, columnSplits }));
+
+  // And one per column proposal: the slot divided, or made whole again.
+  for (const column of shareableColumns) {
+    for (const mode of COLUMN_MODES) {
+      layers.push({
+        previewId: `columnmode:${column.slot}:${mode}`,
+        caption: [
+          `${columnCaption(column.slot)} ${COLUMN_MODE_LABELS[mode]}`,
+        ],
+        // Splitting a column divides that slot's run and leaves every card's
+        // band exactly as it was, so the note says what stands.
+        note: planNote(kind, contentWidth, layout),
+        kind,
+        rails,
+        railModes,
+        width: contentWidth,
+        layout,
+        columnSplits: {
+          ...columnSplits,
+          ...(mode === "split"
+            ? { [column.slot]: column.members.length }
+            : { [column.slot]: 1 }),
+        },
+      });
+    }
+  }
 
   // ---- The rows: one compact segmented group per axis ----
 
@@ -575,6 +679,11 @@ function LayoutsSectionBody({
   const sideItems: TugChoiceItem[] = SIDES.map((side) => ({
     value: side,
     label: SIDE_LABELS[side],
+  }));
+
+  const columnModeItems: TugChoiceItem[] = COLUMN_MODES.map((mode) => ({
+    value: mode,
+    label: COLUMN_MODE_LABELS[mode],
   }));
 
   const railModeItems: TugChoiceItem[] = RAIL_MODES.map((mode) => ({
@@ -608,6 +717,7 @@ function LayoutsSectionBody({
               railModes={railModes}
               width={contentWidth}
               layout={layout}
+              columnSplits={columnSplits}
               committed
             />
           </div>
@@ -627,6 +737,7 @@ function LayoutsSectionBody({
                 railModes={layer.railModes}
                 width={layer.width}
                 layout={layer.layout}
+                columnSplits={layer.columnSplits}
               />
             </div>
           ))}
@@ -782,6 +893,52 @@ function LayoutsSectionBody({
                   }
                   aria-labelledby={captionId}
                   data-testid={`lens-layouts-rail-${side}`}
+                />
+              </div>
+            );
+          })}
+
+          {/* One row per slot holding two or more cards: the arrangement that
+              column stands under. Last, because a slot has to be shared before
+              it can be split and sharing is something the cards above decide.
+              Unlike the rail rows these are ABSENT rather than disabled when
+              there is nothing to arrange — a column of one is already unsplit
+              and has nothing to restore, so there is no trap to keep a row
+              standing for, and six permanently dimmed rows would be six rows
+              of noise. Keyed by slot, so a slot gaining a second card inserts
+              its row in place rather than at the end. */}
+          {shareableColumns.map((column, index) => {
+            const captionId = `${COLUMN_CAPTION_ID_PREFIX}${column.slot}`;
+            return (
+              <div
+                className="layouts-section-row"
+                data-preview-axis={`columnmode:${column.slot}`}
+                key={column.slot}
+              >
+                <TugLabel
+                  id={captionId}
+                  size="md"
+                  emphasis="proposal"
+                  className="layouts-section-caption"
+                >
+                  {columnCaption(column.slot)}
+                </TugLabel>
+                <TugChoiceGroup
+                  items={columnModeItems}
+                  value={column.mode}
+                  senderId={`${COLUMN_SENDER_PREFIX}${column.slot}`}
+                  size="xs"
+                  sidePadding="xs"
+                  reselect
+                  focusGroup={host.focusGroup}
+                  focusOrder={
+                    LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER +
+                    sidebars.length +
+                    SIDES.length +
+                    index
+                  }
+                  aria-labelledby={captionId}
+                  data-testid={`lens-layouts-column-${column.slot}`}
                 />
               </div>
             );

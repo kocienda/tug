@@ -319,10 +319,16 @@ describe.skipIf(!SHOULD_RUN)(
           // --- The badge: a door, not a readout. --------------------------
           // The glyph and the count already say "two cards, stacked". What
           // the badge does NOT say is that it can be pressed.
+          //
+          // On a shared SLOT the badge is now the gateway to the column's
+          // arrangement as well, exactly as it has been for a rail — so the
+          // sentence names both acts. The bare "Show another card in this
+          // stack" is what a place with nothing to arrange still says, and a
+          // pane in a tab group is where that reading survives.
           expect(
             await hoverPhrase(app, BADGE),
-            "the badge offers the card behind this one",
-          ).toBe("Show another card in this stack");
+            "the badge offers the card behind this one, and the way to divide the slot",
+          ).toBe("Show a card, or split this column");
 
           // --- Bullseye: the act, plus the chord that does it. ------------
           expect(

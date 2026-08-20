@@ -443,6 +443,11 @@ export function clampPanesToDeck(state: DeckState): DeckState {
  *      responder. The raw id is allowed to go stale when focus moves; the
  *      accessor derives it away, and asserting it here would throw on the
  *      normal path.
+ *   9. every LIVE pane named in a column's `order` stands in that column's
+ *      slot. Ids naming no live pane are inert residue and pass — a column
+ *      is keyed by pane id and is never cleaned up ([L23]), so residue is
+ *      the normal resting state, while a live pane in the wrong column is a
+ *      member the column would try to lay out where it does not stand.
  *
  * Called from `DeckManager.notify` in dev/test builds only — guarded by
  * `isDevEnv()` so production builds pay no cost. Violations surface at the
@@ -468,6 +473,8 @@ export function validateDeckState(state: DeckState): void {
   const sidebarPaneByComponentId = new Map<string, string>();
 
   const paneIds = new Set<string>();
+  /** Which slot each pane stands in, for invariant 9. */
+  const slotByPaneId = new Map<string, number | undefined>();
   const cardToPane = new Map<string, string>();
   for (const pane of state.panes) {
     if (paneIds.has(pane.id)) {
@@ -476,6 +483,7 @@ export function validateDeckState(state: DeckState): void {
       );
     }
     paneIds.add(pane.id);
+    slotByPaneId.set(pane.id, pane.slot);
 
     // Invariant 3
     if (pane.cardIds.length === 0) {
@@ -560,6 +568,27 @@ export function validateDeckState(state: DeckState): void {
       throw new DeckStateInvariantError(
         `bullseyePaneId "${state.bullseyePaneId}" does not reference a real pane`,
       );
+    }
+  }
+
+  // Invariant 9
+  for (const [key, arrangement] of Object.entries(
+    state.imposition.columns ?? {},
+  )) {
+    const slot = Number(key);
+    for (const paneId of arrangement.order ?? []) {
+      // Residue is inert, not a violation: a pane id outlives the pane, and
+      // the arrangement is never cleaned up. What the invariant catches is a
+      // LIVE pane recorded in the wrong column — a member the column would
+      // then lay out somewhere its pane does not stand.
+      if (!paneIds.has(paneId)) continue;
+      const standing = slotByPaneId.get(paneId);
+      if (standing !== slot) {
+        throw new DeckStateInvariantError(
+          `column ${slot} names pane "${paneId}" as a member, but that pane stands ` +
+            `${standing === undefined ? "outside the chain" : `in slot ${standing}`}`,
+        );
+      }
     }
   }
 }

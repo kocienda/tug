@@ -30,8 +30,12 @@ import { LENS_CARD_ID } from "./lib/lens-card-id";
 import { getStackSizePolicy, isSidebarCard } from "./card-registry";
 import {
   clampSlot,
+  columnModeOf,
+  effectiveColumnOrder,
   flowStripPositions,
   impositionLayout,
+  railSeamFractions,
+  type ColumnMode,
   type FlowSlotExtent,
   type FlowStrip,
 } from "./lib/layout-imposer";
@@ -269,6 +273,82 @@ export function deckFlowStrip(state: DeckState): FlowStrip | null {
     });
   }
   return flowStripPositions(occupied);
+}
+
+/**
+ * One slot's column: the panes standing in it, how they stand against one
+ * another, and — when they divide the run — where the seams fall.
+ *
+ * The content-side twin of `deck-canvas.tsx`'s `SidebarRail`, and deliberately
+ * the same shape: both are a place several panes either take turns in or
+ * divide.
+ */
+export interface DeckColumn {
+  slot: number;
+  mode: ColumnMode;
+  /** The members' pane ids, top to bottom when split. */
+  members: readonly string[];
+  /** Where the gaps fall, as fractions of the run: `members.length - 1` values
+   *  in split mode, empty in a stack (a stack has no gaps to place). */
+  seams: readonly number[];
+}
+
+/**
+ * `deckColumnsOf(state)` — the occupied slots of the imposed chain, in slot
+ * order, each with the arrangement its panes stand under.
+ *
+ * **This is the deck's one reading of its columns**, for the reason
+ * {@link deckFlowStrip} is the deck's one strip: the frames' member pins, the
+ * seam handles, the arrangement signature, and the seam-property writer all
+ * have to agree about which member is at which index, and four independent
+ * derivations would agree only by luck.
+ *
+ * Empty when nothing is imposed: a slot is a place in an arrangement, and a
+ * free deck has none.
+ *
+ * The fallback order — what a column with no stored `order` gets — is the
+ * slot's panes **sorted by pane id**, NOT their order in `state.panes`. That
+ * array is z-order, and `activateCard` rewrites it: taking it here would make
+ * two unarranged members of a split column trade places when the user clicked
+ * the lower one. Sorting by id is arbitrary between two panes that arrived
+ * together and, far more importantly, is fixed under a raise. It is the same
+ * hazard `sidebarRailsOf` avoids by sorting into registration order; a pane has
+ * no registration to sort into, and its id is what it has instead.
+ *
+ * A split column normally never reaches that fallback anyway:
+ * `DeckManager.setColumnMode` materializes the order in the same commit that
+ * writes the split, so the members land in the front-to-back order they stood
+ * in at the moment of the split, and the stored order governs from there.
+ */
+export function deckColumnsOf(state: DeckState): readonly DeckColumn[] {
+  const kind = state.imposition.kind;
+  if (kind === undefined) return [];
+  const bySlot = new Map<number, string[]>();
+  for (const pane of state.panes) {
+    if (pane.slot === undefined) continue;
+    // Clamped exactly as the strip and `resolvePlacement` clamp it, so a
+    // column is keyed by the slot its panes actually stand in.
+    const slot = clampSlot(kind, pane.slot);
+    const members = bySlot.get(slot);
+    if (members) members.push(pane.id);
+    else bySlot.set(slot, [pane.id]);
+  }
+  const columns: DeckColumn[] = [];
+  for (const slot of [...bySlot.keys()].sort((a, b) => a - b)) {
+    const standing = [...(bySlot.get(slot) ?? [])].sort();
+    const members = effectiveColumnOrder(state.imposition, slot, standing);
+    const mode = columnModeOf(state.imposition, slot);
+    columns.push({
+      slot,
+      mode,
+      members,
+      seams:
+        mode === "split"
+          ? railSeamFractions(members, state.imposition.columns?.[slot]?.shares)
+          : [],
+    });
+  }
+  return columns;
 }
 
 /**

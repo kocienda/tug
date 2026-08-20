@@ -59,6 +59,7 @@ import { dispatchCommand } from "@/command-dispatch";
 import type { MovePaneOptions } from "@/deck-manager-store";
 import {
   imposeStyle,
+  type ColumnMemberPlacement,
   imposeSidebarStyle,
   sidebarWidthProperty,
   type PinnedFrame,
@@ -267,23 +268,25 @@ export interface CardTitleBarProps {
    */
   onToggleBullseye?: () => void;
   /**
-   * Set only when {@link slotStack} is a RAIL rather than a numbered slot: how
-   * that rail is arranged. Present → the stack badge is also the gateway to
-   * arranging the rail, which is the one place a shared rail already announces
-   * itself.
+   * How the PLACE this pane shares is arranged — a side's rail or a numbered
+   * slot's column, whichever {@link slotStack} names. Present → the stack badge
+   * is also the gateway to arranging that place, which is the one piece of
+   * chrome a shared place already puts on screen.
    *
-   * The verbs are the *rail's*, not the pane's, which is why the mode arrives
+   * The verbs are the *place's*, not the pane's, which is why the mode arrives
    * as a fact and leaves as a named verb — the bar renders from props and
    * reports the choice, exactly as it does for a picker row or a width preset.
+   * The bar does not know or care which kind of place it is; `TugPane` resolves
+   * the verb to the right command.
    */
-  railArrangement?: { mode: RailMode };
+  placeArrangement?: { mode: RailMode; kind: "rail" | "column" };
   /**
-   * Arrange the rail this pane stands on. `"split"` / `"stack"` set the mode;
+   * Arrange the place this pane stands in. `"split"` / `"stack"` set the mode;
    * `"equalize"` divides the run evenly again. Wired by `TugPane` to the
    * registered commands, never to a store method ([L30]) — the same path
    * {@link onSetWidth} takes.
    */
-  onArrangeRail?: (verb: "split" | "stack" | "equalize") => void;
+  onArrangePlace?: (verb: "split" | "stack" | "equalize") => void;
   /**
    * Apply a width preset to this pane. Present exactly when
    * {@link widthPreset} is — together they are "this pane has a width
@@ -319,14 +322,15 @@ export interface CardTitleBarProps {
 }
 
 /**
- * The stack menu's rail verbs, as row ids.
+ * The stack menu's arrange verbs, as row ids.
  *
  * Prefixed because the same menu's other rows are keyed by paneId, and a verb
- * that could collide with one would raise a pane instead of arranging the rail.
+ * that could collide with one would raise a pane instead of arranging the
+ * place.
  */
-const RAIL_VERB_SPLIT = "rail:split";
-const RAIL_VERB_STACK = "rail:stack";
-const RAIL_VERB_EQUALIZE = "rail:equalize";
+const PLACE_VERB_SPLIT = "place:split";
+const PLACE_VERB_STACK = "place:stack";
+const PLACE_VERB_EQUALIZE = "place:equalize";
 
 export const CardTitleBar = React.forwardRef<CardTitleBarHandle, CardTitleBarProps>(
 function CardTitleBar({
@@ -342,8 +346,8 @@ function CardTitleBar({
   onRevealPane,
   bullseye = false,
   onToggleBullseye,
-  railArrangement,
-  onArrangeRail,
+  placeArrangement,
+  onArrangePlace,
   onSetWidth,
   masthead = null,
   sidebar = false,
@@ -353,7 +357,7 @@ function CardTitleBar({
   // Whether the place this badge describes is a divided rail rather than a
   // stack of any kind — the one fact the badge's glyph, its label, and its
   // verbs all read.
-  const railSplit = railArrangement?.mode === "split";
+  const placeSplit = placeArrangement?.mode === "split";
   // Generic title-bar contributions: the active card may publish items via
   // `paneTitleBarItemsStore`. The pane renders them without knowing what
   // card published them (the `cardTitleStore` precedent) — no lens import.
@@ -782,10 +786,10 @@ function CardTitleBar({
           // not visible is that the badge is a door, so that is the sentence.
           <TugTooltip
             content={
-              onArrangeRail !== undefined && railArrangement !== undefined
-                ? railSplit
-                  ? "Show a card, or stack this rail"
-                  : "Show a card, or split this rail"
+              onArrangePlace !== undefined && placeArrangement !== undefined
+                ? placeSplit
+                  ? `Show a card, or stack this ${placeArrangement.kind}`
+                  : `Show a card, or split this ${placeArrangement.kind}`
                 : "Show another card in this stack"
             }
           >
@@ -798,7 +802,7 @@ function CardTitleBar({
                     role="action"
                     size="sm"
                     icon={
-                      railSplit ? (
+                      placeSplit ? (
                         slotStack.length > 2 ? (
                           <Rows3 />
                         ) : (
@@ -809,7 +813,7 @@ function CardTitleBar({
                       )
                     }
                     className="tug-pane-title-bar-stack-badge"
-                    aria-label={`${railSplit ? "Split" : "Stack"} of ${slotStack.length} cards`}
+                    aria-label={`${placeSplit ? "Split" : "Stack"} of ${slotStack.length} cards`}
                     data-testid="tug-pane-title-bar-stack-badge"
                   >
                     {slotStack.length}
@@ -840,19 +844,19 @@ function CardTitleBar({
                   }),
                   // The rail's own verbs, below its members. Their ids are
                   // prefixed so they cannot collide with a paneId.
-                  ...(onArrangeRail === undefined || railArrangement === undefined
+                  ...(onArrangePlace === undefined || placeArrangement === undefined
                     ? []
-                    : railSplit
+                    : placeSplit
                       ? [
-                          { id: RAIL_VERB_STACK, label: "Stack" },
-                          { id: RAIL_VERB_EQUALIZE, label: "Equalize Heights" },
+                          { id: PLACE_VERB_STACK, label: "Stack" },
+                          { id: PLACE_VERB_EQUALIZE, label: "Equalize Heights" },
                         ]
-                      : [{ id: RAIL_VERB_SPLIT, label: "Split Vertically" }]),
+                      : [{ id: PLACE_VERB_SPLIT, label: "Split Vertically" }]),
                 ]}
                 onSelect={(id) => {
-                  if (id === RAIL_VERB_SPLIT) return onArrangeRail?.("split");
-                  if (id === RAIL_VERB_STACK) return onArrangeRail?.("stack");
-                  if (id === RAIL_VERB_EQUALIZE) return onArrangeRail?.("equalize");
+                  if (id === PLACE_VERB_SPLIT) return onArrangePlace?.("split");
+                  if (id === PLACE_VERB_STACK) return onArrangePlace?.("stack");
+                  if (id === PLACE_VERB_EQUALIZE) return onArrangePlace?.("equalize");
                   const entry = slotStack.find((e) => e.paneId === id);
                   if (entry) onRevealPane?.(entry);
                 }}
@@ -1595,6 +1599,17 @@ export interface TugPaneProps {
    */
   sidebarStack?: SidebarStackStanding;
   /**
+   * Set only on a pane standing in a SPLIT slot: which slot, which position in
+   * its column, and how many members divide the run.
+   *
+   * The content-side twin of the `sidebarStack` member fields, and resolved by
+   * `DeckCanvas` for the same reason — a pane cannot see its slot's other
+   * occupants, and a member's index is a fact about the column rather than
+   * about the pane. Absent on a stacked slot, on a column of one, on a free
+   * pane, and on the Lens, all of which take the undivided run.
+   */
+  columnMember?: ColumnMemberPlacement;
+  /**
    * Commit a new vertical order for the rail this pane stands on — the
    * corridor drag's ending. A gesture's commit rather than an action, because
    * nothing but the gesture that shuffled the rail has any business stating
@@ -1700,6 +1715,7 @@ export function TugPane({
   isLensPane = false,
   bullseye = false,
   bullseyeExit,
+  columnMember,
 }: TugPaneProps) {
   const sidebarSide = sidebarStack?.side;
   // A split rail's member takes its share of the run instead of the whole of
@@ -3418,23 +3434,37 @@ export function TugPane({
     dispatchCommand(TUG_ACTIONS.SET_BULLSEYE, { paneId: id });
   }, [id]);
 
-  // The rail verbs the stack badge offers, on the same path the width control
-  // takes: dispatched as registered commands rather than threaded back through
-  // `DeckCanvas` as two more props ([L30]). The title bar keeps rendering from
-  // props alone and the pane owns the dispatch.
-  const handleArrangeRail = useCallback(
+  // The arrange verbs the stack badge offers, on the same path the width
+  // control takes: dispatched as registered commands rather than threaded back
+  // through `DeckCanvas` as two more props ([L30]). The title bar keeps
+  // rendering from props alone and the pane owns the dispatch.
+  //
+  // The badge is one control over two kinds of place. Which pair of commands a
+  // verb resolves to is decided HERE, from what this pane actually stands in —
+  // a rail if it holds a side, otherwise its slot — rather than in the bar,
+  // which has no business knowing the deck has two kinds of place.
+  const handleArrangePlace = useCallback(
     (verb: "split" | "stack" | "equalize") => {
-      if (sidebarSide === undefined) return;
-      if (verb === "equalize") {
-        dispatchCommand(TUG_ACTIONS.EQUALIZE_RAIL, { side: sidebarSide });
+      if (sidebarSide !== undefined) {
+        if (verb === "equalize") {
+          dispatchCommand(TUG_ACTIONS.EQUALIZE_RAIL, { side: sidebarSide });
+          return;
+        }
+        dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, {
+          side: sidebarSide,
+          mode: verb,
+        });
         return;
       }
-      dispatchCommand(TUG_ACTIONS.SET_RAIL_MODE, {
-        side: sidebarSide,
-        mode: verb,
-      });
+      const slot = placement?.slot;
+      if (slot === undefined) return;
+      if (verb === "equalize") {
+        dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot });
+        return;
+      }
+      dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: verb });
     },
-    [sidebarSide],
+    [sidebarSide, placement],
   );
 
   const closable = effectiveMeta.closable !== false;
@@ -3475,11 +3505,14 @@ export function TugPane({
   // "centred in the band" is the imposer's existing definition rather than
   // new centring math.
   const modeStyle: CSSProperties = bullseye
-    ? imposeStyle({ slot: 0, count: 1 }, bullseyeWidth, pinnedFrame)
+    ? // Bullseye supersedes the column: a bullseyed pane is centred in the band
+      // at the comfy width, taking the whole run, and returns to its share of
+      // the split on exit.
+      imposeStyle({ slot: 0, count: 1 }, bullseyeWidth, pinnedFrame)
     : sidebarSide !== undefined
       ? imposeSidebarStyle(sidebarSide, renderWidth, railMember)
       : imposed && placement !== undefined
-        ? imposeStyle(placement, slotWidth, pinnedFrame)
+        ? imposeStyle(placement, slotWidth, pinnedFrame, { member: columnMember })
         : {
             left: position.x,
             top: position.y,
@@ -3564,6 +3597,16 @@ export function TugPane({
       {...(railSplit && sidebarStack !== undefined
         ? { "data-rail-member": sidebarStack.componentId }
         : {})}
+      // A member of a column that is currently divided rather than stacked — the
+      // content-side sibling of `data-rail-split`, and what the column seams
+      // and the split UI find their fellow members by. Suppressed under
+      // bullseye, which supersedes the column and takes the whole run.
+      {...(columnMember !== undefined && !bullseye
+        ? {
+            "data-column-split": "",
+            "data-column-member": String(columnMember.index),
+          }
+        : {})}
       {...(imposed && placement !== undefined && !bullseye
         ? { "data-imposed": String(placement.slot) }
         : {})}
@@ -3637,12 +3680,30 @@ export function TugPane({
             onRevealPane={onRevealPane}
             bullseye={bullseye}
             onToggleBullseye={handleToggleBullseye}
-            {...(sidebarStack === undefined
-              ? {}
-              : {
-                  railArrangement: { mode: sidebarStack.mode },
-                  onArrangeRail: handleArrangeRail,
-                })}
+            {...(sidebarStack !== undefined
+              ? {
+                  placeArrangement: {
+                    mode: sidebarStack.mode,
+                    kind: "rail" as const,
+                  },
+                  onArrangePlace: handleArrangePlace,
+                }
+              : placement !== undefined && slotStack.length > 1
+                ? {
+                    // A content pane sharing its slot. The mode is read off
+                    // `columnMember`, which `DeckCanvas` sets exactly when the
+                    // column is split and has two or more members — the same
+                    // condition the geometry uses, so the badge cannot offer
+                    // "Stack" for a column that is already drawing as one.
+                    placeArrangement: {
+                      mode: (columnMember !== undefined
+                        ? "split"
+                        : "stack") as RailMode,
+                      kind: "column" as const,
+                    },
+                    onArrangePlace: handleArrangePlace,
+                  }
+                : {})}
             masthead={activeCardMasthead}
             sidebar={isRail}
             onClose={handleTitleBarClose}

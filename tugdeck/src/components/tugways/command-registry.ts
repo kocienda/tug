@@ -642,6 +642,80 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
 }));
 
 /**
+ * ⌃⌘S, and ⌃⌘↑/↓ with ⌃⇧⌘↑/↓ — the split family: divide the slot the selection
+ * stands in, and move a card within it.
+ *
+ * **The tier, derived** (tuglaws/chord-tiers.md): ⌃⌘ is Tug's own layout
+ * vocabulary — ⌃⌘L Show Lens, ⌃⌘T Next Theme, ⌃⌘1/2/3 card width — and a slot
+ * dividing is a layout act, so it belongs there rather than on plain ⌘, which
+ * R3 reserves for verbs hit many times an hour. Letter S is unoccupied in the
+ * tier (only ⌘S and ⇧⌘S exist on KeyS) and is the obvious mnemonic.
+ *
+ * The arrows are R1-exempt (rule R2), and ⌃⌘ arrows are unbound in Tug and
+ * absent from the macOS never-bind list, which reserves plain ⌃-arrows for
+ * Spaces and not the ⌘ composition. ⌃⇧⌘↑/↓ is the counterpart set of a ⌃⌘
+ * base: top and bottom are the ⇧-extreme of up and down, exactly the ⌥⇧⌘↑/↓
+ * First/Last Turn pattern one tier over.
+ *
+ * Four move entries rather than one signed command, for the same reason the
+ * width row is three: each is separately rebindable and each is one row in the
+ * keymap pane.
+ *
+ * **Unpromoted**, like ⌘1..9 and the nudge pair and for the same reason
+ * ([Q02]): these act on the layout selection, which is a fact about the Lens's
+ * list rather than about the frontmost card, so a menu item's `validate` has
+ * nothing to read that would tell a live gesture from a dead one. The refusal
+ * stays where the user can see it — on the pane's own border.
+ */
+const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
+  {
+    id: TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
+    title: "Split or Stack Column",
+    routing: "first-responder" as const,
+    bindings: [
+      chord(
+        { key: "KeyS", meta: true, ctrl: true, label: "s" },
+        { preventDefault: true },
+      ),
+    ],
+  },
+  ...(
+    [
+      { where: "up", title: "Move Up in Column", key: "ArrowUp", shift: false },
+      {
+        where: "down",
+        title: "Move Down in Column",
+        key: "ArrowDown",
+        shift: false,
+      },
+      {
+        where: "top",
+        title: "Move to Top of Column",
+        key: "ArrowUp",
+        shift: true,
+      },
+      {
+        where: "bottom",
+        title: "Move to Bottom of Column",
+        key: "ArrowDown",
+        shift: true,
+      },
+    ] as const
+  ).map(({ where, title, key, shift }) => ({
+    id: `${TUG_ACTIONS.MOVE_IN_COLUMN}:${where}`,
+    title,
+    routing: "first-responder" as const,
+    action: TUG_ACTIONS.MOVE_IN_COLUMN,
+    payload: where,
+    bindings: [
+      chord({ key, meta: true, ctrl: true, shift, label: key }, {
+        preventDefault: true,
+      }),
+    ],
+  })),
+];
+
+/**
  * ⌃⌘1/2/3 — the focused card's width, as one of the three named presets.
  *
  * Three entries and not one cycling command, because the set is static and
@@ -1378,6 +1452,7 @@ export const COMMANDS: readonly CommandEntry[] = [
   },
   ...SLOT_COMMANDS,
   ...NUDGE_SLOT_COMMANDS,
+  ...COLUMN_SPLIT_COMMANDS,
   {
     // Its door is the pane's close box — a targeted control, invisible to
     // a lint that can only see menu items and chords.
@@ -1441,6 +1516,22 @@ export const COMMANDS: readonly CommandEntry[] = [
     // Its doors are the stack badge menu and a double-click on a seam.
     id: TUG_ACTIONS.EQUALIZE_RAIL,
     title: "Equalize Rail Heights",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its doors are the stack badge menu, the Lens Layouts section's per-slot
+    // column row, and ⌃⌘S; the slot set is the deck's, so the payload set is
+    // runtime.
+    id: TUG_ACTIONS.SET_COLUMN_MODE,
+    title: "Set Column Mode",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its doors are the stack badge menu and a double-click on a column seam.
+    id: TUG_ACTIONS.EQUALIZE_COLUMN,
+    title: "Equalize Column Heights",
     routing: "registry",
     internal: true,
   },

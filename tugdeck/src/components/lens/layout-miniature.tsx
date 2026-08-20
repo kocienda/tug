@@ -110,6 +110,16 @@ export interface LayoutMiniatureProps {
   /** How each side's rail is arranged. Absent — for a side or entirely — draws
    *  a stack, which is what a rail is until the user says otherwise. */
   railModes?: Partial<Record<SidebarSide, RailMode>>;
+  /**
+   * Which slots are drawn divided, and into how many members — the content-side
+   * twin of `railModes`, keyed by slot index. A slot absent here is drawn whole,
+   * which is what every column is until the user splits it.
+   *
+   * Member counts rather than a mode word, because a column's membership is
+   * what makes it divisible at all: two cards in a slot can be split, one
+   * cannot, and the drawing should show how many shares the run is in.
+   */
+  columnSplits?: Readonly<Record<number, number>>;
   /** Draw the cards. `false` draws the deck's frame and rails alone — the
    *  picture for a question that is only about which edge a sidebar holds. */
   cards?: boolean;
@@ -215,6 +225,7 @@ export function LayoutMiniature({
   kind,
   rails = {},
   railModes,
+  columnSplits,
   cards = true,
   width,
   layout = "fit",
@@ -278,16 +289,41 @@ export function LayoutMiniature({
         <Rail count={left} widthPct={railPct} mode={railModes?.left} />
       ) : null}
       <span className="layout-mini-field">
-        {Array.from({ length: count }, (_, i) => (
-          <span
-            key={i}
-            className="layout-mini-block"
-            style={{
-              left: `${offsetFor(i)}%`,
-              width: `${share}%`,
-            }}
-          />
-        ))}
+        {Array.from({ length: count }, (_, i) => {
+          // A split column divides its RUN, not the band: the members keep the
+          // slot's left edge and its width and stack down it, flush top and
+          // bottom, with a seam between — the same equal division the rail's
+          // split draws, and for the same reason. A hand-dragged ratio is not
+          // what the picture is answering.
+          const members = columnSplits?.[i] ?? 1;
+          if (members < 2) {
+            return (
+              <span
+                key={i}
+                className="layout-mini-block"
+                style={{ left: `${offsetFor(i)}%`, width: `${share}%` }}
+              />
+            );
+          }
+          const drawn = Math.min(members, 3);
+          const span = (100 - RAIL_SEAM_PCT * (drawn - 1)) / drawn;
+          return Array.from({ length: drawn }, (_, m) => {
+            const top = m * (span + RAIL_SEAM_PCT);
+            return (
+              <span
+                key={`${i}:${m}`}
+                className="layout-mini-block"
+                data-column-member=""
+                style={{
+                  left: `${offsetFor(i)}%`,
+                  width: `${share}%`,
+                  top: `${top}%`,
+                  bottom: `${100 - top - span}%`,
+                }}
+              />
+            );
+          });
+        })}
         {flowOverflows ? (
           <span
             className="layout-mini-window"

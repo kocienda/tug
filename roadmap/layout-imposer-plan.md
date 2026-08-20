@@ -476,11 +476,11 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 | #step-12 | D: offset plumbing + reveal-on-activation | done | `e2d9c6b36` |
 | #step-13 | D: Layouts UI + pane-model doc | done | `9c4f1973f` |
 | #step-14 | D: integration checkpoint | done | `13f7ffeb2` |
-| #step-15 | E: column data model | pending | — |
-| #step-16 | E: column geometry + seams | pending | — |
-| #step-17 | E: column UI + choreography | pending | — |
-| #step-18 | E: split chord family | pending | — |
-| #step-19 | E: integration checkpoint | pending | — |
+| #step-15 | E: column data model | done | `63de5762a` |
+| #step-16 | E: column geometry + seams | done | `610966c41` |
+| #step-17 | E: column UI + choreography | done | `19e9c89bb` |
+| #step-18 | E: split chord family | done | `363b98adb` |
+| #step-19 | E: integration checkpoint | done | `afb535d1f` |
 
 #### Step 1: C — cut detector and census battery {#step-1}
 

@@ -432,6 +432,17 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // for lower.
   ["⌥⌘U", TUG_ACTIONS.MAKE_UPPERCASE],
   ["⌥⌘L", TUG_ACTIONS.MAKE_LOWERCASE],
+  // The split family. ⌃⌘ is the layout tier the width row and Bullseye
+  // already sit in, and S is unoccupied there. The arrows are R1-exempt, and
+  // ⌃⌘ arrows are neither bound in Tug nor on the macOS never-bind list,
+  // which reserves plain ⌃-arrows for Spaces rather than the ⌘ composition.
+  // ⌃⇧⌘ is the counterpart set of the ⌃⌘ base — top/bottom is the ⇧-extreme
+  // of up/down, the same shape ⌥⇧⌘↑/↓ First/Last Turn has one tier over.
+  ["⌃⌘S", TUG_ACTIONS.TOGGLE_COLUMN_SPLIT],
+  ["⌃⌘↑", `${TUG_ACTIONS.MOVE_IN_COLUMN}:up`],
+  ["⌃⌘↓", `${TUG_ACTIONS.MOVE_IN_COLUMN}:down`],
+  ["⌃⇧⌘↑", `${TUG_ACTIONS.MOVE_IN_COLUMN}:top`],
+  ["⌃⇧⌘↓", `${TUG_ACTIONS.MOVE_IN_COLUMN}:bottom`],
 ];
 
 /** The map as it reads today: transcription, minus retirements, plus moves and additions. */

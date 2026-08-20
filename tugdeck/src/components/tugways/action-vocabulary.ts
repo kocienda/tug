@@ -890,6 +890,31 @@ export const TUG_ACTIONS = {
   //                the side's mode and member order. Its doors are the stack
   //                badge menu and a double-click on the seam itself.
   EQUALIZE_RAIL:          "equalize-rail",
+  // SET_COLUMN_MODE: payload — `{ slot, mode }`. The content-side twin of
+  //                  SET_RAIL_MODE: stack or split the cards sharing one
+  //                  numbered slot. Stacked they stand front-to-back and
+  //                  z-order decides which you see; split, the slot's vertical
+  //                  run is divided between them. Stack is the default. Its
+  //                  doors are the title bar's stack badge menu, the Lens
+  //                  Layouts section's per-slot column row, and ⌃⌘S.
+  SET_COLUMN_MODE:        "set-column-mode",
+  // EQUALIZE_COLUMN: payload — `{ slot }`. Divide a split column's run equally
+  //                  again, discarding the heights a seam drag set while
+  //                  keeping the slot's mode and member order. Its doors are
+  //                  the stack badge menu and a double-click on the seam.
+  EQUALIZE_COLUMN:        "equalize-column",
+  // TOGGLE_COLUMN_SPLIT: payload — none. ⌃⌘S. Split or re-stack the slot
+  //                      holding the layout selection's first card (else the
+  //                      first responder's). Resolved by the deck canvas, which
+  //                      is the one responder that can name a slot, and refused
+  //                      visibly on a slot holding one card.
+  TOGGLE_COLUMN_SPLIT:    "toggle-column-split",
+  // MOVE_IN_COLUMN: payload — `value: "up" | "down" | "top" | "bottom"`.
+  //                 ⌃⌘↑/↓ and ⌃⇧⌘↑/↓. Move the resolved card within its
+  //                 column: its place in the split order, or its place in the
+  //                 stack's z-order when the column is not divided. Refusal at
+  //                 an edge flashes the pane.
+  MOVE_IN_COLUMN:         "move-in-column",
   RESET_LAYOUT:           "reset-layout",
   ADD_CARD_TO_ACTIVE_PANE: "add-card-to-active-pane",
   FIND:                   "find",

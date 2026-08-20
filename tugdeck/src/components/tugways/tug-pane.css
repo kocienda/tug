@@ -1021,7 +1021,7 @@ body {
 }
 
 /* ============================================================================
-   Rail seam — the boundary between two split rail members
+   Place seam — the boundary between two split members, of a rail or a column
    ========================================================================= */
 
 /* The hit strip is wider than the gap it sits in (a 5px drag target is under
@@ -1029,7 +1029,7 @@ body {
    transparent and the hairline is drawn by a centred pseudo-element. Pressing
    anywhere in the strip starts the drag; only the hairline is visible. */
 /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
-.tug-rail-seam {
+.tug-place-seam {
   background: transparent;
   /* The drag is a pointer gesture the browser must not also read as a scroll:
      the strip overhangs each neighbour by about 2.5px, and a vertical pan
@@ -1037,7 +1037,7 @@ body {
   touch-action: none;
 }
 
-.tug-rail-seam::before {
+.tug-place-seam::before {
   content: "";
   position: absolute;
   left: 0;
@@ -1052,8 +1052,8 @@ body {
 
 /* The seam states itself on approach and while it is being dragged — a
    boundary the pointer is over is a boundary the pointer can move. */
-.tug-rail-seam:hover::before,
-.tug-rail-seam[data-gesture]::before {
+.tug-place-seam:hover::before,
+.tug-place-seam[data-gesture]::before {
   opacity: 1;
 }
 

@@ -251,3 +251,23 @@ The bracket keys carry three commands, and they carry the same axis in all three
 **Unpromoted, deliberately.** The nudge acts on the *layout selection* — a fact about the Lens's Cards list, not about the frontmost card — and a mirrored `validate` is computed when the menuState is pushed, which a selection change does not push. A menu item would therefore be permanently enabled and intermittently inert.
 
 **Refusal is a group property.** A nudge moves the whole selection or none of it; one member already against the travel edge refuses all of them, and the blocked member's border flashes. Per-member clamping would pile the selection onto the end slot — destroying the arrangement the gesture exists to preserve.
+
+---
+
+## The split family
+
+A slot holds a run of vertical space, and the cards standing in it either take turns in that run or divide it. Five chords say so: one that decides which, and four that move a card within it.
+
+| Command | Chord | Derivation |
+|---|---|---|
+| `toggle-column-split` | **⌃⌘S** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the width row, ⌃⌘B Bullseye, ⌃⌘L Show Lens and ⌃⌘T Next Theme. Letter S is unoccupied on the tier — only ⌘S and ⇧⌘S exist on that key — and is the obvious mnemonic. |
+| `move-in-column:up` / `:down` | **⌃⌘↑ / ⌃⌘↓** | R1's base pair on the vertical axis, in the tier that owns the slot. Arrows are R1-exempt under R2. |
+| `move-in-column:top` / `:bottom` | **⌃⇧⌘↑ / ⌃⇧⌘↓** | The counterpart set of the ⌃⌘ base: top and bottom are the ⇧-extreme of up and down, exactly the shape ⌥⇧⌘↑/↓ First/Last Turn has one tier over. |
+
+**Why ⌃⌘ arrows are available.** They are unbound in Tug, and the macOS never-bind list reserves *plain* ⌃-arrows for Spaces and Mission Control — not the ⌘ composition. Checked against the registry rather than assumed, and pinned by the routing-drift guard, which fails on any chord the table gains without being declared.
+
+**The arrows are never dead on an unsplit slot,** and that is why they mean two things. Split, the members divide the run and up is up: the chord moves a member's place in the order and the frames swap pins. Stacked, nothing is above anything — every member draws the same rect — so the only ordering the eye can read is z, and up is toward the front. One chord, one meaning per arrangement. A chord that worked only after another chord had been pressed would be a chord the user has to remember the state of.
+
+**Unpromoted, deliberately** — the same reason as the nudge pair and ⌘1–9. The family acts on the *layout selection*, a fact about the Lens's Cards list rather than about the frontmost card, so a mirrored `validate` has nothing to read that would tell a live gesture from a dead one, and a permanently-enabled, intermittently-inert menu item is worse than none.
+
+**Refusal is visible.** ⌃⌘S on a slot holding one card has nothing to divide, and a member already at the end it was sent to has nowhere to go; both flash the pane's border rather than returning quietly. A chord that does nothing and says nothing cannot be told from a chord that never arrived.

@@ -160,6 +160,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⇧⌘S | `save-as` | Save As… | menu bar (swept) |
 | ⇧⌘Z | `redo` | Redo | JS, global |
 | ⌃⇧⌘A | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
+| ⌃⇧⌘↑ | `move-in-column:top` | Move to Top of Column | JS, global |
+| ⌃⇧⌘↓ | `move-in-column:bottom` | Move to Bottom of Column | JS, global |
 | ⌃⌘1 | `set-pane-width:slim` | Slim | menu bar (swept) |
 | ⌃⌘2 | `set-pane-width:comfy` | Comfy | menu bar (swept) |
 | ⌃⌘3 | `set-pane-width:wide` | Wide | menu bar (swept) |
@@ -175,8 +177,11 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘M | `commit-auto-message` | Generate a Commit Message | JS, responder |
 | ⌃⌘O | `toggle-overview` | Show Overview | menu bar (swept) |
 | ⌃⌘P | `select-composer-route:prompt` | Prompt Route | JS, global |
+| ⌃⌘S | `toggle-column-split` | Split or Stack Column | JS, global |
 | ⌃⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
+| ⌃⌘↑ | `move-in-column:up` | Move Up in Column | JS, global |
+| ⌃⌘↓ | `move-in-column:down` | Move Down in Column | JS, global |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
 | ⌘, | `show-settings` | Settings… | JS, global |

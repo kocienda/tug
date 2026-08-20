@@ -1337,6 +1337,67 @@ describe("validateDeckState", () => {
     };
     expect(() => validateDeckState(state)).not.toThrow();
   });
+
+  /** Two slotted panes and a column arrangement over them — the shape every
+   *  invariant-9 case below varies one thing in. */
+  function columnState(
+    columns: NonNullable<DeckState["imposition"]["columns"]>,
+    slots: [number | undefined, number | undefined] = [0, 0],
+  ): DeckState {
+    const s1 = { ...makeStack("s1", ["c1"], "c1"), slot: slots[0] };
+    const s2 = { ...makeStack("s2", ["c2"], "c2"), slot: slots[1] };
+    return {
+      cards: [makeCard("c1"), makeCard("c2")],
+      panes: [s1, s2],
+      imposition: { sidebars: { lens: { side: "right" } }, columns },
+      hasFocus: true,
+    };
+  }
+
+  test("accepts a column naming the panes that stand in its slot (invariant 9)", () => {
+    expect(() =>
+      validateDeckState(columnState({ 0: { mode: "split", order: ["s1", "s2"] } })),
+    ).not.toThrow();
+  });
+
+  test("accepts residue — an order naming a pane that is gone (invariant 9)", () => {
+    // A column is keyed by pane id and nothing ever cleans it up, so an order
+    // naming a closed pane is the resting state of a deck that has been used,
+    // not a violation. Throwing here would make normal use crash dev builds.
+    expect(() =>
+      validateDeckState(
+        columnState({ 0: { mode: "split", order: ["s1", "closed-long-ago"] } }),
+      ),
+    ).not.toThrow();
+  });
+
+  test("rejects a live pane recorded in another slot's column (invariant 9)", () => {
+    // The one thing residue tolerance must not cover: a pane that IS standing,
+    // named by a column it does not stand in. That member would be laid out
+    // down a run its pane is nowhere near.
+    const state = columnState({ 0: { order: ["s1", "s2"] } }, [0, 1]);
+    expect(() => validateDeckState(state)).toThrow(DeckStateInvariantError);
+    expect(() => validateDeckState(state)).toThrow(
+      /column 0 names pane "s2" as a member, but that pane stands in slot 1/,
+    );
+  });
+
+  test("rejects a column naming a pane that stands outside the chain (invariant 9)", () => {
+    const state = columnState({ 0: { order: ["s1", "s2"] } }, [0, undefined]);
+    expect(() => validateDeckState(state)).toThrow(
+      /names pane "s2" as a member, but that pane stands outside the chain/,
+    );
+  });
+
+  test("a stacked column is held to the same rule as a split one (invariant 9)", () => {
+    // The order survives re-stacking, so it must stay truthful across the
+    // flip — otherwise a wrong member would only surface on the next split.
+    expect(() =>
+      validateDeckState(
+        columnState({ 0: { mode: "stack", order: ["s1", "s2"] } }, [0, 1]),
+      ),
+    ).toThrow(DeckStateInvariantError);
+  });
 });
 
 // ---- Imposition: the additive-optional `imposition` / `slot` wire fields ----
@@ -1890,5 +1951,173 @@ describe("imposition rails", () => {
       lens: { side: "right" },
       jots: { side: "right" },
     });
+  });
+});
+
+describe("imposition columns", () => {
+  function columnBlob(imposition: Record<string, unknown>): string {
+    return JSON.stringify({
+      version: 4,
+      imposition,
+      cards: [
+        { id: "c1", componentId: "hello", title: "One", closable: true },
+      ],
+      panes: [
+        {
+          id: "pane-1",
+          position: { x: 0, y: 0 },
+          size: { width: 800, height: 900 },
+          cardIds: ["c1"],
+          activeCardId: "c1",
+          title: "One",
+          acceptsFamilies: [],
+          slot: 0,
+        },
+      ],
+    });
+  }
+
+  const columnsOf = (imposition: Record<string, unknown>) =>
+    deserialize(columnBlob(imposition), 1920, 1080).imposition.columns;
+
+  const sidebars = { lens: { side: "right" } };
+
+  test("a split column round-trips whole", () => {
+    const imposition = {
+      kind: "three-up",
+      contentWidth: "comfy",
+      sidebars,
+      columns: {
+        0: {
+          mode: "split",
+          order: ["pane-1", "pane-2"],
+          shares: { "pane-1": 1.5, "pane-2": 1 },
+        },
+      },
+    };
+    const restored = deserialize(columnBlob(imposition), 1920, 1080);
+    expect(restored.imposition.columns).toEqual({
+      0: {
+        mode: "split",
+        order: ["pane-1", "pane-2"],
+        shares: { "pane-1": 1.5, "pane-2": 1 },
+      },
+    });
+    // serialize() emits the imposition whole, so the record survives a save,
+    // and the saved blob restores to the same arrangement — a split column
+    // survives relaunch rather than only the session that made it.
+    const saved = serialize(restored) as { imposition: { columns?: unknown } };
+    expect(saved.imposition.columns).toEqual(restored.imposition.columns);
+    expect(deserialize(JSON.stringify(saved), 1920, 1080).imposition).toEqual(
+      restored.imposition,
+    );
+  });
+
+  test("a pre-column blob has no columns at all — every slot is a stack", () => {
+    expect(columnsOf({ kind: "three-up", sidebars })).toBeUndefined();
+  });
+
+  test("an unreadable mode drops the whole column", () => {
+    // Same reading as a rail's: the order and heights describe an arrangement,
+    // and applying them under a guessed mode shows the user a division nobody
+    // chose.
+    expect(
+      columnsOf({
+        sidebars,
+        columns: { 0: { mode: "sideways", order: ["pane-1"] } },
+      }),
+    ).toBeUndefined();
+  });
+
+  test("one bad column leaves the others standing", () => {
+    expect(
+      columnsOf({
+        sidebars,
+        columns: { 0: { mode: "split" }, 1: { mode: 7 } },
+      }),
+    ).toEqual({ 0: { mode: "split" } });
+  });
+
+  test("a key that is not a slot index is dropped", () => {
+    // The keys come back from JSON as strings and are read as slot numbers.
+    // Anything that is not a non-negative integer names no slot the imposer
+    // will ever ask about, so keeping it would be storing garbage forever.
+    expect(
+      columnsOf({
+        sidebars,
+        columns: {
+          0: { mode: "split" },
+          left: { mode: "split" },
+          "1.5": { mode: "split" },
+          "-1": { mode: "split" },
+        },
+      }),
+    ).toEqual({ 0: { mode: "split" } });
+  });
+
+  test("a slot the current kind does not reach is KEPT", () => {
+    // A deck dropped from six-up to three-up must remember how its fifth
+    // column stood, and get it back on the way up. The imposer only ever asks
+    // about slots it has, so an out-of-range entry costs nothing to keep and
+    // pruning it would destroy an arrangement the user chose.
+    expect(
+      columnsOf({
+        kind: "three-up",
+        sidebars,
+        columns: { 5: { mode: "split", order: ["pane-9"] } },
+      }),
+    ).toEqual({ 5: { mode: "split", order: ["pane-9"] } });
+  });
+
+  test("shares are dropped per key, not per column", () => {
+    expect(
+      columnsOf({
+        sidebars,
+        columns: {
+          0: {
+            mode: "split",
+            shares: {
+              "pane-1": 2,
+              "pane-2": -1,
+              "pane-3": 0,
+              "pane-4": Number.NaN,
+              "pane-5": "3",
+              "pane-6": null,
+            },
+          },
+        },
+      }),
+    ).toEqual({ 0: { mode: "split", shares: { "pane-1": 2 } } });
+  });
+
+  test("non-string order entries are dropped", () => {
+    expect(
+      columnsOf({
+        sidebars,
+        columns: { 0: { order: ["pane-1", 4, null, "pane-2"] } },
+      }),
+    ).toEqual({ 0: { order: ["pane-1", "pane-2"] } });
+  });
+
+  test("pane ids do NOT run through the componentId rename history", () => {
+    // A rail's members are componentIds and migrate; a column's are pane ids,
+    // which have no rename history. A pane that happened to be called "dev"
+    // must come back called "dev" — migrating it would rename a member to an
+    // id no pane has.
+    expect(
+      columnsOf({ sidebars, columns: { 0: { order: ["dev", "lens"] } } }),
+    ).toEqual({ 0: { order: ["dev", "lens"] } });
+  });
+
+  test("a record nothing survives is an absent column set", () => {
+    expect(
+      columnsOf({
+        sidebars,
+        columns: { 0: { order: [], shares: { "pane-1": -1 } } },
+      }),
+    ).toBeUndefined();
+    expect(columnsOf({ sidebars, columns: {} })).toBeUndefined();
+    expect(columnsOf({ sidebars, columns: "split" })).toBeUndefined();
+    expect(columnsOf({ sidebars, columns: null })).toBeUndefined();
   });
 });
