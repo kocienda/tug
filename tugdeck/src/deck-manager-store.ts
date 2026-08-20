@@ -59,6 +59,24 @@ export interface IDeckManagerStore {
   getSnapshot: () => DeckState;
 
   /**
+   * Run `fn` as one gesture: every store notification it provokes is
+   * held until it returns, and exactly one fires over the final state.
+   *
+   * The deck canvas arms its settle off the arrangement signature, once
+   * per notify. A gesture built from several mutations — a drop-zone
+   * release commits the autoscroll offset, then the zone, and raises the
+   * arriving pane on the way — would otherwise arm the settle once per
+   * mutation and retarget tweens already in flight. One gesture is one
+   * arrangement change, so callers that mutate more than once wrap the
+   * whole gesture here.
+   *
+   * Re-entrant, and safe against a throw inside `fn`: the pending notify
+   * still fires. Mutations and lifecycle brackets are NOT reordered —
+   * only observation is coalesced.
+   */
+  batchGesture: <T>(fn: () => T) => T;
+
+  /**
    * Return the current state version (monotonically increasing integer).
    * Must be an arrow property (stable identity, auto-bound this).
    */

@@ -320,8 +320,17 @@ import {
  * behavior under test when what is under test is the VERB. These two write and
  * read the set directly so a chord can be driven against a known selection.
  * Additive; major stays `2`.
+ *
+ * `2.11.0`: adds {@link TugTestSurface.probeBatchGesture}. The gesture
+ * transaction is a store-layer contract — nested batches join the outer one,
+ * a throw still fires the pending notify, a batch that mutates nothing
+ * notifies nobody — and `DeckManager` is browser-coupled (window timers,
+ * tugbank, lifecycle), so no unit test constructs one to check that. The probe
+ * drives the live store and hands back the subscriber-call count, which is the
+ * only place those semantics can be asserted against the real object.
+ * Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.10.0" as const;
+export const SURFACE_VERSION = "2.11.0" as const;
 
 /**
  * `sessionStorage` key for the cross-reload generation counter.
@@ -1348,6 +1357,25 @@ export interface TugTestSurface {
 
   /** Stop the cut detector and drop its sampling state. */
   disarmCutDetector(): void;
+
+  /**
+   * Exercise the store's gesture transaction (SURFACE_VERSION 2.11.0) and
+   * report how many times subscribers were told.
+   *
+   * `shape` picks the case: `"single"` batches one mutation, `"nested"`
+   * batches two mutations with an inner batch around the second,
+   * `"throws"` batches a mutation and then throws, and `"empty"` batches
+   * nothing at all. The mutation used is a bullseye toggle — it notifies,
+   * persists nothing, and is undone by the probe before it returns, so the
+   * deck is left exactly as it was found.
+   *
+   * Returns the number of subscriber notifications the probe observed,
+   * and — for `"throws"` — whether the exception escaped as it should.
+   */
+  probeBatchGesture(shape: "single" | "nested" | "throws" | "empty"): {
+    notifies: number;
+    threw: boolean;
+  };
 
   /**
    * Hand back every cut recorded since the last take and clear the buffer.
@@ -2529,6 +2557,60 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     disarmCutDetector(): void {
       cutDetector.disarm();
+    },
+
+    probeBatchGesture(
+      shape: "single" | "nested" | "throws" | "empty",
+    ): { notifies: number; threw: boolean } {
+      const store = getDeckStore();
+      if (store === null) return { notifies: -1, threw: false };
+      const paneId = store.getSnapshot().panes[0]?.id;
+      if (paneId === undefined) return { notifies: -1, threw: false };
+      // Bullseye is the right mutation to probe with: it notifies, it
+      // persists nothing, and toggling it twice is the identity — so the
+      // probe can count notifications without leaving a mark on the deck.
+      const mutate = (): void => store.toggleBullseye(paneId);
+
+      let notifies = 0;
+      const unsubscribe = store.subscribe(() => {
+        notifies += 1;
+      });
+      let threw = false;
+      try {
+        switch (shape) {
+          case "single":
+            store.batchGesture(() => {
+              mutate();
+              mutate();
+            });
+            break;
+          case "nested":
+            store.batchGesture(() => {
+              mutate();
+              store.batchGesture(() => {
+                mutate();
+              });
+            });
+            break;
+          case "throws":
+            try {
+              store.batchGesture(() => {
+                mutate();
+                mutate();
+                throw new Error("probe");
+              });
+            } catch {
+              threw = true;
+            }
+            break;
+          case "empty":
+            store.batchGesture(() => {});
+            break;
+        }
+      } finally {
+        unsubscribe();
+      }
+      return { notifies, threw };
     },
 
     takeCutRecords(): unknown[] {

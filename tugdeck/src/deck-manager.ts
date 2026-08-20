@@ -1025,6 +1025,60 @@ export class DeckManager implements IDeckManagerStore {
   // ---- Store notification ----
 
   /**
+   * Run `fn` as one gesture: every `notify()` and `scheduleSave()` it
+   * provokes is held until it returns, and exactly one of each fires on
+   * the way out, over the final state.
+   *
+   * A drop-zone release is several mutations — the autoscroll's offset
+   * commit, the zone's own commit, and the activation raise that
+   * `movePaneToSlot` performs inside `transferFocusForActivation` — and
+   * each one notifying separately makes the deck canvas re-read the
+   * arrangement signature that many times. A changed signature arms the
+   * settle; an arm landing while a previous settle is still in flight
+   * retargets it mid-tween. One gesture is one arrangement change, so it
+   * gets one notify.
+   *
+   * What is batched is *observation*, not mutation: the writes inside
+   * `fn` run in their existing order against `deckState`, and lifecycle
+   * will/did brackets are untouched — a card's resize episode still
+   * reads pre-move geometry on the will side.
+   *
+   * Re-entrant: a nested call joins the outer batch and defers to it,
+   * which it must, because `movePaneToSlot` itself batches nothing and
+   * calls straight through to `activateCard`.
+   *
+   * Exception-safe: a throw inside `fn` still closes the batch and still
+   * fires the pending notify, so a failed gesture cannot leave
+   * subscribers looking at a state nobody told them about.
+   */
+  batchGesture = <T,>(fn: () => T): T => {
+    this.batchDepth += 1;
+    try {
+      return fn();
+    } finally {
+      this.batchDepth -= 1;
+      if (this.batchDepth === 0) {
+        const caller = this.batchPendingNotify;
+        const save = this.batchPendingSave;
+        this.batchPendingNotify = null;
+        this.batchPendingSave = false;
+        if (caller !== null) this.notify(caller);
+        if (save) this.scheduleSave();
+      }
+    }
+  };
+
+  /**
+   * Depth of the enclosing {@link batchGesture} calls; 0 when no gesture
+   * transaction is open. `batchPendingNotify` holds the caller tag of the
+   * first deferred notify (the one that opened the gesture, which is the
+   * useful attribution) or `null` when nothing has asked to notify.
+   */
+  private batchDepth = 0;
+  private batchPendingNotify: string | null = null;
+  private batchPendingSave = false;
+
+  /**
    * Fire every subscriber over the current state.
    *
    * `caller` is the mutating method's own name, stamped by each call
@@ -1034,6 +1088,15 @@ export class DeckManager implements IDeckManagerStore {
    * reporting an anonymous count.
    */
   private notify(caller = "untagged"): void {
+    if (this.batchDepth > 0) {
+      // Inside a gesture transaction: record that someone wants
+      // subscribers told, and let the outermost batch tell them once.
+      // The first caller wins the tag — it is the mutation that opened
+      // the gesture, and the census reads better naming that than the
+      // incidental last one.
+      this.batchPendingNotify ??= caller;
+      return;
+    }
     // Invariant 7, enforced rather than merely asserted: no pane commits with
     // its title bar above the deck top. Every mutation in this class lands
     // through here, so one clamp covers all of them — including the ones no
@@ -4991,6 +5054,12 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   private scheduleSave(): void {
+    if (this.batchDepth > 0) {
+      // Held with the notify, and re-armed once on the way out — the
+      // gesture's final state is the only one worth persisting.
+      this.batchPendingSave = true;
+      return;
+    }
     if (this.saveTimer !== null) {
       window.clearTimeout(this.saveTimer);
     }

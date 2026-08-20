@@ -2897,7 +2897,28 @@ export function TugPane({
       // === PHASE 3: DROP ===
       // Pointer released. Commit final position to store, handle merge,
       // clean up listeners and reset all drag state.
+      /**
+       * One pointer-up is one gesture, so it is one store notification.
+       *
+       * A release does several mutations — `commitAutoscroll` writes every
+       * strip the drag scrolled, the zone commit moves the pane, and
+       * `movePaneToSlot` raises the arriving card on its way through
+       * `transferFocusForActivation`. Left unbatched, each of those told
+       * the canvas separately, and the canvas arms its settle once per
+       * telling: an autoscrolled release armed twice, and a cross-slot drop
+       * notified three times. The card is making ONE journey, so the deck
+       * hears about it once, at the end, over the final arrangement.
+       *
+       * The batch also makes the landing's First measurement safer than it
+       * was: `pendingZoneDropRef`'s `from` rect is read while the old
+       * arrangement is still on screen, and now nothing can have rendered
+       * between the commit and the read.
+       */
       function onPointerUp(e: PointerEvent) {
+        store.batchGesture(() => endPaneDrag(e));
+      }
+
+      function endPaneDrag(e: PointerEvent) {
         if (!dragActive.current) return;
         endGestureListeners(e.pointerId);
 

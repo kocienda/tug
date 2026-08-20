@@ -561,6 +561,22 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
             const committed = await columnOffsetOf(app, 1);
 
             note(summarizeMotionCensus("autoscrolled release", autoscrollMotion));
+            // The costliest release there is — the scroll commit, the zone
+            // commit, and the activation raise in one gesture — and still
+            // one telling. Before the gesture transaction this armed the
+            // settle twice: once for the offset, once for the arrangement.
+            expect(
+              autoscrollMotion.notifies,
+              "the scroll commit and the zone commit are one gesture",
+            ).toBe(1);
+            expect(
+              autoscrollMotion.arms,
+              "so the settle arms once, not once per commit",
+            ).toBeLessThanOrEqual(1);
+            expect(
+              autoscrollMotion.retargets.snap,
+              "and no tween is snapped to its end mid-flight",
+            ).toBe(0);
             note(
               `autoscroll: property ${scrolledProperty} mid-flight, store ${midFlight} → ${committed}, ${tweened} sibling tween(s)`,
             );

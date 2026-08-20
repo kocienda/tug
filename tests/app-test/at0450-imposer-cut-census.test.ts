@@ -252,6 +252,42 @@ describe.skipIf(!SHOULD_RUN)(
             `a settled deck cut: ${summarize(atRest)}`,
           ).toBe(0);
 
+          // ---- The gesture transaction ---------------------------------
+          //
+          // The store contract every release below depends on: a batch is
+          // one notification however many mutations it holds, a nested
+          // batch joins the outer one rather than closing early, a throw
+          // still tells subscribers (a failed gesture must not leave them
+          // looking at a state nobody announced), and a batch that mutates
+          // nothing says nothing.
+          //
+          // Driven against the live `DeckManager` because that is the only
+          // one there is: it is browser-coupled — window timers, tugbank,
+          // the lifecycle registry — and no unit test constructs one.
+          const batch = async (shape: string) =>
+            app.evalJS<{ notifies: number; threw: boolean }>(
+              `window.__tug.probeBatchGesture(${JSON.stringify(shape)})`,
+            );
+          expect(
+            (await batch("single")).notifies,
+            "two mutations in one batch tell subscribers once",
+          ).toBe(1);
+          expect(
+            (await batch("nested")).notifies,
+            "a nested batch joins the outer one rather than firing its own",
+          ).toBe(1);
+          const thrown = await batch("throws");
+          expect(thrown.threw, "the exception escapes the batch").toBe(true);
+          expect(
+            thrown.notifies,
+            "and the pending notification still fires on the way out",
+          ).toBe(1);
+          expect(
+            (await batch("empty")).notifies,
+            "a batch that mutates nothing notifies nobody",
+          ).toBe(0);
+          await takeCuts(app);
+
           const found: Record<string, CutRecord[]> = {};
 
           found["slot-move"] = await census(app, async () => {
@@ -581,13 +617,30 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(moverPane).not.toBeNull();
           expect(targetPane).not.toBeNull();
+          // Driven as grab-then-release rather than as one atomic drag,
+          // because the motion census below is about the RELEASE. The grab
+          // raises the card, and that raise is its own arrangement change
+          // at its own moment — folding it into the release's count would
+          // be measuring two gestures and calling it one.
+          const dropPoint = await app.evalJS<{ x: number; y: number }>(
+            `(function () {
+              var r = document.querySelector(
+                '.tug-pane[data-pane-id="' + ${JSON.stringify(targetPane)} + '"]'
+              ).getBoundingClientRect();
+              return {
+                x: Math.round(r.left + r.width / 2),
+                y: Math.round(r.top + r.height / 2),
+              };
+            })()`,
+          );
           let releaseMotion: MotionCensusReading | null = null;
           found["flow:drop-zone-commit"] = await census(app, async () => {
+            await app.nativeDragElementWithoutRelease(
+              `.tug-pane[data-pane-id="${moverPane}"] .tug-pane-title-bar`,
+              dropPoint,
+            );
             releaseMotion = await app.motionCensus(async () => {
-              await app.nativeDragElement(
-                `.tug-pane[data-pane-id="${moverPane}"] .tug-pane-title-bar`,
-                { selector: `.tug-pane[data-pane-id="${targetPane}"]` },
-              );
+              await app.nativeMouseUp(dropPoint);
             });
           });
           expect(
@@ -603,12 +656,25 @@ describe.skipIf(!SHOULD_RUN)(
             "the drop-zone cell actually moved the card it dragged",
           ).toBe(0);
 
-          // Diagnostic, not yet an assertion: the release's motion cost is
-          // reported so the coalescing work is judged against counted facts.
-          // The bar it is heading for is 1 notify, at most 1 arm, 0 snap
-          // retargets — asserted once the gesture transaction lands.
+          // The butter bar, in numbers. A release is one journey, so the
+          // deck hears about it once; one telling arms the settle at most
+          // once; and an arm that lands on no running tween has nothing to
+          // retarget. Before the gesture transaction this read 3 notifies
+          // (the imposition commit plus two first-responder flips).
           expect(releaseMotion).not.toBeNull();
           note(summarizeMotionCensus("drop-zone release", releaseMotion!));
+          expect(
+            releaseMotion!.notifies,
+            "a release is one commit, so it is one notification",
+          ).toBe(1);
+          expect(
+            releaseMotion!.arms,
+            "one arrangement change arms the settle at most once",
+          ).toBeLessThanOrEqual(1);
+          expect(
+            releaseMotion!.retargets.snap,
+            "and nothing is snapped to its end mid-flight",
+          ).toBe(0);
 
           await disarmDetector(app);
 
