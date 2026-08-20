@@ -321,6 +321,34 @@ describe.skipIf(!SHOULD_RUN)("AT0443: a red verdict, and the override past it", 
         );
         note("at0443 override: the red join reads landable once the user says so");
 
+        // ── And it is the dash's fact, not this deck's ──────────────────────
+        // The override used to be a field in a client store, which made it a
+        // belief rather than a decision: it died with the page, and the CLI and
+        // any second deck knew nothing about it. It is git config anchored to
+        // the candidate sha now, so a deck that has forgotten everything comes
+        // back to the same standing decision — and the gate it defeats is the
+        // server's, where every caller meets it.
+        await app.appReload();
+        await openOnDash(app);
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: repo });
+        await app.awaitEngineReady("A", { timeoutMs: 20000 });
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
+          { timeoutMs: 20000 },
+        );
+        await runCommand(app, `/dash-join ${DASH}`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(READY)})?.getAttribute("data-ready") === "true"`,
+          { timeoutMs: 60000 },
+        );
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(OVERRIDE)}) === null`,
+          ),
+          "and the control that took the decision is not offered again",
+        ).toBe(true);
+        note("at0443 override survived a reload: it is a fact about the dash");
+
         // ── The join it opens ─────────────────────────────────────────────
         // `/dash-join` toggles, and the command that raised the lane left the
         // card in join mode — so the route is re-entered only if it left.

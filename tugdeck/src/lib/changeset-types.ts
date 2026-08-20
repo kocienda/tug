@@ -299,6 +299,24 @@ export interface DashJoinStateWire {
    * leaving the resolver blocked on an answer nobody can give.
    */
   question?: DashJoinQuestionWire;
+  /**
+   * What is running on this dash right now — `resolve` or `verify` — absent
+   * when nothing is.
+   *
+   * The one join fact that is not durable: occupancy is the server's
+   * in-process state, so a restart clears it. It is on the wire because a
+   * reload mid-resolve would otherwise render a running resolve as absence.
+   */
+  run?: string;
+  /**
+   * The candidate a standing "join it anyway" decision names.
+   *
+   * Server-side and durable, because the gate it defeats is server-side too.
+   * Self-demoting: reported only while it names the candidate that stands, so a
+   * re-resolve retires the decision instead of carrying it onto a tree nobody
+   * agreed to.
+   */
+  override_for?: string;
 }
 
 /** An escalation from the resolver, phrased as intent — never as a diff. */
@@ -450,6 +468,10 @@ function isOptionalDashJoinState(
   if (value.candidate !== undefined && typeof value.candidate !== "string") return false;
   if (value.reviewed !== undefined && typeof value.reviewed !== "boolean") return false;
   if (value.stale_note !== undefined && typeof value.stale_note !== "string") return false;
+  if (value.run !== undefined && typeof value.run !== "string") return false;
+  if (value.override_for !== undefined && typeof value.override_for !== "string") {
+    return false;
+  }
   if (!isOptionalStringArray(value.conflicts)) return false;
   if (
     value.blockers !== undefined &&

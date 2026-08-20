@@ -174,7 +174,8 @@ fn a_join_broadcasts_dash_gone_with_the_key_captured_before_teardown() {
 
     let mut join = tug(&tmp_path);
     join.current_dir(&root);
-    join.args(["dash", "join", "demo"]);
+    // The subject is the dash-gone broadcast, not the verification gate.
+    join.args(["dash", "join", "demo", "--anyway"]);
     let out = join.output().unwrap();
     assert!(
         out.status.success(),

@@ -136,7 +136,18 @@ export function verificationVerdict(
 ): JoinVerdict {
   if (join === null || join === undefined) return "not-applicable";
   if (typeof join.candidate !== "string" || join.candidate === "") {
-    return "not-applicable";
+    // A dash with something joinable and no candidate yet is `unrun`, never
+    // "no verdict applies here" ([P03]/[P04]). Entering join mode on a clean
+    // dash resolves it, and between that send and the candidate anchoring
+    // there is a stretch of a second or two where the old reading made the
+    // gate wave the join through — refusing exactly where the server's own
+    // gate would is what closes it.
+    //
+    // `not-applicable` survives for the states where no join is on offer at
+    // all: a blocked dash, an empty one, a stale resolution. Nothing is going
+    // to be built and judged there, so demanding a verdict would refuse with a
+    // sentence naming an act that would not help.
+    return deriveJoinOutcome(join) === "clean" ? "unrun" : "not-applicable";
   }
   const verification = join.verification;
   if (verification === undefined) return "unrun";
@@ -158,10 +169,11 @@ export function verificationVerdict(
  */
 export function redOverrideStands(
   candidateCommit: string | null,
-  resolve: { redOverrideFor: string | null } | null,
+  overrideFor: string | null | undefined,
 ): boolean {
-  if (candidateCommit === null || resolve === null) return false;
-  return resolve.redOverrideFor === candidateCommit;
+  if (candidateCommit === null) return false;
+  if (overrideFor === null || overrideFor === undefined) return false;
+  return overrideFor === candidateCommit;
 }
 
 /**
@@ -481,15 +493,7 @@ export class JoinModeController implements LandingMode {
       outcome,
       candidateCommit,
       verdict: verificationVerdict(join),
-      redOverride: redOverrideStands(
-        candidateCommit,
-        this.target === null
-          ? null
-          : getChangesetJoinStore()?.state(
-              changesController.workspaceKey,
-              this.target.name,
-            ) ?? null,
-      ),
+      redOverride: redOverrideStands(candidateCommit, join?.override_for),
       message: "x", // ignore message emptiness here (CSS-gated on data-commit-empty)
     });
     // The same sentence the fronted row's join face shows, carried to the
@@ -560,6 +564,37 @@ export class JoinModeController implements LandingMode {
     this.active = true;
     this.snapshot = this.derive();
     this.fire();
+    this.ensureCandidate();
+  }
+
+  /**
+   * A clean dash grows a candidate without being asked ([P03]).
+   *
+   * A conflicted dash has always been resolved before it could join, so what
+   * would land was a tree the project's checks had judged. A clean one skipped
+   * all of it and joined on the strength of git reporting no textual conflict —
+   * which is not the same claim. The failure this closes is a merge with no
+   * conflicting file that does not build: a symbol renamed on one side, a new
+   * call site added on the other.
+   *
+   * So entering the mode on a clean dash sends the same resolve a conflicted
+   * one sends. The ladder's one-shot squash anchors a candidate, the server
+   * verifies it unpressed, and the gate that already refuses an unverified
+   * candidate finally has one to refuse.
+   *
+   * An action taken on entry, never derived state — and safe to fire twice,
+   * because one dash admits one run ([P01]) and the second send comes back as
+   * a named refusal rather than a second ladder.
+   */
+  private ensureCandidate(): void {
+    const target = this.target;
+    if (target === null) return;
+    const join = this.entry()?.join ?? null;
+    if (join === null) return;
+    if (deriveJoinOutcome(join) !== "clean") return;
+    if (typeof join.candidate === "string" && join.candidate !== "") return;
+    if (typeof join.run === "string" && join.run !== "") return;
+    getChangesetJoinStore()?.resolve(this.deps.changesController.workspaceKey, target.name);
   }
 
   /**
@@ -760,10 +795,7 @@ export class JoinModeController implements LandingMode {
       verdict: verificationVerdict(join),
       redOverride: redOverrideStands(
         typeof candidate === "string" && candidate !== "" ? candidate : null,
-        getChangesetJoinStore()?.state(
-          changesController.workspaceKey,
-          target.name,
-        ) ?? null,
+        join?.override_for,
       ),
       message,
     };

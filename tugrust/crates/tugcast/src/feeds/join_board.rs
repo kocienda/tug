@@ -81,6 +81,52 @@ pub fn sweep(live_owner_keys: &[String]) {
     map.retain(|key, _| live_owner_keys.iter().any(|k| k == key));
 }
 
+/// Collect workshops whose dash is gone ([P07]).
+///
+/// `.tug/workshops/` is a directory of second checkouts with warm build outputs
+/// in them, and until now nothing swept it: a workshop was removed by the dash
+/// verbs that knew about it, and anything that slipped past them — a join that
+/// tore one down while a straggling task re-created it, a discard that raced a
+/// resolve — stayed on disk with its branch, forever, invisible to every
+/// surface. This is the sweeper the directory never had.
+///
+/// Safe because occupancy is checked first: a workshop whose dash is gone but
+/// whose name still holds a live run is left alone, and the run's own exit
+/// takes it. Removing a checkout out from under a working resolver would turn
+/// a leaked directory into a lost run.
+pub fn sweep_workshops(repo_root: &Path, live_dashes: &[String]) {
+    let live: Vec<String> = live_dashes
+        .iter()
+        .map(|name| tugdash_core::workshop::workshop_branch(name))
+        .collect();
+
+    for name in tugdash_core::workshop::existing(repo_root) {
+        let branch = tugdash_core::workshop::workshop_branch(&name);
+        if live.iter().any(|l| *l == branch) {
+            continue;
+        }
+        let owner_key = tugdash_core::ops::dash_owner_key(repo_root, &name);
+        if crate::feeds::join_occupancy::run_kind(&owner_key).is_some() {
+            continue;
+        }
+        // A join removes its own workshop as one phase of a journaled
+        // teardown, and the dash leaves the feed's list before that teardown
+        // finishes. Sweeping in that window would run a second `git worktree
+        // remove`/`prune` in the same `.git/worktrees` as the one the join is
+        // running. The journal is the "a join owns this dash right now" fact,
+        // and it outlives the dash's presence on the feed by design.
+        if tugdash_core::ops::join_in_flight(repo_root, &name) {
+            continue;
+        }
+        let mut warnings = Vec::new();
+        tugdash_core::workshop::remove(repo_root, &name, &mut warnings);
+        for warning in warnings {
+            tracing::warn!(workshop = %name, %warning, "dash-join: orphaned workshop");
+        }
+        tracing::info!(workshop = %name, "dash-join: swept an orphaned workshop");
+    }
+}
+
 /// Compose one dash's join state.
 ///
 /// `current_branch` is read once per recompute by the caller and passed in,
@@ -91,6 +137,11 @@ pub fn join_state_for(
     detail: &DashDetail,
     current_branch: &str,
 ) -> DashJoinState {
+    // Uncached and uncacheable: what is running on this dash right now. The
+    // registry is in-process, so this is the one fact here that answers to the
+    // moment rather than to a pair of commits (Spec S01).
+    let run = crate::feeds::join_occupancy::run_kind(&detail.owner_key).map(|k| k.to_string());
+
     // Uncached, always: what would refuse a join right now.
     let blockers: Vec<DashJoinBlocker> =
         ops::join_blockers_from_detail(repo_root, detail, current_branch)
@@ -112,13 +163,28 @@ pub fn join_state_for(
     match status {
         CandidateStatus::Valid(sha) => candidate = Some(sha),
         CandidateStatus::Stale(note) => {
-            resolve::clear_candidate(repo_root, name);
+            // Reported either way, but only *cleared* between runs. Clearing it
+            // mid-resolve pulls the candidate out from under the run that is
+            // building on it, and the sentence that surfaces — "the build
+            // verdict went missing before the exam" — names none of the real
+            // cause. A base that genuinely moved during a run demotes the
+            // candidate on the next recompute instead: the ordinary staleness
+            // path, at the ordinary time.
+            if run.is_none() {
+                resolve::clear_candidate(repo_root, name);
+            }
             stale_note = Some(note);
         }
         CandidateStatus::None => {}
     }
 
     if !blockers.is_empty() {
+        // The question is read before the stuck line, always: an orphaned
+        // question *becomes* a stuck line, and reading the two the other way
+        // round would withhold the conversion until the next recompute.
+        let question = standing_question(repo_root, detail);
+        let stuck = standing_stuck(repo_root, detail);
+        let override_for = standing_override(repo_root, name, candidate.as_deref());
         // The probe's answer would not be displayed, so it is not paid for.
         return DashJoinState {
             phase: "blocked".to_string(),
@@ -130,8 +196,10 @@ pub fn join_state_for(
             stale_note,
             verification: None,
             report: None,
-            stuck: standing_stuck(repo_root, detail),
-            question: standing_question(repo_root, detail),
+            stuck,
+            question,
+            run,
+            override_for,
         };
     }
 
@@ -154,12 +222,14 @@ pub fn join_state_for(
         "previewed"
     };
 
-    let verification = standing_verification(repo_root, detail, candidate.as_deref());
+    let verification =
+        standing_verification(repo_root, detail, candidate.as_deref(), run.is_none());
     let report = candidate
         .as_deref()
         .and_then(|sha| standing_report(repo_root, name, sha));
-    let stuck = standing_stuck(repo_root, detail);
     let question = standing_question(repo_root, detail);
+    let stuck = standing_stuck(repo_root, detail);
+    let override_for = standing_override(repo_root, name, candidate.as_deref());
 
     DashJoinState {
         phase: phase.to_string(),
@@ -173,7 +243,21 @@ pub fn join_state_for(
         report,
         stuck,
         question,
+        run,
+        override_for,
     }
+}
+
+/// The standing "join it anyway" decision, while it still names the candidate
+/// that stands.
+///
+/// Withheld rather than cleared when it does not: `clear_candidate` is what
+/// collects it, at the same moment it collects the verdict the decision was
+/// made against — one act, so a half-cleared set cannot leave a stale override
+/// waving a red candidate through.
+fn standing_override(repo_root: &Path, name: &str, candidate: Option<&str>) -> Option<String> {
+    let standing = verify::read_override(repo_root, name)?;
+    (Some(standing.as_str()) == candidate).then_some(standing)
 }
 
 /// The escalation a resolve is blocked on, while it still describes the dash
@@ -182,9 +266,43 @@ pub fn join_state_for(
 /// Read on every recompute rather than held in memory, because the whole point
 /// of persisting it is that a reload — a fresh process, an empty memory — must
 /// still render the question the resolver is waiting on.
+/// A question with no live run is nobody's question — it is converted here
+/// into a stuck line quoting what was asked, and the fact is dropped.
+///
+/// The registry is in-process, so a tugcast restart is exactly the event that
+/// orphans a resolve *and* the event that empties the registry. That makes this
+/// read the self-heal: the first recompute after a restart finds a question the
+/// resolver that raised it can no longer be given, and says so. Left alone it
+/// rendered as a live wizard whose answer the supervisor would refuse, which is
+/// the [L31] silence in its purest form — a control that does nothing.
 fn standing_question(repo_root: &Path, detail: &DashDetail) -> Option<DashJoinQuestion> {
+    let name = detail.name.as_str();
+
+    // A resolve that is still running owns its question, and matches it against
+    // the head it started on: a round landing on the dash mid-question must not
+    // vanish the wizard the user is answering.
+    if let Some(head) = crate::feeds::join_occupancy::run_head(&detail.owner_key) {
+        let json = resolve::read_question(repo_root, name, &head)?;
+        return serde_json::from_str(&json).ok();
+    }
+
     let head = ops::rev_parse(repo_root, &detail.branch).ok()?;
-    let json = resolve::read_question(repo_root, detail.name.as_str(), &head)?;
+    let json = resolve::read_question(repo_root, name, &head)?;
+
+    if crate::feeds::join_occupancy::run_kind(&detail.owner_key).is_none() {
+        let asked = serde_json::from_str::<DashJoinQuestion>(&json)
+            .map(|q| q.question)
+            .unwrap_or_else(|_| "an intent question".to_string());
+        resolve::clear_question(repo_root, name);
+        resolve::write_stuck(
+            repo_root,
+            name,
+            &head,
+            &format!("tugcast restarted while the resolver waited on: {asked}"),
+        );
+        return None;
+    }
+
     serde_json::from_str(&json).ok()
 }
 
@@ -220,20 +338,28 @@ fn standing_stuck(repo_root: &Path, detail: &DashDetail) -> Option<String> {
 /// here rather than merely withheld, exactly as a stale candidate is: a fact
 /// the board will not report is a fact that must not survive to be read by
 /// something else.
+/// `may_clear` is false while a run holds the dash: the verdict a live run is
+/// writing must not be deleted by a recompute that happens to land between its
+/// `running` write and its answer.
 fn standing_verification(
     repo_root: &Path,
     detail: &DashDetail,
     candidate: Option<&str>,
+    may_clear: bool,
 ) -> Option<DashJoinVerification> {
     let name = detail.name.as_str();
     let fact = verify::read_verification(repo_root, name)?;
     let base_sha = ops::rev_parse(repo_root, &detail.base).ok()?;
     let Some(candidate) = candidate else {
-        verify::clear_verification(repo_root, name);
+        if may_clear {
+            verify::clear_verification(repo_root, name);
+        }
         return None;
     };
     if !fact.describes(&base_sha, candidate) {
-        verify::clear_verification(repo_root, name);
+        if may_clear {
+            verify::clear_verification(repo_root, name);
+        }
         return None;
     }
     Some(DashJoinVerification {
@@ -582,6 +708,177 @@ mod tests {
         assert!(
             verify::read_verification(repo, "demo").is_none(),
             "and it is cleared, not merely withheld"
+        );
+    }
+
+    /// A question nobody is waiting on becomes a stuck line quoting what was
+    /// asked, and the question fact is gone afterwards.
+    ///
+    /// This is the restart self-heal. A tugcast restart empties the occupancy
+    /// registry and kills the resolver that raised the question — but the
+    /// question is durable, so it kept rendering as a live wizard whose answer
+    /// the supervisor would then refuse. A control that cannot do anything is
+    /// the silence [L31] forbids; this converts it into a sentence.
+    #[test]
+    fn an_orphaned_question_becomes_a_stuck_line() {
+        let temp = fixture();
+        let repo = temp.path();
+        let head = ops::rev_parse(repo, "tugdash/demo").unwrap();
+
+        tugdash_core::resolve::write_question(
+            repo,
+            "demo",
+            &head,
+            r#"{"request_id":"join-demo-1","question":"Which side owns the timeout?","options":[{"label":"the dash","description":""},{"label":"the base","description":""}]}"#,
+        );
+
+        let state = compose(repo);
+        assert!(
+            state.question.is_none(),
+            "no live run means no live question"
+        );
+        let stuck = state.stuck.expect("the question converted to a stuck line");
+        assert!(stuck.contains("tugcast restarted"), "{stuck}");
+        assert!(
+            stuck.contains("Which side owns the timeout?"),
+            "the stuck line quotes what was asked: {stuck}"
+        );
+        assert!(
+            tugdash_core::resolve::read_question(repo, "demo", &head).is_none(),
+            "the converted fact is gone, so this happens once"
+        );
+    }
+
+    /// A question raised by a live run survives a round landing on the dash.
+    ///
+    /// The question is keyed by the head it was raised against, so without the
+    /// run's own snapshot a mid-question dash commit makes the wizard vanish
+    /// while the resolver is still waiting for its answer.
+    #[test]
+    fn a_live_runs_question_survives_the_dash_head_moving() {
+        let temp = fixture();
+        let repo = temp.path();
+        let detail = detail_for(repo);
+        let head = ops::rev_parse(repo, "tugdash/demo").unwrap();
+
+        let _held = crate::feeds::join_occupancy::acquire(
+            &detail.owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::Resolve,
+            Some(head.clone()),
+        )
+        .expect("the dash is free");
+
+        tugdash_core::resolve::write_question(
+            repo,
+            "demo",
+            &head,
+            r#"{"request_id":"join-demo-2","question":"Keep the new flag?","options":[{"label":"yes","description":""},{"label":"no","description":""}]}"#,
+        );
+
+        // A round lands on the dash while the resolver waits.
+        git(repo, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(repo.join("late.txt"), "another round\n").unwrap();
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "r2"]);
+        git(repo, &["switch", "-q", "main"]);
+        assert_ne!(ops::rev_parse(repo, "tugdash/demo").unwrap(), head);
+
+        let state = compose(repo);
+        let question = state.question.expect("the question the user is answering");
+        assert_eq!(question.question, "Keep the new flag?");
+        assert_eq!(state.run.as_deref(), Some("resolve"));
+    }
+
+    /// A candidate that went stale under a live run is reported, not cleared.
+    ///
+    /// Clearing it mid-run pulls the tree out from under the resolve that is
+    /// building on it; the sentence that surfaced — "the build verdict went
+    /// missing before the exam" — named none of the real cause. After the run
+    /// releases, the ordinary demotion runs at the ordinary time.
+    #[test]
+    fn a_stale_candidate_is_pinned_while_a_run_holds_the_dash() {
+        let temp = fixture();
+        let repo = temp.path();
+        let detail = detail_for(repo);
+
+        tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(compose(repo).candidate.is_some());
+
+        // The base moves, which is what makes the candidate stale.
+        std::fs::write(repo.join("other.txt"), "later\n").unwrap();
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "main moves on"]);
+
+        let held = crate::feeds::join_occupancy::acquire(
+            &detail.owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::Resolve,
+            None,
+        )
+        .expect("the dash is free");
+
+        let during = compose(repo);
+        assert!(during.candidate.is_none(), "a stale candidate is not shown");
+        assert!(during.stale_note.is_some(), "and the note says why");
+        assert!(
+            tugdash_core::resolve::read_candidate(repo, "demo").is_some(),
+            "but the ref still stands under the live run"
+        );
+
+        drop(held);
+        let after = compose(repo);
+        assert!(after.stale_note.is_some());
+        assert_eq!(
+            tugdash_core::resolve::read_candidate(repo, "demo"),
+            None,
+            "released, the ordinary demotion collects it"
+        );
+    }
+
+    /// A workshop whose dash is gone is collected; one with a live run is not
+    /// ([P07]).
+    ///
+    /// Nothing swept `.tug/workshops/` before this. A workshop was torn down by
+    /// the dash verbs that knew about it, and anything that slipped past them
+    /// — a join racing a straggling task, a discard racing a resolve — stayed
+    /// on disk with its branch forever, invisible to every surface.
+    #[test]
+    fn an_orphaned_workshop_is_swept_and_an_occupied_one_is_not() {
+        let temp = fixture();
+        let repo = temp.path();
+
+        tugdash_core::workshop::Workshop::open_merge(repo, "demo").expect("a live dash");
+        let workshop = tugdash_core::workshop::workshop_path(repo, "demo");
+        assert!(workshop.exists());
+
+        // Still live: the sweep leaves it alone, which is the whole reason the
+        // workshop is stable in the first place.
+        sweep_workshops(repo, &["demo".to_string()]);
+        assert!(workshop.exists(), "a live dash keeps its workshop");
+
+        // The dash goes, and the workshop is left behind — the leak.
+        git(repo, &["branch", "-D", "tugdash/demo"]);
+
+        // But a run still holds it, so it is not the sweeper's to take:
+        // removing a checkout out from under a working resolver would turn a
+        // leaked directory into a lost run.
+        let owner_key = tugdash_core::ops::dash_owner_key(repo, "demo");
+        let held = crate::feeds::join_occupancy::acquire(
+            &owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::Resolve,
+            None,
+        )
+        .expect("the dash is free");
+        sweep_workshops(repo, &[]);
+        assert!(workshop.exists(), "an occupied workshop survives its dash");
+
+        drop(held);
+        sweep_workshops(repo, &[]);
+        assert!(!workshop.exists(), "released, the orphan is collected");
+        assert!(
+            !tugdash_core::workshop::existing(repo)
+                .iter()
+                .any(|n| n == "demo"),
+            "branch and directory both"
         );
     }
 }

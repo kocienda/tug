@@ -1139,6 +1139,10 @@ async fn dash_entries(
         let current_branch = tugdash_core::ops::current_branch(&root).unwrap_or_default();
         let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
         crate::feeds::join_board::sweep(&live);
+        // The same idea one level down: a workshop is a real checkout on disk,
+        // and one whose dash is gone is a leak nothing else collects ([P07]).
+        let live_names: Vec<String> = details.iter().map(|d| d.name.clone()).collect();
+        crate::feeds::join_board::sweep_workshops(&root, &live_names);
         details
             .into_iter()
             .map(|detail| {

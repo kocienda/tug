@@ -146,21 +146,44 @@ pub fn parse_turn(text: &str) -> Result<ResolverTurn, String> {
 /// it is somebody reading the resolution against the intent. The resolver is
 /// that reader now, and a report that skips a file is a reader who did not
 /// look.
-pub fn validate_report(report: &ResolverReport, resolution_set: &[String]) -> Result<(), String> {
+pub fn validate_report(
+    report: &ResolverReport,
+    resolution_set: &[String],
+    resolver_touched: &[String],
+) -> Result<(), String> {
     let accounted: std::collections::BTreeSet<&str> =
         report.files.iter().map(|f| f.path.as_str()).collect();
-    let missing: Vec<&str> = resolution_set
-        .iter()
-        .map(|p| p.as_str())
-        .filter(|p| !accounted.contains(p))
-        .collect();
-    if missing.is_empty() {
-        return Ok(());
+    let missing = |set: &[String]| -> Vec<String> {
+        set.iter()
+            .filter(|p| !accounted.contains(p.as_str()))
+            .cloned()
+            .collect()
+    };
+
+    // The machine's decisions come first: they are what the retired review gate
+    // covered, and a report that skips one is the 2026-08-15 failure class.
+    let unaudited = missing(resolution_set);
+    if !unaudited.is_empty() {
+        return Err(format!(
+            "the resolver's report does not account for {}",
+            unaudited.join(", ")
+        ));
     }
-    Err(format!(
-        "the resolver's report does not account for {}",
-        missing.join(", ")
-    ))
+
+    // Then what the resolver did on its own initiative. A path here is one the
+    // machine never decided and the resolver changed anyway — the report has to
+    // say why.
+    let unexplained: Vec<String> = missing(resolver_touched)
+        .into_iter()
+        .filter(|p| !resolution_set.contains(p))
+        .collect();
+    if !unexplained.is_empty() {
+        return Err(format!(
+            "the resolver changed {} without accounting for it",
+            unexplained.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 /// A bounded tail of whatever arrived, for a refusal that quotes rather than
@@ -411,7 +434,10 @@ pub fn spawner_for(
     production: Option<Arc<dyn JoinResolverSpawner>>,
 ) -> Result<Arc<dyn JoinResolverSpawner>, String> {
     if let Some(command) = tugdash_core::resolver_program(repo) {
-        return Ok(Arc::new(StubJoinResolverSpawner { command }));
+        return Ok(Arc::new(StubJoinResolverSpawner {
+            command,
+            turn_timeout: RESOLVER_TURN_TIMEOUT,
+        }));
     }
     production.ok_or_else(|| "no join resolver is configured for this host".to_string())
 }
@@ -498,7 +524,15 @@ async fn drive_claude(
         }
 
         let answer = loop {
-            match lines.next_line().await {
+            let read = match tokio::time::timeout(RESOLVER_TURN_TIMEOUT, lines.next_line()).await {
+                Ok(read) => read,
+                Err(_) => {
+                    let _ = child.start_kill();
+                    let _ = reply.send(Err(silent_turn(RESOLVER_TURN_TIMEOUT)));
+                    return;
+                }
+            };
+            match read {
                 Ok(Some(out)) => {
                     let Ok(value) = serde_json::from_str::<serde_json::Value>(&out) else {
                         continue;
@@ -534,6 +568,10 @@ async fn drive_claude(
 /// transport differs.
 pub struct StubJoinResolverSpawner {
     pub command: String,
+    /// The silence bound for one turn. Production reads
+    /// [`RESOLVER_TURN_TIMEOUT`]; a test that drives the bound itself sets it
+    /// to something it can wait out.
+    pub turn_timeout: Duration,
 }
 
 impl JoinResolverSpawner for StubJoinResolverSpawner {
@@ -563,7 +601,14 @@ impl JoinResolverSpawner for StubJoinResolverSpawner {
         let stderr = child.stderr.take();
 
         let (tx, rx) = mpsc::channel::<ResolverTurnRequest>(4);
-        tokio::spawn(drive_stub(child, stdin, stdout, stderr, rx));
+        tokio::spawn(drive_stub(
+            child,
+            stdin,
+            stdout,
+            stderr,
+            rx,
+            self.turn_timeout,
+        ));
         Ok(tx)
     }
 }
@@ -576,6 +621,7 @@ async fn drive_stub(
     stdout: tokio::process::ChildStdout,
     mut stderr: Option<tokio::process::ChildStderr>,
     mut rx: mpsc::Receiver<ResolverTurnRequest>,
+    turn_timeout: Duration,
 ) {
     let mut lines = BufReader::new(stdout).lines();
 
@@ -592,7 +638,15 @@ async fn drive_stub(
             let _ = reply.send(Err(died(stderr.take()).await));
             return;
         }
-        match lines.next_line().await {
+        let read = match tokio::time::timeout(turn_timeout, lines.next_line()).await {
+            Ok(read) => read,
+            Err(_) => {
+                let _ = child.start_kill();
+                let _ = reply.send(Err(silent_turn(turn_timeout)));
+                return;
+            }
+        };
+        match read {
             Ok(Some(out)) => {
                 let _ = reply.send(parse_turn(&out));
             }
@@ -640,13 +694,44 @@ async fn died(stderr: Option<tokio::process::ChildStderr>) -> String {
 /// repairs, never by shrinking it.
 pub const TIER0_ITERATIONS: usize = 3;
 
+/// How long one resolver turn may produce no bytes at all before the child is
+/// killed and the turn fails.
+///
+/// This is the only liveness check anything applies to the resolver, and it is
+/// deliberately blunt: a healthy turn reads files, edits them, and thinks, so
+/// its *statuses* are minutes apart and say nothing about whether it is alive.
+/// Bytes on the wire do. Twenty minutes of complete silence is past any turn a
+/// resolver is still working through and short of a wedge nobody would notice.
+pub const RESOLVER_TURN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+
+/// The ceiling on one whole resolve, from opening the workshop to the last
+/// tier's verdict.
+///
+/// Every inner bound can be paid in full and still add up to a finite number:
+/// three iterations of (a resolver turn + Tier 0) plus one expired question is
+/// a little under two hours. This catches whatever the inner bounds cannot —
+/// and names, in the stuck fact, what the resolve was doing when it expired.
+pub const RESOLVE_DEADLINE: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// What a turn that went silent is reported as.
+fn silent_turn(bound: Duration) -> String {
+    format!(
+        "the resolver went silent for {}s and was stopped",
+        bound.as_secs()
+    )
+}
+
 /// How long an escalation waits for its answer before the join sticks.
 ///
 /// Long, because the question is the user's to answer on their own schedule,
 /// and short of forever, because a resolver blocked on a question nobody will
-/// ever see holds a workshop and a spawn open indefinitely. Expiry is not a
-/// failure of the resolver: it sticks with the question preserved, so the
-/// answer arrives on the next resolve rather than being lost.
+/// ever see holds a workshop and a spawn open indefinitely.
+///
+/// Expiry is not a failure of the resolver. The resolve sticks with a sentence
+/// quoting what was asked, and the question itself is written to the last-ask
+/// fact — so the next resolve's charter carries it and a resolver that reaches
+/// the same ambiguity can raise it again, against a user who is present. The
+/// conversation cannot resume; the question survives.
 pub const QUESTION_DEADLINE: Duration = Duration::from_secs(30 * 60);
 
 /// The escalations currently waiting for an answer, keyed by request id.
@@ -716,6 +801,18 @@ struct WorkshopState {
     rung_resolved: Vec<(String, ResolvedBy)>,
     /// Every path the report must account for: the union of the two above.
     resolution_set: Vec<String>,
+    /// The candidate the workshop was opened *at*, when the ladder already
+    /// built one this pass is only auditing (the replay exit).
+    ///
+    /// An audit that changes nothing must leave that candidate standing rather
+    /// than re-committing its tree: the replay candidate is a chain of the
+    /// dash's own rounds, and re-committing would collapse it into a squash —
+    /// silently converting the join's shape as a side effect of reading it.
+    inherited_candidate: Option<String>,
+    /// The tree the resolver was handed — the ladder's own work, or the
+    /// candidate it is auditing. Diffing the workshop against this is what says
+    /// which paths the *resolver* changed, as opposed to the machine.
+    ladder_tree: String,
     intent: String,
     base_branch: String,
 }
@@ -732,9 +829,64 @@ pub async fn finish_join(
     ctx: &ResolverContext,
     outcome: &tugdash_core::ResolveOutcome,
 ) -> Result<(), String> {
+    let phase: Phase = Arc::new(Mutex::new("opening the workshop"));
+    let result =
+        match tokio::time::timeout(RESOLVE_DEADLINE, finish_join_inner(ctx, outcome, &phase)).await
+        {
+            Ok(result) => result,
+            Err(_) => Err(format!(
+                "the resolve passed its {}-hour deadline while {}",
+                RESOLVE_DEADLINE.as_secs() / 3600,
+                read_phase(&phase),
+            )),
+        };
+
+    // A failed resolve gives the tree back ([P07]). The account of what went
+    // wrong is the durable stuck fact, which is where somebody will read it;
+    // what the workshop would otherwise hold is a half-merged checkout with
+    // conflict markers in it and a live `MERGE_HEAD`, which reads as wreckage
+    // to anyone who opens the directory and blocks nothing that would help.
+    //
+    // Only on failure. A resolve that succeeded leaves a tree its candidate was
+    // built from, and the next verification resets it anyway.
+    if result.is_err() {
+        let repo = ctx.repo.clone();
+        let dash = ctx.dash.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(ws) = tugdash_core::workshop::Workshop::open_existing(&repo, &dash) {
+                ws.release();
+            }
+        })
+        .await;
+    }
+    result
+}
+
+/// What a resolve is doing right now, so an expired deadline can say so.
+///
+/// The stuck fact is the only channel a dead resolve has, and "it took too
+/// long" without naming the activity leaves the user with nothing to act on —
+/// a wedged Tier 1 and a resolver waiting on an answer nobody saw are the same
+/// sentence otherwise.
+type Phase = Arc<Mutex<&'static str>>;
+
+fn set_phase(phase: &Phase, what: &'static str) {
+    *phase.lock().expect("resolve phase mutex") = what;
+}
+
+fn read_phase(phase: &Phase) -> &'static str {
+    *phase.lock().expect("resolve phase mutex")
+}
+
+async fn finish_join_inner(
+    ctx: &ResolverContext,
+    outcome: &tugdash_core::ResolveOutcome,
+    phase: &Phase,
+) -> Result<(), String> {
     let state = open_workshop(ctx, outcome).await?;
     emit_resolver_delta(ctx, "working", None);
 
+    set_phase(phase, "starting the resolver");
     let spawner = {
         let repo = ctx.repo.clone();
         let production = ctx.production.clone();
@@ -750,19 +902,37 @@ pub async fn finish_join(
         unresolved: &state.unresolved,
         rung_resolved: &state.rung_resolved,
     });
+    // The charter has the expired ask in it now, so the fact has done its job:
+    // it is offered forward exactly once, not to every resolve from here on.
+    {
+        let repo = ctx.repo.clone();
+        let dash = ctx.dash.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            tugdash_core::resolve::clear_lastask(&repo, &dash);
+        })
+        .await;
+    }
+
+    set_phase(phase, "waiting on the resolver");
     let mut turn = run.send(charter).await?;
     let mut asked: Option<tugcast_core::types::DashJoinReportQuestion> = None;
 
     let mut iterations: Vec<tugcast_core::types::DashJoinReportIteration> = Vec::new();
+    // What the resolver's edits are measured against: the ladder's tree on the
+    // first pass, and the previous pass's candidate after that — so each pass's
+    // report answers for what *that* pass changed.
+    let mut baseline = state.ladder_tree.clone();
     for _ in 0..TIER0_ITERATIONS {
         // An escalation is answered before anything else can happen — the
         // charter allows one per resolve, so this resolves at most once.
         if let ResolverTurn::Ask(ask) = &turn {
+            set_phase(phase, "waiting on your answer");
             let answer = escalate(ctx, ask).await?;
             asked = Some(tugcast_core::types::DashJoinReportQuestion {
                 question: ask.question.clone(),
                 answer: answer.clone(),
             });
+            set_phase(phase, "waiting on the resolver");
             turn = run.send(compose_answer_turn(&answer)).await?;
         }
 
@@ -783,10 +953,13 @@ pub async fn finish_join(
             ..report
         };
 
-        let candidate = commit_candidate(ctx, &state, &report, &iterations).await?;
+        set_phase(phase, "committing the candidate");
+        let candidate = commit_candidate(ctx, &state, &report, &iterations, &baseline).await?;
+        baseline = candidate.clone();
         emit_resolver_delta(ctx, "verifying", Some(&candidate));
         ctx.bump.notify_one();
 
+        set_phase(phase, "running the build tier");
         let verdict = run_tier0(ctx, &candidate).await?;
         iterations.push(tugcast_core::types::DashJoinReportIteration {
             tier0: if verdict.is_empty() { "green" } else { "red" }.to_string(),
@@ -795,6 +968,7 @@ pub async fn finish_join(
         if verdict.is_empty() {
             record_report(ctx, &candidate, &report, &iterations).await?;
             ctx.bump.notify_one();
+            set_phase(phase, "running the exam tier");
             return run_tier1(ctx, &candidate).await;
         }
 
@@ -804,6 +978,7 @@ pub async fn finish_join(
         record_report(ctx, &candidate, &report, &iterations).await?;
         emit_resolver_delta(ctx, "iterating", Some(&candidate));
         ctx.bump.notify_one();
+        set_phase(phase, "waiting on the resolver");
         turn = run.send(compose_tier0_failure_turn(&verdict)).await?;
     }
 
@@ -876,10 +1051,26 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
         .lock()
         .expect("pending asks mutex")
         .remove(&request_id);
+    let answered = matches!(answer, Ok(Ok(_)));
     {
         let repo = ctx.repo.clone();
         let dash = ctx.dash.clone();
+        let asked = ask.question.clone();
         let _ = tokio::task::spawn_blocking(move || {
+            // The live question is cleared either way — nothing is waiting on
+            // it any more, and leaving it standing renders a wizard whose
+            // answer would reach nobody.
+            //
+            // An *unanswered* one is not simply dropped, though: it is kept as
+            // the last ask, so the next resolve's charter carries it. That is
+            // what makes "the answer arrives on the next resolve" true rather
+            // than aspirational — the conversation cannot resume, but the
+            // question can be asked again by a resolver that knows to.
+            if !answered {
+                if let Ok(head) = tugdash_core::ops::rev_parse(&repo, &format!("tugdash/{dash}")) {
+                    tugdash_core::resolve::write_lastask(&repo, &dash, &head, &asked);
+                }
+            }
             tugdash_core::resolve::clear_question(&repo, &dash);
         })
         .await;
@@ -899,6 +1090,29 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
     }
 }
 
+/// Every path this resolve owes an account of (Spec S04).
+///
+/// The union of what the one-shot squash would have conflicted over, what the
+/// ladder resolved, and what it left — **not** the ladder's exit shape. The two
+/// exits that report neither resolutions nor leftovers (the replay probe and
+/// the clean one-shot squash) are exactly the ones that used to slip the audit,
+/// and the first of them is the shape of a wholesale machine decision that
+/// builds green.
+///
+/// Empty means nothing was decided, which is the honest no-audit case.
+pub fn audit_set(outcome: &tugdash_core::ResolveOutcome) -> Vec<String> {
+    let mut set: Vec<String> = outcome
+        .preview_conflicts
+        .iter()
+        .cloned()
+        .chain(outcome.resolved.iter().map(|r| r.path.clone()))
+        .chain(outcome.unresolved.iter().cloned())
+        .collect();
+    set.sort();
+    set.dedup();
+    set
+}
+
 /// Materialize the merge and carry the ladder's resolutions into it.
 async fn open_workshop(
     ctx: &ResolverContext,
@@ -913,13 +1127,29 @@ async fn open_workshop(
         .iter()
         .map(|r| (r.path.clone(), r.resolved_by))
         .collect();
+    // The replay exit already produced the tree the join would land, so this
+    // pass audits it rather than re-deriving it: the workshop opens *at* the
+    // candidate. Re-merging instead would hand the resolver a conflicted tree
+    // and ask it to redo, by hand, work the machine already did — and throw
+    // away the replay's per-round history in the process.
+    let inherited_candidate = match outcome.shape {
+        tugdash_core::JoinShape::Replay => outcome.candidate_commit.clone(),
+        tugdash_core::JoinShape::Squash => None,
+    };
 
     tokio::task::spawn_blocking(move || {
-        let workshop = tugdash_core::Workshop::open_merge(&repo, &dash)?;
-        if let Some(tree) = &staged_tree {
-            let paths: Vec<String> = ladder_resolved.iter().map(|(p, _)| p.clone()).collect();
-            workshop.apply_staged(tree, &paths)?;
-        }
+        let workshop = match &inherited_candidate {
+            Some(sha) => tugdash_core::Workshop::open_candidate(&repo, &dash, sha)?,
+            None => {
+                let workshop = tugdash_core::Workshop::open_merge(&repo, &dash)?;
+                if let Some(tree) = &staged_tree {
+                    let paths: Vec<String> =
+                        ladder_resolved.iter().map(|(p, _)| p.clone()).collect();
+                    workshop.apply_staged(tree, &paths)?;
+                }
+                workshop
+            }
+        };
         let unresolved = workshop.unresolved()?;
         let mut resolution_set: Vec<String> = ladder_resolved
             .iter()
@@ -930,6 +1160,10 @@ async fn open_workshop(
         resolution_set.dedup();
 
         let branch = format!("tugdash/{}", dash);
+        let ladder_tree = inherited_candidate
+            .clone()
+            .or_else(|| staged_tree.clone())
+            .unwrap_or_else(|| workshop.base_head().to_string());
         Ok(WorkshopState {
             path: workshop.path().to_path_buf(),
             unresolved,
@@ -937,6 +1171,8 @@ async fn open_workshop(
             resolution_set,
             intent: tugdash_core::resolve_intent(&repo, &base_branch, &branch),
             base_branch,
+            inherited_candidate,
+            ladder_tree,
         })
     })
     .await
@@ -953,25 +1189,38 @@ async fn commit_candidate(
     state: &WorkshopState,
     report: &ResolverReport,
     iterations: &[tugcast_core::types::DashJoinReportIteration],
+    baseline: &str,
 ) -> Result<String, String> {
-    validate_report(report, &state.resolution_set)?;
-
     let repo = ctx.repo.clone();
     let dash = ctx.dash.clone();
     let resolution_set = state.resolution_set.clone();
+    let baseline = baseline.to_string();
     let audits: Vec<(String, Option<String>)> = report
         .files
         .iter()
         .map(|f| (f.path.clone(), f.audit.clone()))
         .collect();
     let rung_resolved = state.rung_resolved.clone();
+    let inherited = state.inherited_candidate.clone();
+    let report_for_validation = report.clone();
     let pass = iterations.len();
 
     tokio::task::spawn_blocking(move || {
         let workshop = tugdash_core::Workshop::open_existing(&repo, &dash)?;
+        // What the resolver changed can only be read from the tree it left, so
+        // the report is validated here rather than before the task — against
+        // the machine's decisions *and* the resolver's own edits.
+        let touched = workshop.touched_since(&baseline)?;
+        validate_report(&report_for_validation, &resolution_set, &touched)?;
         let branch = format!("tugdash/{}", dash);
         let message = tugdash_core::ops::integrate_message(&repo, &dash, &branch, None);
-        let candidate = workshop.commit(&format!("{message}\n\nResolve pass {}.", pass + 1))?;
+        // An audit that changed nothing keeps the candidate it audited.
+        // Committing an identical tree anyway would reparent it onto the base
+        // head, turning a replay join into a squash without anybody asking.
+        let candidate = match &inherited {
+            Some(sha) if workshop.matches(sha)? => sha.clone(),
+            _ => workshop.commit(&format!("{message}\n\nResolve pass {}.", pass + 1))?,
+        };
         let dash_head = tugdash_core::ops::rev_parse(&repo, &branch)?;
         tugdash_core::resolve::anchor_candidate(&repo, &dash, &candidate, &dash_head)?;
 
@@ -1043,7 +1292,14 @@ async fn run_tier0(ctx: &ResolverContext, candidate: &str) -> Result<Vec<String>
         };
         verify::write_verification(&repo, &dash, &fact)?;
 
-        let out = verify::run_tier0(&repo, &dash, &candidate)?;
+        let out = match verify::run_tier0(&repo, &dash, &candidate) {
+            Ok(out) => out,
+            Err(e) => {
+                fact.fail_running(&e);
+                let _ = verify::write_verification(&repo, &dash, &fact);
+                return Err(e);
+            }
+        };
         fact.tier0 = out.status;
         fact.failures = out.failures.clone();
         fact.notes = out.notes;
@@ -1082,7 +1338,14 @@ async fn run_tier1(ctx: &ResolverContext, candidate: &str) -> Result<(), String>
         verify::write_verification(&repo, &dash, &fact)?;
         bump.notify_one();
 
-        let out = verify::run_tier1(&repo, &dash, &candidate)?;
+        let out = match verify::run_tier1(&repo, &dash, &candidate) {
+            Ok(out) => out,
+            Err(e) => {
+                fact.fail_running(&e);
+                let _ = verify::write_verification(&repo, &dash, &fact);
+                return Err(e);
+            }
+        };
         fact.tier1 = out.status;
         fact.failures.extend(out.failures);
         fact.notes.extend(out.notes);
@@ -1095,16 +1358,28 @@ async fn run_tier1(ctx: &ResolverContext, candidate: &str) -> Result<(), String>
 }
 
 /// One `changeset_join_resolve_delta` for the resolver rung.
+/// The resolver rung's progress frame ([P08]).
+///
+/// It names a **candidate**, not a path, and says so in the field name. The
+/// resolver works over the whole tree rather than one file at a time, so it has
+/// no path to report; passing the candidate sha through the `path` slot made
+/// the face render a commit hash in its filename column, and made every status
+/// of one run look like a different file to a store that keys progress by path.
 fn emit_resolver_delta(ctx: &ResolverContext, status: &str, candidate: Option<&str>) {
-    crate::feeds::join_resolve::emit_delta(
-        &ctx.control_tx,
-        &ctx.project_dir,
-        &ctx.dash,
-        candidate.unwrap_or(""),
-        "resolver",
-        status,
-        None,
-    );
+    let body = serde_json::json!({
+        "action": "changeset_join_resolve_delta",
+        "project_dir": ctx.project_dir,
+        "dash": ctx.dash,
+        "path": "",
+        "candidate": candidate,
+        "rung": "resolver",
+        "status": status,
+        "text": Option::<&str>::None,
+    });
+    let _ = ctx.control_tx.send(tugcast_core::protocol::Frame::new(
+        tugcast_core::protocol::FeedId::CONTROL,
+        serde_json::to_vec(&body).expect("changeset_join_resolve_delta serializes"),
+    ));
 }
 
 #[cfg(test)]
@@ -1122,6 +1397,7 @@ mod tests {
         }
         let spawner = StubJoinResolverSpawner {
             command: script.to_string_lossy().to_string(),
+            turn_timeout: RESOLVER_TURN_TIMEOUT,
         };
         (temp, spawner)
     }
@@ -1220,13 +1496,27 @@ mod tests {
             other => panic!("expected a report, got {other:?}"),
         };
 
-        assert!(validate_report(&report, &["a.txt".to_string()]).is_ok());
+        assert!(validate_report(&report, &["a.txt".to_string()], &[]).is_ok());
 
         // The rung-resolved file the resolver was told to audit is missing —
         // the 2026-08-15 failure class, caught at the report contract.
-        let err = validate_report(&report, &["a.txt".to_string(), "b.txt".to_string()])
+        let err = validate_report(&report, &["a.txt".to_string(), "b.txt".to_string()], &[])
             .expect_err("a skipped path must be refused");
         assert!(err.contains("b.txt"), "{err}");
+
+        // A path the machine never decided, changed by the resolver anyway, is
+        // refused in its own words: an invented file the report need not
+        // mention is a file that can be smuggled in.
+        let err = validate_report(&report, &["a.txt".to_string()], &["new.rs".to_string()])
+            .expect_err("an unexplained edit must be refused");
+        assert!(err.contains("new.rs"), "{err}");
+        assert!(err.contains("without accounting for it"), "{err}");
+
+        // A touched path that was already in the machine's set is not reported
+        // twice, and the resolver's own resolutions are the ordinary case.
+        assert!(
+            validate_report(&report, &["a.txt".to_string()], &["a.txt".to_string()]).is_ok()
+        );
     }
 
     #[tokio::test]
@@ -1485,6 +1775,205 @@ mod tests {
         assert!(report.contains("\"audit\":\"kept\""), "{report}");
     }
 
+    /// A repo whose one-shot squash conflicts but whose rounds replay cleanly.
+    ///
+    /// The dash's first round makes the same change the base later made, and
+    /// its second round moves on from there. Squashing sees base `A`, ours `M`,
+    /// theirs `X` and conflicts; replaying applies round 1 as a no-op onto a
+    /// head that already has `M` and round 2 cleanly on top. That is the
+    /// wholesale-machine-decision shape: a conflict silently settled by which
+    /// rung ran, with nothing in `resolved` or `unresolved` to say so.
+    fn replay_shaped_repo(resolver: &str) -> tempfile::TempDir {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        git(repo, &["init", "-b", "main"]);
+        git(repo, &["config", "user.name", "t"]);
+        git(repo, &["config", "user.email", "t@t"]);
+        std::fs::write(repo.join(".gitignore"), ".tug/\n").unwrap();
+        std::fs::write(repo.join("f.txt"), "A\n").unwrap();
+        std::fs::create_dir_all(repo.join(".tugtool")).unwrap();
+        std::fs::write(
+            repo.join(".tugtool/config.toml"),
+            "[tugtool.dash]\nverify_tier0 = [\"grep -q X f.txt\"]\n",
+        )
+        .unwrap();
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base"]);
+        git(repo, &["branch", "tugdash/demo"]);
+        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+
+        git(repo, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(repo.join("f.txt"), "M\n").unwrap();
+        git(repo, &["commit", "-am", "r1: the change the base also makes"]);
+        std::fs::write(repo.join("f.txt"), "X\n").unwrap();
+        git(repo, &["commit", "-am", "r2: move on from there"]);
+        git(repo, &["switch", "-q", "main"]);
+
+        std::fs::write(repo.join("f.txt"), "M\n").unwrap();
+        git(repo, &["commit", "-am", "the base makes the same change"]);
+
+        let script = repo.join("stub-resolver.sh");
+        write_exec(&script, resolver);
+        git(
+            repo,
+            &["config", "tugdash.joinresolver", &script.to_string_lossy()],
+        );
+        temp
+    }
+
+    /// A dash the replay probe settles is audited, and its candidate survives.
+    ///
+    /// The replay exit reports neither resolutions nor leftovers, so a trigger
+    /// reading those two lists skipped the audit entirely — over the one shape
+    /// where a machine decided a real conflict wholesale. The audit set is the
+    /// preview's conflict list instead, so it fires; and because the audit
+    /// changed nothing, the replayed candidate is left standing rather than
+    /// re-committed as a squash.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_replay_that_settled_a_conflict_is_audited() {
+        let auditing_stub = "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"replay\",\"what_each_side_did\":\"both reached M; the dash went on to X\",\"reconciliation\":\"the replay applied the rounds in order\",\"audit\":\"kept\"}],\"notes\":\"audited\"}'\n";
+        let temp = replay_shaped_repo(auditing_stub);
+        let repo = temp.path();
+
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(
+            outcome.shape,
+            tugdash_core::JoinShape::Replay,
+            "precondition: the rounds replay clean"
+        );
+        assert_eq!(
+            outcome.preview_conflicts,
+            vec!["f.txt".to_string()],
+            "precondition: the squash would have conflicted"
+        );
+        assert_eq!(audit_set(&outcome), vec!["f.txt".to_string()]);
+        let replayed = outcome.candidate_commit.clone().expect("a candidate");
+
+        let ctx = context(repo);
+        finish_join(&ctx, &outcome).await.expect("the audit runs");
+
+        let candidate = match tugdash_core::resolve::candidate_status(repo, "demo", "main") {
+            tugdash_core::resolve::CandidateStatus::Valid(sha) => sha,
+            other => panic!("expected a valid candidate, got {other:?}"),
+        };
+        assert_eq!(
+            candidate, replayed,
+            "an audit that changed nothing keeps the replayed candidate"
+        );
+        let report = tugdash_core::resolve::read_report(repo, "demo", &candidate)
+            .expect("the replay pass leaves a report");
+        assert!(report.contains("f.txt"), "{report}");
+        assert!(report.contains("\"audit\":\"kept\""), "{report}");
+    }
+
+    /// …and a report that ignores what the replay decided is refused by name.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_replay_report_that_omits_the_conflict_is_refused() {
+        let silent_stub = "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"files\":[],\"notes\":\"nothing to do\"}'\n";
+        let temp = replay_shaped_repo(silent_stub);
+        let repo = temp.path();
+
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let ctx = context(repo);
+        let err = finish_join(&ctx, &outcome)
+            .await
+            .expect_err("a report accounting for nothing cannot pass");
+        assert!(err.contains("f.txt"), "{err}");
+    }
+
+    /// A dash with no conflict at all has an empty audit set, and the resolver
+    /// never runs — the no-audit case by construction, not by exit shape.
+    #[test]
+    fn a_clean_dash_has_an_empty_audit_set() {
+        let temp = replay_shaped_repo("#!/bin/sh\nexit 1\n");
+        let repo = temp.path();
+        // Take the base's conflicting change back out, leaving a dash that
+        // merges cleanly.
+        git(repo, &["revert", "--no-edit", "HEAD"]);
+
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(outcome.candidate_commit.is_some());
+        assert!(
+            audit_set(&outcome).is_empty(),
+            "nothing was decided: {:?}",
+            audit_set(&outcome)
+        );
+    }
+
+    /// A file the resolver invented and did not mention is refused by name.
+    ///
+    /// The report contract used to require only the paths the *machine*
+    /// decided, so anything the resolver created on its own initiative landed
+    /// in the candidate with nothing obliged to say it existed. Naming it is
+    /// the whole defense: a report that need not mention an invented file
+    /// cannot catch one being smuggled in.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_the_resolver_invented_must_be_accounted_for() {
+        // Resolves the conflict *and* drops an unrelated file, reporting only
+        // the conflict.
+        let smuggler = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf 'x\\n' > \"$ws/invented.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"both rewrote it\",\"reconciliation\":\"kept both\"}],\"notes\":\"done\"}'\n";
+        let temp = conflicted_repo(smuggler);
+        let repo = temp.path();
+
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let ctx = context(repo);
+        let err = finish_join(&ctx, &outcome)
+            .await
+            .expect_err("an unexplained file cannot pass");
+        assert!(err.contains("invented.txt"), "{err}");
+
+        // …and the same run passes once the report owns up to it.
+        let honest = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf 'x\\n' > \"$ws/invented.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"both rewrote it\",\"reconciliation\":\"kept both\"},{\"path\":\"invented.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"neither had it\",\"reconciliation\":\"added, the merged code needs it\"}],\"notes\":\"done\"}'\n";
+        let temp = conflicted_repo(honest);
+        let repo = temp.path();
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let ctx = context(repo);
+        finish_join(&ctx, &outcome)
+            .await
+            .expect("an accounted-for file is fine");
+    }
+
+    /// An expired ask reaches the next resolver's charter, once.
+    ///
+    /// `QUESTION_DEADLINE`'s contract said the answer arrives on the next
+    /// resolve; nothing implemented it, and every exit cleared the question.
+    /// The conversation genuinely cannot resume, so the honest version is that
+    /// the *question* is carried forward — and then consumed, so it is offered
+    /// forward exactly once rather than to every resolve from here on.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_expired_ask_reaches_the_next_charter_and_is_consumed() {
+        let temp = conflicted_repo("#!/bin/sh\nexit 1\n");
+        let repo = temp.path();
+        let head = tugdash_core::ops::rev_parse(repo, "tugdash/demo").unwrap();
+
+        tugdash_core::resolve::write_lastask(
+            repo,
+            "demo",
+            &head,
+            "Which side owns the retry budget?",
+        );
+
+        let intent = tugdash_core::resolve_intent(repo, "main", "tugdash/demo");
+        assert!(
+            intent.contains("Which side owns the retry budget?"),
+            "the expired ask rides the next charter's corpus: {intent}"
+        );
+        assert!(intent.contains("got no answer"), "{intent}");
+
+        // A resolve consumes it, so the one after does not re-ask on its behalf.
+        let auditing = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"x\",\"reconciliation\":\"y\"}],\"notes\":\"\"}'\n";
+        write_exec(&repo.join("stub-resolver.sh"), auditing);
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        finish_join(&context(repo), &outcome)
+            .await
+            .expect("the resolve runs");
+
+        assert!(
+            tugdash_core::resolve::read_lastask(repo, "demo", &head).is_none(),
+            "the ask was consumed by the charter that carried it"
+        );
+    }
+
     /// A resolver that reports without touching the tree is refused by marker
     /// validation, not believed.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1505,6 +1994,77 @@ mod tests {
                 tugdash_core::resolve::CandidateStatus::None
             ),
             "a refused resolve anchors no candidate"
+        );
+    }
+
+    /// A failed resolve gives the workshop back ([P07]).
+    ///
+    /// The failure leaves a stuck fact behind, which is where the account of it
+    /// belongs. What it must not leave behind is the tree: a half-merged
+    /// checkout with conflict markers in the files and a live `MERGE_HEAD`,
+    /// sitting in `.tug/workshops/` until somebody happens to open it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_resolve_leaves_the_workshop_clean_at_base() {
+        let touch_nothing = "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"x\",\"reconciliation\":\"y\"}],\"notes\":\"\"}'\n";
+        let temp = conflicted_repo(touch_nothing);
+        let repo = temp.path();
+
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let ctx = context(repo);
+        finish_join(&ctx, &outcome)
+            .await
+            .expect_err("the resolver touched nothing");
+
+        let workshop = tugdash_core::workshop::workshop_path(repo, "demo");
+        assert!(workshop.exists(), "the workshop itself survives its warmth");
+        assert!(
+            !workshop.join(".git/MERGE_HEAD").exists()
+                && !workshop.join("../../.git/worktrees/demo/MERGE_HEAD").exists(),
+            "no merge is still in flight"
+        );
+        let contents = std::fs::read_to_string(workshop.join("f.txt")).unwrap();
+        assert!(
+            !contents.contains("<<<<<<<"),
+            "the tree is back at base, markers and all: {contents}"
+        );
+        let status = std::process::Command::new("git")
+            .current_dir(&workshop)
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&status.stdout).trim(),
+            "",
+            "and nothing is left modified"
+        );
+    }
+
+    /// A workshop belongs to a dash, so a dash that is gone cannot grow one.
+    ///
+    /// The straggler this closes: a join tears the workshop down while a
+    /// verification that started before it is still running, and the
+    /// verification's next open re-creates the worktree and its branch as an
+    /// orphan nothing will ever collect.
+    #[test]
+    fn a_torn_down_dash_cannot_have_its_workshop_reopened() {
+        let temp = conflicted_repo("#!/bin/sh\nexit 0\n");
+        let repo = temp.path();
+
+        tugdash_core::workshop::Workshop::open_merge(repo, "demo")
+            .expect("a live dash has a workshop");
+
+        let mut warnings = Vec::new();
+        tugdash_core::workshop::remove(repo, "demo", &mut warnings);
+        git(repo, &["branch", "-D", "tugdash/demo"]);
+
+        let err = match tugdash_core::workshop::Workshop::open_merge(repo, "demo") {
+            Err(e) => e,
+            Ok(_) => panic!("a gone dash refuses"),
+        };
+        assert!(err.contains("is gone"), "{err}");
+        assert!(
+            !tugdash_core::workshop::workshop_path(repo, "demo").exists(),
+            "and nothing was created on the way to refusing"
         );
     }
 
@@ -1621,35 +2181,59 @@ mod tests {
         );
     }
 
-    #[test]
-    fn probe_spawner_choice() {
+    /// A tier runner that dies between writing `running` and writing its
+    /// answer leaves the verdict red naming the failure — never `running`.
+    ///
+    /// Driven by asking for a candidate that does not exist, so
+    /// `Workshop::open_candidate` refuses after the `running` fact is already
+    /// standing. A verdict stuck at `running` renders as a wait the face has no
+    /// control for.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_tier_run_that_dies_leaves_the_verdict_red() {
         let temp = conflicted_repo(&resolving_stub("SENTINEL\n"));
         let repo = temp.path();
-        eprintln!("PROGRAM = {:?}", tugdash_core::resolver_program(repo));
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(async {
-            let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
-            let state = open_workshop(&context(repo), &outcome).await.unwrap();
-            eprintln!(
-                "STATE path={:?} unresolved={:?} set={:?}",
-                state.path, state.unresolved, state.resolution_set
-            );
-            let _ = state;
-            eprintln!("FINISH = {:?}", finish_join(&context(repo), &outcome).await);
-            eprintln!(
-                "FACT = {:?}",
-                tugdash_core::verify::read_verification(repo, "demo")
-            );
-            eprintln!(
-                "WS f.txt = {:?}",
-                std::fs::read_to_string(state.path.join("f.txt"))
-            );
-        });
+        let ctx = context(repo);
+
+        let err = run_tier0(&ctx, "0000000000000000000000000000000000000000")
+            .await
+            .expect_err("a candidate that does not exist cannot be verified");
+
+        let fact = tugdash_core::verify::read_verification(repo, "demo").expect("a verdict stands");
+        assert_eq!(fact.tier0, tugdash_core::verify::TierStatus::Red);
+        assert_eq!(
+            fact.failures,
+            vec![err],
+            "the verdict carries the sentence the run failed with"
+        );
     }
+
+    /// A resolver that writes nothing at all is killed at its silence bound,
+    /// and the resolve fails with a sentence naming it.
+    ///
+    /// The bound is the only liveness check anything applies to a resolver, so
+    /// this drives the real driver loop with a short one rather than asserting
+    /// against the constant.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_resolver_that_never_answers_is_stopped_at_its_silence_bound() {
+        let temp = conflicted_repo("#!/bin/sh\nsleep 120\n");
+        let repo = temp.path();
+        // Take the config seam out so the injected spawner — the one carrying
+        // the short bound — is what `spawner_for` picks.
+        git(repo, &["config", "--unset", "tugdash.joinresolver"]);
+
+        let mut ctx = context(repo);
+        ctx.production = Some(Arc::new(StubJoinResolverSpawner {
+            command: repo.join("stub-resolver.sh").to_string_lossy().to_string(),
+            turn_timeout: Duration::from_millis(400),
+        }));
+
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let err = finish_join(&ctx, &outcome)
+            .await
+            .expect_err("a silent resolver cannot finish the join");
+        assert!(err.contains("went silent"), "{err}");
+    }
+
     #[test]
     fn the_tier0_failure_turn_carries_the_failing_detail() {
         let turn = compose_tier0_failure_turn(&["cargo check failed:\nerror[E0308]".to_string()]);

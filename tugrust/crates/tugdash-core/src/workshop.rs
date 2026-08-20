@@ -116,6 +116,48 @@ impl Workshop {
         Ok(ws)
     }
 
+    /// Every path this workshop's tree differs from `baseline` on.
+    ///
+    /// Staging first is what makes the answer include files nobody tracked yet:
+    /// a resolver that invents a file is the case this exists for, and an
+    /// unstaged new file is invisible to a tree diff. The paths are what the
+    /// resolver's report is then required to account for — a report that need
+    /// not mention a file the resolver created is a report that cannot catch
+    /// one being smuggled in.
+    pub fn touched_since(&self, baseline: &str) -> Result<Vec<String>, String> {
+        let out = git_output(&self.path, &["add", "-A"])?;
+        if !out.status.success() {
+            return Err(format!(
+                "workshop add failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(
+            git_stdout(&self.path, &["diff", "--cached", "--name-only", baseline])?
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_string)
+                .collect(),
+        )
+    }
+
+    /// Whether the working tree still holds exactly what `sha` does.
+    ///
+    /// Asked by an audit pass that opened the workshop at a candidate the
+    /// ladder already built: an audit that changed nothing must leave that
+    /// commit standing rather than re-committing its tree onto the base head,
+    /// which would convert a replay join into a squash as a side effect of
+    /// reading it.
+    pub fn matches(&self, sha: &str) -> Result<bool, String> {
+        let dirty = git_stdout(&self.path, &["status", "--porcelain"])?;
+        if !dirty.trim().is_empty() {
+            return Ok(false);
+        }
+        let head = git_stdout(&self.path, &["rev-parse", "HEAD"])?;
+        Ok(head.trim() == sha)
+    }
+
     /// Write the workshop's working tree as a candidate commit parented on the
     /// base head — the same shape the ladder's candidate has, so
     /// [`crate::ops::join_in`] fast-forwards onto it unchanged.
@@ -229,6 +271,20 @@ impl Workshop {
     /// The workshop, created and hydrated if it is not already there.
     fn ensure(repo: &Path, name: &str) -> Result<Self, String> {
         let repo_root = main_repo_root(repo);
+
+        // A workshop belongs to a dash. When the dash is gone — joined, or
+        // discarded — creating one leaks a worktree and a branch that nothing
+        // will ever collect, because every sweeper keys off the dash that is no
+        // longer there. The straggler this closes is real: a join tears the
+        // workshop down while a verification that started before it is still
+        // running, the verification's next `open_*` re-creates it, and the
+        // orphan outlives the dash by however long the checkout survives.
+        if !branch_exists(&repo_root, &branch_name(name)) {
+            return Err(format!(
+                "the dash {name} is gone — its workshop cannot be opened"
+            ));
+        }
+
         ensure_tug_ignored(&repo_root);
 
         let path = workshop_path(&repo_root, name);
@@ -331,6 +387,39 @@ impl Workshop {
         let _ = git_output(&self.path, &["clean", "-fd"]);
         Ok(())
     }
+}
+
+/// Every workshop this repository currently has, by its sanitized name.
+///
+/// Both halves are read, because either can outlive the other: `worktree
+/// remove` that failed leaves a directory with no branch, and a `worktree
+/// prune` after a hand-deleted directory leaves a branch with no worktree. A
+/// sweeper that read only one would keep re-finding the other.
+pub fn existing(repo: &Path) -> Vec<String> {
+    let repo_root = main_repo_root(repo);
+    let mut names: Vec<String> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(repo_root.join(".tug").join("workshops")) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                names.push(name.to_string());
+            }
+        }
+    }
+    if let Ok(list) = git_stdout(
+        &repo_root,
+        &["branch", "--list", "tugworkshop/*", "--format=%(refname:short)"],
+    ) {
+        for line in list.lines() {
+            if let Some(name) = line.trim().strip_prefix("tugworkshop/") {
+                names.push(name.to_string());
+            }
+        }
+    }
+
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// Remove a dash's workshop — its worktree and its `tugworkshop/<name>` branch.

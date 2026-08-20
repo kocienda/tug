@@ -65,7 +65,7 @@ tugutil dash join <name> --preview --json
 
 The preview runs the merge in memory (`git merge-tree`) and touches nothing. Read the result:
 
-- **Clean** → go to beat 2.
+- **Clean** → go to beat 2 — but a clean preview is no longer the whole answer. Every join rides a candidate the project's own checks have judged, clean ones included: opening join mode on the card resolves a clean dash and verifies the one-shot squash that produces. So a beat-2 join can be refused with *"this candidate is unverified"* or *"no verified candidate"* even though nothing conflicts, and the honest answers are the same two the card offers — let the resolve run, or pass `--anyway`.
 - **Conflicts** → report every conflicted path plus the message that would have landed, and **stop**. Do not join, and do not resolve on your own initiative.
 
   The next step is the card's, not yours. Pressing **Resolve** on the dash row runs the ladder and then hands the merge to the resolver — an agent that finishes it in the dash's workshop worktree, audits what the machine rungs decided, asks the user one intent question if the two sides genuinely conflict, and reports; the project's own declared checks then run over the tree that would land. Say that is what the row offers, and let the user press it. `tugutil dash join <name> --resolve` is the CLI equivalent and it **lands** what it resolves, so run it only when the user says to, and never as a probe. Resolving by hand on the dash worktree and re-running the join is the other real option, and the one nothing audits.
@@ -91,6 +91,8 @@ Squash-merges `tugdash/<name>` into its base and tears down the worktree + branc
 
 - A join interrupted mid-teardown (the command reports the journal) resumes with `tugutil dash join <name> --continue`. Run that; it is the resume, not a retry.
 - A non-preview join that hits conflicts exits non-zero with the working tree already restored. Report the paths; the options are the same two as beat 1.
+- A join refused for its **verdict** — unverified, red, or no candidate at all — is refused by `join_in` itself, so the CLI and the card meet one gate rather than two opinions. `--anyway` is the escape and it is the user's to ask for: it lands a tree the project's checks refused or never saw. Report the sentence verbatim and let them choose.
+- A join refused with *"a resolve is already running for this dash"* is admission, not failure: one dash admits one run, and the one holding it is still finishing. Wait and re-run rather than forcing it.
 
 ## After a successful join
 

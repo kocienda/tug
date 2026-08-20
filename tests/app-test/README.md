@@ -279,6 +279,23 @@ through a join — a successful join squashes onto the base branch **in that
 branch's live working tree**, which for the checkout would be the developer's
 own `main`. `rmJoinScratchRepo` deletes the lot.
 
+Owning it is also what makes a fixture *safe*, and that is the newer half. Every
+join rides a candidate now, so **opening join mode resolves the dash and runs
+the project's declared checks over what that built** — a clean dash included.
+Aimed at the developer's checkout, that is the corpus building itself on the way
+to a button press. Any test that enters join mode belongs on a scratch repo with
+a cheap Tier 0, which is why `at0435` and `at0436` moved onto one.
+
+Two options shape what the fixture builds:
+
+- **`cleanMerge: true`** puts the base's rewrite in a file of its own, so the
+  squash has nothing to reconcile. The clean join is its own arc rather than the
+  absence of one: it resolves, anchors a candidate, and gets a verdict.
+- **A slow resolver stub** — `read -r _charter; sleep 15; …` — is how `at0444`
+  holds a run silent past the twelve-second deadline the client used to enforce.
+  Nothing is emitted during the sleep, on purpose: the point is that a run which
+  cannot speak is still a run, and only the server can say otherwise.
+
 ## Selectors that mirror the product
 
 Product strings and ids a test queries — an `aria-label`, a dialog island class,

@@ -155,18 +155,44 @@ describe("one control per state (Table T01)", () => {
     // The override is scoped to the candidate it was decided over, so the same
     // press against a different sha does nothing — which is what stops one
     // Join anyway from blessing every candidate that follows it.
-    const overridden = face(RED, { redOverrideFor: "cafe1234" });
+    // Read off the dash, not off this deck: the override is a durable server
+    // fact now, so it arrives on the feed entry beside the verdict it defeats.
+    const overridden = face({ ...RED, override_for: "cafe1234" });
     expect(overridden.control).toBeNull();
     expect(overridden.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
-    const stale = face(RED, { redOverrideFor: "beef5678" });
+    const stale = face({ ...RED, override_for: "beef5678" });
     expect(stale.control).toBe(JOIN_CONTROL.override);
   });
 
-  test("clean: same — a sentence and no button", () => {
-    const clean = face({ phase: "previewed" });
+  test("clean and verified: same — a sentence and no button", () => {
+    // Verified, because a clean dash is not joinable on the strength of git
+    // finding no overlapping text ([P03]). Entering join mode resolves it, the
+    // server judges what that built, and the row reaches this state only once
+    // there is a green verdict about the tree that would land.
+    const clean = face({
+      phase: "previewed",
+      candidate: "cafe1234",
+      verification: {
+        tier0: "green",
+        tier1: "green",
+        base_sha: "base0000",
+        candidate_sha: "cafe1234",
+      },
+    });
     expect(clean.outcome).toBe("clean");
     expect(clean.control).toBeNull();
     expect(clean.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
+  });
+
+  test("clean and not yet judged: the exam, in the window before the candidate", () => {
+    // The gap between entering join mode and the auto-resolve anchoring a
+    // candidate. It used to read as ready — the verdict was "not applicable"
+    // with no candidate to be about — which made the one second where nothing
+    // had been built the one second a join could slip through.
+    const unjudged = face({ phase: "previewed" });
+    expect(unjudged.outcome).toBe("clean");
+    expect(unjudged.control).toBe(JOIN_CONTROL.verify);
+    expect(unjudged.line).toBe("Verify the joined tree first");
   });
 
   test("a join in flight: the wait is named, and a second press is impossible", () => {

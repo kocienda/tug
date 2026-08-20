@@ -9,27 +9,33 @@
  * was never asked — so the only honest pin is one that walks submit → gate →
  * stage → shade dismissal → wire and then proves the server *answered*.
  *
- * ## Why the join is made to fail, and why that is the strongest safe test
+ * ## What the press has to produce
  *
- * A join that succeeds squashes its dash onto its base branch. This fixture's
- * dash lives in the checkout the corpus is running from, so that base is a
- * branch somebody works on — not a thing this file may move (`at0418` declines
- * the same landing for the same reason). So the fixture is made *unlandable
- * after its preview settles*: an interrupted-teardown journal is written into
- * the gap between the clean preview and the press. The gate still passes — it
- * judges the settled preview — the request goes out for real, and the server
- * refuses it with its own sentence.
+ * The base branch moving, and nothing weaker. A bulletin, a spinner, or a face
+ * state can all be produced by a client that never sent anything — which is
+ * exactly what the incident did — so the assertion is a commit on `main` and
+ * the dash gone from the lane.
  *
- * The landed half is not untestable, only untestable *here*: at0441 owns a
- * scratch repository outright and presses the same control through to a squash
- * commit on its own `main`. This file stays the press → wire → **refusal** pin;
- * that one is the press → wire → **landed** pin.
+ * This file once made the join *fail* instead, on the reasoning that a dash in
+ * the developer's checkout must not be landed. It owns its repository now, for
+ * two reasons. That base branch is one somebody works on. And entering join
+ * mode on a clean dash *resolves* it, which runs the project's own declared
+ * checks over the candidate — aimed at the checkout, that is the corpus
+ * building itself in the developer's tree on the way to a button press. Here it
+ * is a sentinel grep over a two-file repo.
  *
- * That refusal is the proof. `changeset_join_err` can only exist if the land
- * request reached the wire, which is exactly what did not happen in the
- * incident. And it lands on the second thing this campaign built: join had no
- * error surface at all, so the server's reason used to settle into a snapshot
- * field nothing in the app ever read.
+ * The refusal half moved with it, and did not go missing: a server refusal that
+ * the client can also compute is now refused client-side first ([P04] puts the
+ * same gate on both sides), so what remained here was a race against the feed
+ * rather than a pin. `at0435` holds the refusal *surface*, `at0443` holds a
+ * durable stuck sentence, and `ops.rs` holds the gate itself.
+ *
+ * What stays this file's own, and is why it is not at0441 twice: the dash is
+ * reached by a **binding** gesture (`bind_dash_ok`) rather than by name, and
+ * the press is **staged** behind the shade's dismissal. Those are the two
+ * mechanisms the 2026-08-17 incident lived in — the staged callback re-read the
+ * dash off a controller the staging had just cleared, found nothing, and
+ * returned.
  *
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/components/tugways/cards/staged-landing.ts
@@ -48,7 +54,11 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, discardDash, universeRoot } from "./dash-fixture";
+import {
+  makeJoinScratchRepo,
+  rmJoinScratchRepo,
+  type JoinScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -61,8 +71,14 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The checkout whose built binaries the fixture drives — never the project. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 const DASH = "at0436-work";
+const FILE = "subject.txt";
+
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: JoinScratchRepo | null = null;
+const projectDir = (): string => scratch?.repo ?? "";
 
 const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
@@ -123,63 +139,44 @@ const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join"]`;
+const verdict = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join-verdict"]`;
 
-/**
- * The join journal's home. `join_in` resolves the repo root from the card's
- * project dir, and the state-dir slug is derived from whatever that resolution
- * returns — the pinned universe under `just app-test`, the common dir's owner
- * otherwise (see at0418, `universeRoot` in `dash-fixture.ts`, and
- * `project_state_dir` / `join_journal_path` in `tugdash-core/src/ops.rs`).
- */
-function journalPath(dash: string): string {
-  const slug = universeRoot(PROJECT_DIR).replaceAll("/", "-");
-  return join(
-    homedir(),
-    "Library/Application Support/Tug/projects",
-    slug,
-    `join-journal-${dash}.json`,
-  );
-}
-
-function writeJournal(dash: string): void {
-  const path = journalPath(dash);
-  mkdirSync(resolve(path, ".."), { recursive: true });
-  writeFileSync(
-    path,
-    JSON.stringify(
-      {
-        name: dash,
-        base_branch: "main",
-        strategy: "squash",
-        commit_hash: "abc1234",
-        phase: "WorktreeRemoved",
-      },
-      null,
-      2,
-    ),
-  );
-}
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  rmSync(journalPath(DASH), { force: true });
-  discardDash(PROJECT_DIR, DASH);
-  const dash = createDash(PROJECT_DIR, DASH, "at0436 fixture (a round to land)");
-  dashId = dash.id;
-  writeFileSync(join(dash.worktree, "at0436-work.txt"), "at0436\n");
-  commitRound(PROJECT_DIR, DASH, "at0436(round): something to land");
+  // A repository of the fixture's own, for the reason at0441 has one: entering
+  // join mode on a clean dash now *resolves* it, and the verification that
+  // follows runs the project's own declared checks. Aimed at the checkout that
+  // would be the corpus building itself, in the developer's tree, on the way to
+  // a press. Here it is a sentinel grep over a two-file repo.
+  scratch = makeJoinScratchRepo({
+    prefix: "at0436",
+    dash: DASH,
+    description: "at0436 fixture (a round to land)",
+    checkout: CHECKOUT,
+    file: FILE,
+    fork: "at0436 the dash's file\n",
+    base: "at0436 SENTINEL the base's own file\n",
+    dashBody: "at0436 SENTINEL the dash rewrote it\n",
+    // Clean, because what this file presses is a *landable* join: the refusal
+    // it is about comes from the server on execute, not from the merge.
+    cleanMerge: true,
+    verifyTier0: `grep -q SENTINEL ${FILE}`,
+    resolver: "#!/bin/sh\nexit 0\n",
+  });
+  dashId = scratch.dashId;
 
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(PROJECT_DIR));
+  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir()));
   mkdirSync(fixtureDir, { recursive: true });
-  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(PROJECT_DIR, SID));
+  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(projectDir(), SID));
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  // The journal first: a dash carrying one is a dash the release verb argues
-  // with rather than tears down.
-  rmSync(journalPath(DASH), { force: true });
-  discardDash(PROJECT_DIR, DASH);
+  // The repository IS the teardown: branch, worktree, config, and dash all go
+  // with the directory.
+  rmJoinScratchRepo(scratch);
   if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
   if (tugbankPath !== "") rmTempTugbank(tugbankPath);
 });
@@ -284,17 +281,27 @@ async function settledOutcome(app: App, dash: string): Promise<string> {
   return app.evalJS<string>(read);
 }
 
-const BULLETIN_TEXTS = `Array.from(document.querySelectorAll('[data-sonner-toast]')).map(function(e){ return e.textContent || ""; })`;
+/** The base branch's tip subject — the only place a join writes itself down. */
+function baseTip(): string {
+  return Bun.spawnSync(
+    ["git", "-C", projectDir(), "log", "-1", "--format=%s", "main"],
+    {},
+  )
+    .stdout.toString()
+    .trim();
+}
 
 describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
   test(
-    "a pressed join is sent for real, and the server's refusal is shown",
+    "a pressed join is sent for real, and the base branch moves",
     async () => {
       tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      // The source tree is where the app finds `tugdeck/dist` to serve, so it
+      // stays the checkout; the *project* is the scratch repo.
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0436-join-press",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -302,11 +309,11 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A real session spawn, not a bind: the scratch repo reaches the
+        // server the only way a project ever does — by a session registering
+        // its workspace, which is what puts it in the open-project set the
+        // changeset aggregate enumerates.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         await raiseShade(app);
@@ -335,6 +342,15 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
           { timeoutMs: 8000 },
         );
 
+        // Entering join mode resolved the dash and the server verified what it
+        // built ([P03]). The press is gated on that verdict, so waiting for it
+        // is waiting for the gate to be clear — which is what makes the refusal
+        // below unambiguously the *server's*, arriving after a real send.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(verdict(DASH))})?.getAttribute("data-verdict") === "green"`,
+          { timeoutMs: 180000 },
+        );
+
         // A message of the user's own, so the press clears the gate on its
         // merits rather than on whatever the dash's draft happens to hold.
         await app.nativeClickAtElement(EDITOR);
@@ -347,34 +363,27 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
           { timeoutMs: 5000 },
         );
 
-        // Make the dash unlandable *after* the preview settled. The gate reads
-        // the settled preview and still passes; the server refuses on execute.
-        writeJournal(DASH);
-
+        const before = baseTip();
         await app.nativeKey("Return", ["cmd"]);
 
-        // The refusal can only exist if the request reached the wire — which
-        // is precisely the beat that produced nothing at all before. Waiting
-        // on outcomes, never on the shade's exit animation: background windows
-        // run no rAF, so the watchdog may be what runs the staged landing.
+        // The base branch moving is the proof, and the only one this beat
+        // accepts. Waiting on outcomes, never on the shade's exit animation:
+        // background windows run no rAF, so the watchdog may be what runs the
+        // staged landing.
+        const deadline = Date.now() + 90_000;
+        while (Date.now() < deadline && baseTip() === before) await settle(500);
+        expect(baseTip(), "the press reached the wire and the join integrated").not.toBe(
+          before,
+        );
+        note(`at0436 landed: ${JSON.stringify(baseTip())}`);
+
+        // And the dash is gone from the lane, which is the other half of a join
+        // that really happened: a landed dash that keeps being offered is the
+        // same lie the whole campaign is about.
         await app.waitForCondition<boolean>(
-          `${BULLETIN_TEXTS}.some(function(t){ return t.indexOf("Join failed") !== -1; })`,
+          `document.querySelector(${JSON.stringify(row(DASH))}) === null`,
           { timeoutMs: 60000 },
         );
-        const texts = await app.evalJS<string[]>(BULLETIN_TEXTS);
-        note(`at0436 bulletins after the press: ${JSON.stringify(texts)}`);
-        expect(
-          texts.some((t) => t.includes("is incomplete")),
-          "the server's own sentence reaches the user, not a generic failure",
-        ).toBe(true);
-
-        // The dash is still there: a refused execute lands nothing.
-        expect(
-          await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(row(DASH))}) !== null`,
-          ),
-          "a refused join leaves the dash standing",
-        ).toBe(true);
       } finally {
         await app.close();
       }

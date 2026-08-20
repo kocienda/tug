@@ -232,7 +232,11 @@ afterAll(() => {
   // Already gone if the discard did its job; this is the path where it did not.
   discardDash(PROJECT_DIR, DASH_RELEASE);
   if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
-});
+  // Three real discards, each deleting a worktree and a branch: measured at
+  // roughly two seconds apiece against a checkout other processes are holding,
+  // which puts this comfortably past the default five-second hook budget. A
+  // teardown that times out fails the file with no assertion having failed.
+}, 120_000);
 
 function deckShape() {
   return {
@@ -422,11 +426,17 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         );
         expect(await settledOutcome(app, DASH_WORK)).toBe("clean");
         const clean = await landingFace(app, DASH_WORK);
-        // A landable dash states that it is ready and names where landing
-        // happens — the composer's ⬆ is what fires one.
-        expect(clean.ready).toBe(true);
-        expect(clean.line).toContain("Ready to join");
-        expect(clean.line).toContain("/dash-join");
+        // Clean, and not yet joinable: every join rides a candidate the
+        // project's own checks have judged ([P03]), and this dash has never
+        // been resolved. So the row refuses and names the exam — a clean merge
+        // is a claim about text, not about whether the result builds.
+        //
+        // The joinable end of this arc is at0441's, which resolves a clean dash
+        // and reaches a green verdict with no press. It is not this file's,
+        // because this dash lives in the developer's checkout and resolving it
+        // would run the project's real declared checks there.
+        expect(clean.ready).toBe(false);
+        expect(clean.line).toContain("Verify the joined tree first");
         // No blockers on a clean bill, and no release question either.
         const cleanFace = await app.evalJS<{ blockers: number; empty: number }>(
           `(() => {

@@ -558,6 +558,8 @@ export interface JoinScratchRepo {
   stubDir: string;
   /** The dash worktree the round was committed on. */
   worktree: string;
+  /** The dash's creation id — what a bind gesture addresses it by. */
+  dashId: string;
 }
 
 /** How a join scratch repo is shaped. */
@@ -588,6 +590,16 @@ export interface JoinScratchOpts {
   verifyTier0: string;
   /** The resolver stub's script body, with `$1` the workshop path. */
   resolver: string;
+  /**
+   * Put the base's rewrite in a file of its own, so the squash has nothing to
+   * reconcile.
+   *
+   * The clean join is its own arc now, not the absence of one: entering join
+   * mode resolves it, the one-shot squash anchors a candidate, and the declared
+   * Tier 0 judges that candidate — so a fixture that wants a *joinable* dash
+   * without a conflict asks for one here rather than skipping the pipeline.
+   */
+  cleanMerge?: boolean;
   /** An optional merge-driver stub body, for an arc that needs a ladder-clean candidate. */
   mergeDriver?: string;
 }
@@ -627,9 +639,12 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
     env,
   });
 
-  // Both sides move the same lines, after the fork: a genuine conflict.
-  writeFileSync(join(repo, opts.file), opts.base);
-  gitRetry(repo, "commit", "-am", `${opts.prefix}: the base rewrites it`);
+  // Both sides move the same lines, after the fork: a genuine conflict — or,
+  // when the fixture asked for a clean merge, two files that never meet.
+  const baseFile = opts.cleanMerge === true ? `base-${opts.file}` : opts.file;
+  writeFileSync(join(repo, baseFile), opts.base);
+  gitRetry(repo, "add", "-A");
+  gitRetry(repo, "commit", "-m", `${opts.prefix}: the base rewrites it`);
   writeFileSync(join(created.worktree, opts.file), opts.dashBody);
   commitRound(repo, opts.dash, `${opts.prefix}(round): rewrite ${opts.file}`, {
     binaryRoot: opts.checkout,
@@ -647,7 +662,7 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
     gitRetry(repo, "config", "tugdash.mergedriver", script("stub-driver.sh", opts.mergeDriver));
   }
 
-  return { repo, dataRoot, stubDir, worktree: created.worktree };
+  return { repo, dataRoot, stubDir, worktree: created.worktree, dashId: created.id };
 }
 
 /** Delete everything {@link makeJoinScratchRepo} made. */

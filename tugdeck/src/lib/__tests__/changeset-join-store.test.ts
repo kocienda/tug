@@ -325,3 +325,192 @@ describe("the silence deadline", () => {
     expect(store.state("/p", "demo").phase).toBe("idle");
   });
 });
+
+describe("the resolver rung is not measured by the client's clock ([P02])", () => {
+  const DEADLINE = 20;
+  const settle = (ms: number): Promise<void> =>
+    new Promise((done) => setTimeout(done, ms));
+
+  test("silence on the resolver rung is work, at every status", async () => {
+    // The deadline's premise is per-chunk streaming. That is true of the scribe
+    // and false of the resolver, which reports four discrete beats with minutes
+    // of legitimate quiet between them — a model composing a reconciliation, a
+    // build, a test selection. Measured by this clock, a healthy resolve was
+    // declared dead and the error face re-mounted Resolve, which is how a
+    // second run came to `reset --hard` the workshop the first was editing.
+    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+    store.resolve("/p", "demo");
+    for (const status of ["working", "verifying", "iterating"]) {
+      _ingestJoinFrameForTest({
+        action: "changeset_join_resolve_delta",
+        ...K,
+        path: "",
+        candidate: "cafe1234",
+        rung: "resolver",
+        status,
+      });
+      await settle(DEADLINE * 3);
+      const live = store.state("/p", "demo");
+      expect(live.phase).toBe("resolving");
+      expect(live.error).toBeNull();
+    }
+    // Liveness for this rung is the server's: a per-turn silence bound, a
+    // tier-0 timeout, and an overall deadline, each landing in the durable
+    // stuck fact with a sentence naming which one fired.
+  });
+
+  test("the scribe rung is still on the clock", async () => {
+    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+    store.resolve("/p", "demo");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_delta",
+      ...K,
+      path: "a.rs",
+      rung: "ai",
+      status: "streaming",
+      text: "half a merge",
+    });
+    await settle(DEADLINE * 3);
+    expect(store.state("/p", "demo").phase).toBe("error");
+  });
+
+  test("the resolver's progress names a candidate, not a path", () => {
+    // The sha used to ride in `path`, which put a commit hash in the face's
+    // filename column and made each status of one run key as a separate file.
+    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+    store.resolve("/p", "demo");
+    for (const status of ["working", "verifying"]) {
+      _ingestJoinFrameForTest({
+        action: "changeset_join_resolve_delta",
+        ...K,
+        path: "",
+        candidate: "cafe1234",
+        rung: "resolver",
+        status,
+      });
+    }
+    const progress = store.state("/p", "demo").progress;
+    expect(progress.length).toBe(1);
+    expect(progress[0]).toMatchObject({ path: "", candidate: "cafe1234", status: "verifying" });
+  });
+});
+
+describe("a press that changed nothing says so ([P04], [P06])", () => {
+  /** A connection that records, so a send can be asserted rather than assumed. */
+  function recordingConn(): {
+    conn: never;
+    sent: { action: string; body: Record<string, unknown> }[];
+  } {
+    const sent: { action: string; body: Record<string, unknown> }[] = [];
+    const conn = {
+      onFrame: () => () => {},
+      sendControlFrame: (action: string, body: Record<string, unknown>) => {
+        sent.push({ action, body });
+      },
+    } as never;
+    return { conn, sent };
+  }
+
+  test("the override is sent from the settled state the old one was lost in", () => {
+    // The exact shape of the no-op. A dash that has finished resolving is
+    // *idle*, idle was the state the store deleted, and the client-local
+    // override was written into it — so the one press this control existed for
+    // set a field on an object that was thrown away in the same call.
+    const { conn, sent } = recordingConn();
+    const store = attachChangesetJoinStore(conn);
+    store.resolve("/p", "demo");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_ok",
+      ...K,
+      resolved: [{ path: "a.rs", resolved_by: "driver", diff: "@@\n" }],
+      unresolved: [],
+      candidate_commit: "cafe1234",
+      shape: "squash",
+    });
+    expect(store.state("/p", "demo").phase).toBe("idle");
+
+    store.overrideRed("/p", "demo", "cafe1234");
+    expect(sent.filter((s) => s.action === "changeset_join_override")).toEqual([
+      {
+        action: "changeset_join_override",
+        body: { project_dir: "/p", dash: "demo", candidate: "cafe1234" },
+      },
+    ]);
+  });
+
+  test("a refused override states its reason without failing the dash", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    _ingestJoinFrameForTest({
+      action: "changeset_join_override_err",
+      ...K,
+      detail: "that candidate no longer stands",
+    });
+    const refused = store.state("/p", "demo");
+    expect(refused.error).toBe("that candidate no longer stands");
+    // The dash is not mid-run and nothing about it failed — the *press* was
+    // refused, and painting the row as a failed resolve would be a second lie
+    // on top of the first.
+    expect(refused.phase).toBe("idle");
+  });
+
+  test("a refused answer reaches the face instead of vanishing", () => {
+    // The server has always been able to refuse an answer — the resolver may
+    // have expired, or a later run may be asking something else — and nothing
+    // on this side listened for the refusal. The press looked accepted and the
+    // wizard sat there, which is the silence [L31] exists to forbid.
+    const store = attachChangesetJoinStore(fakeConn, 20);
+    store.resolve("/p", "demo");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_question_answer_err",
+      ...K,
+      detail: "nobody is waiting on that question any more",
+    });
+    const live = store.state("/p", "demo");
+    expect(live.error).toBe("nobody is waiting on that question any more");
+    // And the run it belongs to is untouched: an expired question does not
+    // mean the resolver died.
+    expect(live.phase).toBe("resolving");
+  });
+});
+
+describe("an admission refusal does not kill the run it was refused for ([P01])", () => {
+  test("the second press is stated, and the first press keeps running", async () => {
+    // The refusal arrives on the same (workspace, dash) cell the live run is
+    // streaming into. Read as an ordinary failure it would report the healthy
+    // run as dead — the false error face, rebuilt out of the very mechanism
+    // that exists to prevent the damage it used to invite.
+    const store = attachChangesetJoinStore(fakeConn, 20);
+    store.resolve("/p", "demo");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_delta",
+      ...K,
+      path: "",
+      candidate: "cafe1234",
+      rung: "resolver",
+      status: "working",
+    });
+
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_err",
+      ...K,
+      detail: "a resolve is already running for this dash",
+      admission: true,
+    });
+    const during = store.state("/p", "demo");
+    expect(during.phase).toBe("resolving");
+    expect(during.error).toBe("a resolve is already running for this dash");
+
+    // And the first run's own answer still lands, over the top of the notice.
+    _ingestJoinFrameForTest({
+      action: "changeset_join_resolve_ok",
+      ...K,
+      resolved: [{ path: "a.rs", resolved_by: "resolver", diff: "@@\n" }],
+      unresolved: [],
+      candidate_commit: "cafe1234",
+      shape: "squash",
+    });
+    const after = store.state("/p", "demo");
+    expect(after.phase).toBe("idle");
+    expect(after.error).toBeNull();
+  });
+});

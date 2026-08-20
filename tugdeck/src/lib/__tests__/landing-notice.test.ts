@@ -47,9 +47,20 @@ const DASH_ENTRY: DashChangesetEntry = {
   worktree_dirty: false,
   files: [],
   draft: { fingerprint: "abc", message: "a join message", updated_at: 0, edited: false },
-  // The server says this dash merges clean, which is what makes the land press
-  // below reach the wire rather than being refused on the outcome.
-  join: { phase: "previewed" },
+  // The server says this dash merges clean *and* that the project's own checks
+  // passed over the candidate that would land — which together are what make
+  // the land press below reach the wire rather than being refused. Every join
+  // rides a verified candidate now ([P03]), clean ones included.
+  join: {
+    phase: "previewed",
+    candidate: "cafe1234",
+    verification: {
+      tier0: "green",
+      tier1: "green",
+      base_sha: "base0000",
+      candidate_sha: "cafe1234",
+    },
+  },
 };
 
 const controlHandlers: ((payload: Uint8Array) => void)[] = [];

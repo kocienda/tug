@@ -649,6 +649,22 @@ pub struct DashJoinState {
     /// nobody can give.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<DashJoinQuestion>,
+    /// What is running on this dash right now — `"resolve"` or `"verify"` —
+    /// and absent when nothing is (Spec S01).
+    ///
+    /// The one fact here that is not durable, deliberately: occupancy is
+    /// in-process state, so a restart clears it by construction. It is on the
+    /// wire because a reload mid-resolve otherwise renders a running resolve as
+    /// absence — the server knows, so the wire should say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    /// The candidate a standing "join it anyway" decision names.
+    ///
+    /// Self-demoting like every other candidate fact: reported only while it
+    /// names the candidate that stands, so a re-resolve retires the decision
+    /// rather than carrying it onto a tree nobody agreed to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_for: Option<String>,
 }
 
 /// An escalation from the resolver, phrased as intent ([P06]).

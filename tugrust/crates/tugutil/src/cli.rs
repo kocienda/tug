@@ -454,6 +454,10 @@ pub enum DashCommands {
         /// re-merge, and a structured-merge driver — then land the result.
         #[arg(long)]
         resolve: bool,
+        /// Join past the verification gate: a candidate the project's own
+        /// checks called red, or a join with no verified candidate at all.
+        #[arg(long)]
+        anyway: bool,
     },
     /// Move a dash's rounds onto its base branch's current tip.
     ///

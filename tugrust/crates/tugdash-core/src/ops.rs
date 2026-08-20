@@ -172,6 +172,13 @@ pub struct JoinOptions {
     /// dash-log's terminal note so a join is attributable after the fact;
     /// `None` writes the bare note the log carried before routes were recorded.
     pub origin: Option<String>,
+    /// Join past the verification gate (Spec S03) — the CLI's `--anyway`.
+    ///
+    /// The gate refuses a candidate the project's own checks called red, and
+    /// refuses a join with no candidate to have checked at all. This is the
+    /// stated escape from both, and it is stated in every refusal that raises
+    /// them: a gate with no way past it is a gate that gets worked around.
+    pub anyway: bool,
 }
 
 /// Outcome of [`join`].
@@ -2265,6 +2272,73 @@ fn read_join_journal(repo: &Path, name: &str) -> Option<JoinJournal> {
 
 /// Whether a join of `name` is in flight — the journal check, without exposing
 /// the journal's shape.
+/// Refuse a join whose candidate the project's own checks have not passed
+/// (Spec S03).
+///
+/// The order is deliberate. An explicit `--anyway` wins outright; a standing
+/// override wins for the candidate it names and nothing else; then the verdict
+/// itself, red and unrun refused separately because they are different
+/// sentences; and finally a join with no candidate at all, which is the case
+/// that made the whole gate necessary — a textually clean merge that nobody
+/// ever built.
+///
+/// Every refusal names its escape. A gate that only says no teaches people to
+/// route around it.
+fn verdict_gate(repo_root: &Path, name: &str, opts: &JoinOptions) -> Result<(), String> {
+    if opts.anyway {
+        return Ok(());
+    }
+
+    // The gate asks about the tree that would actually land, which is the
+    // candidate this join names. A join that names none is integrating by
+    // strategy, so no verdict describes what it would produce — and that is
+    // precisely the hole: a textually clean merge nobody ever built.
+    let Some(candidate) = opts.candidate.as_deref() else {
+        return Err(format!(
+            "no verified candidate for '{name}' — resolve the join first, or join --anyway"
+        ));
+    };
+
+    if crate::verify::read_override(repo_root, name).as_deref() == Some(candidate) {
+        return Ok(());
+    }
+
+    let Some(fact) = crate::verify::read_verification(repo_root, name) else {
+        return Err(format!(
+            "this candidate is unverified — verify it first, or join --anyway"
+        ));
+    };
+    if fact.candidate_sha != candidate {
+        return Err(
+            "this candidate is unverified — verify it first, or join --anyway".to_string(),
+        );
+    }
+
+    use crate::verify::TierStatus;
+    if fact.tier0 == TierStatus::Red || fact.tier1 == TierStatus::Red {
+        let why = fact
+            .failures
+            .first()
+            .map(|f| format!(" ({f})"))
+            .unwrap_or_default();
+        return Err(format!(
+            "verification is red for this candidate{why} — re-resolve, or join --anyway"
+        ));
+    }
+    if fact.tier0 == TierStatus::Unrun || fact.tier1 == TierStatus::Unrun {
+        return Err(
+            "this candidate is unverified — verify it first, or join --anyway".to_string(),
+        );
+    }
+    if fact.tier0 == TierStatus::Running || fact.tier1 == TierStatus::Running {
+        return Err(
+            "verification is still running for this candidate — wait for it, or join --anyway"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 pub fn join_in_flight(repo: &Path, name: &str) -> bool {
     read_join_journal(repo, name).is_some()
 }
@@ -3104,6 +3178,12 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
         });
     }
 
+    // The verification gate (Spec S03). Here rather than in the card, because a
+    // gate the server never consults is advisory: a second deck, a stale
+    // client, or the CLI joined a red candidate with no refusal at all. One
+    // gate, and every route passes through it.
+    verdict_gate(&repo_root, name, &opts)?;
+
     // Auto-commit outstanding dash-worktree changes — FATAL on error now ([P14]).
     commit_worktree_dirt(&worktree)?;
 
@@ -3533,6 +3613,21 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
     use tempfile::TempDir;
+
+    /// Join options for a test whose subject is the join's **mechanics** rather
+    /// than the verification gate (Spec S03).
+    ///
+    /// The gate refuses a join with no verified candidate, which is right and
+    /// is pinned by its own tests. Standing a verdict up in every other join
+    /// test would be testing the fixture: what those tests are about is the
+    /// squash, the teardown, the draft, the journal. `--anyway` is the same
+    /// escape a person has, said out loud.
+    fn mechanics() -> JoinOptions {
+        JoinOptions {
+            anyway: true,
+            ..Default::default()
+        }
+    }
 
     #[test]
     fn branch_slug_matches_canonical_bundle_id_slug() {
@@ -4384,7 +4479,7 @@ Some context.
 
         // The execute path refuses with the same sentence, rather than a clean
         // preview followed by a squash that fails on the untracked file.
-        let err = join("overwrite-dash", JoinOptions::default()).unwrap_err();
+        let err = join("overwrite-dash", mechanics()).unwrap_err();
         assert_eq!(err, dirt.detail);
         assert!(branch_present(&root, "tugdash/overwrite-dash"));
     }
@@ -4532,7 +4627,7 @@ Some context.
         step_done("e2e-join", 2, None).unwrap();
 
         assert!(join_preflight_in(&root, "e2e-join").unwrap().is_empty());
-        join("e2e-join", JoinOptions::default()).unwrap();
+        join("e2e-join", mechanics()).unwrap();
         assert!(!branch_present(&root, "tugdash/e2e-join"));
 
         let landed = fs::read_to_string(root.join("roadmap/plan.md")).unwrap();
@@ -4774,7 +4869,7 @@ Some context.
         );
 
         assert!(join_preflight_in(&root, "walk").unwrap().is_empty());
-        let landed = join("walk", JoinOptions::default()).unwrap();
+        let landed = join("walk", mechanics()).unwrap();
         let sha = landed.commit_hash.expect("a landed join has a commit");
         let committed = git_stdout(&root, &["log", "-1", "--format=%B", &sha]).unwrap();
 
@@ -5347,7 +5442,7 @@ Some context.
             "a coherent universe has nothing to refuse over: {blockers:?}"
         );
 
-        let outcome = join_in(&universe, "lander", JoinOptions::default()).unwrap();
+        let outcome = join_in(&universe, "lander", mechanics()).unwrap();
         assert!(outcome.commit_hash.is_some(), "the squash landed");
         assert_eq!(
             fs::read_to_string(universe.join("landed.txt")).unwrap(),
@@ -5994,7 +6089,7 @@ Some context.
             "test-dash",
             JoinOptions {
                 message: Some("Add new feature".to_string()),
-                ..Default::default()
+                ..mechanics()
             },
         );
         assert!(result.is_ok());
@@ -6039,7 +6134,7 @@ Some context.
             "routed",
             JoinOptions {
                 origin: Some("card".to_string()),
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();
@@ -6133,7 +6228,7 @@ Some context.
             "draft-dash",
             JoinOptions {
                 preview: true,
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();
@@ -6146,7 +6241,7 @@ Some context.
         );
 
         // Execute: the squash message comes from the ledger draft.
-        join("draft-dash", JoinOptions::default()).unwrap();
+        join("draft-dash", mechanics()).unwrap();
 
         // SAFETY: serial test; clear before the next test resolves the path.
         unsafe {
@@ -6233,7 +6328,7 @@ Some context.
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
         commit("id-draft-dash", "Add f", None).unwrap();
 
-        join("id-draft-dash", JoinOptions::default()).unwrap();
+        join("id-draft-dash", mechanics()).unwrap();
 
         let log = Command::new("git")
             .arg("-C")
@@ -6297,7 +6392,7 @@ Some context.
             "trailer-dash",
             JoinOptions {
                 message: Some("Land it".to_string()),
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();
@@ -6355,7 +6450,7 @@ Some context.
             "cand",
             JoinOptions {
                 candidate: Some(candidate),
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();
@@ -6365,6 +6460,112 @@ Some context.
         assert!(!branch_present(repo, "tugdash/cand"), "branch deleted");
         let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
         assert!(dlog.contains("joined"));
+    }
+
+    /// The verification gate (Spec S03), from every side.
+    ///
+    /// A red candidate is refused, the standing override lets exactly that
+    /// candidate through, a re-resolve demotes the decision and the refusal
+    /// returns, and `--anyway` is the escape every refusal names. This is what
+    /// makes the gate a gate: it lived only in the card before, so a second
+    /// deck, a stale client, or the CLI joined a red candidate with no refusal
+    /// at all.
+    #[serial]
+    #[test]
+    fn the_verdict_gate_refuses_a_red_candidate_until_it_is_overridden() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        let home = temp.path().join("state");
+        init_git_repo(repo);
+        redirect_state_dir(&home);
+        std::env::set_current_dir(repo).unwrap();
+        fs::write(repo.join("f.txt"), "A\n").unwrap();
+        run_git(repo, &["add", "-A"]);
+        run_git(repo, &["commit", "-m", "seed f"]);
+
+        create("gated", None, None, false, None).unwrap();
+        let worktree = repo.join(".tug/worktrees/gated");
+        fs::write(worktree.join("f.txt"), "B\n").unwrap();
+        commit("gated", "r1", None).unwrap();
+
+        let outcome = crate::resolve::resolve_conflicts(repo, "gated", None).unwrap();
+        let candidate = outcome.candidate_commit.clone().expect("candidate");
+        let base_sha = rev_parse(repo, "main").unwrap();
+
+        let red = crate::verify::Verification {
+            base_sha: base_sha.clone(),
+            candidate_sha: candidate.clone(),
+            tier0: crate::verify::TierStatus::Red,
+            tier1: crate::verify::TierStatus::Unrun,
+            failures: vec!["cargo check: error[E0308]".to_string()],
+            notes: Vec::new(),
+        };
+        crate::verify::write_verification(repo, "gated", &red).unwrap();
+
+        let opts = || JoinOptions {
+            candidate: Some(candidate.clone()),
+            ..Default::default()
+        };
+
+        let err = join("gated", opts()).expect_err("a red candidate cannot join");
+        assert!(err.contains("verification is red"), "{err}");
+        assert!(err.contains("E0308"), "the refusal quotes why: {err}");
+        assert!(err.contains("--anyway"), "and names the escape: {err}");
+
+        // The override is about this tree and nothing else.
+        crate::verify::write_override(repo, "gated", "some-other-candidate").unwrap();
+        let err = join("gated", opts()).expect_err("an override for another tree is no override");
+        assert!(err.contains("verification is red"), "{err}");
+
+        crate::verify::write_override(repo, "gated", &candidate).unwrap();
+        let landed = join("gated", opts()).expect("the standing override lets it through");
+        assert!(landed.commit_hash.is_some());
+        assert!(!worktree.exists(), "the join really ran");
+    }
+
+    /// A join naming no candidate is refused: nothing verified what it would
+    /// produce.
+    ///
+    /// This is the hole the whole gate exists for. A textually clean merge grew
+    /// no candidate, so neither tier ever ran on it, and the motivating case of
+    /// the entire arc — a renamed symbol on one side, a new call site on the
+    /// other — is exactly a clean merge that does not build.
+    #[serial]
+    #[test]
+    fn a_join_with_no_candidate_is_refused_but_a_preview_is_not() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        let home = temp.path().join("state");
+        init_git_repo(repo);
+        redirect_state_dir(&home);
+        std::env::set_current_dir(repo).unwrap();
+
+        create("unverified", None, None, false, None).unwrap();
+        let worktree = repo.join(".tug/worktrees/unverified");
+        fs::write(worktree.join("new.txt"), "clean\n").unwrap();
+        commit("unverified", "r1", None).unwrap();
+
+        let err = join("unverified", JoinOptions::default())
+            .expect_err("an unverified join is refused");
+        assert!(err.contains("no verified candidate"), "{err}");
+        assert!(err.contains("--anyway"), "{err}");
+
+        // A preview touches nothing and answers a different question, so it is
+        // never gated — the face asks for one on every recompute.
+        let previewed = join(
+            "unverified",
+            JoinOptions {
+                preview: true,
+                ..Default::default()
+            },
+        )
+        .expect("a preview is not a join");
+        assert!(previewed.previewed);
+        assert!(previewed.commit_hash.is_none());
+
+        // …and the stated escape works.
+        let landed = join("unverified", mechanics()).expect("--anyway joins");
+        assert!(landed.commit_hash.is_some());
     }
 
     /// A candidate built against a base head that has since moved must refuse to
@@ -6405,7 +6606,7 @@ Some context.
             "cand",
             JoinOptions {
                 candidate: Some(candidate),
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap_err();
@@ -6486,7 +6687,7 @@ Some context.
 
         // Base dirt on the SAME file the dash changed → refuses, naming it.
         fs::write(repo.join("shared.txt"), "base\nlocal edit\n").unwrap();
-        let blocked = join("isect", JoinOptions::default());
+        let blocked = join("isect", mechanics());
         assert!(blocked.is_err());
         let err = blocked.unwrap_err();
         assert!(err.contains("also changed"), "{err}");
@@ -6496,7 +6697,7 @@ Some context.
         // Move the base dirt to a DISJOINT file → the join now succeeds.
         git_output(repo, &["checkout", "--", "shared.txt"]).unwrap();
         fs::write(repo.join("other.txt"), "base\nlocal edit\n").unwrap();
-        let ok = join("isect", JoinOptions::default()).unwrap();
+        let ok = join("isect", mechanics()).unwrap();
         assert!(ok.commit_hash.is_some());
         assert!(!branch_present(repo, "tugdash/isect"));
     }
@@ -6523,7 +6724,7 @@ Some context.
             name,
             JoinOptions {
                 preview: true,
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap()
@@ -6560,7 +6761,7 @@ Some context.
             "msg",
             JoinOptions {
                 message: Some("the override the card sent".to_string()),
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();
@@ -6829,7 +7030,7 @@ Some context.
             draft,
         );
 
-        let landed = join("pinned", JoinOptions::default()).unwrap();
+        let landed = join("pinned", mechanics()).unwrap();
         let sha = landed.commit_hash.expect("a landed join has a commit");
         let committed = git_stdout(repo, &["log", "-1", "--format=%B", &sha]).unwrap();
 
@@ -6861,7 +7062,7 @@ Some context.
             "tugdash(once): the authored subject",
         );
 
-        let landed = join("once", JoinOptions::default()).unwrap();
+        let landed = join("once", mechanics()).unwrap();
         let sha = landed.commit_hash.expect("a landed join has a commit");
         let committed = git_stdout(repo, &["log", "-1", "--format=%B", &sha]).unwrap();
 
@@ -7103,7 +7304,7 @@ Some context.
         let assert_agrees = |kind: &str| {
             let out = preview("agree");
             let b = blocker(&out, kind).unwrap_or_else(|| panic!("expected a {kind} blocker"));
-            let err = join("agree", JoinOptions::default()).unwrap_err();
+            let err = join("agree", mechanics()).unwrap_err();
             assert_eq!(err, b.detail, "{kind}");
         };
 
@@ -7138,7 +7339,7 @@ Some context.
         create("agree2", None, None, false, None).unwrap();
         let out = preview("agree2");
         let b = blocker(&out, "empty").expect("empty blocker");
-        let err = join("agree2", JoinOptions::default()).unwrap_err();
+        let err = join("agree2", mechanics()).unwrap_err();
         assert_eq!(err, b.detail);
     }
 
@@ -7159,7 +7360,7 @@ Some context.
             .output()
             .unwrap();
 
-        let result = join("test-dash", JoinOptions::default());
+        let result = join("test-dash", mechanics());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("on branch 'feature'"));
@@ -7221,10 +7422,10 @@ Some context.
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
         commit("test-dash", "Add test", None).unwrap();
-        join("test-dash", JoinOptions::default()).unwrap();
+        join("test-dash", mechanics()).unwrap();
 
         // Joining again fails: the branch no longer exists.
-        let result = join("test-dash", JoinOptions::default());
+        let result = join("test-dash", mechanics());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }
@@ -7317,7 +7518,7 @@ Some context.
             "mrg",
             JoinOptions {
                 strategy: JoinStrategy::Merge,
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();
@@ -7340,7 +7541,7 @@ Some context.
             "rb",
             JoinOptions {
                 strategy: JoinStrategy::Rebase,
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();
@@ -7383,7 +7584,7 @@ Some context.
             "pv",
             JoinOptions {
                 preview: true,
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();
@@ -7441,12 +7642,12 @@ Some context.
         assert!(branch_present(repo, "tugdash/resume"));
 
         // A plain join now refuses (journal present); --continue resumes.
-        assert!(join("resume", JoinOptions::default()).is_err());
+        assert!(join("resume", mechanics()).is_err());
         let out = join(
             "resume",
             JoinOptions {
                 continue_join: true,
-                ..Default::default()
+                ..mechanics()
             },
         )
         .unwrap();

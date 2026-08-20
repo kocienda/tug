@@ -131,6 +131,34 @@ Three consequences for anyone working in this lane:
   join face and waits. Answer it there; a resolve blocked on a question is
   blocked on a person, not broken.
 
+Three rules the pipeline holds itself to, which are worth knowing when a join
+behaves in a way that looks like nothing happening:
+
+- **One dash, one run.** A resolve, a verification, and a non-preview join each
+  take the dash before they touch anything, and any second one is refused by
+  name — "a resolve is already running for this dash". They share a workshop
+  worktree, so two at once means one resetting the tree the other is editing.
+  A preview takes nothing, because it touches nothing. Admission, never a
+  queue: one dash, one run, and the refused press is told what holds it.
+- **The gate lives on the server.** `tugutil dash join` refuses an unverified,
+  red, or candidate-less join exactly as the card does, because the refusal is
+  in `join_in` rather than in a surface. `--anyway` is the escape, and the
+  card's Join anyway writes the same durable override, anchored to the
+  candidate sha it was decided over.
+- **A failure fact is always terminal.** Nothing durable describes an activity
+  nobody is performing: a tier run that dies writes its verdict red rather than
+  leaving it running, and a question whose resolver is gone becomes a stuck
+  line quoting what was asked. So a face that says a run is live means one is.
+  Silence from the resolver is not evidence of anything — its rung reports four
+  discrete beats with minutes between them, and only the server's own timeouts
+  can call it dead.
+
+**Every join rides a candidate**, clean ones included. Opening join mode on a
+dash with no conflicts still resolves it and verifies what that produced, which
+costs a `commit-tree` and one run of the project's checks. The failure that pays
+for is the merge with no conflicting file that does not build — a symbol renamed
+on one side, a new call site on the other.
+
 What the project's checks *are* is per-project configuration, not built-in
 knowledge: `[tugtool.dash].verify_tier0` and `verify_tier1` in
 `.tugtool/config.toml`, beside `post_create`. A project that declares neither

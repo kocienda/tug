@@ -35,15 +35,40 @@ import {
   _resetChangesetVerbStoreForTest,
   attachChangesetVerbStore,
 } from "@/lib/changeset-verb-store";
-import { _resetChangesetJoinStoreForTest } from "@/lib/changeset-join-store";
+import {
+  _resetChangesetJoinStoreForTest,
+  attachChangesetJoinStore,
+} from "@/lib/changeset-join-store";
 import { CHANGES_SERVICE_DISCONNECTED } from "@/lib/landing-mode";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type { CommitModeController } from "@/lib/commit-mode-controller";
 import type { DashChangesetEntry, DashJoinStateWire } from "@/lib/changeset-types";
 
-/** A dash whose merge is clean and carries nothing for the ladder to decide. */
-const CLEAN_JOIN: DashJoinStateWire = { phase: "previewed" };
+/**
+ * A dash whose merge is clean and whose candidate the project's own checks have
+ * passed — the state a join may actually proceed from.
+ *
+ * The candidate and the verdict are not decoration. Every join rides a
+ * candidate now ([P03]): entering join mode on a clean dash resolves it, the
+ * server verifies what that produced, and the gate refuses until there is a
+ * green verdict about the exact tree that would land. A bare `{ phase:
+ * "previewed" }` is the *unverified* window, and it is deliberately not
+ * joinable — see {@link UNVERIFIED_CLEAN}.
+ */
+const CLEAN_JOIN: DashJoinStateWire = {
+  phase: "previewed",
+  candidate: "cafe1234",
+  verification: {
+    tier0: "green",
+    tier1: "green",
+    base_sha: "base0000",
+    candidate_sha: "cafe1234",
+  },
+};
+
+/** Clean, and nothing has been built or judged yet — the auto-resolve window. */
+const UNVERIFIED_CLEAN: DashJoinStateWire = { phase: "previewed" };
 
 describe("joinDisabledReason", () => {
   // The regression this pins: a real `base-dirt` blocker derives `blocked`,
@@ -112,9 +137,20 @@ describe("joinDisabledReason", () => {
 
 describe("verificationVerdict", () => {
   it("reads the candidate's verdict, and calls absence unrun rather than green", () => {
-    // No candidate: an ordinary clean join, with nothing resolved by machine
-    // and so nothing to examine.
-    expect(verificationVerdict({ phase: "conflicted" })).toBe("not-applicable");
+    // No candidate and nothing on offer to build one from: a blocked dash is
+    // never going to be verified, so demanding a verdict would refuse with a
+    // sentence naming an act that would not help.
+    expect(
+      verificationVerdict({
+        phase: "blocked",
+        blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: [] }],
+      }),
+    ).toBe("not-applicable");
+    // But a *clean* dash with no candidate yet is `unrun`, not exempt. That is
+    // the window between entering join mode and the auto-resolve anchoring a
+    // candidate, and reading it as not-applicable let the gate wave a join
+    // through in the seconds before anything had been built or judged.
+    expect(verificationVerdict({ phase: "previewed" })).toBe("unrun");
     // A candidate nobody has asked about. This is the distinction the whole
     // type exists for: "nobody ran the checks" is not "the checks passed", and
     // conflating them is how a tree nobody built joins looking verified.
@@ -152,11 +188,12 @@ describe("redOverrideStands", () => {
     // The comparison is the whole design. A re-resolve — the ordinary answer
     // to a red — puts a new candidate up, and one press of Join anyway must
     // not wave through every candidate the dash produces afterwards.
-    expect(redOverrideStands("cafe1234", { redOverrideFor: "cafe1234" })).toBe(true);
-    expect(redOverrideStands("beef5678", { redOverrideFor: "cafe1234" })).toBe(false);
-    expect(redOverrideStands("cafe1234", { redOverrideFor: null })).toBe(false);
-    expect(redOverrideStands(null, { redOverrideFor: "cafe1234" })).toBe(false);
+    expect(redOverrideStands("cafe1234", "cafe1234")).toBe(true);
+    expect(redOverrideStands("beef5678", "cafe1234")).toBe(false);
     expect(redOverrideStands("cafe1234", null)).toBe(false);
+    expect(redOverrideStands(null, "cafe1234")).toBe(false);
+    // Absent on the wire, which is how every dash with no override arrives.
+    expect(redOverrideStands("cafe1234", undefined)).toBe(false);
   });
 });
 
@@ -477,6 +514,9 @@ beforeEach(() => {
   _resetChangesetJoinStoreForTest();
   attachChangesetVerbStore(fakeConnection());
   attachChangesetDraftStore(fakeConnection());
+  // Attached like the other two because the controller now speaks to it on
+  // entry ([P03]) — a clean dash resolves itself so the join rides a candidate.
+  attachChangesetJoinStore(fakeConnection());
 });
 
 afterEach(() => {
@@ -524,6 +564,46 @@ describe("JoinModeController", () => {
     controller.enter(TARGET);
     expect(sent.filter((s) => s.action === "changeset_join")).toHaveLength(0);
     expect(controller.getSnapshot().outcome).toBe("clean");
+    controller.dispose();
+  });
+
+  it("enter resolves a clean dash, so the join rides a candidate", () => {
+    // The one thing entry *does* ask for ([P03]). A clean dash used to join on
+    // the strength of git finding no overlapping text, which is not the same
+    // claim as the result building; the resolve is what anchors a candidate for
+    // the checks to judge.
+    const { controller, changesController } = build();
+    changesController._setJoin(UNVERIFIED_CLEAN);
+    controller.enter(TARGET);
+    const resolves = sent.filter((s) => s.action === "changeset_join_resolve");
+    expect(resolves).toHaveLength(1);
+    expect(resolves[0]?.body).toMatchObject({
+      project_dir: WORKSPACE_KEY,
+      dash: "join-lane",
+    });
+    controller.dispose();
+  });
+
+  it("leaves a dash that already has a candidate, a live run, or conflicts", () => {
+    const { controller, changesController } = build();
+
+    // Already judged, or already being judged: re-resolving would throw away a
+    // verdict and start the whole ladder again.
+    changesController._setJoin({ phase: "previewed", candidate: "cafe1234" });
+    controller.enter(TARGET);
+    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
+    controller.exit();
+
+    changesController._setJoin({ phase: "previewed", run: "resolve" });
+    controller.enter(TARGET);
+    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
+    controller.exit();
+
+    // A conflicted dash keeps its Resolve control: the press is the user's
+    // acknowledgement that an agent is about to reconcile their divergence.
+    changesController._setJoin({ phase: "previewed", conflicts: ["a.ts"] });
+    controller.enter(TARGET);
+    expect(sent.filter((s) => s.action === "changeset_join_resolve")).toHaveLength(0);
     controller.dispose();
   });
 

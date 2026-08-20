@@ -121,8 +121,15 @@ export function deriveResolveFace(
   outcome: JoinOutcome,
   phase: ResolvePhase,
   candidateCommit: string | null,
+  run?: string | null,
 ): ResolveFace {
   if (phase === "resolving") return "progress";
+  // The server's own account of what it is doing right now ([P09]). The phase
+  // above it is a client overlay that dies with the page, so without this a
+  // reload during a resolve — or a second deck watching the same dash — renders
+  // minutes of real work as nothing at all. A verify run keeps the resolved
+  // face: it has a candidate, and the verdict panel is where its progress goes.
+  if (run === "resolve") return "progress";
   if (candidateCommit !== null) return "resolved";
   if (phase === "error") return "error";
   return outcome === "conflicted" || outcome === "stale" ? "offer" : "none";
@@ -183,8 +190,6 @@ export function deriveJoinFace(input: {
   turnInProgress: boolean;
   /** The dash is mid-teardown from an interrupted join (`stage === "joining"`). */
   interrupted: boolean;
-  /** The candidate sha a red verdict has been overridden for, if any ([P07]). */
-  redOverrideFor?: string | null;
 }): JoinFace {
   const { join, resolvePhase, joinPhase, turnInProgress, interrupted } = input;
   const outcome = deriveJoinOutcome(join);
@@ -192,7 +197,7 @@ export function deriveJoinFace(input: {
     typeof join?.candidate === "string" && join.candidate !== "" ? join.candidate : null;
   const staleNote =
     typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
-  const resolve = deriveResolveFace(outcome, resolvePhase, candidate);
+  const resolve = deriveResolveFace(outcome, resolvePhase, candidate, join?.run ?? null);
   const verdict = verificationVerdict(join);
   const gate = evaluateJoinGate({
     turnInProgress,
@@ -200,9 +205,11 @@ export function deriveJoinFace(input: {
     outcome,
     candidateCommit: candidate,
     verdict,
-    redOverride: redOverrideStands(candidate, {
-      redOverrideFor: input.redOverrideFor ?? null,
-    }),
+    // The override the server holds, not one this deck remembers ([P04]):
+    // it is a durable fact anchored to the candidate sha, so it survives a
+    // reload and reaches the CLI, and a candidate built afterwards is not
+    // covered by it.
+    redOverride: redOverrideStands(candidate, join?.override_for),
     // The message lives in the composer, so the row asks the gate everything
     // except that: opening the editor is what supplies it.
     message: "x",
@@ -395,7 +402,6 @@ export function SessionChangesDashJoin({
     joinPhase,
     turnInProgress,
     interrupted,
-    redOverrideFor: resolve.redOverrideFor,
   });
   const { outcome, resolve: resolveFace, control, line: joinLine } = face;
   const resumeHint =
@@ -567,7 +573,12 @@ export function SessionChangesDashJoin({
         >
           {resolve.progress.map((file) => (
             <li key={file.path} data-status={file.status}>
-              <span className="session-changes-dash-join-rung-path">{file.path}</span>
+              {/* The resolver rung reports a candidate rather than a file, so
+                  the column names whichever it has. It used to render the sha
+                  as a path, which read as a filename nobody could find. */}
+              <span className="session-changes-dash-join-rung-path">
+                {file.path !== "" ? file.path : (file.candidate ?? "")}
+              </span>
               <span className="session-changes-dash-join-rung-word">
                 {file.rung} · {file.status}
               </span>
@@ -717,8 +728,16 @@ export function SessionChangesDashJoin({
           {stuck}
         </div>
       ) : null}
-      {resolveFace === "error" ? (
-        <div className="session-changes-dash-join-error" role="alert">
+      {/* Rendered on the reason, not on the face. A refused answer or a refused
+          override arrives while a candidate stands, and the resolved face
+          outranks the error one — so keying this off `resolveFace` swallowed
+          exactly the refusals that have no other way to be seen ([L31]). */}
+      {resolve.error !== null ? (
+        <div
+          className="session-changes-dash-join-error"
+          data-slot="session-changes-dash-join-resolve-error"
+          role="alert"
+        >
           {resolve.error}
         </div>
       ) : null}

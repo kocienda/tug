@@ -296,6 +296,31 @@ describe("aggregate changeset wire contract", () => {
     expect(isChangesetEntry(withJoin({ phase: "resolved", candidate: 7 }))).toBe(false);
   });
 
+  test("the live-run fact round-trips, and absence means nothing is running", () => {
+    const withJoin = (join: unknown) => ({
+      kind: "dash",
+      owner_id: "tugdash/x",
+      display_name: "x",
+      base: "main",
+      rounds: 0,
+      worktree: "/repo/.tug/worktrees/x",
+      worktree_dirty: false,
+      files: [],
+      join,
+    });
+
+    const running: unknown = withJoin({ phase: "conflicted", run: "resolve" });
+    if (!isChangesetEntry(running) || running.kind !== "dash") {
+      throw new Error("expected a dash entry carrying a live run");
+    }
+    expect(running.join?.run).toBe("resolve");
+
+    // The server skips the field entirely when nothing holds the dash, so
+    // absence is the ordinary case and must not read as drift.
+    expect(isChangesetEntry(withJoin({ phase: "conflicted" }))).toBe(true);
+    expect(isChangesetEntry(withJoin({ phase: "conflicted", run: 1 }))).toBe(false);
+  });
+
   test("CHANGESET_ALL feed id is registered at 0x24", () => {
     expect(FeedId.CHANGESET_ALL).toBe(0x24);
   });

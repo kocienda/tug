@@ -39,7 +39,14 @@ use crate::replay::{ReplayWalk, ReplayedRounds};
 #[serde(rename_all = "kebab-case")]
 pub enum ResolvedBy {
     /// The whole dash replayed clean; no per-file work (shape = replay).
+    ///
+    /// A path can carry this rung and still have been a conflict: the squash
+    /// the join would otherwise have landed conflicted over it, and replaying
+    /// the rounds in order is what decided it. That is a machine decision
+    /// nobody read, so it is named here and audited like any other.
     Replay,
+    /// The one-shot squash merged the whole dash cleanly.
+    Squash,
     /// A previously recorded `rerere` resolution replayed.
     Rerere,
     /// `git merge-file` re-merged the three blobs cleanly.
@@ -128,6 +135,20 @@ pub struct ResolveOutcome {
     /// Never serialized: it is a local git object with no meaning to the card.
     #[serde(skip)]
     pub staged_tree: Option<String>,
+    /// Every path the one-shot squash conflicts over, computed before the
+    /// ladder decides anything.
+    ///
+    /// This is what the join **would** have made a human resolve, and it is
+    /// therefore what the audit is owed — independently of which rung happened
+    /// to settle it. A dash whose squash conflicts but whose rounds replay
+    /// cleanly resolves with `resolved` and `unresolved` both empty; reading
+    /// the audit duty off those two lists let exactly that shape — a wholesale
+    /// machine decision that builds green — pass unread.
+    ///
+    /// Never serialized: the card reads the conflict set from the join board's
+    /// own probe.
+    #[serde(skip)]
+    pub preview_conflicts: Vec<String>,
 }
 
 /// Like [`resolve_conflicts`], but discovering the repo root from the process
@@ -164,7 +185,10 @@ pub fn resolve_conflicts(
             let dash_head = git_stdout(repo, &["rev-parse", &branch_name(name)])?;
             write_candidate_ref(repo, name, candidate)?;
             clear_candidate_marks(repo, name);
-            let _ = git_output(repo, &["config", &join_source_config_key(name), &dash_head]);
+            let _ = git_output(
+                repo,
+                &["config", "--replace-all", &join_source_config_key(name), &dash_head],
+            );
             for r in &outcome.resolved {
                 let value = format!("{}\t{}", r.path, r.resolved_by.as_str());
                 let _ = git_output(
@@ -203,26 +227,47 @@ fn resolve_ladder(
 
     let base_head = git_stdout(repo, &["rev-parse", &base_branch])?;
 
+    // The squash conflict set: candidate tree (markers baked in) + per-path
+    // stage blobs. Computed **before** the replay probe, because it is what
+    // says which paths the join would otherwise have put in front of a person —
+    // and that is the audit's subject no matter which rung ends up settling
+    // them. A replay exit that skipped this computed no conflict set at all,
+    // and so was audited against nothing.
+    let (cand_tree, stages) = merge_tree_stages(repo, &base_branch, &branch)?;
+    let preview_conflicts: Vec<String> = stages.keys().cloned().collect();
+
     // Rung 1 — replay probe (in-memory per round; git ≥ 2.40).
     if let Some(replayed) = replay_probe(repo, &base_head, &base_branch, &branch)? {
         return Ok(ResolveOutcome {
             shape: JoinShape::Replay,
-            resolved: Vec::new(),
+            // Every path the squash would have conflicted over was decided by
+            // replaying the rounds in order. Naming the rung is what puts them
+            // in the charter's audit duty.
+            resolved: preview_conflicts
+                .iter()
+                .map(|path| FileResolution {
+                    path: path.clone(),
+                    resolved_by: ResolvedBy::Replay,
+                    diff: None,
+                    added: None,
+                    removed: None,
+                })
+                .collect(),
             unresolved: Vec::new(),
             candidate_commit: Some(replayed.head),
             base_branch,
             warnings,
             staged_tree: None,
+            preview_conflicts,
         });
     }
 
-    // The squash conflict set: candidate tree (markers baked in) + per-path
-    // stage blobs.
-    let (cand_tree, stages) = merge_tree_stages(repo, &base_branch, &branch)?;
     let msg = integrate_message(repo, name, &branch, None);
 
     if stages.is_empty() {
         // The one-shot squash is actually clean — commit its tree directly.
+        // With no conflicts there is nothing for anybody to audit, which is the
+        // no-audit case by construction rather than by exit shape.
         let candidate = commit_tree(repo, &cand_tree, &base_head, &msg)?;
         return Ok(ResolveOutcome {
             shape: JoinShape::Squash,
@@ -232,6 +277,7 @@ fn resolve_ladder(
             base_branch,
             warnings,
             staged_tree: Some(cand_tree),
+            preview_conflicts,
         });
     }
 
@@ -340,6 +386,7 @@ fn resolve_ladder(
             base_branch,
             warnings,
             staged_tree: Some(staged_tree),
+            preview_conflicts,
         });
     }
 
@@ -354,6 +401,7 @@ fn resolve_ladder(
         base_branch,
         warnings,
         staged_tree: Some(staged_tree),
+        preview_conflicts,
     })
 }
 
@@ -1056,6 +1104,21 @@ pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
         parts.push(format!("The dash's plan:\n{}", plan));
     }
 
+    // A question an earlier resolver raised and never got an answer to. Carried
+    // forward rather than dropped: the ambiguity that produced it is still in
+    // the tree, and a resolver told about it can raise it again against a user
+    // who is present this time.
+    if let Some(name) = branch.strip_prefix("tugdash/") {
+        if let Ok(head) = git_stdout(repo, &["rev-parse", branch]) {
+            if let Some(asked) = read_lastask(repo, name, head.trim()) {
+                parts.push(format!(
+                    "An earlier resolver asked this and got no answer:\n{}",
+                    asked.trim()
+                ));
+            }
+        }
+    }
+
     // The base's own motion, read from the merge base rather than from
     // `base..branch`: what the other side of this conflict has been doing.
     let fork = git_stdout(repo, &["merge-base", base_branch, branch]).ok();
@@ -1170,6 +1233,7 @@ impl ResolvedBy {
     pub fn as_str(self) -> &'static str {
         match self {
             ResolvedBy::Replay => "replay",
+            ResolvedBy::Squash => "squash",
             ResolvedBy::Rerere => "rerere",
             ResolvedBy::MergeFile => "merge-file",
             ResolvedBy::Driver => "driver",
@@ -1182,6 +1246,7 @@ impl ResolvedBy {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "replay" => Some(ResolvedBy::Replay),
+            "squash" => Some(ResolvedBy::Squash),
             "rerere" => Some(ResolvedBy::Rerere),
             "merge-file" => Some(ResolvedBy::MergeFile),
             "driver" => Some(ResolvedBy::Driver),
@@ -1282,7 +1347,10 @@ pub fn anchor_candidate(
 ) -> Result<(), String> {
     write_candidate_ref(repo, name, candidate)?;
     clear_candidate_marks(repo, name);
-    let _ = git_output(repo, &["config", &join_source_config_key(name), dash_head]);
+    let _ = git_output(
+        repo,
+        &["config", "--replace-all", &join_source_config_key(name), dash_head],
+    );
     Ok(())
 }
 
@@ -1320,7 +1388,10 @@ pub fn stuck_config_key(name: &str) -> String {
 pub fn write_report(repo: &Path, name: &str, candidate: &str, json: &str) -> Result<(), String> {
     let blob = hash_blob(repo, json.as_bytes())?;
     let value = format!("{}:{}", candidate, blob);
-    let out = git_output(repo, &["config", &report_config_key(name), &value])?;
+    let out = git_output(
+        repo,
+        &["config", "--replace-all", &report_config_key(name), &value],
+    )?;
     if !out.status.success() {
         return Err(format!(
             "failed to record the resolver report for {}: {}",
@@ -1346,7 +1417,10 @@ pub fn read_report(repo: &Path, name: &str, candidate: &str) -> Option<String> {
 pub fn write_stuck(repo: &Path, name: &str, dash_head: &str, reason: &str) {
     let one_line = reason.replace('\n', " ");
     let value = format!("{}:{}", dash_head, one_line);
-    let _ = git_output(repo, &["config", &stuck_config_key(name), &value]);
+    let _ = git_output(
+        repo,
+        &["config", "--replace-all", &stuck_config_key(name), &value],
+    );
 }
 
 /// The standing stuck reason, if one describes the dash's current head.
@@ -1384,7 +1458,10 @@ pub fn write_question(repo: &Path, name: &str, dash_head: &str, json: &str) {
         return;
     };
     let value = format!("{}:{}", dash_head, blob);
-    let _ = git_output(repo, &["config", &question_config_key(name), &value]);
+    let _ = git_output(
+        repo,
+        &["config", "--replace-all", &question_config_key(name), &value],
+    );
 }
 
 /// The standing question, if one describes the dash's current head.
@@ -1401,6 +1478,46 @@ pub fn read_question(repo: &Path, name: &str, dash_head: &str) -> Option<String>
 /// resolve each do.
 pub fn clear_question(repo: &Path, name: &str) {
     let _ = git_output(repo, &["config", "--unset-all", &question_config_key(name)]);
+}
+
+/// Where a question that expired unanswered is kept until the next resolve
+/// reads it: `<dash_head>:<blob>`.
+///
+/// A resolver conversation cannot be resumed — the spawn is gone and its
+/// context with it — so the honest version of "the answer arrives on the next
+/// resolve" is that the next resolver is *told what was asked*. It gets the
+/// question in its charter and can raise it again against a user who is now
+/// present, instead of rediscovering the same ambiguity from scratch.
+pub fn lastask_config_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinlastask", name)
+}
+
+/// Record a question that expired without an answer.
+pub fn write_lastask(repo: &Path, name: &str, dash_head: &str, question: &str) {
+    let Ok(blob) = hash_blob(repo, question.as_bytes()) else {
+        return;
+    };
+    let value = format!("{}:{}", dash_head, blob);
+    let _ = git_output(
+        repo,
+        &["config", "--replace-all", &lastask_config_key(name), &value],
+    );
+}
+
+/// The expired question, if one describes the dash's current head.
+pub fn read_lastask(repo: &Path, name: &str, dash_head: &str) -> Option<String> {
+    let value = config_get(repo, &lastask_config_key(name))?;
+    let (for_head, blob) = value.split_once(':')?;
+    if for_head != dash_head {
+        return None;
+    }
+    git_stdout(repo, &["cat-file", "blob", blob]).ok()
+}
+
+/// Drop the expired question — what a resolve does once it has been carried
+/// into a charter, so it is offered forward exactly once.
+pub fn clear_lastask(repo: &Path, name: &str) {
+    let _ = git_output(repo, &["config", "--unset-all", &lastask_config_key(name)]);
 }
 
 /// Clear every mark that describes a candidate, without touching the ref.
@@ -1424,6 +1541,8 @@ pub fn clear_candidate(repo: &Path, name: &str) {
     delete_candidate_ref(repo, name);
     clear_candidate_marks(repo, name);
     crate::verify::clear_verification(repo, name);
+    // The "join it anyway" decision was about the tree that just went away.
+    crate::verify::clear_override(repo, name);
 }
 
 /// Whether the anchored candidate still describes the current heads.
@@ -2091,5 +2210,48 @@ mod tests {
                 r.path
             );
         }
+    }
+
+    /// A doubled config value does not wedge the writers that own it.
+    ///
+    /// `git config <key> <value>` refuses a key that already holds more than
+    /// one value, and every later write for that dash then fails — permanently,
+    /// since nothing on the failure path clears the key. `--replace-all`
+    /// collapses whatever is there to the value being written, which is what
+    /// these single-valued facts mean anyway.
+    #[test]
+    fn a_doubled_config_value_does_not_wedge_the_single_valued_writers() {
+        let temp = init(&[("f.txt", "B\n", "r1")]);
+        let repo = temp.path();
+        let head = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        let head = head.trim();
+
+        for key in [
+            report_config_key("demo"),
+            stuck_config_key("demo"),
+            question_config_key("demo"),
+        ] {
+            git(repo, &["config", "--add", &key, "one"]);
+            git(repo, &["config", "--add", &key, "two"]);
+        }
+
+        write_report(repo, "demo", "cafe1234", r#"{"files":[],"notes":""}"#)
+            .expect("a doubled key is collapsed, not refused");
+        assert_eq!(
+            read_report(repo, "demo", "cafe1234").as_deref(),
+            Some(r#"{"files":[],"notes":""}"#)
+        );
+
+        write_stuck(repo, "demo", head, "the resolver gave up");
+        assert_eq!(
+            read_stuck(repo, "demo", head).as_deref(),
+            Some("the resolver gave up")
+        );
+
+        write_question(repo, "demo", head, r#"{"question":"which side?"}"#);
+        assert_eq!(
+            read_question(repo, "demo", head).as_deref(),
+            Some(r#"{"question":"which side?"}"#)
+        );
     }
 }

@@ -1896,6 +1896,13 @@ struct ChangesetJoinPayload {
     /// The calling card's tug session id, for the receipt's shell-ledger row
     /// ([P06]). Absent, the landing still succeeds and leaves no receipt.
     session_id: Option<String>,
+    /// Join past the verification gate (Spec S03).
+    ///
+    /// The card does not send this: its escape is the durable override fact,
+    /// pressed as its own act on a candidate somebody actually read. It is on
+    /// the wire so a test can exercise join mechanics without standing up a
+    /// verdict first, and so the two routes into `join_in` are symmetric.
+    anyway: bool,
 }
 
 fn parse_changeset_join_payload(payload: &[u8]) -> Result<ChangesetJoinPayload, ControlError> {
@@ -1940,6 +1947,10 @@ fn parse_changeset_join_payload(payload: &[u8]) -> Result<ChangesetJoinPayload, 
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let session_id = parse_optional_session_id(&value);
+    let anyway = value
+        .get("anyway")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     Ok(ChangesetJoinPayload {
         project_dir,
         dash,
@@ -1949,6 +1960,7 @@ fn parse_changeset_join_payload(payload: &[u8]) -> Result<ChangesetJoinPayload, 
         candidate,
         continue_join,
         session_id,
+        anyway,
     })
 }
 
@@ -2056,7 +2068,14 @@ fn run_join_verification(
     on_progress();
 
     if want_tier0 {
-        let out = verify::run_tier0(dir, dash, &candidate)?;
+        let out = match verify::run_tier0(dir, dash, &candidate) {
+            Ok(out) => out,
+            Err(e) => {
+                fact.fail_running(&e);
+                let _ = verify::write_verification(dir, dash, &fact);
+                return Err(e);
+            }
+        };
         fact.tier0 = out.status;
         fact.failures.extend(out.failures);
         fact.notes.extend(out.notes);
@@ -2072,7 +2091,14 @@ fn run_join_verification(
     }
 
     if want_tier1 {
-        let out = verify::run_tier1(dir, dash, &candidate)?;
+        let out = match verify::run_tier1(dir, dash, &candidate) {
+            Ok(out) => out,
+            Err(e) => {
+                fact.fail_running(&e);
+                let _ = verify::write_verification(dir, dash, &fact);
+                return Err(e);
+            }
+        };
         fact.tier1 = out.status;
         fact.failures.extend(out.failures);
         fact.notes.extend(out.notes);
@@ -2123,6 +2149,51 @@ fn parse_changeset_join_verify_payload(
         project_dir,
         dash,
         tier,
+    })
+}
+
+/// Parsed `changeset_join_override` request (Spec S02): the user's decision to
+/// join a candidate the project's own checks refused.
+///
+/// The candidate sha is required and is not a formality. The decision is about
+/// **that tree** — somebody read a red verdict over a specific resolution and
+/// chose to land it anyway — so a decision that arrived about a superseded
+/// candidate is refused rather than applied to whatever stands now.
+struct ChangesetJoinOverridePayload {
+    project_dir: String,
+    dash: String,
+    candidate: String,
+}
+
+fn parse_changeset_join_override_payload(
+    payload: &[u8],
+) -> Result<ChangesetJoinOverridePayload, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::InvalidProjectDir {
+            reason: "missing_project_dir",
+        })?
+        .to_string();
+    let dash = value
+        .get("dash")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::Malformed)?
+        .to_string();
+    let candidate = value
+        .get("candidate")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::Malformed)?
+        .to_string();
+    Ok(ChangesetJoinOverridePayload {
+        project_dir,
+        dash,
+        candidate,
     })
 }
 
@@ -3131,6 +3202,13 @@ impl AgentSupervisor {
             "changeset_join_verify" => match parse_changeset_join_verify_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_join_verify(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            "changeset_join_override" => match parse_changeset_join_override_payload(payload) {
+                Ok(parsed) => {
+                    self.do_changeset_join_override(&parsed);
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -5189,6 +5267,32 @@ impl AgentSupervisor {
             .map(|d| d.rounds)
             .unwrap_or(0);
 
+        // A join tears the workshop down and deletes the branch under it, so it
+        // cannot share the dash with a resolve or a verification (Spec S01). A
+        // **preview** touches nothing and never takes the dash — it is the one
+        // join shape that is safe to ask for mid-run, and the face asks for it
+        // constantly.
+        let _occupancy = if request.preview {
+            None
+        } else {
+            match crate::feeds::join_occupancy::acquire(
+                &owner_key,
+                crate::feeds::join_occupancy::JoinRunKind::Verify,
+                None,
+            ) {
+                Ok(guard) => Some(guard),
+                Err(detail) => {
+                    Self::send_changeset_join_err(
+                        &self.control_tx,
+                        project_dir,
+                        &request.dash,
+                        &detail,
+                    );
+                    return;
+                }
+            }
+        };
+
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let opts = tugdash_core::JoinOptions {
@@ -5198,6 +5302,7 @@ impl AgentSupervisor {
             continue_join: request.continue_join,
             candidate: request.candidate.clone(),
             origin: Some("card".to_string()),
+            anyway: request.anyway,
         };
         let result =
             tokio::task::spawn_blocking(move || tugdash_core::join_in(&dir_owned, &dash, opts))
@@ -5401,6 +5506,30 @@ impl AgentSupervisor {
             return;
         }
 
+        // A verification resets the shared workshop to the candidate, so it
+        // cannot run beside a resolve that is mid-edit in the same worktree
+        // (Spec S01).
+        let owner_key = tugdash_core::ops::dash_owner_key(dir, &request.dash);
+        let _occupancy = match crate::feeds::join_occupancy::acquire(
+            &owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::Verify,
+            None,
+        ) {
+            Ok(guard) => guard,
+            Err(detail) => {
+                Self::send_changeset_join_verify_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.dash,
+                    &detail,
+                );
+                return;
+            }
+        };
+        // The face paints the run stretch from the wire, so the recompute has
+        // to happen now rather than only when the verdict lands.
+        self.registry.changeset_all_bump().notify_one();
+
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let tier = request.tier.clone();
@@ -5506,6 +5635,36 @@ impl AgentSupervisor {
                     dash: request.dash.clone(),
                 });
 
+        // Take the dash before anything git-shaped happens (Spec S01). A second
+        // Resolve press — the shape the false error face used to invite — would
+        // otherwise start a second `finish_join` doing `reset --hard` on the
+        // workshop the first one's resolver is editing.
+        let owner_key = tugdash_core::ops::dash_owner_key(dir, &request.dash);
+        // Snapshotted here so a question this run raises stays matched to the
+        // head it was raised against, even if a round lands on the dash while
+        // the resolver waits for the answer.
+        let dash_head = tugdash_core::ops::dash_detail_entry_in(dir, &request.dash)
+            .and_then(|detail| tugdash_core::ops::rev_parse(dir, &detail.branch).ok());
+        let occupancy = match crate::feeds::join_occupancy::acquire(
+            &owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::Resolve,
+            dash_head,
+        ) {
+            Ok(guard) => guard,
+            Err(detail) => {
+                Self::send_changeset_join_admission_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.dash,
+                    &detail,
+                );
+                return;
+            }
+        };
+        // The `run` fact is what makes a reload mid-resolve land on a face that
+        // still says the resolve is running, so it goes out before the work.
+        self.registry.changeset_all_bump().notify_one();
+
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let result = tokio::task::spawn_blocking(move || {
@@ -5538,14 +5697,22 @@ impl AgentSupervisor {
                 );
 
                 // The resolver finishes what the ladder left **and audits what
-                // it decided** ([P10]) — so it runs on every conflicted join,
-                // including one the ladder resolved completely. A machine
-                // resolution nobody read is the failure class the retired
-                // review gate existed for; skipping the audit when the ladder
-                // happened to succeed would drop that guarantee rather than
-                // relocate it.
-                let conflicted = !outcome.resolved.is_empty() || !outcome.unresolved.is_empty();
-                if conflicted {
+                // it decided** ([P10]) — so it runs whenever the machine
+                // decided anything, including on a ladder that resolved
+                // everything. A machine resolution nobody read is the failure
+                // class the retired review gate existed for; skipping the audit
+                // when the ladder happened to succeed would drop that guarantee
+                // rather than relocate it.
+                //
+                // The trigger is the **audit set** — the paths the squash would
+                // have conflicted over, plus whatever the ladder resolved or
+                // left — rather than the ladder's exit shape. A dash whose
+                // squash conflicts but whose rounds replay cleanly returns both
+                // lists empty with a candidate in hand, which is precisely the
+                // 2026-08-15 incident shape: a wholesale machine decision that
+                // builds green, passing unread.
+                let audit_set = crate::feeds::join_resolver::audit_set(&outcome);
+                if !audit_set.is_empty() {
                     let ctx = crate::feeds::join_resolver::ResolverContext {
                         repo: dir.to_path_buf(),
                         dash: request.dash.clone(),
@@ -5584,6 +5751,11 @@ impl AgentSupervisor {
                     let project_dir_owned = project_dir.to_string();
                     let outcome_owned = outcome.clone();
                     tokio::spawn(async move {
+                        // The hold travels with the work, not with this
+                        // handler: the resolve is only over when the detached
+                        // task is, and it releases on every exit including a
+                        // panic.
+                        let _occupancy = occupancy;
                         match crate::feeds::join_resolver::finish_join(&ctx, &outcome_owned).await {
                             Ok(()) => {
                                 bump.notify_one();
@@ -5616,6 +5788,45 @@ impl AgentSupervisor {
                     &request.dash,
                     &outcome,
                 );
+
+                // Nothing was decided, so nothing needs auditing — but a
+                // candidate still exists, and an unjudged candidate is the hole
+                // this round closes ([P03]). The motivating failure is a *clean*
+                // merge: a symbol renamed on one side and a new call site on the
+                // other conflict in no file and do not build. So the verdict is
+                // produced without a press, exactly as the audited path already
+                // produces one inside `finish_join`.
+                //
+                // The hold carries over rather than being released and retaken:
+                // the dash stays occupied from the resolve through its verdict,
+                // and the wire's `run` fact simply changes what it names.
+                if outcome.candidate_commit.is_some() {
+                    occupancy.become_kind(crate::feeds::join_occupancy::JoinRunKind::Verify);
+                    self.registry.changeset_all_bump().notify_one();
+
+                    let dir_owned = dir.to_path_buf();
+                    let dash = request.dash.clone();
+                    let bump = self.registry.changeset_all_bump();
+                    let progress = bump.clone();
+                    tokio::spawn(async move {
+                        let _occupancy = occupancy;
+                        let outcome = tokio::task::spawn_blocking(move || {
+                            run_join_verification(&dir_owned, &dash, None, || {
+                                progress.notify_one();
+                            })
+                        })
+                        .await;
+                        // The verdict is a git fact; the recompute is how it
+                        // reaches the face. There is no CONTROL reply to send
+                        // because there was no press to answer — a failure here
+                        // has already been written red into the verification
+                        // fact by Step 1's terminal-fact rule.
+                        if let Ok(Err(detail)) = &outcome {
+                            tracing::info!(detail = %detail, "dash-join: auto-verification refused");
+                        }
+                        bump.notify_one();
+                    });
+                }
             }
             Ok(Err(detail)) => {
                 tracing::info!(dash = %request.dash, detail = %detail, "dash-join: ladder refused");
@@ -5635,6 +5846,66 @@ impl AgentSupervisor {
                 );
             }
         }
+    }
+
+    /// Handle a `changeset_join_override` CONTROL request (Spec S02): record
+    /// that the user chose to join this candidate despite its verdict.
+    ///
+    /// Durable, and on the server, because the gate it defeats is on the server
+    /// too. The old client-local version was deleted at exactly the moment it
+    /// was set — the store dropped an idle state, which is what a settled
+    /// post-resolve dash is — so the control did nothing in the one state it
+    /// existed for.
+    ///
+    /// Synchronous: writing one config value and bumping the recompute is the
+    /// whole act.
+    fn do_changeset_join_override(&self, request: &ChangesetJoinOverridePayload) {
+        let project_dir = request.project_dir.as_str();
+        let dir = std::path::Path::new(project_dir);
+
+        let result = (|| -> Result<(), String> {
+            if self.registry.find_entry_by_path(dir).is_none() {
+                return Err("not an open project".to_string());
+            }
+            let standing =
+                match tugdash_core::resolve::candidate_status_in(dir, &request.dash)? {
+                    tugdash_core::resolve::CandidateStatus::Valid(sha) => sha,
+                    tugdash_core::resolve::CandidateStatus::Stale(note) => return Err(note),
+                    tugdash_core::resolve::CandidateStatus::None => {
+                        return Err("there is no candidate to join".to_string());
+                    }
+                };
+            if standing != request.candidate {
+                return Err(
+                    "that decision was about a resolution that no longer stands — read the new one"
+                        .to_string(),
+                );
+            }
+            tugdash_core::verify::write_override(dir, &request.dash, &standing)
+        })();
+
+        // The recompute carries the fact to the face on both arms: a refusal
+        // means the face is showing a state that is no longer true.
+        self.registry.changeset_all_bump().notify_one();
+
+        let body = match &result {
+            Ok(()) => serde_json::json!({
+                "action": "changeset_join_override_ok",
+                "project_dir": project_dir,
+                "dash": request.dash,
+                "candidate": request.candidate,
+            }),
+            Err(detail) => serde_json::json!({
+                "action": "changeset_join_override_err",
+                "project_dir": project_dir,
+                "dash": request.dash,
+                "detail": detail,
+            }),
+        };
+        let _ = self.control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_join_override reply serializes"),
+        ));
     }
 
     /// Handle a `changeset_join_question_answer` CONTROL request ([P06]):
@@ -5713,6 +5984,33 @@ impl AgentSupervisor {
             return;
         };
         tugdash_core::resolve::write_stuck(dir, dash, &head, detail);
+    }
+
+    /// Refuse a resolve **before it started**, without disturbing the run that
+    /// is the reason for the refusal (Spec S01).
+    ///
+    /// The distinction is the `admission` flag, and it is load-bearing: this
+    /// reply arrives on the same `(project_dir, dash)` cell the live run is
+    /// streaming into, so a client that read it as an ordinary failure would
+    /// paint the healthy run it was refused *in favour of* as dead — turning a
+    /// harmless double press into the false error face this round removes.
+    fn send_changeset_join_admission_err(
+        control_tx: &broadcast::Sender<Frame>,
+        project_dir: &str,
+        dash: &str,
+        detail: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "changeset_join_resolve_err",
+            "project_dir": project_dir,
+            "dash": dash,
+            "detail": detail,
+            "admission": true,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_join_resolve_err serializes"),
+        ));
     }
 
     fn send_changeset_join_resolve_err(
@@ -8870,6 +9168,9 @@ mod tests {
                 "project_dir": project_dir,
                 "dash": dash,
                 "preview": preview,
+                // The subject here is the join's own mechanics, not the
+                // verification gate — which has its own tests.
+                "anyway": true,
             }))
             .unwrap()
         }
@@ -9161,6 +9462,429 @@ mod tests {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&show.stdout), "MERGED\n");
+
+        cancel.cancel();
+    }
+
+    /// While a resolve holds a dash, every act that would touch its workshop is
+    /// refused by name — and a preview, which touches nothing, is not.
+    ///
+    /// The failure this closes is concrete: the client's silence deadline used
+    /// to paint a healthy resolve as an error, and the error face re-mounted
+    /// the Resolve control. Pressing it started a second `finish_join` doing
+    /// `reset --hard` on the workshop the first one's resolver was editing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_live_resolve_refuses_every_other_run_on_that_dash() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let ok = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+
+        /// The next frame whose action is one of `wanted`, ignoring deltas.
+        async fn await_action(
+            rx: &mut broadcast::Receiver<Frame>,
+            wanted: &[&str],
+        ) -> serde_json::Value {
+            for _ in 0..40 {
+                let frame =
+                    tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+                        .await
+                        .expect("a control frame")
+                        .expect("sender alive");
+                let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+                if let Some(action) = body["action"].as_str() {
+                    if wanted.contains(&action) {
+                        return body;
+                    }
+                }
+            }
+            panic!("no frame among {wanted:?}");
+        }
+
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+
+        // A dash with a real conflict, so the ladder cannot settle it alone and
+        // the resolver rung runs — which is what keeps the dash held.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("f.txt"), "A\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(root.join("f.txt"), "B\n").unwrap();
+        git(&root, &["commit", "-am", "r1"]);
+        git(&root, &["switch", "-q", "main"]);
+        std::fs::write(root.join("f.txt"), "C\n").unwrap();
+        git(&root, &["commit", "-am", "main to C"]);
+
+        // A resolver that reads its charter and then never answers, so the run
+        // is unambiguously live for the whole test.
+        let stub = root.join("stub-resolver.sh");
+        std::fs::write(&stub, "#!/bin/sh\nread -r _charter\nsleep 120\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git(
+            &root,
+            &["config", "tugdash.joinresolver", &stub.to_string_lossy()],
+        );
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let resolve = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_resolve",
+            "project_dir": root_str,
+            "dash": "demo",
+        }))
+        .unwrap();
+        // Returns as soon as the resolver rung is detached — the hold travels
+        // with it, so the dash is occupied from here on.
+        sup.handle_control("changeset_join_resolve", &resolve, 1)
+            .await;
+
+        sup.handle_control("changeset_join_resolve", &resolve, 1)
+            .await;
+        let refused = await_action(
+            &mut control_rx,
+            &["changeset_join_resolve_err", "changeset_join_resolve_ok"],
+        )
+        .await;
+        assert_eq!(refused["action"], "changeset_join_resolve_err");
+        assert_eq!(
+            refused["detail"], "a resolve is already running for this dash",
+            "the second press says what holds the dash"
+        );
+
+        let verify = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_verify",
+            "project_dir": root_str,
+            "dash": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_verify", &verify, 1).await;
+        let refused = await_action(
+            &mut control_rx,
+            &["changeset_join_verify_err", "changeset_join_verify_ok"],
+        )
+        .await;
+        assert_eq!(refused["action"], "changeset_join_verify_err");
+        assert_eq!(
+            refused["detail"], "a resolve is already running for this dash",
+            "a verification resets the same workshop, so it waits its turn"
+        );
+
+        let join = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join",
+            "project_dir": root_str,
+            "dash": "demo",
+            "preview": false,
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join", &join, 1).await;
+        let refused = await_action(
+            &mut control_rx,
+            &["changeset_join_err", "changeset_join_ok"],
+        )
+        .await;
+        assert_eq!(refused["action"], "changeset_join_err");
+        assert_eq!(
+            refused["detail"], "a resolve is already running for this dash",
+            "a join would tear the workshop down under the resolve"
+        );
+
+        // A preview touches nothing, so it is never gated — the face asks for
+        // one constantly, including while a resolve runs.
+        let preview = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join",
+            "project_dir": root_str,
+            "dash": "demo",
+            "preview": true,
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join", &preview, 1).await;
+        let previewed = await_action(
+            &mut control_rx,
+            &["changeset_join_err", "changeset_join_ok"],
+        )
+        .await;
+        assert_ne!(
+            previewed["detail"], "a resolve is already running for this dash",
+            "a preview is not a run: {previewed}"
+        );
+
+        cancel.cancel();
+    }
+
+    /// A verification that outlives its dash refuses, and resurrects nothing
+    /// ([P07]).
+    ///
+    /// The race is ordinary: a join tears the dash and its workshop down while
+    /// a verification started a moment earlier is still running. Every step of
+    /// that verification wants a workshop, and each one used to create it —
+    /// leaving a worktree and a `tugworkshop/` branch behind for a dash that no
+    /// surface lists, which is a leak nothing collects.
+    #[test]
+    fn a_verification_that_outlives_its_dash_creates_no_workshop() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let ok = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("a.txt"), "A\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+
+        // The dash is gone — joined, or discarded — and this run did not get
+        // the message in time.
+        git(&root, &["branch", "-D", "tugdash/demo"]);
+
+        let refused = run_join_verification(&root, "demo", None, || {})
+            .expect_err("a verification of nothing refuses");
+        assert!(!refused.is_empty(), "and says why: {refused}");
+        assert!(
+            !tugdash_core::workshop::workshop_path(&root, "demo").exists(),
+            "nothing was created on the way to refusing"
+        );
+    }
+
+    /// A dash with nothing to reconcile still grows a candidate, and the
+    /// project's own checks judge it without anybody pressing Verify ([P03]).
+    ///
+    /// This is the hole the whole round was named after. A conflicted join was
+    /// always resolved, audited, and verified before it could land; a clean one
+    /// joined on the strength of git finding no overlapping text — which says
+    /// nothing about whether the result builds. A symbol renamed in one file
+    /// and called from a new one merges without a murmur and does not compile.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_clean_dash_is_verified_without_a_press() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let ok = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+        // A tier 0 that always passes: what is being pinned is that a verdict
+        // is produced at all, not what any particular build says.
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\nverify_tier0 = [\"true\"]\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("a.txt"), "A\n").unwrap();
+        std::fs::write(root.join("b.txt"), "B\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(root.join("a.txt"), "A from the dash\n").unwrap();
+        git(&root, &["commit", "-am", "dash round"]);
+        git(&root, &["switch", "-q", "main"]);
+        // Base moves too, in a different file — a real merge with no conflict,
+        // rather than a fast-forward the ladder could shortcut.
+        std::fs::write(root.join("b.txt"), "B from base\n").unwrap();
+        git(&root, &["commit", "-am", "base round"]);
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let resolve = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_resolve",
+            "project_dir": root_str,
+            "dash": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join_resolve", &resolve, 1)
+            .await;
+
+        let mut terminal: Option<serde_json::Value> = None;
+        for _ in 0..40 {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+                .await
+                .expect("a control frame")
+                .expect("sender alive");
+            let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            match body["action"].as_str() {
+                // Nobody pressed Verify, so the pressed verb's replies must
+                // never appear: the verdict is the resolve's own doing.
+                Some("changeset_join_verify_ok") | Some("changeset_join_verify_err") => {
+                    panic!("a pressed verification answered a press nobody made: {body}");
+                }
+                Some("changeset_join_resolve_ok") | Some("changeset_join_resolve_err") => {
+                    terminal = Some(body);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let ok = terminal.expect("a terminal resolve frame");
+        assert_eq!(ok["action"], "changeset_join_resolve_ok", "resolved: {ok}");
+        let candidate = ok["candidate_commit"]
+            .as_str()
+            .expect("a clean squash anchors a candidate")
+            .to_string();
+        assert!(
+            ok["resolved"].as_array().unwrap().is_empty()
+                && ok["unresolved"].as_array().unwrap().is_empty(),
+            "nothing was reconciled, so nothing needs auditing: {ok}"
+        );
+
+        // The verification is detached — the resolve does not wait on it, which
+        // is the point — so the verdict is awaited as the git fact it is.
+        let mut verdict = None;
+        for _ in 0..100 {
+            if let Some(fact) = tugdash_core::verify::read_verification(&root, "demo") {
+                if fact.tier0 != tugdash_core::verify::TierStatus::Running {
+                    verdict = Some(fact);
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        let verdict = verdict.expect("the clean candidate was verified unpressed");
+        assert_eq!(verdict.candidate_sha, candidate, "about this candidate");
+        assert_eq!(verdict.tier0, tugdash_core::verify::TierStatus::Green);
+
+        cancel.cancel();
+    }
+
+    /// A "join it anyway" decision about a superseded candidate is refused, and
+    /// one about the standing candidate becomes a durable fact.
+    ///
+    /// The decision is about a tree somebody read. Applying one raised over an
+    /// old resolution to whatever stands now would wave through a merge nobody
+    /// agreed to — the failure the sha in the request exists to prevent.
+    #[tokio::test]
+    async fn a_join_override_is_refused_for_a_candidate_that_no_longer_stands() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let ok = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+
+        async fn next_control(rx: &mut broadcast::Receiver<Frame>) -> serde_json::Value {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+                .await
+                .expect("a control frame")
+                .expect("sender alive");
+            serde_json::from_slice(&frame.payload).unwrap()
+        }
+
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("f.txt"), "A\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(root.join("f.txt"), "B\n").unwrap();
+        git(&root, &["commit", "-am", "r1"]);
+        git(&root, &["switch", "-q", "main"]);
+
+        let outcome = tugdash_core::resolve_conflicts(&root, "demo", None).unwrap();
+        let candidate = outcome.candidate_commit.clone().expect("a candidate");
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let request = |sha: &str| {
+            serde_json::to_vec(&serde_json::json!({
+                "action": "changeset_join_override",
+                "project_dir": root_str,
+                "dash": "demo",
+                "candidate": sha,
+            }))
+            .unwrap()
+        };
+
+        sup.handle_control("changeset_join_override", &request("deadbeef"), 1)
+            .await;
+        let refused = next_control(&mut control_rx).await;
+        assert_eq!(refused["action"], "changeset_join_override_err");
+        assert!(
+            refused["detail"]
+                .as_str()
+                .unwrap()
+                .contains("no longer stands"),
+            "{refused}"
+        );
+        assert!(
+            tugdash_core::verify::read_override(&root, "demo").is_none(),
+            "a refused decision writes nothing"
+        );
+
+        sup.handle_control("changeset_join_override", &request(&candidate), 1)
+            .await;
+        let ok = next_control(&mut control_rx).await;
+        assert_eq!(ok["action"], "changeset_join_override_ok");
+        assert_eq!(
+            tugdash_core::verify::read_override(&root, "demo").as_deref(),
+            Some(candidate.as_str()),
+            "the decision is durable, and names the tree it was made about"
+        );
+
+        // A re-resolve retires it with the candidate it described.
+        tugdash_core::resolve::clear_candidate(&root, "demo");
+        assert!(
+            tugdash_core::verify::read_override(&root, "demo").is_none(),
+            "a new tree must be decided about on its own terms"
+        );
 
         cancel.cancel();
     }
@@ -10159,6 +10883,8 @@ mod tests {
             "action": "changeset_join",
             "project_dir": project,
             "dash": "demo",
+            // The subject is the teardown's sweep, not the verification gate.
+            "anyway": true,
         }))
         .unwrap();
         sup.handle_control("changeset_join", &payload, 1).await;

@@ -56,6 +56,15 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// selection and well short of a join the user has given up on.
 pub const TIER1_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
+/// The wall-clock ceiling on a Tier 0 run.
+///
+/// A build tier is cheaper than an exam tier, but it is not bounded by its own
+/// nature: a `cargo build` waiting on a package lock, or a bundler on a network
+/// fetch, hangs exactly as long as a wedged app-test does. The same twenty
+/// minutes applies, for the same reason — past any honest build, short of a
+/// join nobody is still watching.
+pub const TIER0_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+
 /// One tier's standing verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TierStatus {
@@ -140,7 +149,10 @@ pub fn write_verification(repo: &Path, name: &str, v: &Verification) -> Result<(
         v.tier0.as_str(),
         v.tier1.as_str()
     );
-    let out = git_output(repo, &["config", &verification_config_key(name), &value])?;
+    let out = git_output(
+        repo,
+        &["config", "--replace-all", &verification_config_key(name), &value],
+    )?;
     if !out.status.success() {
         return Err(format!(
             "failed to record verification for {}: {}",
@@ -204,6 +216,45 @@ pub fn read_verification(repo: &Path, name: &str) -> Option<Verification> {
     })
 }
 
+/// Where a "join it anyway" decision is kept: the candidate sha it was made
+/// about (Spec S02).
+///
+/// Anchored to the candidate rather than to the dash, because the decision was
+/// about **this tree** — the user looked at a red verdict over a specific
+/// resolution and said land it. A re-resolve produces a different tree, and a
+/// standing override that survived into it would be answering a question
+/// nobody asked. `clear_candidate` collects it with the other marks, so the
+/// self-demotion is the same one every candidate fact already gets.
+pub fn override_config_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinoverride", name)
+}
+
+/// Record that the user chose to join `candidate` despite its verdict.
+pub fn write_override(repo: &Path, name: &str, candidate: &str) -> Result<(), String> {
+    let out = git_output(
+        repo,
+        &["config", "--replace-all", &override_config_key(name), candidate],
+    )?;
+    if !out.status.success() {
+        return Err(format!(
+            "failed to record the join override for {}: {}",
+            name,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// The candidate a standing override names, if any.
+pub fn read_override(repo: &Path, name: &str) -> Option<String> {
+    config_get(repo, &override_config_key(name))
+}
+
+/// Drop the standing override.
+pub fn clear_override(repo: &Path, name: &str) {
+    let _ = git_output(repo, &["config", "--unset-all", &override_config_key(name)]);
+}
+
 /// Drop a candidate's verdict — on demotion, and with the candidate itself.
 pub fn clear_verification(repo: &Path, name: &str) {
     let _ = git_output(
@@ -224,6 +275,28 @@ impl Verification {
     pub fn describes(&self, base_sha: &str, candidate_sha: &str) -> bool {
         self.base_sha == base_sha && self.candidate_sha == candidate_sha
     }
+
+    /// Turn every tier this verdict claims is in flight into a red naming
+    /// `reason`, and report whether anything moved.
+    ///
+    /// A runner that dies between writing `running` and writing its answer
+    /// leaves a fact describing an activity nobody is performing: the face
+    /// renders a permanent wait, and its refusal reaches for a control that
+    /// does not exist. A failure sentence is the only honest terminal state a
+    /// dead run can leave behind.
+    pub fn fail_running(&mut self, reason: &str) -> bool {
+        let mut moved = false;
+        for tier in [&mut self.tier0, &mut self.tier1] {
+            if *tier == TierStatus::Running {
+                *tier = TierStatus::Red;
+                moved = true;
+            }
+        }
+        if moved {
+            self.failures.push(reason.to_string());
+        }
+        moved
+    }
 }
 
 /// Run a project's Tier 0 commands against a candidate, in the dash's workshop.
@@ -241,7 +314,7 @@ pub fn run_tier0(repo: &Path, name: &str, candidate_sha: &str) -> Result<TierOut
         workshop.path(),
         &commands,
         &verify_env(workshop.base_head(), candidate_sha),
-        None,
+        Some(TIER0_TIMEOUT),
     ))
 }
 
@@ -400,7 +473,13 @@ fn run_bounded(
     let err_path = dir.path().join("stderr");
     let out_file = std::fs::File::create(&out_path).map_err(|e| format!("verify stdout: {e}"))?;
     let err_file = std::fs::File::create(&err_path).map_err(|e| format!("verify stderr: {e}"))?;
-    cmd.stdout(out_file).stderr(err_file);
+    // Null stdin, as `Command::output` does on the unbounded branch. A declared
+    // command that reads stdin would otherwise inherit tugcast's and block on a
+    // terminal nobody is typing into — a hang the deadline would eventually
+    // convert to a red, but only after twenty silent minutes.
+    cmd.stdout(out_file)
+        .stderr(err_file)
+        .stdin(std::process::Stdio::null());
 
     let mut child = cmd.spawn().map_err(|e| format!("failed to run: {e}"))?;
     let deadline = Instant::now() + timeout;
@@ -680,6 +759,58 @@ mod tests {
         );
         assert_eq!(outcome.status, TierStatus::Red);
         assert_eq!(outcome.notes, vec!["core tier forced: selector exit 3"]);
+    }
+
+    /// A declared command that reads stdin sees EOF and exits, on both the
+    /// bounded and the unbounded branch.
+    ///
+    /// The bounded branch spawns its own child rather than going through
+    /// `Command::output`, which nulls stdin for free — so without an explicit
+    /// null it inherits tugcast's. A verification launched from a terminal then
+    /// blocks on a prompt nobody is answering, and the only thing that ends it
+    /// is the twenty-minute deadline reporting a timeout about the wrong thing.
+    #[test]
+    fn a_command_that_reads_stdin_exits_on_both_branches() {
+        let temp = tempfile::tempdir().unwrap();
+        let read_stdin = ["cat > /dev/null".to_string()];
+
+        let unbounded = run_declared(temp.path(), &read_stdin, &BTreeMap::new(), None);
+        assert_eq!(unbounded.status, TierStatus::Green, "{unbounded:?}");
+
+        let bounded = run_declared(
+            temp.path(),
+            &read_stdin,
+            &BTreeMap::new(),
+            Some(Duration::from_secs(20)),
+        );
+        assert_eq!(bounded.status, TierStatus::Green, "{bounded:?}");
+    }
+
+    /// A verdict left claiming a tier is in flight becomes red naming why.
+    ///
+    /// The runner writes `running` before it starts and its answer after; every
+    /// way out in between used to leave the first write standing forever. A
+    /// face reading that shows a wait with no control to press.
+    #[test]
+    fn a_dead_run_turns_its_running_tiers_red() {
+        let mut fact = Verification {
+            base_sha: "base".to_string(),
+            candidate_sha: "cand".to_string(),
+            tier0: TierStatus::Green,
+            tier1: TierStatus::Running,
+            failures: Vec::new(),
+            notes: Vec::new(),
+        };
+        assert!(fact.fail_running("the workshop went missing"));
+        assert_eq!(fact.tier0, TierStatus::Green, "a settled tier is untouched");
+        assert_eq!(fact.tier1, TierStatus::Red);
+        assert_eq!(fact.failures, vec!["the workshop went missing"]);
+
+        // A verdict with nothing in flight is left exactly as it stands —
+        // no phantom failure sentence on an honest red.
+        let before = fact.clone();
+        assert!(!fact.fail_running("something else"));
+        assert_eq!(fact, before);
     }
 
     /// An unreadable stored value is `None` rather than a panic — an older or

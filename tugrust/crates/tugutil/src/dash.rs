@@ -45,7 +45,8 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             preview,
             continue_join,
             resolve,
-        } if resolve => run_join_resolve(&name, message, strategy.into(), json, quiet),
+            anyway,
+        } if resolve => run_join_resolve(&name, message, strategy.into(), anyway, json, quiet),
         DashCommands::Join {
             name,
             message,
@@ -53,6 +54,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             preview,
             continue_join,
             resolve: _,
+            anyway,
         } => run_join(
             &name,
             JoinOptions {
@@ -62,6 +64,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
                 continue_join,
                 candidate: None,
                 origin: Some("cli".to_string()),
+                anyway,
             },
             json,
             quiet,
@@ -319,6 +322,7 @@ fn run_join_resolve(
     name: &str,
     message: Option<String>,
     strategy: JoinStrategy,
+    anyway: bool,
     json: bool,
     quiet: bool,
 ) -> Result<(), String> {
@@ -358,6 +362,7 @@ fn run_join_resolve(
             continue_join: false,
             candidate: Some(candidate),
             origin: Some("cli".to_string()),
+            anyway,
         },
     )?;
     if landed.conflicts.is_empty()

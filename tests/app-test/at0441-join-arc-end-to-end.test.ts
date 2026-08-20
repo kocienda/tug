@@ -27,6 +27,12 @@
  * join mode by that route → type a message → the composer's land control is
  * armed → **press it, and the dash joins.**
  *
+ * Then the same arc's quiet twin: a second dash with nothing to reconcile
+ * enters join mode, is resolved and verified **with no press at all**, and
+ * joins. A clean merge used to be the one nobody examined — it landed because
+ * git found no overlapping text, which is not the same claim as the result
+ * building — and this is where that stops being true.
+ *
  * The reload is not decoration. Three candidates were built and abandoned in
  * one day because nothing durable held them; the candidate is a git ref now,
  * and this is where that claim is tested against a deck that has genuinely
@@ -115,7 +121,26 @@ const SHEET = '[data-slot="session-changes-view"]';
 const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
 const DASH = "at0441-arc";
+/**
+ * The second dash: nothing about it conflicts with the base.
+ *
+ * It exists because a clean join used to be the *unexamined* one. A conflicted
+ * dash was resolved, audited, and verified before it could land; a clean one
+ * landed on the strength of git finding no overlapping text, which says nothing
+ * about whether the result builds. Every join rides a candidate now, so this
+ * dash walks the same verdict the conflicted one does — with no press.
+ */
+const CLEAN_DASH = "at0441-clean";
+/** The file only the clean dash touches, so its merge has nothing to decide. */
+const CLEAN_FILE = "clean.txt";
+const CLEAN_BODY = "at0441 the clean dash's own file\n";
+const CLEAN_MESSAGE = "the clean arc lands too";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
+const CLEAN_ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${CLEAN_DASH}"]`;
+const CLEAN_LANDING = `${CLEAN_ROW} [data-slot="session-changes-dash-join"]`;
+const CLEAN_VERDICT = `${CLEAN_ROW} [data-slot="session-changes-dash-join-verdict"]`;
+const CLEAN_VERIFY = `${CLEAN_ROW} [data-slot="session-changes-dash-join-verify"]`;
+const CLEAN_READY = `${CLEAN_ROW} [data-slot="session-changes-dash-join-ready"]`;
 const LANDING = `${ROW} [data-slot="session-changes-dash-join"]`;
 const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
 const VERDICT = `${ROW} [data-slot="session-changes-dash-join-verdict"]`;
@@ -260,6 +285,18 @@ beforeAll(() => {
     env: { TUG_DATA_DIR: dataRoot },
   });
 
+  // The second dash forks from the same point and touches a file nobody else
+  // does, so its squash has nothing to reconcile — the clean arc.
+  const clean = createDash(scratch, CLEAN_DASH, "at0441 clean-arc fixture", {
+    binaryRoot: CHECKOUT,
+    env: { TUG_DATA_DIR: dataRoot },
+  });
+  writeFileSync(join(clean.worktree, CLEAN_FILE), CLEAN_BODY);
+  commitRound(scratch, CLEAN_DASH, `at0441(round): add ${CLEAN_FILE}`, {
+    binaryRoot: CHECKOUT,
+    env: { TUG_DATA_DIR: dataRoot },
+  });
+
   // The resolver, configured in the scratch repo only. It speaks the two
   // terminal shapes over stdio — one JSON line per user message in, one per
   // terminal turn out — which is the identical parse-and-wait path the real
@@ -381,7 +418,7 @@ async function openOnDash(app: App): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
   test(
-    "conflicted resolves, is audited and verified, survives a reload, and joins — every refusal pointing at a mounted control",
+    "conflicted resolves, is audited and verified, survives a reload, and joins; a clean dash is judged unpressed and joins too — every refusal pointing at a mounted control",
     async () => {
       const tugbankPath = mkTempTugbank();
       // The source tree is where the app finds `tugdeck/dist` to serve, so it
@@ -590,6 +627,19 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         // assertion above and still be the wrong tree.
         expect(readFileSync(join(scratch, CONFLICT_FILE), "utf8")).toBe(RESOLVER_BODY);
         // The journaled teardown ran: nothing of the dash is left to land twice.
+        // Polled, because the teardown is a phase *after* the integrate: the
+        // base tip moves first, and the worktree and branch go a beat later.
+        const teardownBy = Date.now() + 60_000;
+        while (Date.now() < teardownBy && branchExists(`tugdash/${DASH}`)) {
+          await settle(500);
+        }
+        if (branchExists(`tugdash/${DASH}`)) {
+          note(
+            `at0441 teardown stalled — branches ${JSON.stringify(
+              git(scratch, "branch", "--list").trim(),
+            )} worktrees ${JSON.stringify(worktreePaths().join(", "))}`,
+          );
+        }
         expect(branchExists(`tugdash/${DASH}`), "the dash branch is gone").toBe(false);
         expect(worktreePaths().some((p) => p.includes(DASH)), "its worktree is gone").toBe(
           false,
@@ -601,6 +651,67 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           `document.querySelector(${JSON.stringify(ROW)}) === null`,
           { timeoutMs: 60000 },
         );
+
+        // ── Beat 9: the clean arc, judged without being asked ─────────────
+        // The dash above earned its verdict by conflicting. This one has
+        // nothing to reconcile, and until now that meant nothing examined it:
+        // it joined because git found no overlapping text, which is not the
+        // same claim as the result building. Entering join mode resolves it,
+        // the one-shot squash anchors a candidate, and the server verifies
+        // that candidate with no press — so the same green verdict the
+        // conflicted arc reached is here, on a dash nobody touched.
+        await runCommand(app, `/dash-join ${CLEAN_DASH}`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CLEAN_ROW)})?.getAttribute("data-fronted") === "true"`,
+          { timeoutMs: 20000 },
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CLEAN_LANDING)})?.getAttribute("data-outcome") === "clean"`,
+          { timeoutMs: 40000 },
+        );
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CLEAN_VERDICT)})?.getAttribute("data-verdict") === "green"`,
+          { timeoutMs: 180000 },
+        );
+        // Nothing was pressed to get here. The Verify control is what the
+        // unverified state mounts, so its absence at a green verdict is the
+        // assertion that the verdict arrived on its own.
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(CLEAN_VERIFY)}) === null`,
+          ),
+          "the clean dash was verified without a press",
+        ).toBe(true);
+        note("at0441 clean beat: a dash with nothing to reconcile still faced the checks");
+
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CLEAN_READY)})?.getAttribute("data-ready") === "true"`,
+          { timeoutMs: 30000 },
+        );
+        if (!(await inJoinMode(app))) await runCommand(app, `/dash-join ${CLEAN_DASH}`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(`${LAND_BUTTON}[aria-label="Join"]`)}) !== null`,
+          { timeoutMs: 12000 },
+        );
+        await app.nativeClickAtElement(EDITOR);
+        await settle();
+        await app.nativeKey("a", ["cmd"]);
+        await app.nativeKey("Delete");
+        await app.nativeType(CLEAN_MESSAGE);
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf(${JSON.stringify(CLEAN_MESSAGE)}) !== -1`,
+          { timeoutMs: 5000 },
+        );
+        const cleanBefore = git(scratch, "rev-parse", "main").trim();
+        await app.nativeKey("Return", ["cmd"]);
+        const cleanLanded = await waitForLanding(cleanBefore);
+        note(`at0441 clean landed: ${JSON.stringify(cleanLanded.subject)}`);
+        expect(readFileSync(join(scratch, CLEAN_FILE), "utf8")).toBe(CLEAN_BODY);
+        const cleanTeardownBy = Date.now() + 60_000;
+        while (Date.now() < cleanTeardownBy && branchExists(`tugdash/${CLEAN_DASH}`)) {
+          await settle(500);
+        }
+        expect(branchExists(`tugdash/${CLEAN_DASH}`), "the clean dash is gone too").toBe(false);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

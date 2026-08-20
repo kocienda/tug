@@ -65,6 +65,15 @@ export interface FileProgress {
   status: string;
   /** The AI rung's accumulated text, when streaming. */
   text: string;
+  /**
+   * The candidate the resolver rung is working on, when it has one ([P08]).
+   *
+   * Its own field because the resolver has no path: it works over the whole
+   * tree, and its progress is about a commit. The sha used to arrive in `path`,
+   * which put a hash in the face's filename column and made each status of one
+   * run key as a separate file.
+   */
+  candidate?: string;
 }
 
 /**
@@ -81,29 +90,24 @@ export interface ResolveState {
   phase: ResolvePhase;
   /** Per-file streaming progress while `phase === "resolving"`. */
   progress: readonly FileProgress[];
-  /** Error detail when `phase === "error"`. */
-  error: string | null;
   /**
-   * The candidate sha the user has chosen to join past a red verdict on
-   * ([P07]), or `null` for the ordinary case.
+   * Why the last thing the user asked for did not happen.
    *
-   * A sha rather than a flag, and that is the whole design: an override is a
-   * decision made *in view of* a specific failure, so it must die with the
-   * tree it was about. A boolean would silently bless the next candidate — a
-   * re-resolve after a real fix would join without anyone looking at whether
-   * the fix worked.
-   *
-   * Client-side because the decision is: nothing durable should record that a
-   * red was waved through, and nothing should carry it to another deck.
+   * Set with `phase === "error"` when a run itself failed, and *without*
+   * touching the phase when a side press was refused — answering a question
+   * nobody is waiting on, or overriding a candidate that no longer stands.
+   * Those refusals arrive while a run may still be perfectly healthy, so
+   * routing them through the phase would paint live work as a failure, which
+   * is the false-error class this round exists to remove. What they may never
+   * do is vanish ([L31]).
    */
-  redOverrideFor: string | null;
+  error: string | null;
 }
 
 const IDLE: ResolveState = Object.freeze({
   phase: "idle",
   progress: Object.freeze([]) as readonly FileProgress[],
   error: null,
-  redOverrideFor: null,
 });
 
 /**
@@ -231,7 +235,10 @@ export class ChangesetJoinStore {
     if (
       action !== "changeset_join_resolve_delta" &&
       action !== "changeset_join_resolve_ok" &&
-      action !== "changeset_join_resolve_err"
+      action !== "changeset_join_resolve_err" &&
+      action !== "changeset_join_override_ok" &&
+      action !== "changeset_join_override_err" &&
+      action !== "changeset_join_question_answer_err"
     ) {
       return;
     }
@@ -244,18 +251,51 @@ export class ChangesetJoinStore {
     const k = key(workspaceKey, dash);
     const prev = this._states.get(k) ?? IDLE;
 
+    // A press that changed nothing has to say so. Both of these are refusals
+    // of a *side* act — the run they belong to, if there is one, is unharmed —
+    // so they land as a stated reason and leave the phase where it was.
+    if (
+      action === "changeset_join_override_err" ||
+      action === "changeset_join_question_answer_err"
+    ) {
+      const detail = typeof body.detail === "string" ? body.detail : null;
+      this._note(
+        k,
+        detail ??
+          (action === "changeset_join_override_err"
+            ? "Join anyway was refused"
+            : "That answer was not delivered"),
+      );
+      return;
+    }
+    if (action === "changeset_join_override_ok") {
+      // The override itself comes back on the dash's feed entry, as
+      // `override_for`. All this clears is a refusal from an earlier press.
+      if (prev.error !== null) this._note(k, null);
+      return;
+    }
+
     if (action === "changeset_join_resolve_delta") {
       const path = typeof body.path === "string" ? body.path : "";
       const rung = typeof body.rung === "string" ? body.rung : "";
       const status = typeof body.status === "string" ? body.status : "";
       const text = typeof body.text === "string" ? body.text : "";
+      const candidate = typeof body.candidate === "string" ? body.candidate : undefined;
       const progress = prev.progress.filter((p) => p.path !== path);
-      // A resolve blocked on an escalation is silent **because it is waiting
-      // on a person**, and a person may take half an hour. The deadline exists
-      // to catch a run that has died, so it must not fire on one that is doing
-      // exactly what it should — it is disarmed while the question stands, and
-      // the next delta of any kind re-arms it.
-      if (rung === "resolver" && status === "asking") {
+      // The resolver rung is silent by nature, at every status and not only
+      // while it waits on a person ([P02]). It reports four discrete beats —
+      // working, asking, verifying, iterating — with minutes of legitimate
+      // quiet between them: a model composing a reconciliation, a build, a
+      // test selection. The deadline's premise is per-chunk streaming, which is
+      // true of the scribe and false here, so on this rung it measured nothing
+      // and declared healthy work dead.
+      //
+      // Liveness for the resolver is the server's ([P02]): a per-turn silence
+      // bound, a tier-0 timeout, and an overall deadline, each landing in the
+      // durable stuck fact with a sentence naming which one fired. The client
+      // keeps the one failure it can genuinely see — a dropped wire — and
+      // stops guessing at the rest.
+      if (rung === "resolver") {
         this._clearDeadline(k);
       } else {
         // The run is talking, so the silence clock goes back to zero. This is
@@ -265,7 +305,10 @@ export class ChangesetJoinStore {
       this._set(k, {
         ...prev,
         phase: "resolving",
-        progress: [...progress, { path, rung, status, text }],
+        progress: [
+          ...progress,
+          { path, rung, status, text, ...(candidate !== undefined ? { candidate } : {}) },
+        ],
         error: null,
       });
       return;
@@ -287,7 +330,6 @@ export class ChangesetJoinStore {
           phase: "error",
           progress: prev.progress,
           error: `Still conflicting — resolve by hand: ${unresolved.join(", ")}`,
-          redOverrideFor: prev.redOverrideFor,
         });
         return;
       }
@@ -301,11 +343,34 @@ export class ChangesetJoinStore {
     // changeset_join_resolve_err — the ladder's own refusal, which is a better
     // answer than any this store could invent, late or not.
     const detail = typeof body.detail === "string" ? body.detail : "resolve failed";
+    // Unless nothing was refused *but the press*. An admission refusal means a
+    // run already holds this dash — so it arrives on the cell that run is
+    // streaming into, and failing the cell would report the healthy run as dead
+    // on the strength of somebody having asked for a second one.
+    if (body.admission === true) {
+      this._note(k, detail);
+      return;
+    }
     this._fail(k, detail);
   }
 
+  /**
+   * State a reason on a dash without claiming its run failed (`null` clears).
+   *
+   * The phase is untouched: a refused answer or a refused override says
+   * something about the press, not about the ladder, and a resolve that is
+   * still working must keep rendering as work.
+   */
+  private _note(k: string, reason: string | null): void {
+    const prev = this._states.get(k) ?? IDLE;
+    this._set(k, { ...prev, error: reason });
+  }
+
   private _set(k: string, state: ResolveState): void {
-    if (state.phase === "idle") {
+    // Idle is the absence of a run, but a stated reason is not absence: a
+    // refusal recorded on a dash with nothing running is exactly the case
+    // where dropping the cell would swallow the sentence.
+    if (state.phase === "idle" && state.error === null) {
       this._states.delete(k);
     } else {
       this._states.set(k, state);
@@ -315,22 +380,19 @@ export class ChangesetJoinStore {
 
   /**
    * Send `changeset_join_resolve` and mark the dash resolving (fresh state),
-   * on a clock. Pressing again over a run that was given up on is deliberately
-   * legal: the ladder builds its candidate off to the side and touches no
-   * checkout, so a second run costs time and nothing else.
+   * on a clock.
+   *
+   * Pressing again while a run is live is **refused by the server**, by name.
+   * That used to be free — the ladder built its candidate off to the side and
+   * touched no checkout — but a resolve now owns a workshop worktree that a
+   * second run would `reset --hard` under the first one's live resolver. One
+   * dash admits one run; the refusal arrives as a `changeset_join_resolve_err`
+   * naming what holds it.
    */
   resolve(workspaceKey: string, dash: string): void {
     const k = key(workspaceKey, dash);
     this._armDeadline(k);
-    // A fresh run drops any standing override: the candidate it was decided
-    // over is about to be superseded, and an override that outlived its tree
-    // would bless a resolution nobody looked at.
-    this._set(k, {
-      phase: "resolving",
-      progress: [],
-      error: null,
-      redOverrideFor: null,
-    });
+    this._set(k, { phase: "resolving", progress: [], error: null });
     this._connection.sendControlFrame("changeset_join_resolve", {
       project_dir: workspaceKey,
       dash,
@@ -378,18 +440,26 @@ export class ChangesetJoinStore {
 
   /**
    * Record that the user has looked at a red verdict and chosen to join past
-   * it ([P07]).
+   * it ([P04]).
    *
    * Scoped to `candidate`, so a resolution built after this decision has to be
-   * decided about on its own terms. Nothing is sent: the override changes what
-   * *this deck* will let the user do, and recording server-side that a failing
-   * tree was waved through would make it a fact about the dash rather than
-   * about one person's press.
+   * decided about on its own terms.
+   *
+   * Sent, not held. The override used to be client-local on the reasoning that
+   * nothing durable should record a red being waved through — but the gate it
+   * defeats now lives in `join_in`, where the CLI and every other deck meet it
+   * too, so a local flag defeated nothing. Worse, it was written into a state
+   * the store immediately dropped: a settled post-resolve dash is idle, idle
+   * was deleted, and the one press this control existed for did nothing at
+   * all. The decision goes where the gate is, anchored to the sha it was made
+   * about, and comes back as `override_for` on the dash's feed entry.
    */
   overrideRed(workspaceKey: string, dash: string, candidate: string): void {
-    const k = key(workspaceKey, dash);
-    const current = this._states.get(k) ?? IDLE;
-    this._set(k, { ...current, redOverrideFor: candidate });
+    this._connection.sendControlFrame("changeset_join_override", {
+      project_dir: workspaceKey,
+      dash,
+      candidate,
+    });
   }
 
   /**

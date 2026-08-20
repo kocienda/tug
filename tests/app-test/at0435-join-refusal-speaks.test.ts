@@ -42,7 +42,11 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, discardDash } from "./dash-fixture";
+import {
+  makeJoinScratchRepo,
+  rmJoinScratchRepo,
+  type JoinScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -55,7 +59,13 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The checkout whose built binaries the fixture drives — never the project. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+const FILE = "subject.txt";
+
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: JoinScratchRepo | null = null;
+const projectDir = (): string => scratch?.repo ?? "";
 const DASH = "at0435-work";
 
 /** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
@@ -121,20 +131,36 @@ const landing = (dash: string): string =>
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH);
-  const dash = createDash(PROJECT_DIR, DASH, "at0435 fixture (a round to land)");
-  dashId = dash.id;
-  writeFileSync(join(dash.worktree, "at0435-work.txt"), "at0435\n");
-  commitRound(PROJECT_DIR, DASH, "at0435(round): something to land");
+  // A repository of the fixture's own. The refusal under test is the *last* one
+  // in the gate's order, so everything before it has to pass — including the
+  // verdict, which means this dash gets resolved and verified for real when
+  // join mode opens ([P03]). Aimed at the developer's checkout that would be
+  // the project's own declared checks, run because somebody opened a composer.
+  scratch = makeJoinScratchRepo({
+    prefix: "at0435",
+    dash: DASH,
+    description: "at0435 fixture (a round to land)",
+    checkout: CHECKOUT,
+    file: FILE,
+    fork: "at0435 the dash's file\n",
+    base: "at0435 SENTINEL the base's own file\n",
+    dashBody: "at0435 SENTINEL the dash rewrote it\n",
+    cleanMerge: true,
+    verifyTier0: `grep -q SENTINEL ${FILE}`,
+    resolver: "#!/bin/sh\nexit 0\n",
+  });
+  dashId = scratch.dashId;
 
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(PROJECT_DIR));
+  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir()));
   mkdirSync(fixtureDir, { recursive: true });
-  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(PROJECT_DIR, SID));
+  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(projectDir(), SID));
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH);
+  // The repository IS the teardown: branch, worktree, config, and dash all go
+  // with the directory.
+  rmJoinScratchRepo(scratch);
   if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
   if (tugbankPath !== "") rmTempTugbank(tugbankPath);
 });
@@ -229,10 +255,12 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
     "submitting a join with no message says what is missing and sends nothing",
     async () => {
       tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      // The source tree is where the app finds `tugdeck/dist` to serve, so it
+      // stays the checkout; the *project* is the scratch repo.
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0435-join-refusal-speaks",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -240,11 +268,10 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A real session spawn, not a bind: the scratch repo reaches the
+        // server the only way a project ever does — by a session registering
+        // its workspace.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         await raiseShade(app);
@@ -260,7 +287,9 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         expect(await settledOutcome(app, DASH), "the fixture must be landable").toBe("clean");
 
         // The landable row states its route rather than offering a control,
-        // and this is that route.
+        // and this is that route. Entering it resolves the dash and verifies
+        // what that built ([P03]) — the refusal under test is the last one in
+        // the gate's order, so every earlier one has to be clear first.
         await enterJoinMode(app, DASH);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
