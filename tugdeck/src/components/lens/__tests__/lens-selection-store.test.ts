@@ -160,6 +160,36 @@ describe("subscribers", () => {
   });
 });
 
+describe("suppressNextAutoSelect", () => {
+  test("is one-shot: the next consume reads true, the one after reads false", () => {
+    const s = new LensSelectionStore();
+    expect(s.consumeAutoSelectSuppression()).toBe(false);
+    s.suppressNextAutoSelect();
+    expect(s.consumeAutoSelectSuppression()).toBe(true);
+    expect(s.consumeAutoSelectSuppression()).toBe(false);
+  });
+
+  test("does not stack: two arms are still one skip", () => {
+    const s = new LensSelectionStore();
+    s.suppressNextAutoSelect();
+    s.suppressNextAutoSelect();
+    expect(s.consumeAutoSelectSuppression()).toBe(true);
+    expect(s.consumeAutoSelectSuppression()).toBe(false);
+  });
+
+  test("is not part of the snapshot, so arming it notifies nobody", () => {
+    const s = new LensSelectionStore();
+    let calls = 0;
+    s.subscribe(() => {
+      calls += 1;
+    });
+    const before = s.getSnapshot();
+    s.suppressNextAutoSelect();
+    expect(calls).toBe(0);
+    expect(s.getSnapshot()).toBe(before);
+  });
+});
+
 describe("getSelectedIdSet", () => {
   test("reports membership for the current selection", () => {
     const s = new LensSelectionStore();

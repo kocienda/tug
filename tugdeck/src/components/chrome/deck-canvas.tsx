@@ -1494,6 +1494,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             prior !== null &&
             store.getSnapshot().cards.some((c) => c.id === prior)
           ) {
+            // A restore is not the user moving on to `prior`, so it must not
+            // create a layout selection of it — otherwise Escape alternates
+            // forever, each focus-out making the set the next Escape clears.
+            lensSelectionStore.suppressNextAutoSelect();
             transferFocusForActivation({
               outgoingCardId: currentFR,
               incomingCardId: prior,

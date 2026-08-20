@@ -594,6 +594,37 @@ describe.skipIf(!SHOULD_RUN)(
             await getSelection(app),
             "Escape clears a mouse-made selection the same way",
           ).toEqual([]);
+
+          // ---- Escape only ever shrinks state -----------------------------
+          //
+          // Repeating the press must walk one way: selection, then focus, then
+          // nothing. It used not to. Escape with an empty set focuses OUT of
+          // the Lens, which re-activates the card that was fronted before ⌘L —
+          // and the deck attacher reads any content-card activation as "the
+          // user moved on" and collapses the selection onto it. So the
+          // focus-out MADE a selection, and the next press cleared the one the
+          // press before it had created: press, clear, press, select, forever,
+          // with the user watching a set they never asked for reappear.
+          //
+          // A restore is not a user activation. Four presses, and the set is
+          // empty from the first one onward.
+          await focusCardsList(app);
+          await walkCursorTo(app, "Card A");
+          await app.nativeKey(" ");
+          await wait(200);
+          expect(
+            await getSelection(app),
+            "a set to walk the presses against",
+          ).toEqual(["A"]);
+
+          for (let press = 1; press <= 4; press += 1) {
+            await app.nativeKey("Escape");
+            await wait(300);
+            expect(
+              await getSelection(app),
+              `Escape #${press} leaves the selection empty`,
+            ).toEqual([]);
+          }
         } finally {
           await app.close();
         }

@@ -457,7 +457,7 @@ App-tests must drive real code paths on real content; every new cell carries an 
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | F — the restore that selects | pending | — |
+| #step-1 | F — the restore that selects | in progress | — |
 | #step-2 | F — one arbiter, stated precedence | pending | — |
 | #step-3 | F — integration checkpoint | pending | — |
 | #step-4 | J — the column fact and registry promotion | pending | — |

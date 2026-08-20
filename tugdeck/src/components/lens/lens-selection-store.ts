@@ -43,6 +43,7 @@ const EMPTY: LensSelectionSnapshot = { ids: [], anchorId: null };
 export class LensSelectionStore {
   private snapshot: LensSelectionSnapshot = EMPTY;
   private listeners = new Set<() => void>();
+  private autoSelectSuppressed = false;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -103,6 +104,30 @@ export class LensSelectionStore {
   /** Drop the selection entirely. */
   clear(): void {
     this.publish(EMPTY);
+  }
+
+  /**
+   * Skip the next auto-select in {@link attachLensSelectionToDeck} — the
+   * collapse that turns a fresh content-card activation into a selection of
+   * that card.
+   *
+   * Set by a programmatic focus *restore*, where the activation is not the user
+   * moving on to a card: Escape's focus-out from the Lens re-activates the card
+   * that was fronted before ⌘L, and without this the restore would create the
+   * very selection the next Escape clears. Any future restore that must not
+   * select sets this the same way, immediately before the transfer.
+   *
+   * One-shot: consumed by the next first-responder transition, whatever it is.
+   */
+  suppressNextAutoSelect(): void {
+    this.autoSelectSuppressed = true;
+  }
+
+  /** Read and clear the one-shot set by {@link suppressNextAutoSelect}. */
+  consumeAutoSelectSuppression(): boolean {
+    const suppressed = this.autoSelectSuppressed;
+    this.autoSelectSuppressed = false;
+    return suppressed;
   }
 
   /**
@@ -198,12 +223,17 @@ export function attachLensSelectionToDeck(
     const fr = deck.getFirstResponderCardId();
     if (fr === lastFirstResponder) return;
     lastFirstResponder = fr;
+    // Consume the one-shot on the transition itself, before any early return,
+    // so a restore that lands on a rail or on nothing does not leave it armed
+    // for whatever activation comes next.
+    const suppressed = selection.consumeAutoSelectSuppression();
     if (fr === null) return;
     const card = state.cards.find((c) => c.id === fr);
     // A rail taking focus — the Lens itself, most of the time — is not the
     // user leaving the selection behind; it is how the selection gets made.
     if (card === undefined || isSidebarCard(card.componentId)) return;
     if (selection.getSnapshot().ids.includes(fr)) return;
+    if (suppressed) return;
     selection.pickOnly(fr);
   });
 }
