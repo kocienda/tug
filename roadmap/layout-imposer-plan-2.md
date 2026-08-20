@@ -460,9 +460,9 @@ App-tests must drive real code paths on real content; every new cell carries an 
 | #step-1 | F — the restore that selects | done | `bafdfa9c9` |
 | #step-2 | F — one arbiter, stated precedence | done | `f0b730b77` |
 | #step-3 | F — integration checkpoint | done | `f0b730b77` |
-| #step-4 | J — the column fact and registry promotion | done | `c664c25ee` |
-| #step-5 | J — Swift menu items and the editor gate | done | `9660b365f` |
-| #step-6 | J — integration checkpoint | done | `9660b365f` |
+| #step-4 | J — the column fact and registry promotion | done | `077e3541f` |
+| #step-5 | J — Swift menu items and the editor gate | done | `40fa37601` |
+| #step-6 | J — integration checkpoint | done | `40fa37601` |
 | #step-7 | G — the committed layer goes live | pending | — |
 | #step-8 | G — one transition rule | pending | — |
 | #step-9 | G — integration checkpoint | pending | — |
