@@ -78,6 +78,8 @@
  * @module components/tugways/session-identity-row
  */
 
+import "./session-identity-row.css";
+
 import React, {
   useCallback,
   useEffect,
@@ -87,9 +89,13 @@ import React, {
 } from "react";
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
+import { DashStageMark } from "@/components/tugways/dash-stage-mark";
+import { dashWalkComplete } from "@/components/tugways/dash-meta-line";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
+import { SessionStepRing } from "@/components/tugways/session-step-ring";
+import { TugStepFraction } from "@/components/tugways/tug-step-ring";
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import {
   TugSessionRow,
@@ -110,6 +116,7 @@ import {
   sessionActivityBeat,
   sessionActivityRestLine,
 } from "@/lib/session-activity-line";
+import { useDashForSession } from "@/lib/dash-session-index";
 import { useSessionCreatedAtMs } from "@/lib/session-created-at";
 import {
   useSessionIdentity,
@@ -562,6 +569,19 @@ export function SessionIdentityRow({
   // them, and `??` on the way out would have left it doing exactly that.
   const facts = useSessionLedgerRow(sessionId, projectDir, rowOverride);
 
+  // The dash this session is on, for the step ring and the title's progress
+  // cluster. The same aggregate read the identity's own dash marker makes —
+  // the fact is reference-stable across beats that do not move this session's
+  // binding, so the row repaints only when its own dash does.
+  const dashFact = useDashForSession(sessionId);
+  const dashCounted =
+    dashFact !== null &&
+    dashFact.stepCurrent !== null &&
+    dashFact.stepTotal !== null;
+  const dashComplete =
+    dashFact !== null &&
+    dashWalkComplete(dashFact.stage, dashFact.stepCurrent, dashFact.stepTotal);
+
   // When the session was made. Two sources, resolved once and shared, so a
   // masthead and a Lens row cannot date the same session differently. The row
   // is handed over rather than read again — `facts` is already whichever row
@@ -689,6 +709,36 @@ export function SessionIdentityRow({
     />
   );
 
+  // The dash progress cluster, riding the title line after the identity's own
+  // `^<dash>` run: the stage as a glyph (its word on hover), then the step
+  // count. The title carries it in the width the hidden callsign freed; the
+  // step's TITLE stays off this line — it lives in the Dashes section and on
+  // the stage glyph's own surface.
+  const progress =
+    dashFact !== null && dashFact.stage !== null ? (
+      <span
+        className="session-identity-row-progress"
+        data-slot="session-identity-row-progress"
+      >
+        <DashStageMark stage={dashFact.stage} />
+        {dashCounted ? (
+          <TugStepFraction
+            current={dashFact.stepCurrent!}
+            total={dashFact.stepTotal!}
+          />
+        ) : null}
+      </span>
+    ) : null;
+  const titleRun =
+    progress !== null ? (
+      <span className="session-identity-row-title-run">
+        {runs}
+        {progress}
+      </span>
+    ) : (
+      runs
+    );
+
   return (
     <>
     <TugSessionRow
@@ -703,11 +753,33 @@ export function SessionIdentityRow({
           ? `${IDENTITY_ROW_CLASS} ${className}`
           : IDENTITY_ROW_CLASS
       }
+      // ONE ring geometry: a session on a counted dash wears the step ring at
+      // the dense dot size on every mount — the Lens's 28px monitor dot
+      // included, because a pulse that ends inside the step depiction misreads
+      // the count. The ink-slack correction is the bare dot's; the ring form
+      // packs at the stylesheet's own advance.
       indicator={
-        <SessionPhaseDot sessionId={sessionId} size={dotSize} drift={drift} />
+        dashCounted ? (
+          <SessionStepRing
+            sessionId={sessionId}
+            current={dashFact.stepCurrent!}
+            total={dashFact.stepTotal!}
+            complete={dashComplete}
+            dot
+            drift={drift}
+          />
+        ) : (
+          <SessionPhaseDot sessionId={sessionId} size={dotSize} drift={drift} />
+        )
       }
-      indicatorSize={dotSize}
-      name={nameProps !== undefined ? <span {...nameProps}>{runs}</span> : runs}
+      indicatorSize={dashCounted ? undefined : dotSize}
+      name={
+        nameProps !== undefined ? (
+          <span {...nameProps}>{titleRun}</span>
+        ) : (
+          titleRun
+        )
+      }
       description={renderFilterHighlight(description, highlight)}
       descriptionFull={descriptionFull}
       descriptionElided={description !== descriptionFull}

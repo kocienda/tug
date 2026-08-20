@@ -1,0 +1,24 @@
+/**
+ * session-identity-row.css — the title line's progress cluster.
+ *
+ * The row's shape and packing are `tug-session-row.css`'s; the one thing
+ * authored here is the run that holds the identity and the dash progress
+ * cluster on the title line. The identity ends with its flush `^<dash>` run;
+ * only after it does the line breathe — a gap ahead of the stage glyph,
+ * another ahead of the count.
+ */
+
+.session-identity-row-title-run {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.session-identity-row-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  flex: 0 0 auto;
+}

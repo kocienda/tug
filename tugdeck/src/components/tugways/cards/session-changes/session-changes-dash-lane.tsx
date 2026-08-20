@@ -2,11 +2,14 @@
  * `SessionChangesDashLane` — the Changes shade's dash lane.
  *
  * A dash is not a claim. Rendered in session-file grammar a dash branch reads
- * as one — so it gets its own species of row: name · base · rounds ·
- * uncommitted · stage, its own per-row fold, and no claim, disclaim, or hunk-election
- * affordance anywhere inside it. The lane's one diff affordance is the whole-
- * range pop-out, because the server's range diff takes no pathspec and the dash
- * is the unit anyway.
+ * as one — so it gets its own species of row: the name's atom on its own
+ * line, and beneath it the one metadata grammar every collapsed dash surface
+ * wears (`DashMetaLine`: ring · stage icon · count · note · age ·
+ * divergence) — the same line the Lens's Dashes section renders, so the two
+ * surfaces speak one language. The row keeps its per-row fold, and no claim,
+ * disclaim, or hunk-election affordance appears anywhere inside it. The
+ * lane's one diff affordance is the whole-range pop-out, because the server's
+ * range diff takes no pathspec and the dash is the unit anyway.
  *
  * **Every dash in the project is a visible row.** The card's own dash renders
  * first and expanded; the rest follow under a plain label, each collapsed to
@@ -51,12 +54,11 @@ import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugStatusMark } from "@/components/tugways/tug-status-mark";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
-import { dashReviewPaints, dashReviewTooltip } from "@/lib/dash-review";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
-import { TugMetaRun, TugMetaBullet } from "@/components/tugways/tug-meta-run";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
+import { DashMetaLine } from "@/components/tugways/dash-meta-line";
 import { dashFrontedLabel, dashRestLabel } from "./changes-section-labels";
 import { TugDashName } from "@/components/tugways/tug-dash-name";
 import {
@@ -109,113 +111,6 @@ export function dashBranchRef(entry: DashChangesetEntry): string {
   return entry.branch ?? `tugdash/${entry.display_name}`;
 }
 
-function roundsLabel(rounds: number): string {
-  return rounds === 1 ? "1 round" : `${rounds} rounds`;
-}
-
-/** At most this many paths in a mark's tooltip; the count carries the rest. */
-const MARK_TOOLTIP_PATHS = 8;
-
-function pathList(paths: ReadonlyArray<string>): string {
-  const shown = paths.slice(0, MARK_TOOLTIP_PATHS).join("\n");
-  const rest = paths.length - MARK_TOOLTIP_PATHS;
-  return rest > 0 ? `${shown}\n…and ${rest} more` : shown;
-}
-
-/**
- * How far this dash has drifted from its base, said the moment it becomes true
- * rather than at join time.
- *
- * Four marks over the snapshot's divergence fields, most urgent first. A
- * conflicted replay is a state somebody has to resolve; base dirt overlapping
- * the dash's own files is a warning about work that is not the machine's to
- * touch; being behind is ordinary and usually transient (the engine is
- * probably replaying it as you read); a settled replay mark is the quiet
- * receipt that history moved under this dash and nothing asked you about it.
- *
- * Every state is a data attribute the CSS paints from ([L06]); the values come
- * off the changeset entry the card already subscribes to ([L02]).
- */
-function DashDivergenceMarks({ entry }: { entry: DashChangesetEntry }) {
-  const conflicts = entry.replay_conflict_paths ?? [];
-  const overlap = entry.base_overlap ?? [];
-  const ahead = entry.base_ahead ?? 0;
-  const settled = entry.last_replay;
-  if (
-    conflicts.length === 0 &&
-    overlap.length === 0 &&
-    ahead === 0 &&
-    (settled === undefined || settled === "")
-  ) {
-    return null;
-  }
-  return (
-    <>
-      {conflicts.length > 0 ? (
-        <>
-          <TugMetaBullet />
-          <TugTooltip
-            content={`Replaying this dash onto ${entry.base} conflicts in:\n${pathList(conflicts)}`}
-          >
-            <span
-              className="session-changes-dash-divergence"
-              data-slot="session-changes-dash-divergence"
-              data-divergence="conflicted"
-            >
-              {`replay conflicts (${conflicts.length})`}
-            </span>
-          </TugTooltip>
-        </>
-      ) : null}
-      {overlap.length > 0 ? (
-        <>
-          <TugMetaBullet />
-          <TugTooltip
-            content={`Uncommitted work on ${entry.base} touches files this dash also changes:\n${pathList(overlap)}`}
-          >
-            <span
-              className="session-changes-dash-divergence"
-              data-slot="session-changes-dash-divergence"
-              data-divergence="overlap"
-            >
-              {`base overlap (${overlap.length})`}
-            </span>
-          </TugTooltip>
-        </>
-      ) : null}
-      {ahead > 0 ? (
-        <>
-          <TugMetaBullet />
-          <TugTooltip
-            content={`${entry.base} has gained ${ahead === 1 ? "1 commit" : `${ahead} commits`} this dash does not have yet.`}
-          >
-            <span
-              className="session-changes-dash-divergence"
-              data-slot="session-changes-dash-divergence"
-              data-divergence="behind"
-            >
-              {`base +${ahead}`}
-            </span>
-          </TugTooltip>
-        </>
-      ) : null}
-      {ahead === 0 && conflicts.length === 0 && settled !== undefined && settled !== "" ? (
-        <>
-          <TugMetaBullet />
-          <TugTooltip content={`Replayed ${settled}`}>
-            <span
-              className="session-changes-dash-divergence"
-              data-slot="session-changes-dash-divergence"
-              data-divergence="settled"
-            >
-              replayed
-            </span>
-          </TugTooltip>
-        </>
-      ) : null}
-    </>
-  );
-}
 
 /**
  * Everything the fronted row's join face needs, read once by the view and
@@ -408,10 +303,6 @@ function DashRow({
   // Absent, not disabled, when this shade has no business discarding this dash.
   const canDiscard = discard !== null && discard.canDiscard(entry);
   const subjects = entry.round_subjects ?? [];
-  const steps =
-    entry.step_current !== undefined && entry.step_total !== undefined
-      ? `step ${entry.step_current}/${entry.step_total}`
-      : null;
 
   return (
     <div
@@ -511,58 +402,13 @@ function DashRow({
             />
           </span>
         }
-      >
-        <TugMetaRun separator="bullet" fit="clip" className="session-changes-dash-facts">
-          <span className="session-changes-dash-base">{entry.base}</span>
-          <TugMetaBullet />
-          <span className="session-changes-dash-rounds">
-            {roundsLabel(entry.rounds)}
-          </span>
-          {entry.worktree_dirty ? (
-            <>
-              <TugMetaBullet />
-              <span className="session-changes-dash-dirty">uncommitted</span>
-            </>
-          ) : null}
-          {entry.stage !== undefined ? (
-            <>
-              <TugMetaBullet />
-              <span className="session-changes-dash-stage">{entry.stage}</span>
-            </>
-          ) : null}
-          {steps !== null ? (
-            <>
-              <TugMetaBullet />
-              <span className="session-changes-dash-step">{steps}</span>
-            </>
-          ) : null}
-          {entry.step_title !== undefined ? (
-            <span className="session-changes-dash-step-title">
-              {entry.step_title}
-            </span>
-          ) : null}
-          {dashReviewPaints(entry.review) ? (
-            <>
-              <TugMetaBullet />
-              <TugTooltip
-                content={dashReviewTooltip(
-                  entry.review!,
-                  entry.plan_path ?? null,
-                )}
-              >
-                <span
-                  className="session-changes-dash-review"
-                  data-slot="session-changes-dash-review"
-                  data-review={entry.review}
-                >
-                  {entry.review === "stale" ? "plan stale" : "plan unreviewed"}
-                </span>
-              </TugTooltip>
-            </>
-          ) : null}
-          <DashDivergenceMarks entry={entry} />
-        </TugMetaRun>
-      </TugListRow>
+      />
+      {/* The one metadata grammar every collapsed dash surface wears — the
+          Lens's Dashes section renders the same element. Indented under the
+          atom: line 1 is who, line 2 is what the dash is doing. */}
+      <span className="session-changes-dash-meta">
+        <DashMetaLine entry={entry} />
+      </span>
       {expanded ? (
         <div className="session-changes-dash-detail">
           {joinFace !== null ? (

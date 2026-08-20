@@ -1,44 +1,41 @@
 /**
- * at0407-lens-dashes-section.test.ts — the marks the Lens's dash section
+ * at0407-lens-dashes-section.test.ts — the marks the Lens's Dashes section
  * paints, over real dashes.
  *
- * Every dash in this section has no live session mated to it — that is the
- * membership rule, not a property of the row — and the row says so with the
- * register its name is in: monospace in the atom pill, which is what the
- * Changes shade means by the same form. "Nobody is working this" is not a
- * state of work, and a pulsing dot on an abandoned dash is the lie this pins
- * against.
+ * The section holds EVERY dash in every state ([D141]); which register a row
+ * wears is the eyebrow's business. An unbound dash's eyebrow carries the dash
+ * atom, the hairline, and the Bind and Discard verbs — no worker atom, and no
+ * phase dot anywhere on the row, because a dash with a phase to report has a
+ * session bound to it and that session's atom is what would carry the dot.
  *
- * There used to be a dashed-circle glyph ahead of every name saying the same
- * thing, under a header already reading "Unbound Dashes", over rows that are
- * unbound by construction. The register replaced it.
+ * Beneath the eyebrow, `DashMetaLine` says what the dash is DOING. A freshly
+ * created dash with no plan says so aloud — "no plan adopted" — because
+ * silence there is how a whole run's missing declarations went unnoticed
+ * once. A dash driving a stepped plan shows the ring, the stage GLYPH with
+ * its word on the hover, and the `i/N` count.
  *
- * The bind/unbind round trip is NOT here. Under the partition, binding removes
- * the row from this section entirely rather than changing its mark, so the
- * transition is a fact about the two sections together and belongs to
- * at0438-lens-unbound-dashes.test.ts, which drives it from both directions.
- * What is left here is what only this file asserts: the register and the
- * review mark themselves.
+ * Two decisions of [D141] are pinned as absences: the dash pill wears no
+ * review tint here (that yellow means WAITING, and a dash is not waiting for
+ * anyone), and the doc+clock review glyph is retired from these rows —
+ * review speaks through the identity run's tint and the join gates instead.
  *
- * A second dash carries the review mark. Its plan is real, recorded by the
- * real `dash step start --plan` and stamped by the real `plan stamp`, and it
- * goes stale the way a plan actually goes stale: somebody edits it after the
- * review. Reviewed paints nothing — a mark that is always present is not a
- * mark — so the transition, not the presence, is what this asserts.
- *
- * The stage ordering rides along with it, because it needs two dashes at
- * different stages and this is the file that has them.
+ * The stage ordering rides along, because it needs two dashes at different
+ * stages and this is the file that has them.
  *
  * @covers tugdeck/src/components/lens/sections/dashes-section.tsx
+ * @covers tugdeck/src/components/lens/sections/dashes-section.css
+ * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
+ * @covers tugdeck/src/components/tugways/dash-meta-line.css
+ * @covers tugdeck/src/components/tugways/dash-stage-mark.tsx
+ * @covers tugdeck/src/components/tugways/tug-step-ring.tsx
  * @covers tugdeck/src/lib/changeset-all-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/lib/dash-review.ts
- * @covers tugdeck/src/components/tugways/tug-dash-name.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { realpathSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
 import {
@@ -49,7 +46,6 @@ import {
 import {
   createDash,
   makeDashScratchRepo,
-  makePlanStale,
   recordStampedPlan,
   rmDashScratchRepo,
   rmScratchSession,
@@ -66,11 +62,10 @@ const SECTION = '.lens-section[data-lens-section="dashes"]';
 const DASH_NAME = "at0407-lens";
 const ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH_NAME}"]`;
 
-/** The review mark's own dash — a second one, so the mark test above
- *  keeps reading a dash with no plan at all (which paints nothing, ever). */
+/** The stepped dash — a second one, so the bare-dash assertions above keep
+ *  reading a dash with no plan at all. */
 const PLAN_DASH = "at0407-plan";
 const PLAN_ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${PLAN_DASH}"]`;
-const PLAN_MARK = `${PLAN_ROW} [data-slot="lens-dashes-review"]`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -78,14 +73,13 @@ const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 let scratch: DashScratchRepo | null = null;
 let fixtureDir = "";
 const projectDir = (): string => scratch?.repo ?? "";
-let planPath = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeDashScratchRepo({ prefix: "at0407", checkout: CHECKOUT });
   createDash(projectDir(), DASH_NAME, "at0407 fixture", scratch.cli);
   const planned = createDash(projectDir(), PLAN_DASH, "at0407 plan fixture", scratch.cli);
-  planPath = recordStampedPlan(projectDir(), PLAN_DASH, planned.worktree, scratch.cli);
+  recordStampedPlan(projectDir(), PLAN_DASH, planned.worktree, scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -116,7 +110,7 @@ function deckShape() {
 
 describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
   test(
-    "an unbound dash names itself in the unbound register and never wears a dot",
+    "an unbound dash wears the eyebrow's verbs and never a dot",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -135,7 +129,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // ── The section is there, and the dash in it is unbound ───────────
+        // ── The section is there, and the dash's row is in it ─────────────
         await app.dispatchControlAction("toggle-lens");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
@@ -146,34 +140,57 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
           { timeoutMs: 30000 },
         );
         const unbound = await app.evalJS<{
-          text: string;
-          register: string | null;
+          atomText: string;
+          reviewTinted: boolean;
+          reviewGlyphs: number;
+          binds: number;
+          discards: number;
+          workers: number;
           dots: number;
-          flag: string | null;
+          bound: string | null;
+          stage: string | null;
+          note: string;
+          noteEmpty: string | null;
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
+             const atom = row.querySelector('[data-slot="lens-dashes-name"]');
+             const mark = row.querySelector('[data-slot="tug-dash-stage-mark"]');
+             const note = row.querySelector(".tug-dash-meta-note");
              return {
-               text: (row.textContent ?? "").trim(),
-               register:
-                 row.querySelector(".tug-dash-name")?.getAttribute("data-register") ?? null,
+               atomText: (atom?.textContent ?? "").trim(),
+               // The pill never wears the review tint here — that yellow
+               // means WAITING, and a dash is not waiting for anyone.
+               reviewTinted: atom?.hasAttribute("data-review") === true,
+               reviewGlyphs: row.querySelectorAll('[data-slot="lens-dashes-review"]').length,
+               binds: row.querySelectorAll('[data-slot="lens-bind"]').length,
+               discards: row.querySelectorAll('[data-slot="lens-discard"]').length,
+               workers: row.querySelectorAll('[data-slot="lens-dashes-worker"]').length,
                dots: row.querySelectorAll('[data-slot="tug-progress-indicator"]').length,
-               flag: row.getAttribute("data-unbound"),
+               bound: row.getAttribute("data-bound"),
+               stage: mark?.getAttribute("data-stage") ?? null,
+               note: (note?.textContent ?? "").trim(),
+               noteEmpty: note?.getAttribute("data-empty") ?? null,
              };
            })()`,
         );
-        expect(unbound.text).toContain(DASH_NAME);
-        // A freshly created dash with no round and no dirt is `created`.
-        expect(unbound.text).toContain("created");
-        // The register is the state channel. Every row in this section is
-        // unbound by construction, so a `bound` one here would mean the
-        // partition leaked rather than that a name was painted wrong.
-        expect(unbound.register).toBe("unbound");
-        // A row in this section can never carry a phase dot either, because a
-        // dash with a phase to report has a session bound to it and a bound
-        // dash is not in this section at all.
+        note("at0407 unbound row", JSON.stringify(unbound));
+        expect(unbound.atomText).toBe(`^${DASH_NAME}`);
+        expect(unbound.reviewTinted).toBe(false);
+        expect(unbound.reviewGlyphs).toBe(0);
+        // Nobody holds it, so the eyebrow's right side is the verbs.
+        expect(unbound.binds).toBe(1);
+        expect(unbound.discards).toBe(1);
+        expect(unbound.workers).toBe(0);
+        // No phase dot on a row nobody works: a dash with a phase to report
+        // has a session bound to it, and that session's atom carries the dot.
         expect(unbound.dots).toBe(0);
-        expect(unbound.flag).toBe("true");
+        expect(unbound.bound).toBeNull();
+        // A freshly created dash with no round and no dirt is `created`, said
+        // as a glyph; and with no plan the note says so aloud.
+        expect(unbound.stage).toBe("created");
+        expect(unbound.note).toBe("no plan adopted");
+        expect(unbound.noteEmpty).toBe("true");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -183,12 +200,12 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
   );
 
   test(
-    "a plan edited past its stamp grows the stale mark on its dash's row",
+    "a stepped plan fills the meta line, and stage rank orders the rows",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
-        testName: "at0407-lens-dashes-review",
+        testName: "at0407-lens-dashes-meta",
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
@@ -207,43 +224,42 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
           { timeoutMs: 30000 },
         );
 
-        // Reviewed reads as nothing at all: a mark that is always present is
-        // not a mark. The ledger row `dash step start` flipped is outside the
-        // hashed content, which is what makes this assertion meaningful rather
-        // than accidental.
-        expect(
-          await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(PLAN_MARK)}).length`,
-          ),
-        ).toBe(0);
-
-        // One appended line moves the document past its stamp. Touching a
-        // tracked project file is what wakes the aggregate for the recompose
-        // that carries the new state onto the entry.
-        makePlanStale(planPath);
-        const nudge = join(projectDir(), "at0407-nudge.txt");
-        writeFileSync(nudge, "at0407 recompose nudge\n");
-        try {
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(PLAN_MARK)}) !== null`,
-            { timeoutMs: 30000 },
-          );
-        } finally {
-          rmSync(nudge, { force: true });
-        }
-
-        const mark = await app.evalJS<{ review: string | null; label: string | null }>(
+        const meta = await app.evalJS<{
+          stage: string | null;
+          stageWord: string | null;
+          fraction: string;
+          rings: number;
+          ringLabel: string | null;
+          noteText: string;
+        }>(
           `(() => {
-             const el = document.querySelector(${JSON.stringify(PLAN_MARK)});
+             const row = document.querySelector(${JSON.stringify(PLAN_ROW)});
+             const mark = row.querySelector('[data-slot="tug-dash-stage-mark"]');
+             const fraction = row.querySelector('[data-slot="tug-step-fraction"]');
+             const ring = row.querySelector('[data-slot="tug-step-ring"]');
+             const note = row.querySelector(".tug-dash-meta-note");
              return {
-               review: el.getAttribute("data-review"),
-               label: el.getAttribute("aria-label"),
+               stage: mark?.getAttribute("data-stage") ?? null,
+               stageWord: mark?.getAttribute("aria-label") ?? null,
+               fraction: (fraction?.textContent ?? "").trim(),
+               rings: row.querySelectorAll('[data-slot="tug-step-ring"]').length,
+               ringLabel: ring?.getAttribute("aria-label") ?? null,
+               noteText: (note?.textContent ?? "").trim(),
              };
            })()`,
         );
-        expect(mark.review).toBe("stale");
-        expect(mark.label).toContain("changed since");
-        note("at0407 stale mark", await app.screenshot().then((s) => s.path));
+        note("at0407 stepped meta line", JSON.stringify(meta));
+        // A step is open on this dash, so it derives `implementing` — the
+        // glyph carries the word on hover rather than spending line width.
+        expect(meta.stage).toBe("implementing");
+        expect(meta.stageWord).toBe("implementing");
+        // The fixture plan holds exactly one step, started.
+        expect(meta.fraction).toBe("1/1");
+        expect(meta.rings).toBe(1);
+        expect(meta.ringLabel).toBe("step 1 of 1");
+        // The note is the current step's title, straight off the declaration.
+        expect(meta.noteText).toBe("The only step");
+        note("at0407 meta line", await app.screenshot().then((s) => s.path));
 
         // ── The ordering, in the DOM ──────────────────────────────────────
         // Both fixtures are unbound, so the stage rank decides: this dash is

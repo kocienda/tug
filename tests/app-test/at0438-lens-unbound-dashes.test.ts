@@ -1,43 +1,38 @@
 /**
- * at0438-lens-unbound-dashes.test.ts — a dash is in the Lens exactly once.
+ * at0438-lens-unbound-dashes.test.ts — the Dashes section is always on, and
+ * binding flips a row's register instead of removing it.
  *
- * The Lens has two surfaces that can talk about a dash, and the rule between
- * them is a partition rather than a preference: worked ⇒ the session's row in
- * the **Cards** section, which carries `#<dash>` in its identity run and the
- * stage line beneath it; unworked ⇒ the **Unbound Dashes** section. Membership
- * is exactly `bound_sessions.length === 0`, so the two are complements and no
- * dash can be in both or in neither.
+ * The section used to hold only unbound dashes and to vanish entirely at zero
+ * — the partition law, and the coming-and-going was the wart: no other Lens
+ * section works that way, and a band with no fixed address cannot be glanced
+ * at. Under [D141] the section holds EVERY dash in every state, so what a
+ * bind changes is the row's EYEBROW: the Bind and Discard verbs give way to
+ * the worker's mini atom (the session's display name behind its live dot —
+ * no callsign, no dash run, because the row already names the dash), and an
+ * unbind brings the verbs back.
  *
  * That is what this drives, as one round trip against the real app: bind, and
- * the Unbound section is *gone* — the band, not merely an empty body — while the
- * session's row grows its dash line; unbind, and the section is back with the
- * dash's row while the line goes away. Asserting the band's absence is the
- * point of [P03]: an inbox at zero costs zero rail height, and a body that
- * renders nothing inside a permanent band would pass a weaker assertion while
- * looking exactly like the thing this replaced.
+ * the row STAYS — band, row, and all — wearing the worker's atom, while the
+ * session's own Cards row grows its title cluster; unbind, and the verbs
+ * return. Then Bind is pressed for real: it sends the same `bind_dash` frame
+ * the Changes shade sends, and the register flips because `bound_sessions`
+ * moved in the account-global aggregate, not because the click did anything
+ * local.
  *
- * Then Bind is pressed for real. It sends the same `bind_dash` frame the
- * Changes shade sends, so the row leaves, the section unmounts, and the dash
- * line returns — the partition asserted a third time, from the other direction
- * and through the new control.
- *
- * Everything is real. `tugutil dash bind` / `unbind` run through the card's own
- * `$` shell route — the route that stamps `TUG_SESSION_ID` — and the surfaces
- * move because `bound_sessions` moved in the account-global aggregate, not
- * because a test poked a store.
+ * Everything is real. `tugutil dash bind` / `unbind` run through the card's
+ * own `$` shell route — the route that stamps `TUG_SESSION_ID`.
  *
  * The dash lives in a scratch repository this file owns — a dash is for
  * implementing a plan, not for running a test, so no fixture ever cuts one in
  * the checkout somebody is working in.
  *
  * @covers tugdeck/src/components/lens/sections/dashes-section.tsx
+ * @covers tugdeck/src/components/lens/sections/dashes-section.css
  * @covers tugdeck/src/components/lens/lens-content.tsx
- * @covers tugdeck/src/components/lens/lens-section-presence.ts
- * @covers tugdeck/src/components/lens/lens-section-presence-probe.tsx
  * @covers tugdeck/src/components/lens/lens-section-registry.ts
  * @covers tugdeck/src/components/tugways/dash-sigil.tsx
- * @covers tugdeck/src/components/lens/sections/dash-age.ts
- * @covers tugdeck/src/components/tugways/tug-meta-run.tsx
+ * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
+ * @covers tugdeck/src/lib/dash-age.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -66,20 +61,18 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000438";
 const CARD = '[data-card-id="A"]';
-const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
 const DASH_NAME = "at0438-unbound";
 
-/** The band, not the body: [P03] says an empty section renders no DOM at all. */
-const UNBOUND = '.lens-section[data-lens-section="dashes"]';
-const UNBOUND_ROW = `${UNBOUND} [data-slot="lens-dashes-row"]`;
-const UNBOUND_NAME = `${UNBOUND} [data-slot="lens-unbound-name"]`;
-const BIND = `${UNBOUND} [data-slot="lens-bind"]`;
+const SECTION = '.lens-section[data-lens-section="dashes"]';
+const ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH_NAME}"]`;
+const ROW_ATOM = `${ROW} [data-slot="lens-dashes-name"]`;
+const BIND = `${ROW} [data-slot="lens-bind"]`;
+const WORKER = `${ROW} [data-slot="lens-dashes-worker"]`;
 
 const CARDS = '.lens-section[data-lens-section="cards"]';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
-const DASH_LINE = `${SESSION_ROW} [data-slot="tug-session-row-dashline"]`;
+const PROGRESS = `${SESSION_ROW} [data-slot="session-identity-row-progress"]`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -167,9 +160,9 @@ async function clickUntil(
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0438: the partition law", () => {
+describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
   test(
-    "a dash is in the Cards section or the Unbound section, never both",
+    "binding flips the eyebrow's register; the section never leaves",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -194,98 +187,120 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the partition law", () => {
           { timeoutMs: 20000 },
         );
 
-        // ── Unbound: the fixture dash has no session, so it is here ──────
+        // ── Unbound: the verbs on the eyebrow, no worker, no cluster ──────
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(UNBOUND_ROW)}) !== null`,
+          `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
         const unbound = await app.evalJS<{
-          name: string;
-          rowText: string;
-          rows: number;
+          atom: string;
           binds: number;
+          workers: number;
+          bound: string | null;
         }>(
           `(() => {
-             const row = document.querySelector(${JSON.stringify(UNBOUND_ROW)});
-             const name = document.querySelector(${JSON.stringify(UNBOUND_NAME)});
+             const atom = document.querySelector(${JSON.stringify(ROW_ATOM)});
+             const row = document.querySelector(${JSON.stringify(ROW)});
              return {
-               name: (name?.textContent ?? "").trim(),
-               rowText: (row?.textContent ?? "").trim(),
-               rows: document.querySelectorAll(${JSON.stringify(UNBOUND_ROW)}).length,
+               atom: (atom?.textContent ?? "").trim(),
                binds: document.querySelectorAll(${JSON.stringify(BIND)}).length,
+               workers: document.querySelectorAll(${JSON.stringify(WORKER)}).length,
+               bound: row?.getAttribute("data-bound") ?? null,
              };
            })()`,
         );
         note("at0438 unbound row", JSON.stringify(unbound));
         // The name wears its sigil here too — a dash is named one way
-        // everywhere, and this row is the one place with no session to carry it.
-        expect(unbound.name).toBe(`^${DASH_NAME}`);
-        expect(unbound.rowText).toContain(DASH_NAME);
-        // A dash created and never worked is `created`, and its birth record is
-        // what gives it an age at all.
-        expect(unbound.rowText).toContain("created");
-        expect(unbound.binds).toBeGreaterThan(0);
-        // And the session is NOT working it, so there is no dash line.
-        expect(await count(app, DASH_LINE)).toBe(0);
-        note("at0438 lens with the unbound section", (await app.screenshot()).path);
+        // everywhere.
+        expect(unbound.atom).toBe(`^${DASH_NAME}`);
+        expect(unbound.binds).toBe(1);
+        expect(unbound.workers).toBe(0);
+        expect(unbound.bound).toBeNull();
+        // And the session is NOT working it, so no title cluster on its row.
+        expect(await count(app, PROGRESS)).toBe(0);
+        note("at0438 lens, unbound register", (await app.screenshot()).path);
 
-        // ── Bind: the section vanishes, band and all ──────────────────────
+        // ── Bind: the row STAYS and the worker's atom takes the eyebrow ───
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASH_LINE)}) !== null`,
+          `document.querySelector(${JSON.stringify(WORKER)}) !== null`,
           { timeoutMs: 30000 },
         );
-        // The whole point of [P03]: no band, no body, no DOM. A weaker
-        // assertion — an empty body — would pass for the thing this replaced.
-        expect(await count(app, UNBOUND)).toBe(0);
-        note("at0438 lens with the section gone", (await app.screenshot()).path);
+        const bound = await app.evalJS<{
+          rows: number;
+          binds: number;
+          boundFlag: string | null;
+          workerDots: number;
+          workerDashRuns: number;
+        }>(
+          `(() => {
+             const worker = document.querySelector(${JSON.stringify(WORKER)});
+             const row = document.querySelector(${JSON.stringify(ROW)});
+             return {
+               rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
+               binds: document.querySelectorAll(${JSON.stringify(BIND)}).length,
+               boundFlag: row?.getAttribute("data-bound") ?? null,
+               workerDots: worker?.querySelectorAll('[data-slot="tug-progress-indicator"]').length ?? 0,
+               // The worker atom carries NO dash run: the eyebrow's leading
+               // atom already names the dash, and saying it twice on one line
+               // is the drift [D141] closes.
+               workerDashRuns: worker?.querySelectorAll('[data-slot="session-identity-dash"]').length ?? 0,
+             };
+           })()`,
+        );
+        note("at0438 bound row", JSON.stringify(bound));
+        expect(bound.rows).toBe(1);
+        expect(bound.binds).toBe(0);
+        expect(bound.boundFlag).toBe("true");
+        expect(bound.workerDots).toBe(1);
+        expect(bound.workerDashRuns).toBe(0);
+        // The band did not move: always on is the whole point.
+        expect(await count(app, SECTION)).toBe(1);
+        // And the session's Cards row grew its title cluster.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+        note("at0438 lens, bound register", (await app.screenshot()).path);
 
-        // ── Unbind: it comes back, with its row ───────────────────────────
+        // ── Unbind: the verbs come back ───────────────────────────────────
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(UNBOUND_ROW)}) !== null`,
+          `document.querySelector(${JSON.stringify(BIND)}) !== null`,
           { timeoutMs: 30000 },
         );
-        expect(await count(app, DASH_LINE)).toBe(0);
-        expect(await count(app, UNBOUND_ROW)).toBe(1);
+        expect(await count(app, WORKER)).toBe(0);
+        expect(await count(app, PROGRESS)).toBe(0);
+        expect(await count(app, ROW)).toBe(1);
 
-        // ── Bind: the same partition, driven through the new control ──────
-        // The press sends `bind_dash`; the row leaves because `bound_sessions`
-        // moved in the aggregate, not because the click did anything local.
-        await clickUntil(app, BIND, UNBOUND, "absent");
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASH_LINE)}) !== null`,
-          { timeoutMs: 30000 },
-        );
-        expect(await count(app, UNBOUND)).toBe(0);
-        expect(await count(app, DASH_LINE)).toBe(1);
+        // ── Bind again, through the row's own control ─────────────────────
+        // The press sends `bind_dash`; the register flips because
+        // `bound_sessions` moved in the aggregate, not because the click did
+        // anything local.
+        await clickUntil(app, BIND, WORKER);
+        expect(await count(app, SECTION)).toBe(1);
+        expect(await count(app, ROW)).toBe(1);
+        expect(await count(app, BIND)).toBe(0);
 
-        // The section unmounted under whatever the movement cursor was on.
-        // Focus must not be stranded on a detached node: an element removed
-        // from the document still answers `document.activeElement` in WebKit
-        // for a beat, and a ring on a node nobody can reach is how a "dead"
-        // keyboard starts.
+        // The verbs unmounted under the pointer. Focus must not be stranded
+        // on a detached node: an element removed from the document still
+        // answers `document.activeElement` in WebKit for a beat, and a ring
+        // on a node nobody can reach is how a "dead" keyboard starts.
         const focus = await app.evalJS<{
           connected: boolean;
-          inVanishedSection: boolean;
           slot: string | null;
         }>(
           `(() => {
              const el = document.activeElement;
-             if (el === null) {
-               return { connected: false, inVanishedSection: false, slot: null };
-             }
+             if (el === null) return { connected: false, slot: null };
              return {
                connected: el.isConnected,
-               inVanishedSection:
-                 el.closest(${JSON.stringify(UNBOUND)}) !== null,
                slot: el.getAttribute("data-slot"),
              };
            })()`,
         );
-        note("at0438 focus after the section vanished", JSON.stringify(focus));
+        note("at0438 focus after the register flipped", JSON.stringify(focus));
         expect(focus.connected).toBe(true);
-        expect(focus.inVanishedSection).toBe(false);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

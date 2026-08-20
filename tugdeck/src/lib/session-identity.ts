@@ -91,6 +91,16 @@ export interface SessionIdentity {
   customName: string | null;
   /** The agent's rolling description. Independent of {@link customName}. */
   description: string | null;
+  /**
+   * Whether {@link customName} is also some other session's custom name.
+   *
+   * The collision fact behind the title rule: a custom name removes the
+   * callsign from the title ({@link sessionTitleParts}), and the callsign
+   * returns only when two sessions share one name — the final disambiguation,
+   * and the prod toward picking a non-colliding name. Always `false` for an
+   * unnamed session.
+   */
+  nameShared: boolean;
   /** Ledger state, when the caller knows it. */
   state: SessionRow["state"] | null;
   /** Full tug session id (plumbing: tooltips, copy affordance). */
@@ -256,6 +266,8 @@ export function composeSessionIdentity(input: {
   tagLineage?: string | null;
   /** The ledger's explicit answer that it holds this session. */
   ledgerKnown?: boolean;
+  /** Whether `name` is also some other session's custom name. */
+  nameShared?: boolean;
 }): SessionIdentity {
   const ledgerTag = input.tag?.trim() || null;
   const recordedTag = input.recordedTag?.trim() || null;
@@ -283,6 +295,8 @@ export function composeSessionIdentity(input: {
     // can never arrive here as a `customName`.
     customName: name,
     description: synopsis,
+    // A collision fact makes no sense without a name to collide on.
+    nameShared: name !== null && input.nameShared === true,
     state: input.state ?? null,
     id: input.sessionId,
     shortId: shortSessionId(input.sessionId),
@@ -324,6 +338,7 @@ export function resolveSessionIdentity(
   return composeSessionIdentity({
     sessionId,
     name: sessionNameStore.getName(sessionId),
+    nameShared: sessionNameStore.isNameShared(sessionId),
     synopsis: sessionSynopsisStore.getSynopsis(sessionId),
     tag: sessionTagStore.getTag(sessionId),
     recordedTag: context?.recordedTag ?? null,
@@ -370,6 +385,18 @@ export function useSessionIdentity(
       [sessionId],
     ),
   );
+  // A boolean selector, not the store's version token: the snapshot changes
+  // only when THIS session's collision state flips, so a rename elsewhere in
+  // the app repaints this surface only if it creates or breaks a collision
+  // with this session's name.
+  const nameShared = useSyncExternalStore(
+    sessionNameStore.subscribe,
+    useCallback(
+      () =>
+        sessionId === null ? false : sessionNameStore.isNameShared(sessionId),
+      [sessionId],
+    ),
+  );
   const tag = useSyncExternalStore(
     sessionTagStore.subscribe,
     useCallback(
@@ -401,6 +428,7 @@ export function useSessionIdentity(
   return composeSessionIdentity({
     sessionId,
     name,
+    nameShared,
     synopsis,
     tag,
     recordedTag: context?.recordedTag ?? null,
@@ -415,12 +443,19 @@ export function useSessionIdentity(
 
 /**
  * The two runs a surface renders as a session's title: the user's name first,
- * then the callsign that follows it.
+ * then — only under a name collision — the callsign that disambiguates it.
  *
- * A user-supplied name is the user saying what the session is called, so it
- * cannot rank below a callsign Tug minted for itself — but the callsign stays
- * visible, because it is the permanent citable handle a rename never changes.
- * With no name, the callsign IS the title and there is no second run.
+ * A user-supplied name is the user saying what the session is called, and the
+ * name REPLACES the callsign rather than leading it: showing both harmed
+ * legibility and made the title too long for the interface beside it. The
+ * callsign stays the permanent citable handle — the tooltip, the citation,
+ * and every copy path carry it whole — it just no longer rides the title.
+ *
+ * The one exception is a collision: when two sessions share a custom name
+ * ({@link SessionIdentity.nameShared}), the callsign returns as the final
+ * disambiguation — which is also the prod toward choosing a non-colliding
+ * name. With no name at all, the callsign IS the title and there is no
+ * second run.
  *
  * Two runs rather than one joined string, because they are sized separately:
  * under a width squeeze the callsign run is the one that ellipsizes and the name
@@ -441,7 +476,10 @@ export function sessionTitleParts(identity: SessionIdentity): {
 } {
   const label = sessionIdentityLine(identity);
   if (identity.customName === null) return { name: label, callsign: null };
-  return { name: identity.customName, callsign: label };
+  return {
+    name: identity.customName,
+    callsign: identity.nameShared ? label : null,
+  };
 }
 
 /**

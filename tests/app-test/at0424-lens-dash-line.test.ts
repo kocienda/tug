@@ -1,46 +1,44 @@
 /**
- * at0424-lens-dash-line.test.ts — the dash a session is working is a LINE of
- * that session's row in the Lens's Cards section, not a row beside it.
+ * at0424-lens-dash-line.test.ts — dash progress rides the session's row at its
+ * fixed height: the title cluster and the step ring, never a fourth line.
  *
  * The Cards section is organized by CARDS, so a dash's place in it is inside
- * the session that is on it: the reader is looking at the session, and the
- * dash is what that session is doing. A dash drawn as its own list row took
- * its own alternating-stripe band and hung its mark at the list's outer
- * gutter — left of the session's own text — so it read as a stray sibling
- * rather than as a fact about the row it belongs to.
+ * the session that is on it. The row used to grow a fourth line when bound —
+ * which made row height a function of binding state and broke consistency
+ * with the masthead — and that line is retired ([D141]). What replaced it:
  *
- * The structural claim is therefore CONTAINMENT, and that is what is asserted:
- * the line is a descendant of the session's own row element, and the session
- * still occupies exactly one list cell with the dash bound. Two counts make
- * the second half falsifiable rather than incidental — the number of list
- * cells before and after the bind.
+ *  - The TITLE carries the progress cluster after the identity's own
+ *    `^<dash>` run: the stage as a glyph with its word on hover
+ *    (`DashStageMark`), and the `i/N` count (`TugStepFraction`) once step
+ *    counters exist.
+ *  - The INDICATOR becomes the step ring (`SessionStepRing`) once counters
+ *    exist: the segmented circle wrapping the dense phase dot, in the phase's
+ *    own tone.
  *
- * The dash's NAME lives in the title's identity run — `#<dash>`, everywhere a
- * session is named, with no opt-out — so the line does not repeat it: it
- * carries what the run cannot, the stage, the step counters, and the review
- * mark. Both halves are pinned: the line appears carrying no name, and the
- * title says the dash exactly once while it does.
+ * The structural claims are pinned from both sides: binding never grows the
+ * list by a cell or the row by a line, the retired dash-line slot never
+ * renders, and the title says the dash's name exactly once.
  *
- * The counters are the reason the line exists, so their arrival is driven
- * rather than assumed: the fixture dash adopts a plan with no step started,
- * the line is read for the explicit missing-step state, a real
- * `tugutil dash step … start` runs through the same shell route, and the line
- * is read again for `1/1` in three forms — the data attributes a test can
- * assert on, the custom properties CSS can compute over, and the numerals a
- * reader actually sees.
+ * The counters' arrival is driven rather than assumed: the fixture dash
+ * adopts a plan with no step started — the cluster then shows the stage glyph
+ * alone — and a real `tugutil dash step … start` through the shell route is
+ * what makes the fraction and the ring appear.
  *
- * Everything is real. `tugutil dash bind` runs through the card's own `$` shell
- * route (the route that stamps `TUG_SESSION_ID`), and the line appears because
- * the dash's `bound_sessions` moved in the account-global aggregate the row's
- * own leaf subscription reads. `dash unbind` takes it away the same way, which
- * is the round trip that proves the line is derived on every beat rather than
- * latched at first sight.
+ * Everything is real. `tugutil dash bind` runs through the card's own `$`
+ * shell route (the route that stamps `TUG_SESSION_ID`), and the marks appear
+ * because `bound_sessions` moved in the account-global aggregate the row's
+ * own subscription reads. `dash unbind` takes them away the same way.
  *
  * @covers tugdeck/src/components/lens/sections/cards-data-source.ts
  * @covers tugdeck/src/components/lens/sections/cards-section.tsx
  * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
- * @covers tugdeck/src/components/lens/sections/dash-facts.tsx
- * @covers tugdeck/src/components/lens/sections/dash-facts.css
+ * @covers tugdeck/src/components/tugways/session-identity-row.tsx
+ * @covers tugdeck/src/components/tugways/session-identity-row.css
+ * @covers tugdeck/src/components/tugways/session-step-ring.tsx
+ * @covers tugdeck/src/components/tugways/tug-step-ring.tsx
+ * @covers tugdeck/src/components/tugways/tug-step-ring.css
+ * @covers tugdeck/src/components/tugways/dash-stage-mark.tsx
+ * @covers tugdeck/src/components/tugways/dash-stage-mark.css
  * @covers tugdeck/src/lib/dash-session-index.ts
  * @covers tugdeck/src/components/tugways/tug-session-row.tsx
  * @covers tugdeck/src/components/tugways/tug-session-row.css
@@ -80,8 +78,12 @@ const CARDS = '.lens-section[data-lens-section="cards"]';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 const SESSION_ROW_DASH = `${SESSION_ROW} [data-slot="session-identity-dash"]`;
 const DASH_NAME = "at0424-line";
+/** The retired fourth line — pinned at zero forever. */
 const DASH_LINE = `${SESSION_ROW} [data-slot="tug-session-row-dashline"]`;
-const DASH_FACTS = `${DASH_LINE} [data-slot="lens-dashes-facts"]`;
+const PROGRESS = `${SESSION_ROW} [data-slot="session-identity-row-progress"]`;
+const STAGE_MARK = `${PROGRESS} [data-slot="tug-dash-stage-mark"]`;
+const FRACTION = `${PROGRESS} [data-slot="tug-step-fraction"]`;
+const RING = `${SESSION_ROW} [data-slot="tug-step-ring"]`;
 const LIST_CELLS = `${CARDS} .tug-list-view-cell`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
@@ -95,8 +97,8 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeDashScratchRepo({ prefix: "at0424", checkout: CHECKOUT });
   const dash = createDash(projectDir(), DASH_NAME, "at0424 fixture", scratch.cli);
-  // A plan adopted and no step started — the state the line must not be
-  // silent about, and the state the counters replace once a step opens.
+  // A plan adopted and no step started — the cluster shows the stage glyph
+  // alone, and the counters replace nothing until a step opens.
   recordAdoptedPlan(projectDir(), DASH_NAME, dash.worktree, scratch.cli);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
@@ -136,9 +138,14 @@ const listCellCount = (app: App): Promise<number> =>
     `document.querySelectorAll(${JSON.stringify(LIST_CELLS)}).length`,
   );
 
-describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
+const count = (app: App, selector: string): Promise<number> =>
+  app.evalJS<number>(
+    `document.querySelectorAll(${JSON.stringify(selector)}).length`,
+  );
+
+describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () => {
   test(
-    "binding grows the session's row by a line, not the list by a row",
+    "binding grows the title by a cluster, not the row by a line",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -162,150 +169,121 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
-        expect(
-          await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(DASH_LINE)}).length`,
-          ),
-        ).toBe(0);
+        expect(await count(app, PROGRESS)).toBe(0);
+        expect(await count(app, RING)).toBe(0);
         const bareCells = await listCellCount(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(DASH_LINE)}) !== null`,
+          `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },
         );
 
-        const line = await app.evalJS<{
-          text: string;
+        const cluster = await app.evalJS<{
           insideSessionRow: boolean;
-          sameCellAsSession: boolean;
-          belowActivity: boolean;
-          indentedPastSubLines: number;
+          onTitleLine: boolean;
+          stage: string | null;
+          stageWord: string | null;
+          fractions: number;
+          rings: number;
         }>(
           `(() => {
-             const el = document.querySelector(${JSON.stringify(DASH_LINE)});
+             const cluster = document.querySelector(${JSON.stringify(PROGRESS)});
              const session = document.querySelector(${JSON.stringify(SESSION_ROW)});
-             const cellOf = (n) => n.closest(".tug-list-view-cell");
-             const description = session.querySelector(".tug-session-row-description");
-             const pulse = session.querySelector(".tug-pulse");
-             const pad = (n) =>
-               parseFloat(getComputedStyle(n).paddingInlineStart) || 0;
+             const mark = document.querySelector(${JSON.stringify(STAGE_MARK)});
              return {
-               text: (el.querySelector(".lens-dashes-facts")?.textContent ?? "").trim(),
-               // The structural claim: the line is INSIDE the session's row.
-               insideSessionRow: session.contains(el),
-               sameCellAsSession: cellOf(el) === cellOf(session),
-               belowActivity:
-                 pulse !== null &&
-                 el.getBoundingClientRect().top >=
-                   pulse.getBoundingClientRect().top,
-               // One step further in than the sub-lines it hangs off.
-               indentedPastSubLines:
-                 description === null ? 0 : pad(el) - pad(description),
+               // The structural claim: the cluster is INSIDE the session's
+               // row, on the title's own line.
+               insideSessionRow: session.contains(cluster),
+               onTitleLine:
+                 cluster.closest(".tug-session-row-name-line") !== null,
+               stage: mark?.getAttribute("data-stage") ?? null,
+               stageWord: mark?.getAttribute("aria-label") ?? null,
+               fractions: document.querySelectorAll(${JSON.stringify(FRACTION)}).length,
+               rings: document.querySelectorAll(${JSON.stringify(RING)}).length,
              };
            })()`,
         );
-        note("at0424 dash line", JSON.stringify(line));
-        // The name is the title run's to say; the line says only the doing.
-        expect(line.text).not.toContain(`^${DASH_NAME}`);
+        note("at0424 cluster", JSON.stringify(cluster));
+        expect(cluster.insideSessionRow).toBe(true);
+        expect(cluster.onTitleLine).toBe(true);
         // The fixture's plan is uncommitted dirt in the dash's worktree, so
-        // the stage it derives is `working` — the point of the assertion is
-        // that a stage word is on the line at all, spelled the way the wire
-        // spelled it.
-        expect(line.text).toContain("working");
-        expect(line.insideSessionRow).toBe(true);
-        expect(line.sameCellAsSession).toBe(true);
-        expect(line.belowActivity).toBe(true);
-        expect(line.indentedPastSubLines).toBeGreaterThan(0);
+        // the stage it derives is `working` — the point is that the stage is
+        // a GLYPH whose word rides the hover, spelled as the wire spelled it.
+        expect(cluster.stage).toBe("working");
+        expect(cluster.stageWord).toBe("working");
+        // No step started: no counters, so no fraction and no ring yet —
+        // the dot stays a bare dot.
+        expect(cluster.fractions).toBe(0);
+        expect(cluster.rings).toBe(0);
 
-        // And the list did not grow a row to hold it — the whole point of the
-        // redesign, and the half a containment assertion alone would miss.
+        // The retired fourth line never renders, and the list did not grow a
+        // row: same cells, same three lines, whatever the binding state.
+        expect(await count(app, DASH_LINE)).toBe(0);
         expect(await listCellCount(app)).toBe(bareCells);
 
-        // The row says the dash's name exactly once, and the title's identity
-        // run is where — the sigil rides the session's name wherever the
-        // session is named.
+        // The row says the dash's name exactly once, in the title's identity
+        // run — the sigil rides the session's name wherever it is named.
         expect(await dashRunsOnSessionRow(app)).toBe(1);
-        note("at0424 lens with the dash line", (await app.screenshot()).path);
+        note("at0424 lens with the cluster", (await app.screenshot()).path);
 
-        // ── The step it is on — first its absence, then its arrival ───────
-        // The dash carries a plan and no started step, so the line says so
-        // rather than dropping to a bare stage word. Silence here is how a
-        // whole run's declarations went unnoticed once.
-        const before = await app.evalJS<{
-          missing: boolean;
-          current: string | null;
-          total: string | null;
-        }>(
-          `(() => {
-             const facts = document.querySelector(${JSON.stringify(DASH_FACTS)});
-             return {
-               missing: facts.getAttribute("data-step-missing") === "true",
-               current: facts.getAttribute("data-step-current"),
-               total: facts.getAttribute("data-step-total"),
-             };
-           })()`,
-        );
-        note("at0424 before the step", JSON.stringify(before));
-        expect(before.missing).toBe(true);
-        expect(before.current).toBeNull();
-        expect(before.total).toBeNull();
-
+        // ── The step opens: the fraction and the ring arrive ──────────────
         await shellAndSettle(
           app,
           `${tugutilPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --plan plan.md`,
           1,
         );
         await app.waitForCondition<boolean>(
-          `(() => {
-             const facts = document.querySelector(${JSON.stringify(DASH_FACTS)});
-             return facts !== null && facts.getAttribute("data-step-current") === "1";
-           })()`,
+          `document.querySelector(${JSON.stringify(FRACTION)}) !== null`,
           { timeoutMs: 30000 },
         );
 
         const stepped = await app.evalJS<{
-          missing: boolean;
-          current: string | null;
-          total: string | null;
-          counters: string;
-          propCurrent: string;
-          propTotal: string;
+          fraction: string;
+          ringLabel: string | null;
+          segments: number;
+          ringWrapsDot: boolean;
+          monitorDots: number;
         }>(
           `(() => {
-             const facts = document.querySelector(${JSON.stringify(DASH_FACTS)});
-             const step = facts.querySelector(".lens-dashes-step");
-             const style = getComputedStyle(facts);
+             const fraction = document.querySelector(${JSON.stringify(FRACTION)});
+             const ring = document.querySelector(${JSON.stringify(RING)});
              return {
-               missing: facts.getAttribute("data-step-missing") === "true",
-               current: facts.getAttribute("data-step-current"),
-               total: facts.getAttribute("data-step-total"),
-               counters: (step?.textContent ?? "").trim(),
-               propCurrent: style.getPropertyValue("--dash-step-current").trim(),
-               propTotal: style.getPropertyValue("--dash-step-total").trim(),
+               fraction: (fraction?.textContent ?? "").trim(),
+               ringLabel: ring?.getAttribute("aria-label") ?? null,
+               segments: ring?.querySelectorAll(".tug-step-ring-seg").length ?? 0,
+               // ONE geometry: the ring wraps a live phase dot, so the bound
+               // row traded its bare monitor dot for the ring form.
+               ringWrapsDot:
+                 ring?.querySelector('[data-slot="tug-progress-indicator"]') != null,
+               monitorDots: document.querySelectorAll(
+                 ${JSON.stringify(`${SESSION_ROW} .tug-session-row-dot [data-slot="tug-progress-indicator"]`)},
+               ).length,
              };
            })()`,
         );
         note("at0424 with the step", JSON.stringify(stepped));
-        // The fixture plan holds exactly one step.
-        expect(stepped.current).toBe("1");
-        expect(stepped.total).toBe("1");
-        // The numerals are real text, not `content` — selectable and readable.
-        expect(stepped.counters).toBe("1/1");
-        // And the same fact in the form CSS can compute over.
-        expect(stepped.propCurrent).toBe("1");
-        expect(stepped.propTotal).toBe("1");
-        // A declared step is not a missing one.
-        expect(stepped.missing).toBe(false);
-        note("at0424 lens with the counters", (await app.screenshot()).path);
+        // The fixture plan holds exactly one step; the numerals are real,
+        // selectable text.
+        expect(stepped.fraction).toBe("1/1");
+        expect(stepped.ringLabel).toBe("step 1 of 1");
+        expect(stepped.segments).toBe(1);
+        expect(stepped.ringWrapsDot).toBe(true);
+        // One dot on the row — the one inside the ring.
+        expect(stepped.monitorDots).toBe(1);
+        // Still no fourth line, still the same cells.
+        expect(await count(app, DASH_LINE)).toBe(0);
+        expect(await listCellCount(app)).toBe(bareCells);
+        note("at0424 lens with the ring", (await app.screenshot()).path);
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 2);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(DASH_LINE)}).length === 0`,
+          `document.querySelectorAll(${JSON.stringify(PROGRESS)}).length === 0`,
           { timeoutMs: 30000 },
         );
+        expect(await count(app, RING)).toBe(0);
         expect(await listCellCount(app)).toBe(bareCells);
         expect(await dashRunsOnSessionRow(app)).toBe(0);
       } finally {

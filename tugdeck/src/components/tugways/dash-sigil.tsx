@@ -4,9 +4,10 @@
  * The standing rule is that a bound dash shows with its sigil everywhere a dash
  * is named, with no opt-out. Two hand-rolled spellings of `^` + name is exactly
  * how a rule like that drifts, so there is one, and both surfaces compose it:
- * `SessionDashMarker` in the session identity run, and the Unbound Dashes row.
+ * `SessionDashMarker` in the session identity run, and the Dashes section's
+ * eyebrow.
  *
- * The Unbound row cannot simply reuse `SessionDashMarker`: that component is
+ * The eyebrow cannot simply reuse `SessionDashMarker`: that component is
  * keyed by `sessionId` and resolves its dash *through* a session, which an unbound
  * dash by definition does not have. What the two genuinely share is this
  * markup — the run element, its sigil, its name, and the `data-review` tint

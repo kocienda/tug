@@ -34,78 +34,14 @@
   gap: var(--tug-space-2xs);
 }
 
-/* The fact run — base · rounds · uncommitted · stage · step — is a
-   `TugMetaRun`, the same grammar a file row's `edit · exact` wears. The rule,
-   the bullets, the type and the atomic parts all live there. What is left here
-   is per-fact tone, which is this lane's to say. */
-
-/* The base is the one identifier in the run: a git ref somebody types back, so
-   it keeps the mono family the rest of the facts have no use for. */
-.session-changes-dash-base {
-  font-family: var(--tug-font-family-mono);
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* Uncommitted work in the worktree is the one fact here worth a tone. */
-.session-changes-dash-dirty {
-  color: var(--tug7-element-tone-text-normal-caution-rest);
-}
-
-.session-changes-dash-stage,
-.session-changes-dash-step {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-/* The step's title rides beside its counter and is the one run that gives way
-   — the counter keeps the state legible however hard the title elides. It is
-   the sole exception to the `flex: none` above, and it earns it by being prose:
-   a half-shown sentence still reads, a half-shown "step 2/5" does not.
-
-   It is also the only part with no bullet ahead of it: the bullets separate
-   facts of one kind, and the title is a caption on the fact before it. The
-   larger gap says the same thing the missing bullet does. */
-.session-changes-dash-facts .session-changes-dash-step-title {
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* The metadata line beneath the atom — `DashMetaLine`, the same element the
+   Lens's Dashes section renders, with its own type and tones. What is this
+   lane's to say is only where it sits: indented one step under the atom, so
+   line 1 reads as who and line 2 as what the dash is doing. */
+.session-changes-dash-meta {
+  display: flex;
   min-width: 0;
-  margin-left: var(--tug-space-xs);
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* The stale-review mark ([P07]): advisory, so it takes the same caution tone
-   as `dirty` rather than the danger one. `never-reviewed` drops to the muted
-   run — nothing has drifted there, nothing has vouched either. */
-.session-changes-dash-review {
-  color: var(
-    --session-changes-dash-review-color,
-    var(--tug7-element-tone-text-normal-caution-rest)
-  );
-}
-
-.session-changes-dash-review[data-review="never-reviewed"] {
-  color: var(
-    --session-changes-dash-review-never-color,
-    var(--tug7-element-global-text-normal-muted-rest)
-  );
-}
-
-/* The divergence marks — how far this dash has drifted from its base, said
-   when it becomes true rather than at landing time. `conflicted` is the only
-   one that needs a person; `behind` is ordinary and usually transient, and
-   `settled` is a receipt, so both stay muted. Every state paints from the
-   `data-divergence` attribute ([L06]). */
-.session-changes-dash-divergence {
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.session-changes-dash-divergence[data-divergence="conflicted"] {
-  color: var(--tug7-element-tone-text-normal-danger-rest);
-}
-
-.session-changes-dash-divergence[data-divergence="overlap"] {
-  color: var(--tug7-element-tone-text-normal-caution-rest);
+  padding-inline-start: var(--tug-space-sm);
 }
 
 /* ---- The expanded detail ---- */

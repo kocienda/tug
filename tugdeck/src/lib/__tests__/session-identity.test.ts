@@ -89,13 +89,36 @@ describe("customName and description", () => {
 });
 
 describe("sessionTitleParts", () => {
-  test("a named session leads with the name and the prefixed callsign follows", () => {
+  test("a custom name REMOVES the callsign — no run, no residue", () => {
     const parts = sessionTitleParts(
       identity({ name: "Refactor the Lens", tag: "stocky-pixie" }),
     );
     expect(parts).toEqual({
       name: "Refactor the Lens",
+      callsign: null,
+    });
+  });
+
+  test("a name collision brings the callsign back as the disambiguation", () => {
+    const parts = sessionTitleParts(
+      identity({
+        name: "Refactor the Lens",
+        tag: "stocky-pixie",
+        nameShared: true,
+      }),
+    );
+    expect(parts).toEqual({
+      name: "Refactor the Lens",
       callsign: "tugtool/stocky-pixie",
+    });
+  });
+
+  test("the collision fact is inert without a custom name to collide on", () => {
+    const record = identity({ nameShared: true });
+    expect(record.nameShared).toBe(false);
+    expect(sessionTitleParts(record)).toEqual({
+      name: "tugtool/stocky-pixie",
+      callsign: null,
     });
   });
 
@@ -118,7 +141,9 @@ describe("sessionTitleParts", () => {
       callsign: null,
     });
     expect(
-      sessionTitleParts(identity({ name: "The mint work", tag: null })),
+      sessionTitleParts(
+        identity({ name: "The mint work", tag: null, nameShared: true }),
+      ),
     ).toEqual({ name: "The mint work", callsign: `tugtool/${SHORT}` });
   });
 
@@ -129,7 +154,8 @@ describe("sessionTitleParts", () => {
   });
 
   test("the callsign run IS the Line channel — one spelling, two readers", () => {
-    const named = identity({ name: "Refactor the Lens" });
+    // Under a collision, so a callsign run exists to compare.
+    const named = identity({ name: "Refactor the Lens", nameShared: true });
     expect(sessionTitleParts(named).name).not.toContain("/");
     expect(sessionTitleParts(named).callsign).toBe(sessionIdentityLine(named));
     expect(sessionIdentityLine(named)).toBe("tugtool/stocky-pixie");

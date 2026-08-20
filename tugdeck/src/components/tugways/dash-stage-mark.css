@@ -1,0 +1,15 @@
+/**
+ * dash-stage-mark.css — the stage glyph's seat.
+ *
+ * The mark is a quiet icon in the muted tone: the stage is orientation, not
+ * an alert, and the ring beside it already carries the urgency channel.
+ */
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-dash-stage-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--tug7-element-global-icon-normal-muted-rest);
+}

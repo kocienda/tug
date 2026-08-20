@@ -9,6 +9,12 @@
  * bound dash are what survive — the name because the user chose it, the dash
  * because a session on a dash is never named without it.
  *
+ * A custom-named title carries a callsign run at all only under a NAME
+ * COLLISION ([D141]) — two sessions sharing one custom name, where the
+ * callsign returns as the final disambiguation. The fixture seeds a second
+ * session with the same name for exactly that reason: it is what makes the
+ * three-run grammar exist so its elision order can be measured.
+ *
  * The squeeze is applied the way a squeeze happens: a width constraint on the
  * identity element, with the real flex algorithm distributing the deficit
  * through the three nested clamps in `tug-session-identity.css`. Nothing is
@@ -50,6 +56,10 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000439";
+/** A second session sharing the custom name — the collision that brings the
+ *  callsign run back to the title ([D141]). Never mounted; its name only has
+ *  to be KNOWN for `nameShared` to read true on the row under test. */
+const OTHER_SID = "a7c0d1ea-0000-4000-8000-000000000440";
 const TAG = "frothy-nurse-2";
 const NAME = "The long name the user gave this session";
 const DASH_NAME = "at0439-elide";
@@ -135,6 +145,15 @@ const headContentWidth = (app: App): Promise<number> =>
   app.evalJS<number>(
     `(() => {
        const id = document.querySelector(${JSON.stringify(IDENTITY)});
+       // The title-run wrapper ([D141]'s progress cluster seat) is a flex
+       // container capped at the line's width; opened up too, or it shrinks
+       // the identity during the measurement pass and every content width
+       // under-reads.
+       const wrap = id.closest(".session-identity-row-title-run");
+       if (wrap !== null) {
+         wrap.style.maxWidth = "none";
+         wrap.style.width = "max-content";
+       }
        id.style.maxInlineSize = "none";
        id.style.width = "3000px";
        void id.getBoundingClientRect();
@@ -148,6 +167,12 @@ const squeeze = (app: App, deficit: number): Promise<RunWidths> =>
     `(() => {
        const id = document.querySelector(${JSON.stringify(IDENTITY)});
        const run = id.querySelector(".tug-session-identity-run");
+       // Open the title-run wrapper as well — see headContentWidth.
+       const wrap = id.closest(".session-identity-row-title-run");
+       if (wrap !== null) {
+         wrap.style.maxWidth = "none";
+         wrap.style.width = "max-content";
+       }
        id.style.maxInlineSize = "none";
        id.style.width = "3000px";
        void id.getBoundingClientRect();
@@ -209,6 +234,18 @@ describe.skipIf(!SHOULD_RUN)("AT0439: the identity line's elision order", () => 
               JSON.stringify({
                 session_id: SID,
                 fields: { name: NAME, name_user_set: true, tag: TAG },
+              }),
+            )})`,
+          ),
+        ).toBe(true);
+        // The collision: a second session takes the same custom name, which
+        // is what makes the callsign run render beside it at all ([D141]).
+        expect(
+          await app.evalJS<boolean>(
+            `window.__tug.publishSessionUpdated(${JSON.stringify(
+              JSON.stringify({
+                session_id: OTHER_SID,
+                fields: { name: NAME, name_user_set: true, tag: "other-elide-1" },
               }),
             )})`,
           ),

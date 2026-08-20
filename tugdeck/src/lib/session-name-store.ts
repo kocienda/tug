@@ -64,6 +64,24 @@ class SessionNameStore {
     this.names.get(tugSessionId) ?? null;
 
   /**
+   * Whether this session's custom name is also some other session's.
+   *
+   * The collision test behind the title rule: a custom name REMOVES the
+   * callsign from the title, and the callsign returns only when two sessions
+   * share one name and the reader needs the final disambiguation. An unnamed
+   * session never collides. A linear scan — the map holds one entry per named
+   * session this client has seen, a small set by construction.
+   */
+  isNameShared = (tugSessionId: string): boolean => {
+    const name = this.names.get(tugSessionId);
+    if (name === undefined) return false;
+    for (const [id, other] of this.names) {
+      if (id !== tugSessionId && other === name) return true;
+    }
+    return false;
+  };
+
+  /**
    * Set (trimmed) or clear (`null` / blank) the name for `tugSessionId`. No-op
    * + no notify when unchanged, so a redundant wire echo doesn't churn React.
    */

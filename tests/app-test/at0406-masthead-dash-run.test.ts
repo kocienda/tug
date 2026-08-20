@@ -14,10 +14,12 @@
  *
  * The run is the identity's, not the masthead's — the masthead renders no
  * dash chrome of its own, which is why the pins here are all on the title's
- * grammar. The whole title is one string, `name:project/callsign#dash`, with
- * every separator a character inside a run rather than a gap between boxes;
- * that spelling is pinned here on the line tier and in at0423 on the atom,
- * because one identity worn two ways is the defect both tests exist to catch.
+ * grammar. The whole title is one string — `name^dash` for a custom-named
+ * session, since the name REMOVES the callsign run unless two sessions
+ * collide on one name ([D141]) — with every separator a character inside a
+ * run rather than a gap between boxes; that spelling is pinned here on the
+ * line tier and in at0423 on the atom, because one identity worn two ways is
+ * the defect both tests exist to catch.
  *
  * Two things are pinned besides the name. The run sits inside the title line's
  * content box, i.e. inside the width the masthead already reserves against the
@@ -223,14 +225,10 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         // The sigil is inside the run, so the run's own text carries it: an
         // ellipsized dash still says it is a dash.
         expect(run.text).toBe(`^${DASH_NAME}`);
-        // One format, spelled out end to end — the callsign is minted per
-        // session, so it is the only part matched loosely. What is exact is
-        // the punctuation: a bare `:` and a bare `^`, no spaces anywhere.
-        // The project prefix is the scratch repo's own leaf name.
-        const leaf = projectDir().split("/").pop() ?? "";
-        expect(run.grammar).toMatch(
-          new RegExp(`^${RENAME}:${leaf}/[a-z0-9-]+\\^${DASH_NAME}$`),
-        );
+        // One format, spelled out end to end. The custom name REMOVED the
+        // callsign run — no `:`, no project, no residue ([D141]) — so the
+        // whole grammar is the name and the flush `^<dash>` after it.
+        expect(run.grammar).toBe(`${RENAME}^${DASH_NAME}`);
         // The glyph left the grammar when the sigil replaced it.
         expect(run.svgCount).toBe(0);
         // Inside the identity itself — the run is part of the title's grammar,

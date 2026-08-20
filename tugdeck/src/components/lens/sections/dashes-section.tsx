@@ -1,68 +1,55 @@
 /**
- * dashes-section.tsx — the Lens **Unbound Dashes** section: the inbox of
- * unattended work, across every open project.
+ * dashes-section.tsx — the Lens **Dashes** section: every dash in every open
+ * project, in every state, always on.
  *
- * **A dash appears in the Lens exactly once.** Worked ⇒ its session's row in
- * the Cards section, which carries `#<dash>` in the identity run and the
- * stage/step line beneath it. Unworked ⇒ here. The two surfaces partition the
- * dash universe, and membership is exactly `bound_sessions.length === 0` —
- * nothing curated, nothing about which stages are interesting.
+ * The section is a fixed address. It used to show only unbound dashes and to
+ * vanish entirely at zero — and the coming and going was the wart: no other
+ * Lens section works like that, and a section with no fixed place cannot be
+ * glanced at. Now the band is always there, every dash is a row, and the
+ * empty state is one quiet line that costs ~24px and buys the section its
+ * address.
  *
- * The partition is what makes this section keep its band. `bound_sessions` is
- * read live-sessions-only, so a dash whose cards have all closed has no session,
- * therefore no card, therefore no row in a section keyed by cards. That is a
- * structural gap in the Cards section rather than a shortfall to be improved
- * away: no amount of enriching a card row produces a row for a dash that has no
- * card. Everything else the roster used to say — name, stage, steps, review —
- * the session's own row already says, which is why saying it twice went away
- * rather than the section.
+ * Each dash is a two-line block in one grammar, the same grammar the Changes
+ * shade's collapsed dash row wears:
  *
- * An empty section renders **nothing at all**, band included ([P03]). The
- * everyday state is zero unbound dashes, and an inbox at zero should cost zero
- * rail height. Presence is published by a probe mounted outside this body,
- * because a body cannot decide it should not exist (see
- * `lens-section-presence.ts`).
+ *   [^dash-atom] ────────────────── [worker atom | Bind Discard]
+ *     ring · stage icon · count · note · age · divergence
+ *
+ * The EYEBROW holds the identities and nothing else: the dash atom at the
+ * left, the hairline, and the "who" at the right — the bound worker as a mini
+ * atom (no callsign, no dash run: the row already names both), or the Bind
+ * and Discard verbs for a dash nobody holds. The dash pill wears no review
+ * tint here: that yellow is the WAITING color, and a dash is not waiting for
+ * anyone. Beneath it, `DashMetaLine` carries everything the dash is DOING.
  *
  * The Lens is the account-global surface and `ChangesetAllStore` is the
  * account-global snapshot it already reads, so this section is a projection
- * and nothing more — no feed, no store of record, no second copy of anything.
- * Rows key on the dash's **owner key**, which makes two incarnations of a
- * reused name distinct for free.
+ * and nothing more. Rows key on the dash's **owner key**, which makes two
+ * incarnations of a reused name distinct for free.
  *
- * **The row carries verbs**, which the roster it replaced deliberately did not.
- * The old reasoning was that the binding verbs live in the Changes shade beside
- * the facts you would take a dash on for — true, and it does not cover an unbound
- * dash, which has no session and therefore no shade to hold them. Bind mates
- * the dash to the Lens's followed card, or refuses with a reachable reason
- * ([L31]); Discard destroys it behind a confirm. Neither is on row activation:
- * fronting is what activating a row means everywhere else in the Lens, and one
- * list where Enter rebinds instead would be worse than the silence it replaced.
+ * Bind mates an unbound dash to the Lens's followed card, or refuses with a
+ * reachable reason ([L31]); Discard destroys it behind a confirm. Neither is
+ * on row activation. Both verbs destroy the surface they are pressed on —
+ * the success path, not an edge case — so Bind reports nothing locally (a
+ * refusal arrives on the card-level bind-error surface, which outlives the
+ * row) and the discard confirm anchors to the row element. A bound dash
+ * carries neither: its worker's shade is where its verbs live.
  *
- * Both verbs **destroy the surface they are pressed on** — that is the success
- * path, not an edge case, and on the last unbound dash it takes the whole
- * section with it. So Bind reports nothing locally (a refusal arrives on the
- * card-level bind-error surface, which outlives the row) and the discard
- * confirm anchors to the row element rather than to the button inside it.
+ * Rows are totally ordered: nearest-to-done first, then freshest first, then
+ * by name. Stage leads because a `draft-ready` dash is one gesture from
+ * landing; freshness is the tiebreak a person actually wants; name is the
+ * final tiebreak rather than snapshot order, which is git-enumeration order.
  *
- * Rows are totally ordered: nearest-to-done first, then freshest first, then by
- * name. Stage leads because an unbound `draft-ready` dash is one gesture from
- * landing; freshness is the tiebreak a person actually wants, since the dash
- * unbound an hour ago is the one they were just in. Name is the final tiebreak
- * rather than snapshot order, which is git-enumeration order — stable,
- * arbitrary, and reshuffled by any branch created or deleted.
- *
- * The section's `kind` stays `"dashes"` though its title is Unbound Dashes.
- * The kind is the registry key and the key `sectionOrder` and
- * `collapsedSections` persist under in tugbank, so renaming it would silently
- * reset every saved Lens order and re-expand a section somebody had collapsed
- * — a real cost for a string nobody reads. The title is what a person reads,
- * and the title is what moved.
+ * The section's `kind` stays `"dashes"` whatever the title says: the kind is
+ * the registry key that `sectionOrder` and `collapsedSections` persist under
+ * in tugbank, so renaming it would silently reset every saved Lens order.
+ * The title is what a person reads, and the title is what moved.
  *
  * Laws: [L02] the aggregate enters React through `useSyncExternalStore`;
- * [L03] the section's content declaration is a `useLayoutEffect`; [L06] the
- * unbound mark and the row's tone are CSS on DOM attributes, never React state;
- * [L19] rows compose `TugListView` / `TugListRow` rather than hand-rolling list
- * focus.
+ * [L03] the section's content declaration is a `useLayoutEffect`; [L06] tones
+ * are CSS on DOM attributes, never React state; [L19] rows compose
+ * `TugListView` / `TugListRow` rather than hand-rolling list focus; [L20] the
+ * blocks compose `DashSigil`, `TugSessionIdentity`, and `DashMetaLine`.
  *
  * @module components/lens/sections/dashes-section
  */
@@ -79,11 +66,8 @@ import { GitBranch } from "lucide-react";
 
 import { LENS_LIST_PRESENTATION } from "@/components/lens/lens-list-presentation";
 import { setSectionContent } from "@/components/lens/lens-section-content";
-import { DashReviewMark } from "@/components/lens/sections/dash-facts";
-import { formatDashAge } from "@/components/lens/sections/dash-age";
-import { TugDashName } from "@/components/tugways/tug-dash-name";
-import { TugMetaRun } from "@/components/tugways/tug-meta-run";
-import { dashReviewPaints } from "@/lib/dash-review";
+import { DashMetaLine } from "@/components/tugways/dash-meta-line";
+import { DashSigil } from "@/components/tugways/dash-sigil";
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
 import { TugListRow } from "@/components/tugways/tug-list-row";
@@ -96,12 +80,14 @@ import type {
 } from "@/components/tugways/tug-list-view";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useLensFollowedCard } from "@/components/lens/lens-followed-card";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { useChangesetAll } from "@/lib/changeset-all-store";
 import { useChangesetDiscard } from "@/lib/changeset-verb-store";
+import { useSessionIdentity } from "@/lib/session-identity";
 import type {
   DashChangesetEntry,
   ProjectChangeset,
@@ -110,38 +96,19 @@ import type {
 
 const SECTION_KIND = "dashes";
 
-/** The dot's box in the Lens rail — the compact tier, matched to the row's
- *  single line rather than to the Cards section's monitor rows. */
-const DASH_DOT_SIZE = 10;
-
 // ---------------------------------------------------------------------------
 // Projection
 // ---------------------------------------------------------------------------
 
-/** One unbound dash, flattened out of the aggregate for the section's list. */
+/** One dash, in any state, flattened out of the aggregate for the list. */
 export interface DashRow {
   /** The dash's owner key — this row's identity, unique per incarnation. */
   ownerId: string;
-  /** The dash's short name. */
-  name: string;
-  /** The derived stage word, or null from a sender that sends none. */
-  stage: string | null;
-  /** `step i/N`, only when the server sent both halves. */
-  steps: string | null;
-  /** What the current step *is* — the latest declaration's title, or null. */
-  stepTitle: string | null;
-  /** When the dash was last touched, ISO-8601 UTC, or null for a dash whose
-   *  generation has logged nothing. Sorted on raw, formatted at render. */
-  lastActivity: string | null;
-  /** The dash plan's review state (`reviewed` | `stale` | `never-reviewed`),
-   *  or null when the dash records no plan or the server had nothing to say. */
-  review: string | null;
-  /** The owning project's directory — what a bind has to name, and the test
-   *  for whether a given card's session may take this dash on. */
+  /** The whole wire entry: the eyebrow and the meta line read it directly. */
+  entry: DashChangesetEntry;
+  /** The owning project's directory — what a bind has to name. */
   projectDir: string;
-  /** The owning project's name. Always present: an unbound dash may belong to a
-   *  project with nothing else on screen, so the label is orientation rather
-   *  than disambiguation. */
+  /** The owning project's name, for Bind's refusal sentence. */
   projectLabel: string;
 }
 
@@ -151,15 +118,7 @@ function rowFromEntry(
 ): DashRow {
   return {
     ownerId: entry.owner_id,
-    name: entry.display_name,
-    stage: entry.stage ?? null,
-    steps:
-      entry.step_current !== undefined && entry.step_total !== undefined
-        ? `step ${entry.step_current}/${entry.step_total}`
-        : null,
-    stepTitle: entry.step_title ?? null,
-    lastActivity: entry.last_activity ?? null,
-    review: entry.review ?? null,
+    entry,
     projectDir: project.project_dir,
     projectLabel: project.display_name,
   };
@@ -169,9 +128,9 @@ function rowFromEntry(
  * How far along a dash is, as a sortable rank ([P02], Table T01).
  *
  * Nearest-to-done ranks highest, because the actionable dash is the one about
- * to land rather than the one just created. `landing` tops the table because it
- * means an interrupted teardown — the one state that actively needs a person.
- * Exported so its test can be a table test rather than a DOM assertion.
+ * to land rather than the one just created. `joining` tops the table because
+ * it is the state that most needs a person. Exported so its test can be a
+ * table test rather than a DOM assertion.
  */
 export const DASH_STAGE_RANK: Record<string, number> = {
   joining: 6,
@@ -185,8 +144,8 @@ export const DASH_STAGE_RANK: Record<string, number> = {
 
 /** An absent or unrecognized stage sorts last, and never throws: an older or
  *  newer sender must not be able to break the section's render. */
-function stageRank(stage: string | null): number {
-  return stage === null ? -1 : (DASH_STAGE_RANK[stage] ?? -1);
+function stageRank(stage: string | null | undefined): number {
+  return stage == null ? -1 : (DASH_STAGE_RANK[stage] ?? -1);
 }
 
 /**
@@ -197,10 +156,13 @@ function stageRank(stage: string | null): number {
  * `Date` is ever parsed here. Absent-last keeps dashes created before creation
  * wrote a birth record from claiming the top of every stage band.
  */
-function compareIsoDesc(a: string | null, b: string | null): number {
-  if (a === null && b === null) return 0;
-  if (a === null) return 1;
-  if (b === null) return -1;
+function compareIsoDesc(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
   return b.localeCompare(a);
 }
 
@@ -209,25 +171,22 @@ function compareIsoDesc(a: string | null, b: string | null): number {
  * by name.
  */
 export function compareDashRows(a: DashRow, b: DashRow): number {
-  const byStage = stageRank(b.stage) - stageRank(a.stage);
+  const byStage = stageRank(b.entry.stage) - stageRank(a.entry.stage);
   if (byStage !== 0) return byStage;
-  const byAge = compareIsoDesc(a.lastActivity, b.lastActivity);
+  const byAge = compareIsoDesc(a.entry.last_activity, b.entry.last_activity);
   if (byAge !== 0) return byAge;
-  return a.name.localeCompare(b.name);
+  return a.entry.display_name.localeCompare(b.entry.display_name);
 }
 
 /**
- * Every **unbound** dash across every open project, ordered by
- * {@link compareDashRows}.
+ * Every dash across every open project, in every state, ordered by
+ * {@link compareDashRows}. No filter: bound and unbound alike are this
+ * section's rows now, and which register a row wears is the eyebrow's
+ * business, not membership's.
  *
- * The filter is the partition law: a dash with any live bound session is the
- * Cards section's to show, and never appears here. An older sender omits
- * `bound_sessions` entirely, which reads as unbound — the honest answer, since
- * nothing has claimed anybody is working it.
- *
- * Project grouping is not an ordering key: the project label rides each row,
- * and grouping by project would bury a dash that is one gesture from landing
- * under one created a week ago in another repo.
+ * Project grouping is not an ordering key: grouping by project would bury a
+ * dash that is one gesture from landing under one created a week ago in
+ * another repo.
  */
 export function dashRowsFromSnapshot(
   snapshot: WorkspacesChangesetSnapshot,
@@ -235,7 +194,6 @@ export function dashRowsFromSnapshot(
   const rows = snapshot.projects.flatMap((project) =>
     project.changesets
       .filter((entry): entry is DashChangesetEntry => entry.kind === "dash")
-      .filter((entry) => (entry.bound_sessions ?? []).length === 0)
       .map((entry) => rowFromEntry(entry, project)),
   );
   // `flatMap` already allocated this array; the snapshot it was projected from
@@ -245,16 +203,9 @@ export function dashRowsFromSnapshot(
 
 /** The band's one-line reading when the section is collapsed. */
 export function dashesCollapsedSummary(rows: readonly DashRow[]): string {
-  // Unreachable while the section hides itself when empty ([P03]), and kept
-  // anyway: a summary that reads as a crash when its own premise changes is
-  // worse than one sentence nobody sees.
-  if (rows.length === 0) return "No unbound dashes";
-  return `${rows.length} unbound`;
+  if (rows.length === 0) return "No dashes";
+  return rows.length === 1 ? "1 dash" : `${rows.length} dashes`;
 }
-
-// ---------------------------------------------------------------------------
-// Leaves
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // The list
@@ -343,29 +294,28 @@ function useBindTarget(row: DashRow): BindTarget {
 }
 
 /** What a row may ask of the section around it. */
-interface UnboundVerbs {
+interface DashVerbs {
   requestDiscard: (row: DashRow, anchor: HTMLElement | null) => void;
 }
 
-const UnboundVerbsContext = React.createContext<UnboundVerbs | null>(null);
+const DashVerbsContext = React.createContext<DashVerbs | null>(null);
 
 /**
  * Take this dash on.
  *
  * The press reports **nothing locally**, and that is the point: on success the
- * row leaves the section, and on the last unbound dash the section unmounts —
- * so a pending state or an error slot on the row would be reporting into a
- * component that is already gone. Success is legible as the row leaving;
- * a server-side refusal arrives on the card-level `dash-bind-error-store`
- * surface, which outlives both.
+ * worker's atom replaces the verbs, so a pending state on the button would be
+ * reporting into a control that is about to leave. A server-side refusal
+ * arrives on the card-level `dash-bind-error-store` surface, which outlives it.
  */
 function BindControl({ row }: { row: DashRow }): React.ReactElement {
   const target = useBindTarget(row);
+  const name = row.entry.display_name;
   return (
     // The tooltip wraps a SPAN, not the button: a disabled button takes no
     // pointer events, so its own tooltip would never fire — and an unreachable
     // reason is not a reason ([L31]).
-    <TugTooltip content={target.reason ?? `Bind ${row.name} to the focused session`}>
+    <TugTooltip content={target.reason ?? `Bind ${name} to the focused session`}>
       <span className="lens-dashes-bind">
         <TugPushButton
           size="2xs"
@@ -381,7 +331,7 @@ function BindControl({ row }: { row: DashRow }): React.ReactElement {
             getConnection()?.sendControlFrame("bind_dash", {
               tug_session_id: target.tugSessionId,
               project_dir: row.projectDir,
-              dash: row.name,
+              dash: name,
             });
           }}
         >
@@ -394,10 +344,10 @@ function BindControl({ row }: { row: DashRow }): React.ReactElement {
 
 /** Let this dash go. Arms the section's one confirm, anchored to the row. */
 function DiscardControl({ row }: { row: DashRow }): React.ReactElement | null {
-  const verbs = React.useContext(UnboundVerbsContext);
+  const verbs = React.useContext(DashVerbsContext);
   if (verbs === null) return null;
   return (
-    <TugTooltip content={`Discard ${row.name} — its branch and worktree`}>
+    <TugTooltip content={`Discard ${row.entry.display_name} — its branch and worktree`}>
       <span className="lens-dashes-discard">
         <TugPushButton
           size="2xs"
@@ -422,79 +372,76 @@ function DiscardControl({ row }: { row: DashRow }): React.ReactElement | null {
   );
 }
 
+// ---------------------------------------------------------------------------
+// The block
+// ---------------------------------------------------------------------------
+
+/**
+ * The eyebrow's "who": one bound worker as a mini atom — the session's
+ * display name behind its live dot, with no callsign and no dash run. The
+ * callsign removal is `sessionTitleParts`' own rule; the dash suppression is
+ * this surface's, because the eyebrow's leading atom already names the dash.
+ */
+function WorkerAtom({ sessionId }: { sessionId: string }): React.ReactElement {
+  const identity = useSessionIdentity(sessionId);
+  return (
+    <TugSessionIdentity
+      identity={identity}
+      tier="chip"
+      size="2xs"
+      dash={false}
+      tooltip={false}
+      className="lens-dashes-worker"
+      data-slot="lens-dashes-worker"
+    />
+  );
+}
+
 const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
   index,
   dataSource,
 }: TugListViewCellProps<DashRowsDataSource>) => {
   const row = dataSource.rows[index];
   if (row === undefined) return null;
-  // Read at render, with no ticker ([P08]): the value changes at most hourly at
-  // these units, and the aggregate's own recompute repaints the row.
-  const age = formatDashAge(row.lastActivity, Date.now());
+  const entry = row.entry;
+  const workers = entry.bound_sessions ?? [];
   return (
     <TugListRow
       className="lens-dashes-row"
       variant="flush"
       density="compact"
       data-slot="lens-dashes-row"
-      data-dash={row.name}
-      data-unbound="true"
-      data-age={age ?? undefined}
-      // The name leads the row, as it leads a row in the Changes shade's dash
-      // lane — and `TugDashName` is why the pill sits where a leading pill
-      // should rather than a step to the right of one.
-      //
-      // Every row in this section is unbound by definition, so every one takes
-      // the unbound register: a monospace name in the settled atom pill. There
-      // used to be a dashed-circle mark ahead of it saying the same thing,
-      // under a section header already titled "Unbound Dashes" — three
-      // statements of one fact on one line. The register says it now.
-      leading={
-        <TugDashName
-          name={row.name}
-          review={row.review}
-          slot="lens-unbound-name"
-          workerSlot="lens-unbound-worker"
-        />
-      }
-      trailing={
-        <span className="lens-dashes-verbs" data-slot="lens-unbound-verbs">
-          <BindControl row={row} />
-          <DiscardControl row={row} />
-        </span>
-      }
+      data-dash={entry.display_name}
+      data-bound={workers.length > 0 ? "true" : undefined}
     >
-      <span className="lens-dashes-facts">
-        {row.steps !== null ? (
-          <span className="lens-dashes-step">{row.steps}</span>
-        ) : null}
-        {row.stepTitle !== null ? (
-          <span className="lens-dashes-step-title">{row.stepTitle}</span>
-        ) : null}
-        {/* Everything the reader needs to place the dash, and nothing they
-            need to read first: stage, staleness, whose project, and the
-            review advisory when it has something to say. */}
-        <TugMetaRun
-          className="lens-dashes-meta"
-          slot="lens-unbound-meta"
-          parts={[
-            row.stage !== null ? (
-              <span className="lens-dashes-stage">{row.stage}</span>
-            ) : null,
-            age !== null ? (
-              <span className="lens-dashes-age" data-slot="lens-unbound-age">
-                {age}
-              </span>
-            ) : null,
-            <span className="lens-dashes-project">{row.projectLabel}</span>,
-            // A glyph rather than a word here, where the shade's lane spells
-            // "plan stale" — but it is a fact in the run like any other and
-            // takes its bullet like any other.
-            dashReviewPaints(row.review) ? (
-              <DashReviewMark review={row.review!} size={DASH_DOT_SIZE + 2} />
-            ) : null,
-          ]}
-        />
+      <span className="lens-dashes-block">
+        {/* The eyebrow holds the identities and nothing else: the dash atom,
+            the hairline, the "who". The pill wears no review tint — that
+            yellow means WAITING, and a dash is not waiting for anyone. */}
+        <span className="lens-dashes-eyebrow">
+          <DashSigil
+            name={entry.display_name}
+            review={null}
+            slot="lens-dashes-name"
+            atom
+            atomSize="2xs"
+          />
+          <span className="lens-dashes-eyebrow-rule" />
+          {workers.length > 0 ? (
+            workers.map((sessionId) => (
+              <WorkerAtom key={sessionId} sessionId={sessionId} />
+            ))
+          ) : (
+            <span className="lens-dashes-verbs" data-slot="lens-dashes-verbs">
+              <BindControl row={row} />
+              <DiscardControl row={row} />
+            </span>
+          )}
+        </span>
+        {/* Everything the dash is DOING, in the one shared metadata line. */}
+        <span className="lens-dashes-meta-line">
+          <DashMetaLine entry={entry} />
+        </span>
       </span>
     </TugListRow>
   );
@@ -513,21 +460,17 @@ function DashesCollapsedSummary(): React.ReactElement {
 
 /**
  * The section's one discard round trip, keyed by the section rather than by
- * row.
- *
- * Section-keyed on purpose, matching the Changes lane's card-keyed slot: one
- * discard at a time is the right number, and the state lives in a module store
- * that outlives this body — which matters here more than it does there, because
- * discarding the last unbound dash takes the whole section away.
+ * row: one discard at a time is the right number, and the state lives in a
+ * module store that outlives this body.
  */
-const UNBOUND_DISCARD_KEY = "lens-unbound-dashes";
+const DASHES_DISCARD_KEY = "lens-unbound-dashes";
 
 function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElement {
   const rows = useDashRows();
   const dataSource = useMemo(() => new DashRowsDataSource(rows), [rows]);
   const populated = rows.length > 0;
 
-  const discardVerb = useChangesetDiscard(UNBOUND_DISCARD_KEY);
+  const discardVerb = useChangesetDiscard(DASHES_DISCARD_KEY);
   // Which row's discard is armed, and the element the confirm hangs off. View
   // scope ([L24]): a half-armed confirm is not worth remembering, and closing
   // the Lens forgets it.
@@ -535,7 +478,7 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
     row: DashRow;
     anchor: HTMLElement | null;
   } | null>(null);
-  const verbs = useMemo<UnboundVerbs>(
+  const verbs = useMemo<DashVerbs>(
     () => ({
       requestDiscard: (row, anchor) => setPendingDiscard({ row, anchor }),
     }),
@@ -554,18 +497,22 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
       setSectionContent(host.focusGroup, { navigable: false, populated: false });
   }, [host.focusGroup, populated]);
 
-  // Activation moves the cursor and nothing else. The walk this replaced went
-  // looking for a card working the dash — which for an unbound dash is by
-  // definition none, so it was a guaranteed silent no-op on every row this
-  // section now holds ([L31]). Its verbs are named controls on the row instead.
+  // Activation moves the cursor and nothing else; the row's verbs are named
+  // controls on the eyebrow ([L31]).
   const delegate = useMemo<TugListViewDelegate>(() => ({}), []);
 
-  // Unreachable while the section's `presence` hook hides it when empty; a body
-  // that renders nothing is still the honest answer if that ever changes.
-  if (!populated) return <></>;
+  // The empty state keeps the band and says how a dash begins. One quiet line
+  // is what buys the section its fixed address.
+  if (!populated) {
+    return (
+      <div className="lens-dashes-empty" data-slot="lens-dashes-empty">
+        No dashes. <code>tugutil dash create</code> starts one.
+      </div>
+    );
+  }
 
   return (
-    <UnboundVerbsContext value={verbs}>
+    <DashVerbsContext value={verbs}>
       <div className="lens-dashes-section" data-slot="lens-dashes-section">
         <TugListView<DashRowsDataSource>
           dataSource={dataSource}
@@ -586,7 +533,7 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
           anchorEl={pendingDiscard?.anchor ?? null}
           message={
             pendingDiscard !== null
-              ? `Discard ${pendingDiscard.row.name}? Its branch and worktree go with it, and any uncommitted work in the worktree is handed back to the base checkout.`
+              ? `Discard ${pendingDiscard.row.entry.display_name}? Its branch and worktree go with it, and any uncommitted work in the worktree is handed back to the base checkout.`
               : ""
           }
           confirmLabel="Discard"
@@ -596,17 +543,20 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
             const armed = pendingDiscard;
             setPendingDiscard(null);
             if (armed !== null) {
-              discardVerb.discard(armed.row.projectDir, armed.row.name);
+              discardVerb.discard(
+                armed.row.projectDir,
+                armed.row.entry.display_name,
+              );
             }
           }}
           onCancel={() => setPendingDiscard(null)}
         />
       </div>
-    </UnboundVerbsContext>
+    </DashVerbsContext>
   );
 }
 
-/** Register the Unbound Dashes section. Called once at boot from `main.tsx`. */
+/** Register the Dashes section. Called once at boot from `main.tsx`. */
 export function registerDashesSection(): void {
   registerLensSection({
     // The `kind` stays `"dashes"` and always will: it is persisted in
@@ -617,11 +567,10 @@ export function registerDashesSection(): void {
     kind: SECTION_KIND,
     // A dash IS a branch plus a worktree, and this is the glyph that says so.
     glyph: <GitBranch size={14} />,
-    title: "Unbound Dashes",
+    title: "Dashes",
     collapsedSummary: () => <DashesCollapsedSummary />,
     body: (host) => <DashesSectionBody host={host} />,
-    // No unbound dashes is the everyday state, and an inbox at zero costs zero
-    // rail height ([P03]). Evaluated by the always-mounted probe, never here.
-    presence: () => useDashRows().length > 0,
+    // No `presence`: the section is always on. A band that comes and goes has
+    // no fixed address, and no other Lens section works that way.
   });
 }

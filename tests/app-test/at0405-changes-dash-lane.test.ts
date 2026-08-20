@@ -4,11 +4,13 @@
  *
  * A dash is a different species from a claimed file, so it gets a different
  * row. This pins that grammar end to end: a real `tugutil dash create` in the
- * project under test composes into `snapshot.dashes`, the lane renders it as
- * name · base · rounds · dirty, the expanded face carries the worktree's dirty
- * files and the maintained join draft as read-only ink, and nowhere in the
- * lane is there a claim, disclaim, or hunk-election affordance — the whole
- * point of not reusing `TugChangesList`'s rows.
+ * project under test composes into `snapshot.dashes`, the lane renders the
+ * name's atom over the shared `DashMetaLine` (ring · stage icon · count ·
+ * note · age · divergence — the same element the Lens's Dashes section
+ * renders, [D141]), the expanded face carries the worktree's dirty files and
+ * the maintained join draft as read-only ink, and nowhere in the lane is
+ * there a claim, disclaim, or hunk-election affordance — the whole point of
+ * not reusing `TugChangesList`'s rows.
  *
  * Every dash in the project is a visible row, with no fold to open first. The
  * fold's absence is asserted directly, not merely relied upon.
@@ -49,7 +51,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugdeck/src/components/tugways/tug-dash-name.tsx
- * @covers tugdeck/src/components/tugways/tug-meta-run.tsx
+ * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
  * @covers tugdeck/src/components/tugways/tug-section-label.tsx
  */
 
@@ -67,7 +69,6 @@ import {
 import {
   commitRound,
   createDash,
-  currentBranch,
   makeDashScratchRepo,
   rmDashScratchRepo,
   rmScratchSession,
@@ -380,16 +381,24 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // ── The row reads in dash grammar ─────────────────────────────────
         const row = await app.evalJS<{
           badge: string;
-          facts: string;
+          stage: string | null;
+          stageWord: string | null;
+          note: string;
+          noteEmpty: string | null;
           popOuts: number;
           claimish: number;
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              const lane = document.querySelector(${JSON.stringify(LANE)});
+             const mark = row.querySelector('[data-slot="tug-dash-stage-mark"]');
+             const noteEl = row.querySelector(".tug-dash-meta-note");
              return {
                badge: (row.querySelector('[data-slot="session-changes-dash-name"]')?.textContent ?? "").trim(),
-               facts: (row.querySelector(".session-changes-dash-facts")?.textContent ?? "").trim(),
+               stage: mark?.getAttribute("data-stage") ?? null,
+               stageWord: mark?.getAttribute("aria-label") ?? null,
+               note: (noteEl?.textContent ?? "").trim(),
+               noteEmpty: noteEl?.getAttribute("data-empty") ?? null,
                popOuts: row.querySelectorAll('[data-testid="tug-changes-list-diff-popout"]').length,
                claimish: lane.querySelectorAll(
                  '[data-testid^="tug-changes-list-claim"], [data-testid^="tug-changes-list-disclaim"], .tug-changes-list-claim, .tug-changes-list-disclaim',
@@ -403,13 +412,13 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // blockifies them and would put a line break between the sigil and
         // the name it belongs to.
         expect(row.badge).toBe(`^${DASH_NAME}`);
-        // The base is the branch this checkout has out — what the fixture
-        // forked from — not the repo's default. Run from a dash worktree, the
-        // two differ.
-        expect(row.facts).toContain(currentBranch(projectDir()));
-        expect(row.facts).toContain("1 round");
-        // The derived stage, rendered as the word the server sent.
-        expect(row.facts).toContain("working");
+        // The derived stage, as the glyph whose word rides the hover ([D141]).
+        // One committed round and no plan is `working`.
+        expect(row.stage).toBe("working");
+        expect(row.stageWord).toBe("working");
+        // No plan adopted, said aloud rather than as silence.
+        expect(row.note).toBe("no plan adopted");
+        expect(row.noteEmpty).toBe("true");
         expect(row.popOuts).toBe(1);
         // The lane is read-only by construction: no claim grammar reaches it.
         expect(row.claimish).toBe(0);

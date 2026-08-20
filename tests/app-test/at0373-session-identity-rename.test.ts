@@ -198,13 +198,14 @@ describe.skipIf(!SHOULD_RUN)("at0373 — session identity is one resolver, subsc
           { timeoutMs: 8_000 },
         );
 
-        // ---- C. A `/rename` LEADS the title, and the callsign follows. -----
+        // ---- C. A `/rename` REPLACES the title's callsign run. -------------
         //
-        // The user's own name outranks a callsign Tug minted for itself, so it
-        // takes the front of the title on every graphical surface — and the
-        // callsign stays beside it, because that is the permanent citable handle
-        // a rename never changes. Both runs, on the same live mounted row, with
-        // no reload.
+        // The user's own name outranks a callsign Tug minted for itself, and
+        // under [D141] the name REMOVES the callsign from the title rather
+        // than leading it — the callsign stays the citable handle in the
+        // tooltip, the citation, and every copy path, and it returns to the
+        // title only when two sessions collide on one custom name. One run,
+        // on the same live mounted row, with no reload.
         expect(
           await app.evalJS<boolean>(
             `window.__tug.publishSessionUpdated(${JSON.stringify(
@@ -225,25 +226,21 @@ describe.skipIf(!SHOULD_RUN)("at0373 — session identity is one resolver, subsc
           })()`,
           { timeoutMs: 8_000 },
         );
-        const runs = await app.evalJS<{ name: string; callsign: string }>(
+        const runs = await app.evalJS<{ name: string; callsigns: number }>(
           `(function(){
             var row = document.querySelector(${JSON.stringify(LENS_ROW)});
             var name = row.querySelector(".tug-session-identity-name");
-            var callsign = row.querySelector(".tug-session-identity-callsign");
             return {
               name: name === null ? "" : name.innerText,
-              // textContent, not innerText: the callsign is two spans so it
-              // can middle-truncate (at0439), and flex blockifies its items,
-              // which makes innerText break a line between them. What this
-              // assertion is about is the characters, not the boxes.
-              callsign: callsign === null ? "" : callsign.textContent,
+              callsigns: row.querySelectorAll(".tug-session-identity-callsign").length,
             };
           })()`,
         );
-        // Two runs, sized separately — which is what lets the callsign be the
-        // one that elides under a squeeze (at0439 measures that).
+        // The name alone: no callsign run, no residue — removal, not
+        // truncation ([D141]). No other session shares this name, so the
+        // collision exception does not fire.
         expect(runs.name).toContain(RENAME);
-        expect(runs.callsign).toContain(`tugtool/${REROLLED_TAG}`);
+        expect(runs.callsigns).toBe(0);
         // The Line string the pane-title channel carries is a different, and
         // deliberately CONSTANT, thing: `sessionIdentityLine` has no name arm, so
         // the tab strip and the Window menu read the same string before and after

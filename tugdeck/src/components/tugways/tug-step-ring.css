@@ -1,0 +1,93 @@
+/**
+ * tug-step-ring.css — the step ring's tones and the breathing segment.
+ *
+ * The ring's tone is one custom property resolved per role. The action role's
+ * fill is the pulsing dot's own fixed cobalt — quoted from
+ * `tug-progress-pulsing-dot.css` so "working" is one color on both marks, and
+ * deliberately not the theme accent: "in progress" must never collide with a
+ * theme whose Key is green.
+ */
+
+.tug-step-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  /* The default tone; each role below overrides it. */
+  --tugx-step-ring-tone: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+.tug-step-ring[data-role="action"] {
+  --tugx-step-ring-tone: --tug-color(cobalt, l: 635, c: 320);
+}
+
+.tug-step-ring[data-role="caution"] {
+  --tugx-step-ring-tone: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+.tug-step-ring[data-role="danger"] {
+  --tugx-step-ring-tone: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.tug-step-ring[data-role="success"] {
+  --tugx-step-ring-tone: var(--tug7-element-tone-icon-normal-success-rest);
+}
+
+.tug-step-ring-svg {
+  position: absolute;
+  inset: 0;
+}
+
+/* The unfilled steps, toned well back: the count is read off the CONTRAST
+   between filled and unfilled, so the todo segments are a whisper — present
+   enough to make the wheel a wheel, never competing with the fill. */
+.tug-step-ring-seg {
+  stroke: var(--tug7-element-global-border-normal-muted-rest);
+  opacity: 0.35;
+}
+
+.tug-step-ring-seg[data-state="done"] {
+  stroke: var(--tugx-step-ring-tone);
+  opacity: 1;
+}
+
+.tug-step-ring-seg[data-state="current"] {
+  stroke: var(--tugx-step-ring-tone);
+  opacity: 1;
+  animation: tug-step-ring-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes tug-step-ring-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.tug-step-ring-dot {
+  display: inline-flex;
+}
+
+/* ── The fraction ───────────────────────────────────────────────────────── */
+
+.tug-step-fraction {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  flex: 0 0 auto;
+}
+
+.tug-step-fraction-i {
+  color: var(--tug7-element-global-text-normal-rest);
+}
+
+.tug-step-fraction-slash,
+.tug-step-fraction-n {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}

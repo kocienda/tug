@@ -9,7 +9,7 @@
  * Taking `nowMs` as a parameter is also what makes the unit test a table with
  * no clock to mock.
  *
- * @module components/lens/sections/dash-age
+ * @module lib/dash-age
  */
 
 const MINUTE_MS = 60_000;

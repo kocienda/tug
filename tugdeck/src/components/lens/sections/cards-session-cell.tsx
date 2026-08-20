@@ -2,17 +2,16 @@
  * cards-session-cell.tsx — the session *monitor* row, as it appears for a
  * single-card session pane in the Lens's Cards section:
  *
- *   [dot] <session name> #<dash>                 <slot layout>
+ *   [dot] <session name>^<dash> ⚒ 7/12           <slot layout>
  *   <description>
  *   <latest pulse line>                        <activity sparkline>
- *     <stage>  step i/N  <step title>  [review mark]
  *
- * The last line is there only while the session is bound to a dash. It is a
- * line of the row rather than a row of its own, so it takes the row's own band
- * and travels with the session by construction. The dash's NAME is not on it —
- * the identity run in the title carries `#<dash>`, everywhere and always — so
- * this line spends its width on what the dash is DOING: the stage, the step
- * counters, and the current step's title.
+ * Three lines, always. A session on a counted dash swaps its dot for the step
+ * ring and carries the stage glyph and the count on the title line — all of
+ * it `SessionIdentityRow`'s own doing, so the row here has nothing dash-shaped
+ * to assemble. The fourth line this row used to grow when bound is retired:
+ * the title carries the progress in the width the hidden callsign freed, and
+ * the step's title lives in the Dashes section.
  *
  * The middle line is the agent's rolling description of the session, with the
  * session's creation date standing in until one is written — so the row is the
@@ -40,47 +39,9 @@
 
 import React from "react";
 
-import { DashFactsRun } from "@/components/lens/sections/dash-facts";
 import { SlotPicker } from "@/components/lens/slot-picker";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TUG_SESSION_ROW_INDICATOR_SIZE } from "@/components/tugways/tug-session-row";
-import { useDashForSession } from "@/lib/dash-session-index";
-
-/** The review mark's box, in px — sized to the line it rides. */
-const DASH_LINE_MARK = 14;
-
-/**
- * The dash a session is working, as the last line of the session's own row —
- * or null, which is what keeps an unbound row at exactly three lines.
- *
- * Null must be produced HERE rather than by a leaf component inside the slot:
- * a component that renders null is still a non-null element to whatever wraps
- * it, so a slot filled unconditionally would draw an empty line box on every
- * row in the rail. The subscription costs nothing extra by living here — this
- * component is already per-session, so it wakes exactly the row a leaf would.
- *
- * It carries what the title's own dash run cannot: the stage, the step
- * counters, the current step's title, and the review mark. The dash's name is
- * deliberately absent — the identity run above already says `^<dash>`, and the
- * same name twice within one row's height would crowd out the one fact only
- * this line can carry: what the run is doing right now.
- */
-function useSessionDashLine(sessionId: string): React.ReactNode {
-  const dash = useDashForSession(sessionId);
-  if (dash === null) return null;
-  return (
-    <DashFactsRun
-      name={null}
-      stage={dash.stage}
-      stepCurrent={dash.stepCurrent}
-      stepTotal={dash.stepTotal}
-      stepTitle={dash.stepTitle}
-      hasPlan={dash.hasPlan}
-      review={dash.review}
-      markSize={DASH_LINE_MARK}
-    />
-  );
-}
 
 export interface CardsSessionRowProps {
   cardId: string;
@@ -110,7 +71,6 @@ export function CardsSessionRow({
   onRowPointerDown,
   selected,
 }: CardsSessionRowProps): React.ReactElement {
-  const dashLine = useSessionDashLine(tugSessionId);
   return (
     <SessionIdentityRow
       selected={selected}
@@ -135,7 +95,6 @@ export function CardsSessionRow({
       // somewhere else, and it is the surface with the least room to show the
       // description it holds.
       identityMenu
-      dashLine={dashLine}
       highlight={filterQuery}
       slots={<SlotPicker cardId={cardId} />}
       // The row is its own reorder handle — a vertical drag from anywhere on

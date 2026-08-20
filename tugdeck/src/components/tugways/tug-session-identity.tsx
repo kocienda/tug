@@ -217,8 +217,13 @@ export interface TugSessionIdentityProps
    * `null` is not "no dash": it is "ask the store", which is the default. A
    * caller that means *this session is on no dash* passes nothing, because a
    * session with no dash is what the store already reports.
+   *
+   * `false` suppresses the run entirely — for the one surface whose row
+   * already names the dash as its own subject (the Dashes section's eyebrow),
+   * where the worker's atom saying it again would state the pairing twice on
+   * one line.
    */
-  dash?: { name: string; review: string | null };
+  dash?: { name: string; review: string | null } | false;
 }
 
 /**
@@ -485,9 +490,10 @@ export const TugSessionIdentity = React.forwardRef<
           ) : null}
         </span>
         {/* The bound dash is part of the identity wherever the identity is
-            met — a session on a dash is never named without it, so there is
-            deliberately no prop to turn this run off. */}
-        {isMissing ? null : dash !== undefined ? (
+            met — a session on a dash is never named without it. The one
+            opt-out is `dash={false}`, for a surface whose row already names
+            the dash as its own subject. */}
+        {isMissing || dash === false ? null : dash !== undefined ? (
           <DashSigil
             name={dash.name}
             review={dash.review}

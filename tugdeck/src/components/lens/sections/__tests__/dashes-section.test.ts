@@ -1,15 +1,11 @@
 /**
- * The Lens Unbound Dashes section's projection and its collapsed summary, over
- * the shared golden snapshot.
+ * The Lens Dashes section's projection and its collapsed summary, over the
+ * shared golden snapshot.
  *
- * The fact worth pinning hardest is the **partition law**: membership is
- * exactly "no live session is working this", so a worked dash is never here
- * (the Cards section shows it, on the row of the session doing the work) and a
- * unbound one is never anywhere else. The golden snapshot's own dash is worked,
- * which makes the first assertion below a real one rather than a tautology.
- *
- * The second is that an older sender omitting `bound_sessions` entirely reads
- * as unbound. Absence of evidence is not evidence that somebody is working.
+ * The fact worth pinning hardest is the **membership law**: every dash in
+ * every state is a row. The section used to hold only unbound dashes and to
+ * vanish at zero; now it is always on, and bound-vs-unbound is the eyebrow's
+ * register (worker atom vs verbs), never a membership test.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -40,35 +36,19 @@ const GOLDEN_DASH = DATA.projects
   .flatMap((project) => project.changesets)
   .find((entry): entry is DashChangesetEntry => entry.kind === "dash")!;
 
-/** The golden dash with nobody on it — the only kind this section holds. */
+/** The golden dash with nobody on it. */
 const UNBOUND: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: [] };
 
-describe("dashRowsFromSnapshot — the partition law", () => {
-  test("a worked dash is not here at all", () => {
-    // The golden dash carries a bound session, so this is the law's live half:
-    // the section is empty precisely because the Cards section has that row.
+describe("dashRowsFromSnapshot — the membership law", () => {
+  test("a worked dash is a row — bound-ness is a register, not membership", () => {
+    // The golden dash carries a bound session, and it is here anyway: the
+    // section holds every dash in every state.
     expect(GOLDEN_DASH.bound_sessions?.length).toBeGreaterThan(0);
-    expect(dashRowsFromSnapshot(DATA)).toEqual([]);
+    const rows = dashRowsFromSnapshot(DATA);
+    expect(rows.map((r) => r.ownerId)).toContain(GOLDEN_DASH.owner_id);
   });
 
-  test("a dash with no bound sessions is", () => {
-    const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
-    expect(rows.length).toBe(1);
-    const row = rows[0]!;
-    expect(row.ownerId).toBe(GOLDEN_DASH.owner_id);
-    expect(row.name).toBe("fix-join");
-    expect(row.stage).toBe("draft-ready");
-    // Step counters are not minted in this era; the ink stays dark.
-    expect(row.steps).toBeNull();
-  });
-
-  test("an absent bound_sessions field reads unbound, never live", () => {
-    const older: DashChangesetEntry = { ...GOLDEN_DASH, bound_sessions: undefined };
-    const rows = dashRowsFromSnapshot({ projects: [projectWith([older])] });
-    expect(rows.length).toBe(1);
-  });
-
-  test("the two halves partition: every dash lands on exactly one side", () => {
+  test("bound and unbound sit in one list, in one order", () => {
     const worked: DashChangesetEntry = { ...GOLDEN_DASH, display_name: "worked" };
     const napping: DashChangesetEntry = {
       ...UNBOUND,
@@ -78,7 +58,19 @@ describe("dashRowsFromSnapshot — the partition law", () => {
     const rows = dashRowsFromSnapshot({
       projects: [projectWith([worked, napping])],
     });
-    expect(rows.map((r) => r.name)).toEqual(["napping"]);
+    expect(rows.map((r) => r.entry.display_name).sort()).toEqual([
+      "napping",
+      "worked",
+    ]);
+  });
+
+  test("the row carries the whole wire entry, for the eyebrow and the meta line", () => {
+    const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
+    expect(rows.length).toBe(1);
+    const row = rows[0]!;
+    expect(row.ownerId).toBe(GOLDEN_DASH.owner_id);
+    expect(row.entry.display_name).toBe("fix-join");
+    expect(row.entry.stage).toBe("draft-ready");
   });
 
   test("session entries never become rows", () => {
@@ -93,20 +85,8 @@ describe("dashRowsFromSnapshot — the partition law", () => {
     ).toBe(1);
   });
 
-  test("step counters render only when both halves arrive", () => {
-    const half: DashChangesetEntry = { ...UNBOUND, step_current: 2 };
-    expect(
-      dashRowsFromSnapshot({ projects: [projectWith([half])] })[0]!.steps,
-    ).toBeNull();
-    const both: DashChangesetEntry = { ...UNBOUND, step_current: 2, step_total: 5 };
-    expect(
-      dashRowsFromSnapshot({ projects: [projectWith([both])] })[0]!.steps,
-    ).toBe("step 2/5");
-  });
-
   test("the row carries its project's dir and label, always", () => {
-    // Not a disambiguator: an unbound dash may be the only thing on screen from
-    // its project, so the label is orientation. The dir is what a bind names.
+    // The dir is what a bind names; the label is Bind's refusal sentence.
     const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
     expect(rows[0]!.projectLabel).toBe(DATA.projects[0]!.display_name);
     expect(rows[0]!.projectDir).toBe(DATA.projects[0]!.project_dir);
@@ -131,7 +111,10 @@ describe("dashRowsFromSnapshot — the partition law", () => {
         second,
       ],
     });
-    expect(rows.map((r) => r.name)).toEqual(["landing-one", "napping"]);
+    expect(rows.map((r) => r.entry.display_name)).toEqual([
+      "landing-one",
+      "napping",
+    ]);
     expect(rows.map((r) => r.projectLabel)).toEqual([
       "other-project",
       DATA.projects[0]!.display_name,
@@ -148,19 +131,20 @@ describe("compareDashRows", () => {
   ): DashRow {
     return {
       ownerId: `tugdash/${name}#1`,
-      name,
-      stage,
-      steps: null,
-      stepTitle: null,
-      lastActivity,
-      review: null,
+      entry: {
+        ...UNBOUND,
+        owner_id: `tugdash/${name}#1`,
+        display_name: name,
+        stage: stage ?? undefined,
+        last_activity: lastActivity ?? undefined,
+      },
       projectDir: "/tmp/p",
       projectLabel: "p",
     };
   }
 
   const order = (rows: DashRow[]): string[] =>
-    [...rows].sort(compareDashRows).map((r) => r.name);
+    [...rows].sort(compareDashRows).map((r) => r.entry.display_name);
 
   test("nearest-to-done first", () => {
     expect(
@@ -301,30 +285,29 @@ describe("resolveBindTarget", () => {
 });
 
 describe("dashesCollapsedSummary", () => {
-  test("counts what is unbound", () => {
+  test("counts every dash, whatever its state", () => {
     const rows = dashRowsFromSnapshot({
       projects: [
         projectWith([
-          UNBOUND,
+          GOLDEN_DASH,
           { ...UNBOUND, owner_id: "tugdash/idle#2", display_name: "idle" },
         ]),
       ],
     });
-    expect(dashesCollapsedSummary(rows)).toBe("2 unbound");
+    expect(dashesCollapsedSummary(rows)).toBe("2 dashes");
   });
 
-  test("one is still 'unbound' — the word is the state, not a plural", () => {
+  test("one dash is singular", () => {
     expect(
       dashesCollapsedSummary(
         dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] }),
       ),
-    ).toBe("1 unbound");
+    ).toBe("1 dash");
   });
 
-  // Unreachable in the app, where the section hides itself rather than showing
-  // a band that says nothing. Kept so the change of premise is a sentence
-  // rather than a crash.
+  // Reachable now: the section is always on, and the band's collapsed line
+  // must say the honest zero.
   test("an empty list still reads as a sentence", () => {
-    expect(dashesCollapsedSummary([])).toBe("No unbound dashes");
+    expect(dashesCollapsedSummary([])).toBe("No dashes");
   });
 });

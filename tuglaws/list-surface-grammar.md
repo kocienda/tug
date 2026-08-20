@@ -1,6 +1,6 @@
 # List-surface grammar — headers, fact runs, and how a dash is named
 
-The Changes shade, the Lens's Unbound Dashes section, and the `/dash-bind` picker are three surfaces that answer overlapping questions about the same objects. Each one arrived separately, so each one spelled the same three things its own way: a header over a bucket of rows, a run of small facts after a row's name, and a dash's name. This doc is what they agreed on, and it is a rule about **which component**, not about which numbers.
+The Changes shade, the Lens's Dashes section, and the `/dash-bind` picker are three surfaces that answer overlapping questions about the same objects. Each one arrived separately, so each one spelled the same three things its own way: a header over a bucket of rows, a run of small facts after a row's name, and a dash's name. This doc is what they agreed on, and it is a rule about **which component**, not about which numbers.
 
 Origin: the design spike in `gallery-changes-dashes`, which is the rendering reference. This is the written one.
 
@@ -13,6 +13,7 @@ Origin: the design spike in `gallery-changes-dashes`, which is the rendering ref
 | The eyebrow over a bucket of rows | `TugSectionLabel` | `--tugx-section-label-*` |
 | The small facts after a row's name | `TugMetaRun` / `TugMetaBullet` | `--tugx-meta-run-*` |
 | A dash's name, in either register | `TugDashName` | `--tugx-dash-name-*` |
+| What a collapsed dash is doing | `DashMetaLine` (ring · stage icon · count · note · age · divergence) | its own type and tones |
 
 This is not a style guideline that a careful author upholds. Before the extraction, `tug-changes-list.css` and `session-changes-dash-lane.css` each spelled the eyebrow's five declarations in full, with a comment conceding the duplication was cheaper than a cross-import. That reasoning holds at two users and stops holding at the third. The components exist so that a fourth surface cannot get it wrong by being written carefully.
 
@@ -35,7 +36,7 @@ A row names one thing and then says a few short things about it: a file's `edit 
 Two ways to hand parts over, and the difference is real rather than stylistic:
 
 - **`parts`** — a fixed list where some entries may be absent. Nulls drop out and bullets go between whatever survives, so a run missing its middle fact never shows two bullets in a row. Entries must be elements; a bare string lands as an anonymous flex item that no selector can reach, and the atomicity rule would silently skip it.
-- **`children`** — for facts that are not a list. The dash lane interleaves conditional fragments, some carrying their own bullets and one (the step title) deliberately carrying none.
+- **`children`** — for facts that are not a list: conditional fragments interleaved by the surface, some carrying their own bullets and some deliberately carrying none. (The dash lane was the original example; its collapsed row now renders `DashMetaLine` instead — see [D141] — so the fact run there is retired, not restyled.)
 
 **A run never paints outside its own box.** Atomicity has a cost: parts that will not shrink make a run that cannot shrink, and on a row whose leading and trailing slots are fixed, the excess lands *on top of* the trailing controls — fact text through a Bind button, which is what shipped until it was caught by eye. `fit` is the answer, and a row-borne run has to ask for it: `"clip"` bounds the run to its box and fades the last visible fact out at the trailing edge. `"natural"` stays the default, because a run sized by its own content — the Lens's right-aligned tail, a file row's metadata beside a path that truncates instead — is already correct, and clipping it would cut a fact that had the room.
 
@@ -61,7 +62,7 @@ A pill holds its text a border plus its own inline padding in from its edge. A p
 
 This applies to a pill in a row's leading slot, which is where `TugDashName` puts it. A dash atom rendered mid-line inside a content run is not leading anything and takes no outdent — reach for `DashSigil atom` directly there.
 
-The outdent is also why a row does not need a second mark saying the dash is unbound. The Lens's Unbound Dashes section carried a dashed-circle glyph ahead of every name, under a header already reading **Unbound Dashes**, over rows that are unbound by construction: three statements of one fact on one line. Removing it left the name leading the row, which is the shape `TugDashName` is built for.
+The outdent is also why a row does not need a second mark saying the dash is unbound. The register already says it: proportional in a pill means somebody is on this, the mono caret run means nobody is, and in the Lens's Dashes section the eyebrow's right side says it a second way (a worker's atom, or the Bind and Discard verbs). A dashed-circle glyph ahead of the name once said it a third time and was removed for exactly that redundancy.
 
 ## Vocabulary
 

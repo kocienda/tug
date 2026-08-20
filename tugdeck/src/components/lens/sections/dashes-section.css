@@ -1,5 +1,10 @@
 /* The Lens Dashes section — appearance only ([L06]), tokens scoped to this
-   section's own slots ([L20]). */
+   section's own slots ([L20]).
+
+   Each dash is a two-line block: the eyebrow (identities) over the metadata
+   line (the work). The eyebrow's hairline is what separates dash from dash,
+   so it takes the default border tone rather than a muted divider. The
+   metadata line's own type and tones are `dash-meta-line.css`'s. */
 
 .lens-dashes-section {
   display: flex;
@@ -11,62 +16,56 @@
   min-width: 0;
 }
 
-/* The row's one line: the sigil'd name reads first, then how far the run got,
-   then a trailing metadata run the eye can skip. The name, step, and review
-   type scales come from `dash-facts.css`, which the Cards section's dash line
-   shares; the layout below is this section's own. */
-
-/* The metadata run is a `TugMetaRun` — the same grammar the Changes shade
-   spells for a file's `edit · exact` and a dash's `main · 4 rounds`: one rule
-   dividing the row's own content from the facts about it, bullets between the
-   facts, small proportional type. What is left here is where the run sits.
-
-   It goes to the far end and never gives way — it is short, fixed, and the
-   reason the row is worth a glance at all. What elides is the step title to
-   its left. */
-.lens-dashes-meta {
-  flex: 0 0 auto;
-  margin-inline-start: auto;
+.lens-dashes-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-block: var(--tug-space-2xs);
 }
 
-/* How long since anything touched this dash. Quiet: it qualifies the row
-   rather than announcing it, and at day/hour granularity a loud one would be
-   claiming a precision it does not have. */
-.lens-dashes-age {
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-  font-size: var(--tug-font-size-2xs);
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* The project label is orientation, not disambiguation: an unbound dash may be
-   the only thing on screen from its project, so it rides every row — and as
-   the least urgent run on the line, it is the one that gives way first. */
-.lens-dashes-project {
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--tug-font-size-2xs);
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* There is no unbound mark. The section is titled "Unbound Dashes" and every
-   row in it is unbound by construction, so the glyph that used to lead each
-   row was the third statement of one fact on one line. The name's register —
-   monospace in the atom pill — is the one that stays, because it is the one a
-   reader can also use in the Changes shade. */
-
-/* The row's verbs. This section is not read-only, and it is the one place they
-   can live: an unbound dash has no session card whose Changes shade could offer
-   them. Both are always visible rather than hover-revealed — a control that
-   appears under the pointer is one a keyboard reader never finds, and every row
-   here is a to-do. */
-.lens-dashes-verbs {
-  flex: 0 0 auto;
+/* The eyebrow: the dash atom at the left, hairline through the rest, the
+   "who" at the right — the Changes shade's header grammar, quiet and
+   hueless. */
+.lens-dashes-eyebrow {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-xs);
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+/* Visible on purpose: the hairline is what separates dash from dash, so it
+   takes the default border tone rather than a muted divider, and it never
+   collapses below a readable run. */
+.lens-dashes-eyebrow-rule {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 1px;
+  background: var(--tug7-element-global-border-normal-default-rest);
+}
+
+/* The worker's mini atom: the chip skin does the rest; this only caps it so
+   a long session name cannot push the hairline out of the row. */
+.lens-dashes-worker {
+  max-width: 180px;
+}
+
+/* The metadata line, indented one step under the atom. */
+.lens-dashes-meta-line {
+  display: flex;
+  min-width: 0;
+  padding-inline-start: var(--tug-space-sm);
+}
+
+/* The row's verbs, on the eyebrow's right. Always visible rather than
+   hover-revealed — a control that appears under the pointer is one a keyboard
+   reader never finds, and every unbound row here is a to-do. */
+.lens-dashes-verbs {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
 }
 
 /* The tooltip anchors, which have to be real boxes: a disabled button takes no
@@ -76,6 +75,16 @@
   display: inline-flex;
 }
 
-/* The sigil'd name run is `tug-session-identity-dash*`, styled beside the
-   session identity that also wears it — the same name in the same shape
-   wherever a dash is named. */
+/* The empty state: the band stays, and this one quiet line is what the
+   section's fixed address costs. */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.lens-dashes-empty {
+  padding: var(--tug-space-2xs) var(--tug-space-sm) var(--tug-space-sm);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.lens-dashes-empty code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.95em;
+}
