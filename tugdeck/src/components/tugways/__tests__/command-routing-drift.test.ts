@@ -249,6 +249,8 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "run-card-command": { bridgeFor: TUG_ACTIONS.RUN_SLASH_COMMAND },
   "set-pane-width": { bridgeFor: TUG_ACTIONS.SET_PANE_WIDTH },
   "toggle-bullseye": "command",
+  "toggle-column-split": "command",
+  "move-in-column": { bridgeFor: TUG_ACTIONS.MOVE_IN_COLUMN },
 };
 
 describe("SWIFT_WIRES is derived, not remembered", () => {

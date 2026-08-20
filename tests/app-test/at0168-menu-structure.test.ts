@@ -44,6 +44,12 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 // NSEvent.ModifierFlags raw bits.
+// AppKit's private-use characters for the arrow key equivalents —
+// `NSUpArrowFunctionKey` / `NSDownArrowFunctionKey`, which is what
+// `codeToKeyEquivalent` writes for "ArrowUp" / "ArrowDown".
+const ARROW_UP = "\u{F700}";
+const ARROW_DOWN = "\u{F701}";
+
 const MOD = {
   shift: 1 << 17,
   control: 1 << 18,
@@ -137,6 +143,18 @@ const STATIC_ITEMS: ReadonlyArray<{ id: string; key?: string; mods?: number }> =
   // here — the depth ≤ 1 and depth > 1 halves both live in at0169. `key: ""`
   // says unattached, not "no opinion".
   { id: "window.revealStack", key: "" },
+  // The column family, all five swept from the registry: ⌃⌘S and the ⌃⌘
+  // arrows, with ⌃⇧⌘ for the two extremes. They are built with EMPTY key
+  // equivalents, so a chord asserted here is one `applyCommandChords` wrote —
+  // and it is written even on this single-pane deck, where every one of them
+  // validates disabled, because the family holds its chords while dark
+  // (`disabledChord: "keep"`). A `key: ""` here would mean the sweep never
+  // reached them.
+  { id: "window.columnSplit", key: "s", mods: MOD.command | MOD.control },
+  { id: "window.columnMoveUp", key: ARROW_UP, mods: MOD.command | MOD.control },
+  { id: "window.columnMoveDown", key: ARROW_DOWN, mods: MOD.command | MOD.control },
+  { id: "window.columnMoveTop", key: ARROW_UP, mods: MOD.command | MOD.control | MOD.shift },
+  { id: "window.columnMoveBottom", key: ARROW_DOWN, mods: MOD.command | MOD.control | MOD.shift },
   { id: "window.enterFullScreen", key: "f", mods: MOD.command | MOD.control },
   { id: "window.bringAllToFront" },
   // Maker (items exist in the hidden menu). The gallery / hello-world
@@ -290,6 +308,117 @@ describe.skipIf(!SHOULD_RUN)("AT0168: menu structure contract", () => {
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0168-structure] log tail:\n${tail}\n`);
+        throw err;
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  /**
+   * The close gate on promoting the column family (Spec S02).
+   *
+   * A promotion is not free: AppKit resolves a menu item's key equivalent
+   * before the web view sees the keydown, so ⌃⌘↓ now leaves the JS funnel and
+   * is claimed globally — above every surface, a text editor's caret included.
+   * That is the whole reason to test it from inside an editor rather than from
+   * an empty deck: the column has to act AND the caret has to hold, and only
+   * one of those two is what the promotion put at risk.
+   *
+   * `foreground: true` because a menu chord dies silently in a background
+   * app-test — AppKit's key-equivalent scan needs the app to be active.
+   */
+  test(
+    "the promoted column chord acts on the deck without moving a caret",
+    async () => {
+      const app = await launchTugApp({
+        testName: "at0168-column-editor-gate",
+        foreground: true,
+      });
+      try {
+        const pane = (id: string, cardId: string) => ({
+          id,
+          position: { x: 40, y: 40 },
+          size: { width: 420, height: 400 },
+          cardIds: [cardId],
+          activeCardId: cardId,
+          title: "",
+          acceptsFamilies: ["maker"],
+          slot: 0,
+        });
+        await app.seedDeckState({
+          state: {
+            cards: [
+              { id: "A", componentId: "gallery-textarea", title: "A", closable: true },
+              { id: "B", componentId: "gallery-textarea", title: "B", closable: true },
+            ],
+            panes: [pane("p1", "A"), pane("p2", "B")],
+            activePaneId: "p1",
+            imposition: { kind: "three-up", sidebars: {} },
+            hasFocus: true,
+          },
+          focusCardId: "A",
+        });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+
+        const sel = `[data-card-id="A"] [data-tug-state-key="gallery-textarea/size/md"]`;
+        await app.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(sel)})`);
+
+        // Trusted focus and trusted typing: the caret has to be real, or the
+        // thing this test protects is not the thing under the user's hands.
+        // The click also raises p1 to the front of the column, which is what
+        // leaves ⌃⌘↓ (move away from the front) the enabled direction.
+        await app.nativeClickAtElement(sel);
+        await app.waitForCondition<boolean>(
+          `document.activeElement && document.activeElement.matches(${JSON.stringify(sel)})`,
+          { timeoutMs: 3000 },
+        );
+        await app.nativeType("hello");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(sel)}).value === "hello"`,
+          { timeoutMs: 3000 },
+        );
+
+        const caret = (): Promise<{ start: number; end: number; value: string }> =>
+          app.evalJS(
+            `(function () { var el = document.querySelector(${JSON.stringify(sel)});
+              return { start: el.selectionStart, end: el.selectionEnd, value: el.value }; })()`,
+          );
+        const zOrder = (): Promise<string[]> =>
+          app.evalJS<string[]>(
+            `window.tugdeck.diag.getDeckState().panes.map(function (p) { return p.id; })`,
+          );
+
+        const before = await caret();
+        expect(before, "the caret is where the typing left it").toEqual({
+          start: 5,
+          end: 5,
+          value: "hello",
+        });
+        expect(await zOrder(), "the clicked pane is frontmost").toEqual(["p2", "p1"]);
+
+        expect(
+          await itemEnabled(app, "window.columnMoveDown"),
+          "Move Card Down in Column is live for the frontmost member",
+        ).toBe(true);
+
+        await app.nativeKey("ArrowDown", ["cmd", "ctrl"]);
+        await app.waitForCondition<boolean>(
+          `window.tugdeck.diag.getDeckState().panes[0].id === "p1"`,
+          { timeoutMs: 3000 },
+        );
+
+        // The column moved; the caret did not. A chord AppKit claimed above
+        // the web view must not reach the editor as an editing gesture, and a
+        // chord that took focus with it would show up here as a lost caret.
+        expect(await caret(), "the caret held through the column move").toEqual(before);
+      } catch (err) {
+        const tail = app.tailLog(200);
+        if (tail !== "")
+          process.stderr.write(`\n[at0168-column-editor-gate] log tail:\n${tail}\n`);
         throw err;
       } finally {
         await app.close();

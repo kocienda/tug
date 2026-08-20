@@ -719,28 +719,28 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
     [
       {
         where: "up",
-        title: "Move Up in Column",
+        title: "Move Card Up in Column",
         menuItemId: "window.columnMoveUp",
         key: "ArrowUp",
         shift: false,
       },
       {
         where: "down",
-        title: "Move Down in Column",
+        title: "Move Card Down in Column",
         menuItemId: "window.columnMoveDown",
         key: "ArrowDown",
         shift: false,
       },
       {
         where: "top",
-        title: "Move to Top of Column",
+        title: "Move Card to Top of Column",
         menuItemId: "window.columnMoveTop",
         key: "ArrowUp",
         shift: true,
       },
       {
         where: "bottom",
-        title: "Move to Bottom of Column",
+        title: "Move Card to Bottom of Column",
         menuItemId: "window.columnMoveBottom",
         key: "ArrowDown",
         shift: true,

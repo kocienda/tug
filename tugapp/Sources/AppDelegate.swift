@@ -1247,6 +1247,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // are — `applyCommandChords` writes it from the frontend's keymap, so
         // it stays rebindable end to end.
         wMenu.addItem(NSMenuItem(title: "Bullseye", action: #selector(toggleBullseye(_:)), keyEquivalent: "").identified("window.bullseye"))
+        wMenu.addItem(NSMenuItem.separator())
+        // The column family — how the panes standing in one slot arrange
+        // themselves, and where this card stands among them. Its own group
+        // after the width/bullseye pair because those two answer for one card
+        // and these answer for the place several cards share.
+        //
+        // ⌃⌘S and the ⌃⌘ arrows, all with EMPTY key equivalents for the same
+        // reason the width rows have them — `applyCommandChords` writes them
+        // from the frontend's keymap, so the whole family stays rebindable.
+        // Their gates hold the chord while the item is dark
+        // (`disabledChord: "keep"`): nothing in the JS funnel wants these
+        // chords, so there is nothing for a release to hand them back to, and
+        // the beep is honest feedback that the column had no move to make.
+        //
+        // Every one of them is selection-relative — the frontend resolves the
+        // Lens selection, else the Cards list's cursor, else the first
+        // responder — so the move target is all the payload there is.
+        wMenu.addItem(NSMenuItem(title: "Split or Stack Column", action: #selector(toggleColumnSplit(_:)), keyEquivalent: "").identified("window.columnSplit"))
+        for (title, where_, id) in [
+            ("Move Card Up in Column", "up", "window.columnMoveUp"),
+            ("Move Card Down in Column", "down", "window.columnMoveDown"),
+            ("Move Card to Top of Column", "top", "window.columnMoveTop"),
+            ("Move Card to Bottom of Column", "bottom", "window.columnMoveBottom"),
+        ] {
+            let item = NSMenuItem(title: title, action: #selector(moveInColumnFromMenu(_:)), keyEquivalent: "").identified(id)
+            item.representedObject = where_
+            wMenu.addItem(item)
+        }
         // Anchor separator for the dynamic pane-list slice: pane items are
         // inserted directly after it (and removed by identifier prefix) on
         // every menu open. macOS hides the redundant separator pair when
@@ -1816,6 +1844,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// disagree with what the deck is actually showing.
     @objc private func toggleBullseye(_ sender: Any?) {
         sendControl("toggle-bullseye")
+    }
+
+    /// Window ▸ Split or Stack Column. No payload, for the same reason
+    /// Bullseye carries none: which slot divides is the frontend's answer, and
+    /// it resolves it from the layout selection the chord resolves too.
+    @objc private func toggleColumnSplit(_ sender: Any?) {
+        sendControl("toggle-column-split")
+    }
+
+    /// Window ▸ Move Card Up / Down / to Top / to Bottom of Column. The target
+    /// rides `representedObject`; which card travels is again the frontend's
+    /// answer. Enablement rides each item's registry gate on the menuState
+    /// push, so an item is dark exactly when `moveInColumn` would refuse.
+    @objc private func moveInColumnFromMenu(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? String else { return }
+        sendControl("move-in-column", params: ["value": target])
     }
 
     /// Write every key equivalent the frontend's keymap states, recursively

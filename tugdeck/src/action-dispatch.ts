@@ -37,6 +37,7 @@ import { flashCardPane, flashPaneBorder } from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { isDiffDescriptor } from "@/lib/git-diff-store";
 import {
+  isColumnMoveTarget,
   isContentWidth,
   isImpositionKind,
   isImpositionLayout,
@@ -1015,6 +1016,23 @@ export function initActionDispatch(
   // canvas, where the chord lands too.
   registerAction(TUG_ACTIONS.TOGGLE_BULLSEYE, () => {
     dispatchCommand(TUG_ACTIONS.TOGGLE_BULLSEYE);
+  });
+
+  // toggle-column-split / move-in-column: the Window ▸ column group's
+  // round-trip, the same shape as Bullseye and the width row above. Both are
+  // selection-relative, so the hand-off through `dispatchCommand` is what
+  // keeps "which card is this about" on the canvas, where the chord lands
+  // too — the menu item and the chord end up at one handler rather than two.
+  registerAction(TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, () => {
+    dispatchCommand(TUG_ACTIONS.TOGGLE_COLUMN_SPLIT);
+  });
+  registerAction(TUG_ACTIONS.MOVE_IN_COLUMN, (payload) => {
+    const where = payload.value;
+    if (!isColumnMoveTarget(where)) {
+      console.warn(`${TUG_ACTIONS.MOVE_IN_COLUMN}: invalid target`, payload);
+      return;
+    }
+    dispatchCommand(`${TUG_ACTIONS.MOVE_IN_COLUMN}:${where}`);
   });
 
   // spawn_session_ok: the tugcast supervisor echoes the

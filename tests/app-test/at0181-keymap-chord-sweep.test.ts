@@ -146,6 +146,30 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
         // are released here and remain shadowable by whatever wants them.
         await expectChord(app, "session.previousTurn", "", 0);
         await expectChord(app, "session.firstTurn", "", 0);
+
+        // Keep — the other answer to the same question, and the reason the
+        // registry asks it per command. This deck holds one pane in no
+        // column, so all five column items validate dark; they hold their
+        // chords anyway (`disabledChord: "keep"`), because nothing in the JS
+        // funnel wants ⌃⌘S or the ⌃⌘ arrows and there is nothing for a
+        // release to hand them back to. The two arrow conversions ride here
+        // too: `NSUpArrowFunctionKey` and its ⇧ counterpart, written by the
+        // sweep onto items built with no key equivalent at all.
+        await expectChord(app, "window.columnSplit", "s", COMMAND | CONTROL);
+        await expectChord(app, "window.columnMoveUp", "\u{F700}", COMMAND | CONTROL);
+        await expectChord(app, "window.columnMoveDown", "\u{F701}", COMMAND | CONTROL);
+        await expectChord(app, "window.columnMoveTop", "\u{F700}", COMMAND | CONTROL | SHIFT);
+        await expectChord(
+          app,
+          "window.columnMoveBottom",
+          "\u{F701}",
+          COMMAND | CONTROL | SHIFT,
+        );
+        const split = await app.menuItemState("window.columnSplit");
+        expect(
+          split.found ? split.enabled : true,
+          "a column item is dark when there is no column",
+        ).toBe(false);
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0181-sweep] log tail:\n${tail}\n`);

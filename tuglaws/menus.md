@@ -160,8 +160,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⇧⌘S | `save-as` | Save As… | menu bar (swept) |
 | ⇧⌘Z | `redo` | Redo | JS, global |
 | ⌃⇧⌘A | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
-| ⌃⇧⌘↑ | `move-in-column:top` | Move to Top of Column | menu bar (swept) |
-| ⌃⇧⌘↓ | `move-in-column:bottom` | Move to Bottom of Column | menu bar (swept) |
+| ⌃⇧⌘↑ | `move-in-column:top` | Move Card to Top of Column | menu bar (swept) |
+| ⌃⇧⌘↓ | `move-in-column:bottom` | Move Card to Bottom of Column | menu bar (swept) |
 | ⌃⌘1 | `set-pane-width:slim` | Slim | menu bar (swept) |
 | ⌃⌘2 | `set-pane-width:comfy` | Comfy | menu bar (swept) |
 | ⌃⌘3 | `set-pane-width:wide` | Wide | menu bar (swept) |
@@ -180,8 +180,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘S | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
 | ⌃⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
-| ⌃⌘↑ | `move-in-column:up` | Move Up in Column | menu bar (swept) |
-| ⌃⌘↓ | `move-in-column:down` | Move Down in Column | menu bar (swept) |
+| ⌃⌘↑ | `move-in-column:up` | Move Card Up in Column | menu bar (swept) |
+| ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
 | ⌘, | `show-settings` | Settings… | JS, global |
