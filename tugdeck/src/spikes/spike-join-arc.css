@@ -1,0 +1,323 @@
+/* spike-join-arc — appearance for the join-arc walkthrough. Tokens only
+   ([L15]); layout scaffolding for mockups composed from real components. The
+   status vocabulary is `BlockHeader`'s own chrome — nothing here paints a
+   register beyond framing it. */
+
+.sp-ja-prose {
+  margin: 0;
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  max-width: 62ch;
+}
+
+.sp-ja-fine {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* ── The arc strip ─────────────────────────────────────────────────────── */
+
+.sp-ja-arc {
+  display: flex;
+  gap: var(--tug-space-2xs);
+  align-items: stretch;
+}
+
+.sp-ja-arc-stage {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-radius: var(--tug-radius-md);
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+}
+
+.sp-ja-arc-stage[data-owner="user"] {
+  border-color: var(--tug7-element-global-border-normal-accent-rest);
+  background: var(--tug7-surface-tone-primary-normal-accent-rest);
+}
+
+.sp-ja-arc-word {
+  font-size: var(--tug-font-size-sm);
+  font-weight: 600;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-ja-arc-owner {
+  font-size: var(--tug-font-size-3xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-ja-arc-stage[data-owner="user"] .sp-ja-arc-owner {
+  color: var(--tug7-element-tone-icon-normal-accent-rest);
+}
+
+.sp-ja-arc-note {
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  line-height: 1.35;
+}
+
+/* ── The prompt frame ──────────────────────────────────────────────────── */
+
+.sp-ja-prompt-frame {
+  max-width: 560px;
+  border: 1px dashed var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: var(--tug-radius-lg);
+  padding: var(--tug-space-sm);
+}
+
+/* ── Registers — BlockHeader framed, nothing more ──────────────────────── */
+
+.sp-ja-overlay-frame {
+  max-width: 640px;
+  border: 1px dashed var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: var(--tug-radius-lg);
+  padding: var(--tug-space-sm);
+}
+
+/* The register is the header's own strip; the frame only rounds it so a
+   standalone mount reads as a row rather than an edge-to-edge band. */
+.sp-ja-register {
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+}
+
+.sp-ja-status-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  max-width: 640px;
+}
+
+/* ── Banished sentences ────────────────────────────────────────────────── */
+
+.sp-ja-banished {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 640px;
+  padding: var(--tug-space-sm);
+  border-radius: var(--tug-radius-md);
+  background: var(--tug7-surface-global-primary-normal-sunken-rest);
+}
+
+.sp-ja-banished-title {
+  font-size: var(--tug-font-size-3xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--tug7-element-global-text-normal-danger-rest);
+}
+
+.sp-ja-banished s {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  line-height: 1.4;
+}
+
+.sp-ja-banished-note {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  line-height: 1.4;
+}
+
+/* ── The checks block — red is red ─────────────────────────────────────── */
+
+.sp-ja-checks {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding: var(--tug-space-md);
+  border-radius: var(--tug-radius-lg);
+}
+
+.sp-ja-checks[data-verdict="red"] {
+  border: 1px solid var(--tug7-element-tone-border-normal-danger-rest);
+  background: var(--tug7-surface-tone-primary-normal-danger-rest);
+}
+
+.sp-ja-checks-title {
+  font-size: var(--tug-font-size-md);
+  font-weight: 600;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-ja-checks-tier {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  font-size: var(--tug-font-size-sm);
+}
+
+.sp-ja-checks-tier[data-tone="success"] > svg {
+  color: var(--tug7-element-global-text-normal-success-rest);
+  flex: 0 0 auto;
+}
+
+.sp-ja-checks-x {
+  flex: 0 0 auto;
+  inline-size: 16px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--tug7-element-global-text-normal-danger-rest);
+}
+
+.sp-ja-checks-tier-name {
+  flex: 0 0 auto;
+  min-inline-size: 64px;
+  font-weight: 600;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-ja-checks-tier-word {
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-ja-checks-tier[data-tone="danger"] .sp-ja-checks-tier-word {
+  color: var(--tug7-element-global-text-normal-danger-rest);
+  font-weight: 500;
+}
+
+.sp-ja-checks-tail {
+  margin: 0;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-radius: var(--tug-radius-sm);
+  background: var(--tug7-surface-global-primary-normal-default-rest);
+  font-family: var(--tug-font-mono);
+  font-size: var(--tug-font-size-2xs);
+  line-height: 1.45;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: pre-wrap;
+}
+
+/* ── The composer poses ────────────────────────────────────────────────── */
+
+.sp-ja-poses {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-lg);
+  max-width: 720px;
+}
+
+.sp-ja-pose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+}
+
+.sp-ja-pose-label {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  line-height: 1.4;
+  max-width: 62ch;
+}
+
+/* The editor stand-in: the substrate's resting metrics without the substrate.
+   Static text at the editor's type size over the shell's own field. */
+.sp-ja-editor {
+  min-height: 72px;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-ja-editor[data-joining] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-ja-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+/* ── The glance mock ───────────────────────────────────────────────────── */
+
+.sp-ja-glance {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--tug-space-2xs) var(--tug-space-sm) var(--tug-space-xs);
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-md);
+}
+
+.sp-ja-glance-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.sp-ja-glance-rule {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 1px;
+  background: var(--tug7-element-global-border-normal-default-rest);
+}
+
+.sp-ja-glance-meta {
+  display: flex;
+  min-width: 0;
+  padding-inline-start: var(--tug-space-sm);
+}
+
+/* ── The disposition ledger — quiet strips, same family ────────────────── */
+
+.sp-ja-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  max-width: 720px;
+}
+
+.sp-ja-ledger-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+  border-radius: var(--tug-radius-md);
+  background: var(--tug7-surface-global-primary-normal-sunken-rest);
+}
+
+.sp-ja-ledger-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tug-space-sm);
+}
+
+.sp-ja-ledger-control {
+  font-family: var(--tug-font-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-ja-ledger-verdict {
+  font-size: var(--tug-font-size-xs);
+  font-weight: 600;
+}
+
+.sp-ja-ledger-row[data-verdict="delete"] .sp-ja-ledger-verdict {
+  color: var(--tug7-element-global-text-normal-danger-rest);
+}
+
+.sp-ja-ledger-row[data-verdict="move"] .sp-ja-ledger-verdict {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-ja-ledger-why {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  line-height: 1.4;
+  max-width: 68ch;
+}
