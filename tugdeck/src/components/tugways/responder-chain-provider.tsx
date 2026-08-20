@@ -668,6 +668,34 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
       }
     }
 
+    /**
+     * Should this Escape be left to the act-dispatch stage — the engine's single
+     * Escape arbiter — instead of being dispatched into the responder chain
+     * here as a `CANCEL_DIALOG`?
+     *
+     * Outside `BASE_FOCUS_MODE` the answer has always been yes: every
+     * dismissable surface pushes a mode the ladder knows how to unwind.
+     *
+     * At BASE the answer used to be an unconditional no, and that is the seam
+     * this closes. A key view that declares Escape its own (`captures`) is
+     * bypassed in the most common state there is — no dialog, no descend scope
+     * — so who arbitrated the press depended on invisible mode state: the Lens
+     * list's "while there is a set, Escape is the list's" contract held inside a
+     * popover and not on the plain deck. Consulting the same predicate
+     * `actDispatchListener` consults makes one arbitration story for all modes.
+     */
+    function escapeBelongsToLadder(event: KeyboardEvent): boolean {
+      if (event.key !== "Escape") return false;
+      if (focusManager.currentFocusMode() !== BASE_FOCUS_MODE) return true;
+      return focusManager.keyViewCaptures({
+        key: event.key,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+      });
+    }
+
     // ---- Stage 1: capture-phase listener (global shortcuts) ----
     function captureListener(event: KeyboardEvent): void {
       // [P03] An engine-synthesized Escape (the context-menu close lever) is the
@@ -705,8 +733,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
         if (COMMANDS_BY_ID.get(match.commandId)?.routing === "native") return;
         if (
           match.commandId === TUG_ACTIONS.CANCEL_DIALOG &&
-          event.key === "Escape" &&
-          mode !== BASE_FOCUS_MODE
+          escapeBelongsToLadder(event)
         ) {
           return;
         }
@@ -730,9 +757,10 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
         }
         return;
       }
-      // Escape on any non-base focus mode yields to the engine's Escape ladder
-      // (the act-dispatch listener below), which is the single arbiter ([P02]
-      // final form). Every dismissable surface now pushes a mode with an
+      // Escape yields to the engine's Escape ladder (the act-dispatch listener
+      // below), which is the single arbiter ([P02] final form) — on any non-base
+      // focus mode, and at BASE whenever the key view captures the press
+      // (`escapeBelongsToLadder`). Every dismissable surface now pushes a mode with an
       // `onEscapeDismiss` callback (branch (2)), every descend scope is
       // non-trapped (branch (4)), and a focus-cycle is `escapeExits` (branch (5)) —
       // so the ladder always knows what to do, and the old per-surface special
@@ -741,8 +769,7 @@ export function ResponderChainProvider({ children }: { children: React.ReactNode
       // so it stays chain-routed for every surface (#non-goals).
       if (
         binding.action === TUG_ACTIONS.CANCEL_DIALOG &&
-        event.key === "Escape" &&
-        mode !== BASE_FOCUS_MODE
+        escapeBelongsToLadder(event)
       ) {
         return;
       }

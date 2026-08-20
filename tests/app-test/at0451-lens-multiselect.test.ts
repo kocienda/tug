@@ -47,12 +47,28 @@
  * and the detector records the jump. Zero cuts across a two-card move is the
  * assertion that the commit was single.
  *
+ * The third test is the Escape table itself (`lens-escape.ts`,
+ * `tuglaws/focus-language.md`): filter text, then the selection, then focus out
+ * — and never anything else, from whichever first-responder shape the press
+ * arrives in. Several handlers can answer it — the Cards list while it holds
+ * the keyboard, the Lens's own responder, the deck root's conditional entry —
+ * and the defect the table exists to prevent is those handlers disagreeing
+ * about their inputs and their order, which is what the user sees as "Escape
+ * does something different every time". So the two cases here drive the two
+ * shapes that used to resolve differently: a set whose rows are not on screen
+ * at all (the group folded over it), and a press answered from OUTSIDE the Lens
+ * after a click fronted a card and took the keyboard with it. The invariant
+ * both assert is the same one: each press shrinks exactly one rung, and the
+ * rung above it is untouched.
+ *
  * @covers tugdeck/src/components/lens/lens-selection-store.ts
  * @covers tugdeck/src/lib/layout-selection.ts
  * @covers tugdeck/src/components/lens/sections/cards-section.tsx
  * @covers tugdeck/src/components/tugways/list-multi-select.ts
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
  * @covers tugdeck/src/components/lens/lens-content.tsx
+ * @covers tugdeck/src/components/lens/lens-escape.ts
+ * @covers tugdeck/src/components/tugways/responder-chain-provider.tsx
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  */
 
@@ -179,6 +195,39 @@ async function getSelection(app: App): Promise<string[]> {
 
 /** The Cards row the movement cursor is standing on. */
 const CURSOR_ROW = ".lens-cards-list .tug-list-view-cell[data-key-cursor]";
+
+/** The Cards section's attached filter field. */
+const FILTER_INPUT =
+  '.lens-section[data-lens-section="cards"] .tug-filter-field-input';
+
+/** How many rows the Cards list is showing — headers included. */
+async function rowCount(app: App): Promise<number> {
+  return app.evalJS<number>(
+    `document.querySelectorAll(".lens-cards-list .tug-list-view-cell").length`,
+  );
+}
+
+/** Put the caret in the Cards section's filter field. */
+async function clickFilterField(app: App): Promise<boolean> {
+  const box = await app.evalJS<{ x: number; y: number } | null>(
+    `(function () {
+      var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
+      if (el === null) return null;
+      var r = el.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`,
+  );
+  if (box === null) return false;
+  await app.nativeClick(box, { activateFirst: false });
+  return true;
+}
+
+/** The Cards section's live filter query. */
+async function filterQuery(app: App): Promise<string> {
+  return app.evalJS<string>(
+    `(document.querySelector(${JSON.stringify(FILTER_INPUT)})?.value ?? "")`,
+  );
+}
 
 async function cursorTitle(app: App): Promise<string> {
   return app.evalJS<string>(
@@ -625,6 +674,130 @@ describe.skipIf(!SHOULD_RUN)(
               `Escape #${press} leaves the selection empty`,
             ).toEqual([]);
           }
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "Escape shrinks Lens state in one order, whatever the rows are showing",
+      async () => {
+        const app = await launchTugApp({ testName: "at0451-lens-escape-table" });
+        try {
+          await seedLensPreferred(app);
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(FRAMES)}).length === 4`,
+            { timeoutMs: 5_000 },
+          );
+          await wait(AFTER_LAND_MS);
+          await setSelection(app, []);
+
+          // ---- A set the rows are not showing is still a set ---------------
+          //
+          // The list's Escape gate used to read `selectedIds` — a projection
+          // over the rows on screen — so folding the group the selected cards
+          // live in made the list report "nothing selected" about a selection
+          // that was standing perfectly well. The press then went to the
+          // ladder and threw the keyboard out of the Lens instead, and the set
+          // came back into view still selected when the group re-opened. What
+          // the user is taking back is the SET, not the visible part of it.
+          await focusCardsList(app);
+          await app.nativeKey("Home");
+          await wait(200);
+          expect(
+            await cursorTitle(app),
+            "Home lands on the group header the fold is driven from",
+          ).toContain("Tools");
+          await setSelection(app, ["B", "C"]);
+
+          await app.nativeKey(" ");
+          await wait(300);
+          expect(
+            await rowCount(app),
+            "the fold took the card rows off the list",
+          ).toBe(1);
+          expect(
+            await getSelection(app),
+            "and left the selection exactly where it was",
+          ).toEqual(["B", "C"]);
+
+          await app.nativeKey("Escape");
+          await wait(300);
+          expect(
+            await getSelection(app),
+            "Escape clears a set none of whose rows are showing",
+          ).toEqual([]);
+          expect(
+            await app.evalJS<boolean>(
+              `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
+            ),
+            "and spends the press there — the keyboard stays in the Lens",
+          ).toBe(true);
+
+          // Unfold for the next case.
+          await app.nativeKey(" ");
+          await wait(300);
+          expect(await rowCount(app)).toBeGreaterThan(1);
+
+          // ---- Filter text is the first rung, the selection the second -----
+          //
+          // The table is the same table from every first-responder shape, and
+          // this half drives the one the Lens's own responder cannot answer:
+          // a click on a Cards row FRONTS the card it names and takes the
+          // keyboard out of the Lens, so the press is answered by the deck
+          // root's conditional entry. It used to clear the selection flatly,
+          // skipping the query standing above it — two handlers, two different
+          // answers to one key, which is what the user sees as "Escape does
+          // something different every time".
+          const clickedField = await clickFilterField(app);
+          expect(clickedField, "found the Cards filter field").toBe(true);
+          await app.nativeType("Card");
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(FILTER_INPUT)})?.value === "Card"`,
+            { timeoutMs: 4_000 },
+          );
+
+          const clicked = await clickRowTitled(app, "Card A");
+          expect(clicked, "found the row to click").toBe(true);
+          await wait(400);
+          expect(
+            await getSelection(app),
+            "the click names a card and fronts it",
+          ).toEqual(["A"]);
+          expect(
+            await app.evalJS<boolean>(
+              `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
+            ),
+            "and takes the keyboard out of the Lens with it",
+          ).toBe(false);
+
+          await app.nativeKey("Escape");
+          await wait(350);
+          expect(
+            await filterQuery(app),
+            "press 1 spends itself on the query — the most local thing standing",
+          ).toBe("");
+          expect(
+            await getSelection(app),
+            "and leaves the selection alone",
+          ).toEqual(["A"]);
+
+          await app.nativeKey("Escape");
+          await wait(350);
+          expect(
+            await getSelection(app),
+            "press 2 takes the selection",
+          ).toEqual([]);
+
+          await app.nativeKey("Escape");
+          await wait(400);
+          expect(
+            await getSelection(app),
+            "press 3 has nothing left to shrink, and hands back no selection",
+          ).toEqual([]);
         } finally {
           await app.close();
         }

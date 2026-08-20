@@ -121,7 +121,9 @@ import { CardsSessionRow } from "./cards-session-cell";
 
 /** This section's kind — the key its filter query lives under, and the kind
  *  its persisted collapse state is stored against. */
-const SECTION_KIND = "cards";
+/** The Cards section's registry kind — exported because the Lens's Escape
+ *  precedence has to name this section's filter specifically. */
+export const CARDS_SECTION_KIND = "cards";
 
 // Pane rows are matched for reorder by their uniform order key. Deliberately
 // NOT `data-card-id`: that attribute is the card HOST's, and a row carrying it
@@ -177,7 +179,7 @@ function askedBeforeClosing(cardId: string): boolean {
 /** The band's live filter query, read straight from the store ([L02]). */
 function useCardsFilterQuery(): string {
   useSyncExternalStore(subscribeFilterQuery, getFilterVersion);
-  return getFilterQuery(SECTION_KIND);
+  return getFilterQuery(CARDS_SECTION_KIND);
 }
 
 function useCellContext(): CardsCellContextValue {
@@ -1043,6 +1045,13 @@ function CardsSectionBody({
         lensSelectionStore.clear();
         return true;
       },
+      // The set is the store's, not the visible rows'. `selectedRowIds` is a
+      // projection over the rows showing right now, so a selection the filter
+      // has hidden — or one folded inside a collapsed group — projects to
+      // nothing, and Escape's gate would read "no set" over a set that stands.
+      // What the press takes back is the selection, not the visible part of it.
+      hasSelection: (): boolean =>
+        lensSelectionStore.getSnapshot().ids.length > 0,
     }),
     [selectedRowIds, cardIdByRowId, visibleCardOrder],
   );
@@ -1115,7 +1124,7 @@ function CardsSectionBody({
 /** Register the Cards section. Called once at boot from `main.tsx`. */
 export function registerCardsSection(): void {
   registerLensSection({
-    kind: SECTION_KIND,
+    kind: CARDS_SECTION_KIND,
     title: "Cards",
     filterable: true,
     glyph: <LayoutGrid size={14} />,

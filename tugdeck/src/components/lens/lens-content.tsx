@@ -74,6 +74,7 @@ import {
   sectionHasContent,
   subscribeSectionContent,
 } from "./lens-section-content";
+import { shrinkLensState } from "./lens-escape";
 import {
   getSectionPresenceVersion,
   sectionIsPresent,
@@ -258,10 +259,13 @@ export function LensContent({ cardId }: LensContentProps): React.ReactElement {
     id: responderId,
     actions: {
       [TUG_ACTIONS.CANCEL_DIALOG]: () => {
-        if (lensSelectionStore.getSnapshot().ids.length > 0) {
-          lensSelectionStore.clear();
-          return;
-        }
+        // The precedence, in full: filter text, then the selection, then focus
+        // out (`tuglaws/focus-language.md`, `lens-escape.ts`). The Cards list
+        // runs the same rungs itself while it holds the keyboard; this
+        // responder is the same table reached from anywhere else inside the
+        // Lens, where the filter field is not on the chain to answer for its
+        // own query.
+        if (shrinkLensState() !== "focus-out") return;
         dispatchCommand(TUG_ACTIONS.FOCUS_LENS);
       },
     },

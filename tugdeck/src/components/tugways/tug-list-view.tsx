@@ -1233,6 +1233,21 @@ export interface TugListViewProps<
     readonly onToggle: (id: string) => boolean;
     readonly onExtendTo: (id: string) => boolean;
     readonly onClear: () => boolean;
+    /**
+     * Whether a set stands at all, when `selectedIds` cannot answer that.
+     *
+     * `selectedIds` is a projection over the rows this list is currently
+     * showing, so a consumer whose set outlives its rows — filtered out,
+     * inside a folded group — reports an empty projection over a set that is
+     * very much still there. Escape must clear it anyway: what the user is
+     * taking back is the set, not the part of it they can see.
+     *
+     * Consulted only by the Escape gates (the `captures` claim and
+     * `handleListKey`). Painting stays on `selectedIds`, which is the right
+     * answer for "which visible rows are filled". Omit it and the size of
+     * `selectedIds` answers, which is correct for a list whose set is its rows.
+     */
+    readonly hasSelection?: () => boolean;
   };
 
   /**
@@ -2014,6 +2029,13 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     selectionRequiredRef.current = selectionRequired;
     const multiSelectRef = React.useRef(multiSelect);
     multiSelectRef.current = multiSelect;
+    /** Does a set stand? The consumer answers when its set outlives its rows
+     *  (`multiSelect.hasSelection`); otherwise the visible projection does. */
+    const multiSelectSetStands = (): boolean => {
+      const ms = multiSelectRef.current;
+      if (ms === undefined) return false;
+      return ms.hasSelection?.() ?? ms.selectedIds.size > 0;
+    };
     const onCursorChangeRef = React.useRef(onCursorChange);
     onCursorChangeRef.current = onCursorChange;
     // The id last published, so the callback fires on a real move rather than
@@ -5596,8 +5618,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // capture is the fix: while there is a set, Escape is the list's.
         captures: (k: FocusKey) =>
           (captureKeySet?.has(k.key) ?? false) ||
-          (k.key === "Escape" &&
-            (multiSelectRef.current?.selectedIds.size ?? 0) > 0) ||
+          (k.key === "Escape" && multiSelectSetStands()) ||
           ((k.key === "Escape" || k.key === " " || k.key === "Spacebar") &&
             (attachedFilterRef.current?.field()?.hasQuery() ?? false)),
         // A single-select list keeps select-on-arrow (the cursor IS the selection —
@@ -5886,7 +5907,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // keeps its own first Escape.
       if (e.key === "Escape") {
         const ms = multiSelectRef.current;
-        if (ms === undefined || ms.selectedIds.size === 0) return false;
+        if (ms === undefined || !multiSelectSetStands()) return false;
         if (attachedFilterRef.current?.field()?.hasQuery() === true) {
           return false;
         }

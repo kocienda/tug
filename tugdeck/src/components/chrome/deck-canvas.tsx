@@ -91,6 +91,7 @@ import {
   attachLensSelectionToDeck,
   lensSelectionStore,
 } from "@/components/lens/lens-selection-store";
+import { shrinkLensState } from "@/components/lens/lens-escape";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
 import { flashCardPane } from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
@@ -1350,7 +1351,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       ...(hasLayoutSelection
         ? {
             [TUG_ACTIONS.CANCEL_DIALOG]: (_event: ActionEvent) => {
-              lensSelectionStore.clear();
+              // The same table the Lens's own responder runs, so the answer to
+              // Escape does not change with where the keyboard happens to be
+              // standing — which was the whole complaint. `shrinkLensState`
+              // takes the filter rung first if there is one; the focus-out rung
+              // cannot be reached from here, since this entry is registered
+              // only while a selection stands.
+              shrinkLensState();
             },
           }
         : {}),
