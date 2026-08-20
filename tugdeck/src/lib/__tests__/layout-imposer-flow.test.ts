@@ -165,6 +165,40 @@ describe("the strip", () => {
     });
   });
 
+  test("the strip names each slot's extent, folded and cleaned the same way", () => {
+    // The extents ride out with the positions so the Lens's committed miniature
+    // draws the strip the frames stand on rather than re-deriving it by
+    // subtracting a gap it assumes. Every fold the positions do, these do:
+    // duplicates take the widest, unreadable widths drop, negatives read zero.
+    const { extents } = flowStripPositions([
+      { slot: 0, width: 675 },
+      { slot: 0, width: 1230 },
+      { slot: 1, width: -50 },
+      { slot: 2, width: Number.NaN },
+      { slot: 3, width: 400 },
+    ]);
+    expect([...extents].sort(([a], [b]) => a - b)).toEqual([
+      [0, 1230],
+      [1, 0],
+      [3, 400],
+    ]);
+  });
+
+  test("extents and positions describe one strip — each left is the running sum", () => {
+    const occupied = [
+      { slot: 0, width: CONTENT_WIDTH_WIDE_PX },
+      { slot: 2, width: CONTENT_WIDTH_SLIM_PX },
+      { slot: 4, width: CONTENT_WIDTH_COMFY_PX },
+    ];
+    const { positions, extents, width } = flowStripPositions(occupied);
+    let running = 0;
+    for (const { slot } of occupied) {
+      expect(positions.get(slot)).toBe(running);
+      running += (extents.get(slot) as number) + GAP;
+    }
+    expect(width).toBe(running - GAP);
+  });
+
   test("unreadable widths drop and negative ones read as zero", () => {
     expect(
       strip([

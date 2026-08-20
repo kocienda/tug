@@ -64,6 +64,13 @@ export interface IDeckManagerStore {
   getVersion: () => number;
 
   /**
+   * The band the flow strip is seen through, in px, or `null` when the deck is
+   * not in flow. A measurement of the canvas rather than a fact in `DeckState`,
+   * which is why it is a method and not a field of the snapshot.
+   */
+  getFlowBandWidth: () => number | null;
+
+  /**
    * Stable bound callback: update a pane frame's position/size on drag-end /
    * resize-end. The frame that gets dragged is the chrome shell; individual
    * cards within it share the pane's position.

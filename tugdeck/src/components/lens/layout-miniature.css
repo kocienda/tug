@@ -85,8 +85,9 @@
    bracket over the cards rather than a fill behind them, because it is a
    statement about the FRAME the deck looks through, not about the cards it
    contains — and a fill would compete with the blocks it overlaps for the
-   reading of what is solid. It sits flush with the strip's left edge, always:
-   the miniature draws the deck at rest ([P10]). */
+   reading of what is solid. On the committed drawing it stands where the deck's
+   live offset has slid the strip under it; on a preview layer — an arrangement
+   nobody has committed, and so one with no offset — it sits flush left. */
 .layout-mini-window {
   position: absolute;
   inset-block: -2px;

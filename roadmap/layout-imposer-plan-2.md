@@ -463,7 +463,7 @@ App-tests must drive real code paths on real content; every new cell carries an 
 | #step-4 | J — the column fact and registry promotion | done | `077e3541f` |
 | #step-5 | J — Swift menu items and the editor gate | done | `40fa37601` |
 | #step-6 | J — integration checkpoint | done | `40fa37601` |
-| #step-7 | G — the committed layer goes live | pending | — |
+| #step-7 | G — the committed layer goes live | in progress | — |
 | #step-8 | G — one transition rule | pending | — |
 | #step-9 | G — integration checkpoint | pending | — |
 | #step-10 | I — overflow geometry, pure | pending | — |

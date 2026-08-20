@@ -1,42 +1,82 @@
 /**
- * zz-probe-layout-miniature.test.ts — TEMPORARY visual probe. Delete after use.
+ * zz-probe-layout-miniature.test.ts — the Lens miniature as an instrument.
+ *
+ * The committed drawing is the one layer that tracks the deck: given the live
+ * flow offset, the band, and each occupied slot's extent, it draws the strip
+ * the deck actually stands on and puts the viewport window where the offset
+ * has slid it. Preview layers — arrangements being auditioned, which the deck
+ * has never stood under — keep drawing the synthetic strip at rest ([P06]).
+ *
+ * Both halves are asserted through scale-free identities rather than by
+ * recomputing the component's arithmetic, which would only prove the test can
+ * copy it:
+ *
+ *  1. **The blocks are in the extents' proportions.** Block widths are compared
+ *     as RATIOS against the ratios of the panes' real painted widths, so the
+ *     drawn gap, the band, and the fit-into-frame scale all cancel. On a deck
+ *     of identical cards this would hold trivially, so the fixture is
+ *     deliberately uneven — and that unevenness is asserted before it is used.
+ *  2. **The window stands at the offset, in band units.** The window IS the
+ *     band, so `left / width` is exactly how far along the strip the band has
+ *     travelled measured in bands — which is `flowOffset / band`. Gaps and
+ *     scale cancel here too.
+ *
+ * The two screenshots are kept as diagnostics: a drawing is the one thing a
+ * numeric assertion cannot show you.
  *
  * @covers tugdeck/src/components/lens/layout-miniature.tsx
+ * @covers tugdeck/src/components/lens/layout-miniature.css
+ * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
  */
 
 import { describe, expect, test } from "bun:test";
 import { copyFileSync } from "node:fs";
 
-import { launchTugApp } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
+const LENS_WIDTH = 420;
+/** Deliberately uneven, and wide enough that no stack's minimum flattens them
+ *  — the drawing has nothing to say about proportions a deck does not hold. */
+const PANE_WIDTHS = [720, 480, 620, 540, 500];
+/** Percentages are written from floating-point arithmetic at both ends. */
+const TOL = 0.02;
+/** The settle window, with room for the reveal's tween to land. */
+const AFTER_LAND_MS = 900;
+
+const wait = (ms: number): Promise<void> =>
+  new Promise<void>((r) => setTimeout(r, ms));
+
+/** Five cards of five different widths in a six-up, the Lens on the right —
+ *  a strip comfortably longer than the band on any window this harness opens. */
 function deckShape(): Record<string, unknown> {
-  const pane = (id: string, slot: number, cardId: string) => ({
-    id,
-    position: { x: 40, y: 40 },
-    size: { width: 560, height: 620 },
-    cardIds: [cardId],
-    activeCardId: cardId,
-    title: "",
-    acceptsFamilies: ["maker"],
-    slot,
-  });
+  const ids = ["A", "B", "C", "D", "E"];
   return {
     cards: [
-      { id: "A", componentId: "gallery-accordion", title: "Card A", closable: true },
-      { id: "B", componentId: "gallery-accordion", title: "Card B", closable: true },
-      { id: "C", componentId: "gallery-accordion", title: "Card C", closable: true },
+      ...ids.map((id) => ({
+        id,
+        componentId: "hello",
+        title: `Card ${id}`,
+        closable: true,
+      })),
       { id: "L", componentId: "lens", title: "Lens", closable: true },
     ],
     panes: [
-      pane("p1", 0, "A"),
-      pane("p2", 1, "B"),
-      pane("p3", 2, "C"),
+      ...ids.map((id, index) => ({
+        id: `p${index + 1}`,
+        position: { x: 40, y: 40 },
+        size: { width: PANE_WIDTHS[index], height: 400 },
+        cardIds: [id],
+        activeCardId: id,
+        title: "",
+        acceptsFamilies: ["maker"],
+        slot: index,
+      })),
       {
         id: "pLens",
         position: { x: 0, y: 0 },
-        size: { width: 420, height: 900 },
+        size: { width: LENS_WIDTH, height: 900 },
         cardIds: ["L"],
         activeCardId: "L",
         title: "Lens",
@@ -45,25 +85,93 @@ function deckShape(): Record<string, unknown> {
     ],
     activePaneId: "p1",
     imposition: {
-      kind: "three-up",
-      contentWidth: "slim",
-      sidebars: {
-        lens: { side: "right" },
-        jots: { side: "left" },
-        overview: { side: "left" },
-      },
-      rails: { left: { mode: "split" }, right: { mode: "split" } },
+      kind: "six-up",
+      layout: "flow",
+      sidebars: { lens: { side: "right" } },
     },
     hasFocus: true,
   };
 }
 
+/** One drawing's parts, read from the inline percentages the component wrote.
+ *  Read from `style` rather than from measured boxes so a hidden preview layer
+ *  — which paints nothing — answers the same question the committed layer does. */
+interface Drawing {
+  blocks: number[];
+  windowLeft: number | null;
+  windowWidth: number | null;
+}
+
+async function drawing(app: App, selector: string): Promise<Drawing> {
+  return app.evalJS<Drawing>(
+    `(function () {
+      var layer = document.querySelector(${JSON.stringify(selector)});
+      if (layer === null) return null;
+      var pct = function (value) { return parseFloat(value); };
+      var win = layer.querySelector(".layout-mini-window");
+      return {
+        blocks: Array.prototype.map.call(
+          layer.querySelectorAll(".layout-mini-block"),
+          function (el) { return pct(el.style.width); },
+        ),
+        windowLeft: win === null ? null : pct(win.style.left),
+        windowWidth: win === null ? null : pct(win.style.width),
+      };
+    })()`,
+  );
+}
+
+/** Every imposed pane's painted width, in slot order — the extents the strip
+ *  is built from, read off the pixels the deck actually drew. */
+async function paintedWidths(app: App): Promise<number[]> {
+  return app.evalJS<number[]>(
+    `(function () {
+      var state = window.tugdeck.diag.getDeckState();
+      var out = [];
+      state.panes.forEach(function (pane) {
+        if (pane.slot === undefined) return;
+        var el = document.querySelector('.tug-pane[data-pane-id="' + pane.id + '"]');
+        if (el === null) return;
+        out.push({ slot: pane.slot, width: el.getBoundingClientRect().width });
+      });
+      out.sort(function (a, b) { return a.slot - b.slot; });
+      return out.map(function (entry) { return entry.width; });
+    })()`,
+  );
+}
+
+/**
+ * The band's width in viewport pixels — what the strip is seen through.
+ *
+ * Measured off the rail's own painted frame rather than off the
+ * `--tug-imposer-inset-*` properties, which resolve to a `calc()` that
+ * `parseFloat` reads as NaN. A rail stands one gap off its canvas edge and the
+ * chain is inset one more gap from it, which is the arithmetic `resolveSpan`
+ * does — read here from pixels instead.
+ */
+async function bandWidth(app: App): Promise<number> {
+  return app.evalJS<number>(
+    `(function () {
+      var box = document
+        .querySelector("[data-deck-canvas-background]")
+        .getBoundingClientRect();
+      var lens = document
+        .querySelector('.tug-pane[data-pane-id="pLens"]')
+        .getBoundingClientRect();
+      return (lens.left - 5) - (box.left + 5);
+    })()`,
+  );
+}
+
 describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
   test(
-    "shoot committed and preview",
+    "the committed drawing tracks the strip and the offset; previews stay at rest",
     async () => {
       const app = await launchTugApp({ testName: "zz-probe-layout-miniature" });
       try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+        );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-testid="lens-layouts-plan"]') !== null`,
@@ -73,11 +181,86 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
           `document.querySelector('[data-testid="lens-layouts-section"]')
              .scrollIntoView({ block: "center" })`,
         );
-        const committed = await app.screenshot();
-        copyFileSync(committed.path, "/tmp/mini-committed.png");
+        await wait(AFTER_LAND_MS);
 
-        // The preview path the pointer drives: a real pointerover on a segment
-        // the section has not already got.
+        // ── The fixture earns its assertions ────────────────────────────────
+        // Uneven extents, and a live offset: on a deck of identical cards at
+        // rest every assertion below would hold of the at-rest drawing too.
+        const widths = await paintedWidths(app);
+        note(`painted widths: ${widths.map(Math.round).join(", ")}`);
+        expect(widths.length, "every seeded card stands").toBe(
+          PANE_WIDTHS.length,
+        );
+        expect(
+          new Set(widths.map(Math.round)).size,
+          "the fixture must be a deck of UNEQUAL cards",
+        ).toBeGreaterThan(1);
+
+        await app.evalJS<null>(`(window.__tug.activateCard("E"), null)`);
+        await wait(AFTER_LAND_MS);
+        const offset = await app.evalJS<number>(
+          `(window.tugdeck.diag.getDeckState().flowOffset || 0)`,
+        );
+        const band = await bandWidth(app);
+        note(`offset ${Math.round(offset)}px over a ${Math.round(band)}px band`);
+        expect(
+          offset,
+          "revealing the last card must have moved the strip",
+        ).toBeGreaterThan(0);
+
+        // ── 1. The committed blocks are in the extents' proportions ─────────
+        const committed = await drawing(
+          app,
+          '[data-plan-layer="committed"] .layout-mini',
+        );
+        note(
+          `committed blocks: ${committed.blocks
+            .map((b) => b.toFixed(2))
+            .join(", ")}`,
+        );
+        expect(committed.blocks.length).toBe(widths.length);
+        for (let i = 1; i < widths.length; i += 1) {
+          expect(
+            committed.blocks[i] / committed.blocks[0],
+            `block ${i} is drawn in slot ${i}'s proportion to slot 0`,
+          ).toBeCloseTo(widths[i] / widths[0], 2);
+        }
+
+        // ── 2. The window stands at the offset, measured in bands ──────────
+        expect(committed.windowLeft, "the strip overflows, so there is a window")
+          .not.toBeNull();
+        const left = committed.windowLeft as number;
+        const width = committed.windowWidth as number;
+        note(`window left ${left.toFixed(2)}% of width ${width.toFixed(2)}%`);
+        expect(
+          left / width,
+          "the window has travelled the offset, in band units",
+        ).toBeCloseTo(offset / band, 2);
+
+        const shot = await app.screenshot();
+        copyFileSync(shot.path, "/tmp/mini-committed.png");
+
+        // ── 3. A preview under the same state draws at rest ─────────────────
+        // Same deck, same mode, one axis changed: an arrangement nobody has
+        // committed has no offset to track and no extents to measure.
+        const preview = await drawing(
+          app,
+          '[data-plan-preview-id="width:wide"] .layout-mini',
+        );
+        note(
+          `preview blocks: ${preview.blocks.map((b) => b.toFixed(2)).join(", ")}`,
+        );
+        expect(
+          new Set(preview.blocks.map((b) => b.toFixed(2))).size,
+          "a preview draws every card at one preset width",
+        ).toBe(1);
+        expect(preview.windowLeft, "a preview's window is flush left").toBe(0);
+        expect(
+          Math.abs(left),
+          "the committed window is NOT flush left — the two layers differ",
+        ).toBeGreaterThan(TOL);
+
+        // The preview path the pointer drives, for the second shot.
         await app.evalJS(
           `(function () {
              var seg = document.querySelector(
@@ -92,13 +275,12 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
              .hasAttribute("data-previewing")`,
           { timeoutMs: 4_000 },
         );
-        const preview = await app.screenshot();
-        copyFileSync(preview.path, "/tmp/mini-preview.png");
-        expect(true).toBe(true);
+        const previewShot = await app.screenshot();
+        copyFileSync(previewShot.path, "/tmp/mini-preview.png");
       } finally {
         await app.close();
       }
     },
-    90_000,
+    120_000,
   );
 });

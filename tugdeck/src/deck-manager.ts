@@ -2342,6 +2342,29 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * The band the flow strip is seen through, in px, or `null` when the deck is
+   * not in flow and has no band to speak of.
+   *
+   * Public because the Lens's miniature draws the committed arrangement to the
+   * real strip's proportions, and the strip alone does not say how much of it
+   * is on screen — that is the band, and the band is a measurement of the
+   * canvas rather than a fact in `DeckState`. Reading it here keeps the deck's
+   * one measurement in one place; a second one taken off the DOM in the Lens
+   * would agree with this only by luck.
+   *
+   * It answers from the container's current width, so a caller reading it
+   * during render gets the band the deck last laid out against. A canvas
+   * resize re-imposes through the settled-resize retune, which commits and
+   * re-renders every subscriber — so the answer follows the window without
+   * anything watching it per frame.
+   */
+  getFlowBandWidth(): number | null {
+    const state = this.deckState;
+    if (deckFlowStrip(state) === null) return null;
+    return this._flowBandWidth(state.panes, state.imposition);
+  }
+
+  /**
    * The flow offset that reveals `paneId`, or `undefined` when there is
    * nothing to reveal — not in flow, no strip, or the pane does not ride it.
    *

@@ -101,13 +101,18 @@ import {
   DEFAULT_SIDEBAR_SIDE,
   type ContentWidth,
   type DeckImposition,
+  type FlowSlotExtent,
   type ImpositionKind,
   type ColumnMode,
   type ImpositionLayout,
   type RailMode,
   type SidebarSide,
 } from "@/lib/layout-imposer";
-import { deckColumnsOf, type DeckColumn } from "@/deck-store-selectors";
+import {
+  deckColumnsOf,
+  deckFlowStrip,
+  type DeckColumn,
+} from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
 import { TugLabel } from "@/components/tugways/tug-label";
@@ -297,6 +302,49 @@ function useDeckColumns(): readonly DeckColumn[] {
   return useMemo(() => (deck === null ? [] : deckColumnsOf(deck)), [deck]);
 }
 
+/** The deck's live flow truth, in the three numbers the committed miniature
+ *  draws from — see {@link useCommittedFlow}. */
+interface CommittedFlow {
+  offsetPx: number;
+  bandPx: number;
+  extents: readonly FlowSlotExtent[];
+}
+
+/**
+ * What the COMMITTED drawing needs to be an instrument rather than a readout:
+ * how far the strip has slid, how wide the band it slid under is, and what each
+ * occupied slot's extent is. `null` whenever the deck is not in flow — fit has
+ * no strip and no window, and its cards tile the band whatever they are wide.
+ *
+ * The strip comes from `deckFlowStrip`, the deck's ONE resolution of it ([P09]),
+ * so the picture and the frames it pictures cannot part company. The band is
+ * asked of the store because it is a measurement of the canvas rather than a
+ * fact in the snapshot; the store owns that measurement, and a second one taken
+ * off the Lens's own DOM would agree with the deck's only by luck.
+ *
+ * Recomputed with the snapshot ([L02]). A canvas resize re-imposes through the
+ * settled-resize retune, which commits and re-renders everything subscribed —
+ * so the band follows the window without anything watching it per frame.
+ */
+function useCommittedFlow(): CommittedFlow | null {
+  const deck = useDeck();
+  const store = getDeckStore();
+  return useMemo(() => {
+    if (deck === null || store === null) return null;
+    const strip = deckFlowStrip(deck);
+    if (strip === null) return null;
+    const bandPx = store.getFlowBandWidth();
+    if (bandPx === null || bandPx <= 0) return null;
+    return {
+      offsetPx: deck.flowOffset ?? 0,
+      bandPx,
+      extents: [...strip.extents]
+        .sort(([a], [b]) => a - b)
+        .map(([slot, width]) => ({ slot, width })),
+    };
+  }, [deck, store]);
+}
+
 /** Live collapsed summary: the active kind's label. The side is not summarized
  *  — the band has room for one fact and the arrangement is it. */
 function LayoutsCollapsedSummary(): React.ReactElement {
@@ -429,6 +477,9 @@ function LayoutsSectionBody({
   // place. A slot with one card is already unsplit, so it gets no row (see
   // `useDeckColumns`).
   const columns = useDeckColumns();
+  // The committed drawing alone gets the live strip; every preview layer below
+  // draws at rest ([P06]).
+  const committedFlow = useCommittedFlow();
   const shareableColumns = columns.filter(
     (column) => column.members.length > 1,
   );
@@ -719,6 +770,9 @@ function LayoutsSectionBody({
               layout={layout}
               columnSplits={columnSplits}
               committed
+              flowOffsetPx={committedFlow?.offsetPx}
+              flowBandPx={committedFlow?.bandPx}
+              slotExtents={committedFlow?.extents}
             />
           </div>
           {layers.map((layer) => (

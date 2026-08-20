@@ -40,6 +40,7 @@ import {
   CONTENT_WIDTH_COMFY_PX,
   slotCount,
   type ContentWidth,
+  type FlowSlotExtent,
   type ImpositionKind,
   type ImpositionLayout,
   type RailMode,
@@ -144,6 +145,25 @@ export interface LayoutMiniatureProps {
    * auditioned, not one in force.
    */
   committed?: boolean;
+  /**
+   * The deck's live flow truth, for the committed drawing alone: how far the
+   * strip has slid under the band, what the band measures, and what each
+   * occupied slot's extent is.
+   *
+   * All three or none. They are one fact in three numbers — a strip's
+   * proportions mean nothing without the band they are seen through, and an
+   * offset into a strip nobody has measured places the window nowhere — so a
+   * partial set draws at rest rather than drawing a mixture of two truths.
+   *
+   * Only a FLOW drawing reads them. Fit's slots are anchors at fractions of the
+   * band and its cards tile it edge to edge whatever they are wide, so real
+   * extents would draw a deck fit does not hold.
+   */
+  flowOffsetPx?: number;
+  /** @see {@link LayoutMiniatureProps.flowOffsetPx} */
+  flowBandPx?: number;
+  /** @see {@link LayoutMiniatureProps.flowOffsetPx} */
+  slotExtents?: readonly FlowSlotExtent[];
 }
 
 /** The air between two members of a divided rail, in percent of the drawing's
@@ -230,6 +250,9 @@ export function LayoutMiniature({
   width,
   layout = "fit",
   committed = false,
+  flowOffsetPx,
+  flowBandPx,
+  slotExtents,
 }: LayoutMiniatureProps): React.ReactElement {
   const left = rails.left ?? 0;
   const right = rails.right ?? 0;
@@ -263,21 +286,84 @@ export function LayoutMiniature({
   // scaled into the frame and a window marks the part that is on screen — the
   // picture states the arrangement AND how much of it you see.
   //
-  // That window is drawn at REST, always: at offset 0, flush left. The
-  // miniature is a plan readout, not an instrument. A window tracking the live
-  // offset would repaint a Lens row on every card activation, and the preview
-  // layers would have to draw at rest regardless, since an arrangement nobody
-  // has committed has no offset to track.
-  const flowCard = (cardUnits / FLOW_BAND_NOMINAL_PX) * 100;
-  const flowStrip =
-    count > 0 ? count * flowCard + cardGap * (count - 1) : 0;
+  // The COMMITTED drawing is an instrument: given the deck's live flow truth it
+  // draws the real strip — each occupied slot at its own extent — and puts the
+  // window where the offset actually stands, so activating an off-band card
+  // moves the window here too. That costs a Lens row's repaint per activation,
+  // which is the price of the drawing answering "how much of this can I see"
+  // for the deck in front of you rather than for a deck of identical cards.
+  //
+  // PREVIEW layers keep drawing at rest, and that half is not a compromise: an
+  // arrangement nobody has committed has no offset to track and no extents to
+  // measure, because the deck has never stood under it. They get the synthetic
+  // strip — every card one preset wide against a nominal band — which is
+  // exactly the picture a plan can honestly make.
+  //
+  // All three live props or none. They are one fact in three numbers: a strip's
+  // proportions mean nothing without the band they are seen through, and an
+  // offset into a strip nobody has measured places the window nowhere.
+  const flowLive =
+    layout === "flow" &&
+    kind !== null &&
+    flowOffsetPx !== undefined &&
+    flowBandPx !== undefined &&
+    flowBandPx > 0 &&
+    slotExtents !== undefined &&
+    slotExtents.length > 0
+      ? { offsetPx: flowOffsetPx, bandPx: flowBandPx, extents: slotExtents }
+      : null;
+  // Each block the flow drawing lays along the strip: the slot it stands for
+  // and its width as a percentage of the BAND — the unit both the live and the
+  // synthetic strip are stated in before the scale that fits them in the frame.
+  //
+  // Live, the blocks are the OCCUPIED slots, in strip order. An empty slot
+  // contributes nothing to a real strip — not even a gap — so drawing one would
+  // be drawing a place the deck does not hold.
+  const flowBlocks: readonly { slot: number; widthPct: number }[] =
+    flowLive !== null
+      ? flowLive.extents.map((extent) => ({
+          slot: extent.slot,
+          widthPct: (extent.width / flowLive.bandPx) * 100,
+        }))
+      : Array.from({ length: count }, (_, i) => ({
+          slot: i,
+          widthPct: (cardUnits / FLOW_BAND_NOMINAL_PX) * 100,
+        }));
+  const flowGap = cardGapFor(flowBlocks.length);
+  const flowStrip = flowBlocks.reduce(
+    (sum, block, i) => sum + block.widthPct + (i > 0 ? flowGap : 0),
+    0,
+  );
   const flowOverflows = layout === "flow" && flowStrip > 100;
   const flowScale = flowOverflows ? 100 / flowStrip : 1;
 
-  const share = layout === "flow" && kind !== null ? flowCard * flowScale : fitShare;
-  const gap = layout === "flow" && kind !== null ? cardGap * flowScale : cardGap;
-  const offsetFor = (k: number): number =>
-    kind === null ? (100 - share) / 2 : k * (share + gap);
+  // Where every block stands, in percent of the field: fit tiles the band in
+  // equal shares; flow lays the strip out at each block's own width and scales
+  // the whole of it in when it is longer than the band. A free card (no
+  // imposition) keeps its own width and the middle of the field under either.
+  const blocks: readonly { slot: number; left: number; width: number }[] =
+    layout === "flow" && kind !== null
+      ? flowBlocks.map((block, i) => ({
+          slot: block.slot,
+          left:
+            flowBlocks
+              .slice(0, i)
+              .reduce((sum, prior) => sum + prior.widthPct + flowGap, 0) *
+            flowScale,
+          width: block.widthPct * flowScale,
+        }))
+      : Array.from({ length: count }, (_, i) => ({
+          slot: i,
+          left: kind === null ? (100 - fitShare) / 2 : i * (fitShare + cardGap),
+          width: fitShare,
+        }));
+  // The window marks the band over the strip: as wide a share of the drawing as
+  // the band is of the strip, standing where the offset has slid the strip
+  // under it. At rest — or with no live truth to read — that is flush left.
+  const windowLeft =
+    flowLive === null
+      ? 0
+      : (flowLive.offsetPx / flowLive.bandPx) * 100 * flowScale;
   return (
     <span
       className="layout-mini"
@@ -289,19 +375,19 @@ export function LayoutMiniature({
         <Rail count={left} widthPct={railPct} mode={railModes?.left} />
       ) : null}
       <span className="layout-mini-field">
-        {Array.from({ length: count }, (_, i) => {
+        {blocks.map((block) => {
           // A split column divides its RUN, not the band: the members keep the
           // slot's left edge and its width and stack down it, flush top and
           // bottom, with a seam between — the same equal division the rail's
           // split draws, and for the same reason. A hand-dragged ratio is not
           // what the picture is answering.
-          const members = columnSplits?.[i] ?? 1;
+          const members = columnSplits?.[block.slot] ?? 1;
           if (members < 2) {
             return (
               <span
-                key={i}
+                key={block.slot}
                 className="layout-mini-block"
-                style={{ left: `${offsetFor(i)}%`, width: `${share}%` }}
+                style={{ left: `${block.left}%`, width: `${block.width}%` }}
               />
             );
           }
@@ -311,12 +397,12 @@ export function LayoutMiniature({
             const top = m * (span + RAIL_SEAM_PCT);
             return (
               <span
-                key={`${i}:${m}`}
+                key={`${block.slot}:${m}`}
                 className="layout-mini-block"
                 data-column-member=""
                 style={{
-                  left: `${offsetFor(i)}%`,
-                  width: `${share}%`,
+                  left: `${block.left}%`,
+                  width: `${block.width}%`,
                   top: `${top}%`,
                   bottom: `${100 - top - span}%`,
                 }}
@@ -327,7 +413,7 @@ export function LayoutMiniature({
         {flowOverflows ? (
           <span
             className="layout-mini-window"
-            style={{ left: "0%", width: `${100 * flowScale}%` }}
+            style={{ left: `${windowLeft}%`, width: `${100 * flowScale}%` }}
           />
         ) : null}
       </span>

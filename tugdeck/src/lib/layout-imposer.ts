@@ -1325,6 +1325,16 @@ export interface FlowStrip {
   /** Each occupied slot's left edge, measured from the strip's own origin —
    *  which is the band's left edge at offset 0. */
   positions: ReadonlyMap<number, number>;
+  /**
+   * Each occupied slot's extent — the width its widest member paints at, after
+   * duplicates have folded.
+   *
+   * Carried out of the strip rather than left for a caller to re-derive from
+   * the positions, for the reason the strip is resolved in one place at all: a
+   * second derivation would have to subtract a gap it assumes, and would part
+   * company with this one the day the gap stops being a constant.
+   */
+  extents: ReadonlyMap<number, number>;
   /** The strip's full length: the last slot's left plus its extent. No
    *  trailing gap — the gap is what stands BETWEEN two slots. */
   width: number;
@@ -1370,7 +1380,7 @@ export function flowStripPositions(
   // `running` carries one trailing gap past the last slot; the strip ends at
   // the last card's right edge.
   const width = slots.length === 0 ? 0 : running - IMPOSITION_GAP_PX;
-  return { positions, width };
+  return { positions, extents, width };
 }
 
 /**
