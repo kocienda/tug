@@ -149,7 +149,7 @@ async function pointAt(app: App): Promise<void> {
 /**
  * Hover, then wait out the whole open delay and report whether a bubble came.
  *
- * The provider's `delayDuration` is 500ms; the wait is well past it, because
+ * The provider's `delayDuration` is 900ms; the wait is well past it, because
  * the interesting answer here is a NEGATIVE one and a short wait would prove
  * only that the bubble had not arrived yet.
  */

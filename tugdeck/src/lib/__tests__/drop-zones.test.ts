@@ -22,6 +22,7 @@ import {
   autoscrollKey,
   dropZoneKey,
   enumerateDropZones,
+  hitRectOf,
   pickLiveZone,
   type AutoscrollTarget,
   type DropZone,
@@ -351,6 +352,102 @@ describe("a split column advertises one position per place a member can stand", 
     for (const zone of columnZones) {
       expect(zone.rect.height).toBeCloseTo(memberH, 6);
     }
+  });
+});
+
+// ---- Where a position is asked for ----
+
+describe("a position is asked for at the members, not at the tile", () => {
+  // The column p2 (300 tall from RUN_TOP) over p3 (295 tall), and p1 arriving
+  // from slot 0. Three positions, and the run divides at each sitting member's
+  // midpoint.
+  const MID_P2 = RUN_TOP + 300 / 2;
+  const MID_P3 = RUN_TOP + 300 + IMPOSITION_GAP_PX + 295 / 2;
+
+  function arriving() {
+    const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
+      kind: "three-up",
+      columns: { 1: { mode: "split" } },
+    });
+    const rects = splitRects(1, [300, 295]);
+    return enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map([[0, slotRect(0)]]),
+        panes: new Map([
+          ["p1", slotRect(0)],
+          ["p2", rects[0]],
+          ["p3", rects[1]],
+        ]),
+      }),
+    );
+  }
+
+  it("the bands divide the run at the sitting members' midpoints", () => {
+    const columnZones = arriving().zones.filter(
+      (zone) => zone.kind === "column-index",
+    );
+    const bands = columnZones.map(hitRectOf);
+    expect(bands[0].y).toBeCloseTo(RUN_TOP, 6);
+    expect(bands[0].y + bands[0].height).toBeCloseTo(MID_P2, 6);
+    expect(bands[1].y).toBeCloseTo(MID_P2, 6);
+    expect(bands[1].y + bands[1].height).toBeCloseTo(MID_P3, 6);
+    expect(bands[2].y).toBeCloseTo(MID_P3, 6);
+    expect(bands[2].y + bands[2].height).toBeCloseTo(RUN_TOP + RUN_HEIGHT, 6);
+  });
+
+  it("the tile a band lands in is untouched by where it is asked for", () => {
+    // The whole bargain of splitting the two apart: the indicator still draws
+    // the overflow strip's tile ([P08]), so what it promises is still what the
+    // release does. Only the region that asks for it has moved.
+    const columnZones = arriving().zones.filter(
+      (zone) => zone.kind === "column-index",
+    );
+    const memberH =
+      (300 + IMPOSITION_GAP_PX + 295) / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    for (const zone of columnZones) {
+      expect(zone.rect.height).toBeCloseTo(memberH, 6);
+    }
+  });
+
+  it("the last position is reachable over the bottom member's lower half", () => {
+    // The defect this fixes. Selecting by tile, this pointer asks for the
+    // MIDDLE position: the last position's tile begins at 500 and runs off the
+    // bottom of the band, so only the run's last sliver could reach it, and
+    // everything over the bottom member read as "between the two".
+    const { zones, origin } = arriving();
+    const pointer = { x: SLOT_X[1] + SLOT_WIDTH / 2, y: MID_P3 + 20 };
+    const live = pickLiveZone(zones, pointer, origin);
+    expect(dropZoneKey(live!)).toBe("column:1:2");
+    const middle = zones.find((zone) => dropZoneKey(zone) === "column:1:1")!;
+    expect(pointer.y).toBeLessThan(middle.rect.y + middle.rect.height);
+  });
+
+  it("a rail's positions are asked for the same way", () => {
+    const state = deck([pane("s1"), pane("s2"), pane("s3")], {
+      kind: "three-up",
+    });
+    const rects = splitRects(0, [200, 150, 180]);
+    const { zones } = enumerateDropZones(
+      state,
+      "s1",
+      measured({
+        panes: new Map([
+          ["s1", rects[0]],
+          ["s2", rects[1]],
+          ["s3", rects[2]],
+        ]),
+        rails: [{ side: "left", members: ["s1", "s2", "s3"] }],
+      }),
+    );
+    const bands = zones.map(hitRectOf);
+    expect(bands).toHaveLength(3);
+    expect(bands[0].y + bands[0].height).toBeCloseTo(
+      rects[1].y + rects[1].height / 2,
+      6,
+    );
+    expect(bands[2].y).toBeCloseTo(rects[2].y + rects[2].height / 2, 6);
   });
 });
 

@@ -87,10 +87,42 @@ export const AUTOSCROLL_RATE_PX_PER_SEC = 900;
  * covering all three would have to be narrowed at every use.
  */
 export type DropZone =
-  | { kind: "column-index"; slot: number; index: number; rect: Rect }
-  | { kind: "slot"; slot: number; rect: Rect }
-  | { kind: "tab-bar"; paneId: string; rect: Rect }
-  | { kind: "rail-index"; side: SidebarSide; index: number; rect: Rect };
+  | { kind: "column-index"; slot: number; index: number; rect: Rect; hit?: Rect }
+  | { kind: "slot"; slot: number; rect: Rect; hit?: Rect }
+  | { kind: "tab-bar"; paneId: string; rect: Rect; hit?: Rect }
+  | {
+      kind: "rail-index";
+      side: SidebarSide;
+      index: number;
+      rect: Rect;
+      hit?: Rect;
+    };
+
+/**
+ * Where a zone is **asked for**, as opposed to where it lands.
+ *
+ * For most zones the two are the same rect and `hit` is absent. They come apart
+ * wherever the tile a card would land in is a poor description of the region
+ * that should select it — which is every position of a split column or a rail.
+ *
+ * A column's positions are asked for at its MEMBERS: the run divides at the
+ * midpoint of each member standing there, so position 0 is asked for over the
+ * top member's upper half, the last position over the bottom member's lower
+ * half, and every position is a band the eye can find. Selecting by the landing
+ * tile instead makes the last position of a column about to overflow nearly
+ * unreachable — its tile begins four fifths of the way down a run it then hangs
+ * off the bottom of, so the only pointer that asks for it is one in the last
+ * sliver of the band, while everything above it reads as the middle position.
+ * That is the wrong question, in the same way center distance was: the card is
+ * being placed AMONG the cards that are there, and where they are is the fact
+ * the hand is aiming at.
+ *
+ * The tile stays exactly what it was, so the indicator keeps its promise: what
+ * it draws is still where the release lands.
+ */
+export function hitRectOf(zone: DropZone): Rect {
+  return zone.hit ?? zone.rect;
+}
 
 /** A rail's composition, in the rail's own vertical order.
  *
@@ -314,7 +346,51 @@ function stackTiles(
 }
 
 /**
- * Where the dragged card would land for each position of a split column.
+ * The bands that ask for each of a place's positions, given the members the
+ * dragged card would be standing among.
+ *
+ * One band per position — `others.length + 1` of them — divided at each other
+ * member's midpoint, so crossing a member's middle is what moves the indication
+ * past it. The outermost bands are stretched to whichever is further out, the
+ * run's edge or the member's own, so a column scrolled off its run still has
+ * every position askable somewhere.
+ *
+ * @see {@link hitRectOf} for why selection is asked at the members rather than
+ * at the tiles.
+ */
+function positionHitBands(
+  others: readonly Rect[],
+  bounds: { top: number; bottom: number },
+  x: number,
+  width: number,
+): Rect[] {
+  if (others.length === 0) {
+    return [{ x, width, y: bounds.top, height: bounds.bottom - bounds.top }];
+  }
+  const first = others[0];
+  const last = others[others.length - 1];
+  const top = Math.min(bounds.top, first.y);
+  const bottom = Math.max(bounds.bottom, last.y + last.height);
+  const edges = [
+    top,
+    ...others.map((rect) => rect.y + rect.height / 2),
+    bottom,
+  ];
+  const bands: Rect[] = [];
+  for (let i = 0; i < edges.length - 1; i++) {
+    bands.push({
+      x,
+      width,
+      y: edges[i],
+      height: Math.max(0, edges[i + 1] - edges[i]),
+    });
+  }
+  return bands;
+}
+
+/**
+ * Each position of a split column: the tile the card would land in, and the
+ * band that asks for it.
  *
  * `draggedIndex` is the card's own index when the column is its own, or null
  * when it is arriving from elsewhere — the difference being whether the card
@@ -323,10 +399,10 @@ function stackTiles(
  * than off the count the column has now: a two-member column that is about to
  * take a third divides no longer.
  */
-function columnTileRects(
+function columnPlaces(
   members: readonly Rect[],
   draggedIndex: number | null,
-): Rect[] {
+): { tile: Rect; hit: Rect }[] {
   if (members.length === 0) return [];
   const run = runOf(members);
   const { x, width } = members[0];
@@ -335,12 +411,19 @@ function columnTileRects(
       ? members
       : members.filter((_, i) => i !== draggedIndex);
   const count = others.length + 1;
-  if (columnStanding(count) === "overflow") {
-    return overflowTiles(count, run, x, width);
-  }
   const draggedHeight =
     draggedIndex === null ? run.height / count : members[draggedIndex].height;
-  return stackTiles(others, draggedHeight, run.top, x, width);
+  const tiles =
+    columnStanding(count) === "overflow"
+      ? overflowTiles(count, run, x, width)
+      : stackTiles(others, draggedHeight, run.top, x, width);
+  const hits = positionHitBands(
+    others,
+    { top: run.top, bottom: run.top + run.height },
+    x,
+    width,
+  );
+  return tiles.map((tile, index) => ({ tile, hit: hits[index] ?? tile }));
 }
 
 // ---- Enumeration ----
@@ -361,10 +444,17 @@ function railZonesOf(
   const { x, width } = members[0];
   const runTop = Math.min(...members.map((rect) => rect.y));
   const others = members.filter((_, i) => i !== draggedIndex);
+  const runBottom = Math.max(...members.map((rect) => rect.y + rect.height));
   const tiles = stackTiles(
     others,
     members[draggedIndex].height,
     runTop,
+    x,
+    width,
+  );
+  const hits = positionHitBands(
+    others,
+    { top: runTop, bottom: runBottom },
     x,
     width,
   );
@@ -376,6 +466,7 @@ function railZonesOf(
     side: rail.side,
     index,
     rect,
+    hit: hits[index] ?? rect,
   }));
   return { zones, origin: zones[draggedIndex] ?? null };
 }
@@ -427,15 +518,21 @@ export function enumerateDropZones(
       }
       if (members.length !== column.members.length) continue;
       const draggedIndex = own ? column.members.indexOf(draggedPaneId) : null;
-      const tiles = columnTileRects(members, draggedIndex);
+      const places = columnPlaces(members, draggedIndex);
       // The card's own column keeps its member count; a foreign one grows by
       // the arriving card, so it advertises one more position than it has
       // members.
       const positions = own ? column.members.length : column.members.length + 1;
       for (let index = 0; index < positions; index++) {
-        const rect = tiles[index];
-        if (rect === undefined) continue;
-        const zone: DropZone = { kind: "column-index", slot, index, rect };
+        const place = places[index];
+        if (place === undefined) continue;
+        const zone: DropZone = {
+          kind: "column-index",
+          slot,
+          index,
+          rect: place.tile,
+          hit: place.hit,
+        };
         zones.push(zone);
         if (own && index === draggedIndex) origin = zone;
       }
@@ -526,9 +623,9 @@ export function pickLiveZone(
 ): DropZone | null {
   if (zones.length === 0) return null;
   let best = zones[0];
-  let bestScore = zoneScore(best.rect, pointer);
+  let bestScore = zoneScore(hitRectOf(best), pointer);
   for (const zone of zones.slice(1)) {
-    const score = zoneScore(zone.rect, pointer);
+    const score = zoneScore(hitRectOf(zone), pointer);
     if (nearer(score, bestScore, 0)) {
       best = zone;
       bestScore = score;
@@ -541,7 +638,7 @@ export function pickLiveZone(
   if (dropZoneKey(best) === key) return standing;
   return nearer(
     bestScore,
-    zoneScore(standing.rect, pointer),
+    zoneScore(hitRectOf(standing), pointer),
     ZONE_HYSTERESIS_PX,
   )
     ? best

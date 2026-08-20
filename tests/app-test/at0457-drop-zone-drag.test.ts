@@ -41,6 +41,11 @@
  *      the siblings under the user's hand. The cut detector cannot see that
  *      (a tweened frame is not a cut), so it is asserted here.
  *
+ *   9. **A release onto the card's own position still animates it home.** The
+ *      drop that commits nothing is still a drop: no mutation, no render, and
+ *      the frame could simply have its transform removed — which is a teleport,
+ *      and reads as a gesture that was ignored.
+ *
  * The indicator is asserted by presence and place rather than by appearance:
  * what matters is that something stands in the zone the release will use, and
  * that it is gone the moment ⌘ says no zone is live. Its treatment is [Q01]'s
@@ -565,6 +570,70 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
               "the number commits once, at the drop",
             ).toBeGreaterThan(before);
           }
+        }
+
+        // ── 9. A release onto the card's own position still animates. ──
+        {
+          // The drop that commits nothing is the one an implementation is
+          // tempted to skip: no mutation, no render, and the frame can simply
+          // have its transform taken off. But the card travelled under the
+          // hand, and a gesture that ends by teleporting reads as one that was
+          // ignored ([P09]).
+          //
+          // Recorded rather than observed mid-flight: `Element.prototype.animate`
+          // is WRAPPED, not replaced — the real animation still runs, and the
+          // wrapper only notes that it was asked for. A background window's
+          // timeline makes "is it running right now?" a race; "was it started"
+          // is a fact.
+          await app.evalJS<null>(
+            `(function () {
+               window.__at0457Landings = [];
+               if (window.__at0457Wrapped) return null;
+               window.__at0457Wrapped = true;
+               var real = Element.prototype.animate;
+               Element.prototype.animate = function (keyframes, options) {
+                 if (this.classList && this.classList.contains("tug-pane")) {
+                   window.__at0457Landings.push({
+                     pane: this.getAttribute("data-pane-id"),
+                     keyframes: JSON.stringify(keyframes),
+                     key: options && options.id ? options.id : null,
+                   });
+                 }
+                 return real.apply(this, arguments);
+               };
+               return null;
+             })()`,
+          );
+          const home = await titleBarPoint(app, "p4");
+          const away = { x: home.x, y: Math.round(home.y + 260) };
+          await app.nativeDragElementWithoutRelease(titleBar("p4"), away);
+          // Released back over where it started: the live zone is the origin,
+          // so the commit is a no-op and nothing re-renders.
+          await app.nativeMouseUp(home);
+          await wait(AFTER_LAND_MS);
+          const landings = await app.evalJS<
+            Array<{ pane: string; keyframes: string }>
+          >(`window.__at0457Landings`);
+          const mine = landings.filter(
+            (entry) => entry.pane === "p4" && entry.keyframes.includes("translate"),
+          );
+          note(
+            `origin release: ${landings.length} pane tween(s), ${mine.length} carrying p4 home`,
+          );
+          expect(
+            mine.length,
+            "a release onto the card's own position animates it home",
+          ).toBeGreaterThan(0);
+          const resting = await app.evalJS<string>(
+            `document.querySelector('.tug-pane[data-pane-id="p4"]').style.transform`,
+          );
+          expect(
+            // "none" and "" both say the same thing: nothing of the drag
+            // survives on the frame. Which one it is depends on whether the
+            // imposer's own style pass has written the property back since.
+            ["", "none"],
+            "and the frame is left carrying no offset of its own",
+          ).toContain(resting);
         }
       } finally {
         await app.close();

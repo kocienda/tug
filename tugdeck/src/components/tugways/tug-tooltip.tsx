@@ -76,13 +76,15 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 /** TugTooltipProvider props. */
 export interface TugTooltipProviderProps {
   /**
-   * Delay in ms before tooltip appears on hover.
-   * @default 500
+   * Delay in ms before tooltip appears on hover. Long enough that a pointer
+   * crossing a control on its way somewhere else never raises a bubble.
+   * @default 900
    */
   delayDuration?: number;
   /**
-   * Window in ms after closing where the next tooltip opens instantly.
-   * @default 300
+   * Window in ms after closing where the next tooltip opens instantly. Zero:
+   * every control pays the full delay, so sweeping a toolbar stays quiet.
+   * @default 0
    */
   skipDelayDuration?: number;
   /** App subtree. */
@@ -94,8 +96,8 @@ export interface TugTooltipProviderProps {
  * near other top-level providers (TugThemeProvider, ResponderChainProvider).
  */
 export function TugTooltipProvider({
-  delayDuration = 500,
-  skipDelayDuration = 300,
+  delayDuration = 900,
+  skipDelayDuration = 0,
   children,
 }: TugTooltipProviderProps) {
   return (

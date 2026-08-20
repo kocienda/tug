@@ -1225,33 +1225,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // detaches when the stack has nowhere to go.
         wMenu.addItem(NSMenuItem(title: "Reveal Stack", action: #selector(revealStack(_:)), keyEquivalent: "").identified("window.revealStack"))
         wMenu.addItem(NSMenuItem.separator())
-        // Card width — the focused card's own width, as one of the three
-        // named presets, check-marked like the title bar's width popup it
-        // duplicates. ⌃⌘1/2/3: the Tug tier, digits indexing the presets in
-        // picker order (tuglaws/chord-tiers.md). Key equivalents are left
-        // EMPTY on purpose — `applyCommandChords` writes them from the
-        // frontend's keymap on the first menuState push, which is what keeps
-        // all three rebindable instead of pinned by a construction literal.
-        for (title, preset) in [("Slim", "slim"), ("Comfy", "comfy"), ("Wide", "wide")] {
-            let item = NSMenuItem(title: title, action: #selector(setCardWidthFromMenu(_:)), keyEquivalent: "").identified("window.cardWidth.\(preset)")
-            item.representedObject = preset
-            wMenu.addItem(item)
-        }
-        wMenu.addItem(NSMenuItem.separator())
-        // Bullseye — the focused card's POSTURE rather than its size: a
-        // temporary reading stance, centred in the band at comfy with every
-        // other surface receded, reversible by pressing again. Its own group
-        // because the width rows above set a number that persists and this
-        // sets a stance that does not. ⌃⌘B, same Tug tier as the width row,
-        // and the key equivalent is left EMPTY for the same reason theirs
-        // are — `applyCommandChords` writes it from the frontend's keymap, so
-        // it stays rebindable end to end.
-        wMenu.addItem(NSMenuItem(title: "Bullseye", action: #selector(toggleBullseye(_:)), keyEquivalent: "").identified("window.bullseye"))
-        wMenu.addItem(NSMenuItem.separator())
         // The column family — how the panes standing in one slot arrange
         // themselves, and where this card stands among them. Its own group
-        // after the width/bullseye pair because those two answer for one card
-        // and these answer for the place several cards share.
+        // directly after the card-navigation rows because moving a card among
+        // the panes of a place is the same kind of act as choosing one.
         //
         // ⌃⌘S and the ⌃⌘ arrows, all with EMPTY key equivalents for the same
         // reason the width rows have them — `applyCommandChords` writes them
@@ -1273,6 +1250,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         ] {
             let item = NSMenuItem(title: title, action: #selector(moveInColumnFromMenu(_:)), keyEquivalent: "").identified(id)
             item.representedObject = where_
+            wMenu.addItem(item)
+        }
+        wMenu.addItem(NSMenuItem.separator())
+        // Bullseye — the focused card's POSTURE rather than its size: a
+        // temporary reading stance, centred in the band at comfy with every
+        // other surface receded, reversible by pressing again. Its own group
+        // because the width rows below set a number that persists and this
+        // sets a stance that does not. ⌃⌘B, same Tug tier as the width row,
+        // and the key equivalent is left EMPTY for the same reason theirs
+        // are — `applyCommandChords` writes it from the frontend's keymap, so
+        // it stays rebindable end to end.
+        wMenu.addItem(NSMenuItem(title: "Bullseye", action: #selector(toggleBullseye(_:)), keyEquivalent: "").identified("window.bullseye"))
+        wMenu.addItem(NSMenuItem.separator())
+        // Card width — the focused card's own width, as one of the three
+        // named presets, check-marked like the title bar's width popup it
+        // duplicates. ⌃⌘1/2/3: the Tug tier, digits indexing the presets in
+        // picker order (tuglaws/chord-tiers.md). Key equivalents are left
+        // EMPTY on purpose — `applyCommandChords` writes them from the
+        // frontend's keymap on the first menuState push, which is what keeps
+        // all three rebindable instead of pinned by a construction literal.
+        for (title, preset) in [("Slim", "slim"), ("Comfy", "comfy"), ("Wide", "wide")] {
+            let item = NSMenuItem(title: title, action: #selector(setCardWidthFromMenu(_:)), keyEquivalent: "").identified("window.cardWidth.\(preset)")
+            item.representedObject = preset
             wMenu.addItem(item)
         }
         // Anchor separator for the dynamic pane-list slice: pane items are

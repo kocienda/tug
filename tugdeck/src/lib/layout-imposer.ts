@@ -870,8 +870,39 @@ export function resolveContentWidthPx(
  * as `--tugx-imposer-settle-duration` and reads the resolved value back when
  * timing the settle, so the tween and the window that frames it are one number
  * and an override on the container tunes both.
+ *
+ * **This is the one knob for how fast cards move.** Every tween that carries a
+ * card to a new place or a new size runs on it: the crossing a changed
+ * imposition arms, the fade a split or stack gives a member, the rise an
+ * arriving frame plays, and the landing a drop animates into its zone. Raising
+ * it slows all of them together, which is the only way they stay one motion.
+ * The two durations deliberately outside it are named where they are declared —
+ * {@link PANE_EXIT_GHOST_MS}, which is a departure rather than a crossing, and
+ * `--tug-timing`, the app-wide multiplier over every Tug animation.
  */
-export const IMPOSITION_SETTLE_MS = 300;
+export const IMPOSITION_SETTLE_MS = 400;
+
+/**
+ * The settle duration actually in force on `el`, in milliseconds — the resolved
+ * `--tugx-imposer-settle-duration`, so a tuning override anywhere up the tree
+ * retimes every card that moves under it. Falls back to
+ * {@link IMPOSITION_SETTLE_MS} for an unresolvable or malformed value.
+ *
+ * Here rather than at either call site because both the canvas that arms the
+ * settle and the pane that lands a drop have to read the same number, and two
+ * parsers of one property is one parser too many.
+ */
+export function readSettleMs(el: HTMLElement): number {
+  const raw = getComputedStyle(el)
+    .getPropertyValue("--tugx-imposer-settle-duration")
+    .trim();
+  const seconds = raw.endsWith("ms") ? 0.001 : raw.endsWith("s") ? 1 : 0;
+  if (seconds === 0) return IMPOSITION_SETTLE_MS;
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) && value >= 0
+    ? value * seconds * 1000
+    : IMPOSITION_SETTLE_MS;
+}
 
 /**
  * How far a frame rises as it arrives, in pixels.
