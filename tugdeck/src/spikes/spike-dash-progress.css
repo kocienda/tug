@@ -1,13 +1,13 @@
 /**
- * spike-dash-progress.css — the state-colored step ring and the mock frames
- * around it.
+ * spike-dash-progress.css — the state-colored step ring, the stage marks, and
+ * the mock frames around them.
  *
- * Everything here is spike vocabulary (`spdp-`). The ring rules are the
- * candidate design: if it graduates, its block moves out with it. Tokens only
- * ([L15]) — the point of looking at a gauge is judging it across themes. The
- * one literal color is the action role's fixed cobalt, quoted from the
- * pulsing dot's own rule so the ring and the dot it wraps cannot disagree
- * about what "working" looks like.
+ * Everything here is spike vocabulary (`spdp-`). The ring and eyebrow rules
+ * are the candidate design: if they graduate, their blocks move out with
+ * them. Tokens only ([L15]) — the point of looking at a gauge is judging it
+ * across themes. The one literal color is the action role's fixed cobalt,
+ * quoted from the pulsing dot's own rule so the ring and the dot it wraps
+ * cannot disagree about what "working" looks like.
  */
 
 /* ── Prose and specimen scaffolding ─────────────────────────────────────── */
@@ -57,6 +57,10 @@
   gap: var(--tug-space-2xs);
 }
 
+.spdp-inline-pair[data-gapped="true"] {
+  gap: var(--tug-space-sm);
+}
+
 /* ── The ring ───────────────────────────────────────────────────────────── */
 
 .spdp-ring {
@@ -92,16 +96,22 @@
   inset: 0;
 }
 
+/* The unfilled steps, toned well back: the count is read off the CONTRAST
+   between filled and unfilled, so the todo segments are a whisper — present
+   enough to make the wheel a wheel, never competing with the fill. */
 .spdp-ring-seg {
   stroke: var(--tug7-element-global-border-normal-muted-rest);
+  opacity: 0.35;
 }
 
 .spdp-ring-seg[data-state="done"] {
   stroke: var(--spdp-ring-tone);
+  opacity: 1;
 }
 
 .spdp-ring-seg[data-state="current"] {
   stroke: var(--spdp-ring-tone);
+  opacity: 1;
   animation: spdp-seg-breathe 1.6s ease-in-out infinite;
 }
 
@@ -139,7 +149,33 @@
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
-/* ── The masthead mock ──────────────────────────────────────────────────── */
+/* ── The stage mark ─────────────────────────────────────────────────────── */
+
+.spdp-stage-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+/* ── The title cluster ──────────────────────────────────────────────────── */
+
+.spdp-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}
+
+/* `<name>^<dash>` is one flush run: NO space between a custom name and the
+   dash sigil — the identity grammar's rule, same as the shipping atom's run. */
+.spdp-name-dash {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  min-width: 0;
+}
 
 .spdp-title-run {
   display: inline-flex;
@@ -147,6 +183,19 @@
   gap: var(--tug-space-sm);
   min-width: 0;
 }
+
+/* The custom name alone, in the identity's own register — nothing renders
+   after it, which is what `TugSessionIdentity` cannot say. */
+.spdp-compact-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* ── The masthead mock ──────────────────────────────────────────────────── */
 
 .spdp-chrome {
   height: 72px;
@@ -172,8 +221,11 @@
   overflow: hidden;
 }
 
+/* The Dashes section never renders narrower than a slim card, so the mock is
+   sized by the real constant (`CONTENT_WIDTH_SLIM_PX`, set inline by the
+   component) rather than by a rail-width guess. */
 .spdp-rail[data-wide="true"] {
-  width: 380px;
+  width: auto;
 }
 
 .spdp-pair {
@@ -221,57 +273,39 @@
 .spdp-dashes-list {
   display: flex;
   flex-direction: column;
+  gap: var(--tug-space-xl);
+  padding: var(--tug-space-2xs) var(--tug-space-2xs) var(--tug-space-sm);
 }
 
-/* The whole row is the two stacked lines: no leading or trailing slot, so
-   nothing competes with line 1 for its width. */
-.spdp-dashes-lines {
+/* One dash, one block: the eyebrow separates it from its neighbours. */
+.spdp-dash-block {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  width: 100%;
-  padding-block: 3px;
+  gap: 3px;
 }
 
-.spdp-dashes-l1 {
+/* The eyebrow: name at the left, hairline through the rest, the "who" at the
+   right — the Changes shade's header grammar, quiet and hueless. */
+.spdp-eyebrow {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-2xs);
+  gap: var(--tug-space-sm);
   min-width: 0;
 }
 
-/* The pill may give way; the short fixed facts after it never do. */
-.spdp-dashes-l1 > [data-slot="spdp-dashes-name"] {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
+/* Visible on purpose: the hairline is what separates dash from dash, so it
+   takes the default border tone rather than a muted divider, and it never
+   collapses below a readable run. */
+.spdp-eyebrow-rule {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 1px;
+  background: var(--tug7-element-global-border-normal-default-rest);
 }
 
-.spdp-dashes-stage {
-  flex: 0 0 auto;
-  font-size: var(--tug-font-size-2xs);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-.spdp-dashes-age {
-  margin-left: auto;
-  flex: 0 0 auto;
-  padding-left: var(--tug-space-sm);
-  font-size: var(--tug-font-size-3xs);
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* Indented under the pill: the sub-line register the session rows use. */
-.spdp-dashes-l2 {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-2xs);
-  min-width: 0;
-  padding-left: 18px;
-}
-
-.spdp-dashes-detail {
+/* The step or draft note, riding the eyebrow line: elides before the
+   hairline does. */
+.spdp-dash-note {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -281,67 +315,59 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.spdp-dashes-detail[data-empty="true"] {
+.spdp-dash-note[data-empty="true"] {
   color: var(--tug7-element-global-text-normal-subtle-rest);
   font-style: italic;
 }
 
-.spdp-dashes-facts {
+.spdp-dashes-verbs {
   flex: 0 0 auto;
+  display: inline-flex;
+  gap: var(--tug-space-2xs);
+}
+
+
+/* The worker's mini atom: the chip skin does the rest; this only caps it. */
+.spdp-worker {
+  max-width: 180px;
+}
+
+/* The metadata line beneath the eyebrow — everything the dash is DOING:
+   ring · stage icon · count · note · age · divergence. Indented one step
+   under the atom; the note is the only run that gives way. */
+.spdp-dash-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  padding-left: var(--tug-space-sm);
+}
+
+.spdp-dash-age {
+  flex: 0 0 auto;
+  padding-inline: var(--tug-space-2xs);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
 }
 
 .spdp-dashes-fact {
   font-size: var(--tug-font-size-2xs);
 }
 
-.spdp-dashes-fact[data-tone="danger"],
-.spdp-shade-l2 [data-tone="danger"] {
+.spdp-dashes-fact[data-tone="danger"] {
   color: var(--tug7-element-tone-icon-normal-danger-rest);
 }
 
-.spdp-dashes-fact[data-tone="caution"],
-.spdp-shade-l2 [data-tone="caution"] {
+.spdp-dashes-fact[data-tone="caution"] {
   color: var(--tug7-element-tone-icon-normal-caution-rest);
 }
 
-.spdp-dashes-fact[data-tone="muted"],
-.spdp-shade-l2 [data-tone="muted"] {
+.spdp-dashes-fact[data-tone="muted"] {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.spdp-dashes-fact[data-tone="subtle"],
-.spdp-shade-l2 [data-tone="subtle"] {
+.spdp-dashes-fact[data-tone="subtle"] {
   color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-/* Line 2's right edge: the row's "who" — a worker reference or the verbs. */
-.spdp-dashes-side {
-  margin-left: auto;
-  flex: 0 0 auto;
-  padding-left: var(--tug-space-sm);
-  display: inline-flex;
-  align-items: center;
-}
-
-.spdp-dashes-verbs {
-  display: inline-flex;
-  gap: var(--tug-space-2xs);
-}
-
-.spdp-worker {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tug-space-2xs);
-  max-width: 140px;
-}
-
-.spdp-worker-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--tug-font-size-2xs);
-  color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
 .spdp-dashes-empty {
@@ -369,32 +395,9 @@
   overflow: hidden;
 }
 
+/* The atom's own line; the metadata beneath reuses `.spdp-dash-meta`. */
 .spdp-shade-l1 {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-sm);
   min-width: 0;
-}
-
-.spdp-shade-facts {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: var(--tug-font-size-2xs);
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-/* Underneath the atom, indented under it: the sub-line hangs off the atom's
-   own left edge, one step in. */
-.spdp-shade-l2 {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  min-width: 0;
-  padding-left: 18px;
-  font-size: var(--tug-font-size-2xs);
-  white-space: nowrap;
 }

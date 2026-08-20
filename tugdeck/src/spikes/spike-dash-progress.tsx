@@ -2,30 +2,36 @@
  * spike-dash-progress.tsx — can a dash's step progress live INSIDE the rows we
  * already have, at their existing heights?
  *
- * ROUND 2. The first round showed four treatments; these are the verdicts:
+ * ROUND 2 verdicts: the step strip, baseline gauge, and standalone fraction
+ * are passed on; the dot ring is chosen, in the session's STATE color (the
+ * same phase mapping the dot reads — cobalt working, caution awaiting, danger
+ * errored, success complete), never the theme accent. The numbered step list
+ * is tabled for a Z2 WORK popover refresh.
  *
- *   - T1 step strip — PASSED ON. A 30-step plan makes the strip a paragraph
- *     of ticks; the treatment does not survive its own upper bound.
- *   - T2 dot ring — CHOSEN, refined here: the ring takes the session's STATE
- *     color rather than the accent, so it is one system with the phase dot it
- *     wraps — cobalt while working, caution while a question waits, danger on
- *     error, success when every step has landed. Destined for the Lens row
- *     and the session masthead.
- *   - T3 baseline gauge, T4 fraction — the gauge is out; the fraction
- *     survives as the ring's numerate companion where a row has the width.
- *   - The numbered step list — TABLED. The Z2 WORK popover already depicts
- *     the plan's steps; these ideas are held for a refresh of that surface.
- *   - Session identity atoms — a custom-named session should HIDE its
- *     callsign (shown again only to break a name collision). That is separate
- *     work, decided but not begun; the compact worker references in section 4
- *     preview what rows look like once it lands.
+ * ROUND 3: unfilled ring segments toned well back — the count is read off the
+ * filled/unfilled contrast. The Dashes section renders at its real floor, a
+ * slim card's content width.
  *
- * Sections:
- *   1. The ring, refined — state colors, sizes, and the inline miniature.
- *   2. The masthead at 72px — the ring on the dot, in two states.
- *   3. The Lens row back at three lines — today vs proposed.
- *   4. Dashes, always on — the promoted section, rebuilt as stacked rows.
- *   5. The shade's collapsed row — line 2 underneath the atom, indented.
+ * ROUND 4, this one:
+ *   - The identity rule is REMOVAL, not truncation: a custom-named session
+ *     shows no callsign and no project run at all. The masthead and the Lens
+ *     row both wear it here.
+ *   - ONE ring geometry. The 28px monitor form outset the ring inside the
+ *     dot's pulse; the small form has it right — the pulse ends AT the step
+ *     depiction. The 16px dot + ring is the design, everywhere.
+ *   - The plan stage is an ICON with its word on hover, beside the N/M count
+ *     — `implementing` as a word was spending title-line width the icon
+ *     carries in 13px.
+ *   - The Dashes section adopts the Changes shade's EYEBROW grammar: the dash
+ *     name leads a hairline header with the verbs (or the worker) at its
+ *     right, and the metadata sits beneath in one controlled line — stage
+ *     icon, ring, count, detail, age — with divergence on its own line only
+ *     when there is any.
+ *   - The shade's collapsed row is REGULARIZED with the Dashes rows: same
+ *     icons, same ring, same fact tones — one language in both places.
+ *
+ * Held separately: the identity-atom work itself (decided, not begun) — the
+ * fixtures here preview it.
  *
  * @module spikes/spike-dash-progress
  */
@@ -34,23 +40,33 @@ import "./spike.css";
 import "./spike-dash-progress.css";
 
 import React from "react";
-import { GitBranch } from "lucide-react";
+import {
+  FileCheck,
+  GitBranch,
+  GitMerge,
+  Hammer,
+  Package,
+  ShieldCheck,
+  Sprout,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 
 import type { SpikeDef } from "./spike-registry";
 
-import { DashFactsRun, DashReviewMark } from "@/components/lens/sections/dash-facts";
+import { DashFactsRun } from "@/components/lens/sections/dash-facts";
 import { DashSigil } from "@/components/tugways/dash-sigil";
-import { TugListRow } from "@/components/tugways/tug-list-row";
-import { TugMetaRun } from "@/components/tugways/tug-meta-run";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   TugSessionRow,
   TUG_SESSION_ROW_INDICATOR_SIZE,
   TUG_SESSION_ROW_STACK_DOT_SIZE,
 } from "@/components/tugways/tug-session-row";
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
+import { CONTENT_WIDTH_SLIM_PX } from "@/lib/layout-imposer";
 import {
   composeSessionIdentity,
   type SessionIdentity,
@@ -63,6 +79,11 @@ import {
 /** Past this many steps the ring stops drawing per-step gaps: a 24-way split
  *  ring is texture, not a count, so it becomes one continuous arc. */
 const RING_SEGMENT_MAX = 16;
+
+/** THE dot size for the ring form. One geometry: the pulse ends at the ring,
+ *  never inside it, which the small form gets right and the 28px monitor form
+ *  did not. Every surface that takes the ring takes it at this size. */
+const RING_DOT_SIZE = TUG_SESSION_ROW_STACK_DOT_SIZE;
 
 /** One ring segment's arc path, angles in radians. */
 function arcPath(
@@ -90,30 +111,30 @@ function arcPath(
  * the success tone — every step landed is the one reading that outranks what
  * the session is doing this second.
  *
- * With `dotSize` it wraps a live phase dot (the masthead / Lens form); with
- * neither it is the inline miniature — a bare 14px glyph that rides in a text
- * run where the strip used to.
+ * With `dot` it wraps a live phase dot at {@link RING_DOT_SIZE} — the one
+ * size the design has; without it, it is the inline miniature for rows with
+ * no dot of their own.
  */
 function DotRing({
   current,
   total,
   phase = "tool_work",
-  dotSize,
+  dot = false,
   complete = false,
 }: {
   current: number;
   total: number;
   /** The session phase key the ring (and inner dot) take their color from. */
   phase?: string;
-  /** Render a live phase dot inside; omitted → the inline miniature. */
-  dotSize?: number;
+  /** Wrap a live phase dot; omitted → the inline miniature. */
+  dot?: boolean;
   complete?: boolean;
 }): React.ReactElement {
   const role = complete
     ? "success"
     : (sessionSessionPhaseVisual(phase).role ?? "inherit");
   const stroke = 2;
-  const box = dotSize !== undefined ? dotSize + 10 : 14;
+  const box = dot ? RING_DOT_SIZE + 10 : 14;
   const c = box / 2;
   const r = c - stroke / 2 - 0.5;
   const segmented = total <= RING_SEGMENT_MAX;
@@ -158,11 +179,11 @@ function DotRing({
           );
         })}
       </svg>
-      {dotSize !== undefined ? (
+      {dot ? (
         <span className="spdp-ring-dot">
           <TugProgressIndicator
             variant="pulsing-dot"
-            size={dotSize}
+            size={RING_DOT_SIZE}
             phase={phase}
             phaseVisual={sessionSessionPhaseVisual}
             aria-hidden
@@ -192,6 +213,77 @@ function Fraction({
 }
 
 // ---------------------------------------------------------------------------
+// The stage mark
+// ---------------------------------------------------------------------------
+
+/** The plan stages, each as a glyph. The word rides the hover — a stage name
+ *  in 13px of icon instead of 90px of text is what makes room for it on a
+ *  title line. */
+const STAGE_ICONS: Record<string, LucideIcon> = {
+  created: Sprout,
+  working: Wrench,
+  implementing: Hammer,
+  built: Package,
+  audited: ShieldCheck,
+  "draft-ready": FileCheck,
+  joining: GitMerge,
+};
+
+function StageMark({
+  stage,
+  size = 13,
+}: {
+  stage: string;
+  size?: number;
+}): React.ReactElement {
+  const Glyph = STAGE_ICONS[stage] ?? Sprout;
+  return (
+    <TugTooltip content={stage}>
+      <span className="spdp-stage-mark" data-stage={stage} aria-label={stage}>
+        <Glyph size={size} />
+      </span>
+    </TugTooltip>
+  );
+}
+
+/**
+ * The whole title run: `<name>^<dash>`, then the stage icon and the count.
+ *
+ * The name and the sigil are one FLUSH run — the identity grammar puts no
+ * space between a name and its `^`, exactly as the shipping atom's run does
+ * (`.tug-session-identity-run` has no gap). Only after the dash name does the
+ * line breathe: a gap ahead of the stage icon, another ahead of the count.
+ */
+function TitleCluster({
+  sessionName,
+  name,
+  review,
+  stage,
+  current,
+  total,
+  slot,
+}: {
+  sessionName: string;
+  name: string;
+  review: string | null;
+  stage: string;
+  current: number;
+  total: number;
+  slot: string;
+}): React.ReactElement {
+  return (
+    <span className="spdp-cluster">
+      <span className="spdp-name-dash">
+        <CompactName name={sessionName} />
+        <DashSigil name={name} review={review} slot={slot} />
+      </span>
+      <StageMark stage={stage} />
+      <Fraction current={current} total={total} />
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
@@ -206,12 +298,79 @@ const WORKER_FLOW: SessionIdentity = composeSessionIdentity({
   ledgerKnown: true,
 });
 
+/**
+ * The identity under the rule: a custom name is set, so the callsign is
+ * REMOVED — no run, no fallback, nothing after the name.
+ *
+ * Deliberately NOT `TugSessionIdentity`: that component cannot say this.
+ * `sessionTitleParts` always emits a callsign beside a custom name, and with
+ * `tag: null` it falls back to the SHORT ID — which is exactly the
+ * `:spdp-flo…` residue the earlier rounds showed. The mock renders the name
+ * run directly, in the identity's own type register (semibold, one line),
+ * because rendering nothing after it is the whole point. When the identity
+ * work lands, `sessionTitleParts` is where the rule goes.
+ */
+function CompactName({ name }: { name: string }): React.ReactElement {
+  return <span className="spdp-compact-name">{name}</span>;
+}
+
+/**
+ * The session ATOM under the same rule: dot, custom name, dash — and no
+ * callsign anywhere in the pill. Composed from the settled atom skin's own
+ * class names, the identical borrowing `DashSigil`'s atom mode already does:
+ * the enclosure, dot seat, and name register are `tug-session-identity.css`'s
+ * chip rules, reached by the same selectors, so this pill is the shipping
+ * pill minus exactly one run.
+ */
+function CompactAtom({
+  name,
+  dash,
+  review,
+  phase,
+}: {
+  name: string;
+  dash: string;
+  review: string | null;
+  phase: string;
+}): React.ReactElement {
+  return (
+    <span
+      className="tug-session-identity"
+      data-slot="spdp-compact-atom"
+      data-tier="chip"
+      data-size="2xs"
+    >
+      <span className="tug-session-identity-dot">
+        <TugProgressIndicator
+          variant="pulsing-dot"
+          size={10}
+          phase={phase}
+          phaseVisual={sessionSessionPhaseVisual}
+          aria-hidden
+        />
+      </span>
+      <span className="tug-session-identity-run">
+        <span className="tug-session-identity-title">
+          <span className="tug-session-identity-name">{name}</span>
+        </span>
+        <DashSigil
+          name={dash}
+          review={review}
+          slot="spdp-compact-atom-dash"
+          title={`Working on dash ${dash}`}
+          ariaLabel={`On dash ${dash}`}
+        />
+      </span>
+    </span>
+  );
+}
+
 const FLOW_CURRENT = 7;
 
-/** The compact worker reference: a phase dot and the session's display name.
- *  This PREVIEWS the identity-atom decision — a custom-named session hides
- *  its callsign, so the reference is short enough to sit at a line's end; an
- *  unnamed session would show its callsign here instead. */
+/** The worker as a MINI ATOM: the settled chip skin (same borrowing as
+ *  {@link CompactAtom}) holding a phase dot and the session's display name —
+ *  no callsign, no dash run. Previews the identity-atom decision; an unnamed
+ *  session shows its callsign AS the name. */
 function WorkerRef({
   name,
   phase,
@@ -220,15 +379,26 @@ function WorkerRef({
   phase: string;
 }): React.ReactElement {
   return (
-    <span className="spdp-worker" data-slot="spdp-worker">
-      <TugProgressIndicator
-        variant="pulsing-dot"
-        size={8}
-        phase={phase}
-        phaseVisual={sessionSessionPhaseVisual}
-        aria-hidden
-      />
-      <span className="spdp-worker-name">{name}</span>
+    <span
+      className="tug-session-identity spdp-worker"
+      data-slot="spdp-worker"
+      data-tier="chip"
+      data-size="2xs"
+    >
+      <span className="tug-session-identity-dot">
+        <TugProgressIndicator
+          variant="pulsing-dot"
+          size={10}
+          phase={phase}
+          phaseVisual={sessionSessionPhaseVisual}
+          aria-hidden
+        />
+      </span>
+      <span className="tug-session-identity-run">
+        <span className="tug-session-identity-title">
+          <span className="tug-session-identity-name">{name}</span>
+        </span>
+      </span>
     </span>
   );
 }
@@ -241,7 +411,7 @@ interface DashRowFixture {
   complete?: boolean;
   /** The session phase coloring this row's ring, when work is live. */
   phase?: string;
-  /** Line 2's lead: the step being worked, or the draft's subject. */
+  /** The metadata line's lead: the step being worked, or the draft's subject. */
   detail: string | null;
   review: string | null;
   age: string;
@@ -346,51 +516,44 @@ function RingSection(): React.ReactElement {
     <section className="sp-section">
       <h2 className="sp-section-title">1 · The ring, in the state color</h2>
       <p className="spdp-prose">
-        The chosen treatment, refined: the ring takes its tone from the{" "}
+        The chosen treatment: the ring takes its tone from the{" "}
         <em>same phase mapping the dot inside it reads</em>, never the theme
-        accent. One glyph now answers two questions — what the session is
-        doing this second (the dot, as today) and how far through its plan the
-        dash is (the ring). A session parked on a question wears caution on
-        both; every step landed reads success whatever the session is doing.
-        The step strip is passed on: at 30 steps it is a paragraph of ticks,
-        and a treatment that fails its upper bound fails.
+        accent, and the unfilled steps are a toned-back whisper the fill
+        contrasts against. <strong>One geometry.</strong> The dot is always{" "}
+        {RING_DOT_SIZE}px inside its ring, so the pulse ends AT the step
+        depiction — the 28px monitor form, whose pulse outset the ring, is
+        retired from this design.
       </p>
       <div className="spdp-specimen-grid">
         <RingSpecimen caption="working — the dot's own fixed cobalt, step 7 of 12">
-          <DotRing current={7} total={12} phase="tool_work" dotSize={16} />
+          <DotRing current={7} total={12} phase="tool_work" dot />
         </RingSpecimen>
         <RingSpecimen caption="awaiting an answer — caution ring, caution dot">
-          <DotRing
-            current={7}
-            total={12}
-            phase="awaiting_approval"
-            dotSize={16}
-          />
+          <DotRing current={7} total={12} phase="awaiting_approval" dot />
         </RingSpecimen>
         <RingSpecimen caption="errored — the failure outranks the count">
-          <DotRing current={7} total={12} phase="errored" dotSize={16} />
+          <DotRing current={7} total={12} phase="errored" dot />
         </RingSpecimen>
         <RingSpecimen caption="idle — quiet ring on a still dot; progress persists">
-          <DotRing current={7} total={12} phase="idle" dotSize={16} />
+          <DotRing current={7} total={12} phase="idle" dot />
         </RingSpecimen>
         <RingSpecimen caption="complete — every step landed reads success">
-          <DotRing current={12} total={12} complete dotSize={16} />
+          <DotRing current={12} total={12} complete dot />
         </RingSpecimen>
         <RingSpecimen caption="N=24 — past 16 steps the ring is one continuous arc">
-          <DotRing current={9} total={24} phase="tool_work" dotSize={16} />
-        </RingSpecimen>
-        <RingSpecimen caption="the Lens monitor size (28px dot)">
-          <DotRing
-            current={7}
-            total={12}
-            phase="tool_work"
-            dotSize={TUG_SESSION_ROW_INDICATOR_SIZE}
-          />
+          <DotRing current={9} total={24} phase="tool_work" dot />
         </RingSpecimen>
         <RingSpecimen caption="the inline miniature, with its fraction — for rows with no dot of their own">
           <span className="spdp-inline-pair">
             <DotRing current={7} total={12} phase="tool_work" />
             <Fraction current={7} total={12} />
+          </span>
+        </RingSpecimen>
+        <RingSpecimen caption="the stage marks — the word rides the hover">
+          <span className="spdp-inline-pair" data-gapped="true">
+            {Object.keys(STAGE_ICONS).map((stage) => (
+              <StageMark key={stage} stage={stage} />
+            ))}
           </span>
         </RingSpecimen>
       </div>
@@ -410,23 +573,18 @@ function MastheadMock({ phase }: { phase: string }): React.ReactElement {
         className="spdp-chrome-row"
         subAlign="title"
         indicator={
-          <DotRing
-            current={FLOW_CURRENT}
-            total={12}
-            phase={phase}
-            dotSize={TUG_SESSION_ROW_STACK_DOT_SIZE}
-          />
+          <DotRing current={FLOW_CURRENT} total={12} phase={phase} dot />
         }
         name={
-          <span className="spdp-title-run">
-            <TugSessionIdentity
-              identity={WORKER_FLOW}
-              tier="line"
-              dot={false}
-              tooltip={false}
-            />
-            <DashSigil name="flow-mode" review={null} slot="spdp-title-dash" />
-          </span>
+          <TitleCluster
+            sessionName="Layout imposer"
+            name="flow-mode"
+            review={null}
+            stage="implementing"
+            current={FLOW_CURRENT}
+            total={12}
+            slot="spdp-title-dash"
+          />
         }
         description={WORKER_FLOW.description ?? ""}
         activity={
@@ -446,14 +604,15 @@ function MastheadSection(): React.ReactElement {
     <section className="sp-section">
       <h2 className="sp-section-title">2 · The masthead — 72px, untouched</h2>
       <p className="spdp-prose">
-        The ring wraps the masthead's existing 16px dot: same three lines, same
-        tier, no character of the title line spent. The count and the current
-        step's title live on the ring's hover. Two states, so the state-color
-        rule is visible doing its work:
+        The ring wraps the masthead's dot; same three lines, same tier. The
+        identity rule is applied: the custom name REMOVES the callsign and the
+        project run — no truncation, no residue — and the reclaimed width
+        carries the dash cluster: sigil, stage icon (word on hover), count.
       </p>
       <MastheadMock phase="tool_work" />
       <span className="spdp-mock-caption">
-        working — cobalt dot, cobalt ring, step 7 of 12
+        working — cobalt dot, cobalt ring; the title reads name, dash, stage,
+        count
       </span>
       <MastheadMock phase="awaiting_approval" />
       <span className="spdp-mock-caption">
@@ -475,12 +634,7 @@ function LensRowMock({ proposed }: { proposed: boolean }): React.ReactElement {
         subAlign="edge"
         indicator={
           proposed ? (
-            <DotRing
-              current={FLOW_CURRENT}
-              total={12}
-              phase="tool_work"
-              dotSize={TUG_SESSION_ROW_INDICATOR_SIZE}
-            />
+            <DotRing current={FLOW_CURRENT} total={12} phase="tool_work" dot />
           ) : (
             <TugProgressIndicator
               variant="pulsing-dot"
@@ -491,17 +645,29 @@ function LensRowMock({ proposed }: { proposed: boolean }): React.ReactElement {
             />
           )
         }
-        indicatorSize={TUG_SESSION_ROW_INDICATOR_SIZE}
+        indicatorSize={proposed ? undefined : TUG_SESSION_ROW_INDICATOR_SIZE}
         name={
-          <span className="spdp-title-run">
-            <TugSessionIdentity
-              identity={WORKER_FLOW}
-              tier="line"
-              dot={false}
-              tooltip={false}
+          proposed ? (
+            <TitleCluster
+              sessionName="Layout imposer"
+              name="flow-mode"
+              review={null}
+              stage="implementing"
+              current={FLOW_CURRENT}
+              total={12}
+              slot="spdp-rail-dash"
             />
-            <DashSigil name="flow-mode" review={null} slot="spdp-rail-dash" />
-          </span>
+          ) : (
+            <span className="spdp-title-run">
+              <TugSessionIdentity
+                identity={WORKER_FLOW}
+                tier="line"
+                dot={false}
+                tooltip={false}
+              />
+              <DashSigil name="flow-mode" review={null} slot="spdp-rail-dash" />
+            </span>
+          )
         }
         description={WORKER_FLOW.description ?? ""}
         activity={
@@ -531,11 +697,14 @@ function LensRowSection(): React.ReactElement {
     <section className="sp-section">
       <h2 className="sp-section-title">3 · The Lens row — the fourth line retired</h2>
       <p className="spdp-prose">
-        Today's bound row grows a fourth line, so the rail's rows are two
-        heights. Proposed: the 28px monitor dot the row already leads with
-        takes the ring, and the row is three lines forever. The stage word and
-        the step's title move to the ring's hover and to the Dashes section,
-        which is built to hold them.
+        Today's bound row grows a fourth line and leads with the 28px monitor
+        dot. Proposed: the one ring geometry (the {RING_DOT_SIZE}px dot inside
+        its ring), three lines forever, and the identity rule applied in full —
+        the callsign and project are REMOVED under the custom name, and the
+        title line carries the dash cluster in their place:{" "}
+        <code>^flow-mode</code>, the stage icon with its word on hover, and{" "}
+        <code>7/12</code>. The step's <em>title</em> still lives on hover and
+        in the Dashes section.
       </p>
       <div className="spdp-pair">
         <div className="spdp-pair-item">
@@ -543,7 +712,9 @@ function LensRowSection(): React.ReactElement {
           <LensRowMock proposed={false} />
         </div>
         <div className="spdp-pair-item">
-          <span className="spdp-mock-caption">proposed — three lines, always</span>
+          <span className="spdp-mock-caption">
+            proposed — three lines; callsign removed, the cluster in its place
+          </span>
           <LensRowMock proposed />
         </div>
       </div>
@@ -552,87 +723,71 @@ function LensRowSection(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// Section 4 — Dashes, always on (rebuilt)
+// Section 4 — Dashes, always on (the eyebrow grammar)
 // ---------------------------------------------------------------------------
 
-function DashesRowMock({ f }: { f: DashRowFixture }): React.ReactElement {
+function DashBlockMock({ f }: { f: DashRowFixture }): React.ReactElement {
   const counted = f.current !== null && f.total !== null;
   return (
-    <TugListRow
-      className="spdp-dashes-row"
-      variant="flush"
-      density="compact"
-      data-dash={f.name}
-    >
-      <span className="spdp-dashes-lines">
-        <span className="spdp-dashes-l1">
-          <DashSigil
-            name={f.name}
-            review={f.review}
-            slot="spdp-dashes-name"
-            atom
-            atomSize="2xs"
-          />
-          <span className="spdp-dashes-stage">{f.stage}</span>
-          {counted ? (
-            <>
-              <DotRing
-                current={f.current!}
-                total={f.total!}
-                complete={f.complete}
-                phase={f.phase ?? "idle"}
-              />
-              <Fraction current={f.current!} total={f.total!} />
-            </>
-          ) : null}
-          {f.review !== null ? (
-            <DashReviewMark review={f.review} size={12} />
-          ) : null}
-          <span className="spdp-dashes-age">{f.age}</span>
-        </span>
-        <span className="spdp-dashes-l2">
-          {f.detail !== null ? (
-            <span className="spdp-dashes-detail">{f.detail}</span>
-          ) : (
-            <span className="spdp-dashes-detail" data-empty="true">
-              no plan adopted
-            </span>
-          )}
-          {f.facts.length > 0 ? (
-            <TugMetaRun
-              className="spdp-dashes-facts"
-              slot="spdp-dashes-facts"
-              parts={f.facts.map((fact) => (
-                <span
-                  key={fact.label}
-                  className="spdp-dashes-fact"
-                  data-tone={fact.tone}
-                >
-                  {fact.label}
-                </span>
-              ))}
-            />
-          ) : null}
-          <span className="spdp-dashes-side">
-            {f.workerName !== null ? (
-              <WorkerRef
-                name={f.workerName}
-                phase={f.workerPhase ?? "idle"}
-              />
-            ) : (
-              <span className="spdp-dashes-verbs">
-                <TugPushButton size="2xs" subtype="text">
-                  Bind
-                </TugPushButton>
-                <TugPushButton size="2xs" subtype="text" role="danger">
-                  Discard
-                </TugPushButton>
-              </span>
-            )}
+    <div className="spdp-dash-block" data-dash={f.name}>
+      {/* The eyebrow holds the identities and nothing else: the dash atom at
+          the left, the hairline, the "who" at the right — the worker's mini
+          atom, or the verbs. The dash pill never wears a review tint (that
+          yellow is the WAITING color, and a dash is not waiting for anyone). */}
+      <div className="spdp-eyebrow">
+        <DashSigil
+          name={f.name}
+          review={null}
+          slot="spdp-dashes-name"
+          atom
+          atomSize="2xs"
+        />
+        <span className="spdp-eyebrow-rule" />
+        {f.workerName !== null ? (
+          <WorkerRef name={f.workerName} phase={f.workerPhase ?? "idle"} />
+        ) : (
+          <span className="spdp-dashes-verbs">
+            <TugPushButton size="2xs" subtype="text">
+              Bind
+            </TugPushButton>
+            <TugPushButton size="2xs" subtype="text" role="danger">
+              Discard
+            </TugPushButton>
           </span>
-        </span>
-      </span>
-    </TugListRow>
+        )}
+      </div>
+      {/* Everything the dash is DOING, in one metadata line beneath:
+          ring · stage icon · count · note · age · divergence. */}
+      <div className="spdp-dash-meta">
+        {counted ? (
+          <DotRing
+            current={f.current!}
+            total={f.total!}
+            complete={f.complete}
+            phase={f.phase ?? "idle"}
+          />
+        ) : null}
+        <StageMark stage={f.stage} />
+        {counted ? <Fraction current={f.current!} total={f.total!} /> : null}
+        {f.detail !== null ? (
+          <span className="spdp-dash-note">{f.detail}</span>
+        ) : (
+          <span className="spdp-dash-note" data-empty="true">
+            no plan adopted
+          </span>
+        )}
+        <span className="spdp-dash-age">{f.age}</span>
+        {f.facts.map((fact) => (
+          <span
+            key={fact.label}
+            className="spdp-dashes-fact"
+            data-tone={fact.tone}
+          >
+            {fact.label}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -649,92 +804,99 @@ function DashesBand({ count }: { count: number }): React.ReactElement {
 function DashesSection(): React.ReactElement {
   return (
     <section className="sp-section">
-      <h2 className="sp-section-title">4 · Dashes, always on — rebuilt</h2>
+      <h2 className="sp-section-title">4 · Dashes, always on — the eyebrow grammar</h2>
       <p className="spdp-prose">
-        The always-on section, relaid after round 1's collision course. The
-        rebuild's rules: <strong>the dash leads its own section</strong> —
-        every row starts with the caret pill, bound or not, so the eye walks
-        one column of names. Everything else stacks under it in a fixed
-        two-line grammar with nothing fighting for line 1's width: the facts
-        run left, the age is alone at the right edge. Line 2 is indented under
-        the pill and ends with the row's "who": a compact reference to the
-        bound session, or the verbs for an unbound dash. The worker reference
-        assumes the identity-atom decision (callsign hidden under a custom
-        name; an unnamed session shows its callsign, as{" "}
-        <code>scroll-anchor</code>'s does).
+        One grammar, worn by every dash line in the app. The eyebrow holds the
+        IDENTITIES and nothing else: the dash atom at the left, the hairline,
+        and the "who" at the right — the bound worker as a mini atom, or Bind
+        and Discard. Beneath it one metadata line carries everything the dash
+        is DOING: ring · stage icon · count · note · age · divergence in its
+        tones. No review tint on the pills — that yellow means WAITING, and a
+        dash is not waiting for anyone — and no review glyph either. At the
+        section's real floor, a slim card's {CONTENT_WIDTH_SLIM_PX}px.
       </p>
-      <div className="spdp-rail" data-wide="true">
+      <div
+        className="spdp-rail"
+        data-wide="true"
+        style={{ width: CONTENT_WIDTH_SLIM_PX }}
+      >
         <DashesBand count={DASH_ROWS.length} />
         <div className="spdp-dashes-list">
           {DASH_ROWS.map((f) => (
-            <DashesRowMock key={f.name} f={f} />
+            <DashBlockMock key={f.name} f={f} />
           ))}
         </div>
       </div>
       <span className="spdp-mock-caption">
-        Line 1: pill · stage · ring · fraction · review — age right. Line 2,
-        indented: the step being worked (or the draft's subject) · divergence
-        facts — worker or verbs right.
+        Eyebrow: atom — hairline — worker-in-mini-atom or verbs. Metadata
+        beneath: ring · stage icon · count · note · age · divergence,
+        tone-colored.
       </span>
-      <div className="spdp-rail" data-wide="true">
+      <div
+        className="spdp-rail"
+        data-wide="true"
+        style={{ width: CONTENT_WIDTH_SLIM_PX }}
+      >
         <DashesBand count={0} />
         <div className="spdp-dashes-empty">
           No dashes. <code>tugutil dash create</code> starts one.
         </div>
       </div>
       <span className="spdp-mock-caption">
-        Empty state: the band stays. One quiet line costs ~24px of rail and
-        buys the section a fixed address.
+        Empty state: the band stays. One quiet line costs ~24px and buys the
+        section a fixed address.
       </span>
     </section>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Section 5 — the shade's collapsed row
+// Section 5 — the shade's collapsed row, regularized
 // ---------------------------------------------------------------------------
 
 function ShadeSection(): React.ReactElement {
   return (
     <section className="sp-section">
       <h2 className="sp-section-title">
-        5 · The shade's collapsed row — the second line under the atom
+        5 · The shade's collapsed row — one language with the Lens
       </h2>
       <p className="spdp-prose">
-        Two lines, as decided — with the second line positioned{" "}
-        <em>underneath the atom</em>, indented under it, rather than beside it
-        in a second column. The atom keeps the whole first line's leading
-        position; the condition facts hang beneath it like a sub-line, so the
-        urgent tail is always visible and the row reads top-down instead of
-        left-right-then-wrap.
+        The collapsed dash row in the Changes shade IS a Dashes block, with
+        one substitution: the leading atom is the session's, its dash riding
+        inside, because in the shade the worker is the subject. The atom has
+        its line; everything the dash is doing sits in the same metadata line
+        section 4 uses, indented under it. One design, two lead atoms.
       </p>
       <div className="spdp-shade-row">
         <span className="spdp-shade-l1">
-          <TugSessionIdentity
-            identity={WORKER_FLOW}
-            tier="chip"
-            size="2xs"
-            dash={{ name: "theme-audit", review: "stale" }}
-            tooltip={false}
+          <CompactAtom
+            name="Layout imposer"
+            dash="theme-audit"
+            review={null}
+            phase="idle"
           />
-          <span className="spdp-shade-facts">
-            <span>built</span>
-            <DotRing current={5} total={5} complete />
-            <Fraction current={5} total={5} />
-            <span>draft</span>
-            <span>verified</span>
-          </span>
         </span>
-        <span className="spdp-shade-l2">
-          <span data-tone="caution">base overlap (2)</span>
-          <span data-tone="muted">base +3</span>
-          <span data-tone="subtle">replayed</span>
+        <span className="spdp-dash-meta">
+          <DotRing current={5} total={5} complete />
+          <StageMark stage="built" />
+          <Fraction current={5} total={5} />
+          <span className="spdp-dash-note">draft · verified</span>
+          <span className="spdp-dash-age">1d</span>
+          <span className="spdp-dashes-fact" data-tone="caution">
+            base overlap (2)
+          </span>
+          <span className="spdp-dashes-fact" data-tone="muted">
+            base +3
+          </span>
+          <span className="spdp-dashes-fact" data-tone="subtle">
+            replayed
+          </span>
         </span>
       </div>
       <span className="spdp-mock-caption">
-        Line 1: the atom, then stage · ring · fraction · draft · verified.
-        Line 2, indented under the atom: the divergence facts, most urgent
-        first, never clipped.
+        Line 1: the session atom. Line 2, indented under the atom: the
+        section-4 metadata — ring · stage icon · count · note · age ·
+        divergence, tone-colored.
       </span>
     </section>
   );
