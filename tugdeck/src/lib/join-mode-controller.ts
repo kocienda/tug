@@ -699,24 +699,10 @@ export class JoinModeController implements LandingMode {
     this.fire();
   }
 
-  /**
-   * Resume an interrupted teardown from the dash's join journal (Spec S04).
-   * Takes its dash, because the lane can offer this on a row the mode has never
-   * been aimed at — a stale journal is exactly the state that refuses every
-   * other act.
-   */
-  resumeTeardown(dash?: JoinTarget): void {
-    if (dash !== undefined) this.retarget(dash);
-    const target = this.target;
-    if (target === null) return;
-    const { changesController } = this.deps;
-    getChangesetVerbStore()?.join(
-      changesController.entryKey,
-      changesController.workspaceKey,
-      target.name,
-      { preview: false, continueJoin: true, sessionId: changesController.tugSessionId },
-    );
-  }
+  // `resumeTeardown` lived here. It is gone with its button ([P08]): the join
+  // journal is durable and an interrupted teardown resumes itself off it, so
+  // the method existed only because nothing did. `continueJoin` stays on
+  // `JoinArgs` — the CLI still asks for it, and it is the server's own resume.
 
   setMessageProvider(read: (() => string) | null): void {
     this.messageProvider = read;

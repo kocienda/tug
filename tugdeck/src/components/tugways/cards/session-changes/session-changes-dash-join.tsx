@@ -73,16 +73,6 @@ import {
 export interface DashJoinActions {
   /** Point the join mode at this dash without entering it — the row's expand. */
   aim: (entry: DashChangesetEntry) => void;
-  /** Resume an interrupted teardown from the dash's join journal. */
-  resumeTeardown: (entry: DashChangesetEntry) => void;
-  /** Run the resolution ladder over a conflicted join. */
-  resolve: (entry: DashChangesetEntry) => void;
-  /** Run (or re-run) the project's own checks over the candidate ([P04]). */
-  /**
-   * Join past a red verdict ([P07]) — a decision made in view of the failures
-   * this face is showing, scoped to the candidate they describe.
-   */
-  overrideRed: (entry: DashChangesetEntry) => void;
   /**
    * Answer the intent question a blocked resolver raised ([P06]).
    *
@@ -134,24 +124,20 @@ export function deriveResolveFace(
   return outcome === "conflicted" || outcome === "stale" ? "offer" : "none";
 }
 
-/** The `data-slot` of every control this face can mount on the join path. */
-export const JOIN_CONTROL = {
-  resume: "session-changes-dash-resume",
-  resolve: "session-changes-dash-resolve",
-} as const;
-
-export type JoinControl = (typeof JOIN_CONTROL)[keyof typeof JOIN_CONTROL];
-
-/** What the face shows for one state: the words, and the single act. */
+/** What the face shows for one state — words, and no acts at all ([P08]). */
 export interface JoinFace {
   outcome: JoinOutcome;
   resolve: ResolveFace;
   /**
-   * The one control that advances this join, or `null` where the state
-   * advances by itself — a run in flight, a join in flight, a turn to wait
-   * out, and the joinable state, whose act is the composer's ⬆.
+   * Whether a join would go through right now, unqualified — no refusal, and
+   * no red standing over it.
+   *
+   * This is what the `control` field became ([P08]). Every state used to
+   * answer "which button do I mount"; none of them mount one now, so the
+   * question that is left is the only one the face still needs to answer about
+   * acting: is this dash ready, or is it saying something else.
    */
-  control: JoinControl | null;
+  ready: boolean;
   /**
    * What the face states about joining, or `null` where the state's own block
    * already is that sentence — see {@link JoinFace.statedBelow}.
@@ -214,23 +200,13 @@ export function deriveJoinFace(input: {
   });
   const reason = gate.ok ? null : joinDisabledReason(gate.reason, outcome, staleNote);
 
-  // An interrupted teardown outranks everything: it refuses every other act
-  // server-side, so it is the only door out of this state.
-  const control: JoinControl | null = interrupted
-    ? JOIN_CONTROL.resume
-    : (join?.blockers ?? []).length > 0
-      ? null
-      : resolve === "offer" || resolve === "error"
-        ? JOIN_CONTROL.resolve
-        : // A red mounts nothing here either, now that it is a decision rather
-          // than a refusal ([P05]): the act is the composer's own land button,
-          // which turns danger and asks. The JOIN ANYWAY that used to stand
-          // here was the detour — a refusal on one surface cleared by a button
-          // on another.
-          //
-          // `unverified` mounts nothing for the same shape of reason: the
-          // pilot runs Tier 0 unprompted, so the wait clears itself.
-          null;
+  // The whole control ladder was deleted here ([P08]). Every rung of it asked
+  // the user to start work the machine now starts on its own — the pilot
+  // reconciles and checks a `built` dash unprompted, an interrupted teardown
+  // resumes itself off its durable journal, and a red is answered in the
+  // composer where the press is. What is left is one boolean about the state,
+  // not a button.
+  const ready = gate.ok && !redStands;
 
   // Measured against what will render, never against the outcome word.
   const statedBelow =
@@ -253,7 +229,7 @@ export function deriveJoinFace(input: {
       ? null
       : reason;
 
-  return { outcome, resolve, control, line, statedBelow };
+  return { outcome, resolve, ready, line, statedBelow };
 }
 
 export interface SessionChangesDashJoinProps {
@@ -408,20 +384,11 @@ export function SessionChangesDashJoin({
     turnInProgress,
     interrupted,
   });
-  const { outcome, resolve: resolveFace, control, line: joinLine } = face;
-  const resumeHint =
-    joinPhase === "pending"
-      ? "A join is in flight"
-      : turnInProgress
-        ? "Wait for the turn to finish"
-        : null;
+  const { outcome, resolve: resolveFace, ready, line: joinLine } = face;
   // Every refusal on this surface, said out loud. A disabled button takes no
   // pointer events, so a `title` on one can never be read — the reason has to
   // arrive as face text or it does not arrive at all.
   const refusals: { control: string; reason: string }[] = [];
-  if (interrupted && resumeHint !== null) {
-    refusals.push({ control: "Resume teardown", reason: resumeHint });
-  }
   if (discardAvailable && discardDisabledReason !== null) {
     refusals.push({ control: "Discard", reason: discardDisabledReason });
   }
@@ -448,32 +415,6 @@ export function SessionChangesDashJoin({
               answer is a dead end, and the ladder is the only door out of a
               conflicted dash. The ladder's own dead end — some files still
               conflicting — arrives as an error carrying their names. */}
-          {control === JOIN_CONTROL.resolve ? (
-            <TugPushButton
-              size="xs"
-              emphasis="outlined"
-              role="action"
-              // Ungated by the turn: resolving builds a candidate commit off
-              // to the side and touches no checkout. Gating it locked a
-              // conflicted dash's only escape hatch behind the agent.
-              onClick={() => actions.resolve(entry)}
-              data-slot="session-changes-dash-resolve"
-            >
-              {resolveFace === "error" ? "Resolve again" : "Resolve"}
-            </TugPushButton>
-          ) : null}
-          {control === JOIN_CONTROL.resume ? (
-            <TugPushButton
-              size="xs"
-              emphasis="filled"
-              role="accent"
-              onClick={() => actions.resumeTeardown(entry)}
-              disabled={resumeHint !== null}
-              data-slot="session-changes-dash-resume"
-            >
-              Resume teardown
-            </TugPushButton>
-          ) : null}
           {/* Shade-only, on the row: a discard is not a thing to reach by
               chord or by typing a verb. One beat — it opens the lane's confirm
               popover, which names what the discard destroys and where the
@@ -496,7 +437,7 @@ export function SessionChangesDashJoin({
         <div
           className="session-changes-dash-join-note"
           data-slot="session-changes-dash-join-ready"
-          data-ready={control === null && outcome === "clean" ? "true" : "false"}
+          data-ready={ready ? "true" : "false"}
         >
           {joinLine}
         </div>

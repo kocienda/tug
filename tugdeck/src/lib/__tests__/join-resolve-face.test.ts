@@ -1,14 +1,16 @@
 /**
- * The landing face as a table: one feed state in, one control and one sentence
- * out.
+ * The landing face as a table: one feed state in, one sentence out.
  *
  * This is the shape the whole rework exists for. The old face decided what to
  * mount across five independent conditionals, and the state that broke was the
  * one where they disagreed — a Join button standing greyed out beside a Resolve
- * button, its refusal computed in a place the press never reached. So the rule
- * is now a single function with a single answer, and what these cases walk is
- * every row of it: **exactly one act per state, and a sentence wherever there
- * is no act at all.**
+ * button, its refusal computed in a place the press never reached.
+ *
+ * The answer arrived in two moves. First one function with one answer; then, at
+ * [P08], no buttons at all — the machine reconciles and checks a built dash
+ * unprompted, an interrupted teardown resumes itself, and a red is answered in
+ * the composer. So what these cases walk is every row of a table that now
+ * yields **a sentence wherever the state is not simply ready.**
  *
  * The second half drives the real ladder frames through the real overlay store,
  * because the one ranking that cannot be tested from a hand-built state is the
@@ -24,7 +26,6 @@ import {
   _resetChangesetJoinStoreForTest,
 } from "../changeset-join-store";
 import {
-  JOIN_CONTROL,
   QUESTION_DECLINED_TO_CHOOSE,
   deriveJoinFace,
   joinQuestionAsParsed,
@@ -87,41 +88,45 @@ function face(
 
 beforeEach(() => _resetChangesetJoinStoreForTest());
 
-describe("one control per state (Table T01)", () => {
-  test("blocked: the blockers are the text, and no control claims to clear them", () => {
-    // Each blocker renders its own act beside its own detail, so the face
-    // mounts no single control — and states nothing above them, because a
-    // second sentence here would be the same refusal twice.
+describe("one sentence per state, and no acts at all ([P08])", () => {
+  test("blocked: the blockers are the text, and nothing claims to clear them", () => {
+    // Each blocker carries its own act sentence beside its own detail, and the
+    // face states nothing above them — a second sentence here would be the
+    // same refusal twice.
     const blocked = face({
       phase: "blocked",
       blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["x.ts"] }],
     });
     expect(blocked.outcome).toBe("blocked");
-    expect(blocked.control).toBeNull();
+    expect(blocked.ready).toBe(false);
     expect(blocked.line).toBeNull();
   });
 
-  test("conflicted: the ladder, and only the ladder", () => {
+  test("conflicted: the pilot's work, not a button", () => {
+    // This state carried RESOLVE. The pilot reconciles a built dash without
+    // being asked, so what is left is a state the reader can see and a
+    // conflict list underneath it.
     const conflicted = face(CONFLICTED);
     expect(conflicted.outcome).toBe("conflicted");
-    expect(conflicted.control).toBe(JOIN_CONTROL.resolve);
+    expect(conflicted.ready).toBe(false);
+    expect(conflicted.statedBelow).toBe(true);
     expect(conflicted.line).toBeNull();
   });
 
-  test("stale: the server's note is the text, and the ladder is the act", () => {
+  test("stale: the server's note is the text, and the machine is the act", () => {
     const stale = face({
       phase: "previewed",
       stale_note: "main moved since this was resolved — resolve again",
     });
     expect(stale.outcome).toBe("stale");
-    expect(stale.control).toBe(JOIN_CONTROL.resolve);
+    expect(stale.ready).toBe(false);
     expect(stale.line).toBeNull();
   });
 
-  test("resolving: a run in flight offers nothing, because nothing would help", () => {
+  test("resolving: a run in flight is progress, and offers nothing", () => {
     const running = face(CONFLICTED, { resolvePhase: "resolving" });
     expect(running.resolve).toBe("progress");
-    expect(running.control).toBeNull();
+    expect(running.ready).toBe(false);
   });
 
   test("resolved and unverified: a wait, named, with nothing to press", () => {
@@ -133,7 +138,7 @@ describe("one control per state (Table T01)", () => {
     const unrun = face(RESOLVED);
     expect(unrun.outcome).toBe("clean");
     expect(unrun.resolve).toBe("resolved");
-    expect(unrun.control).toBeNull();
+    expect(unrun.ready).toBe(false);
     expect(unrun.line).toBe("Building the joined tree");
   });
 
@@ -144,7 +149,7 @@ describe("one control per state (Table T01)", () => {
     // ([P05]). A "Ready to join" here would be the resting lie on exactly the
     // state that most needs reading.
     const red = face(RED);
-    expect(red.control).toBeNull();
+    expect(red.ready).toBe(false);
     expect(red.line).toBe(
       "Build red on the joined tree — joining is a decision, made in the composer",
     );
@@ -155,7 +160,7 @@ describe("one control per state (Table T01)", () => {
     // sentence is the only thing between the reader and a dead end, so it has
     // to name where joining happens rather than merely asserting readiness.
     const verified = face(VERIFIED);
-    expect(verified.control).toBeNull();
+    expect(verified.ready).toBe(true);
     expect(verified.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
   });
 
@@ -166,7 +171,7 @@ describe("one control per state (Table T01)", () => {
     // Read off the dash, not off this deck: the override is a durable server
     // fact now, so it arrives on the feed entry beside the verdict it defeats.
     const overridden = face({ ...RED, override_for: "cafe1234" });
-    expect(overridden.control).toBeNull();
+    expect(overridden.ready).toBe(true);
     expect(overridden.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
     // An override pinned to a different sha does not cover this candidate, so
     // the row is back to stating the decision.
@@ -192,7 +197,7 @@ describe("one control per state (Table T01)", () => {
       },
     });
     expect(clean.outcome).toBe("clean");
-    expect(clean.control).toBeNull();
+    expect(clean.ready).toBe(true);
     expect(clean.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
   });
 
@@ -203,7 +208,7 @@ describe("one control per state (Table T01)", () => {
     // had been built the one second a join could slip through.
     const unjudged = face({ phase: "previewed" });
     expect(unjudged.outcome).toBe("clean");
-    expect(unjudged.control).toBeNull();
+    expect(unjudged.ready).toBe(false);
     expect(unjudged.line).toBe("Building the joined tree");
   });
 
@@ -211,30 +216,29 @@ describe("one control per state (Table T01)", () => {
     // No control, so nothing on the row can double-submit; the sentence is what
     // discharges the refusal.
     const joining = face({ phase: "previewed" }, { joinPhase: "pending" });
-    expect(joining.control).toBeNull();
+    expect(joining.ready).toBe(false);
     expect(joining.line).toBe("Joining…");
   });
 
   test("a turn in flight names the wait over every state, and holds the act", () => {
     const midTurn = face(CONFLICTED, { turnInProgress: true });
     expect(midTurn.line).toBe("Wait for the turn to finish");
-    // Resolve survives a running turn on purpose: it builds a candidate off to
-    // the side and touches no checkout, so the one escape from a conflicted
-    // dash is not locked behind the agent.
-    expect(midTurn.control).toBe(JOIN_CONTROL.resolve);
+    expect(midTurn.ready).toBe(false);
   });
 
-  test("an interrupted teardown outranks everything else on the row", () => {
-    // It refuses every other act server-side, so offering one would be an
-    // invitation to a refusal the row cannot show.
+  test("an interrupted teardown says what is happening, and offers nothing", () => {
+    // This state carried RESUME TEARDOWN. The join journal is durable and the
+    // teardown resumes itself off it, so a button for it was a press that only
+    // existed because nothing resumed ([P08]).
     const interrupted = face(CONFLICTED, { interrupted: true });
-    expect(interrupted.control).toBe(JOIN_CONTROL.resume);
+    expect(interrupted.ready).toBe(false);
+    expect(interrupted.statedBelow || interrupted.line !== null).toBe(true);
   });
 
   test("a dash the feed says nothing about refuses, and says so", () => {
     const silent = face(null);
     expect(silent.outcome).toBe("blocked");
-    expect(silent.control).toBeNull();
+    expect(silent.ready).toBe(false);
     expect(silent.line).toBe("Clear what blocks this join first");
   });
 });
@@ -259,8 +263,8 @@ describe("no state is both silent and inert", () => {
     ];
     for (const [name, f] of states) {
       const speaks =
-        f.control !== null || f.line !== null || f.statedBelow || f.resolve === "progress";
-      expect(speaks, `${name} offers no act and states no reason`).toBe(true);
+        f.line !== null || f.statedBelow || f.resolve === "progress" || f.ready;
+      expect(speaks, `${name} states no reason and is not ready`).toBe(true);
     }
   });
 });
@@ -349,7 +353,7 @@ describe("the overlay never outranks what is in git", () => {
     const phase = (): Parameters<typeof deriveJoinFace>[0]["resolvePhase"] =>
       store.state(K.project_dir, K.dash).phase;
 
-    expect(face(CONFLICTED, { resolvePhase: phase() }).control).toBe(JOIN_CONTROL.resolve);
+    expect(face(CONFLICTED, { resolvePhase: phase() }).resolve).toBe("offer");
 
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_delta",
@@ -395,7 +399,7 @@ describe("the overlay never outranks what is in git", () => {
     expect(state.error).toContain("b.rs");
     const f = face(CONFLICTED, { resolvePhase: state.phase });
     expect(f.resolve).toBe("error");
-    expect(f.control).toBe(JOIN_CONTROL.resolve);
+    expect(f.ready).toBe(false);
   });
 });
 

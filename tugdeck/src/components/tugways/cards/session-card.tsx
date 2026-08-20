@@ -4662,28 +4662,6 @@ export function SessionCardBody({
   const dashJoinActions = useMemo<DashJoinActions>(
     () => ({
       aim: (entry) => joinModeController.aim(joinTargetFromEntry(entry)),
-      resumeTeardown: (entry) =>
-        joinModeController.resumeTeardown(joinTargetFromEntry(entry)),
-      // The ladder runs against the dash, not the card, so it is addressed by
-      // name — and it lands nothing: the candidate it builds is landed by the
-      // ordinary Join gesture, which is why the store never joins.
-      resolve: (entry) =>
-        getChangesetJoinStore()?.resolve(
-          changesController.workspaceKey,
-          entry.display_name,
-        ),
-      // Joining past a red ([P07]). Pinned to the candidate's sha, so the
-      // decision dies with the tree it was made about — a re-resolve after a
-      // real fix has to be decided about on its own terms.
-      overrideRed: (entry) => {
-        const candidate = entry.join?.candidate;
-        if (typeof candidate !== "string" || candidate === "") return;
-        getChangesetJoinStore()?.overrideRed(
-          changesController.workspaceKey,
-          entry.display_name,
-          candidate,
-        );
-      },
       // The escalation's answer ([P06]). Addressed by `request_id` rather than
       // by dash, because the resolve that raised it may already have expired
       // and a later one may be asking something else — an answer must never

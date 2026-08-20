@@ -563,8 +563,8 @@ Replies `changeset_join_prompt_answer_err { detail }` on a refusal — a stale `
 | #step-7 | The register mounts on three surfaces | done | `c4480e1ba` |
 | #step-8 | Z5 carries the role and the confirm | done | `b7bbb55b7` |
 | #step-9 | The prompt fact and the re-ask policy | done | `ba4f2c406` |
-| #step-10 | The prompt sheet and its answer | in progress | — |
-| #step-11 | The shade is disarmed | pending | — |
+| #step-10 | The prompt sheet and its answer | done | `a49c6159a` |
+| #step-11 | The shade is disarmed | in progress | — |
 | #step-12 | Unbind and Discard move to a row menu | pending | — |
 | #step-13 | The pressed arcs — app-tests rewritten | pending | — |
 | #step-14 | Documentation sync; the spike is deleted | pending | — |
