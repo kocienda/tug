@@ -3086,6 +3086,38 @@ pub fn join(name: &str, opts: JoinOptions) -> Result<JoinOutcome, String> {
 /// from the process cwd — for callers such as tugcast that serve many projects
 /// and must never depend on `current_dir`.
 pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOutcome, String> {
+    join_in_with_progress(repo_root, name, opts, |_, _| {})
+}
+
+/// [`join_in`], narrating itself as it goes.
+///
+/// `on_beat(beat, status)` fires around each of the join's real boundaries,
+/// with `status` one of `start` / `done`:
+///
+/// | Beat | What it surrounds |
+/// |---|---|
+/// | `squash` | the integrate — squash-merge and commit, a fast-forward onto a candidate, a merge, or a rebase |
+/// | `teardown` | removing the dash worktree |
+/// | `release` | dropping the candidate ref, removing the workshop, deleting the branch |
+/// | `record` | the dash-log line and clearing the join journal |
+///
+/// **The order is the code's, not the wire's convenience.** The dash-log line
+/// is written *last*, after teardown and release, because it is the terminal
+/// record of a join that has already happened — so `record` fires at the end
+/// rather than second. A beat table that read better and matched worse would be
+/// a progress line that lies about where the work is.
+///
+/// A preview emits nothing: it mutates nothing, so there is nothing to narrate.
+///
+/// The beats are a **liveness hint and never the carrier of truth** — the
+/// caller's own recompute stays authoritative, exactly as it already is for the
+/// resolve path. Dropping every beat costs the progress line and nothing else.
+pub fn join_in_with_progress(
+    repo_root: &Path,
+    name: &str,
+    opts: JoinOptions,
+    on_beat: impl Fn(&str, &str),
+) -> Result<JoinOutcome, String> {
     let repo_root = main_repo_root(repo_root);
     let mut warnings = Vec::new();
     migrate_worktrees(&repo_root, &mut warnings);
@@ -3112,6 +3144,7 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
             opts.origin.as_deref(),
             journal,
             warnings,
+            &on_beat,
         );
     }
 
@@ -3210,6 +3243,7 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
     // IS the staleness guard — a base that advanced past the candidate's base
     // refuses to fast-forward), then run the same journaled teardown.
     if let Some(candidate) = opts.candidate.clone() {
+        on_beat("squash", "start");
         let ff = git_output(&repo_root, &["merge", "--ff-only", &candidate])?;
         if !ff.status.success() {
             return Err(format!(
@@ -3232,6 +3266,7 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
             message,
         };
         write_join_journal(&repo_root, &journal)?;
+        on_beat("squash", "done");
         return finish_join_teardown(
             &repo_root,
             name,
@@ -3240,10 +3275,12 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
             opts.origin.as_deref(),
             journal,
             warnings,
+            &on_beat,
         );
     }
 
     let final_msg = integrate_message(&repo_root, name, &branch, opts.message.clone());
+    on_beat("squash", "start");
 
     // Integrate per strategy. A conflict cleanly aborts (pre-join state
     // restored) and returns the structured conflict list — never a dead end.
@@ -3322,6 +3359,7 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
         message: Some(final_msg.clone()),
     };
     write_join_journal(&repo_root, &journal)?;
+    on_beat("squash", "done");
 
     finish_join_teardown(
         &repo_root,
@@ -3331,6 +3369,7 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
         opts.origin.as_deref(),
         journal,
         warnings,
+        &on_beat,
     )
 }
 
@@ -3346,14 +3385,18 @@ fn finish_join_teardown(
     origin: Option<&str>,
     mut journal: JoinJournal,
     mut warnings: Vec<String>,
+    on_beat: &dyn Fn(&str, &str),
 ) -> Result<JoinOutcome, String> {
     if journal.phase == JoinPhase::Integrated {
+        on_beat("teardown", "start");
         remove_dash_worktree(repo_root, branch, worktree, &mut warnings);
         journal.phase = JoinPhase::WorktreeRemoved;
         write_join_journal(repo_root, &journal)?;
+        on_beat("teardown", "done");
     }
 
     if journal.phase == JoinPhase::WorktreeRemoved {
+        on_beat("release", "start");
         // The branch config section dies with the branch, but a loose ref does
         // not — so the candidate is dropped explicitly, on every join path,
         // rather than being left to outlive the dash it described.
@@ -3373,10 +3416,12 @@ fn finish_join_teardown(
         }
         journal.phase = JoinPhase::BranchDeleted;
         write_join_journal(repo_root, &journal)?;
+        on_beat("release", "done");
     }
 
     // Record the terminal action in the dash-log ([P04], R01), then clear the
     // journal so the join is no longer "incomplete".
+    on_beat("record", "start");
     let short = git_stdout(repo_root, &["rev-parse", "--short", &journal.commit_hash])
         .unwrap_or_else(|_| journal.commit_hash.clone());
     let note = match origin {
@@ -3385,6 +3430,7 @@ fn finish_join_teardown(
     };
     append_dash_log(repo_root, name, &short, &note).map_err(|e| e.to_string())?;
     clear_join_journal(repo_root, name);
+    on_beat("record", "done");
 
     Ok(JoinOutcome {
         name: name.to_string(),
@@ -5418,6 +5464,70 @@ Some context.
         assert!(
             !Path::new(&entry.worktree_abs).starts_with(&base),
             "and never under the checkout that owns the common dir"
+        );
+    }
+
+    /// The join narrates its beats, in the order the code performs them.
+    ///
+    /// The join takes real seconds and used to say nothing for all of them:
+    /// the press landed and the next word was the durable commit message,
+    /// however long later. These beats are what fills that silence — a
+    /// liveness hint, never the carrier of truth.
+    ///
+    /// The order asserted here is the code's own, and it is not the order the
+    /// beat names suggest: `record` is the dash-log line, which is written
+    /// *last*, after the worktree is gone and the branch is deleted, because it
+    /// is the terminal record of a join that already happened.
+    #[serial]
+    #[test]
+    fn test_a_join_narrates_its_beats_and_a_preview_narrates_nothing() {
+        let temp = TempDir::new().unwrap();
+        let (_base, universe) = base_with_universe(&temp);
+
+        create("narrator", None, None, false, Some("feature")).unwrap();
+        let worktree = universe.join(".tug/worktrees/narrator");
+        fs::write(worktree.join("landed.txt"), "from the dash\n").unwrap();
+        commit("narrator", "r1", None).unwrap();
+
+        // A preview mutates nothing, so it has nothing to narrate.
+        let previewed = std::cell::RefCell::new(Vec::<String>::new());
+        join_in_with_progress(
+            &universe,
+            "narrator",
+            JoinOptions {
+                anyway: true,
+                preview: true,
+                ..Default::default()
+            },
+            |beat, status| previewed.borrow_mut().push(format!("{beat}:{status}")),
+        )
+        .unwrap();
+        assert!(
+            previewed.borrow().is_empty(),
+            "a preview emits no beats: {:?}",
+            previewed.borrow()
+        );
+
+        let beats = std::cell::RefCell::new(Vec::<String>::new());
+        let outcome = join_in_with_progress(&universe, "narrator", mechanics(), |beat, status| {
+            beats.borrow_mut().push(format!("{beat}:{status}"))
+        })
+        .unwrap();
+        assert!(outcome.commit_hash.is_some(), "the squash landed");
+
+        assert_eq!(
+            beats.borrow().as_slice(),
+            [
+                "squash:start",
+                "squash:done",
+                "teardown:start",
+                "teardown:done",
+                "release:start",
+                "release:done",
+                "record:start",
+                "record:done",
+            ],
+            "every beat, paired, in the order the join performs them"
         );
     }
 

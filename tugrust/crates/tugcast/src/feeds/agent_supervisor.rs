@@ -5253,9 +5253,34 @@ impl AgentSupervisor {
             origin: Some("card".to_string()),
             anyway: request.anyway,
         };
-        let result =
-            tokio::task::spawn_blocking(move || tugdash_core::join_in(&dir_owned, &dash, opts))
-                .await;
+        // The join's own narration ([P03]). It takes real seconds and used to
+        // say nothing for all of them — the press landed and the next word was
+        // the durable commit message, however long later. These frames are a
+        // **liveness hint only**: the `changeset_all_bump()` below stays the
+        // carrier of truth, exactly as it already is on the resolve path, so a
+        // dropped beat costs the progress line and nothing else.
+        let beat_tx = self.control_tx.clone();
+        let beat_project_dir = project_dir.to_string();
+        let beat_dash = request.dash.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            tugdash_core::join_in_with_progress(&dir_owned, &dash, opts, |beat, status| {
+                let body = serde_json::json!({
+                    "action": "changeset_join_land_delta",
+                    // Echoed verbatim as the request sent it, which is what
+                    // keeps the frame correlated to the cell the press opened
+                    // with no spelling to reconcile ([L29]).
+                    "project_dir": beat_project_dir,
+                    "dash": beat_dash,
+                    "beat": beat,
+                    "status": status,
+                });
+                let _ = beat_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("changeset_join_land_delta serializes"),
+                ));
+            })
+        })
+        .await;
 
         match result {
             Ok(Ok(outcome)) => {
@@ -8994,11 +9019,17 @@ mod tests {
         let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
 
         async fn next_control(rx: &mut broadcast::Receiver<Frame>) -> serde_json::Value {
-            let frame = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
-                .await
-                .expect("control response within timeout")
-                .expect("sender alive");
-            serde_json::from_slice(&frame.payload).expect("control body is JSON")
+            loop {
+                let frame = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+                    .await
+                    .expect("control response within timeout")
+                    .expect("sender alive");
+                let body: serde_json::Value =
+                    serde_json::from_slice(&frame.payload).expect("control body is JSON");
+                if body["action"] != "changeset_join_land_delta" {
+                    return body;
+                }
+            }
         }
 
         fn init_payload(project_dir: &str) -> Vec<u8> {
@@ -9078,12 +9109,24 @@ mod tests {
             assert!(status.success(), "git {args:?} failed");
         }
 
+        /// The next control frame that is not one of the join's beats.
+        ///
+        /// A real join narrates itself ([P03]) and its beats arrive before its
+        /// terminal reply. They are a liveness hint, so a test about the
+        /// join's *result* skips them; their own shape is pinned by
+        /// `a_join_narrates_its_beats_on_the_wire`.
         async fn next_control(rx: &mut broadcast::Receiver<Frame>) -> serde_json::Value {
-            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
-                .await
-                .expect("control response within timeout")
-                .expect("sender alive");
-            serde_json::from_slice(&frame.payload).expect("control body is JSON")
+            loop {
+                let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+                    .await
+                    .expect("control response within timeout")
+                    .expect("sender alive");
+                let body: serde_json::Value =
+                    serde_json::from_slice(&frame.payload).expect("control body is JSON");
+                if body["action"] != "changeset_join_land_delta" {
+                    return body;
+                }
+            }
         }
 
         fn join_payload(project_dir: &str, dash: &str, preview: bool) -> Vec<u8> {
@@ -9183,6 +9226,117 @@ mod tests {
         cancel.cancel();
     }
 
+    /// The join speaks while it works, and the frame says exactly what
+    /// [Spec S03] says it says ([P03]).
+    ///
+    /// The silence being replaced was real: the press landed and the next word
+    /// was the durable commit message, many seconds later. `project_dir` is
+    /// echoed **verbatim** as the request sent it, which is what keeps a beat
+    /// correlated to the cell the press opened with no spelling to reconcile
+    /// ([L29]) — the same rule `changeset_join_resolve_delta` already follows.
+    #[tokio::test]
+    async fn a_join_narrates_its_beats_on_the_wire() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let status = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("keep.txt"), "base\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        let wt = root.join(".tug/worktrees/demo");
+        git(
+            &root,
+            &["worktree", "add", wt.to_str().unwrap(), "tugdash/demo"],
+        );
+        std::fs::write(wt.join("round.txt"), "round\n").unwrap();
+        git(&wt, &["add", "-A"]);
+        git(&wt, &["commit", "-m", "round 1"]);
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join",
+            "project_dir": root_str,
+            "dash": "demo",
+            "preview": false,
+            "anyway": true,
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join", &payload, 1).await;
+
+        let mut beats: Vec<(String, String)> = Vec::new();
+        let mut landed = false;
+        for _ in 0..40 {
+            let frame = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                control_rx.recv(),
+            )
+            .await
+            .expect("a control frame")
+            .expect("sender alive");
+            let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            match body["action"].as_str() {
+                Some("changeset_join_land_delta") => {
+                    assert_eq!(
+                        body["project_dir"], root_str,
+                        "project_dir is echoed verbatim ([L29]): {body}"
+                    );
+                    assert_eq!(body["dash"], "demo", "{body}");
+                    beats.push((
+                        body["beat"].as_str().expect("a beat name").to_string(),
+                        body["status"].as_str().expect("a status").to_string(),
+                    ));
+                }
+                Some("changeset_join_ok") => {
+                    landed = true;
+                    break;
+                }
+                Some("changeset_join_err") => panic!("the join was refused: {body}"),
+                _ => {}
+            }
+        }
+        assert!(landed, "the join reached its terminal frame");
+        assert!(
+            !beats.is_empty(),
+            "at least one beat arrives before the join's own _ok"
+        );
+        for (beat, status) in &beats {
+            assert!(
+                matches!(beat.as_str(), "squash" | "record" | "teardown" | "release"),
+                "unknown beat {beat}"
+            );
+            assert!(
+                matches!(status.as_str(), "start" | "done"),
+                "unknown status {status}"
+            );
+        }
+        assert_eq!(
+            beats.first().map(|(b, s)| (b.as_str(), s.as_str())),
+            Some(("squash", "start")),
+            "the first thing said is that the squash has begun: {beats:?}"
+        );
+
+        cancel.cancel();
+    }
+
     #[tokio::test]
     async fn changeset_discard_discards_dash() {
         use std::process::Command;
@@ -9196,12 +9350,24 @@ mod tests {
             assert!(status.success(), "git {args:?} failed");
         }
 
+        /// The next control frame that is not one of the join's beats.
+        ///
+        /// A real join narrates itself ([P03]) and its beats arrive before its
+        /// terminal reply. They are a liveness hint, so a test about the
+        /// join's *result* skips them; their own shape is pinned by
+        /// `a_join_narrates_its_beats_on_the_wire`.
         async fn next_control(rx: &mut broadcast::Receiver<Frame>) -> serde_json::Value {
-            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
-                .await
-                .expect("control response within timeout")
-                .expect("sender alive");
-            serde_json::from_slice(&frame.payload).expect("control body is JSON")
+            loop {
+                let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+                    .await
+                    .expect("control response within timeout")
+                    .expect("sender alive");
+                let body: serde_json::Value =
+                    serde_json::from_slice(&frame.payload).expect("control body is JSON");
+                if body["action"] != "changeset_join_land_delta" {
+                    return body;
+                }
+            }
         }
 
         let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
@@ -9714,11 +9880,16 @@ mod tests {
         }
 
         async fn next_control(rx: &mut broadcast::Receiver<Frame>) -> serde_json::Value {
-            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
-                .await
-                .expect("a control frame")
-                .expect("sender alive");
-            serde_json::from_slice(&frame.payload).unwrap()
+            loop {
+                let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+                    .await
+                    .expect("a control frame")
+                    .expect("sender alive");
+                let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+                if body["action"] != "changeset_join_land_delta" {
+                    return body;
+                }
+            }
         }
 
         let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
