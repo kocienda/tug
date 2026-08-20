@@ -566,8 +566,8 @@ Replies `changeset_join_prompt_answer_err { detail }` on a refusal — a stale `
 | #step-10 | The prompt sheet and its answer | done | `a49c6159a` |
 | #step-11 | The shade is disarmed | done | `4134bb82e` |
 | #step-12 | Unbind and Discard move to a row menu | done | `903175526` |
-| #step-13 | The pressed arcs — app-tests rewritten | in progress | — |
-| #step-14 | Documentation sync; the spike is deleted | pending | — |
+| #step-13 | The pressed arcs — app-tests rewritten | done | `17cf22add` |
+| #step-14 | Documentation sync; the spike is deleted | in progress | — |
 | #step-15 | Integration checkpoint | pending | — |
 
 ---
