@@ -1006,6 +1006,26 @@ export const TUG_ACTIONS = {
   COPY_COMMIT_RECORD:     "copy-commit-record",
   COPY_COMMIT_FILES:      "copy-commit-files",
 
+  // ---- The dash row's rare verbs ----
+  //
+  // Menu-only over a sampled target — "the dash this row is" — and handled by
+  // the row's own responder ({@link useDashRowMenu}). None is a chord: a
+  // discard is not a thing to reach by typing, and a bind is a decision about
+  // which dash a card works on, made by pointing at the dash.
+  //
+  // BIND_DASH:              payload — none. Mate this card's session to the
+  //                         dash the menu was opened on.
+  // UNBIND_DASH:            payload — none. The complement, on the row this
+  //                         card is already mated to. The two never appear
+  //                         together — the row carries whichever it is.
+  // REQUEST_DISCARD_DASH:   payload — none. "Request", like
+  //                         REQUEST_TRASH_SESSION: the item arms the lane's
+  //                         one confirm popover rather than discarding, and
+  //                         the popover names what the discard destroys.
+  BIND_DASH:              "bind-dash",
+  UNBIND_DASH:            "unbind-dash",
+  REQUEST_DISCARD_DASH:   "request-discard-dash",
+
   // ---- Meta ----
   //
   // SET_PROPERTY: payload — `{ path: string; value: unknown; source?: string }`.

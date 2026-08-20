@@ -38,6 +38,12 @@
  * gesture on work a card never touched. Binding is how a card comes to touch
  * it.
  *
+ * Binding and Discard both live behind the row's `⋯` ({@link useDashRowMenu})
+ * rather than standing on it. They are rare — a card binds a dash once and
+ * discards one almost never — and standing beside the pop-out and the fold cue
+ * they read as peers of acts a reader performs constantly. Every row is
+ * otherwise a thing to read.
+ *
  * Laws: [L02] the lane takes its data as props from the view's
  * `useSyncExternalStore` reads; [L06] tone and state paint through CSS and
  * data attributes; [L19] the row composes `TugDashName` / `TugListRow` /
@@ -49,11 +55,12 @@
 import "./session-changes-dash-lane.css";
 
 import React, { useEffect, useRef, useState } from "react";
+import { EllipsisVertical } from "lucide-react";
 
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugStatusMark } from "@/components/tugways/tug-status-mark";
-import { TugTooltip } from "@/components/tugways/tug-tooltip";
+import { useDashRowMenu } from "./dash-row-menu";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
@@ -308,6 +315,27 @@ function DashRow({
   // Absent, not disabled, when this shade has no business discarding this dash.
   const canDiscard = discard !== null && discard.canDiscard(entry);
   const subjects = entry.round_subjects ?? [];
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const rowMenu = useDashRowMenu({
+    binding:
+      binding === null
+        ? null
+        : {
+            bound,
+            disabledReason: binding.disabledReason,
+            perform: () => (bound ? binding.unbind(entry) : binding.bind(entry)),
+          },
+    discard: !canDiscard
+      ? null
+      : {
+          disabledReason: discard.disabledReason,
+          // The lane's one confirm, armed against the ROW rather than the
+          // opener: the opener is inside a menu that closes on activation, and
+          // a popover anchored to an element that unmounts under it is the
+          // shape `TugConfirmPopover`'s docblock warns about.
+          perform: () => onRequestDiscard(entry, rowRef.current),
+        },
+  });
 
   return (
     <div
@@ -344,50 +372,24 @@ function DashRow({
         }
         trailing={
           <span className="session-changes-dash-row-trailing">
-            {binding !== null ? (
+            {/* The row's rare verbs, behind one opener. Bind/Unbind and
+                Discard are real and reachable and almost never pressed, and
+                standing on the row they read as peers of the acts a reader
+                performs constantly. The join is deliberately not among them:
+                it is a decision, made in the composer. */}
+            {rowMenu.menu !== null ? (
               <TugPushButton
+                ref={menuButtonRef}
                 size="2xs"
-                subtype="text"
-                disabled={binding.disabledReason !== null}
-                data-slot={
-                  bound
-                    ? "session-changes-dash-unbind"
-                    : "session-changes-dash-bind"
-                }
-                onClick={() =>
-                  bound ? binding.unbind(entry) : binding.bind(entry)
-                }
-              >
-                {bound ? "Unbind" : "Bind"}
-              </TugPushButton>
+                subtype="icon"
+                emphasis="ghost"
+                aria-label={`Actions for dash ${entry.display_name}`}
+                data-slot="session-changes-dash-row-menu-open"
+                icon={<EllipsisVertical size={14} />}
+                onClick={() => rowMenu.openMenu(menuButtonRef.current)}
+              />
             ) : null}
-            {/* Discard, on the rows the join face never reaches. The fronted
-                row's own Discard lives in that face, beside Join, where the
-                acts that end a dash belong together.
-
-                Wrapped in a tooltip rather than carrying a `title`: a disabled
-                button takes no pointer events, so its own tooltip would never
-                fire, and the reason has to be reachable or it is not a reason
-                ([L06]). The fronted row says the same thing in its refusals
-                list, which is face text for the same purpose. */}
-            {!fronted && canDiscard ? (
-              <TugTooltip
-                content={discard.disabledReason ?? "Discard this dash"}
-              >
-                <span className="session-changes-dash-row-discard">
-                  <TugPushButton
-                    size="2xs"
-                    subtype="text"
-                    role="danger"
-                    disabled={discard.disabledReason !== null}
-                    data-slot="session-changes-dash-discard"
-                    onClick={() => onRequestDiscard(entry, rowRef.current)}
-                  >
-                    Discard
-                  </TugPushButton>
-                </span>
-              </TugTooltip>
-            ) : null}
+            {rowMenu.menu}
             {hasRange ? (
               <PopOutDiffButton
                 descriptor={descriptor}
@@ -439,14 +441,6 @@ function DashRow({
               error={joinFace.join.error}
               turnInProgress={joinFace.turnInProgress}
               resolve={joinFace.resolve}
-              bindingRefusal={
-                binding === null || binding.disabledReason === null
-                  ? null
-                  : { control: bound ? "Unbind" : "Bind", reason: binding.disabledReason }
-              }
-              discardAvailable={canDiscard}
-              discardDisabledReason={discard?.disabledReason ?? null}
-              onRequestDiscard={() => onRequestDiscard(entry, rowRef.current)}
               actions={joinFace.actions}
             />
           ) : null}

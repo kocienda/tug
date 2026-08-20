@@ -18,12 +18,6 @@
   gap: var(--tug-space-sm);
 }
 
-.session-changes-dash-join-acts {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-2xs);
-}
-
 /* The empty outcome's one line of prose. It asks the question the release
    affordance answers, and asks it in words because a dead control would be
    worse than a sentence that is already true. */
@@ -31,31 +25,6 @@
   font-family: var(--tug-font-family-sans);
   font-size: var(--tug-font-size-xs);
   color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
-/* Why a control on this face is refusing, one line per refused control. A
-   disabled button takes no pointer events, so its `title` can never be read;
-   the reason lives here instead, in the same prose row the empty outcome and
-   the review block already use. */
-.session-changes-dash-join-refusals {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.session-changes-dash-join-refusals > li {
-  display: flex;
-  gap: var(--tug-space-2xs);
-  align-items: baseline;
-}
-
-.session-changes-dash-join-refusal-control {
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-xs);
-  color: var(--tug7-element-global-text-normal-rest);
 }
 
 .session-changes-dash-join-blockers,

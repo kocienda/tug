@@ -1,12 +1,11 @@
 /**
  * `SessionChangesDashJoin` — the dash row's join face.
  *
- * One line answering "what would joining this dash do right now?", and **the
- * one act that advances it** — never a menu of acts, and never an act the gate
- * will then refuse. Blocked shows each blocker's server-written detail beside
- * the act that clears it; conflicted shows the paths and offers the ladder;
- * resolved shows what the ladder decided and offers the review that
- * acknowledges it; and joinable shows a sentence and nothing else at all.
+ * One line answering "what would joining this dash do right now?", and **no
+ * act at all** ([P08]). Blocked names each blocker's server-written detail
+ * beside the act that would clear it; conflicted names the paths; resolved
+ * shows what the ladder decided; joinable is a sentence. Every one of them is
+ * something to read.
  *
  * That last state is the point of the shape. There is no Join button here. The
  * one it replaces read as an action and performed a mode entry, so on every
@@ -25,8 +24,8 @@
  *
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
  * [L06] tone paints through `data-outcome` and CSS; [L19] the face composes
- * `TugBadge` / `TugPushButton` rather than hand-rolling chrome; [L31] every
- * refusal is on screen as face text, next to the act that clears it.
+ * `TugBadge` rather than hand-rolling chrome; [L31] every refusal is on screen
+ * as face text, next to the act that clears it.
  *
  * @module components/tugways/cards/session-changes/session-changes-dash-join
  */
@@ -37,7 +36,6 @@ import React from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { TugBadge, type TugBadgeRole } from "@/components/tugways/tug-badge";
-import { TugPushButton } from "@/components/tugways/tug-push-button";
 import {
   QuestionWizard,
   type ParsedQuestion,
@@ -250,20 +248,6 @@ export interface SessionChangesDashJoinProps {
   turnInProgress: boolean;
   /** The resolution ladder's live state for this dash. */
   resolve: ResolveState;
-  /** What refuses the binding control on the row above, named so the face can
-   *  say which control it is — the row calls it Bind or Unbind by binding. */
-  bindingRefusal: { control: string; reason: string } | null;
-  /** Whether this shade may discard this dash at all. False renders no Discard
-   *  control — the reach rule's refusal is permanent, and a disabled control
-   *  would invite waiting for something that is not coming. */
-  discardAvailable: boolean;
-  /** Why Discard is unavailable right now, or null. Read from the lane's one
-   *  discard bundle so the turn gate and the in-flight gate cannot disagree
-   *  with the same gates on the other rows. */
-  discardDisabledReason: string | null;
-  /** Arm the lane's discard confirm for this dash. The face never discards
-   *  directly — one popover serves every row, and the lane owns it. */
-  onRequestDiscard: () => void;
   actions: DashJoinActions;
 }
 
@@ -355,10 +339,6 @@ export function SessionChangesDashJoin({
   error,
   turnInProgress,
   resolve,
-  bindingRefusal,
-  discardAvailable,
-  discardDisabledReason,
-  onRequestDiscard,
   actions,
 }: SessionChangesDashJoinProps): React.ReactElement {
   const conflicts = join?.conflicts ?? [];
@@ -385,14 +365,9 @@ export function SessionChangesDashJoin({
     interrupted,
   });
   const { outcome, resolve: resolveFace, ready, line: joinLine } = face;
-  // Every refusal on this surface, said out loud. A disabled button takes no
-  // pointer events, so a `title` on one can never be read — the reason has to
-  // arrive as face text or it does not arrive at all.
-  const refusals: { control: string; reason: string }[] = [];
-  if (discardAvailable && discardDisabledReason !== null) {
-    refusals.push({ control: "Discard", reason: discardDisabledReason });
-  }
-  if (bindingRefusal !== null) refusals.push(bindingRefusal);
+  // No refusal list. Both controls this face used to speak for now live in the
+  // row's own menu, where a blocked verb carries its reason in its own label —
+  // beside the item it refuses rather than in a list under it.
 
   return (
     <div
@@ -409,29 +384,6 @@ export function SessionChangesDashJoin({
         >
           {OUTCOME_WORDS[outcome]}
         </TugBadge>
-        <span className="session-changes-dash-join-acts">
-          {/* Offered while the ladder is the act that clears the conflict, and
-              offered AGAIN after a run that failed — a refusal the user cannot
-              answer is a dead end, and the ladder is the only door out of a
-              conflicted dash. The ladder's own dead end — some files still
-              conflicting — arrives as an error carrying their names. */}
-          {/* Shade-only, on the row: a discard is not a thing to reach by
-              chord or by typing a verb. One beat — it opens the lane's confirm
-              popover, which names what the discard destroys and where the
-              worktree's uncommitted files go. */}
-          {discardAvailable ? (
-            <TugPushButton
-              size="xs"
-              emphasis="outlined"
-              role="danger"
-              onClick={onRequestDiscard}
-              disabled={discardDisabledReason !== null}
-              data-slot="session-changes-dash-discard"
-            >
-              Discard
-            </TugPushButton>
-          ) : null}
-        </span>
       </div>
       {joinLine !== null ? (
         <div
@@ -441,21 +393,6 @@ export function SessionChangesDashJoin({
         >
           {joinLine}
         </div>
-      ) : null}
-      {refusals.length > 0 ? (
-        <ul
-          className="session-changes-dash-join-refusals"
-          data-slot="session-changes-dash-join-refusals"
-        >
-          {refusals.map((refusal) => (
-            <li key={refusal.control}>
-              <span className="session-changes-dash-join-refusal-control">
-                {refusal.control}
-              </span>
-              <span className="session-changes-dash-join-note">{refusal.reason}</span>
-            </li>
-          ))}
-        </ul>
       ) : null}
       {/* The server's own sentence for a candidate it has already dropped. It
           names which side moved, which is the whole of what the reader needs
