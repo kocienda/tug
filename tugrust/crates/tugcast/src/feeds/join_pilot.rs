@@ -241,6 +241,7 @@ mod tests {
             question: None,
             run: None,
             override_for: None,
+            prompt: None,
         }
     }
 

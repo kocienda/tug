@@ -665,6 +665,49 @@ pub struct DashJoinState {
     /// rather than carrying it onto a tree nobody agreed to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_for: Option<String>,
+    /// The decision the machine is waiting on a person for (Spec S04, [P06]).
+    ///
+    /// Raised once the pilot's work is done and a verdict stands, cleared by an
+    /// answer. Durable and derived rather than pushed, for the same reason
+    /// [`DashJoinQuestion`] is: an ask that a reload can lose is an ask that
+    /// leaves a built dash sitting unmentioned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<DashJoinPrompt>,
+}
+
+/// The one decision the join arc asks a person for (Spec S04, [P06]).
+///
+/// Everything before it is the machine's: the reconcile, the candidate, the
+/// build over the joined tree. This is where that work stops and a person
+/// decides, and it is deliberately the only place in the arc that does.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinPrompt {
+    /// Identifies this ask, so an answer cannot resolve a different one.
+    ///
+    /// Derived rather than random: `<dash>:<base_sha>:<dash_head>:<decision>`.
+    /// The derivation is what makes it stable across recomputes — the prompt is
+    /// re-derived from durable state on every one, so an id that changed each
+    /// time would invalidate the answer the user was in the middle of giving —
+    /// and what makes it change the moment any of those four facts does, so an
+    /// answer to the old question cannot resolve the new one.
+    pub request_id: String,
+    /// `"clean"` or `"red"` — what the verdict says, and what the re-ask policy
+    /// compares against ([P07]).
+    pub decision: String,
+    pub base_sha: String,
+    pub dash_head: String,
+    /// The question, composed server-side so the durable fact and the rendered
+    /// one are the same bytes.
+    pub question: String,
+    pub options: Vec<DashJoinPromptOption>,
+}
+
+/// One answer offered on the join prompt.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashJoinPromptOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
 }
 
 /// An escalation from the resolver, phrased as intent ([P06]).

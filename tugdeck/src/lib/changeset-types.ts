@@ -317,6 +317,37 @@ export interface DashJoinStateWire {
    * agreed to.
    */
   override_for?: string;
+  /**
+   * The one decision the arc asks a person for ([P06]).
+   *
+   * Raised once the machine's work is done and a verdict stands; cleared by an
+   * answer. Absent is the ordinary case — a dash still being worked, one whose
+   * checks are still running, and one whose decision was already declined and
+   * has not changed since ([P07]).
+   */
+  prompt?: DashJoinPromptWire;
+}
+
+/** The join arc's one question, composed server-side (Spec S04). */
+export interface DashJoinPromptWire {
+  /**
+   * `<dash>:<base_sha>:<dash_head>:<decision>` — stable across recomputes, and
+   * different the moment any of those four facts moves, so an answer cannot
+   * resolve a question the repository has already passed.
+   */
+  request_id: string;
+  /** `"clean"` | `"red"` — what the verdict says, and what the re-ask policy compares. */
+  decision: string;
+  base_sha: string;
+  dash_head: string;
+  question: string;
+  options: DashJoinPromptOptionWire[];
+}
+
+/** One answer offered on the join prompt. */
+export interface DashJoinPromptOptionWire {
+  label: string;
+  description?: string;
 }
 
 /** An escalation from the resolver, phrased as intent — never as a diff. */

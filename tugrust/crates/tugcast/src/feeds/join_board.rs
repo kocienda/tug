@@ -30,8 +30,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinQuestion, DashJoinReport,
-    DashJoinState, DashJoinVerification, DashResolvedFile,
+    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinPrompt, DashJoinPromptOption,
+    DashJoinQuestion, DashJoinReport, DashJoinState, DashJoinVerification, DashResolvedFile,
 };
 use tugdash_core::ops::{self, DashDetail};
 use tugdash_core::resolve::{self, CandidateStatus};
@@ -200,6 +200,9 @@ pub fn join_state_for(
             question,
             run,
             override_for,
+            // A blocked dash is not waiting on a decision — it is waiting on an
+            // act, elsewhere, that each blocker names.
+            prompt: None,
         };
     }
 
@@ -230,6 +233,12 @@ pub fn join_state_for(
     let question = standing_question(repo_root, detail);
     let stuck = standing_stuck(repo_root, detail);
     let override_for = standing_override(repo_root, name, candidate.as_deref());
+    let prompt = standing_prompt(
+        repo_root,
+        detail,
+        verification.as_ref(),
+        run.is_none() && question.is_none() && stuck.is_none(),
+    );
 
     DashJoinState {
         phase: phase.to_string(),
@@ -245,7 +254,102 @@ pub fn join_state_for(
         question,
         run,
         override_for,
+        prompt,
     }
+}
+
+/// The three answers the prompt offers ([P06]).
+///
+/// Composed here rather than in the deck so the durable fact and the rendered
+/// one are the same bytes — the same reason the landing receipt is
+/// server-formatted. A label that drifted between the two would make an answer
+/// unmatchable against the ask it came from.
+fn prompt_options() -> Vec<DashJoinPromptOption> {
+    vec![
+        DashJoinPromptOption {
+            label: "Join now".to_string(),
+            description: "Squash the dash into its base with its standing message.".to_string(),
+        },
+        DashJoinPromptOption {
+            label: "Review first".to_string(),
+            description: "Open the join message in the composer without landing.".to_string(),
+        },
+        DashJoinPromptOption {
+            label: "Not yet".to_string(),
+            description: "Leave the dash where it is. You will be asked again only if the \
+                          decision changes."
+                .to_string(),
+        },
+    ]
+}
+
+/// The decision the arc is waiting on a person for, if it is waiting on one
+/// (Spec S04, [P06], [P07]).
+///
+/// Everything this reads is already computed by the caller, with one exception:
+/// the two head shas, which cost a `rev-parse` each. They are paid for only in
+/// the narrow branch that is actually going to ask — a dash at `built`, with a
+/// candidate, with a settled Tier 0 verdict, with nothing running and nothing
+/// else standing in the way — and `cached_probe` has already paid the same two
+/// on the path that reaches here, so in practice the answers are warm.
+///
+/// **The re-ask policy is the last gate, deliberately** ([P07]). The prompt is
+/// re-derived from durable state on every recompute, so what stops a dismissed
+/// ask from reappearing on the very next one is the mark comparison here — and
+/// it compares *decisions*, not shas, which is what makes an ordinary base move
+/// silent while a green that goes red still interrupts.
+fn standing_prompt(
+    repo_root: &Path,
+    detail: &DashDetail,
+    verification: Option<&DashJoinVerification>,
+    quiet: bool,
+) -> Option<DashJoinPrompt> {
+    // The arc's decision belongs at the end of the arc. Before `built` the dash
+    // is still being worked and there is nothing to decide about.
+    if detail.stage != "built" || !quiet {
+        return None;
+    }
+    let verification = verification?;
+    // Only a settled Tier 0 is a decision. `unrun` and `running` are the
+    // pilot's work still in progress, and asking about a tree nobody has built
+    // yet would be asking the user to guess.
+    let decision = match verification.tier0.as_str() {
+        "green" => "clean",
+        "red" => "red",
+        _ => return None,
+    };
+    let name = detail.name.as_str();
+    // The dismissal is about the decision, so this is where a dismissed ask
+    // stays dismissed — and where a changed one comes back.
+    if verify::read_prompt_mark(repo_root, name).as_deref() == Some(decision) {
+        return None;
+    }
+    let base_sha = ops::rev_parse(repo_root, &detail.base).ok()?;
+    let dash_head = ops::rev_parse(repo_root, &detail.branch).ok()?;
+    let question = if decision == "clean" {
+        format!(
+            "{name} is built, reconciled with {}, and the joined tree builds — join it?",
+            detail.base
+        )
+    } else {
+        format!(
+            "{name} is built and reconciled with {}, but the joined tree does not build — join it anyway?",
+            detail.base
+        )
+    };
+    Some(DashJoinPrompt {
+        // The four facts the ask is about, joined. Stable across recomputes
+        // because every one of them is, which is what lets an answer given
+        // several seconds after the ask still match it — and distinct the
+        // moment any of them moves, which is what stops an answer to the old
+        // question from resolving the new one.
+        request_id: format!("{name}:{base_sha}:{dash_head}:{decision}"),
+        decision: decision.to_string(),
+        base_sha,
+        dash_head,
+        question,
+        options: prompt_options(),
+    })
 }
 
 /// The standing "join it anyway" decision, while it still names the candidate
@@ -880,5 +984,162 @@ mod tests {
                 .any(|n| n == "demo"),
             "branch and directory both"
         );
+    }
+
+    // ── The join prompt (Spec S04, [P06], [P07]) ────────────────────────────
+
+    /// Take the fixture's dash all the way to a settled verdict at `built` —
+    /// the only state the arc asks a question in.
+    ///
+    /// The dash-log carries the stage and lives under the data dir, so it is
+    /// redirected here. nextest runs one process per test, which is what makes
+    /// that safe.
+    fn built_and_verified(repo: &Path, tier0: verify::TierStatus) -> String {
+        let data = Box::leak(Box::new(tempfile::tempdir().unwrap()));
+        // SAFETY: single-threaded setup, and this process runs one test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", data.path());
+        }
+        let outcome = tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        let candidate = outcome.candidate_commit.clone().expect("candidate");
+        let base_sha = ops::rev_parse(repo, "main").unwrap();
+        verify::write_verification(
+            repo,
+            "demo",
+            &verify::Verification {
+                base_sha,
+                candidate_sha: candidate.clone(),
+                tier0,
+                tier1: verify::TierStatus::Unrun,
+                failures: if tier0 == verify::TierStatus::Red {
+                    vec!["cargo build: exited 101".to_string()]
+                } else {
+                    Vec::new()
+                },
+                notes: Vec::new(),
+            },
+        )
+        .unwrap();
+        tugdash_core::dash::append_mark_declaration(
+            repo,
+            "demo",
+            tugdash_core::MarkStage::Built,
+            "",
+        )
+        .unwrap();
+        candidate
+    }
+
+    #[test]
+    fn the_prompt_arrives_once_the_machine_is_out_of_work_and_not_before() {
+        let temp = fixture();
+        let repo = temp.path();
+
+        // Conflicted, nothing built: the machine still has work, so there is
+        // nothing to decide about.
+        assert!(compose(repo).prompt.is_none(), "a conflicted dash asks nothing");
+
+        built_and_verified(repo, verify::TierStatus::Green);
+        let asked = compose(repo).prompt.expect("a settled green at built asks");
+        assert_eq!(asked.decision, "clean");
+        assert!(
+            asked.question.contains("demo") && asked.question.contains("main"),
+            "the question names the dash and its base: {}",
+            asked.question
+        );
+        assert_eq!(
+            asked.options.len(),
+            3,
+            "join now / review first / not yet — composed server-side so the \
+             durable fact and the rendered one are the same bytes"
+        );
+
+        // Stable across recomputes. The prompt is re-derived every time, so an
+        // id that moved would invalidate the answer the user is in the middle
+        // of giving.
+        assert_eq!(
+            compose(repo).prompt.expect("still asked").request_id,
+            asked.request_id,
+            "the same ask, re-derived"
+        );
+    }
+
+    #[test]
+    fn a_verdict_still_being_computed_is_not_a_decision() {
+        let temp = fixture();
+        let repo = temp.path();
+        built_and_verified(repo, verify::TierStatus::Running);
+        assert!(
+            compose(repo).prompt.is_none(),
+            "asking about a tree nobody has finished building is asking the \
+             user to guess"
+        );
+    }
+
+    #[test]
+    fn a_dismissed_decision_stays_dismissed_until_it_changes() {
+        let temp = fixture();
+        let repo = temp.path();
+        built_and_verified(repo, verify::TierStatus::Green);
+        let clean = compose(repo).prompt.expect("asked once");
+
+        // "Not yet" records the decision it declined.
+        verify::write_prompt_mark(repo, "demo", &clean.decision).unwrap();
+        assert!(
+            compose(repo).prompt.is_none(),
+            "the same decision does not ask twice — this is what stops the \
+             dialog from being trained into a reflex"
+        );
+
+        // The tree stops building. That is a genuinely new question: what the
+        // user was about to land no longer works.
+        let candidate = tugdash_core::resolve::read_candidate(repo, "demo").expect("candidate");
+        let base_sha = ops::rev_parse(repo, "main").unwrap();
+        verify::write_verification(
+            repo,
+            "demo",
+            &verify::Verification {
+                base_sha,
+                candidate_sha: candidate,
+                tier0: verify::TierStatus::Red,
+                tier1: verify::TierStatus::Unrun,
+                failures: vec!["cargo build: exited 101".to_string()],
+                notes: Vec::new(),
+            },
+        )
+        .unwrap();
+        let red = compose(repo).prompt.expect("a changed decision asks again");
+        assert_eq!(red.decision, "red");
+        assert_ne!(
+            red.request_id, clean.request_id,
+            "a different decision is a different ask, so an answer to the old \
+             one cannot resolve it"
+        );
+
+        // Engagement clears the mark, and the next decision is fresh.
+        verify::clear_prompt_mark(repo, "demo");
+        assert!(compose(repo).prompt.is_some());
+    }
+
+    #[test]
+    fn a_run_in_flight_holds_the_question() {
+        let temp = fixture();
+        let repo = temp.path();
+        built_and_verified(repo, verify::TierStatus::Green);
+        assert!(compose(repo).prompt.is_some(), "precondition: it would ask");
+
+        let owner_key = ops::dash_owner_key(repo, "demo");
+        let held = crate::feeds::join_occupancy::acquire(
+            &owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::Resolve,
+            None,
+        )
+        .expect("the dash is free");
+        assert!(
+            compose(repo).prompt.is_none(),
+            "a dash with work in flight is not waiting on a person"
+        );
+        drop(held);
+        assert!(compose(repo).prompt.is_some(), "and asks again once it is");
     }
 }

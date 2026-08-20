@@ -2197,6 +2197,59 @@ fn parse_changeset_join_question_answer_payload(
     })
 }
 
+/// Parsed `changeset_join_prompt_answer` request (Spec S05): the one decision
+/// the join arc asks a person for.
+///
+/// The `request_id` is what makes the answer safe, and it matters more here
+/// than on an escalation: the prompt is re-derived from durable state on every
+/// recompute, so a user reading a sheet that was raised a minute ago may be
+/// answering a question the repository has already moved past. The id carries
+/// the four facts the ask was about, so an answer to the old one cannot resolve
+/// the new one.
+struct ChangesetJoinPromptAnswerPayload {
+    project_dir: String,
+    dash: String,
+    request_id: String,
+    /// `join-now` | `review-first` | `not-yet`.
+    answer: String,
+}
+
+fn parse_changeset_join_prompt_answer_payload(
+    payload: &[u8],
+) -> Result<ChangesetJoinPromptAnswerPayload, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::InvalidProjectDir {
+            reason: "missing_project_dir",
+        })?
+        .to_string();
+    let field = |key: &str| {
+        value
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or(ControlError::Malformed)
+    };
+    let answer = field("answer")?;
+    // An answer outside the three is refused at the parse rather than falling
+    // through to a default arm: a silent default here would consume the ask
+    // and leave the user's real decision unmade.
+    if !matches!(answer.as_str(), "join-now" | "review-first" | "not-yet") {
+        return Err(ControlError::Malformed);
+    }
+    Ok(ChangesetJoinPromptAnswerPayload {
+        project_dir,
+        dash: field("dash")?,
+        request_id: field("request_id")?,
+        answer,
+    })
+}
+
 /// Parsed `changeset_discard` request: the project checkout and the dash name.
 struct ChangesetDiscardPayload {
     project_dir: String,
@@ -3163,6 +3216,15 @@ impl AgentSupervisor {
                 }
                 Err(e) => return ControlOutcome::Error(e),
             },
+            "changeset_join_prompt_answer" => {
+                match parse_changeset_join_prompt_answer_payload(payload) {
+                    Ok(parsed) => {
+                        self.do_changeset_join_prompt_answer(&parsed).await;
+                        Ok(())
+                    }
+                    Err(e) => return ControlOutcome::Error(e),
+                }
+            }
             "changeset_join_question_answer" => {
                 match parse_changeset_join_question_answer_payload(payload) {
                     Ok(parsed) => {
@@ -5785,6 +5847,117 @@ impl AgentSupervisor {
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_join_override reply serializes"),
         ));
+    }
+
+    /// Handle a `changeset_join_prompt_answer` CONTROL request (Spec S05,
+    /// [P06], [P07]): the answer to the arc's one question.
+    ///
+    /// The ask is re-derived here from the same `join_state_for` the recompute
+    /// calls, never from a remembered copy. That is what makes the
+    /// `request_id` check meaningful: it compares the answer against what the
+    /// repository says *now*, so an answer given over a sheet the world has
+    /// moved past is refused with a sentence rather than applied to a decision
+    /// nobody made.
+    ///
+    /// **`join-now` writes no mark, on either arm** ([P06] implications). A
+    /// land that is refused — a blocker arrived, occupancy took the dash, the
+    /// candidate went stale — must leave the ask unconsumed, or the user is
+    /// left with a dash that failed to join and will never be mentioned again.
+    /// The refusal itself travels the join's own `changeset_join_err`.
+    async fn do_changeset_join_prompt_answer(&self, request: &ChangesetJoinPromptAnswerPayload) {
+        let project_dir = request.project_dir.as_str();
+        let dir = std::path::Path::new(project_dir);
+
+        let standing = (|| -> Result<tugcast_core::types::DashJoinPrompt, String> {
+            if self.registry.find_entry_by_path(dir).is_none() {
+                return Err("not an open project".to_string());
+            }
+            let detail = tugdash_core::dash_detail_entries_in(dir)
+                .into_iter()
+                .find(|d| d.name == request.dash)
+                .ok_or_else(|| format!("no dash named '{}'", request.dash))?;
+            let current_branch = tugdash_core::ops::current_branch(dir).unwrap_or_default();
+            let state = crate::feeds::join_board::join_state_for(dir, &detail, &current_branch);
+            let prompt = state
+                .prompt
+                .ok_or_else(|| "that decision is no longer open".to_string())?;
+            if prompt.request_id != request.request_id {
+                return Err(
+                    "that decision was about a state that has since moved — read the new one"
+                        .to_string(),
+                );
+            }
+            Ok(prompt)
+        })();
+
+        let prompt = match standing {
+            Ok(prompt) => prompt,
+            Err(detail) => {
+                let body = serde_json::json!({
+                    "action": "changeset_join_prompt_answer_err",
+                    "project_dir": project_dir,
+                    "dash": request.dash,
+                    "detail": detail,
+                });
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body)
+                        .expect("changeset_join_prompt_answer_err serializes"),
+                ));
+                return;
+            }
+        };
+
+        match request.answer.as_str() {
+            // The dismissal, recorded against the decision it declined so the
+            // same one is not raised again ([P07]).
+            "not-yet" => {
+                if let Err(detail) =
+                    tugdash_core::verify::write_prompt_mark(dir, &request.dash, &prompt.decision)
+                {
+                    tracing::warn!(dash = %request.dash, %detail, "join prompt dismissal not recorded");
+                }
+                self.registry.changeset_all_bump().notify_one();
+            }
+            // Engagement clears the mark: the next decision this dash reaches
+            // is a fresh one, whether or not this one ends in a landing.
+            "review-first" => {
+                tugdash_core::verify::clear_prompt_mark(dir, &request.dash);
+                self.registry.changeset_all_bump().notify_one();
+            }
+            "join-now" => {
+                tugdash_core::verify::clear_prompt_mark(dir, &request.dash);
+                let candidate = match tugdash_core::resolve::candidate_status_in(dir, &request.dash)
+                {
+                    Ok(tugdash_core::resolve::CandidateStatus::Valid(sha)) => Some(sha),
+                    _ => None,
+                };
+                // The same land the composer's ⬆ performs, down to the handler
+                // — one join path, so a machine-started landing and a pressed
+                // one cannot diverge in what they do or what they report. The
+                // message is left absent so `join_in` takes the dash's standing
+                // draft, which is the message the run maintained.
+                let join = ChangesetJoinPayload {
+                    project_dir: request.project_dir.clone(),
+                    dash: request.dash.clone(),
+                    strategy: tugdash_core::JoinStrategy::Squash,
+                    message: None,
+                    preview: false,
+                    candidate,
+                    continue_join: false,
+                    session_id: None,
+                    // Answering "Join now" over a red verdict *is* the decision
+                    // the server's gate exists to ask for.
+                    anyway: prompt.decision == "red",
+                };
+                self.do_changeset_join(&join).await;
+            }
+            // Unreachable: the parser refuses anything else rather than
+            // letting it fall through to a default that would consume the ask.
+            other => {
+                tracing::warn!(dash = %request.dash, answer = %other, "unknown join prompt answer");
+            }
+        }
     }
 
     /// Handle a `changeset_join_question_answer` CONTROL request ([P06]):
@@ -9699,6 +9872,117 @@ mod tests {
         assert_ne!(
             previewed["detail"], "a resolve is already running for this dash",
             "a preview is not a run: {previewed}"
+        );
+
+        cancel.cancel();
+    }
+
+    /// An answer to a question the repository has already passed is refused
+    /// out loud, and consumes nothing (Spec S05, [L31]).
+    ///
+    /// This is the whole reason the `request_id` carries the four facts the ask
+    /// was about. The prompt is re-derived from durable state on every
+    /// recompute, and a user reads a sheet at their own pace — so the answer
+    /// that arrives may be about a state that is minutes old. Applying it would
+    /// land a decision nobody made about the tree that is actually there.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_prompt_answer_about_a_state_that_moved_is_refused() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let ok = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        }
+
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("a.txt"), "A\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let answer = |request_id: &str, dash: &str| {
+            serde_json::to_vec(&serde_json::json!({
+                "action": "changeset_join_prompt_answer",
+                "project_dir": root_str,
+                "dash": dash,
+                "request_id": request_id,
+                "answer": "not-yet",
+            }))
+            .unwrap()
+        };
+
+        // No prompt stands on this dash at all — it never reached `built`.
+        sup.handle_control(
+            "changeset_join_prompt_answer",
+            &answer("demo:aaaa:bbbb:clean", "demo"),
+            1,
+        )
+        .await;
+        let refused = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            control_rx.recv(),
+        )
+        .await
+        .expect("a reply")
+        .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&refused.payload).unwrap();
+        assert_eq!(body["action"], "changeset_join_prompt_answer_err");
+        assert!(
+            body["detail"].as_str().is_some_and(|d| !d.is_empty()),
+            "and says why, rather than going quiet: {body}"
+        );
+        assert!(
+            tugdash_core::verify::read_prompt_mark(&root, "demo").is_none(),
+            "a refused answer consumes nothing — the next real decision must \
+             still be able to ask"
+        );
+
+        // A dash that does not exist is the same shape of refusal.
+        sup.handle_control(
+            "changeset_join_prompt_answer",
+            &answer("ghost:aaaa:bbbb:clean", "ghost"),
+            1,
+        )
+        .await;
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), control_rx.recv())
+            .await
+            .expect("a reply")
+            .expect("sender alive");
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(body["action"], "changeset_join_prompt_answer_err");
+
+        // An answer outside the three is refused at the parse, before any of
+        // this: a default arm here would consume an ask nobody answered.
+        let nonsense = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join_prompt_answer",
+            "project_dir": root_str,
+            "dash": "demo",
+            "request_id": "demo:aaaa:bbbb:clean",
+            "answer": "maybe",
+        }))
+        .unwrap();
+        assert!(
+            matches!(
+                sup.handle_control("changeset_join_prompt_answer", &nonsense, 1)
+                    .await,
+                ControlOutcome::Error(_)
+            ),
+            "an unknown answer is malformed, not a default"
         );
 
         cancel.cancel();
