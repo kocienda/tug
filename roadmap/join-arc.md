@@ -554,21 +554,21 @@ Replies `changeset_join_prompt_answer_err { detail }` on a refusal — a stale `
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The pilot's predicate and its marks | done | `66749ee54` |
-| #step-2 | The pilot runs | done | `66749ee54` |
-| #step-3 | Tier 1 leaves the join path; pilot integration checkpoint | done | `fa9989a81` |
-| #step-4 | The join narrates its beats | done | `cb1138138` |
-| #step-5 | The client holds the beats; the deadline dies | done | `551e4f350` |
-| #step-6 | The register derivation and its component | done | `b752c4ba4` |
-| #step-7 | The register mounts on three surfaces | done | `c4480e1ba` |
-| #step-8 | Z5 carries the role and the confirm | done | `b7bbb55b7` |
-| #step-9 | The prompt fact and the re-ask policy | done | `ba4f2c406` |
-| #step-10 | The prompt sheet and its answer | done | `a49c6159a` |
-| #step-11 | The shade is disarmed | done | `4134bb82e` |
-| #step-12 | Unbind and Discard move to a row menu | done | `903175526` |
-| #step-13 | The pressed arcs — app-tests rewritten | done | `17cf22add` |
-| #step-14 | Documentation sync; the spike is deleted | done | `50530ba5f` |
-| #step-15 | Integration checkpoint | done | `50530ba5f` |
+| #step-1 | The pilot's predicate and its marks | done | `9ecf37496` |
+| #step-2 | The pilot runs | done | `9ecf37496` |
+| #step-3 | Tier 1 leaves the join path; pilot integration checkpoint | done | `4638619c1` |
+| #step-4 | The join narrates its beats | done | `6dc36ab1d` |
+| #step-5 | The client holds the beats; the deadline dies | done | `09901cb2a` |
+| #step-6 | The register derivation and its component | done | `144e704fc` |
+| #step-7 | The register mounts on three surfaces | done | `d96c4562b` |
+| #step-8 | Z5 carries the role and the confirm | done | `c6496010b` |
+| #step-9 | The prompt fact and the re-ask policy | done | `2db7e39de` |
+| #step-10 | The prompt sheet and its answer | done | `1bb1f3a0a` |
+| #step-11 | The shade is disarmed | done | `801eddba3` |
+| #step-12 | Unbind and Discard move to a row menu | done | `4d3f5c367` |
+| #step-13 | The pressed arcs — app-tests rewritten | done | `76d36df2c` |
+| #step-14 | Documentation sync; the spike is deleted | done | `ef9ed075e` |
+| #step-15 | Integration checkpoint | done | `ef9ed075e` |
 
 ---
 
