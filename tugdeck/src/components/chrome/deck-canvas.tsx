@@ -87,6 +87,10 @@ import {
   scaleDistortion,
   springSettleKeyframes,
 } from "@/lib/pane-flip";
+import {
+  motionKeyframes,
+  velocityAt,
+} from "@/lib/imposer-motion";
 import { dispatchCommand } from "@/command-dispatch";
 import {
   attachLensSelectionToDeck,
@@ -2037,6 +2041,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   /** The raw (unscaled) settle duration read back for the current gesture. */
   const settleDurationRef = useRef(IMPOSITION_SETTLE_MS);
   /**
+   * The velocity the next crossing launches with, and when the running one
+   * started — the two numbers a velocity-matched retarget needs ([P04]).
+   *
+   * `arm` reads the interrupted tween's velocity off the crossing recipe at
+   * its elapsed time and leaves it here; the Last pass consumes it and resets
+   * it, so a settle that was NOT interrupted always launches from rest. One
+   * velocity for the whole settle rather than one per frame, because every
+   * frame in a settle rides the same curve — they were all launched together
+   * and interrupted together.
+   */
+  const settleLaunchVelocityRef = useRef(0);
+  const settleLaunchedAtRef = useRef(0);
+  /**
    * The open resize episode on each frame, by pane id — DOM zone, never React
    * state.
    *
@@ -2137,6 +2154,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       if (next === arrangementRef.current) return;
       arrangementRef.current = next;
 
+      // The fastest thing this arm interrupts, in travels per second. Zero
+      // when it interrupts nothing, which is the ordinary case now that a
+      // release is one commit ([P01]).
+      let retargetVelocity = 0;
+
       // First: where every frame the imposer may move is right now. A running
       // tween's transform is included in the rect, which is the point — a
       // second arrangement change mid-motion starts its tween from where the
@@ -2176,18 +2198,33 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         episodes.set(paneId, beginResizeEpisode(frame, episodeWindowMs));
         const running = settleTweensRef.current.get(paneId);
         if (running !== undefined) {
+          // A frame caught mid-settle. It is not snapped to the end it never
+          // reached — it is held exactly where the eye has it, and the
+          // velocity it was carrying is handed to the crossing this arm is
+          // about to launch, so the card continues rather than stopping and
+          // starting again ([P04]).
+          //
+          // Held is also what makes the First rect above correct without any
+          // repair: the rect was measured through the running transform, and
+          // `hold-at-current` leaves that transform exactly as measured. The
+          // `snap-to-end` this replaces committed the tween's FINAL value into
+          // inline style instead, and the microtask that took it back was long
+          // enough to paint — one frame at a stale size against fresh calc
+          // geometry, which is the flash the census counts.
           deckTrace.record({
             kind: "settle-retarget",
             paneId,
-            mode: "snap",
+            mode: "matched",
           });
-          for (const anim of running.anims) anim.cancel("snap-to-end");
-          // Synchronously, before this tick can paint: `snap-to-end` finishes
-          // the tween, and TugAnimator commits its final value into the inline
-          // style on the way out. Waiting for the completion handler to hand
-          // those back would leave the frame wearing a stale baked size for a
-          // frame. The First rect above was already taken, so the restore
-          // cannot disturb the measurement.
+          retargetVelocity = Math.max(
+            retargetVelocity,
+            velocityAt(
+              "crossing",
+              { nominalMs: settleDurationRef.current },
+              performance.now() - settleLaunchedAtRef.current,
+            ),
+          );
+          for (const anim of running.anims) anim.cancel("hold-at-current");
           for (const restore of running.restores) restore();
           clearFlip(paneId, frame, running.anims);
         }
@@ -2258,6 +2295,8 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         panes: firstRects.size,
         armed: motion && firstRects.size > 0,
       });
+      // Handed to the crossing the Last pass builds.
+      settleLaunchVelocityRef.current = retargetVelocity;
 
       el.style.setProperty(
         "--tugx-imposer-settle-duration",
@@ -2364,13 +2403,31 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // because a faded frame never moves and an arriving one has nothing to
     // move from, so there is no sum between them to keep honest; opacity is
     // accelerable on its own, and merging it would cost that for nothing.
+    // The choreography, for this settle. `crossing` carries every frame that
+    // travels or resizes; `divide-join` is the shorter window a mode flip's
+    // fade runs on. Both are stated relative to `duration` — the one tunable —
+    // in `lib/imposer-motion.ts`, and no call site here picks a curve of its
+    // own ([P02] of roadmap/layout-imposer-polish.md).
+    //
+    // A retarget hands the crossing the velocity the interrupted tween had, so
+    // a frame caught mid-settle carries on rather than stopping and restarting.
+    const crossing = motionKeyframes("crossing", {
+      nominalMs: duration,
+      initialVelocity: settleLaunchVelocityRef.current,
+    });
+    settleLaunchVelocityRef.current = 0;
+    settleLaunchedAtRef.current = performance.now();
+    const fadeCurve = motionKeyframes("divide-join", { nominalMs: duration });
     const settleOpts = {
       // Raw ms: TugAnimator scales by getTugTiming() itself.
-      duration,
+      duration: crossing.durationMs,
       // No retained effect after the tween ends ([D6]).
       fill: "none",
       composite: "replace",
-      slotCancelMode: "snap-to-end",
+      // Cancelled by the arm above, which reads progress and velocity off the
+      // curve before it does — holding where the eye is, never snapping to an
+      // end the frame never reached ([P04]).
+      slotCancelMode: "hold-at-current",
     } as const;
     // Which frames this pass actually found. Whatever `arm` measured and this
     // loop never reaches has left the DOM during the commit, which is the only
@@ -2418,6 +2475,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           },
           {
             ...settleOpts,
+            // An arrival is `divide-join`: a member appearing in a place,
+            // carried by opacity rather than by travel. Its window is that
+            // recipe's, and its easing is the plain one the recipe states —
+            // a fade has no position to spring.
+            duration: fadeCurve.durationMs,
             easing: "ease-out",
             key: "imposer-enter",
           },
@@ -2474,7 +2536,14 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                 { transform: held, offset: 0 },
                 { transform: held, offset: 1 },
               ],
-              { ...settleOpts, easing: "linear", key: "imposer-flip" },
+              {
+                ...settleOpts,
+                // The held pose lasts exactly as long as the fade it holds
+                // still for — one clock for the pair ([D135]).
+                duration: fadeCurve.durationMs,
+                easing: "linear",
+                key: "imposer-flip",
+              },
             ),
           );
         }
@@ -2491,7 +2560,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
                   { opacity: 1, offset: 0 },
                   { opacity: 0, offset: 1 },
                 ],
-            { ...settleOpts, easing: "ease", key: "imposer-fade" },
+            {
+              ...settleOpts,
+              duration: fadeCurve.durationMs,
+              easing: "ease",
+              key: "imposer-fade",
+            },
           ),
         );
       } else {
@@ -2538,17 +2612,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         anims.push(
           animate(
             frame,
-            springSettleKeyframes({
-              dx,
-              dy,
-              sx: widthSmears ? sx : 1,
-              width: widthTweens
-                ? [firstRect.width, lastRect.width]
-                : undefined,
-              height: heightTweens
-                ? [firstRect.height, lastRect.height]
-                : undefined,
-            }),
+            springSettleKeyframes(
+              {
+                dx,
+                dy,
+                sx: widthSmears ? sx : 1,
+                width: widthTweens
+                  ? [firstRect.width, lastRect.width]
+                  : undefined,
+                height: heightTweens
+                  ? [firstRect.height, lastRect.height]
+                  : undefined,
+              },
+              crossing.progress,
+            ),
             {
               ...settleOpts,
               // A keyword easing, because the curve rides in the keyframe
@@ -2600,6 +2677,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         ghost,
         { opacity: [1, 0] },
         {
+          // Outside the recipe family on purpose, like the refusal flash: this
+          // animates a GHOST div standing in for a pane that no longer exists,
+          // not a frame the imposer is placing. It has nowhere to travel to,
+          // so there is no motion to state — only a length of time to be gone
+          // over, which is its own constant.
           duration: PANE_EXIT_GHOST_MS,
           easing: "ease-out",
           fill: "none",

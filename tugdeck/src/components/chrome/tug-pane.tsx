@@ -91,6 +91,7 @@ import {
   resolveContentWidthPx,
   type ContentWidth,
 } from "@/lib/layout-imposer";
+import { motionKeyframes, velocityAlongTravel } from "@/lib/imposer-motion";
 import { TugButton } from "@/components/tugways/internal/tug-button";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugActionTooltip } from "@/components/tugways/tug-action-tooltip";
@@ -1335,6 +1336,19 @@ const TITLE_BAR_VISIBLE_MIN_Y = CARD_TITLE_BAR_HEIGHT;
 const SNAP_GUIDE_LINE_PX = 2;
 
 /**
+ * How stale the last pointer sample may be and still count as the hand's
+ * motion at the release, in milliseconds.
+ *
+ * A drop inherits the hand's velocity ([P05] of
+ * `roadmap/layout-imposer-polish.md`), and the question that answers is "how
+ * fast was the hand going as it opened" — not "how fast was it going at some
+ * point during the drag". Four display frames is long enough to survive a
+ * dropped frame and short enough that a hand which paused before letting go
+ * reads, correctly, as stopped.
+ */
+const RELEASE_VELOCITY_WINDOW_MS = 68;
+
+/**
  * Freeze an imposed frame into free pixel geometry at the rect it currently
  * shows, and hand back that rect in canvas coordinates.
  *
@@ -2190,6 +2204,22 @@ export function TugPane({
   const dragCanvasBounds = useRef<DOMRect | null>(null);
   // Most recent client-space pointer coordinates from onPointerMove.
   const latestDragPointer = useRef({ x: 0, y: 0 });
+  /**
+   * The previous pointer sample and when it arrived — the two numbers a
+   * release velocity is made of.
+   *
+   * A drop's landing inherits the hand ([P05] of
+   * `roadmap/layout-imposer-polish.md`): a card let go while still moving
+   * toward its zone arrives carrying that motion instead of stopping dead and
+   * starting again. Two samples are enough — the estimate only has to know how
+   * fast the hand was going at the instant it opened, and a longer window
+   * would average away the flick it is trying to catch.
+   */
+  const previousDragPointer = useRef<{
+    x: number;
+    y: number;
+    at: number;
+  } | null>(null);
 
   // Track the tab bar element currently highlighted as a merge drop target.
   // Appearance-zone only: set/cleared via data-drop-target attribute. [D45, Rule 4]
@@ -2220,6 +2250,9 @@ export function TugPane({
   const pendingZoneDropRef = useRef<{
     el: HTMLElement;
     from: DOMRect;
+    /** The hand's speed at the release, in CSS px/s, for the landing to
+     *  inherit. `{x: 0, y: 0}` for a release the hand had stopped moving on. */
+    releaseVelocity: { x: number; y: number };
   } | null>(null);
   // Every strip this gesture has scrolled, and where it left each one. Held per
   // strip rather than as one number because a drag can cross from one
@@ -2259,7 +2292,7 @@ export function TugPane({
     const pending = pendingZoneDropRef.current;
     if (pending === null) return;
     pendingZoneDropRef.current = null;
-    const { el, from } = pending;
+    const { el, from, releaseVelocity } = pending;
     el.style.transform = "";
     const to = el.getBoundingClientRect();
     const zoom = getTugZoom() || 1;
@@ -2269,15 +2302,31 @@ export function TugPane({
       el.removeAttribute("data-gesture");
       return;
     }
+    // The `landing` recipe, seeded with whatever the hand was still doing at
+    // the release. The travel is from where the frame sits back to zero, so
+    // the vector the velocity is projected onto is the negative of the FLIP's
+    // inverse offset — the direction the card is about to go.
+    const curve = motionKeyframes("landing", {
+      nominalMs: readSettleMs(el),
+      initialVelocity: velocityAlongTravel(releaseVelocity, {
+        x: -dx,
+        y: -dy,
+      }),
+    });
     const landing = animate(
       el,
-      {
-        transform: [`translate(${dx}px, ${dy}px)`, "translate(0px, 0px)"],
-      },
+      curve.progress.map((p, i) => ({
+        offset: i / (curve.progress.length - 1),
+        // The curve walks the inverse offset away; an overshoot carries the
+        // frame past its place and the spring brings it back.
+        transform: `translate(${(1 - p) * dx}px, ${(1 - p) * dy}px)`,
+      })),
       {
         // Raw ms: TugAnimator scales by getTugTiming() itself.
-        duration: readSettleMs(el),
-        easing: "ease-out",
+        duration: curve.durationMs,
+        // The physics is in the keyframes, so the easing is the keyword that
+        // keeps the effect accelerable (`lib/pane-flip.ts` says why).
+        easing: "linear",
         // No retained effect after the tween ends ([D6]).
         fill: "none",
         key: "zone-drop-landing",
@@ -2473,6 +2522,9 @@ export function TugPane({
       dragStartedWithMeta.current = event.metaKey;
       dragStartPosition.current = { x: position.x, y: position.y };
       latestDragPointer.current = { x: event.clientX, y: event.clientY };
+      // A fresh grab has no history, so a release without a single move
+      // inherits nothing — which is right: that hand never moved.
+      previousDragPointer.current = null;
 
       // Build tab bar cache for merge hit-testing. [D45]
       // Snapshot all .tug-tab-bar[data-pane-id] elements (excluding this pane).
@@ -2639,6 +2691,31 @@ export function TugPane({
        * the whole travel since the grab. Summed per axis because one drag can
        * scroll a column and the flow band on different axes.
        */
+      /**
+       * How fast the hand was moving when it opened, in CSS px/s.
+       *
+       * Taken from the last pointer move and the release itself, using the
+       * events' own timestamps rather than a clock read here — the release
+       * may be dispatched a frame after the move that preceded it, and the
+       * gap between them is the denominator.
+       *
+       * Zero when there is no previous sample (a press and release with no
+       * travel) or when the two share a timestamp (which would divide by
+       * nothing). A stale sample is treated as a stop: a hand that paused
+       * before letting go has no momentum to give, and inheriting a velocity
+       * from 200ms ago would throw a card that was sitting still.
+       */
+      function releaseVelocity(e: PointerEvent): { x: number; y: number } {
+        const previous = previousDragPointer.current;
+        if (previous === null) return { x: 0, y: 0 };
+        const dt = e.timeStamp - previous.at;
+        if (dt <= 0 || dt > RELEASE_VELOCITY_WINDOW_MS) return { x: 0, y: 0 };
+        return {
+          x: ((e.clientX - previous.x) / dt) * 1000,
+          y: ((e.clientY - previous.y) / dt) * 1000,
+        };
+      }
+
       function autoscrollCompensation(): { dx: number; dy: number } {
         let dx = 0;
         let dy = 0;
@@ -2809,6 +2886,10 @@ export function TugPane({
 
       // === POINTER HANDLERS ===
       function onPointerMove(e: PointerEvent) {
+        previousDragPointer.current = {
+          ...latestDragPointer.current,
+          at: e.timeStamp,
+        };
         latestDragPointer.current = { x: e.clientX, y: e.clientY };
         latestAltKey.current = e.altKey;
         latestMetaKey.current = e.metaKey;
@@ -3067,6 +3148,7 @@ export function TugPane({
             pendingZoneDropRef.current = {
               el: frame,
               from: frame.getBoundingClientRect(),
+              releaseVelocity: releaseVelocity(e),
             };
             // A drop onto the card's own position commits nothing, so nothing
             // renders and the layout effect never runs. It is still a drop, and
@@ -3085,6 +3167,7 @@ export function TugPane({
             pendingZoneDropRef.current = {
               el: frame,
               from: frame.getBoundingClientRect(),
+              releaseVelocity: releaseVelocity(e),
             };
             landZoneDrop();
             flashCardPane(store, activeCardIdRef.current ?? id);

@@ -49,6 +49,7 @@
  * @covers tugdeck/src/lib/cut-detector.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/pane-flip.ts
+ * @covers tugdeck/src/lib/imposer-motion.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  */
 

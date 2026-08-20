@@ -63,8 +63,6 @@
  * @module lib/pane-flip
  */
 
-import { dampedSpring } from "@/lib/unit-functions";
-
 /** Where a frame moved to, from where it was, and how much narrower it was. */
 export interface FlipDelta {
   /** Horizontal distance in CSS pixels, positive rightward. */
@@ -76,12 +74,13 @@ export interface FlipDelta {
 }
 
 /**
- * How many intervals the spring-keyframe builders cut the curve into.
+ * The curve every settle keyframe list is cut against, when a caller does not
+ * supply one.
  *
- * A sampled curve is off from the real one by the gap between it and its
- * chords, which falls as the square of the count. At 32 the spring's steepest
- * stretch is under a hundredth of the travel, and only in passing — well inside
- * a pixel over any distance the deck moves a frame.
+ * There is no longer a spring in this module: the imposer's motion is stated
+ * once in `lib/imposer-motion.ts` and passed in. This constant survives only as
+ * the resolution floor a hand-built curve is expected to clear — below about 32
+ * stops the chords between samples start to read.
  */
 export const SPRING_KEYFRAME_SAMPLES = 32;
 
@@ -190,15 +189,17 @@ export interface SettleTerms {
  */
 export function springSettleKeyframes(
   terms: SettleTerms,
-  samples: number = SPRING_KEYFRAME_SAMPLES,
+  curve: readonly number[],
 ): Keyframe[] {
   const { dx, dy, sx = 1, width, height } = terms;
-  const steps = Math.max(2, Math.floor(samples));
-  const spring = dampedSpring();
+  const steps = Math.max(2, curve.length - 1);
   const frames: Keyframe[] = [];
   for (let i = 0; i <= steps; i += 1) {
     const offset = i / steps;
-    const progress = i === 0 ? 0 : i === steps ? 1 : spring(offset);
+    // The ends are pinned rather than taken from the curve: a sample a hair
+    // off leaves the frame a hair off its place, and an exactly-zero final
+    // transform is what makes cancelling safe at any moment.
+    const progress = i === 0 ? 0 : i === steps ? 1 : (curve[i] ?? 1);
     const remaining = 1 - progress;
     const frame: Keyframe = { offset };
     if (dx !== 0 || dy !== 0 || sx !== 1) {

@@ -2,12 +2,24 @@ import { describe, expect, test } from "bun:test";
 
 import {
   MAX_FLIP_SCALE_DISTORTION,
-  SPRING_KEYFRAME_SAMPLES,
   flipDelta,
   scaleDistortion,
   springSettleKeyframes,
 } from "@/lib/pane-flip";
-import { dampedSpring } from "@/lib/unit-functions";
+import { motionKeyframes } from "@/lib/imposer-motion";
+
+/**
+ * The curve the deck's settle actually runs on. This module no longer owns a
+ * spring — the choreography is stated once in `lib/imposer-motion.ts` — so the
+ * tests below check the MAPPING of a curve onto a frame's terms, against the
+ * same curve the canvas passes in.
+ */
+const CROSSING = motionKeyframes("crossing", { nominalMs: 360 }).progress;
+const STOPS = CROSSING.length - 1;
+
+/** A short hand-built curve, for the cases that only care about the shape of
+ *  the output list rather than the physics. */
+const COARSE = [0, 0.25, 0.6, 0.85, 1];
 
 /** A rect standing in for a measured frame; the origin and the width are read. */
 function rect(left: number, top: number, width = 400, height = 600): DOMRectReadOnly {
@@ -109,15 +121,15 @@ describe("scaleDistortion", () => {
 });
 
 describe("springSettleKeyframes", () => {
-  const FRAMES = springSettleKeyframes({ dx: -300, dy: -160 });
+  const FRAMES = springSettleKeyframes({ dx: -300, dy: -160 }, CROSSING);
 
   test("starts at the full inverse delta and ends at no transform", () => {
     expect(translation(FRAMES[0])).toEqual({ x: -300, y: -160 });
     expect(FRAMES[FRAMES.length - 1].transform).toBe("translate(0px, 0px)");
   });
 
-  test("cuts the curve into the sampled number of intervals", () => {
-    expect(FRAMES).toHaveLength(SPRING_KEYFRAME_SAMPLES + 1);
+  test("emits one keyframe per stop in the curve it was given", () => {
+    expect(FRAMES).toHaveLength(CROSSING.length);
   });
 
   test("offsets rise strictly from 0 to 1", () => {
@@ -140,10 +152,9 @@ describe("springSettleKeyframes", () => {
     }
   });
 
-  test("traces the damped spring the deck settles on", () => {
-    const spring = dampedSpring();
-    for (let i = 1; i < SPRING_KEYFRAME_SAMPLES; i += 1) {
-      const remaining = 1 - spring(i / SPRING_KEYFRAME_SAMPLES);
+  test("traces the curve it was handed, term by term", () => {
+    for (let i = 1; i < STOPS; i += 1) {
+      const remaining = 1 - CROSSING[i];
       const { x, y } = translation(FRAMES[i]);
       expect(x).toBeCloseTo(-300 * remaining, 2);
       expect(y).toBeCloseTo(-160 * remaining, 2);
@@ -159,16 +170,16 @@ describe("springSettleKeyframes", () => {
     }
   });
 
-  test("honors an explicit sample count, floored at two intervals", () => {
-    expect(springSettleKeyframes({ dx: 10, dy: 0 }, 4)).toHaveLength(5);
-    expect(springSettleKeyframes({ dx: 10, dy: 0 }, 1)).toHaveLength(3);
+  test("a curve of any length maps, and a degenerate one still has two ends", () => {
+    expect(springSettleKeyframes({ dx: 10, dy: 0 }, COARSE)).toHaveLength(5);
+    expect(springSettleKeyframes({ dx: 10, dy: 0 }, [0, 1])).toHaveLength(3);
   });
 
   test("a frame that only moves is tweened by the transform it always was", () => {
     // The everyday arrangement gestures take no scale and no size term, so
     // their keyframes are byte-identical to what the deck has always animated
     // — and, carrying nothing but transform, stay accelerable.
-    for (const frame of springSettleKeyframes({ dx: -300, dy: -160 })) {
+    for (const frame of springSettleKeyframes({ dx: -300, dy: -160 }, CROSSING)) {
       expect(String(frame.transform)).toMatch(
         /^translate\(-?[\d.]+px, -?[\d.]+px\)$/,
       );
@@ -179,17 +190,16 @@ describe("springSettleKeyframes", () => {
     // A rail member growing in place: its top-left corner is where it always
     // was, so there is nothing to invert and an identity transform would be a
     // term claiming motion that is not happening.
-    for (const frame of springSettleKeyframes({
-      dx: 0,
-      dy: 0,
-      height: [300, 640],
-    })) {
+    for (const frame of springSettleKeyframes(
+      { dx: 0, dy: 0, height: [300, 640] },
+      CROSSING,
+    )) {
       expect(Object.keys(frame).sort()).toEqual(["height", "offset"]);
     }
   });
 
   describe("with a width change", () => {
-    const SCALED = springSettleKeyframes({ dx: -40, dy: 0, sx: 675 / 800 });
+    const SCALED = springSettleKeyframes({ dx: -40, dy: 0, sx: 675 / 800 }, CROSSING);
 
     test("starts at the old width's scale and ends at none", () => {
       expect(scaleX(SCALED[0])).toBeCloseTo(675 / 800, 5);
@@ -207,11 +217,10 @@ describe("springSettleKeyframes", () => {
       }
     });
 
-    test("walks the scale up on the same spring the move rides", () => {
-      const spring = dampedSpring();
+    test("walks the scale up on the same curve the move rides", () => {
       const sx = 675 / 800;
-      for (let i = 1; i < SPRING_KEYFRAME_SAMPLES; i += 1) {
-        const remaining = 1 - spring(i / SPRING_KEYFRAME_SAMPLES);
+      for (let i = 1; i < STOPS; i += 1) {
+        const remaining = 1 - CROSSING[i];
         expect(scaleX(SCALED[i])).toBeCloseTo(1 + (sx - 1) * remaining, 4);
       }
     });
@@ -219,35 +228,33 @@ describe("springSettleKeyframes", () => {
 });
 
 describe("springSettleKeyframes, with a real size term", () => {
-  const GROWN = springSettleKeyframes({ dx: 0, dy: 0, height: [300, 640] });
+  const GROWN = springSettleKeyframes({ dx: 0, dy: 0, height: [300, 640] }, CROSSING);
 
   test("starts at the old size and ends exactly at the new one", () => {
     expect(GROWN[0]).toEqual({ height: "300px", offset: 0 });
     expect(GROWN[GROWN.length - 1]).toEqual({ height: "640px", offset: 1 });
   });
 
-  test("walks the size on the same spring the move rides", () => {
-    const spring = dampedSpring();
-    for (let i = 1; i < SPRING_KEYFRAME_SAMPLES; i += 1) {
-      const progress = spring(i / SPRING_KEYFRAME_SAMPLES);
+  test("walks the size on the same curve the move rides", () => {
+    for (let i = 1; i < STOPS; i += 1) {
       const value = Number(String(GROWN[i].height).replace("px", ""));
-      expect(value).toBeCloseTo(300 + 340 * progress, 2);
+      expect(value).toBeCloseTo(300 + 340 * CROSSING[i], 2);
     }
   });
 
   test("animates width by the same construction", () => {
     const frames = springSettleKeyframes(
       { dx: 0, dy: 0, width: [800, 1230] },
-      4,
+      COARSE,
     );
     expect(frames).toHaveLength(5);
     expect(frames[0]).toEqual({ width: "800px", offset: 0 });
     expect(frames[frames.length - 1]).toEqual({ width: "1230px", offset: 1 });
   });
 
-  test("honors an explicit sample count, floored at two intervals", () => {
+  test("a two-stop curve still yields a list with two ends", () => {
     expect(
-      springSettleKeyframes({ dx: 0, dy: 0, height: [0, 100] }, 1),
+      springSettleKeyframes({ dx: 0, dy: 0, height: [0, 100] }, [0, 1]),
     ).toHaveLength(3);
   });
 
@@ -271,7 +278,10 @@ describe("springSettleKeyframes, with a real size term", () => {
     const RUN_TOP = 5; // where the whole run starts
     const dy = TOP - RUN_TOP; // the inverse the FLIP starts at
     const grown = HEIGHT + dy; // the run's full height — same bottom edge
-    for (const frame of springSettleKeyframes({ dx: 0, dy, height: [HEIGHT, grown] })) {
+    for (const frame of springSettleKeyframes(
+      { dx: 0, dy, height: [HEIGHT, grown] },
+      CROSSING,
+    )) {
       const { y } = translation(frame);
       const height = Number(String(frame.height).replace("px", ""));
       expect(RUN_TOP + y + height).toBeCloseTo(TOP + HEIGHT, 3);
@@ -281,11 +291,10 @@ describe("springSettleKeyframes, with a real size term", () => {
   test("a top-anchored shrink pins the top edge at every keyframe", () => {
     // The mirror case: the frontmost member is the TOP tile and the rail is
     // being split, so it keeps its top and gives up its bottom.
-    for (const frame of springSettleKeyframes({
-      dx: 0,
-      dy: 0,
-      height: [1220, 607],
-    })) {
+    for (const frame of springSettleKeyframes(
+      { dx: 0, dy: 0, height: [1220, 607] },
+      CROSSING,
+    )) {
       expect(frame.transform).toBeUndefined();
       expect(Number(String(frame.height).replace("px", ""))).toBeLessThanOrEqual(
         1220,

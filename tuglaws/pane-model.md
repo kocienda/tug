@@ -322,6 +322,33 @@ Imposed Panes get the rule twice over, as they should — Tug places them itself
 
 ---
 
+## The imposer's motion is designed, not assembled
+
+**Every way the imposer moves a card is one of a small set of named operations, each with a stated physics, and no call site picks a curve of its own.** The set lives in `tugdeck/src/lib/imposer-motion.ts`; the table below is what it says.
+
+| Recipe | Operation class | What moves | ζ | Window | Velocity carry |
+|---|---|---|---|---|---|
+| `crossing` | a settled arrangement change — the settle | transform + width/height, one curve | 1.0 | 1.0× | from an interrupted tween, else 0 |
+| `landing` | a dropped card entering its zone; a refusal's return home | transform | 0.9 | 0.85× | the pointer's release velocity, clamped |
+| `reveal` | a strip sliding to show an activated member | the offset property, via the riding frames' crossing | 1.0 | 1.0× | 0 |
+| `divide-join` | a member arriving in or leaving a place | opacity (a plain ease; a fade has no position); the survivor moves on `crossing` | — | 0.6× | — |
+
+Two animations in the imposer's files are deliberately outside the family, and both for the same reason — they are not a card being placed. The refusal flash (`flashCardPane`) is a blocked gesture answering back, and the exit ghost is a stand-in div for a Pane that no longer exists, with nowhere to travel to.
+
+Three properties hold the design together:
+
+- **Timing is relative.** Every window is a multiple of the crossing's, which is the deck's one tuning knob (`--tugx-imposer-settle-duration`, read back by `readSettleMs`). A hand on that knob retimes the whole choreography in proportion instead of pulling it apart.
+- **The physics rides in the keyframe values, under a `linear` KEYWORD easing** — never a sampled `linear(…)` string, which costs the effect its compositor acceleration. `lib/pane-flip.ts` holds the receipt (18.0% of a core versus 0.9%).
+- **A spring is solved in its own time and replayed over the window.** Sizing the spring so it physically settles inside a 360ms window needs ω ≈ 20, and `SpringSolver` integrates forward Euler at a fixed 60Hz — at that frequency the first sampled frame covered 47% of the travel and the damping ratio stopped producing any overshoot at all. The shape is sampled at a well-conditioned frequency and the window sets the tempo.
+
+**An interruption is a velocity-matched retarget, never a snap.** A frame caught mid-settle is cancelled `hold-at-current` — held exactly where the eye has it — and the velocity it was carrying seeds the replacement crossing. The `snap-to-end`-and-restore it replaces committed the tween's final value into inline style and took it back a microtask later, which is long enough to paint: one frame at a stale size against fresh `calc()` geometry.
+
+**A gesture is one commit, so it is one notification.** A release that mutates several times (the autoscroll's offset, the zone, the arriving pane's raise) wraps them in `DeckManager.batchGesture`, because the canvas arms its settle once per notify and an arm landing mid-tween is a retarget nobody asked for. What is batched is observation, not mutation: the writes run in their existing order and lifecycle brackets are untouched.
+
+The numbers are falsifiable rather than felt: `deck-trace`'s motion census counts notifies, settle arms, and retargets per gesture, and a drop-zone release is held to **one notify, at most one arm, and zero snap retargets** (`at0450`, `at0457`).
+
+---
+
 ## Pane-modal vs canvas-overlay surfaces
 
 **A surface that claims pane-modal semantics — "this surface blocks interaction with this pane" — is scoped to the host Pane's stacking context, not to the canvas-overlay tier.** The Pane's outer frame element (`.tug-pane`, exposed via `TugPaneFrameContext` from `tug-pane.tsx`) is its own stacking context: position-absolute with an inline z-index assigned by the deck. Anything portaled into that frame paints inside the Pane's stacking context, so peer Panes z-stacked above paint above the modal panel automatically. Bleed across Panes is structurally impossible.

@@ -129,6 +129,46 @@ export class SpringSolver {
 
     return vel;
   }
+
+  /**
+   * The first moment the spring is done, in milliseconds — the earliest
+   * time from which position stays within `tolerance` of the target AND
+   * velocity has fallen under `tolerance` per second.
+   *
+   * Both terms are needed. Position alone reports "done" the instant an
+   * underdamped spring crosses its target at full speed, on its way to an
+   * overshoot the eye plainly sees; velocity alone reports "done" at the
+   * top of that overshoot, where the spring is momentarily still and as
+   * far from settled as it gets.
+   *
+   * Used to size a recipe's playback window from its physics rather than
+   * from a number somebody picked: a tween cut off before this is a
+   * motion that visibly stops short. Returns `null` when the spring has
+   * not settled within `MAX_KEYFRAMES` steps (5 seconds), which is a
+   * badly-chosen parameter set rather than a slow one.
+   */
+  settleTimeMs(tolerance = 0.01): number | null {
+    const kOverM = this.stiffness / this.mass;
+    const dOverM = this.damping / this.mass;
+
+    let pos = 0;
+    let vel = this.initialVelocity;
+    // The last step at which the spring was still outside the band; the
+    // answer is the step after it. Tracked rather than returning on first
+    // entry into the band, because an underdamped spring enters and leaves
+    // it several times before it stays.
+    let lastUnsettled = -1;
+    for (let i = 0; i < MAX_KEYFRAMES; i++) {
+      if (Math.abs(pos - 1) > tolerance || Math.abs(vel) > tolerance) {
+        lastUnsettled = i;
+      }
+      const acc = kOverM * (1 - pos) - dOverM * vel;
+      vel = vel + acc * DT;
+      pos = pos + vel * DT;
+    }
+    if (lastUnsettled === MAX_KEYFRAMES - 1) return null;
+    return (lastUnsettled + 1) * DT * 1000;
+  }
 }
 
 // ---------------------------------------------------------------------------
