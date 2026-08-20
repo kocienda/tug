@@ -560,8 +560,8 @@ Replies `changeset_join_prompt_answer_err { detail }` on a refusal — a stale `
 | #step-4 | The join narrates its beats | done | `cb1138138` |
 | #step-5 | The client holds the beats; the deadline dies | done | `551e4f350` |
 | #step-6 | The register derivation and its component | done | `b752c4ba4` |
-| #step-7 | The register mounts on three surfaces | in progress | — |
-| #step-8 | Z5 carries the role and the confirm | pending | — |
+| #step-7 | The register mounts on three surfaces | done | `c4480e1ba` |
+| #step-8 | Z5 carries the role and the confirm | in progress | — |
 | #step-9 | The prompt fact and the re-ask policy | pending | — |
 | #step-10 | The prompt sheet and its answer | pending | — |
 | #step-11 | The shade is disarmed | pending | — |

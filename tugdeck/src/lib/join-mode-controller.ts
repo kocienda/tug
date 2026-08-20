@@ -32,14 +32,20 @@ import type {
   DashJoinStateWire,
 } from "@/lib/changeset-types";
 import type { JoinPhase } from "@/lib/changeset-verb-store";
-import type { LandOutcome, LandingMode, LandingRefusal, LandingSnapshot } from "@/lib/landing-mode";
+import type {
+  LandOptions,
+  LandOutcome,
+  LandingMode,
+  LandingRefusal,
+  LandingSnapshot,
+} from "@/lib/landing-mode";
 import { CHANGES_SERVICE_DISCONNECTED, sameRefusal } from "@/lib/landing-mode";
 import { getChangesetVerbStore } from "@/lib/changeset-verb-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { sendLandingReceipt } from "@/lib/landing-press-receipt";
 import { getChangesetDraftStore, type DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
-import { dashJoinRegister } from "@/lib/dash-join-register";
+import { dashJoinRegister, type DashJoinRegister } from "@/lib/dash-join-register";
 
 /** The dash a join mode is aimed at — the identity plus what the face reads. */
 export interface JoinTarget {
@@ -82,6 +88,13 @@ export interface JoinGateInput {
    * Pinned to a candidate sha by whoever supplies it, so an override is a
    * decision about the tree it was made in view of and never carries to the
    * next one.
+   *
+   * The gate no longer reads it — a red does not refuse ([P05]).
+   * {@link joinLandConfirm} does: a standing override is a decision already
+   * made, so the button lands without asking again. It stays on the gate's
+   * input because {@link joinGateFacts} writes it into the receipt, and a
+   * receipt that could not say whether an override stood would not describe
+   * the press.
    */
   redOverride: boolean;
   /** The trimmed join message. */
@@ -109,7 +122,6 @@ export type JoinGateReason =
   | "outcome"
   | "unverified"
   | "verifying"
-  | "verification-red"
   | "empty-message";
 
 /** The join-gate verdict — `ok`, or the first failing reason. */
@@ -215,14 +227,15 @@ export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   // joinable through it, which is the shade saying "blocked" and the button
   // saying "go".
   if (input.outcome !== "clean") return { ok: false, reason: "outcome" };
-  // The verdict sits immediately after the outcome, because it is the same
-  // question one level finer — not *is* there something to join, but *does
-  // what would join survive the project's own checks*. A red is refused unless
-  // the user has looked at it and said join anyway: an override is a decision
-  // made in view of the failure, never a default and never a trap.
-  if (input.verdict === "red" && !input.redOverride) {
-    return { ok: false, reason: "verification-red" };
-  }
+  // **A red does not refuse** ([P05]). It is a decision the user is entitled
+  // to make, and the gate is not where a decision belongs: refusing here meant
+  // the only way past a red was a second control on a second surface, pressed
+  // before the one the user was already looking at. So the red arms
+  // {@link joinLandConfirm} instead — the button turns danger and asks — and
+  // what reaches the server is a press that was confirmed.
+  //
+  // The two waits below still refuse, because they are not decisions: a tree
+  // that is being built has no verdict to decide about yet.
   if (input.verdict === "running") return { ok: false, reason: "verifying" };
   if (input.verdict === "unrun") return { ok: false, reason: "unverified" };
   if (input.message.trim().length === 0) return { ok: false, reason: "empty-message" };
@@ -251,17 +264,12 @@ export function joinDisabledReason(
   // preview, reads "This join is not ready yet" — which names nothing the user
   // can act on when all that is missing is the message.
   if (reason === "empty-message") return "Write a join message";
-  // Each names the act that clears it, or the wait that does. The first two
-  // are waits: the pilot builds the joined tree at `built` without being
+  // Both are waits: the pilot builds the joined tree at `built` without being
   // asked, so naming a Verify control here would point at a button that no
-  // longer exists — the older sentence did exactly that. The red one names the
-  // *override* rather than a fix, because the override is the only thing on
-  // this surface that moves a red join forward.
+  // longer exists — the older sentence did exactly that. A red is no longer
+  // among them, because a red no longer refuses ([P05]).
   if (reason === "unverified") return "Building the joined tree";
   if (reason === "verifying") return "Building the joined tree";
-  if (reason === "verification-red") {
-    return "Verification failed — join anyway to proceed";
-  }
   switch (outcome) {
     case "conflicted":
       return "Resolve the conflicts first";
@@ -281,6 +289,35 @@ export function joinDisabledReason(
 }
 
 /**
+ * The sentence the land button must have answered before it lands, or null
+ * ([P05]).
+ *
+ * This is where the red verdict went when it stopped refusing. The old shape
+ * had two controls in two places — a Join button that refused and a JOIN
+ * ANYWAY button on the shade that cleared the refusal — which meant the act
+ * the refusal named was never the control the user was looking at. One button
+ * that changes colour and asks is the same decision with the detour removed.
+ *
+ * A standing override returns null: the user already answered this question
+ * about this candidate, and asking twice about one decision is how a confirm
+ * becomes something to click through. The count comes from the verdict's own
+ * `failures`, so the confirm says how much is broken rather than only that
+ * something is.
+ */
+export function joinLandConfirm(
+  verdict: JoinVerdict,
+  redOverride: boolean,
+  failures?: readonly string[] | undefined,
+): string | null {
+  if (verdict !== "red" || redOverride) return null;
+  const count = failures?.length ?? 0;
+  if (count === 0) return "The build is red on the joined tree. Join anyway?";
+  return `The build is red on the joined tree — ${count} failing ${
+    count === 1 ? "check" : "checks"
+  }. Join anyway?`;
+}
+
+/**
  * What clears a refusal, and where the user finds it ([P08]).
  *
  * [L31] got refusals to *speak*. It was not enough: the 2026-08-18 deadlock
@@ -289,15 +326,26 @@ export function joinDisabledReason(
  * of the thing that clears it, or says plainly that time clears it and nothing
  * else does — and a reason added without a row fails `tsc`.
  *
- * `slot` is `null` exactly where waiting is the whole answer. Those two rows
- * are not an exemption from [L31]; they are why the sentence has to name the
- * wait, since there is nothing to point at.
+ * `slot` is `null` exactly where waiting is the whole answer. Those rows are
+ * not an exemption from [L31]; they are why the sentence has to name the wait,
+ * since there is nothing to point at — and after [P09] they are nearly all of
+ * them, because the machine took over the acts they used to name.
  */
 export interface ReachabilityRow {
   /** The `data-slot` of the control that clears this refusal, or `null`. */
   slot: string | null;
-  /** Where that control is: the dash row's join face, or the composer. */
-  where: "join-face" | "composer" | "time";
+  /**
+   * Where that control is — the composer, or nowhere, because only time
+   * clears it ([P09]).
+   *
+   * `"join-face"` was the third arm, and it is gone. Every act in the join arc
+   * now lives in Z5 or in a summoned prompt, so a refusal pointing at the
+   * shade would name a control that is not there: the same 2026-08-18 failure
+   * this table was written to make impossible, arrived at from the other
+   * direction. With the arm deleted, a reason that tried to point at the shade
+   * is a type error rather than a bug somebody has to notice.
+   */
+  where: "composer" | "time";
 }
 
 export const REFUSAL_REACHABILITY = {
@@ -307,45 +355,23 @@ export const REFUSAL_REACHABILITY = {
   // needs no control of its own: with nothing to press twice, a second press
   // cannot double-submit a join.
   pending: { slot: null, where: "time" },
-  // The conflicted and stale readings of `outcome`; see
-  // {@link refusalReachability} for the two that answer to a different act.
-  outcome: { slot: "session-changes-dash-resolve", where: "join-face" },
-  // The verdict's three refusals. Two of them are waits nothing can press
+  // Every reading of `outcome` is now a wait. Conflicted and stale are the
+  // pilot's to clear and it starts unprompted; blocked is cleared outside the
+  // app entirely, which is why each blocker carries its own act sentence; and
+  // an empty dash is the one state whose answer — discard — is deliberately
+  // rare enough to live in the row's overflow menu rather than in a refusal.
+  // What every one of them has in common is that the composer holds nothing
+  // that would help, so the sentence has to be the whole answer.
+  outcome: { slot: null, where: "time" },
+  // The verdict's two remaining refusals, both waits nothing can press
   // through: the pilot runs Tier 0 unprompted at `built`, so an unrun verdict
-  // is a run about to happen rather than a control nobody has clicked. Only a
-  // red still answers to an act.
+  // is a run about to happen rather than a control nobody has clicked. A red
+  // is no longer a refusal at all — it arms the land button's confirm ([P05]).
   unverified: { slot: null, where: "time" },
   verifying: { slot: null, where: "time" },
-  "verification-red": {
-    slot: "session-changes-dash-join-override",
-    where: "join-face",
-  },
   // The message is the composer's document, so the editor is the control.
   "empty-message": { slot: "tug-prompt-entry", where: "composer" },
 } satisfies Record<JoinGateReason, ReachabilityRow>;
-
-/**
- * The row for a live refusal, which needs the outcome as well as the reason.
- *
- * `outcome` is one reason covering four states, and they do not answer to the
- * same act: conflicted and stale want the ladder, blocked wants whatever each
- * blocker's own row names, and empty wants the dash released. Collapsing them
- * would point a refusal at a control that state does not mount — the exact
- * failure this table exists to make impossible.
- */
-export function refusalReachability(
-  reason: JoinGateReason,
-  outcome: JoinOutcome,
-): ReachabilityRow {
-  if (reason !== "outcome") return REFUSAL_REACHABILITY[reason];
-  if (outcome === "blocked") {
-    return { slot: "session-changes-dash-join-blockers", where: "join-face" };
-  }
-  if (outcome === "empty") {
-    return { slot: "session-changes-dash-discard", where: "join-face" };
-  }
-  return REFUSAL_REACHABILITY.outcome;
-}
 
 /**
  * The gate's inputs, reduced to what may be written down ([L31]). The message
@@ -513,15 +539,22 @@ export class JoinModeController implements LandingMode {
         : persistedMessage;
     const draftError = draftPhase === "error" ? overlay?.detail ?? null : null;
 
+    const verdict = verificationVerdict(join);
+    const redOverride = redOverrideStands(candidateCommit, join?.override_for);
     const gate = evaluateJoinGate({
       turnInProgress,
       joinPhase,
       outcome,
       candidateCommit,
-      verdict: verificationVerdict(join),
-      redOverride: redOverrideStands(candidateCommit, join?.override_for),
+      verdict,
+      redOverride,
       message: "x", // ignore message emptiness here (CSS-gated on data-commit-empty)
     });
+    // A red arms the button rather than disabling it ([P05]). The confirm and
+    // the role are one derivation so the shade and the sentence cannot
+    // disagree: a danger-coloured button with nothing to answer would be a
+    // trap, and a confirm on an ordinary land would be friction.
+    const landConfirm = joinLandConfirm(verdict, redOverride, join?.verification?.failures);
     // The same sentence the fronted row's join face shows, carried to the
     // composer's button — which is where somebody who typed `/dash-join` is
     // actually looking, and which otherwise reports a constant.
@@ -555,6 +588,8 @@ export class JoinModeController implements LandingMode {
                 this.target.name,
               ),
             }),
+      landRole: landConfirm === null ? "action" : "danger",
+      landConfirm,
       landReady: this.active && gate.ok && messagePresent,
       landPhase: joinPhase,
       landError,
@@ -752,8 +787,9 @@ export class JoinModeController implements LandingMode {
    * fire it inline. A refusal is surfaced here and reported by type ([L31]) —
    * this path has no outcome where nothing happens and nothing is said.
    */
-  land(message: string): LandOutcome {
+  land(message: string, opts?: LandOptions): LandOutcome {
     const text = message.trim();
+    const anyway = opts?.anyway === true;
     // The dash is captured at press time and carried into the staged callback,
     // never re-read from `this.target` when it runs. The host stages a join
     // by exiting the mode, and exiting clears the target — so a staged join
@@ -779,7 +815,7 @@ export class JoinModeController implements LandingMode {
     }
     this.clearRefusal();
     sendLandingReceipt({ kind: "join", verdict: "ok", gate: joinGateFacts(input) });
-    const runJoin = () => this.performJoin(text, target);
+    const runJoin = () => this.performJoin(text, target, anyway);
     if (this.landHook !== null) {
       this.landHook(runJoin);
       return { kind: "staged" };
@@ -860,7 +896,7 @@ export class JoinModeController implements LandingMode {
    * the staged path already dismissed it. The gate is re-checked because the
    * staged path fires a beat later, after the shade animates out.
    */
-  private performJoin(text: string, target: JoinTarget): void {
+  private performJoin(text: string, target: JoinTarget, anyway: boolean): void {
     const { changesController } = this.deps;
     const input = this.liveGateInput(text, target);
     const gate = evaluateJoinGate(input);
@@ -885,6 +921,11 @@ export class JoinModeController implements LandingMode {
       message: text,
       sessionId: changesController.tugSessionId,
       ...(input.candidateCommit !== null ? { candidate: input.candidateCommit } : {}),
+      // The confirmed red ([P05]). The server's verification gate is the one
+      // that actually stands between a red tree and the base, so the answer to
+      // the confirm has to reach it — a client that only recoloured its button
+      // would have asked the question and then thrown the answer away.
+      ...(anyway ? { anyway: true } : {}),
     });
     const unsubscribe = verbStore.subscribe(() => {
       const phase = verbStore.joinState(changesController.entryKey).phase;
@@ -949,6 +990,9 @@ function snapshotsEqual(a: JoinModeSnapshot, b: JoinModeSnapshot): boolean {
     a.canLandIgnoringMessage === b.canLandIgnoringMessage &&
     a.landBlockedReason === b.landBlockedReason &&
     a.landReady === b.landReady &&
+    a.landRole === b.landRole &&
+    a.landConfirm === b.landConfirm &&
+    sameRegister(a.register, b.register) &&
     a.landPhase === b.landPhase &&
     a.landError === b.landError &&
     sameRefusal(a.landRefusal, b.landRefusal) &&
@@ -964,6 +1008,21 @@ function snapshotsEqual(a: JoinModeSnapshot, b: JoinModeSnapshot): boolean {
     sameStrings(a.conflicts, b.conflicts) &&
     sameBlockers(a.blockers, b.blockers)
   );
+}
+
+/**
+ * The register is derived fresh on every recompute, so it is never
+ * referentially stable and has to be compared by value ([P04]).
+ *
+ * It also has to be compared *at all*: a live join moves nothing else on this
+ * snapshot — the gate stays refused on `pending` and the phase stays
+ * `"pending"` — so a landing beat is the one fact that changes only here. An
+ * equality check that skipped it would leave the composer's register frozen on
+ * the first beat of a join it is narrating.
+ */
+function sameRegister(a: DashJoinRegister | null, b: DashJoinRegister | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.phase === b.phase && a.line === b.line && a.word === b.word;
 }
 
 function sameTarget(a: JoinTarget | null, b: JoinTarget | null): boolean {

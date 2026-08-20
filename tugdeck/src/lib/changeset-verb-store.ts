@@ -211,6 +211,15 @@ export interface JoinArgs {
   continueJoin?: boolean;
   /** The card's tug session id, so the landing leaves a receipt ([P06]). */
   sessionId?: string;
+  /**
+   * Join past the server's verification gate — the confirmed red ([P05]).
+   *
+   * Sent only by a land press that opened the composer's confirm and had it
+   * answered. The gate it passes is the server's, so nothing else on the way
+   * there may set this: a client that sent it by default would have deleted
+   * the gate rather than passed it.
+   */
+  anyway?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -657,6 +666,7 @@ export class ChangesetVerbStore {
       ...(args.candidate !== undefined ? { candidate: args.candidate } : {}),
       ...(args.continueJoin === true ? { continue: true } : {}),
       ...(args.sessionId !== undefined ? { session_id: args.sessionId } : {}),
+      ...(args.anyway === true ? { anyway: true } : {}),
     });
   }
 

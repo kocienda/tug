@@ -138,7 +138,6 @@ export function deriveResolveFace(
 export const JOIN_CONTROL = {
   resume: "session-changes-dash-resume",
   resolve: "session-changes-dash-resolve",
-  override: "session-changes-dash-join-override",
 } as const;
 
 export type JoinControl = (typeof JOIN_CONTROL)[keyof typeof JOIN_CONTROL];
@@ -197,6 +196,7 @@ export function deriveJoinFace(input: {
     typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
   const resolve = deriveResolveFace(outcome, resolvePhase, candidate, join?.run ?? null);
   const verdict = verificationVerdict(join);
+  const redStands = verdict === "red" && !redOverrideStands(candidate, join?.override_for);
   const gate = evaluateJoinGate({
     turnInProgress,
     joinPhase,
@@ -222,16 +222,15 @@ export function deriveJoinFace(input: {
       ? null
       : resolve === "offer" || resolve === "error"
         ? JOIN_CONTROL.resolve
-        : // Derived from the gate's own refusal rather than from the verdict,
-          // so an overridden red mounts nothing — the control and the reason
-          // it answers cannot disagree, which is what
-          // {@link REFUSAL_REACHABILITY} promises.
+        : // A red mounts nothing here either, now that it is a decision rather
+          // than a refusal ([P05]): the act is the composer's own land button,
+          // which turns danger and asks. The JOIN ANYWAY that used to stand
+          // here was the detour — a refusal on one surface cleared by a button
+          // on another.
           //
-          // `unverified` mounts nothing: the pilot runs Tier 0 unprompted, so
-          // the wait clears itself and there is no act to offer.
-          !gate.ok && gate.reason === "verification-red"
-          ? JOIN_CONTROL.override
-          : null;
+          // `unverified` mounts nothing for the same shape of reason: the
+          // pilot runs Tier 0 unprompted, so the wait clears itself.
+          null;
 
   // Measured against what will render, never against the outcome word.
   const statedBelow =
@@ -242,7 +241,14 @@ export function deriveJoinFace(input: {
       (outcome === "stale" && staleNote !== null) ||
       outcome === "empty");
   const line = gate.ok
-    ? "Ready to join — ⌃⌘C, or /dash-join"
+    ? // The gate passes a red now ([P05]), so "Ready to join" would be a
+      // resting lie on exactly the state that most needs reading. The face
+      // says what the press will be instead, and where it is made — the same
+      // thing the register says, from the one surface that still has room to
+      // show the failures underneath it.
+      redStands
+      ? "Build red on the joined tree — joining is a decision, made in the composer"
+      : "Ready to join — ⌃⌘C, or /dash-join"
     : statedBelow
       ? null
       : reason;
@@ -655,17 +661,6 @@ export function SessionChangesDashJoin({
                 <li key={note}>{note}</li>
               ))}
             </ul>
-          ) : null}
-          {control === JOIN_CONTROL.override ? (
-            <TugPushButton
-              size="xs"
-              emphasis="filled"
-              role="danger"
-              onClick={() => actions.overrideRed(entry)}
-              data-slot={JOIN_CONTROL.override}
-            >
-              Join anyway
-            </TugPushButton>
           ) : null}
         </div>
       ) : null}

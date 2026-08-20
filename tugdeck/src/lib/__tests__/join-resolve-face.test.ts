@@ -32,7 +32,6 @@ import {
 } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
 import {
   REFUSAL_REACHABILITY,
-  refusalReachability,
   type JoinGateReason,
 } from "../join-mode-controller";
 import type { DashJoinStateWire } from "@/lib/changeset-types";
@@ -138,13 +137,17 @@ describe("one control per state (Table T01)", () => {
     expect(unrun.line).toBe("Building the joined tree");
   });
 
-  test("resolved and red: the override, and the failure it is a decision about", () => {
-    // The one state on this face that offers a way past a refusal rather than
-    // a way to clear it — because the fix for a red is another resolve, and
-    // the override is what the user chooses in view of the failure.
+  test("resolved and red: no control, and a line naming the decision", () => {
+    // The state that used to carry JOIN ANYWAY. The refusal it cleared is
+    // gone: a red passes the gate and arms the composer's land button, so the
+    // face has no act left to offer and says where the act lives instead
+    // ([P05]). A "Ready to join" here would be the resting lie on exactly the
+    // state that most needs reading.
     const red = face(RED);
-    expect(red.control).toBe(JOIN_CONTROL.override);
-    expect(red.line).toBe("Verification failed — join anyway to proceed");
+    expect(red.control).toBeNull();
+    expect(red.line).toBe(
+      "Build red on the joined tree — joining is a decision, made in the composer",
+    );
   });
 
   test("resolved and green: no control at all, and a line naming the route", () => {
@@ -165,8 +168,12 @@ describe("one control per state (Table T01)", () => {
     const overridden = face({ ...RED, override_for: "cafe1234" });
     expect(overridden.control).toBeNull();
     expect(overridden.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
+    // An override pinned to a different sha does not cover this candidate, so
+    // the row is back to stating the decision.
     const stale = face({ ...RED, override_for: "beef5678" });
-    expect(stale.control).toBe(JOIN_CONTROL.override);
+    expect(stale.line).toBe(
+      "Build red on the joined tree — joining is a decision, made in the composer",
+    );
   });
 
   test("clean and verified: same — a sentence and no button", () => {
@@ -258,49 +265,37 @@ describe("no state is both silent and inert", () => {
   });
 });
 
-describe("every refusal points at a control that state mounts ([P08])", () => {
+describe("every refusal points at the composer, or at a wait ([P09])", () => {
   // [L31] made refusals speak; this is the half it did not cover. The
   // 2026-08-18 deadlock produced a true sentence — "Review what the ladder
   // resolved first" — pointing at a Reviewed button that was not on screen,
   // because the panel holding it read a store cell nothing was writing. A
-  // refusal naming an unmounted control is silence in the user's terms, so the
-  // reachability table's answer has to agree with what the face actually
-  // renders, state by state.
-  const cases: {
-    name: string;
-    join: DashJoinStateWire | null;
-    over?: Partial<Parameters<typeof deriveJoinFace>[0]>;
-    reason: JoinGateReason;
-  }[] = [
-    {
-      name: "blocked",
-      join: { phase: "blocked", blockers: [{ kind: "off-base", detail: "check out main" }] },
-      reason: "outcome",
-    },
-    { name: "conflicted", join: CONFLICTED, reason: "outcome" },
-    {
-      name: "stale",
-      join: { phase: "previewed", stale_note: "main moved since this was resolved" },
-      reason: "outcome",
-    },
-    { name: "resolved and red", join: RED, reason: "verification-red" },
-  ];
-
-  for (const c of cases) {
-    test(`${c.name}: the named slot is the control the face mounts`, () => {
-      const f = face(c.join, c.over);
-      const row = refusalReachability(c.reason, f.outcome);
-      expect(row.where).toBe("join-face");
-      if (c.name === "blocked") {
-        // Blocked mounts no single control: each blocker renders its own act
-        // inside the slot the table names, which is what the row points at.
-        expect(row.slot).toBe("session-changes-dash-join-blockers");
-        expect(f.control).toBeNull();
-      } else {
-        expect(row.slot).toBe(f.control);
-      }
-    });
-  }
+  // refusal naming an unmounted control is silence in the user's terms.
+  //
+  // The claim is stronger now than it was, and it is stronger *because* the
+  // shade lost its controls. There is exactly one surface a refusal can point
+  // at — the composer — and one honest alternative, which is to name a wait.
+  // A table with no third option cannot drift back into naming a button that
+  // is not there, and a reason that tried would be a type error rather than a
+  // bug somebody has to notice.
+  test("no row names anything but the composer or a wait", () => {
+    const reasons = Object.keys(REFUSAL_REACHABILITY) as JoinGateReason[];
+    // Not a hand-kept list: `satisfies Record<JoinGateReason, …>` is what makes
+    // the table total, and reading the keys back is what makes this test see a
+    // reason somebody adds later.
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const reason of reasons) {
+      const row = REFUSAL_REACHABILITY[reason];
+      expect([`${reason}: composer`, `${reason}: time`]).toContain(
+        `${reason}: ${row.where}`,
+      );
+      // A wait has nothing to point at, and a composer refusal points at the
+      // composer. Any other pairing is a slot on a surface the arc no longer
+      // has.
+      if (row.where === "time") expect(row.slot).toBeNull();
+      else expect(row.slot).toBe("tug-prompt-entry");
+    }
+  });
 
   test("the time-cleared reasons name the wait instead of a control", () => {
     // Not an exemption from [L31] — the reason there is nothing to point at is
@@ -308,10 +303,11 @@ describe("every refusal points at a control that state mounts ([P08])", () => {
     //
     // `unverified` and `verifying` joined this set when the pilot took over:
     // the joined tree is built at `built` without a gesture, so an unrun
-    // verdict is a run about to happen. A row still pointing at the retired
-    // Verify button would be the 2026-08-18 deadlock again — a true sentence
-    // naming a control nobody can see.
-    for (const reason of ["turn", "pending", "unverified", "verifying"] as const) {
+    // verdict is a run about to happen. `outcome` joined it when the shade was
+    // disarmed — a conflicted dash is the pilot's to reconcile, a blocked one
+    // is cleared outside the app, and each blocker carries its own act
+    // sentence where the table used to carry a slot.
+    for (const reason of ["turn", "pending", "outcome", "unverified", "verifying"] as const) {
       expect(REFUSAL_REACHABILITY[reason].slot).toBeNull();
       expect(REFUSAL_REACHABILITY[reason].where).toBe("time");
     }
@@ -319,6 +315,24 @@ describe("every refusal points at a control that state mounts ([P08])", () => {
       "Wait for the turn to finish",
     );
     expect(face({ phase: "previewed" }, { joinPhase: "pending" }).line).toBe("Joining…");
+  });
+
+  test("a refused state still says its own sentence, whatever the row says", () => {
+    // The table says where; the face says what. Losing the controls must not
+    // cost the sentences — a blocked dash still names the act that clears it,
+    // and a conflicted one still names its files.
+    const blocked = face({
+      phase: "blocked",
+      blockers: [{ kind: "off-base", detail: "check out main" }],
+    });
+    expect(blocked.statedBelow).toBe(true);
+    expect(face(CONFLICTED).statedBelow).toBe(true);
+    // The stale note is the server's own sentence and renders as its own
+    // block, so `line` stays null rather than saying it twice.
+    expect(
+      face({ phase: "previewed", stale_note: "main moved since this was resolved" })
+        .statedBelow,
+    ).toBe(true);
   });
 
   test("the message's control is the composer, which is where it is typed", () => {

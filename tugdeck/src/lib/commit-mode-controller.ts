@@ -239,6 +239,10 @@ export class CommitModeController implements LandingMode {
       // rather than composing something keeps the composer ignorant of which
       // landing it is hosting.
       register: null,
+      // A commit has no verdict to be red about, so its land is never a
+      // decision the button has to shade or ask about ([P05]).
+      landRole: "action",
+      landConfirm: null,
       landReady: this.active && gate.ok && messagePresent,
       fileCount,
       claimableCount,

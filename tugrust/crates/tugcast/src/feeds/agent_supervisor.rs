@@ -1898,10 +1898,11 @@ struct ChangesetJoinPayload {
     session_id: Option<String>,
     /// Join past the verification gate (Spec S03).
     ///
-    /// The card does not send this: its escape is the durable override fact,
-    /// pressed as its own act on a candidate somebody actually read. It is on
-    /// the wire so a test can exercise join mechanics without standing up a
-    /// verdict first, and so the two routes into `join_in` are symmetric.
+    /// The card sends this only for a land press whose confirm was answered
+    /// ([P05]): a red verdict no longer refuses in the composer, it turns the
+    /// land button danger and asks, and the answer has to reach the gate that
+    /// actually stands between a red tree and the base. A client that sent it
+    /// by default would have deleted the gate rather than passed it.
     anyway: bool,
 }
 

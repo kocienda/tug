@@ -22,6 +22,7 @@ import {
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
+  joinLandConfirm,
   verificationVerdict,
   redOverrideStands,
   joinTargetFromEntry,
@@ -103,12 +104,6 @@ describe("joinDisabledReason", () => {
     );
     expect(joinDisabledReason("verifying", "conflicted")).toBe(
       "Building the joined tree",
-    );
-    // The red one names the override rather than a fix: the fix is another
-    // resolve, and the override is the only thing on this surface that moves
-    // a red join forward.
-    expect(joinDisabledReason("verification-red", "clean")).toBe(
-      "Verification failed — join anyway to proceed",
     );
   });
 
@@ -268,7 +263,7 @@ describe("evaluateJoinGate", () => {
     });
   });
 
-  it("refuses a candidate nobody has verified, and one that came back red", () => {
+  it("refuses a candidate nobody has verified, and lets a red through to the confirm", () => {
     // The 2026-08-15 failure: a stale rerere replay built a candidate that
     // armed Join exactly as a clean preview would ([P31]).
     expect(
@@ -279,14 +274,18 @@ describe("evaluateJoinGate", () => {
         verdict: "unrun",
       }),
     ).toEqual({ ok: false, reason: "unverified" });
+    // A red does NOT refuse ([P05]). The gate passes it and the button asks —
+    // which is the whole point of the change: the act that clears a red is now
+    // the control the user is already looking at, not a second one somewhere
+    // else. What guards the base is the server's own gate, and what passes it
+    // is an answered confirm.
     expect(
       evaluateJoinGate({
         ...base,
         candidateCommit: "cafe1234",
         verdict: "red",
       }),
-    ).toEqual({ ok: false, reason: "verification-red" });
-    // …and passes it once the user has looked at the red and said so.
+    ).toEqual({ ok: true });
     expect(
       evaluateJoinGate({
         ...base,
@@ -295,6 +294,29 @@ describe("evaluateJoinGate", () => {
         redOverride: true,
       }),
     ).toEqual({ ok: true });
+  });
+
+  it("arms the confirm on a red, and asks nothing when the decision already stands", () => {
+    // The confirm and the role are one derivation, so a danger-shaded button
+    // always has a question behind it and an ordinary land never does.
+    expect(joinLandConfirm("green", false, [])).toBeNull();
+    expect(joinLandConfirm("unrun", false, undefined)).toBeNull();
+    expect(joinLandConfirm("red", false, undefined)).toBe(
+      "The build is red on the joined tree. Join anyway?",
+    );
+    // The verdict's own failures, counted — "how much is broken" is the fact
+    // that decides this, and a confirm that could only say "something" would
+    // be asking the user to go look somewhere else before answering.
+    expect(joinLandConfirm("red", false, ["cargo build"])).toBe(
+      "The build is red on the joined tree — 1 failing check. Join anyway?",
+    );
+    expect(joinLandConfirm("red", false, ["cargo build", "bun test"])).toBe(
+      "The build is red on the joined tree — 2 failing checks. Join anyway?",
+    );
+    // A standing override is this same decision, already made about this same
+    // candidate. Asking again is how a confirm becomes something to click
+    // through without reading.
+    expect(joinLandConfirm("red", true, ["cargo build"])).toBeNull();
   });
 
   it("refuses a candidate the base still blocks — resolving is not committing", () => {
