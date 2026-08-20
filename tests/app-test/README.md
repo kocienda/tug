@@ -154,22 +154,57 @@ fixture dash is born, listed, joined and torn down in the checkout under
 test rather than in the one that owns the shared `.git`. The doctrine is
 in [tuglaws/app-test-harness.md](../../tuglaws/app-test-harness.md#the-repo-universe-fixtures-stay-in-the-checkout-under-test).
 
-Two things follow for anyone writing a dash fixture:
+### A fixture dash lives in a scratch repository, never in your checkout
 
-- **`--base` comes from the checkout, not from `main`.** `createDash` in
-  `dash-fixture.ts` derives it from the branch the project has out, so a
-  fixture forks from — and lands back onto — content that is actually
-  checked out. A test that hardcodes `main` as its dash's base passes
-  only from the main checkout.
-- **Refs are repo-global; paths are not.** The universe scopes where
-  state lives, not the `tugdash/*` namespace, so every dash you have open
-  is a row in the lane a fixture run sees. Assert on your own dash's row,
-  never on a count of the lane.
+**A dash is for implementing a plan, not for running a test.** A fixture
+never cuts one in the checkout you are working in — `createDash`,
+`commitRound`, and `discardDash` all refuse the attempt with a message
+naming this rule. Every dash fixture builds a repository of its own:
 
-A fixture that needs a repository of its own — to run a join, say —
-builds one with `git init` under the temp dir and passes `binaryRoot` so
-the CLI still comes from the checkout under test. `at0441` is the worked
-example, `TUG_DATA_DIR` redirect included.
+```ts
+scratch = makeDashScratchRepo({ prefix: "at0999", checkout: CHECKOUT });
+createDash(scratch.repo, DASH, "at0999 fixture", scratch.cli);
+fixtureDir = seedScratchSession(scratch.repo, SID);   // uuid-shaped SID
+// afterAll:
+rmDashScratchRepo(scratch);
+rmScratchSession(fixtureDir);
+```
+
+Four things to know:
+
+- **Spread `scratch.cli` into every fixture call.** It carries
+  `binaryRoot` (the CLI comes from the checkout under test, which is the
+  only tree with a build) and the `TUG_DATA_DIR` redirect (dash state,
+  journals and drafts land beside the scratch repo, not in your live data
+  root).
+- **A scratch repo is invisible until a session is spawned on it.**
+  tugcast registers exactly one workspace at startup — the
+  `--source-tree` bootstrap, which is your checkout, because that is also
+  where `tugdeck/dist` is served from. Every other workspace comes from
+  `spawn_session`. So `app.bindSession(...)` is not enough: seed a
+  transcript with `seedScratchSession` and open the card with
+  `app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch.repo })`.
+  Pass the launch `TUG_DATA_DIR: scratch.dataRoot`, and leave
+  `sourceTreePath` on the checkout.
+- **The session id must be a UUID.** `claude --resume` refuses anything
+  else, and the failure surfaces far from its cause (the composer's
+  selector matches no element, because the card fell back to the
+  picker). `seedScratchSession` refuses a non-UUID up front.
+- **An app-test instance never sees the checkout's dashes.** The feed
+  hides them (`dashes_hidden_for` in `feeds/changeset.rs`), so a test can
+  assert on a lane's exact contents instead of on whatever you happen to
+  have open. Session entries are untouched — the changes-attribution
+  tests really do compose the checkout's dirt.
+
+`--base` still comes from the project the dash is cut in, not from
+`main`: `createDash` derives it from the branch that project has out.
+
+Everything a scratch fixture makes carries the `tug-scratch-` prefix — the
+repo, its data root, its stub scripts, and the transcript directory under
+`~/.claude/projects` — and the recipe sweeps that namespace at the start
+of every run, so a test killed before its teardown leaves nothing behind.
+`at0441` is the worked example for a join arc; `at0421` for a plain
+dash-UI one.
 
 ## Environment variables
 
@@ -272,9 +307,11 @@ hang until something timed out. A project that declares no tier is green with a
 note, which is the posture a fixture wants.
 
 **The repository is the fixture's own.** `makeJoinScratchRepo` in
-`dash-fixture.ts` builds one: a `git init`ed repo under the system temp dir with
-one genuine conflict, a redirected `TUG_DATA_DIR`, the declared Tier 0, and the
-stub scripts. Owning the repository is what lets these arcs run all the way
+`dash-fixture.ts` builds one — on top of `makeDashScratchRepo`, the same
+constructor every dash fixture uses, so there is one implementation of "a repo
+Tug can open" — adding one genuine conflict, the declared Tier 0, and the stub
+scripts to the base repo's `git init`, `.tugtool/` marker and redirected
+`TUG_DATA_DIR`. Owning the repository is what lets these arcs run all the way
 through a join — a successful join squashes onto the base branch **in that
 branch's live working tree**, which for the checkout would be the developer's
 own `main`. `rmJoinScratchRepo` deletes the lot.

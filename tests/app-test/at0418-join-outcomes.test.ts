@@ -18,20 +18,24 @@
  *
  * ## Two fixture notes
  *
+ * Every dash here lives in a scratch repository this file owns — a dash is for
+ * implementing a plan, not for running a test — and the app opens it by
+ * spawning a real session on it, which is what registers it as a workspace.
+ *
  * The `landing` stage is faked by writing the join journal directly
  * ([#landing-fixture]) — crashing a real join mid-teardown is not reproducible
  * from a test, and the cause is not what is under test. Everything downstream
  * of the file is real: the derivation, the preflight, the feed, and the
- * affordance. The journal's state dir is keyed on whatever `join_in` resolves
- * as the repo root — the checkout under test when the run pins a repo universe,
- * the common dir's owner otherwise — which `universeRoot` mirrors; the preview
- * above proves the key is right by coming back with the blocker.
+ * affordance. The journal's state dir is keyed on the repo root `join_in`
+ * resolves, which for a scratch repo outside any pinned universe is the repo
+ * itself; `journalPath` mirrors that, and the preview above proves the key is
+ * right by coming back with the blocker.
  *
  * The release half is the phase's one end-to-end landing: a purpose-created
  * dash is discarded from the row, and the server-formatted receipt it leaves
- * is read back after Maker ▸ Reload. A *join* cannot be driven this way — it
- * would squash a fixture onto the developer's own `main` — so the discard is
- * where the card → server → shell ledger → reload path is actually walked.
+ * is read back after Maker ▸ Reload. A *join* is not driven here — at0436 and
+ * at0441 press one on their own scratch repos — so the discard is where the
+ * card → server → shell ledger → reload path is walked in this file.
  *
  * The discard confirms through the lane's `TugConfirmPopover`, and both halves
  * are driven: Cancel first — proving the arming click destroys nothing and
@@ -40,11 +44,10 @@
  * on the row, which is asserted here so the deletion of the block that used to
  * duplicate them is visibly a deduplication.
  *
- * `base-dirt` is deliberately **not** driven here. Its dirt would have to land
- * in that same main checkout — the developer's live tree, mid-run — and the
- * blocker is already pinned where it is cheap and exact: the intersection in
- * `tugdash-core`'s `preview_reports_intersecting_base_dirt_and_names_the_paths`
- * and the act text in `session-changes-dash-join.test.ts`.
+ * `base-dirt` is deliberately **not** driven here — the blocker is already
+ * pinned where it is cheap and exact: the intersection in `tugdash-core`'s
+ * `preview_reports_intersecting_base_dirt_and_names_the_paths` and the act
+ * text in `session-changes-dash-join.test.ts`.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
@@ -68,7 +71,15 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, discardDash, universeRoot } from "./dash-fixture";
+import {
+  commitRound,
+  createDash,
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  type DashScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -81,7 +92,11 @@ const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-s
 const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-group`;
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+const projectDir = (): string => scratch?.repo ?? "";
 
 const DASH_WORK = "at0418-work";
 const DASH_EMPTY = "at0418-empty";
@@ -94,62 +109,7 @@ const DISCARD_RECEIPT = `${CARD} [data-slot="discard-receipt-block"]`;
  *  is addressed from the document root rather than under `CARD`. */
 const CONFIRM_POPOVER = '[data-slot="tug-confirm-popover"]';
 
-/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
-
 let fixtureDir = "";
-
-/** One clean Claude turn, so the reload's `claude --resume` has something to
- *  replay rather than falling back to the picker. */
-function buildFixtureJsonl(cwd: string, sessionId: string): string {
-  const base = {
-    isSidechain: false,
-    userType: "external",
-    cwd,
-    sessionId,
-    version: "2.1.105",
-    gitBranch: "main",
-  };
-  const t0 = new Date(Date.now() - 2000).toISOString();
-  const t1 = new Date(Date.now() - 1000).toISOString();
-  return (
-    [
-      {
-        ...base,
-        parentUuid: null,
-        type: "user",
-        uuid: "00000000-0000-4000-8000-000000000d01",
-        timestamp: t0,
-        message: { role: "user", content: [{ type: "text", text: "hello" }] },
-      },
-      {
-        ...base,
-        parentUuid: "00000000-0000-4000-8000-000000000d01",
-        type: "assistant",
-        uuid: "00000000-0000-4000-8000-000000000d02",
-        timestamp: t1,
-        message: {
-          id: "msg-release-1",
-          type: "message",
-          role: "assistant",
-          model: "claude-opus-4-8",
-          content: [{ type: "text", text: "hi there" }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: {
-            input_tokens: 1200,
-            output_tokens: 50,
-            cache_creation_input_tokens: 100,
-            cache_read_input_tokens: 8000,
-          },
-        },
-      },
-    ]
-      .map((e) => JSON.stringify(e))
-      .join("\n") + "\n"
-  );
-}
 
 const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
@@ -162,19 +122,24 @@ let emptyId = "";
 let releaseId = "";
 
 /**
- * The join journal's home. `join_in` resolves the repo root from the card's
- * project dir, and the state-dir slug is derived from whatever that resolution
- * returns — the pinned universe under `just app-test`, the common dir's owner
- * otherwise. `universeRoot` is the one mirror of that rule; read
- * `project_state_dir` / `join_journal_path` in `tugdash-core/src/ops.rs` and
- * `find_repo_root_from` in `tugutil-core/src/worktree.rs` before changing
- * either half of this.
+ * The join journal's home, mirrored from the Rust.
+ *
+ * Two halves, and both matter. The *root* is the scratch repo's own data root
+ * — `base_data_dir()` is `$TUG_DATA_DIR/Tug`, and this fixture redirects
+ * `TUG_DATA_DIR` — so the journal is written where the app under test looks
+ * and nowhere near the developer's live state. The *slug* is the repo path
+ * with every separator turned to `-`, which is `project_slug` in
+ * `tugutil-core/src/paths.rs`; the scratch repo is realpath'd at creation, so
+ * it is already the canonical spelling that function would compute. Read
+ * `project_state_dir` / `join_journal_path` in `tugdash-core/src/ops.rs`
+ * before changing either half.
  */
 function journalPath(dash: string): string {
-  const slug = universeRoot(PROJECT_DIR).replaceAll("/", "-");
+  const slug = projectDir().replaceAll("/", "-");
   return join(
-    homedir(),
-    "Library/Application Support/Tug/projects",
+    scratch?.dataRoot ?? "",
+    "Tug",
+    "projects",
     slug,
     `join-journal-${dash}.json`,
   );
@@ -201,42 +166,35 @@ function writeJournal(dash: string): void {
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH_WORK);
-  discardDash(PROJECT_DIR, DASH_EMPTY);
-  rmSync(journalPath(DASH_WORK), { force: true });
-  const work = createDash(PROJECT_DIR, DASH_WORK, "at0418 fixture (a round)");
+  scratch = makeDashScratchRepo({ prefix: "at0418", checkout: CHECKOUT });
+  const work = createDash(projectDir(), DASH_WORK, "at0418 fixture (a round)", scratch.cli);
   workId = work.id;
   writeFileSync(join(work.worktree, "at0418-work.txt"), "at0418\n");
-  commitRound(PROJECT_DIR, DASH_WORK, "at0418(round): something to land");
+  commitRound(projectDir(), DASH_WORK, "at0418(round): something to land", scratch.cli);
   // No round at all — the empty outcome is the absence of one.
-  emptyId = createDash(PROJECT_DIR, DASH_EMPTY, "at0418 fixture (no rounds)").id;
+  emptyId = createDash(projectDir(), DASH_EMPTY, "at0418 fixture (no rounds)", scratch.cli).id;
 
-  discardDash(PROJECT_DIR, DASH_RELEASE);
-  const doomed = createDash(PROJECT_DIR, DASH_RELEASE, "at0418 fixture (to discard)");
+  const doomed = createDash(
+    projectDir(),
+    DASH_RELEASE,
+    "at0418 fixture (to discard)",
+    scratch.cli,
+  );
   releaseId = doomed.id;
   writeFileSync(join(doomed.worktree, "at0418-release.txt"), "at0418\n");
-  commitRound(PROJECT_DIR, DASH_RELEASE, RELEASE_SUBJECT);
+  commitRound(projectDir(), DASH_RELEASE, RELEASE_SUBJECT, scratch.cli);
 
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(PROJECT_DIR));
-  mkdirSync(fixtureDir, { recursive: true });
-  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(PROJECT_DIR, SID));
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  // The journal first: a dash with one left over is a dash the release verb
-  // has to argue with.
-  rmSync(journalPath(DASH_WORK), { force: true });
-  discardDash(PROJECT_DIR, DASH_WORK);
-  discardDash(PROJECT_DIR, DASH_EMPTY);
-  // Already gone if the discard did its job; this is the path where it did not.
-  discardDash(PROJECT_DIR, DASH_RELEASE);
-  if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
-  // Three real discards, each deleting a worktree and a branch: measured at
-  // roughly two seconds apiece against a checkout other processes are holding,
-  // which puts this comfortably past the default five-second hook budget. A
-  // teardown that times out fails the file with no assertion having failed.
-}, 120_000);
+  // One directory removal takes all three dashes, their worktrees, and the
+  // journal with them — there is nothing to discard one at a time, and nothing
+  // left behind when this file dies before its teardown runs.
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
+});
 
 function deckShape() {
   return {
@@ -394,10 +352,10 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
     "clean states its route and offers no button, an interrupted teardown names its resume, and an empty dash asks to be released",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0418-join-outcomes",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -405,11 +363,11 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace, so its dashes reach the aggregate — and the
+        // discard's CONTROL frame resolves the calling session through the
+        // live ledger row it writes.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         await raiseShade(app);
@@ -480,7 +438,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // nothing about a file in the state dir wakes it.
         // Touching a project file is what asks for the recompose that carries
         // the new stage onto the entry.
-        const nudge = join(PROJECT_DIR, "at0418-nudge.txt");
+        const nudge = join(projectDir(), "at0418-nudge.txt");
         writeFileSync(nudge, "at0418 recompose nudge\n");
         await raiseShade(app);
         await app.waitForCondition<boolean>(
@@ -636,7 +594,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 15000 },
         );
-        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: PROJECT_DIR });
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(DISCARD_RECEIPT)}).length === 1`,
           { timeoutMs: 60000 },

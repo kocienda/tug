@@ -22,9 +22,9 @@
  *
  * The loop is real throughout: `tugutil dash bind` through the card's own `$`
  * shell route, which is what stamps `TUG_SESSION_ID` on the child, against a
- * session seeded into this instance's ledger. The mark appears because the
- * dash's `bound_sessions` moved in the account-global changeset aggregate and
- * the atom reads it session-first — no card, no reload, no prop.
+ * real session resumed on a scratch repository this file owns. The mark appears
+ * because the dash's `bound_sessions` moved in the account-global changeset
+ * aggregate and the atom reads it session-first — no card, no reload, no prop.
  *
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
  * @covers tugdeck/src/lib/dash-session-index.ts
@@ -35,12 +35,21 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
-import { createDash, discardDash, tugutilPath } from "./dash-fixture";
+import {
+  createDash,
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  shellAndSettle,
+  tugutilPath,
+  type DashScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "at0423-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000423";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
@@ -51,17 +60,25 @@ const PANEL = '[data-slot="session-masthead-telemetry"]';
 const ATOM = `${PANEL} .session-masthead-telemetry-atom`;
 const ATOM_DASH = `${ATOM} [data-slot="session-identity-dash"]`;
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 const DASH_NAME = "at0423-atom";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  createDash(PROJECT_DIR, DASH_NAME, "at0423 fixture");
+  scratch = makeDashScratchRepo({ prefix: "at0423", checkout: CHECKOUT });
+  createDash(projectDir(), DASH_NAME, "at0423 fixture", scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH_NAME);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -81,27 +98,6 @@ function deckShape() {
     activePaneId: "p1",
     hasFocus: true,
   };
-}
-
-/** Run `command` through the card's `$` shell route and wait for its exit. */
-async function shellAndSettle(
-  app: App,
-  command: string,
-  expectedIndex: number,
-): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
-  await app.nativeType(`/shell ${command}`);
-  await new Promise((r) => setTimeout(r, 150));
-  await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
-    `(function(){
-       var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
-       if (rows.length !== ${expectedIndex + 1}) return false;
-       var foot = rows[${expectedIndex}].querySelector('[data-slot="session-z1b-end-state"]');
-       return foot !== null && foot.textContent.indexOf("exit") !== -1;
-     })()`,
-    { timeoutMs: 30_000 },
-  );
 }
 
 /** Open the telemetry panel and read the atom's text and the citation row's. */
@@ -144,32 +140,21 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
   test(
     "a bound session's atom wears the line tier's grammar, and the citation never moves",
     async () => {
-      const app = await launchTugApp({ testName: "at0423-session-atom-dash-mark" });
+      const app = await launchTugApp({
+        testName: "at0423-session-atom-dash-mark",
+        env: { TUG_DATA_DIR: scratch?.dataRoot ?? "" },
+      });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning is what registers the
+        // scratch repo as a workspace, and its live ledger row is what the
+        // bind verb resolves the owning instance through.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        // The bind verb resolves the instance whose ledger OWNS this session;
-        // after launch, since tugcast demotes every `live` row at startup.
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: "at0423 work",
-            },
-          ],
-        });
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WIDGET)}) !== null`,
           { timeoutMs: 15_000 },
@@ -181,7 +166,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         expect(bare.citation.length).toBeGreaterThan(0);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash bind ${DASH_NAME}`, 0);
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`, 0);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]') !== null`,
           { timeoutMs: 15000 },
@@ -240,7 +225,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
         expect(bound.citation).not.toContain(DASH_NAME);
 
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-slot="session-masthead"] [data-slot="session-identity-dash"]') === null`,
           { timeoutMs: 15000 },

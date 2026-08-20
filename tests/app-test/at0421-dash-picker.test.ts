@@ -16,13 +16,12 @@
  * submitted to Claude as a prompt, a burned turn on a line the user meant as a
  * gesture.
  *
- * **Two branches of the bare form are not covered here, and cannot be.** The
- * one-dash case (bind directly, open nothing) and the zero-dash case (caution)
- * are conditions on the *project*, and the project is this repository — which
- * always holds at least the dash this test's own fixtures live beside, plus
- * whatever every other dash-touching app-test has in flight. Driving either
- * would mean releasing dashes out from under a parallel run. The branch is
- * three lines in `session-card.tsx`'s `dash-bind` handler and is read there.
+ * **Two branches of the bare form are not covered here.** The one-dash case
+ * (bind directly, open nothing) and the zero-dash case (caution) are conditions
+ * on the *project*. They are reachable now that the project is a scratch
+ * repository this file owns — it holds exactly the three dashes created below
+ * and nothing another run can add — and would be a fixture per case. Until then
+ * the branch is three lines in `session-card.tsx`'s `dash-bind` handler.
  *
  * @covers tugdeck/src/components/tugways/cards/dash-picker-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
@@ -42,12 +41,19 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, discardDash } from "./dash-fixture";
+import {
+  createDash,
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  type DashScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "at0421-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000421";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const PICKER = '[data-slot="dash-picker-sheet"]';
@@ -61,22 +67,29 @@ const CHIP =
 const chipText = (dash: string): string => `^${dash}`;
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 /** Named so their sort order in the picker is the order they are created in —
  *  the picker keeps snapshot order, so the assertions read positionally. */
 const DASHES = ["at0421-alpha", "at0421-bravo", "at0421-charlie"];
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  for (const name of DASHES) createDash(PROJECT_DIR, name, "at0421 fixture");
+  scratch = makeDashScratchRepo({ prefix: "at0421", checkout: CHECKOUT });
+  for (const name of DASHES) createDash(projectDir(), name, "at0421 fixture", scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), SID);
 }, 60_000);
 
-// Three real worktree teardowns, each a git subprocess, so this needs more
-// than the 5s a hook gets by default — a timed-out cleanup fails the file
-// while every assertion in it passed.
+// The whole repository goes, so there is nothing to discard one dash at a time
+// — and nothing left behind when this file dies before its teardown runs.
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  for (const name of DASHES) discardDash(PROJECT_DIR, name);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 }, 60_000);
 
 function deckShape() {
@@ -120,23 +133,11 @@ async function openCard(app: App): Promise<void> {
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
   );
-  await app.bindSession("A", {
-    tugSessionId: SID,
-    projectDir: PROJECT_DIR,
-    workspaceKey: PROJECT_DIR,
-  });
+  // A *spawned* session, not a bound one: `bindSession` is client-side only, so
+  // the scratch repo would never be registered as a workspace and the aggregate
+  // would keep composing over the checkout. See `seedScratchSession`.
+  await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
-  app.seedLedger({
-    sessions: [
-      {
-        session_id: SID,
-        workspace_key: PROJECT_DIR,
-        project_dir: PROJECT_DIR,
-        card_id: "A",
-        name: "at0421 work",
-      },
-    ],
-  });
   // The picker lists what the snapshot holds, so wait until it holds the
   // fixtures — before the first compose the bare form would caution instead.
   // The Lens's Dashes section reads the same `ChangesetAllStore` the card's
@@ -165,10 +166,10 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
     "bare /dash-bind lists the project's dashes, and arrow-then-Return binds the highlighted one",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0421-dash-picker",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await openCard(app);
@@ -233,10 +234,10 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
     "the retired /dash spelling reaches the same picker",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0421-dash-picker-alias",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await openCard(app);

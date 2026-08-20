@@ -1276,57 +1276,19 @@ app-test *FILES:
     # floor, not from serialization.
     tugrust/target/debug/tugutil host sweep --yes --quiet || true
 
-    # Release any fixture dash a previous run stranded.
+    # Sweep the scratch-fixture namespace a previous run left behind.
     #
-    # A dash fixture's `beforeAll` creates a dash before it does anything
-    # else, so a failure anywhere after that — an assertion, a timeout, a
-    # kill — leaves the branch and its worktree behind, and `afterAll`
-    # never runs. The stranded dash then breaks the NEXT invocation
-    # differently from the first, which is how one transient turned into
-    # "the dash lane files cannot run together".
-    #
-    # `at04??-*` is the fixtures' own namespace — every dash-lane test
-    # names its dash after itself — so this can never reach a dash a
-    # person made.
-    #
-    # The reset before the discard is load-bearing, not tidiness.
-    # `dash discard` hands a worktree's UNCOMMITTED files back to the
-    # base checkout, so that tearing down a dash can never destroy work
-    # someone typed in it. That is right for a real dash and wrong for a
-    # fixture: one stranded between its file write and its round commit
-    # would deposit a placeholder body over a real source file here, as
-    # an uncommitted modification nobody made. Resetting first leaves the
-    # hand-back nothing to copy.
-    #
-    # The worktree is then removed at the path git itself lists it at, which
-    # is what reclaims a stranding whose worktree sits outside the universe
-    # discarding it — `dash discard` computes the path it expects from the
-    # resolved repo root, and cannot delete one recorded somewhere else.
-    #
-    # Best effort throughout, and it must stay that way: `discard`
-    # legitimately refuses when the base checkout has its own edit to a
-    # path the dash also touched, and a refused sweep must never fail
-    # the run it is cleaning up for. That silence is also why the verb
-    # name here has to move in lockstep with the CLI: `>/dev/null 2>&1
-    # || true` would swallow an unrecognized-subcommand error just as
-    # readily as a refusal, and the sweep would stop sweeping with no
-    # signal at all.
-    while read -r DASH_BRANCH; do
-        [ -n "$DASH_BRANCH" ] || continue
-        DASH_NAME="${DASH_BRANCH#tugdash/}"
-        DASH_TREE="$(git worktree list --porcelain \
-            | awk -v b="refs/heads/$DASH_BRANCH" \
-                '/^worktree /{p=substr($0,10)} $0=="branch "b{print p}')"
-        if [ -n "$DASH_TREE" ] && [ -d "$DASH_TREE" ]; then
-            git -C "$DASH_TREE" reset --hard >/dev/null 2>&1 || true
-            git -C "$DASH_TREE" clean -fd >/dev/null 2>&1 || true
-        fi
-        if [ -n "$DASH_TREE" ]; then
-            git worktree remove --force "$DASH_TREE" >/dev/null 2>&1 || true
-        fi
-        tugrust/target/debug/tugutil dash discard "$DASH_NAME" --json >/dev/null 2>&1 || true
-        echo "swept stranded fixture dash: $DASH_NAME"
-    done < <(git branch --list 'tugdash/at04??-*' --format='%(refname:short)')
+    # No app-test cuts a dash in this checkout — `dash-fixture.ts` refuses
+    # the very attempt — so there are no stranded fixture branches here to
+    # janitor anymore. What a killed run *can* leave is its scratch
+    # repositories (`tug-scratch-*` under the system temp dir) and the
+    # transcript directories their encoded paths land under
+    # `~/.claude/projects`: `afterAll` never runs on a kill. Both carry
+    # the namespace in their names, no live run holds them (this recipe
+    # owns the machine-wide gate), and nothing a person made ever lives
+    # in either shape, so removal is safe by construction.
+    find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'tug-scratch-*' -exec rm -rf {} + 2>/dev/null || true
+    find "$HOME/.claude/projects" -maxdepth 1 -name '*tug-scratch-*' -exec rm -rf {} + 2>/dev/null || true
 
     TMPOUT="$(mktemp -t app-test.XXXXXX)"
     cleanup() {

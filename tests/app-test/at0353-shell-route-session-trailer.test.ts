@@ -34,18 +34,17 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
+import {
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  type DashScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -58,10 +57,6 @@ const SHORT_ID = SID.slice(0, 8);
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
-
-/** Encode a project dir the way claude names its per-project subdir. */
-const encodeProjectDir = (absDir: string): string =>
-  absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 /**
  * This checkout's `tugutil`, by absolute path.
@@ -93,82 +88,29 @@ const TUGUTIL = join(import.meta.dir, "..", "..", "tugrust", "target", "debug", 
  */
 const REDIRECT = (dir: string): string => `TUG_DATA_DIR=${join(dir, ".tugdata")}`;
 
+let scratch: DashScratchRepo | null = null;
 let projectDir = "";
 let fixtureDir = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  // realpath: the shell's cwd is the resolved path, so encode the same string.
-  projectDir = realpathSync(mkdtempSync(join(tmpdir(), "at0353-proj-")));
-  // A throwaway tug project: a git repo with one commit, plus the `.tugtool/`
-  // marker a dash needs. Built here rather than through the shell so the only
-  // thing the shell route has to carry is the command under test.
-  mkdirSync(join(projectDir, ".tugtool"), { recursive: true });
-  writeFileSync(join(projectDir, "seed.txt"), "seed\n");
-  const git = (...args: string[]) =>
-    spawnSync("git", ["-C", projectDir, ...args], { encoding: "utf8" });
-  git("init", "-q");
-  git("config", "user.email", "at0353@example.test");
-  git("config", "user.name", "AT0353");
-  git("add", "-A");
-  git("commit", "-qm", "seed");
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir));
-  mkdirSync(fixtureDir, { recursive: true });
-  // A real one-turn transcript: a thin fixture makes `claude --resume` fail,
-  // which reverts the card to the picker before any shell command can run.
-  const base = {
-    isSidechain: false,
-    userType: "external",
-    cwd: projectDir,
-    sessionId: SID,
-    version: "2.1.105",
-    gitBranch: "main",
-  };
-  const lines = [
-    {
-      ...base,
-      parentUuid: null,
-      type: "user",
-      uuid: "00000000-0000-4000-8000-000000000f01",
-      timestamp: new Date(Date.now() - 2000).toISOString(),
-      message: { role: "user", content: [{ type: "text", text: "hello" }] },
-    },
-    {
-      ...base,
-      parentUuid: "00000000-0000-4000-8000-000000000f01",
-      type: "assistant",
-      uuid: "00000000-0000-4000-8000-000000000f02",
-      timestamp: new Date(Date.now() - 1000).toISOString(),
-      message: {
-        id: "msg-at0353-1",
-        type: "message",
-        role: "assistant",
-        model: "claude-opus-4-8",
-        content: [{ type: "text", text: "hi there" }],
-        stop_reason: "end_turn",
-        stop_sequence: null,
-        usage: {
-          input_tokens: 1200,
-          output_tokens: 50,
-          cache_creation_input_tokens: 100,
-          cache_read_input_tokens: 8000,
-        },
-      },
-    },
-  ];
-  writeFileSync(
-    join(fixtureDir, `${SID}.jsonl`),
-    lines.map((e) => JSON.stringify(e)).join("\n") + "\n",
-  );
+  // A throwaway tug project from the one shared implementation: a git repo with
+  // one commit, plus the `.tugtool/` marker a dash needs. Built here rather
+  // than through the shell so the only thing the shell route has to carry is
+  // the command under test. Its directories carry the scratch namespace, so a
+  // run killed before `afterAll` leaves nothing the next run cannot sweep.
+  scratch = makeDashScratchRepo({
+    prefix: "at0353",
+    checkout: realpathSync(resolve(import.meta.dir, "..", "..")),
+    files: { "seed.txt": "seed\n" },
+  });
+  projectDir = scratch.repo;
+  fixtureDir = seedScratchSession(projectDir, SID);
 });
 
 afterAll(() => {
-  if (projectDir !== "" && existsSync(projectDir)) {
-    rmSync(projectDir, { recursive: true, force: true });
-  }
-  if (fixtureDir !== "" && existsSync(fixtureDir)) {
-    rmSync(fixtureDir, { recursive: true, force: true });
-  }
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {

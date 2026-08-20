@@ -10,7 +10,7 @@
 //! recompute signal after each file-event write.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
@@ -1118,10 +1118,52 @@ fn dash_review_state(worktree_abs: &Path, plan_path: &str) -> Option<String> {
 /// the blocking pool in one hop — the same discipline `do_changeset_join`
 /// uses. `bound_sessions` comes from **one** ledger query for the repo, fanned
 /// out across entries; never a query per dash.
+/// Whether this compose must hide `repo_root`'s dashes: an app-test instance
+/// composing the checkout under test.
+///
+/// The `--source-tree` bootstrap makes the checkout a workspace in every
+/// instance, so without this an app-test's aggregate would list whatever
+/// dashes the *developer* has out — and any assertion about the dash
+/// population (a picker's rows, the Unbound section's presence) would be an
+/// assertion about whoever runs the suite. A dash is for implementing a plan,
+/// not for running a test: every fixture dash lives in a scratch repository,
+/// so the checkout's dash entries are noise here by construction. Session
+/// entries are untouched — the changes-attribution tests really do compose
+/// the checkout's dirt.
+fn dashes_hidden_for(repo_root: &Path) -> bool {
+    let is_apptest = tugcore::instance::instance_id()
+        .is_some_and(|id| tugcore::ports::is_apptest_id(&id));
+    if !is_apptest {
+        return false;
+    }
+    // The app-test recipe always pins the universe to the checkout it runs
+    // from, so "is this the checkout?" has one spelling.
+    let Ok(universe) = std::env::var(tugutil_core::REPO_UNIVERSE_ENV) else {
+        return false;
+    };
+    if universe.trim().is_empty() {
+        return false;
+    }
+    // `watch_path`, not `canonicalize`: the two must converge across macOS
+    // firmlinks (`/u/...` vs `/System/Volumes/Data/...`), which canonicalize
+    // alone does not resolve — the same reason the workspace registry keys
+    // entries through PathResolver.
+    let universe = crate::path_resolver::PathResolver::new(PathBuf::from(universe.trim()))
+        .watch_path()
+        .to_path_buf();
+    let root = crate::path_resolver::PathResolver::new(repo_root.to_path_buf())
+        .watch_path()
+        .to_path_buf();
+    root == universe
+}
+
 async fn dash_entries(
     repo_root: &Path,
     ledger: Option<&crate::session_ledger::SessionLedger>,
 ) -> Vec<ChangesetEntry> {
+    if dashes_hidden_for(repo_root) {
+        return Vec::new();
+    }
     let bound_by_dash = ledger
         .and_then(|l| l.bound_sessions_by_dash().ok())
         .unwrap_or_default();
@@ -2366,6 +2408,49 @@ Some context.
             review.as_deref(),
             Some("reviewed"),
             "the plan is found from a worktree-hosted caller"
+        );
+    }
+
+    /// An app-test instance never composes dash entries for the checkout
+    /// under test. The `--source-tree` bootstrap makes the checkout a
+    /// workspace in every instance, so without the gate an app-test's
+    /// aggregate would list the *developer's* dashes — and any test
+    /// assertion about the dash population would be an assertion about
+    /// whoever runs the suite. Scratch repos outside the universe are
+    /// untouched, which is where every fixture dash lives.
+    ///
+    /// Env-mutating, safe under nextest's process-per-test model — the same
+    /// regime `tugdash_core::ops`'s universe tests run under.
+    #[tokio::test]
+    async fn an_apptest_instance_hides_the_universe_checkouts_dashes() {
+        let (_dir, root) = init_repo();
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+
+        // Visible before the gate applies.
+        assert!(
+            !dash_entries(&root, None).await.is_empty(),
+            "the dash composes in an ordinary instance"
+        );
+
+        // SAFETY: one process per test under nextest — the same regime
+        // `tugdash_core::ops`'s universe tests run under.
+        unsafe {
+            std::env::set_var("TUG_INSTANCE_ID", "apptest-0000");
+            std::env::set_var(tugutil_core::REPO_UNIVERSE_ENV, &root);
+        }
+        assert!(
+            dash_entries(&root, None).await.is_empty(),
+            "the universe checkout's dashes are hidden from an app-test instance"
+        );
+
+        // A scratch repo outside the universe still composes its dashes.
+        let (_dir2, scratch) = init_repo();
+        git(&scratch, &["branch", "tugdash/fixture"]);
+        git(&scratch, &["config", "branch.tugdash/fixture.tugbase", "main"]);
+        assert!(
+            !dash_entries(&scratch, None).await.is_empty(),
+            "a fixture repo outside the universe is untouched"
         );
     }
 

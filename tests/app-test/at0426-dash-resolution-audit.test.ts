@@ -59,6 +59,8 @@ import {
   gitRetry as git,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
   type JoinScratchRepo,
 } from "./dash-fixture";
 
@@ -95,55 +97,6 @@ read -r _charter
 printf '%s\\n' '{"files":[],"notes":"nothing to say"}'
 `;
 
-/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
-
-function buildFixtureJsonl(cwd: string, sessionId: string): string {
-  const base = {
-    isSidechain: false,
-    userType: "external",
-    cwd,
-    sessionId,
-    version: "2.1.105",
-    gitBranch: "main",
-  };
-  return (
-    [
-      {
-        ...base,
-        parentUuid: null,
-        type: "user",
-        uuid: "00000000-0000-4000-8000-000000000c01",
-        timestamp: new Date(Date.now() - 2000).toISOString(),
-        message: { role: "user", content: [{ type: "text", text: "hello" }] },
-      },
-      {
-        ...base,
-        parentUuid: "00000000-0000-4000-8000-000000000c01",
-        type: "assistant",
-        uuid: "00000000-0000-4000-8000-000000000c02",
-        timestamp: new Date(Date.now() - 1000).toISOString(),
-        message: {
-          id: "msg-426-1",
-          type: "message",
-          role: "assistant",
-          model: "claude-opus-4-8",
-          content: [{ type: "text", text: "hi there" }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: {
-            input_tokens: 1200,
-            output_tokens: 50,
-            cache_creation_input_tokens: 100,
-            cache_read_input_tokens: 8000,
-          },
-        },
-      },
-    ]
-      .map((e) => JSON.stringify(e))
-      .join("\n") + "\n"
-  );
-}
 
 /** One arc's world: its repo, its dash, and the session that opens on it. */
 interface Arc {
@@ -167,9 +120,7 @@ function makeArc(prefix: string, dash: string, sid: string, resolver: string): A
     resolver,
     mergeDriver: DRIVER_STUB,
   });
-  const fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(scratch.repo));
-  mkdirSync(fixtureDir, { recursive: true });
-  writeFileSync(join(fixtureDir, `${sid}.jsonl`), buildFixtureJsonl(scratch.repo, sid));
+  const fixtureDir = seedScratchSession(scratch.repo, sid);
   return { scratch, fixtureDir, sid, dash };
 }
 
@@ -197,7 +148,7 @@ afterAll(() => {
   for (const arc of [audited, silent]) {
     if (arc === null) continue;
     rmJoinScratchRepo(arc.scratch);
-    rmSync(arc.fixtureDir, { recursive: true, force: true });
+    rmScratchSession(arc.fixtureDir);
   }
 });
 

@@ -136,14 +136,26 @@ A dash verb does not act on the directory you hand it. It resolves a repo root f
 
 Unscoped, that hop puts a run's fixtures in the wrong universe. A fixture dash created from a worktree is created against the base checkout, while the app under test has the worktree open as its project: the lane can never list the dash its own fixture just made, and the run leaves branches, worktrees and dash-log lines in somebody else's checkout. That is why the corpus used to refuse to run from a worktree at all.
 
-`TUG_REPO_UNIVERSE` names the owner instead of letting the hop assume it. The `app-test` recipe exports it as `$(pwd -P)` unconditionally, so it reaches the `bun test` child (every fixture CLI call), the app through `forwardableEnv`'s `TUG*` forwarding, and tugcast by inheritance from the app — one export, the whole chain. Inside that boundary a fixture dash is born, listed, joined and torn down in the checkout under test; outside it, resolution is untouched, which is what lets a fixture own a scratch repo in `/tmp` and land a real join there ([at0441](../tests/app-test/at0441-join-arc-end-to-end.test.ts)).
+`TUG_REPO_UNIVERSE` names the owner instead of letting the hop assume it. The `app-test` recipe exports it as `$(pwd -P)` unconditionally, so it reaches the `bun test` child (every fixture CLI call), the app through `forwardableEnv`'s `TUG*` forwarding, and tugcast by inheritance from the app — one export, the whole chain. Inside that boundary resolution is pinned to the checkout under test; outside it, resolution is untouched, which is what lets a fixture own a scratch repo under the temp dir and land a real join there.
 
 Two properties are worth keeping in mind rather than rediscovering:
 
-- **A universe scopes paths, never refs.** `refs/heads/tugdash/*` is one namespace per repository, shared by every worktree of it — so every dash the developer has open is a row in a fixture run's lane too. A test that counts lane rows, or assumes its dash's base is `main`, is asserting a fact about whoever is running the suite.
+- **A universe scopes paths, never refs.** `refs/heads/tugdash/*` is one namespace per repository, shared by every worktree of it. This is precisely why no fixture may cut a dash in the checkout: a run's lane would carry every dash the developer has open, and a test asserting on lane contents would be asserting a fact about whoever ran the suite.
 - **A hand-rolled hop is a bug waiting.** Anything that shells `git rev-parse --git-common-dir` to find "the real checkout" is a second implementation of the rule that will not honor the boundary, and the two halves then key their state to different directories — which looks exactly like a feature that silently did nothing. Go through `find_repo_root_from`; the TypeScript mirror is `universeRoot()` in `tests/app-test/dash-fixture.ts`.
 
 The corpus therefore runs from any checkout, worktree or not, and there is no override to set — the refusal and its `TUG_APPTEST_ALLOW_WORKTREE` escape hatch are gone.
+
+### A fixture dash lives in a scratch repository {#fixture-dashes-are-scratch}
+
+**A dash is for implementing a plan, not for running a test.** A dash is a real branch and a real worktree; a fixture that cuts one in the developer's checkout leaves litter in the tree somebody is working in, and a test killed mid-file leaves it there permanently. Fourteen files did exactly that until 2026-08-20, which is why the `app-test` recipe carried a fifty-line janitor sweeping `tugdash/at04??-*` branches and their worktrees before every run.
+
+The rule is now structural, in three places that must stay in agreement:
+
+- **The fixture refuses.** `createDash`, `commitRound`, and `discardDash` in `dash-fixture.ts` throw when the target repo resolves to the checkout under test. There is one constructor for a fixture repository — `makeDashScratchRepo` — and `makeJoinScratchRepo` is built on it, so there is no second implementation to drift.
+- **The server hides.** An app-test instance composes no dash entries for the universe checkout (`dashes_hidden_for`, `feeds/changeset.rs`). The `--source-tree` bootstrap makes the checkout a workspace in every instance, so without this the developer's own dashes would still reach a fixture's lane. Session entries are deliberately untouched: the changes-attribution tests compose the checkout's dirt for real.
+- **The namespace is swept.** Everything a scratch fixture makes is named `tug-scratch-*` — the repo, its data root, its stub scripts, and the transcript directory its encoded path lands under in `~/.claude/projects`. The recipe removes that namespace from both locations at run start, so a killed run's leftovers never outlive the next invocation.
+
+A scratch repo is invisible to the app until a session is spawned on it: tugcast registers one workspace at startup and every other comes from `spawn_session`, so `bindSession` — a client-side binding the ledger knows nothing about — leaves the repo unregistered and its dashes uncomposed. `seedScratchSession` writes the transcript that `spawnSessionResume` opens. The how-to is in [tests/app-test/README.md](../tests/app-test/README.md#a-fixture-dash-lives-in-a-scratch-repository-never-in-your-checkout).
 
 ### Seeding the ledger: reaching a session entry
 

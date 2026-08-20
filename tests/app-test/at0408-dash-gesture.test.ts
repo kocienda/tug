@@ -37,12 +37,19 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, discardDash } from "./dash-fixture";
+import {
+  createDash,
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  type DashScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "at0408-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000408";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
@@ -59,7 +66,12 @@ const BULLETIN = ".tug-pane-bulletin";
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 /** Already there when the gesture runs — the bind path. */
 const KNOWN_DASH = "at0408-known";
 /** Does not exist until `/dash-bind` makes it — the create path. */
@@ -67,14 +79,16 @@ const MADE_DASH = "at0408-made";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  createDash(PROJECT_DIR, KNOWN_DASH, "at0408 fixture");
-  // In case a previous run died between the create and the release.
-  discardDash(PROJECT_DIR, MADE_DASH);
+  scratch = makeDashScratchRepo({ prefix: "at0408", checkout: CHECKOUT });
+  createDash(projectDir(), KNOWN_DASH, "at0408 fixture", scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
+// The whole repository goes — MADE_DASH included, however far the run got.
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  for (const name of [KNOWN_DASH, MADE_DASH]) discardDash(PROJECT_DIR, name);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -117,10 +131,10 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
     "a known name binds silently, an unknown one is created through the shell, bare opens the picker, and a shell-unsafe name is refused",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0408-dash-gesture",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -128,23 +142,11 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /dash-bind gesture", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace, so its dashes reach the aggregate — and the
+        // create path's shell child runs with its cwd there.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: "at0408 work",
-            },
-          ],
-        });
 
         // ── Wait for the aggregate to answer ──────────────────────────────
         // The Lens's Dashes section reads the same `ChangesetAllStore` the

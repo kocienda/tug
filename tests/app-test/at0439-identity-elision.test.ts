@@ -35,12 +35,21 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, discardDash } from "./dash-fixture";
+import {
+  createDash,
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  shellAndSettle,
+  tugutilPath,
+  type DashScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "at0439-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000439";
 const TAG = "frothy-nurse-2";
 const NAME = "The long name the user gave this session";
 const DASH_NAME = "at0439-elide";
@@ -49,17 +58,24 @@ const CARDS = '.lens-section[data-lens-section="cards"]';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 const IDENTITY = `${SESSION_ROW} .tug-session-identity[data-tier="line"]`;
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
-let dashOwnerId = "";
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  dashOwnerId = createDash(PROJECT_DIR, DASH_NAME, "at0439 fixture").id;
+  scratch = makeDashScratchRepo({ prefix: "at0439", checkout: CHECKOUT });
+  createDash(projectDir(), DASH_NAME, "at0439 fixture", scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH_NAME);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -104,6 +120,29 @@ interface RunWidths {
  * with the element opened up first, so the stages are relative to what the
  * text wants rather than to whatever the Lens happens to be wide enough for.
  */
+/**
+ * How much the callsign's head can give up before the squeeze reaches anything
+ * else — its full content width, measured with the identity opened up.
+ *
+ * The stages below are relative to this rather than to absolute pixels. A
+ * hardcoded "large" deficit is calibrated against one project name: the head
+ * begins `<project>/`, and this fixture's project is a scratch repository whose
+ * directory name is generated, so a fixed number that exhausted the head under
+ * `tugtool/` is swallowed whole by a longer one. Measuring keeps "large" meaning
+ * *past what the head can pay*, which is the claim the stage makes.
+ */
+const headContentWidth = (app: App): Promise<number> =>
+  app.evalJS<number>(
+    `(() => {
+       const id = document.querySelector(${JSON.stringify(IDENTITY)});
+       id.style.maxInlineSize = "none";
+       id.style.width = "3000px";
+       void id.getBoundingClientRect();
+       const head = id.querySelector(".tug-session-identity-callsign-head");
+       return head === null ? 0 : Math.ceil(head.scrollWidth);
+     })()`,
+  );
+
 const squeeze = (app: App, deficit: number): Promise<RunWidths> =>
   app.evalJS<RunWidths>(
     `(() => {
@@ -141,10 +180,10 @@ describe.skipIf(!SHOULD_RUN)("AT0439: the identity line's elision order", () => 
     "the callsign gives way first and from the middle; the name and the dash hold",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0439-identity-elision",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -152,26 +191,13 @@ describe.skipIf(!SHOULD_RUN)("AT0439: the identity line's elision order", () => 
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace, so the dash reaches the aggregate — which is
+        // where the identity's dash marker finds it. The bind is then the real
+        // verb through the card's own shell route, not a seeded ledger field.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: NAME,
-              tag: TAG,
-              dash_id: dashOwnerId,
-              dash_name: DASH_NAME,
-            },
-          ],
-        });
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`);
 
         // The name and the callsign arrive the way a real rename and a real
         // mint do — on a `session_updated` push. A ledger seed alone leaves
@@ -220,7 +246,9 @@ describe.skipIf(!SHOULD_RUN)("AT0439: the identity line's elision order", () => 
         note("at0439 lens under a small squeeze", (await app.screenshot()).path);
 
         // ── A large one: the head is spent, so the name pays next ─────────
-        const large = await squeeze(app, 220);
+        // Past everything the head has to give, so the deficit must reach the
+        // name — whatever this run's project directory happens to be called.
+        const large = await squeeze(app, (await headContentWidth(app)) + 60);
         note("at0439 large squeeze", JSON.stringify(large));
         expect(large.head).toBe(true);
         expect(large.name).toBe(true);

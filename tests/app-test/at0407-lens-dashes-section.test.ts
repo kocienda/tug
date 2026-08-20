@@ -48,15 +48,19 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   createDash,
+  makeDashScratchRepo,
   makePlanStale,
   recordStampedPlan,
-  discardDash,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  type DashScratchRepo,
 } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "at0407-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000407";
 
 const SECTION = '.lens-section[data-lens-section="dashes"]';
 const DASH_NAME = "at0407-lens";
@@ -68,20 +72,27 @@ const PLAN_DASH = "at0407-plan";
 const PLAN_ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${PLAN_DASH}"]`;
 const PLAN_MARK = `${PLAN_ROW} [data-slot="lens-dashes-review"]`;
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 let planPath = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  createDash(PROJECT_DIR, DASH_NAME, "at0407 fixture");
-  const planned = createDash(PROJECT_DIR, PLAN_DASH, "at0407 plan fixture");
-  planPath = recordStampedPlan(PROJECT_DIR, PLAN_DASH, planned.worktree);
+  scratch = makeDashScratchRepo({ prefix: "at0407", checkout: CHECKOUT });
+  createDash(projectDir(), DASH_NAME, "at0407 fixture", scratch.cli);
+  const planned = createDash(projectDir(), PLAN_DASH, "at0407 plan fixture", scratch.cli);
+  planPath = recordStampedPlan(projectDir(), PLAN_DASH, planned.worktree, scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH_NAME);
-  discardDash(PROJECT_DIR, PLAN_DASH);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -108,10 +119,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
     "an unbound dash names itself in the unbound register and never wears a dot",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0407-lens-dashes-section",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -119,23 +130,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning is what registers the
+        // scratch repo as a workspace, so its dashes reach the aggregate.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: "at0407 work",
-            },
-          ],
-        });
 
         // ── The section is there, and the dash in it is unbound ───────────
         await app.dispatchControlAction("toggle-lens");
@@ -188,10 +186,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
     "a plan edited past its stamp grows the stale mark on its dash's row",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0407-lens-dashes-review",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -199,6 +197,10 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
+        // The scratch repo enters the aggregate only as a registered
+        // workspace, and spawning a session on it is what registers it.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
+        await app.awaitEngineReady("A", { timeoutMs: 15000 });
         await app.dispatchControlAction("toggle-lens");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLAN_ROW)}) !== null`,
@@ -219,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         // tracked project file is what wakes the aggregate for the recompose
         // that carries the new state onto the entry.
         makePlanStale(planPath);
-        const nudge = join(PROJECT_DIR, "at0407-nudge.txt");
+        const nudge = join(projectDir(), "at0407-nudge.txt");
         writeFileSync(nudge, "at0407 recompose nudge\n");
         try {
           await app.waitForCondition<boolean>(

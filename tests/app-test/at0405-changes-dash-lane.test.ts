@@ -28,9 +28,9 @@
  * with a `dash_id`, since `bound_sessions` is computed from those rows and a
  * client-side `bind_dash_ok` cannot fake it.
  *
- * The project must be the one tugcast registers at boot, exactly as at0332
- * records; dash entries derive from the repo's `tugdash/*` refs, which the
- * registered worktree shares with the checkout the dash was cut from.
+ * The project is a scratch repository this file owns, registered as a
+ * workspace by spawning a real session on it — a dash is for implementing a
+ * plan, not for running a test, so no fixture ever cuts one in the checkout.
  *
  * The lane's two binding gestures live here too, and are driven for real:
  * Leave on the fronted row sends `unbind_dash`, Adopt on a non-fronted row
@@ -68,18 +68,22 @@ import {
   commitRound,
   createDash,
   currentBranch,
-  discardDash,
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
   tugutil,
+  type DashScratchRepo,
 } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "at0405-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000405";
 /** The reach case's own pair: the card doing the looking, and the live session
  *  that actually holds the dash. Separate ids so neither test's ledger rows can
  *  be mistaken for the other's. */
-const HELD_SID = "at0405-onlooker";
+const HELD_SID = "a7c0d1ea-0000-4000-8000-000000001405";
 const HOLDER_SID = "at0405-holder";
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
@@ -96,9 +100,12 @@ const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
 const ADOPT = `${ROW} [data-slot="session-changes-dash-bind"]`;
 const RELEASE = `${ROW} [data-slot="session-changes-dash-discard"]`;
 
-/** The checkout this file sits in — the project the aggregate composes, per
- *  at0332's rule. */
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 const ROUND_FILE = "at0405-dash-round.txt";
 const ROUND_SUBJECT = "at0405(round): the lane lists this subject";
 const DRAFT_MESSAGE = "at0405 join draft\n\n- the lane renders this read-only";
@@ -114,7 +121,8 @@ let dashOwnerId = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  const created = createDash(PROJECT_DIR, DASH_NAME, "at0405 fixture");
+  scratch = makeDashScratchRepo({ prefix: "at0405", checkout: CHECKOUT });
+  const created = createDash(projectDir(), DASH_NAME, "at0405 fixture", scratch.cli);
   dashOwnerId = created.id;
   // One committed round: it is what gives the entry a round subject, a file
   // in its range diff, the `working` stage, and a range the pop-out can open.
@@ -126,13 +134,16 @@ beforeAll(() => {
   // worktree — `worktree_dirty` would then be false for reasons that have
   // nothing to do with the lane. Rounds read the same from either tree.
   writeFileSync(join(created.worktree, ROUND_FILE), "at0405 round\n");
-  commitRound(PROJECT_DIR, DASH_NAME, ROUND_SUBJECT);
+  commitRound(projectDir(), DASH_NAME, ROUND_SUBJECT, scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), SID);
+  seedScratchSession(projectDir(), HELD_SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  // Release discards the worktree and the branch, dirt included.
-  discardDash(PROJECT_DIR, DASH_NAME);
+  // The whole repository goes — branch, worktree, and dash with it.
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -207,10 +218,10 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
     "a dash another live session holds offers this shade no Release at all",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0405-changes-dash-lane-held",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -218,30 +229,30 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: HELD_SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace, so its dash reaches the aggregate.
+        await app.spawnSessionResume("A", { tugSessionId: HELD_SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        // The resumed transcript's one committed turn, on screen — typing into
+        // the composer before the card reaches its resting state races the
+        // resume's own repaint.
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
+          { timeoutMs: 8000 },
+        );
 
-        // Two live sessions in this instance's ledger, and the dash is mated
-        // to the OTHER one. `bound_sessions` is computed from these rows, so
-        // this is the real condition rather than a client-side pretence — a
-        // `bind_dash_ok` broadcast could not produce it.
+        // A second live session in this instance's ledger, and the dash is
+        // mated to IT rather than to this card's. `bound_sessions` is computed
+        // from these rows, so this is the real condition rather than a
+        // client-side pretence — a `bind_dash_ok` broadcast could not produce
+        // it. After launch, not before: tugcast demotes every `live` row to
+        // `closed` at startup.
         app.seedLedger({
           sessions: [
             {
-              session_id: HELD_SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: "at0405 onlooker",
-            },
-            {
               session_id: HOLDER_SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
+              workspace_key: projectDir(),
+              project_dir: projectDir(),
               card_id: "elsewhere",
               name: "at0405 holder",
               dash_id: dashOwnerId,
@@ -293,10 +304,10 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
     "a real dash renders in dash grammar, folds when unbound, and fronts on bind",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0405-changes-dash-lane",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -304,44 +315,13 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace (so its dash reaches the aggregate) and writes
+        // the live ledger row Adopt's and Leave's CONTROL frames resolve the
+        // calling session through. The resumed transcript already carries one
+        // committed turn, which is the card's resting state.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        // Adopt and Leave send real CONTROL frames, and the server resolves
-        // the calling session out of this instance's ledger — a client-side
-        // binding alone is invisible to it. After launch, not before: tugcast
-        // demotes every `live` row to `closed` at startup.
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: "at0405 work",
-            },
-          ],
-        });
-
-        await app.driveSession("A", { op: "send", text: "hello" });
-        await app.driveSession("A", {
-          op: "ingestFrame",
-          feedId: 0x40,
-          decoded: { tug_session_id: SID, type: "prompt_anchor", promptUuid: "uuid-1" },
-        });
-        await app.driveSession("A", {
-          op: "ingestFrame",
-          feedId: 0x40,
-          decoded: {
-            tug_session_id: SID,
-            type: "turn_complete",
-            msg_id: "m1",
-            result: "success",
-          },
-        });
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
@@ -426,7 +406,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // The base is the branch this checkout has out — what the fixture
         // forked from — not the repo's default. Run from a dash worktree, the
         // two differ.
-        expect(row.facts).toContain(currentBranch(PROJECT_DIR));
+        expect(row.facts).toContain(currentBranch(projectDir()));
         expect(row.facts).toContain("1 round");
         // The derived stage, rendered as the word the server sent.
         expect(row.facts).toContain("working");
@@ -446,11 +426,12 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         tugutil(
           ["draft", "set", "--owner", `dash:${DASH_NAME}`, "--message", DRAFT_MESSAGE, "--json"],
           {
-            cwd: PROJECT_DIR,
+            cwd: projectDir(),
+            binaryRoot: CHECKOUT,
             env: { TUG_CHANGES_DB: instanceChangesDb(app.instanceId) },
           },
         );
-        const nudge = join(PROJECT_DIR, "at0405-nudge.txt");
+        const nudge = join(projectDir(), "at0405-nudge.txt");
         writeFileSync(nudge, "at0405 recompose nudge\n");
         try {
           await app.waitForCondition<boolean>(

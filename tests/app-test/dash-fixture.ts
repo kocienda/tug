@@ -1,16 +1,31 @@
 /**
  * dash-fixture.ts — creating, rounding, and discarding a real dash from an
- * app-test, by the real CLI.
+ * app-test, by the real CLI, in a repository the fixture owns.
  *
- * Shared because the alternative is four copies, and because the one thing
- * that is genuinely hard here has to be got right in all of them: **these
- * fixtures drive the developer's own repository, which other processes are
- * holding at the same time.** Every live tugcast instance — the release app,
- * every other app-test instance — runs a base-motion engine that shells git
- * against this repo, so a `tugutil dash create` here can lose a coin toss for
- * `index.lock`. The lock is transient by construction, so every git-touching
- * verb retries through it rather than failing the file that lost.
+ * **A dash is for implementing a plan, not for running a test.** A dash is a
+ * real branch and a real worktree, so a fixture that cuts one in the
+ * developer's checkout leaves its litter in the tree somebody is working in —
+ * and a test killed mid-file leaves it there for good. Fourteen files used to
+ * do exactly that, which is why the app-test recipe once carried a janitor for
+ * `tugdash/at04??-*` branches. Every fixture repository is a scratch repository
+ * now ({@link makeDashScratchRepo}), and {@link createDash} refuses the
+ * checkout outright so the rule cannot quietly lapse.
  *
+ * Two things follow from a scratch repo that a test has to know:
+ *
+ * - **It is invisible until a session is spawned on it.** tugcast registers one
+ *   workspace at startup — the `--source-tree` bootstrap, which is the checkout
+ *   — and every other workspace comes from `spawn_session`. See
+ *   {@link seedScratchSession}.
+ * - **Its Tug state goes with it.** `TUG_DATA_DIR` is redirected per fixture,
+ *   so dash state, journals, and drafts land beside the repo rather than in the
+ *   developer's live data root. {@link DashScratchRepo.cli} carries that
+ *   redirect; spread it into every fixture call.
+ *
+ * The git-lock retry stays, and still earns its keep: every live tugcast
+ * instance runs a base-motion engine that shells git, so a verb can lose a coin
+ * toss for `index.lock`. The lock is transient by construction, so every
+ * git-touching verb retries through it rather than failing the file that lost.
  * A failure that is *not* transient fails immediately and carries the whole
  * corpse — exit code, signal, both streams. The alternative is what actually
  * happened: `tugutil dash create … failed:` with nothing after the colon,
@@ -18,8 +33,8 @@
  * any.
  *
  * Everything else about a dash fixture is deliberately unclever: the dash is
- * real, the round is a real commit, and the discard really deletes the branch
- * and the worktree.
+ * real, the round is a real commit, and the teardown is the whole repository
+ * going away.
  */
 
 import {
@@ -32,8 +47,10 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+import type { App } from "./_harness";
 
 /** How many times a git-touching verb retries through a held `index.lock`. */
 const LOCK_RETRIES = 12;
@@ -392,12 +409,41 @@ export function currentBranch(projectDir: string): string {
   return gitRetry(projectDir, "branch", "--show-current").trim();
 }
 
+/** The checkout this test corpus lives in — the one repository no fixture may touch. */
+const THIS_CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+
+/**
+ * Refuse a fixture act aimed at the developer's checkout.
+ *
+ * A dash is for implementing a plan, not for running a test. A fixture dash in
+ * the checkout is a real branch and a real worktree in the tree somebody is
+ * working in — and a test killed mid-file strands them there. Every fixture
+ * repository is a scratch repository ({@link makeDashScratchRepo}); this guard
+ * is what keeps that a law rather than a convention.
+ */
+function refuseCheckout(projectDir: string, act: string): void {
+  let resolved = projectDir;
+  try {
+    resolved = realpathSync(projectDir);
+  } catch {
+    return; // a path that does not resolve is not the checkout
+  }
+  if (resolved === THIS_CHECKOUT) {
+    throw new Error(
+      `dash-fixture: refusing to ${act} in the developer's checkout (${resolved}). ` +
+        "A dash is for implementing a plan, not for running a test — " +
+        "cut it in a scratch repository (makeDashScratchRepo).",
+    );
+  }
+}
+
 export function createDash(
   projectDir: string,
   name: string,
   description: string,
   opts: DashFixtureOpts = {},
 ): CreatedDash {
+  refuseCheckout(projectDir, "create a dash");
   const branch = currentBranch(projectDir);
   const base = branch === "" ? [] : ["--base", branch];
   const out = JSON.parse(
@@ -418,6 +464,7 @@ export function commitRound(
   subject: string,
   opts: DashFixtureOpts = {},
 ): void {
+  refuseCheckout(projectDir, "commit a round");
   tugutil(["dash", "commit", name, "--message", subject, "--json"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
@@ -492,13 +539,20 @@ export function recordStampedPlan(
   projectDir: string,
   name: string,
   worktree: string,
+  opts: DashFixtureOpts = {},
 ): string {
   const planPath = join(worktree, "plan.md");
   writeFileSync(planPath, FIXTURE_PLAN);
   tugutil(["dash", "step", name, "start", "1", "--plan", "plan.md"], {
     cwd: projectDir,
+    binaryRoot: opts.binaryRoot,
+    env: opts.env,
   });
-  tugutil(["plan", "stamp", planPath], { cwd: projectDir });
+  tugutil(["plan", "stamp", planPath], {
+    cwd: projectDir,
+    binaryRoot: opts.binaryRoot,
+    env: opts.env,
+  });
   return planPath;
 }
 
@@ -515,11 +569,14 @@ export function recordAdoptedPlan(
   projectDir: string,
   name: string,
   worktree: string,
+  opts: DashFixtureOpts = {},
 ): string {
   const planPath = join(worktree, "plan.md");
   writeFileSync(planPath, FIXTURE_PLAN);
   tugutil(["dash", "adopt-plan", name, "--plan", "plan.md", "--json"], {
     cwd: projectDir,
+    binaryRoot: opts.binaryRoot,
+    env: opts.env,
   });
   return planPath;
 }
@@ -536,12 +593,235 @@ export function discardDash(
   name: string,
   opts: DashFixtureOpts = {},
 ): void {
+  // Same law as `createDash`, and sharper here: a discard aimed at the
+  // checkout could tear down a dash the developer actually made, on nothing
+  // more than a name collision.
+  refuseCheckout(projectDir, "discard a dash");
   tugutil(["dash", "discard", name, "--json"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
     required: false,
   });
+}
+
+// ---------------------------------------------------------------------------
+// The scratch repository
+// ---------------------------------------------------------------------------
+
+/** A scratch repository a fixture owns outright, and its redirected data root. */
+export interface DashScratchRepo {
+  /** The repository the app opens — the only tree the fixture's dashes touch. */
+  repo: string;
+  /** Tug's data root for it, redirected away from the developer's own. */
+  dataRoot: string;
+  /**
+   * Spread into every dash-fixture call: run the checkout's built CLI, against
+   * this repo, writing into this data root. Threading the three by hand at each
+   * call site is how one of them gets forgotten and a dash lands in the
+   * developer's repository again.
+   */
+  cli: DashFixtureOpts;
+}
+
+/** How a scratch repo is shaped. */
+export interface DashScratchOpts {
+  /** Prefix for the temp directories, so a failed run is identifiable. */
+  prefix: string;
+  /** The checkout whose built `tugutil` drives the fixture. */
+  checkout: string;
+  /**
+   * Files at the root commit, path → body, merged over the defaults.
+   *
+   * `.tugtool/config.toml` is written whether or not it is named here:
+   * `.tugtool/` is what marks a project root — `find_project_root` in
+   * `tugutil-core/src/config.rs` walks up looking for exactly that — and a
+   * scratch repo without one resolves its root somewhere above the temp dir
+   * instead, which is a fixture whose dashes exist and are never listed.
+   */
+  files?: Record<string, string>;
+}
+
+/**
+ * Build an empty git repository for a fixture to cut its dashes in.
+ *
+ * **A dash is for implementing a plan, not for running a test.** A dash is a
+ * real branch and a real worktree, so a fixture that creates one in the
+ * developer's checkout leaves its litter in the tree somebody is working in —
+ * and a fixture killed mid-file leaves it there for good, which is why the
+ * app-test recipe once had to carry a janitor for `tugdash/at04??-*`.
+ *
+ * The dash a fixture needs is a *mechanism* under test, and a mechanism needs
+ * no particular repository. So it gets one of its own: two commits deep, torn
+ * down whole at the end, and invisible to every other process on the machine.
+ */
+/**
+ * The one temp-dir namespace every scratch fixture lives under.
+ *
+ * The name is what makes leftovers sweepable: `afterAll` removes a scratch
+ * repo promptly, but a test killed mid-file never runs its teardown, and its
+ * directories — the repo, the data root, and the transcript dir the encoded
+ * repo path lands under `~/.claude/projects` — would otherwise accumulate
+ * forever. The app-test recipe sweeps `tug-scratch-*` in both places at run
+ * start, so nothing a dead run left behind outlives the next one.
+ */
+export const SCRATCH_NAMESPACE = "tug-scratch";
+
+export function makeDashScratchRepo(opts: DashScratchOpts): DashScratchRepo {
+  const repo = realpathSync(
+    mkdtempSync(join(tmpdir(), `${SCRATCH_NAMESPACE}-${opts.prefix}-`)),
+  );
+  const dataRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), `${SCRATCH_NAMESPACE}-${opts.prefix}-data-`)),
+  );
+
+  // `-b main` is explicit: the machine's `init.defaultBranch` may be anything,
+  // and the dash's base has to be a branch this repo actually has out.
+  gitRetry(repo, "init", "-b", "main");
+  gitRetry(repo, "config", "user.email", "app-test@tugtool.dev");
+  gitRetry(repo, "config", "user.name", opts.prefix);
+  const files: Record<string, string> = {
+    "README.md": `${opts.prefix} scratch repository\n`,
+    ".tugtool/config.toml": "[tugtool.dash]\n",
+    ...(opts.files ?? {}),
+  };
+  for (const [path, body] of Object.entries(files)) {
+    const full = join(repo, path);
+    mkdirSync(resolve(full, ".."), { recursive: true });
+    writeFileSync(full, body);
+  }
+  gitRetry(repo, "add", "-A");
+  gitRetry(repo, "commit", "-m", `${opts.prefix}: the scratch repository`);
+
+  return {
+    repo,
+    dataRoot,
+    cli: { binaryRoot: opts.checkout, env: { TUG_DATA_DIR: dataRoot } },
+  };
+}
+
+/** Delete everything {@link makeDashScratchRepo} made. */
+export function rmDashScratchRepo(scratch: DashScratchRepo | null): void {
+  if (scratch === null) return;
+  for (const dir of [scratch.repo, scratch.dataRoot]) {
+    if (dir !== "") rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
+export const encodeProjectDir = (absDir: string): string =>
+  absDir.replace(/[^A-Za-z0-9-]/g, "-");
+
+/**
+ * Give a scratch repo a resumable Claude session, and return the directory to
+ * remove afterwards.
+ *
+ * **A scratch repo is invisible until a session is spawned on it.** tugcast
+ * registers exactly one workspace at startup — the `--source-tree` bootstrap,
+ * which is the checkout, because that is also where `tugdeck/dist` is served
+ * from (`main.rs`'s `watch_dir`). Every other workspace is registered by
+ * `spawn_session`. So a fixture that creates dashes in a scratch repo and then
+ * binds a card with `App.bindSession` sees none of them: `bindSession` is a
+ * client-side binding the ledger and the registry both know nothing about, and
+ * the aggregate it reads is still composed over the checkout.
+ *
+ * The way in is a real session on the scratch repo — `App.spawnSessionResume`
+ * against the transcript this writes. That is the whole reason these fixtures
+ * ever cut their dashes in the developer's checkout: it was the one repository
+ * the app had open.
+ */
+export function seedScratchSession(repo: string, sessionId: string): string {
+  // `claude --resume <sid>` requires a UUID. A prose-shaped id fails the
+  // resume, which reverts the card to the session picker mid-test — a failure
+  // that surfaces as "composer selector matched no element", nowhere near its
+  // cause. Refused here so it is never diagnosed from that distance again.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sessionId)) {
+    throw new Error(
+      `seedScratchSession: session id ${JSON.stringify(sessionId)} is not a UUID — ` +
+        "claude --resume refuses it. Use a uuid-shaped constant " +
+        '(e.g. "a7c0d1ea-0000-4000-8000-000000000421").',
+    );
+  }
+  const dir = join(homedir(), ".claude", "projects", encodeProjectDir(repo));
+  mkdirSync(dir, { recursive: true });
+  const base = {
+    isSidechain: false,
+    userType: "external",
+    cwd: repo,
+    sessionId,
+    version: "2.1.105",
+    gitBranch: "main",
+  };
+  const rows = [
+    {
+      ...base,
+      parentUuid: null,
+      type: "user",
+      uuid: "00000000-0000-4000-8000-0000000000a1",
+      timestamp: new Date(Date.now() - 2000).toISOString(),
+      message: { role: "user", content: [{ type: "text", text: "hello" }] },
+    },
+    {
+      ...base,
+      parentUuid: "00000000-0000-4000-8000-0000000000a1",
+      type: "assistant",
+      uuid: "00000000-0000-4000-8000-0000000000a2",
+      timestamp: new Date(Date.now() - 1000).toISOString(),
+      message: {
+        id: `msg-${sessionId}`,
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-8",
+        content: [{ type: "text", text: "hi there" }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: {
+          input_tokens: 1200,
+          output_tokens: 50,
+          cache_creation_input_tokens: 100,
+          cache_read_input_tokens: 8000,
+        },
+      },
+    },
+  ];
+  writeFileSync(join(dir, `${sessionId}.jsonl`), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  return dir;
+}
+
+/** Remove what {@link seedScratchSession} wrote. */
+export function rmScratchSession(dir: string): void {
+  if (dir !== "") rmSync(dir, { recursive: true, force: true });
+}
+
+/**
+ * Run `command` through the card's `$` shell route and wait for its exit.
+ *
+ * This is how a dash test binds and unbinds for real: the shell child is what
+ * carries `TUG_SESSION_ID`, so `tugutil dash bind` run through it resolves the
+ * session the card actually holds. One copy here because four files had grown
+ * their own, differing only in a default parameter.
+ */
+export async function shellAndSettle(
+  app: App,
+  command: string,
+  expectedIndex = 0,
+  cardId = "A",
+): Promise<void> {
+  const prompt = `[data-card-id="${cardId}"] [data-slot="tug-text-editor"] .cm-content`;
+  const rows = `[data-card-id="${cardId}"] [data-slot="session-transcript-shell-row"]`;
+  await app.nativeClickAtElement(prompt);
+  await app.nativeType(`/shell ${command}`);
+  await new Promise((r) => setTimeout(r, 150));
+  await app.nativeKey("Enter", ["cmd"]);
+  await app.waitForCondition<boolean>(
+    `(function(){
+       var rows = document.querySelectorAll(${JSON.stringify(rows)});
+       if (rows.length !== ${expectedIndex + 1}) return false;
+       var foot = rows[${expectedIndex}].querySelector('[data-slot="session-z1b-end-state"]');
+       return foot !== null && foot.textContent.indexOf("exit") !== -1;
+     })()`,
+    { timeoutMs: 30_000 },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -615,29 +895,20 @@ export interface JoinScratchOpts {
  * arcs run to their end instead of stopping one beat short.
  */
 export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
-  const repo = realpathSync(mkdtempSync(join(tmpdir(), `${opts.prefix}-`)));
-  const dataRoot = realpathSync(mkdtempSync(join(tmpdir(), `${opts.prefix}-data-`)));
-  const stubDir = mkdtempSync(join(tmpdir(), `${opts.prefix}-stubs-`));
-  const env = { TUG_DATA_DIR: dataRoot };
-
-  // `-b main` is explicit: the machine's `init.defaultBranch` may be anything,
-  // and the dash's base has to be a branch this repo actually has out.
-  gitRetry(repo, "init", "-b", "main");
-  gitRetry(repo, "config", "user.email", "app-test@tugtool.dev");
-  gitRetry(repo, "config", "user.name", opts.prefix);
-  writeFileSync(join(repo, opts.file), opts.fork);
-  mkdirSync(join(repo, ".tugtool"), { recursive: true });
-  writeFileSync(
-    join(repo, ".tugtool", "config.toml"),
-    `[tugtool.dash]\nverify_tier0 = ["${opts.verifyTier0}"]\n`,
-  );
-  gitRetry(repo, "add", "-A");
-  gitRetry(repo, "commit", "-m", `${opts.prefix}: the file both sides rewrite`);
-
-  const created = createDash(repo, opts.dash, opts.description, {
-    binaryRoot: opts.checkout,
-    env,
+  const base = makeDashScratchRepo({
+    prefix: opts.prefix,
+    checkout: opts.checkout,
+    files: {
+      [opts.file]: opts.fork,
+      ".tugtool/config.toml": `[tugtool.dash]\nverify_tier0 = ["${opts.verifyTier0}"]\n`,
+    },
   });
+  const { repo, dataRoot } = base;
+  const stubDir = mkdtempSync(
+    join(tmpdir(), `${SCRATCH_NAMESPACE}-${opts.prefix}-stubs-`),
+  );
+
+  const created = createDash(repo, opts.dash, opts.description, base.cli);
 
   // Both sides move the same lines, after the fork: a genuine conflict — or,
   // when the fixture asked for a clean merge, two files that never meet.
@@ -646,10 +917,7 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
   gitRetry(repo, "add", "-A");
   gitRetry(repo, "commit", "-m", `${opts.prefix}: the base rewrites it`);
   writeFileSync(join(created.worktree, opts.file), opts.dashBody);
-  commitRound(repo, opts.dash, `${opts.prefix}(round): rewrite ${opts.file}`, {
-    binaryRoot: opts.checkout,
-    env,
-  });
+  commitRound(repo, opts.dash, `${opts.prefix}(round): rewrite ${opts.file}`, base.cli);
 
   const script = (name: string, body: string): string => {
     const path = join(stubDir, name);

@@ -105,7 +105,15 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { commitRound, createDash, gitRetry as git } from "./dash-fixture";
+import {
+  commitRound,
+  createDash,
+  gitRetry as git,
+  makeDashScratchRepo,
+  rmScratchSession,
+  SCRATCH_NAMESPACE,
+  seedScratchSession,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -173,9 +181,6 @@ const RESOLVER_BODY = "at0441 SENTINEL reconciled by the resolver\n";
 /** What the user types into the composer, and what the squash commit carries. */
 const LAND_MESSAGE = "the arc lands its own dash";
 
-/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
-
 /** The scratch repository — the project the app opens, and the only tree
  *  anything in this file touches. */
 let scratch = "";
@@ -194,114 +199,48 @@ let dataRoot = "";
 let stubDir = "";
 let fixtureDir = "";
 
-/** One clean Claude turn, so the reload's `claude --resume` has something to replay. */
-function buildFixtureJsonl(cwd: string, sessionId: string): string {
-  const base = {
-    isSidechain: false,
-    userType: "external",
-    cwd,
-    sessionId,
-    version: "2.1.105",
-    gitBranch: "main",
-  };
-  const t0 = new Date(Date.now() - 2000).toISOString();
-  const t1 = new Date(Date.now() - 1000).toISOString();
-  return (
-    [
-      {
-        ...base,
-        parentUuid: null,
-        type: "user",
-        uuid: "00000000-0000-4000-8000-000000000f01",
-        timestamp: t0,
-        message: { role: "user", content: [{ type: "text", text: "hello" }] },
-      },
-      {
-        ...base,
-        parentUuid: "00000000-0000-4000-8000-000000000f01",
-        type: "assistant",
-        uuid: "00000000-0000-4000-8000-000000000f02",
-        timestamp: t1,
-        message: {
-          id: "msg-441-1",
-          type: "message",
-          role: "assistant",
-          model: "claude-opus-4-8",
-          content: [{ type: "text", text: "hi there" }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: {
-            input_tokens: 1200,
-            output_tokens: 50,
-            cache_creation_input_tokens: 100,
-            cache_read_input_tokens: 8000,
-          },
-        },
-      },
-    ]
-      .map((e) => JSON.stringify(e))
-      .join("\n") + "\n"
-  );
-}
-
 beforeAll(() => {
   if (!SHOULD_RUN) return;
 
-  // `-b main` is explicit: the machine's `init.defaultBranch` may be anything,
-  // and the dash's base has to be a branch this repo actually has out.
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), "at0441-")));
-  dataRoot = realpathSync(mkdtempSync(join(tmpdir(), "at0441-data-")));
-  git(scratch, "init", "-b", "main");
-  git(scratch, "config", "user.email", "app-test@tugtool.dev");
-  git(scratch, "config", "user.name", "at0441");
-  writeFileSync(join(scratch, CONFLICT_FILE), FORK_BODY);
-  // The project declares its own verification ([P11]). Tier 0 is a sentinel
-  // grep — seconds cheap, no toolchain, and it can genuinely go red — and
-  // there is deliberately **no** Tier 1: a fixture join runs inside an
-  // app-test that already holds the machine-wide apptest gate, so a real
-  // tier-1 command would queue on the gate its own run is holding.
-  mkdirSync(join(scratch, ".tugtool"), { recursive: true });
-  writeFileSync(
-    join(scratch, ".tugtool", "config.toml"),
-    `[tugtool.dash]\nverify_tier0 = ["grep -q SENTINEL ${CONFLICT_FILE}"]\n`,
-  );
-  git(scratch, "add", "-A");
-  git(scratch, "commit", "-m", "at0441: the file both sides rewrite");
+  // The scratch repository, from the one shared implementation. The project
+  // declares its own verification ([P11]): Tier 0 is a sentinel grep —
+  // seconds cheap, no toolchain, and it can genuinely go red — and there is
+  // deliberately **no** Tier 1: a fixture join runs inside an app-test that
+  // already holds the machine-wide apptest gate, so a real tier-1 command
+  // would queue on the gate its own run is holding.
+  const base = makeDashScratchRepo({
+    prefix: "at0441",
+    checkout: CHECKOUT,
+    files: {
+      [CONFLICT_FILE]: FORK_BODY,
+      ".tugtool/config.toml": `[tugtool.dash]\nverify_tier0 = ["grep -q SENTINEL ${CONFLICT_FILE}"]\n`,
+    },
+  });
+  scratch = base.repo;
+  dataRoot = base.dataRoot;
 
   // The dash forks here — `createDash` derives `--base` from the branch the
   // project has out, which is this repo's `main`. The CLI is the checkout
   // under test's; the repo it acts upon is the scratch one.
-  const created = createDash(scratch, DASH, "at0441 full-arc fixture", {
-    binaryRoot: CHECKOUT,
-    env: { TUG_DATA_DIR: dataRoot },
-  });
+  const created = createDash(scratch, DASH, "at0441 full-arc fixture", base.cli);
 
   // Both sides move the same lines, after the fork: a genuine conflict.
   writeFileSync(join(scratch, CONFLICT_FILE), BASE_BODY);
   git(scratch, "commit", "-am", "at0441: the base rewrites it");
   writeFileSync(join(created.worktree, CONFLICT_FILE), DASH_BODY);
-  commitRound(scratch, DASH, `at0441(round): rewrite ${CONFLICT_FILE}`, {
-    binaryRoot: CHECKOUT,
-    env: { TUG_DATA_DIR: dataRoot },
-  });
+  commitRound(scratch, DASH, `at0441(round): rewrite ${CONFLICT_FILE}`, base.cli);
 
   // The second dash forks from the same point and touches a file nobody else
   // does, so its squash has nothing to reconcile — the clean arc.
-  const clean = createDash(scratch, CLEAN_DASH, "at0441 clean-arc fixture", {
-    binaryRoot: CHECKOUT,
-    env: { TUG_DATA_DIR: dataRoot },
-  });
+  const clean = createDash(scratch, CLEAN_DASH, "at0441 clean-arc fixture", base.cli);
   writeFileSync(join(clean.worktree, CLEAN_FILE), CLEAN_BODY);
-  commitRound(scratch, CLEAN_DASH, `at0441(round): add ${CLEAN_FILE}`, {
-    binaryRoot: CHECKOUT,
-    env: { TUG_DATA_DIR: dataRoot },
-  });
+  commitRound(scratch, CLEAN_DASH, `at0441(round): add ${CLEAN_FILE}`, base.cli);
 
   // The resolver, configured in the scratch repo only. It speaks the two
   // terminal shapes over stdio — one JSON line per user message in, one per
   // terminal turn out — which is the identical parse-and-wait path the real
   // spawn takes; only the transport differs.
-  stubDir = mkdtempSync(join(tmpdir(), "at0441-resolver-"));
+  stubDir = mkdtempSync(join(tmpdir(), `${SCRATCH_NAMESPACE}-at0441-resolver-`));
   const stub = join(stubDir, "stub-resolver.sh");
   writeFileSync(
     stub,
@@ -313,9 +252,7 @@ beforeAll(() => {
   chmodSync(stub, 0o755);
   git(scratch, "config", "tugdash.joinresolver", stub);
 
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(scratch));
-  mkdirSync(fixtureDir, { recursive: true });
-  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(scratch, SID));
+  fixtureDir = seedScratchSession(scratch, SID);
 });
 
 afterAll(() => {
@@ -325,7 +262,7 @@ afterAll(() => {
   if (scratch !== "") rmSync(scratch, { recursive: true, force: true });
   if (dataRoot !== "") rmSync(dataRoot, { recursive: true, force: true });
   if (stubDir !== "") rmSync(stubDir, { recursive: true, force: true });
-  if (fixtureDir !== "") rmSync(fixtureDir, { recursive: true, force: true });
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {

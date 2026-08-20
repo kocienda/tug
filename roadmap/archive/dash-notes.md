@@ -49,7 +49,7 @@ One final note on terminology this like: "Ready to land"
 🢁 You have invented this *land* term, when the term should be *join*. That's it: dashes are joined. Period. There is no *landing* process separate from *joining*. Fix this everywhere.
 
 
-This deal where we cut a dash just to run a test *must stop*. I thought we did this whole pile of work in commit ad22043f6. WHY are we still cutting these throwaway dashes. I *DONT WANT THIS. THIS IS A MISUSE OF DASHES*. The main usage for dashes is to *implement plans, not to run tests*.
+This deal where we cut a dash just to run an app-test *must stop*. I thought we did this whole pile of work today in commit ad22043f6. WHY are we still cutting these throwaway dashes. I *DONT WANT THIS. THIS IS A MISUSE OF DASHES*. The main usage for dashes is to *implement plans, not to run tests*. Find out why we're doing this and make it stop.
 
 
 
@@ -66,7 +66,7 @@ Also, previously in this session:
 
 This is part of the *Dash needs to be more than one line* idea I stated above.
 
-Make me a proposal in a graphical form in a design spike card. Try to provide resolutions to all these issues in a way that we can review and discuss.
+Make me a proposal in a graphical form in a design spike card. Try to provide resolutions to all these issues in a way that we can review and discuss. Use the /tugplug:spike skill for the part where you make the spike card.
 
 
 

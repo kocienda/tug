@@ -57,6 +57,8 @@ import {
 import {
   makeJoinScratchRepo,
   rmJoinScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
   type JoinScratchRepo,
 } from "./dash-fixture";
 
@@ -80,60 +82,11 @@ const FILE = "subject.txt";
 let scratch: JoinScratchRepo | null = null;
 const projectDir = (): string => scratch?.repo ?? "";
 
-const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
 
 let fixtureDir = "";
 let tugbankPath = "";
 let dashId = "";
 
-function buildFixtureJsonl(cwd: string, sessionId: string): string {
-  const base = {
-    isSidechain: false,
-    userType: "external",
-    cwd,
-    sessionId,
-    version: "2.1.105",
-    gitBranch: "main",
-  };
-  const t0 = new Date(Date.now() - 2000).toISOString();
-  const t1 = new Date(Date.now() - 1000).toISOString();
-  return (
-    [
-      {
-        ...base,
-        parentUuid: null,
-        type: "user",
-        uuid: "00000000-0000-4000-8000-000000000f01",
-        timestamp: t0,
-        message: { role: "user", content: [{ type: "text", text: "hello" }] },
-      },
-      {
-        ...base,
-        parentUuid: "00000000-0000-4000-8000-000000000f01",
-        type: "assistant",
-        uuid: "00000000-0000-4000-8000-000000000f02",
-        timestamp: t1,
-        message: {
-          id: "msg-436-1",
-          type: "message",
-          role: "assistant",
-          model: "claude-opus-4-8",
-          content: [{ type: "text", text: "hi there" }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: {
-            input_tokens: 1200,
-            output_tokens: 50,
-            cache_creation_input_tokens: 100,
-            cache_read_input_tokens: 8000,
-          },
-        },
-      },
-    ]
-      .map((e) => JSON.stringify(e))
-      .join("\n") + "\n"
-  );
-}
 
 const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
@@ -167,9 +120,7 @@ beforeAll(() => {
   });
   dashId = scratch.dashId;
 
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir()));
-  mkdirSync(fixtureDir, { recursive: true });
-  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(projectDir(), SID));
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
@@ -177,7 +128,7 @@ afterAll(() => {
   // The repository IS the teardown: branch, worktree, config, and dash all go
   // with the directory.
   rmJoinScratchRepo(scratch);
-  if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
+  rmScratchSession(fixtureDir);
   if (tugbankPath !== "") rmTempTugbank(tugbankPath);
 });
 

@@ -9,10 +9,11 @@
  * user reported every control as a dead click. The landed outcomes (clean,
  * blocked, empty) all have coverage in at0418; `conflicted` had none, because
  * a real conflict seemed to require moving the developer's `main`. It does
- * not: the fixture owns the dash's worktree, so it can rewind the dash branch
- * to the base's parent and delete a file the base's tip commit modified. The
- * preview's `merge-tree` then reports a genuine delete/modify conflict with no
- * commit on the base and no dirt in the developer's checkout.
+ * not: the fixture owns the whole repository — a scratch one, built two commits
+ * deep for this — so it can rewind the dash branch to the base's parent and
+ * delete a file the base's tip commit modified. The preview's `merge-tree` then
+ * reports a genuine delete/modify conflict, and the developer's checkout is
+ * never involved at all.
  *
  * Delete/modify is chosen deliberately a second time over: the per-file walk
  * short-circuits non-content conflicts straight to unresolved — text tools
@@ -50,7 +51,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { realpathSync, rmSync } from "node:fs";
+import { realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -63,14 +64,18 @@ import {
   commitRound,
   createDash,
   gitRetry as git,
-  discardDash,
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
   smallConflictSubject,
+  type DashScratchRepo,
 } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
 
-const SID = "at0425-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000425";
 const FEED_CODE_OUTPUT = 0x40;
 const CARD = '[data-card-id="A"]';
 const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
@@ -93,8 +98,15 @@ const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-join-archaeology"]`
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 
+/** The file the base modifies and the dash deletes. */
+const SUBJECT_FILE = "at0425-subject.txt";
 /** The base-tip file the dash's round deletes — the conflict's subject. */
 let conflictFile = "";
 /** That base commit's subject — what the archaeology must name under the path. */
@@ -102,33 +114,50 @@ let baseSubject = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH);
-  const created = createDash(PROJECT_DIR, DASH, "at0425 conflicted fixture");
+  scratch = makeDashScratchRepo({
+    prefix: "at0425",
+    checkout: CHECKOUT,
+    files: { [SUBJECT_FILE]: "at0425 first line\nat0425 second line\n" },
+  });
 
-  // A base commit that modified a small text file, and that file. Rewinding
-  // the dash branch to that commit's parent and deleting the file diverges the
-  // two sides on it: the base modified what the dash deleted — a delete/modify
-  // conflict `merge-tree` must report.
+  // The base commit the conflict is built around: it MODIFIES a small text
+  // file that the root commit already had, which is the shape
+  // `smallConflictSubject` looks for — a commit with a parent, whose file is
+  // text, small, clean in the working tree, and still present at the tip.
+  writeFileSync(
+    join(projectDir(), SUBJECT_FILE),
+    "at0425 first line\nat0425 the base rewrote this line\n",
+  );
+  git(projectDir(), "commit", "-am", "at0425: the base modifies the subject file");
+
+  const created = createDash(projectDir(), DASH, "at0425 conflicted fixture", scratch.cli);
+
+  // Rewinding the dash branch to that commit's parent and deleting the file
+  // diverges the two sides on it: the base modified what the dash deleted — a
+  // delete/modify conflict `merge-tree` must report.
   //
-  // The subject comes from the shared helper for determinism, so this file's
-  // outcome stops depending on what `main` last touched. It is *not* here for
-  // the size bound: a delete/modify short-circuits to unresolved before any
-  // rung runs, so no diff is ever produced and the review cap that bites
-  // at0426 cannot bite this. Nobody should go looking for one here.
-  const subject = smallConflictSubject(PROJECT_DIR);
+  // The subject comes from the shared helper, which reads it back out of the
+  // repo rather than trusting the strings above. It is *not* here for the size
+  // bound: a delete/modify short-circuits to unresolved before any rung runs,
+  // so no diff is ever produced and the review cap that bites at0426 cannot
+  // bite this. Nobody should go looking for one here.
+  const subject = smallConflictSubject(projectDir());
   conflictFile = subject.path;
   baseSubject = subject.subject;
 
   // The rewind and the deletion happen in the dash's own worktree — the
-  // developer's checkout and the base branch are never touched.
+  // scratch repo's base branch is never touched.
   git(created.worktree, "reset", "--hard", `${subject.commit}~1`);
   rmSync(join(created.worktree, conflictFile));
-  commitRound(PROJECT_DIR, DASH, `at0425(round): delete ${conflictFile}`);
+  commitRound(projectDir(), DASH, `at0425(round): delete ${conflictFile}`, scratch.cli);
+
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -167,10 +196,10 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
     "a named join on an unbound card fronts conflicted; the row never reads ready, Resolve's click registers, Adopt round-trips",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0425-dash-conflicted-join",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -178,25 +207,12 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace (so its dash reaches the aggregate) and writes
+        // the live ledger row the Adopt probe's `bind_dash` needs, or the
+        // server has nothing to bind.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        // The Adopt probe's `bind_dash` needs the session in this instance's
-        // ledger, or the server has nothing to bind.
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: "at0425 work",
-            },
-          ],
-        });
 
         // The aggregate has composed the dash once the Lens roster lists it.
         await app.dispatchControlAction("toggle-lens");

@@ -54,7 +54,15 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { createDash, commitRound, discardDash } from "./dash-fixture";
+import {
+  commitRound,
+  createDash,
+  makeDashScratchRepo,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  type DashScratchRepo,
+} from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -74,28 +82,36 @@ const DRAFT = "explain the parser to me";
 const LAND_BUTTON = `${CARD} .tug-prompt-entry-commit-button`;
 
 /** The bound case needs a real dash, so it runs against the real repo. */
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 const DASH = "at0340-changes-door";
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
-const BOUND_SID = "at0340-bound";
+const BOUND_SID = "a7c0d1ea-0000-4000-8000-000000000340";
+
+/** The scratch repository the dash case owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 
 let dir = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   dir = mkdtempSync(join(tmpdir(), "at0340-"));
-  discardDash(PROJECT_DIR, DASH);
-  const created = createDash(PROJECT_DIR, DASH, "at0340 changes-door fixture");
+  scratch = makeDashScratchRepo({ prefix: "at0340", checkout: CHECKOUT });
+  const created = createDash(projectDir(), DASH, "at0340 changes-door fixture", scratch.cli);
   // A round, so the dash is not empty — the landing face needs something to
   // land, and an empty dash's answer is release rather than join.
   writeFileSync(join(created.worktree, "at0340.txt"), "at0340\n");
-  commitRound(PROJECT_DIR, DASH, "at0340 round");
+  commitRound(projectDir(), DASH, "at0340 round", scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), BOUND_SID);
 });
 
 afterAll(() => {
   if (dir !== "" && existsSync(dir)) rmSync(dir, { recursive: true, force: true });
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -370,10 +386,10 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
     "the same door on a dash-bound card opens the join landing",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0340-composer-routes-bound",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -382,29 +398,15 @@ describe.skipIf(!SHOULD_RUN)("AT0340: the composer's two routes", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 15_000 },
         );
-        await app.bindSession("A", {
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace (so the dash reaches the aggregate) and writes
+        // the live ledger row `/dash-bind`'s CONTROL frame resolves the
+        // calling session through.
+        await app.spawnSessionResume("A", {
           tugSessionId: BOUND_SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
+          projectDir: projectDir(),
         });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-
-        // `/dash-bind` sends a real CONTROL frame, and the server resolves the
-        // calling session out of this instance's ledger — `bindSession` above
-        // is a client-side binding the ledger knows nothing about, so without
-        // this row the bind has no session to attach the dash to. After launch,
-        // not before: tugcast demotes every `live` row to `closed` at startup.
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: BOUND_SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: "at0340 bound",
-            },
-          ],
-        });
 
         // Wait for the dash to reach the aggregate before binding: before the
         // first compose `/dash-bind <name>` misses every snapshot match and

@@ -45,6 +45,8 @@ import {
 import {
   makeJoinScratchRepo,
   rmJoinScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
   type JoinScratchRepo,
 } from "./dash-fixture";
 
@@ -67,67 +69,16 @@ const FILE = "subject.txt";
 let scratch: JoinScratchRepo | null = null;
 const projectDir = (): string => scratch?.repo ?? "";
 const DASH = "at0435-work";
-
-/** Mirrors tugcode's `encodeProjectDir` (see at0192 for the rationale). */
-const encodeProjectDir = (absDir: string): string => absDir.replace(/[^A-Za-z0-9-]/g, "-");
-
 let fixtureDir = "";
 let tugbankPath = "";
 let dashId = "";
-
-function buildFixtureJsonl(cwd: string, sessionId: string): string {
-  const base = {
-    isSidechain: false,
-    userType: "external",
-    cwd,
-    sessionId,
-    version: "2.1.105",
-    gitBranch: "main",
-  };
-  const t0 = new Date(Date.now() - 2000).toISOString();
-  const t1 = new Date(Date.now() - 1000).toISOString();
-  return (
-    [
-      {
-        ...base,
-        parentUuid: null,
-        type: "user",
-        uuid: "00000000-0000-4000-8000-000000000e01",
-        timestamp: t0,
-        message: { role: "user", content: [{ type: "text", text: "hello" }] },
-      },
-      {
-        ...base,
-        parentUuid: "00000000-0000-4000-8000-000000000e01",
-        type: "assistant",
-        uuid: "00000000-0000-4000-8000-000000000e02",
-        timestamp: t1,
-        message: {
-          id: "msg-435-1",
-          type: "message",
-          role: "assistant",
-          model: "claude-opus-4-8",
-          content: [{ type: "text", text: "hi there" }],
-          stop_reason: "end_turn",
-          stop_sequence: null,
-          usage: {
-            input_tokens: 1200,
-            output_tokens: 50,
-            cache_creation_input_tokens: 100,
-            cache_read_input_tokens: 8000,
-          },
-        },
-      },
-    ]
-      .map((e) => JSON.stringify(e))
-      .join("\n") + "\n"
-  );
-}
 
 const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join"]`;
+const verdict = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join-verdict"]`;
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
@@ -151,9 +102,7 @@ beforeAll(() => {
   });
   dashId = scratch.dashId;
 
-  fixtureDir = join(homedir(), ".claude", "projects", encodeProjectDir(projectDir()));
-  mkdirSync(fixtureDir, { recursive: true });
-  writeFileSync(join(fixtureDir, `${SID}.jsonl`), buildFixtureJsonl(projectDir(), SID));
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
@@ -161,7 +110,7 @@ afterAll(() => {
   // The repository IS the teardown: branch, worktree, config, and dash all go
   // with the directory.
   rmJoinScratchRepo(scratch);
-  if (fixtureDir !== "") rmSync(join(fixtureDir, `${SID}.jsonl`), { force: true });
+  rmScratchSession(fixtureDir);
   if (tugbankPath !== "") rmTempTugbank(tugbankPath);
 });
 
@@ -209,6 +158,26 @@ async function clickUntil(app: App, target: string, expected: string, attempts =
     }
   }
   throw new Error(`at0435: ${expected} never appeared after clicking ${target}`);
+}
+
+/**
+ * Put the composer back on the prompt route.
+ *
+ * Load-bearing before any typed command. `raiseShade` leaves the composer in
+ * **commit mode**, where the editor *is* the commit message — so a `/dash-join`
+ * typed there is message text, not a command, and submitting it does nothing a
+ * route assertion can see. A slash command has to be typed from the prompt
+ * route, which is where every one of them is read. at0418 and at0436 record the
+ * same trap.
+ */
+async function returnToPrompt(app: App): Promise<void> {
+  await app.nativeClickAtElement(EDITOR);
+  await settle();
+  await app.nativeKey("Escape");
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="prompt"][data-state="active"]`)}) !== null`,
+    { timeoutMs: 8000 },
+  );
 }
 
 /** Enter join mode on a dash by its named route — the row offers no control. */
@@ -290,6 +259,10 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // and this is that route. Entering it resolves the dash and verifies
         // what that built ([P03]) — the refusal under test is the last one in
         // the gate's order, so every earlier one has to be clear first.
+        //
+        // Back to the prompt route first: `raiseShade` left the composer in
+        // commit mode, and a slash command typed there is message text.
+        await returnToPrompt(app);
         await enterJoinMode(app, DASH);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
@@ -298,6 +271,16 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           { timeoutMs: 8000 },
+        );
+
+        // Wait out the verdict before pressing. Entering join mode resolved the
+        // dash and started the project's declared checks over what that built
+        // ([P03]), and an unfinished verdict is its own refusal — "Verify the
+        // joined tree first" — which fires *ahead* of the empty message in the
+        // gate's order. Pressing early therefore measures the wrong refusal.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(verdict(DASH))})?.getAttribute("data-verdict") === "green"`,
+          { timeoutMs: 180000 },
         );
 
         // The editor opens empty: a fixture dash has no maintained join draft,
@@ -334,12 +317,19 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // which is the whole reason the refusal has to speak for itself.
         await app.nativeKey("Return", ["cmd"]);
 
-        await app.waitForCondition<boolean>(
-          `${BULLETIN_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
-          { timeoutMs: 10000 },
-        );
+        // Wait for the channel to say *something*, and report whatever it said
+        // before asserting on the words. A bare wait for the exact sentence
+        // times out identically whether the refusal was silent or merely
+        // reworded, and those are different bugs.
+        await app.waitForCondition<boolean>(`${BULLETIN_TEXTS}.length > 0`, {
+          timeoutMs: 10000,
+        });
         const texts = await app.evalJS<string[]>(BULLETIN_TEXTS);
         note(`at0435 bulletins after the refused press: ${JSON.stringify(texts)}`);
+        expect(
+          texts.some((t) => t.includes("Write a join message")),
+          "the refusal names what is missing",
+        ).toBe(true);
         expect(
           texts.some((t) => t.includes("Join not sent")),
           "the bulletin names the act that was refused",

@@ -53,16 +53,21 @@ import { join, resolve } from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
 import {
   createDash,
+  makeDashScratchRepo,
   makePlanStale,
   recordStampedPlan,
-  discardDash,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  shellAndSettle,
   tugutilPath,
+  type DashScratchRepo,
 } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "at0406-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000406";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 // The masthead renders in the pane title bar, ABOVE the card host — not
@@ -72,27 +77,34 @@ const RUN = `${MASTHEAD} [data-slot="session-identity-dash"]`;
 const IDENTITY_RUN = `${MASTHEAD} .tug-session-identity-run`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 // Long on purpose: far past any width a stylesheet could plausibly have
 // capped, so "shown whole" is a claim about available room and nothing else.
 const DASH_NAME = "at0406-dash-name-shown-whole";
-const SESSION_NAME = "at0406 work";
 /** The user's own name, from a `/rename` — what puts a `:` in the grammar. */
 const RENAME = "Grammar work";
 let planPath = "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  const created = createDash(PROJECT_DIR, DASH_NAME, "at0406 fixture");
+  scratch = makeDashScratchRepo({ prefix: "at0406", checkout: CHECKOUT });
+  const created = createDash(projectDir(), DASH_NAME, "at0406 fixture", scratch.cli);
   // The dash drives a real plan, reviewed and stamped — so the chip's resting
   // state carries no review attribute at all, and the one that appears later
   // can only be the edit.
-  planPath = recordStampedPlan(PROJECT_DIR, DASH_NAME, created.worktree);
+  planPath = recordStampedPlan(projectDir(), DASH_NAME, created.worktree, scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH_NAME);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -114,28 +126,6 @@ function deckShape() {
   };
 }
 
-/** Run `command` through the card's `$` shell route and wait for its row to
- *  settle with an exit label — the route is what stamps `TUG_SESSION_ID`. */
-async function shellAndSettle(
-  app: App,
-  command: string,
-  expectedIndex: number,
-): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
-  await app.nativeType(`/shell ${command}`);
-  await new Promise((r) => setTimeout(r, 150));
-  await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
-    `(function(){
-       var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
-       if (rows.length !== ${expectedIndex + 1}) return false;
-       var foot = rows[${expectedIndex}].querySelector('[data-slot="session-z1b-end-state"]');
-       return foot !== null && foot.textContent.indexOf("exit") !== -1;
-     })()`,
-    { timeoutMs: 30_000 },
-  );
-}
-
 const mastheadHeight = (app: App): Promise<number> =>
   app.evalJS<number>(
     `Math.round(document.querySelector(${JSON.stringify(MASTHEAD)}).getBoundingClientRect().height)`,
@@ -145,33 +135,21 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
   test(
     "a real dash bind paints the run on the title line and unbind takes it away",
     async () => {
-      const app = await launchTugApp({ testName: "at0406-masthead-dash-run" });
+      const app = await launchTugApp({
+        testName: "at0406-masthead-dash-run",
+        env: { TUG_DATA_DIR: scratch?.dataRoot ?? "" },
+      });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace and writes the live ledger row the bind verb
+        // resolves the owning instance through.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        // The bind verb resolves the instance whose ledger OWNS this session;
-        // a client-side binding alone is invisible to it. After launch, not
-        // before: tugcast demotes every `live` row to `closed` at startup.
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: SESSION_NAME,
-            },
-          ],
-        });
 
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD)}) !== null`,
@@ -183,7 +161,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         const bareHeight = await mastheadHeight(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash bind ${DASH_NAME}`, 0);
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`, 0);
         note(
           "at0406 bind row",
           await app.evalJS<string>(
@@ -248,8 +226,10 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         // One format, spelled out end to end — the callsign is minted per
         // session, so it is the only part matched loosely. What is exact is
         // the punctuation: a bare `:` and a bare `^`, no spaces anywhere.
+        // The project prefix is the scratch repo's own leaf name.
+        const leaf = projectDir().split("/").pop() ?? "";
         expect(run.grammar).toMatch(
-          new RegExp(`^${RENAME}:tugtool/[a-z0-9-]+\\^${DASH_NAME}$`),
+          new RegExp(`^${RENAME}:${leaf}/[a-z0-9-]+\\^${DASH_NAME}$`),
         );
         // The glyph left the grammar when the sigil replaced it.
         expect(run.svgCount).toBe(0);
@@ -327,7 +307,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
           ),
         ).toBeNull();
         makePlanStale(planPath);
-        const nudge = join(PROJECT_DIR, "at0406-nudge.txt");
+        const nudge = join(projectDir(), "at0406-nudge.txt");
         writeFileSync(nudge, "at0406 recompose nudge\n");
         try {
           await app.waitForCondition<boolean>(
@@ -346,7 +326,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's dash run", () => {
         expect(await mastheadHeight(app)).toBe(bareHeight);
 
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash unbind`, 1);
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RUN)}) === null`,
           { timeoutMs: 15000 },

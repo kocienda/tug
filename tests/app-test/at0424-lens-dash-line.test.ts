@@ -58,15 +58,20 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   createDash,
-  discardDash,
+  makeDashScratchRepo,
   recordAdoptedPlan,
+  rmDashScratchRepo,
+  rmScratchSession,
+  seedScratchSession,
+  shellAndSettle,
   tugutilPath,
+  type DashScratchRepo,
 } from "./dash-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-const SID = "at0424-session";
+const SID = "a7c0d1ea-0000-4000-8000-000000000424";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
@@ -79,19 +84,27 @@ const DASH_LINE = `${SESSION_ROW} [data-slot="tug-session-row-dashline"]`;
 const DASH_FACTS = `${DASH_LINE} [data-slot="lens-dashes-facts"]`;
 const LIST_CELLS = `${CARDS} .tug-list-view-cell`;
 
-const PROJECT_DIR = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** This checkout — the build under test, and never the tree a dash is cut in. */
+const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
+/** The scratch repository this fixture owns, and the only tree it touches. */
+let scratch: DashScratchRepo | null = null;
+let fixtureDir = "";
+const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  const dash = createDash(PROJECT_DIR, DASH_NAME, "at0424 fixture");
+  scratch = makeDashScratchRepo({ prefix: "at0424", checkout: CHECKOUT });
+  const dash = createDash(projectDir(), DASH_NAME, "at0424 fixture", scratch.cli);
   // A plan adopted and no step started — the state the line must not be
   // silent about, and the state the counters replace once a step opens.
-  recordAdoptedPlan(PROJECT_DIR, DASH_NAME, dash.worktree);
+  recordAdoptedPlan(projectDir(), DASH_NAME, dash.worktree, scratch.cli);
+  fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
 afterAll(() => {
   if (!SHOULD_RUN) return;
-  discardDash(PROJECT_DIR, DASH_NAME);
+  rmDashScratchRepo(scratch);
+  rmScratchSession(fixtureDir);
 });
 
 function deckShape() {
@@ -113,27 +126,6 @@ function deckShape() {
   };
 }
 
-/** Run `command` through the card's `$` shell route and wait for its exit. */
-async function shellAndSettle(
-  app: App,
-  command: string,
-  expectedIndex = 0,
-): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
-  await app.nativeType(`/shell ${command}`);
-  await new Promise((r) => setTimeout(r, 150));
-  await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
-    `(function(){
-       var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
-       if (rows.length !== ${expectedIndex + 1}) return false;
-       var foot = rows[${expectedIndex}].querySelector('[data-slot="session-z1b-end-state"]');
-       return foot !== null && foot.textContent.indexOf("exit") !== -1;
-     })()`,
-    { timeoutMs: 30_000 },
-  );
-}
-
 const dashRunsOnSessionRow = (app: App): Promise<number> =>
   app.evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(SESSION_ROW_DASH)}).length`,
@@ -149,10 +141,10 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
     "binding grows the session's row by a line, not the list by a row",
     async () => {
       const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0424-lens-dash-line",
-        env: { TUGBANK_PATH: tugbankPath },
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
         await app.enableDeckTrace(true);
@@ -160,23 +152,10 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
+        // A *spawned* session, not a bound one: spawning registers the scratch
+        // repo as a workspace, so its dash reaches the aggregate.
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        app.seedLedger({
-          sessions: [
-            {
-              session_id: SID,
-              workspace_key: PROJECT_DIR,
-              project_dir: PROJECT_DIR,
-              card_id: "A",
-              name: "at0424 work",
-            },
-          ],
-        });
 
         await app.dispatchControlAction("toggle-lens");
         await app.waitForCondition<boolean>(
@@ -191,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
         const bareCells = await listCellCount(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash bind ${DASH_NAME}`);
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${DASH_NAME}`);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DASH_LINE)}) !== null`,
           { timeoutMs: 30000 },
@@ -275,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
 
         await shellAndSettle(
           app,
-          `${tugutilPath(PROJECT_DIR)} dash step ${DASH_NAME} start 1 --plan plan.md`,
+          `${tugutilPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --plan plan.md`,
           1,
         );
         await app.waitForCondition<boolean>(
@@ -322,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: the Lens dash line", () => {
         note("at0424 lens with the counters", (await app.screenshot()).path);
 
         // ── Unbind, for real ──────────────────────────────────────────────
-        await shellAndSettle(app, `${tugutilPath(PROJECT_DIR)} dash unbind`, 2);
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 2);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(DASH_LINE)}).length === 0`,
           { timeoutMs: 30000 },
