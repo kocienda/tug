@@ -78,7 +78,6 @@ export interface DashJoinActions {
   /** Run the resolution ladder over a conflicted join. */
   resolve: (entry: DashChangesetEntry) => void;
   /** Run (or re-run) the project's own checks over the candidate ([P04]). */
-  verify: (entry: DashChangesetEntry) => void;
   /**
    * Join past a red verdict ([P07]) — a decision made in view of the failures
    * this face is showing, scoped to the candidate they describe.
@@ -139,7 +138,6 @@ export function deriveResolveFace(
 export const JOIN_CONTROL = {
   resume: "session-changes-dash-resume",
   resolve: "session-changes-dash-resolve",
-  verify: "session-changes-dash-join-verify",
   override: "session-changes-dash-join-override",
 } as const;
 
@@ -228,11 +226,12 @@ export function deriveJoinFace(input: {
           // so an overridden red mounts nothing — the control and the reason
           // it answers cannot disagree, which is what
           // {@link REFUSAL_REACHABILITY} promises.
-          !gate.ok && gate.reason === "unverified"
-          ? JOIN_CONTROL.verify
-          : !gate.ok && gate.reason === "verification-red"
-            ? JOIN_CONTROL.override
-            : null;
+          //
+          // `unverified` mounts nothing: the pilot runs Tier 0 unprompted, so
+          // the wait clears itself and there is no act to offer.
+          !gate.ok && gate.reason === "verification-red"
+          ? JOIN_CONTROL.override
+          : null;
 
   // Measured against what will render, never against the outcome word.
   const statedBelow =
@@ -656,17 +655,6 @@ export function SessionChangesDashJoin({
                 <li key={note}>{note}</li>
               ))}
             </ul>
-          ) : null}
-          {control === JOIN_CONTROL.verify ? (
-            <TugPushButton
-              size="xs"
-              emphasis="filled"
-              role="action"
-              onClick={() => actions.verify(entry)}
-              data-slot={JOIN_CONTROL.verify}
-            >
-              Verify
-            </TugPushButton>
           ) : null}
           {control === JOIN_CONTROL.override ? (
             <TugPushButton

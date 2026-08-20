@@ -91,14 +91,18 @@ describe("joinDisabledReason", () => {
     expect(joinDisabledReason("pending", "blocked")).toBe("Joining…");
   });
 
-  it("names each verdict's own act, whatever the outcome reads", () => {
+  it("names each verdict's own act or its wait, whatever the outcome reads", () => {
     // The outcome word is `clean` here — a resolved candidate derives clean —
     // so the sentence has to come from the reason, not from the outcome.
+    //
+    // The first two are waits, not acts: the pilot builds the joined tree at
+    // `built` with no gesture, so there is no Verify control left to name and
+    // a sentence that named one would point at nothing.
     expect(joinDisabledReason("unverified", "clean")).toBe(
-      "Verify the joined tree first",
+      "Building the joined tree",
     );
     expect(joinDisabledReason("verifying", "conflicted")).toBe(
-      "Verification is running",
+      "Building the joined tree",
     );
     // The red one names the override rather than a fix: the fix is another
     // resolve, and the override is the only thing on this surface that moves
@@ -169,12 +173,15 @@ describe("verificationVerdict", () => {
         },
       });
     expect(verdict("green", "green")).toBe("green");
-    // Red outranks running: a failure already known is not made provisional by
-    // another tier still working.
-    expect(verdict("red", "running")).toBe("red");
-    expect(verdict("green", "running")).toBe("running");
-    // One tier green and the other never run is not a green.
-    expect(verdict("green", "unrun")).toBe("unrun");
+    expect(verdict("red", "unrun")).toBe("red");
+    expect(verdict("running", "unrun")).toBe("running");
+    // Tier 0 alone decides, so tier1 cannot move the verdict in any
+    // direction. It stays on the wire as durable branch state; a `running`
+    // tier1 that could refuse a join would be a wait nothing on screen
+    // explains, which is exactly what the arc deletes.
+    expect(verdict("green", "running")).toBe("green");
+    expect(verdict("green", "unrun")).toBe("green");
+    expect(verdict("green", "red")).toBe("green");
   });
 
   it("asks nothing of a dash the feed has said nothing about", () => {
@@ -640,7 +647,7 @@ describe("JoinModeController", () => {
     });
     expect(controller.getSnapshot().outcome).toBe("clean");
     expect(controller.getSnapshot().landBlockedReason).toBe(
-      "Verify the joined tree first",
+      "Building the joined tree",
     );
 
     changesController._setJoin({

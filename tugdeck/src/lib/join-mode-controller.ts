@@ -130,6 +130,16 @@ export type JoinGate = { ok: true } | { ok: false; reason: JoinGateReason };
  * how a tree nobody built would join looking verified. The verdict is anchored
  * to `(base_sha, candidate_sha)` server-side, so it cannot survive either head
  * moving.
+ *
+ * **Tier 0 alone decides.** The dash's own per-step checkpoints already ran the
+ * tests; the join-time question is narrower and different — *does the merged
+ * tree build* — which no checkpoint could have asked, because the merge did not
+ * exist yet. Tier 1 drives real app launches behind a machine-wide gate and is
+ * bounded at twenty minutes, and a wait of indeterminate length between the
+ * decision and the join is precisely what this arc deletes. `tier1` stays on
+ * the wire as durable branch state; nothing here reads it, and a `running`
+ * tier1 must never be able to refuse a join for a reason nothing on screen
+ * explains.
  */
 export function verificationVerdict(
   join: DashJoinStateWire | null | undefined,
@@ -151,11 +161,16 @@ export function verificationVerdict(
   }
   const verification = join.verification;
   if (verification === undefined) return "unrun";
-  const tiers = [verification.tier0, verification.tier1];
-  if (tiers.includes("red")) return "red";
-  if (tiers.includes("running")) return "running";
-  if (tiers.includes("unrun")) return "unrun";
-  return "green";
+  switch (verification.tier0) {
+    case "red":
+      return "red";
+    case "running":
+      return "running";
+    case "green":
+      return "green";
+    default:
+      return "unrun";
+  }
 }
 
 /**
@@ -235,12 +250,14 @@ export function joinDisabledReason(
   // preview, reads "This join is not ready yet" — which names nothing the user
   // can act on when all that is missing is the message.
   if (reason === "empty-message") return "Write a join message";
-  // Each names the act that clears it. The red one names the *override*
-  // rather than a fix, because the override is the only thing on this surface
-  // that moves a red join forward — the fix is another resolve, and saying so
-  // here would point at a control that is not on screen.
-  if (reason === "unverified") return "Verify the joined tree first";
-  if (reason === "verifying") return "Verification is running";
+  // Each names the act that clears it, or the wait that does. The first two
+  // are waits: the pilot builds the joined tree at `built` without being
+  // asked, so naming a Verify control here would point at a button that no
+  // longer exists — the older sentence did exactly that. The red one names the
+  // *override* rather than a fix, because the override is the only thing on
+  // this surface that moves a red join forward.
+  if (reason === "unverified") return "Building the joined tree";
+  if (reason === "verifying") return "Building the joined tree";
   if (reason === "verification-red") {
     return "Verification failed — join anyway to proceed";
   }
@@ -292,11 +309,11 @@ export const REFUSAL_REACHABILITY = {
   // The conflicted and stale readings of `outcome`; see
   // {@link refusalReachability} for the two that answer to a different act.
   outcome: { slot: "session-changes-dash-resolve", where: "join-face" },
-  // The verdict's three refusals, each pointing at the control that moves it:
-  // the exam for an unrun one, nothing at all for one already running, and the
-  // override for a red — which is the only control on this surface that can
-  // carry a red join forward.
-  unverified: { slot: "session-changes-dash-join-verify", where: "join-face" },
+  // The verdict's three refusals. Two of them are waits nothing can press
+  // through: the pilot runs Tier 0 unprompted at `built`, so an unrun verdict
+  // is a run about to happen rather than a control nobody has clicked. Only a
+  // red still answers to an act.
+  unverified: { slot: null, where: "time" },
   verifying: { slot: null, where: "time" },
   "verification-red": {
     slot: "session-changes-dash-join-override",

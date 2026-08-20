@@ -2108,50 +2108,6 @@ fn run_join_verification(
     Ok(())
 }
 
-/// Parsed `changeset_join_verify` request ([P04], [P09]): run or re-run the
-/// candidate's exam.
-///
-/// No candidate sha: unlike a review, which acknowledges a specific artifact,
-/// a verification is always about whichever candidate stands *now* — running
-/// the tests against a superseded one would answer a question nobody asked.
-struct ChangesetJoinVerifyPayload {
-    project_dir: String,
-    dash: String,
-    /// `tier0` | `tier1` — which exam to run. Absent means both, in order.
-    tier: Option<String>,
-}
-
-fn parse_changeset_join_verify_payload(
-    payload: &[u8],
-) -> Result<ChangesetJoinVerifyPayload, ControlError> {
-    let value: serde_json::Value =
-        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
-    let project_dir = value
-        .get("project_dir")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or(ControlError::InvalidProjectDir {
-            reason: "missing_project_dir",
-        })?
-        .to_string();
-    let dash = value
-        .get("dash")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or(ControlError::Malformed)?
-        .to_string();
-    let tier = value
-        .get("tier")
-        .and_then(|v| v.as_str())
-        .filter(|s| *s == "tier0" || *s == "tier1")
-        .map(str::to_string);
-    Ok(ChangesetJoinVerifyPayload {
-        project_dir,
-        dash,
-        tier,
-    })
-}
-
 /// Parsed `changeset_join_override` request (Spec S02): the user's decision to
 /// join a candidate the project's own checks refused.
 ///
@@ -3195,13 +3151,6 @@ impl AgentSupervisor {
             "changeset_join_resolve" => match parse_changeset_join_resolve_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_join_resolve(&parsed).await;
-                    Ok(())
-                }
-                Err(e) => return ControlOutcome::Error(e),
-            },
-            "changeset_join_verify" => match parse_changeset_join_verify_payload(payload) {
-                Ok(parsed) => {
-                    self.do_changeset_join_verify(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -5464,130 +5413,6 @@ impl AgentSupervisor {
         let _ = control_tx.send(Frame::new(
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_join_err serializes"),
-        ));
-    }
-
-    /// Handle a `changeset_join_verify` CONTROL request ([P04], [P09]): run the
-    /// project's declared exam against the candidate that stands now, and record
-    /// the verdict as a fact the feed will report.
-    ///
-    /// The tiers are deliberately different animals. Tier 0 is the build —
-    /// seconds — so it runs inline. Tier 1 drives real app launches behind a
-    /// machine-wide gate, which is why it is never ambient and never per
-    /// iteration: it is asked for, once, against the candidate.
-    ///
-    /// `running` is broadcast through the fact itself rather than a side
-    /// channel, so a reload mid-run re-renders the same state from durable
-    /// truth — the join-truth doctrine, applied to a verdict.
-    ///
-    /// A refusal names its reason. There is no arm here that returns quietly:
-    /// a verification the user asked for and did not get is exactly the silence
-    /// [L31] forbids.
-    async fn do_changeset_join_verify(&self, request: &ChangesetJoinVerifyPayload) {
-        let project_dir = request.project_dir.as_str();
-        let dir = std::path::Path::new(project_dir);
-
-        if self.registry.find_entry_by_path(dir).is_none() {
-            Self::send_changeset_join_verify_err(
-                &self.control_tx,
-                project_dir,
-                &request.dash,
-                "not an open project",
-            );
-            return;
-        }
-        if !crate::feeds::git::is_within_git_worktree(dir).await {
-            Self::send_changeset_join_verify_err(
-                &self.control_tx,
-                project_dir,
-                &request.dash,
-                "not a git repository",
-            );
-            return;
-        }
-
-        // A verification resets the shared workshop to the candidate, so it
-        // cannot run beside a resolve that is mid-edit in the same worktree
-        // (Spec S01).
-        let owner_key = tugdash_core::ops::dash_owner_key(dir, &request.dash);
-        let _occupancy = match crate::feeds::join_occupancy::acquire(
-            &owner_key,
-            crate::feeds::join_occupancy::JoinRunKind::Verify,
-            None,
-        ) {
-            Ok(guard) => guard,
-            Err(detail) => {
-                Self::send_changeset_join_verify_err(
-                    &self.control_tx,
-                    project_dir,
-                    &request.dash,
-                    &detail,
-                );
-                return;
-            }
-        };
-        // The face paints the run stretch from the wire, so the recompute has
-        // to happen now rather than only when the verdict lands.
-        self.registry.changeset_all_bump().notify_one();
-
-        let dir_owned = dir.to_path_buf();
-        let dash = request.dash.clone();
-        let tier = request.tier.clone();
-        let bump = self.registry.changeset_all_bump();
-
-        let outcome = tokio::task::spawn_blocking(move || {
-            run_join_verification(&dir_owned, &dash, tier.as_deref(), || {
-                bump.notify_one();
-            })
-        })
-        .await;
-
-        // The recompute is what carries the verdict to the face, on every arm:
-        // a refusal means the face is showing a state that is no longer true.
-        self.registry.changeset_all_bump().notify_one();
-
-        match outcome {
-            Ok(Ok(())) => {
-                let body = serde_json::json!({
-                    "action": "changeset_join_verify_ok",
-                    "project_dir": project_dir,
-                    "dash": request.dash,
-                });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_join_verify_ok serializes"),
-                ));
-            }
-            Ok(Err(detail)) => Self::send_changeset_join_verify_err(
-                &self.control_tx,
-                project_dir,
-                &request.dash,
-                &detail,
-            ),
-            Err(join_err) => Self::send_changeset_join_verify_err(
-                &self.control_tx,
-                project_dir,
-                &request.dash,
-                &format!("verification task failed: {join_err}"),
-            ),
-        }
-    }
-
-    fn send_changeset_join_verify_err(
-        control_tx: &broadcast::Sender<Frame>,
-        project_dir: &str,
-        dash: &str,
-        detail: &str,
-    ) {
-        let body = serde_json::json!({
-            "action": "changeset_join_verify_err",
-            "project_dir": project_dir,
-            "dash": dash,
-            "detail": detail,
-        });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_verify_err serializes"),
         ));
     }
 
@@ -9670,24 +9495,6 @@ mod tests {
             "the second press says what holds the dash"
         );
 
-        let verify = serde_json::to_vec(&serde_json::json!({
-            "action": "changeset_join_verify",
-            "project_dir": root_str,
-            "dash": "demo",
-        }))
-        .unwrap();
-        sup.handle_control("changeset_join_verify", &verify, 1).await;
-        let refused = await_action(
-            &mut control_rx,
-            &["changeset_join_verify_err", "changeset_join_verify_ok"],
-        )
-        .await;
-        assert_eq!(refused["action"], "changeset_join_verify_err");
-        assert_eq!(
-            refused["detail"], "a resolve is already running for this dash",
-            "a verification resets the same workshop, so it waits its turn"
-        );
-
         let join = serde_json::to_vec(&serde_json::json!({
             "action": "changeset_join",
             "project_dir": root_str,
@@ -9848,11 +9655,6 @@ mod tests {
                 .expect("sender alive");
             let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
             match body["action"].as_str() {
-                // Nobody pressed Verify, so the pressed verb's replies must
-                // never appear: the verdict is the resolve's own doing.
-                Some("changeset_join_verify_ok") | Some("changeset_join_verify_err") => {
-                    panic!("a pressed verification answered a press nobody made: {body}");
-                }
                 Some("changeset_join_resolve_ok") | Some("changeset_join_resolve_err") => {
                     terminal = Some(body);
                     break;
@@ -9988,14 +9790,16 @@ mod tests {
         cancel.cancel();
     }
 
-    /// A verification asked for with no candidate standing is refused **with
-    /// the reason**, and writes nothing.
+    /// A verification run with no candidate standing is refused **with the
+    /// reason**, and writes nothing.
     ///
-    /// The alternative — a quiet no-op — is the failure mode this whole seam
-    /// exists to remove: the user presses a control, nothing happens, and the
-    /// face keeps showing whatever it showed before.
-    #[tokio::test]
-    async fn join_verify_refuses_when_no_candidate_stands() {
+    /// The refusal used to answer a press; nobody presses now, so it answers
+    /// the pilot instead — and the reason still has to be a sentence, because
+    /// the pilot logs it and the register may show it. A quiet no-op would put
+    /// the face back where it was: showing whatever it showed before, with
+    /// nothing to explain why.
+    #[test]
+    fn join_verify_refuses_when_no_candidate_stands() {
         use std::process::Command;
 
         fn git(dir: &std::path::Path, args: &[&str]) {
@@ -10008,7 +9812,6 @@ mod tests {
             assert!(ok, "git {args:?} failed");
         }
 
-        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         git(&root, &["init", "-b", "main"]);
@@ -10020,33 +9823,16 @@ mod tests {
         git(&root, &["branch", "tugdash/demo"]);
         git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
 
-        let cancel = CancellationToken::new();
-        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
-        let root_str = root.to_string_lossy().to_string();
-
-        let payload = serde_json::to_vec(&serde_json::json!({
-            "action": "changeset_join_verify",
-            "project_dir": root_str,
-            "dash": "demo",
-        }))
-        .unwrap();
-        sup.handle_control("changeset_join_verify", &payload, 1)
-            .await;
-        let body = drain_for(&mut control_rx, "changeset_join_verify").await;
-        assert_eq!(body["action"], "changeset_join_verify_err", "{body}");
+        let detail = run_join_verification(&root, "demo", Some("tier0"), || {})
+            .expect_err("no candidate is a refusal");
         assert!(
-            body["detail"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("no resolved candidate"),
-            "the refusal names its reason: {body}"
+            detail.contains("no resolved candidate"),
+            "the refusal names its reason: {detail}"
         );
         assert!(
             tugdash_core::verify::read_verification(&root, "demo").is_none(),
             "a refused verification writes no fact"
         );
-
-        cancel.cancel();
     }
 
     /// The whole exam, against a candidate that stands: the declared commands
@@ -10070,7 +9856,6 @@ mod tests {
             assert!(ok, "git {args:?} failed");
         }
 
-        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
         git(&root, &["init", "-b", "main"]);
@@ -10098,10 +9883,6 @@ mod tests {
         git(&root, &["commit", "-m", "r1"]);
         git(&root, &["switch", "-q", "main"]);
 
-        let cancel = CancellationToken::new();
-        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
-        let root_str = root.to_string_lossy().to_string();
-
         // A clean merge still produces a candidate the exam can describe.
         let workshop = tugdash_core::workshop::Workshop::open_merge(&root, "demo").unwrap();
         let candidate = workshop.commit("candidate").unwrap();
@@ -10120,16 +9901,7 @@ mod tests {
         );
         let base_sha = tugdash_core::ops::rev_parse(&root, "main").unwrap();
 
-        let payload = serde_json::to_vec(&serde_json::json!({
-            "action": "changeset_join_verify",
-            "project_dir": root_str,
-            "dash": "demo",
-        }))
-        .unwrap();
-        sup.handle_control("changeset_join_verify", &payload, 1)
-            .await;
-        let body = drain_for(&mut control_rx, "changeset_join_verify").await;
-        assert_eq!(body["action"], "changeset_join_verify_ok", "{body}");
+        run_join_verification(&root, "demo", None, || {}).expect("the exam runs");
 
         let fact = tugdash_core::verify::read_verification(&root, "demo").expect("a verdict");
         assert!(fact.describes(&base_sha, &candidate));
@@ -10159,10 +9931,7 @@ mod tests {
              verify_tier1 = [\"echo ran\"]\n",
         )
         .unwrap();
-        sup.handle_control("changeset_join_verify", &payload, 1)
-            .await;
-        let body = drain_for(&mut control_rx, "changeset_join_verify").await;
-        assert_eq!(body["action"], "changeset_join_verify_ok", "{body}");
+        run_join_verification(&root, "demo", None, || {}).expect("the exam runs");
 
         let fact = tugdash_core::verify::read_verification(&root, "demo").expect("a verdict");
         assert_eq!(fact.tier0, tugdash_core::verify::TierStatus::Red);
@@ -10177,8 +9946,6 @@ mod tests {
             "and says why the tests were not run: {:?}",
             fact.notes
         );
-
-        cancel.cancel();
     }
 
     /// Correctness must not ride a droppable channel.
@@ -10266,26 +10033,6 @@ mod tests {
         cancel.cancel();
     }
 
-    /// Read control frames until one carries an action starting with `prefix`.
-    async fn drain_for(rx: &mut broadcast::Receiver<Frame>, prefix: &str) -> serde_json::Value {
-        for _ in 0..40 {
-            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
-                .await
-                .expect("a control frame")
-                .expect("sender alive");
-            let body: serde_json::Value = match serde_json::from_slice(&frame.payload) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if body["action"]
-                .as_str()
-                .is_some_and(|a| a.starts_with(prefix))
-            {
-                return body;
-            }
-        }
-        panic!("no {prefix} frame arrived");
-    }
 
     /// A fake scribe that streams one delta and returns a fixed message.
     struct DraftScribe(String);

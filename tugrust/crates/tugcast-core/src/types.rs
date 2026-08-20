@@ -743,7 +743,9 @@ pub struct DashJoinReportQuestion {
 pub struct DashJoinVerification {
     /// `unrun` | `running` | `green` | `red` — the build tier.
     pub tier0: String,
-    /// `unrun` | `running` | `green` | `red` — the test tier.
+    /// `unrun` | `running` | `green` | `red` — the test tier. On the wire as
+    /// durable branch state; nothing derives a verdict from it, because Tier 1
+    /// does not run at join time.
     pub tier1: String,
     /// The failing commands, as sentences. A red that cannot say why is the
     /// silence the face exists to prevent, so these ride with the verdict.

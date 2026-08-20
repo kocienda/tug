@@ -125,12 +125,17 @@ describe("one control per state (Table T01)", () => {
     expect(running.control).toBeNull();
   });
 
-  test("resolved and unverified: the exam, and the sentence that names it", () => {
+  test("resolved and unverified: a wait, named, with nothing to press", () => {
+    // The pilot builds the joined tree at `built` without being asked, so an
+    // unrun verdict is a run about to happen rather than a control nobody has
+    // clicked. The old sentence — "Verify the joined tree first" — named a
+    // button that no longer exists, which is the [L31] failure the register
+    // and the reachability table exist to catch.
     const unrun = face(RESOLVED);
     expect(unrun.outcome).toBe("clean");
     expect(unrun.resolve).toBe("resolved");
-    expect(unrun.control).toBe(JOIN_CONTROL.verify);
-    expect(unrun.line).toBe("Verify the joined tree first");
+    expect(unrun.control).toBeNull();
+    expect(unrun.line).toBe("Building the joined tree");
   });
 
   test("resolved and red: the override, and the failure it is a decision about", () => {
@@ -191,8 +196,8 @@ describe("one control per state (Table T01)", () => {
     // had been built the one second a join could slip through.
     const unjudged = face({ phase: "previewed" });
     expect(unjudged.outcome).toBe("clean");
-    expect(unjudged.control).toBe(JOIN_CONTROL.verify);
-    expect(unjudged.line).toBe("Verify the joined tree first");
+    expect(unjudged.control).toBeNull();
+    expect(unjudged.line).toBe("Building the joined tree");
   });
 
   test("a join in flight: the wait is named, and a second press is impossible", () => {
@@ -278,7 +283,6 @@ describe("every refusal points at a control that state mounts ([P08])", () => {
       join: { phase: "previewed", stale_note: "main moved since this was resolved" },
       reason: "outcome",
     },
-    { name: "resolved but unverified", join: RESOLVED, reason: "unverified" },
     { name: "resolved and red", join: RED, reason: "verification-red" },
   ];
 
@@ -298,10 +302,16 @@ describe("every refusal points at a control that state mounts ([P08])", () => {
     });
   }
 
-  test("the two time-cleared reasons name the wait instead of a control", () => {
+  test("the time-cleared reasons name the wait instead of a control", () => {
     // Not an exemption from [L31] — the reason there is nothing to point at is
     // exactly why the sentence has to carry the whole answer.
-    for (const reason of ["turn", "pending"] as const) {
+    //
+    // `unverified` and `verifying` joined this set when the pilot took over:
+    // the joined tree is built at `built` without a gesture, so an unrun
+    // verdict is a run about to happen. A row still pointing at the retired
+    // Verify button would be the 2026-08-18 deadlock again — a true sentence
+    // naming a control nobody can see.
+    for (const reason of ["turn", "pending", "unverified", "verifying"] as const) {
       expect(REFUSAL_REACHABILITY[reason].slot).toBeNull();
       expect(REFUSAL_REACHABILITY[reason].where).toBe("time");
     }
@@ -347,7 +357,7 @@ describe("the overlay never outranks what is in git", () => {
     });
     // The overlay is back to idle; the resolved face is the feed's doing.
     expect(phase()).toBe("idle");
-    expect(face(RESOLVED, { resolvePhase: phase() }).control).toBe(JOIN_CONTROL.verify);
+    expect(face(RESOLVED, { resolvePhase: phase() }).resolve).toBe("resolved");
   });
 
   test("a resolution survives the overlay it was built under", () => {

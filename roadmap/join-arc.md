@@ -554,9 +554,9 @@ Replies `changeset_join_prompt_answer_err { detail }` on a refusal — a stale `
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The pilot's predicate and its marks | in progress | — |
-| #step-2 | The pilot runs | pending | — |
-| #step-3 | Tier 1 leaves the join path; pilot integration checkpoint | pending | — |
+| #step-1 | The pilot's predicate and its marks | done | `66749ee54` |
+| #step-2 | The pilot runs | done | `66749ee54` |
+| #step-3 | Tier 1 leaves the join path; pilot integration checkpoint | in progress | — |
 | #step-4 | The join narrates its beats | pending | — |
 | #step-5 | The client holds the beats; the deadline dies | pending | — |
 | #step-6 | The register derivation and its component | pending | — |

@@ -2385,6 +2385,108 @@ Some context.
     /// path that finds it is the absolute one the detail carries; composing
     /// from the caller's root here would return `None`, which is indisting-
     /// uishable from a dash with no plan.
+    /// The recompute is what starts the pilot ([P01]) — nobody presses.
+    ///
+    /// This is the seam the two halves meet at: the predicate runs inside the
+    /// blocking hop over state already in hand, and the dispatch fires from the
+    /// async side so the changeset frame goes out without waiting on a ladder
+    /// that may run for minutes. A `built` dash with a base that moved wants
+    /// reconciling, and one still implementing wants nothing.
+    #[tokio::test]
+    async fn a_built_dash_is_piloted_off_the_recompute_with_no_press() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Counting(Arc<AtomicUsize>);
+
+        #[async_trait::async_trait]
+        impl crate::feeds::join_pilot::PilotRunner for Counting {
+            async fn reconcile(
+                &self,
+                _project_dir: &str,
+                _dash: &str,
+                occupancy: crate::feeds::join_occupancy::JoinOccupancy,
+            ) {
+                drop(occupancy);
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            async fn check_tier0(
+                &self,
+                _project_dir: &str,
+                _dash: &str,
+                _occupancy: crate::feeds::join_occupancy::JoinOccupancy,
+            ) {
+            }
+        }
+
+        // The dash-log lives under the data dir; nextest runs one process per
+        // test, so redirecting it here cannot reach another test.
+        let data = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded setup, and this process runs one test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", data.path());
+        }
+
+        let runs = Arc::new(AtomicUsize::new(0));
+        crate::feeds::join_pilot::register_runner(Box::new(Counting(Arc::clone(&runs))));
+
+        let (_dir, root) = init_repo();
+        git(&root, &["branch", "tugdash/pending"]);
+        git(&root, &["config", "branch.tugdash/pending.tugbase", "main"]);
+        git(&root, &["branch", "tugdash/finished"]);
+        git(&root, &["config", "branch.tugdash/finished.tugbase", "main"]);
+        // A round on the dash branch: a dash with nothing to join carries an
+        // `empty` blocker, and a blocked dash is one the pilot leaves alone.
+        git(&root, &["switch", "-q", "tugdash/finished"]);
+        std::fs::write(root.join("round.txt"), "r1\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "r1"]);
+        git(&root, &["switch", "-q", "main"]);
+        tugdash_core::dash::append_mark_declaration(
+            &root,
+            "finished",
+            tugdash_core::MarkStage::Built,
+            "",
+        )
+        .unwrap();
+
+        let entries = dash_entries(&root, None).await;
+        assert_eq!(entries.len(), 2, "both dashes compose");
+
+        // The dispatch is a spawned task, so give it its scheduling turn. It is
+        // deliberately *not* awaited by the recompute — that is the property
+        // under test as much as the run itself.
+        for _ in 0..200 {
+            if runs.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "exactly the built dash is piloted, and exactly once"
+        );
+        assert_eq!(
+            tugdash_core::verify::read_pilot_mark(&root, "finished").is_some(),
+            true,
+            "the pair it acted on is claimed"
+        );
+        assert!(
+            tugdash_core::verify::read_pilot_mark(&root, "pending").is_none(),
+            "a dash still implementing is never touched"
+        );
+
+        // A second recompute over unmoved heads adds nothing: the mark holds.
+        let _ = dash_entries(&root, None).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "an unchanged head pair does not re-kick"
+        );
+    }
+
     #[tokio::test]
     async fn dash_entries_read_review_state_from_a_linked_worktree() {
         let (_dir, root) = init_repo();

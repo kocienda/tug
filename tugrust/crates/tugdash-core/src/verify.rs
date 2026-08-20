@@ -107,6 +107,14 @@ pub struct Verification {
     pub base_sha: String,
     pub candidate_sha: String,
     pub tier0: TierStatus,
+    /// Durable branch state that **nothing gates on**.
+    ///
+    /// Tier 1 no longer runs at join time: the dash step checkpoints ran
+    /// the tests during the run, and the join-time question is the narrower one
+    /// the checkpoints could not have asked — does the *merged* tree build.
+    /// The field stays because removing it is a schema change for no gain, and
+    /// a non-UI caller may still ask for the tier; no verdict derivation reads
+    /// it.
     pub tier1: TierStatus,
     /// The failing commands, as sentences a face can show. Empty on green.
     pub failures: Vec<String>,
