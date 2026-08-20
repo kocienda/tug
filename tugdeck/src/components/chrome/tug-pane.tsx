@@ -2623,15 +2623,48 @@ export function TugPane({
        * guides do not draw during that stretch — they position against
        * `left`/`top`, which this frame is deliberately not writing.
        */
+      /**
+       * How far the dragged frame's own base has slid out from under it.
+       *
+       * An imposed frame's `left`/`top` is a calc that SUBTRACTS its strip's
+       * offset (`columnMemberPins`, `flowMemberPins`), so a strip advancing
+       * by d moves every member on it — the dragged one included — back by d.
+       * The drag's transform is pointer-relative and knows nothing about
+       * that, so without this the card creeps out of the hand for as long as
+       * the autoscroll runs.
+       *
+       * Each entry's `target.offset` is where its strip stood when the drag
+       * first reached it and never moves after (autoscroll writes the CSS
+       * property, never the store — Spec S03), so `offset - target.offset` is
+       * the whole travel since the grab. Summed per axis because one drag can
+       * scroll a column and the flow band on different axes.
+       */
+      function autoscrollCompensation(): { dx: number; dy: number } {
+        let dx = 0;
+        let dy = 0;
+        for (const run of autoscrolledRef.current.values()) {
+          const travelled = run.offset - run.target.offset;
+          if (run.target.axis === "y") dy += travelled;
+          else dx += travelled;
+        }
+        return { dx, dy };
+      }
+
       function applyZoneDragFrame(state: {
         zones: readonly DropZone[];
         live: DropZone | null;
       }): void {
         const pointer = latestDragPointer.current;
         const start = dragStartPointer.current;
-        frame.style.transform = `translate(${(pointer.x - start.x) / dragZoom}px, ${
-          (pointer.y - start.y) / dragZoom
-        }px)`;
+        // Advance first, then place the frame: the compensation has to be
+        // read AFTER this frame's scroll, or the card lags the strip by one
+        // frame for the whole hold.
+        const scrolled =
+          !latestMetaKey.current && advanceAutoscroll(pointerOnCanvas(pointer));
+        const slide = autoscrollCompensation();
+        frame.style.transform = `translate(${
+          (pointer.x - start.x) / dragZoom + slide.dx
+        }px, ${(pointer.y - start.y) / dragZoom + slide.dy}px)`;
         if (latestMetaKey.current) {
           state.live = null;
           autoscrollClockRef.current = null;
@@ -2639,7 +2672,7 @@ export function TugPane({
           setDragDropTarget(null);
           return;
         }
-        if (advanceAutoscroll(pointerOnCanvas(pointer))) {
+        if (scrolled) {
           // The strip moved, so every tile moved with it. Re-measure rather
           // than translate the cached rects: the browser has already reflowed
           // against the property this frame wrote, and reading it back is the

@@ -533,9 +533,30 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
               y: Math.round(canvas.bottom - 60),
             };
             await app.nativeDragElementWithoutRelease(titleBar(members[0]), edge);
+            // Where the card sits the instant the hand arrives, before the
+            // strip has gone anywhere.
+            const pinnedBefore = (await rects(app, [members[0]]))[members[0]];
             // Hold. The strip advances on the gesture's own clock while the
             // hand does nothing, which is the whole gesture.
             await wait(400);
+            // The hand has not moved, so neither has the card. An imposed
+            // frame's `top` subtracts its column's offset, so a strip that
+            // advanced ~400px would carry the dragged card 400px up out of
+            // the hand unless the drag's transform adds that travel back
+            // (`autoscrollCompensation`). One pixel of slack for the
+            // subpixel the rate integrator lands on.
+            const pinnedAfter = (await rects(app, [members[0]]))[members[0]];
+            note(
+              `pinned under autoscroll: top ${pinnedBefore.top.toFixed(1)} → ${pinnedAfter.top.toFixed(1)}, left ${pinnedBefore.left.toFixed(1)} → ${pinnedAfter.left.toFixed(1)}`,
+            );
+            expect(
+              Math.abs(pinnedAfter.top - pinnedBefore.top),
+              "the dragged card stays under the hand while the strip slides",
+            ).toBeLessThanOrEqual(1);
+            expect(
+              Math.abs(pinnedAfter.left - pinnedBefore.left),
+              "and does not drift across the axis it is not scrolling on",
+            ).toBeLessThanOrEqual(1);
             const scrolledProperty = await app.evalJS<string>(
               `getComputedStyle(
                  document.querySelector("[data-deck-canvas-background]")
