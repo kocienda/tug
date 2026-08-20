@@ -1,0 +1,13 @@
+/**
+ * join-prompt-sheet — framing only.
+ *
+ * The wizard inside owns every token it paints with ([L20]); this file exists
+ * to give the sheet body a named box and the breathing room the sheet's own
+ * padding does not, and it reaches into nothing the wizard owns.
+ */
+
+.join-prompt-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-3, 12px);
+}
