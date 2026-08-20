@@ -453,6 +453,14 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
         // The cut detector cannot see this — a member moving under a tween is
         // not a cut — so it is asserted here, where the drag machinery is,
         // rather than in at0450's census.
+        //
+        // The store-write assertion is the discriminating one, and it was
+        // probed: committing the offset per frame fails it. The sibling-tween
+        // count is pinned beside it as the property the rule exists to protect,
+        // not as a second detector — a per-frame commit arms a settle whose
+        // First and Last agree for the siblings, since CSS was already showing
+        // the number, so it costs the measurement without producing a tween to
+        // count.
         {
           // Put slot 1 past two members outright rather than inheriting
           // whatever §4 and §7 left there: the case is about what an
@@ -466,10 +474,33 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
             `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "split" }), null)`,
           );
           await wait(AFTER_LAND_MS);
+          // Bring the strip home before measuring. The assignments raised the
+          // cards they placed, and raising a member of an overflowing column
+          // reveals it — so the strip is already slid, and the top member's
+          // title bar may be above the viewport entirely.
+          await app.evalJS<null>(
+            `(function () {
+              var state = window.tugdeck.diag.getDeckState();
+              var top = Array.prototype.slice.call(document.querySelectorAll(
+                '.tug-pane[data-column-split][data-imposed="1"]'
+              )).sort(function (a, b) {
+                return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+              })[0];
+              if (top === undefined) return null;
+              var pane = state.panes.find(function (p) {
+                return p.id === top.getAttribute("data-pane-id");
+              });
+              if (pane !== undefined) window.__tug.activateCard(pane.activeCardId);
+              return null;
+            })()`,
+          );
+          await wait(AFTER_LAND_MS);
           const members = await app.evalJS<string[]>(
             `Array.prototype.slice.call(document.querySelectorAll(
                '.tug-pane[data-column-split][data-imposed="1"]'
-             )).map(function (el) { return el.getAttribute("data-pane-id"); })`,
+             )).sort(function (a, b) {
+               return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+             }).map(function (el) { return el.getAttribute("data-pane-id"); })`,
           );
           expect(
             members.length,
@@ -477,6 +508,7 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
           ).toBeGreaterThanOrEqual(3);
           {
             const before = await columnOffsetOf(app, 1);
+            expect(before, "and the strip is at rest before the hold").toBe(0);
             const geometry = await rects(app, [members[0]]);
             const canvas = await app.evalJS<{ bottom: number; left: number; width: number }>(
               `(function () {
