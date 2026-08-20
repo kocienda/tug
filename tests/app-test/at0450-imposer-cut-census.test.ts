@@ -54,7 +54,13 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import {
+  launchTugApp,
+  note,
+  summarizeMotionCensus,
+  type App,
+  type MotionCensusReading,
+} from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -575,11 +581,14 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(moverPane).not.toBeNull();
           expect(targetPane).not.toBeNull();
+          let releaseMotion: MotionCensusReading | null = null;
           found["flow:drop-zone-commit"] = await census(app, async () => {
-            await app.nativeDragElement(
-              `.tug-pane[data-pane-id="${moverPane}"] .tug-pane-title-bar`,
-              { selector: `.tug-pane[data-pane-id="${targetPane}"]` },
-            );
+            releaseMotion = await app.motionCensus(async () => {
+              await app.nativeDragElement(
+                `.tug-pane[data-pane-id="${moverPane}"] .tug-pane-title-bar`,
+                { selector: `.tug-pane[data-pane-id="${targetPane}"]` },
+              );
+            });
           });
           expect(
             await app.evalJS<number | null>(
@@ -593,6 +602,13 @@ describe.skipIf(!SHOULD_RUN)(
             ),
             "the drop-zone cell actually moved the card it dragged",
           ).toBe(0);
+
+          // Diagnostic, not yet an assertion: the release's motion cost is
+          // reported so the coalescing work is judged against counted facts.
+          // The bar it is heading for is 1 notify, at most 1 arm, 0 snap
+          // retargets — asserted once the gesture transaction lands.
+          expect(releaseMotion).not.toBeNull();
+          note(summarizeMotionCensus("drop-zone release", releaseMotion!));
 
           await disarmDetector(app);
 

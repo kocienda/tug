@@ -214,6 +214,22 @@ export type DeckTraceEventShape = {
       clamped: boolean;
       following: boolean;
     }
+  | {
+      kind: "store-notify";
+      caller: string;
+      version: number;
+    }
+  | {
+      kind: "settle-arm";
+      signature: string;
+      panes: number;
+      armed: boolean;
+    }
+  | {
+      kind: "settle-retarget";
+      paneId: string;
+      mode: "snap" | "matched";
+    }
 );
 
 /**
@@ -248,6 +264,9 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "follow-bottom",
   "scroll-displacement",
   "extent-rebase",
+  "store-notify",
+  "settle-arm",
+  "settle-retarget",
 ] as const;
 export type HarnessKnownTraceKind = (typeof HARNESS_KNOWN_TRACE_KINDS)[number];
 
@@ -492,6 +511,12 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `scroll-displacement ${e.from}→${e.to} (${e.to - e.from >= 0 ? "+" : ""}${e.to - e.from}) h=${e.scrollHeight}/${e.clientHeight} following=${e.following} evicting=${e.evicting}`;
     case "extent-rebase":
       return `extent-rebase ${e.from}→${e.to} (${e.to - e.from}) top=${e.scrollTop} client=${e.clientHeight} clamped=${e.clamped} following=${e.following}`;
+    case "store-notify":
+      return `store-notify caller=${fmt(e.caller)} v=${e.version}`;
+    case "settle-arm":
+      return `settle-arm ${e.armed ? "armed" : "unarmed"} panes=${e.panes} sig=${fmt(e.signature)}`;
+    case "settle-retarget":
+      return `settle-retarget ${e.mode} pane=${fmt(e.paneId)}`;
     default: {
       // Exhaustiveness pin: if a new kind is added to DeckTraceEventShape,
       // the assignment below fails because `e` is no longer `never`.

@@ -488,6 +488,22 @@ const EVENT_FIXTURES: Record<
     clamped: true,
     following: true,
   },
+  "store-notify": {
+    kind: "store-notify",
+    caller: "_commitImposition",
+    version: 42,
+  },
+  "settle-arm": {
+    kind: "settle-arm",
+    signature: "flow|0:p1|1:p2",
+    panes: 2,
+    armed: true,
+  },
+  "settle-retarget": {
+    kind: "settle-retarget",
+    paneId: "p1",
+    mode: "snap",
+  },
 };
 
 describe("summarizeEvent — exhaustive per-kind coverage", () => {

@@ -33,6 +33,7 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { applyBagFocus, transferFocusForActivation } from "@/focus-transfer";
+import { deckTrace } from "@/deck-trace";
 import { toggleSidebarCard } from "@/sidebar-toggle";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
 import {
@@ -2175,6 +2176,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         episodes.set(paneId, beginResizeEpisode(frame, episodeWindowMs));
         const running = settleTweensRef.current.get(paneId);
         if (running !== undefined) {
+          deckTrace.record({
+            kind: "settle-retarget",
+            paneId,
+            mode: "snap",
+          });
           for (const anim of running.anims) anim.cancel("snap-to-end");
           // Synchronously, before this tick can paint: `snap-to-end` finishes
           // the tween, and TugAnimator commits its final value into the inline
@@ -2240,6 +2246,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       prevColumnModesRef.current = new Map(
         columns.map((column) => [column.slot, column.mode]),
       );
+
+      // The census closes the arm. `panes` is the number of frames this
+      // settle will carry; `armed` is false when the signature changed but
+      // nothing will tween — reduced motion, or a deck whose every frame is
+      // gesture-owned — which is what separates "nothing moved" from "the
+      // move went uncarried".
+      deckTrace.record({
+        kind: "settle-arm",
+        signature: next,
+        panes: firstRects.size,
+        armed: motion && firstRects.size > 0,
+      });
 
       el.style.setProperty(
         "--tugx-imposer-settle-duration",

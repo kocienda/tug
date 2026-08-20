@@ -702,7 +702,7 @@ export class DeckManager implements IDeckManagerStore {
     if (!pane) return;
     const next = this.getBullseyePaneId() === paneId ? undefined : paneId;
     this.deckState = { ...this.deckState, bullseyePaneId: next };
-    this.notify();
+    this.notify("toggleBullseye");
   };
 
   /**
@@ -1004,7 +1004,7 @@ export class DeckManager implements IDeckManagerStore {
     if (this.deckState.hasFocus === value) return;
     this.deckState = { ...this.deckState, hasFocus: value };
     this.reflectAppActive(value);
-    this.notify();
+    this.notify("setHasFocus");
   };
 
   /**
@@ -1024,7 +1024,16 @@ export class DeckManager implements IDeckManagerStore {
 
   // ---- Store notification ----
 
-  private notify(): void {
+  /**
+   * Fire every subscriber over the current state.
+   *
+   * `caller` is the mutating method's own name, stamped by each call
+   * site and carried into the motion census (`deck-trace`'s
+   * `store-notify` record). A gesture is supposed to cost one notify;
+   * when one costs more, the census names the contributors instead of
+   * reporting an anonymous count.
+   */
+  private notify(caller = "untagged"): void {
     // Invariant 7, enforced rather than merely asserted: no pane commits with
     // its title bar above the deck top. Every mutation in this class lands
     // through here, so one clamp covers all of them — including the ones no
@@ -1039,6 +1048,11 @@ export class DeckManager implements IDeckManagerStore {
       validateDeckState(this.deckState);
     }
     this.stateVersion += 1;
+    deckTrace.record({
+      kind: "store-notify",
+      caller,
+      version: this.stateVersion,
+    });
     // Host menu state rides the ordinary subscriber list: the
     // `host-menu-state` aggregator subscribes at boot (main.tsx) and
     // projects each notification into the `menuState` push the Swift
@@ -1047,7 +1061,7 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   refresh(): void {
-    this.notify();
+    this.notify("refresh");
   }
 
   getDeckState(): DeckState {
@@ -1234,7 +1248,7 @@ export class DeckManager implements IDeckManagerStore {
           panes: [...this.deckState.panes, win],
           activePaneId: paneId,
         };
-        this.notify();
+        this.notify("addCard");
         this.scheduleSave();
         for (const c of seededCards) {
           this.cardLifecycle.notifyCardDidFinishConstruction(c.id);
@@ -1304,7 +1318,7 @@ export class DeckManager implements IDeckManagerStore {
         p.id === pane.id ? { ...p, position: { x, y } } : p,
       ),
     };
-    this.notify();
+    this.notify("centerPane");
     this.scheduleSave();
   }
 
@@ -1921,7 +1935,7 @@ export class DeckManager implements IDeckManagerStore {
       ...(flowOffset !== undefined ? { flowOffset } : {}),
       ...this._withColumnReveal(columnReveal),
     };
-    this.notify();
+    this.notify("_commitImposition");
     for (const cardId of resized) this.cardLifecycle.notifyCardDidResize(cardId);
     for (const cardId of moved) this.cardLifecycle.notifyCardDidMove(cardId);
     this.scheduleSave();
@@ -2017,7 +2031,7 @@ export class DeckManager implements IDeckManagerStore {
         p.id === paneId ? { ...p, position: rect.position, size: rect.size } : p,
       ),
     };
-    this.notify();
+    this.notify("_unpinSidebar");
     for (const cardId of stillSlotted) this.cardLifecycle.notifyCardDidMove(cardId);
     this.scheduleSave();
   }
@@ -2095,7 +2109,7 @@ export class DeckManager implements IDeckManagerStore {
             true,
           ),
         };
-        this.notify();
+        this.notify("_createSidebarPane");
         this.scheduleSave();
         this.cardLifecycle.notifyCardDidFinishConstruction(cardId);
         this.putFocusedCardIdGuarded(cardId);
@@ -2171,7 +2185,7 @@ export class DeckManager implements IDeckManagerStore {
             ? { activePaneId: newActivePaneId }
             : { activePaneId: undefined }),
         };
-        this.notify();
+        this.notify("_closePane");
         this.scheduleSave();
         if (newFR !== null) this.putFocusedCardIdGuarded(newFR);
       };
@@ -2212,7 +2226,7 @@ export class DeckManager implements IDeckManagerStore {
     for (const cid of win.cardIds) {
       this.discardComponentStatePreservationRegistry(cid);
     }
-    this.notify();
+    this.notify("_closePane");
     this.scheduleSave();
   }
 
@@ -2299,7 +2313,7 @@ export class DeckManager implements IDeckManagerStore {
   private _commitStandardFirstResponderFlip(newFR: string | null): void {
     if (newFR === null) {
       this.deckState = { ...this.deckState, activePaneId: undefined };
-      this.notify();
+      this.notify("_commitStandardFirstResponderFlip");
       this.scheduleSave();
       return;
     }
@@ -2351,7 +2365,7 @@ export class DeckManager implements IDeckManagerStore {
       ...this._withColumnReveal(columnReveal),
     };
     this.putFocusedCardIdGuarded(newFR);
-    this.notify();
+    this.notify("_commitStandardFirstResponderFlip");
     this.scheduleSave();
   }
 
@@ -2385,7 +2399,7 @@ export class DeckManager implements IDeckManagerStore {
     );
     if (clamped === standing) return;
     this.deckState = { ...this.deckState, flowOffset: clamped };
-    this.notify();
+    this.notify("_retuneFlowOffset");
   }
 
   /**
@@ -2606,7 +2620,7 @@ export class DeckManager implements IDeckManagerStore {
         ? { columnOffsets: undefined }
         : { columnOffsets: next }),
     };
-    this.notify();
+    this.notify("_retuneColumnOffsets");
   }
 
   /**
@@ -2642,7 +2656,7 @@ export class DeckManager implements IDeckManagerStore {
       ...this.deckState,
       columnOffsets: { ...this.deckState.columnOffsets, [slot]: clamped },
     };
-    this.notify();
+    this.notify("setColumnOffset");
   }
 
   /** The flow strip's twin of {@link setColumnOffset} — the same one-write-at-
@@ -2657,7 +2671,7 @@ export class DeckManager implements IDeckManagerStore {
     );
     if (clamped === (this.deckState.flowOffset ?? 0)) return;
     this.deckState = { ...this.deckState, flowOffset: clamped };
-    this.notify();
+    this.notify("setFlowOffset");
   }
 
   /**
@@ -2758,7 +2772,7 @@ export class DeckManager implements IDeckManagerStore {
         return moved;
       }),
     };
-    this.notify();
+    this.notify("movePane");
 
     if (positionChanged) this.cardLifecycle.notifyCardDidMove(activeCardId);
     if (sizeChanged) this.cardLifecycle.notifyCardDidResize(activeCardId);
@@ -2805,7 +2819,7 @@ export class DeckManager implements IDeckManagerStore {
       panes: newStacks,
       activePaneId: focused.id,
     };
-    this.notify();
+    this.notify("focusCard");
     this.scheduleSave();
   }
 
@@ -2833,7 +2847,7 @@ export class DeckManager implements IDeckManagerStore {
     if (toIdx === -1) return;
     next.splice(toIdx, 0, moved);
     this.deckState = { ...this.deckState, panes: next };
-    this.notify();
+    this.notify("sendPaneBehind");
     this.scheduleSave();
   }
 
@@ -2918,7 +2932,7 @@ export class DeckManager implements IDeckManagerStore {
       delete imposition.kind;
       if (lensCardId !== undefined) this.cardLifecycle.notifyCardWillMove(lensCardId);
       this.deckState = { ...this.deckState, panes: frozen, imposition };
-      this.notify();
+      this.notify("setImposition");
       for (const ch of changes) {
         if (ch.positionChanged) this.cardLifecycle.notifyCardDidMove(ch.id);
         if (ch.sizeChanged) this.cardLifecycle.notifyCardDidResize(ch.id);
@@ -4165,7 +4179,7 @@ export class DeckManager implements IDeckManagerStore {
       }
     }
 
-    this.notify();
+    this.notify("seedDeckState");
 
     // Cold-boot restore: after the state commit, activate the
     // requested focus card. `activateCard` is the single entry point
@@ -4247,7 +4261,7 @@ export class DeckManager implements IDeckManagerStore {
           cards: [...this.deckState.cards, newCard],
           panes: this.deckState.panes.map((s) => (s.id === paneId ? updatedStack : s)),
         };
-        this.notify();
+        this.notify("_addCardToPane");
         this.scheduleSave();
         this.cardLifecycle.notifyCardDidFinishConstruction(cardId);
         if (isActiveStack) this.putFocusedCardIdGuarded(cardId);
@@ -4327,7 +4341,7 @@ export class DeckManager implements IDeckManagerStore {
                   s.id === paneId ? flippedStack : s,
                 ),
               };
-              this.notify();
+              this.notify("_removeCard");
               this.scheduleSave();
               this.putFocusedCardIdGuarded(newActiveCardId);
             },
@@ -4354,7 +4368,7 @@ export class DeckManager implements IDeckManagerStore {
       panes: this.deckState.panes.map((s) => (s.id === paneId ? finalStack : s)),
     };
     this.discardComponentStatePreservationRegistry(cardId);
-    this.notify();
+    this.notify("_removeCard");
     this.scheduleSave();
   }
 
@@ -4398,7 +4412,7 @@ export class DeckManager implements IDeckManagerStore {
       ...this.deckState,
       panes: this.deckState.panes.map((s) => (s.id === paneId ? updatedStack : s)),
     };
-    this.notify();
+    this.notify("_setActiveCardInPane");
     this.scheduleSave();
   }
 
@@ -4422,7 +4436,7 @@ export class DeckManager implements IDeckManagerStore {
       ...this.deckState,
       panes: this.deckState.panes.map((s) => (s.id === paneId ? updatedStack : s)),
     };
-    this.notify();
+    this.notify("_reorderCardInPane");
     this.scheduleSave();
   }
 
@@ -4521,7 +4535,7 @@ export class DeckManager implements IDeckManagerStore {
             ],
             activePaneId: newPaneId,
           };
-          this.notify();
+          this.notify("_detachCard");
           this.scheduleSave();
           this.putFocusedCardIdGuarded(cardId);
         },
@@ -4661,7 +4675,7 @@ export class DeckManager implements IDeckManagerStore {
             panes: finalStacks,
             activePaneId: postMoveActivePaneId,
           };
-          this.notify();
+          this.notify("_moveCardToPane");
           this.scheduleSave();
           this.putFocusedCardIdGuarded(newFR);
         },

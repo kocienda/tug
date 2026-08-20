@@ -63,7 +63,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import {
+  launchTugApp,
+  note,
+  summarizeMotionCensus,
+  type App,
+} from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -546,10 +551,16 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
                  return n + el.getAnimations({ subtree: false }).length;
                }, 0)`,
             );
-            await app.nativeMouseUp(edge);
-            await wait(AFTER_LAND_MS);
+            // The autoscrolled release is the costliest shape of drop: the
+            // scroll commit, the zone commit, and the activation raise all
+            // land in the same gesture. Counted here so the coalescing work
+            // is judged against a number rather than a feeling.
+            const autoscrollMotion = await app.motionCensus(async () => {
+              await app.nativeMouseUp(edge);
+            }, AFTER_LAND_MS);
             const committed = await columnOffsetOf(app, 1);
 
+            note(summarizeMotionCensus("autoscrolled release", autoscrollMotion));
             note(
               `autoscroll: property ${scrolledProperty} mid-flight, store ${midFlight} → ${committed}, ${tweened} sibling tween(s)`,
             );
@@ -609,8 +620,10 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
           await app.nativeDragElementWithoutRelease(titleBar("p4"), away);
           // Released back over where it started: the live zone is the origin,
           // so the commit is a no-op and nothing re-renders.
-          await app.nativeMouseUp(home);
-          await wait(AFTER_LAND_MS);
+          const originMotion = await app.motionCensus(async () => {
+            await app.nativeMouseUp(home);
+          }, AFTER_LAND_MS);
+          note(summarizeMotionCensus("origin release", originMotion));
           const landings = await app.evalJS<
             Array<{ pane: string; keyframes: string }>
           >(`window.__at0457Landings`);

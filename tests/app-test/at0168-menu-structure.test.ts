@@ -24,6 +24,7 @@
  *
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugdeck/src/lib/host-menu-state.ts
+ * @foreground
  */
 
 import { describe, expect, test } from "bun:test";

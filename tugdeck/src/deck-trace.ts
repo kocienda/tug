@@ -540,6 +540,46 @@ export type DeckTraceEvent = {
       clamped: boolean;
       following: boolean;
     }
+  | {
+      // ---- The motion census ----
+      //
+      // Fired by `DeckManager.notify` on every store notification.
+      // `caller` is the mutating method's own name, stamped at the call
+      // site, so a gesture that notifies more than once names each
+      // contributor rather than reporting an anonymous count. The census
+      // exists because "smooth" is otherwise unfalsifiable: a drop-zone
+      // release costs exactly ONE notify, and every extra one re-runs
+      // the arrangement signature and re-arms — or worse, retargets —
+      // the settle mid-flight.
+      //
+      // `version` is the post-increment `stateVersion`, which pairs a
+      // notify with the arm it provoked.
+      kind: "store-notify";
+      caller: string;
+      version: number;
+    }
+  | {
+      // Fired by the deck canvas when the arrangement signature changes.
+      // `panes` counts the frames the settle will move; `armed` is false
+      // when the subscriber saw a changed signature but declined to
+      // animate (a first paint, a deck with no measured frames), which
+      // separates "nothing moved" from "something moved without a tween".
+      kind: "settle-arm";
+      signature: string;
+      panes: number;
+      armed: boolean;
+    }
+  | {
+      // Fired when an arm lands on a frame whose settle tween is still in
+      // flight. `mode` names how the running tween ended: "snap" is the
+      // `snap-to-end` + inline-restore dance that paints one stale frame
+      // (the flash this census was built to count); "matched" is the
+      // velocity-matched relaunch that replaces it. The bar is zero
+      // "snap" records per gesture.
+      kind: "settle-retarget";
+      paneId: string;
+      mode: "snap" | "matched";
+    }
 );
 
 /**
@@ -572,7 +612,10 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "return-promise-collision" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "follow-bottom" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "scroll-displacement" }>, StampedFields>
-  | Omit<Extract<DeckTraceEvent, { kind: "extent-rebase" }>, StampedFields>;
+  | Omit<Extract<DeckTraceEvent, { kind: "extent-rebase" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "store-notify" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-arm" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>;
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -859,6 +902,33 @@ export interface DeckTrace {
    * a strictly forward slice) and preserves the enable flag.
    */
   clear(): void;
+  /**
+   * Summarize the motion census over the events since `seq` — the
+   * reading instrument for one gesture. Bracket a gesture with
+   * `const m = mark()` before and `census(m)` after and the result
+   * says what the gesture cost: how many times the store notified and
+   * which methods did it, how many settle arms the notifies provoked
+   * and how many of those declined to animate, and how each retarget
+   * ended its predecessor's tween.
+   *
+   * The bar a drop-zone release is held to: `notifies === 1`,
+   * `arms <= 1`, `retargets.snap === 0`.
+   */
+  census(seq: number): MotionCensus;
+}
+
+/**
+ * One gesture's motion cost. `byCaller` names each notifying method
+ * with its count, so a release that notifies three times reports which
+ * three rather than the bare number.
+ */
+export interface MotionCensus {
+  notifies: number;
+  byCaller: Record<string, number>;
+  arms: number;
+  /** Arms that saw a changed signature but animated nothing. */
+  armsUnarmed: number;
+  retargets: { snap: number; matched: number };
 }
 
 /**
@@ -908,6 +978,27 @@ export const deckTrace: DeckTrace = {
     buffer.length = 0;
     head = 0;
     full = false;
+  },
+  census(seq) {
+    const out: MotionCensus = {
+      notifies: 0,
+      byCaller: {},
+      arms: 0,
+      armsUnarmed: 0,
+      retargets: { snap: 0, matched: 0 },
+    };
+    for (const e of this.since(seq)) {
+      if (e.kind === "store-notify") {
+        out.notifies += 1;
+        out.byCaller[e.caller] = (out.byCaller[e.caller] ?? 0) + 1;
+      } else if (e.kind === "settle-arm") {
+        out.arms += 1;
+        if (!e.armed) out.armsUnarmed += 1;
+      } else if (e.kind === "settle-retarget") {
+        out.retargets[e.mode] += 1;
+      }
+    }
+    return out;
   },
 };
 

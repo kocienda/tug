@@ -448,7 +448,7 @@ One `flow-rail` element inside the canvas, absolutely positioned in the bottom b
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | M01 — the motion census | pending | — |
+| #step-1 | M01 — the motion census | in progress | — |
 | #step-2 | M01 — one release, one notify | pending | — |
 | #step-3 | M01 — the drag stays pinned under autoscroll | pending | — |
 | #step-4 | M01 — motion recipes and the springing of the settle | pending | — |

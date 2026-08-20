@@ -316,6 +316,40 @@ export function note(label: string, ...value: [unknown] | []): void {
  * A live connection to a launched Tug.app. Returned by
  * `launchTugApp`; tests interact with this object only.
  */
+/**
+ * One gesture's motion cost, as {@link App.motionCensus} reads it from
+ * `deck-trace`. `byCaller` names each notifying method with its count, so
+ * a release that notifies three times reports which three.
+ *
+ * The bar a drop-zone release is held to: `notifies === 1`, `arms <= 1`,
+ * `retargets.snap === 0`.
+ */
+export interface MotionCensusReading {
+  notifies: number;
+  byCaller: Record<string, number>;
+  arms: number;
+  /** Arms that saw a changed signature but animated nothing. */
+  armsUnarmed: number;
+  retargets: { snap: number; matched: number };
+}
+
+/**
+ * Render a census reading as one diagnostic line for `note()`.
+ */
+export function summarizeMotionCensus(
+  label: string,
+  c: MotionCensusReading,
+): string {
+  const callers = Object.entries(c.byCaller)
+    .map(([k, n]) => `${k}×${n}`)
+    .join(", ");
+  return (
+    `${label}: ${c.notifies} notify(s) [${callers}], ` +
+    `${c.arms} settle arm(s) (${c.armsUnarmed} unarmed), ` +
+    `retargets snap=${c.retargets.snap} matched=${c.retargets.matched}`
+  );
+}
+
 export class App {
   readonly version: string;
   readonly socketPath: string;
@@ -452,6 +486,36 @@ export class App {
       script,
       timeoutMs: opts?.timeoutMs,
     });
+  }
+
+  /**
+   * Run `gesture` and report what it cost the deck's motion machinery:
+   * how many times the store notified and which methods did it, how many
+   * settle arms those notifies provoked, and how each arm that landed on
+   * a running tween ended it.
+   *
+   * The instrument is `deck-trace`'s motion census. A gesture is meant to
+   * cost one notify; a release that costs three re-runs the arrangement
+   * signature three times, and an arm landing mid-tween retargets it —
+   * which is what flashing and hopping are made of. Recording is opt-in,
+   * so the bracket enables the ring and marks it before running.
+   *
+   * `settleMs` is how long to let the settle land before reading; it must
+   * outlast the settle window or the census reports a gesture still in
+   * flight.
+   */
+  async motionCensus(
+    gesture: () => Promise<void>,
+    settleMs = 900,
+  ): Promise<MotionCensusReading> {
+    const mark = await this.evalJS<number>(
+      `(window.__deckTrace.enable(true), window.__deckTrace.mark())`,
+    );
+    await gesture();
+    await new Promise<void>((r) => setTimeout(r, settleMs));
+    return this.evalJS<MotionCensusReading>(
+      `window.__deckTrace.census(${mark})`,
+    );
   }
 
   /**
