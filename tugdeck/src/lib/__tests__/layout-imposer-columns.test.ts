@@ -32,10 +32,14 @@ import { describe, expect, test } from "bun:test";
 import {
   columnMemberPins,
   columnModeOf,
+  columnOffsetProperty,
   columnSeamProperty,
+  columnStanding,
   effectiveColumnOrder,
+  flowRevealOffset,
   imposeStyle,
   isColumnMode,
+  stripRevealOffset,
   railSeamFractions,
   railSharesFromFractions,
   sweptColumnOrders,
@@ -305,35 +309,123 @@ describe("columnMemberPins", () => {
     // Not to fractions. This is what makes a split read as a division of the
     // card the eye already knew: the top member and a stacked card share a top
     // edge to the pixel.
-    const first = columnMemberPins({ slot: 0, index: 0, count: 3 });
-    const last = columnMemberPins({ slot: 0, index: 2, count: 3 });
+    const first = columnMemberPins({ slot: 0, index: 0, count: 2 });
+    const last = columnMemberPins({ slot: 0, index: 1, count: 2 });
     expect(first.top).toBe("5px");
     expect(last.bottom).toBe("32px");
     expect(first.bottom).toContain("--tug-slot-0-seam-0");
-    expect(last.top).toContain("--tug-slot-0-seam-1");
+    expect(last.top).toContain("--tug-slot-0-seam-0");
   });
 
-  test("a middle member reads the seam either side of it", () => {
-    const middle = columnMemberPins({ slot: 1, index: 1, count: 3 });
-    expect(middle.top).toContain("--tug-slot-1-seam-0");
-    expect(middle.bottom).toContain("--tug-slot-1-seam-1");
-  });
-
-  test("every seam read carries the equal-division fraction as its fallback", () => {
+  test("the seam read carries the equal-division fraction as its fallback", () => {
     // The property is unregistered and is written by an effect, so a frame can
     // render before it lands. Without the fallback that frame would collapse
     // rather than tile evenly.
-    const middle = columnMemberPins({ slot: 0, index: 1, count: 4 });
-    expect(middle.top).toContain("var(--tug-slot-0-seam-0, 0.25)");
-    expect(middle.bottom).toContain("var(--tug-slot-0-seam-1, 0.5)");
+    const lower = columnMemberPins({ slot: 0, index: 1, count: 2 });
+    expect(lower.top).toContain("var(--tug-slot-0-seam-0, 0.5)");
   });
 
-  test("each member takes half a gap at every seam it meets", () => {
+  test("each member takes half a gap at the seam it meets", () => {
     // The air between two split members reads as the same rhythm as every
     // other seam on the deck: one gap total, half from each neighbour.
-    const middle = columnMemberPins({ slot: 0, index: 1, count: 3 });
-    expect(middle.top).toContain("2.5px");
-    expect(middle.bottom).toContain("2.5px");
+    const upper = columnMemberPins({ slot: 0, index: 0, count: 2 });
+    const lower = columnMemberPins({ slot: 0, index: 1, count: 2 });
+    expect(upper.bottom).toContain("2.5px");
+    expect(lower.top).toContain("2.5px");
+  });
+});
+
+describe("a column of three or more overflows instead of dividing", () => {
+  const RUN = "(100% - 5px - 32px)";
+  const MEMBER = `(${RUN} / 2.5)`;
+  const strip = (count: number): string =>
+    `(${count} * ${MEMBER} + ${(count - 1) * 5}px)`;
+  const offset = (slot: number, count: number): string =>
+    `min(var(--tug-slot-${slot}-column-offset, 0px), ` +
+    `max(0px, ${strip(count)} - ${RUN}))`;
+
+  test("the standing turns over at three", () => {
+    expect(columnStanding(0)).toBe("shared");
+    expect(columnStanding(1)).toBe("shared");
+    expect(columnStanding(2)).toBe("shared");
+    expect(columnStanding(3)).toBe("overflow");
+    expect(columnStanding(6)).toBe("overflow");
+  });
+
+  test("two members are byte-identical to what a column has always drawn", () => {
+    // The whole promise of the boundary: nothing a user has ever seen changes
+    // shape. Shares, seams and drags at N <= 2 are the code they always were.
+    for (const index of [0, 1]) {
+      const pins = columnMemberPins({ slot: 1, index, count: 2 });
+      expect(String(pins.top) + String(pins.bottom)).toContain(
+        "--tug-slot-1-seam-0",
+      );
+    }
+  });
+
+  test("an overflowing member reads no seam at all", () => {
+    // Division has stopped meaning anything, so the seam properties are not
+    // read — and step 12 stops writing them and stops drawing their handles.
+    for (const index of [0, 1, 2]) {
+      const pins = columnMemberPins({ slot: 0, index, count: 3 });
+      expect(String(pins.top) + String(pins.bottom)).not.toContain("seam");
+    }
+  });
+
+  test("every member takes the same height: the run over 2.5", () => {
+    // Two whole members and the half that says there is more below. The height
+    // is stated as `bottom` against `100%`, so it is the run's own fraction and
+    // re-resolves on reflow rather than on a measurement.
+    for (const count of [3, 4, 6]) {
+      const first = columnMemberPins({ slot: 0, index: 0, count });
+      expect(first.top).toBe(`calc(5px + 0px - ${offset(0, count)})`);
+      expect(first.bottom).toBe(
+        `calc(100% - 5px - 0px - ${MEMBER} + ${offset(0, count)})`,
+      );
+    }
+  });
+
+  test("members stack down the strip a member plus a gap apart", () => {
+    const second = columnMemberPins({ slot: 2, index: 1, count: 4 });
+    const third = columnMemberPins({ slot: 2, index: 2, count: 4 });
+    expect(second.top).toBe(
+      `calc(5px + 1 * (${MEMBER} + 5px) - ${offset(2, 4)})`,
+    );
+    expect(third.top).toBe(
+      `calc(5px + 2 * (${MEMBER} + 5px) - ${offset(2, 4)})`,
+    );
+  });
+
+  test("the strip a member's clamp is measured against grows with the count", () => {
+    // The clamp's ceiling is `strip - run`, and the strip is N heights plus
+    // N-1 gaps. A column of three can slide by half a member; a column of six
+    // by three and a half. Both are stated in CSS, so widening the window
+    // re-resolves the ceiling in reflow with no JS ([L06]).
+    expect(columnMemberPins({ slot: 0, index: 0, count: 3 }).top).toContain(
+      `3 * ${MEMBER} + 10px`,
+    );
+    expect(columnMemberPins({ slot: 0, index: 0, count: 6 }).top).toContain(
+      `6 * ${MEMBER} + 25px`,
+    );
+  });
+
+  test("each slot's strip slides on its own property", () => {
+    expect(columnMemberPins({ slot: 0, index: 1, count: 3 }).top).toContain(
+      "var(--tug-slot-0-column-offset, 0px)",
+    );
+    expect(columnMemberPins({ slot: 3, index: 1, count: 3 }).top).toContain(
+      "var(--tug-slot-3-column-offset, 0px)",
+    );
+    expect(columnOffsetProperty(5)).toBe("--tug-slot-5-column-offset");
+  });
+
+  test("the offset falls back to zero, so a frame before the write stands at the top", () => {
+    // Same contract the seam fallbacks hold: the property is unregistered and
+    // an effect writes it, so a frame can render first. It must render at the
+    // strip's top rather than collapse.
+    expect(columnMemberPins({ slot: 0, index: 0, count: 3 }).top).toContain(
+      ", 0px)",
+    );
   });
 });
 
@@ -457,5 +549,126 @@ describe("sweptColumnOrders", () => {
       shares: { p1: 3, p2: 1 },
     });
     expect(swept.columns?.[1]).toEqual({ mode: "split" });
+  });
+});
+
+describe("the reveal rule is one rule, read on either axis", () => {
+  /** The run an overflowing column is seen through, and the strip of members
+   *  behind it — a 900px canvas, so `run = 863` and `member = 345.2`. */
+  const MEMBER = (900 - 5 - 32) / 2.5;
+  const RUN = 900 - 5 - 32;
+  const stripOf = (count: number): number =>
+    count * MEMBER + (count - 1) * 5;
+  const startOf = (index: number): number => index * (MEMBER + 5);
+
+  test("flowRevealOffset is stripRevealOffset under flow's names", () => {
+    // The extraction's whole claim. Asserted over the cases that separate the
+    // branches — inside, before, after, and wider than the band — rather than
+    // over one input, so a divergence in any arm shows up here.
+    const cases = [
+      { stripLeft: 0, extent: 400, stripWidth: 2000, band: 900, offset: 0 },
+      { stripLeft: 1200, extent: 400, stripWidth: 2000, band: 900, offset: 0 },
+      { stripLeft: 300, extent: 400, stripWidth: 2000, band: 900, offset: 800 },
+      { stripLeft: 500, extent: 1400, stripWidth: 2000, band: 900, offset: 0 },
+      { stripLeft: 900, extent: 300, stripWidth: 2000, band: 900, offset: 700 },
+    ];
+    for (const c of cases) {
+      expect(flowRevealOffset(c)).toBe(
+        stripRevealOffset({
+          stripStart: c.stripLeft,
+          extent: c.extent,
+          stripLength: c.stripWidth,
+          band: c.band,
+          offset: c.offset,
+        }),
+      );
+    }
+  });
+
+  test("a member already fully in the run reveals nothing", () => {
+    // The property the activation commit rests on: an activation that reveals
+    // nothing must write no geometry, or every raise would arm a settle.
+    const at = (index: number, offset: number): number =>
+      stripRevealOffset({
+        stripStart: startOf(index),
+        extent: MEMBER,
+        stripLength: stripOf(4),
+        band: RUN,
+        offset,
+      });
+    expect(at(0, 0)).toBe(0);
+    expect(at(1, 0)).toBe(0);
+  });
+
+  test("a member below the run slides the strip by the least that shows it", () => {
+    // Member 2 of four starts at 700.4 and ends at 1045.6; the run is 863, so
+    // it needs 182.6 of slide and takes exactly that — its bottom edge lands
+    // flush and its top stays as low as it can.
+    const offset = stripRevealOffset({
+      stripStart: startOf(2),
+      extent: MEMBER,
+      stripLength: stripOf(4),
+      band: RUN,
+      offset: 0,
+    });
+    expect(offset).toBeCloseTo(startOf(2) + MEMBER - RUN, 6);
+  });
+
+  test("a member above the run pins to its own top", () => {
+    const offset = stripRevealOffset({
+      stripStart: startOf(0),
+      extent: MEMBER,
+      stripLength: stripOf(4),
+      band: RUN,
+      offset: 400,
+    });
+    expect(offset).toBe(0);
+  });
+
+  test("a member taller than the run pins its top rather than its bottom", () => {
+    // Reading starts at the top. Overflow members are never taller than the
+    // run by construction, but a pinned card can be, and the rule answers for
+    // it the way flow answers for a card wider than the band.
+    const offset = stripRevealOffset({
+      stripStart: 400,
+      extent: 1200,
+      stripLength: 2400,
+      band: RUN,
+      offset: 0,
+    });
+    expect(offset).toBe(400);
+  });
+
+  test("the answer is always inside the strip's own travel", () => {
+    const tall = stripRevealOffset({
+      stripStart: startOf(3),
+      extent: MEMBER,
+      stripLength: stripOf(4),
+      band: RUN,
+      offset: 0,
+    });
+    expect(tall).toBeLessThanOrEqual(stripOf(4) - RUN);
+    // A strip shorter than the run has no travel at all.
+    expect(
+      stripRevealOffset({
+        stripStart: 0,
+        extent: MEMBER,
+        stripLength: stripOf(2),
+        band: RUN,
+        offset: 200,
+      }),
+    ).toBe(0);
+  });
+
+  test("an unreadable position clamps what stands rather than inventing a slide", () => {
+    expect(
+      stripRevealOffset({
+        stripStart: Number.NaN,
+        extent: MEMBER,
+        stripLength: stripOf(4),
+        band: RUN,
+        offset: 5000,
+      }),
+    ).toBeCloseTo(stripOf(4) - RUN, 6);
   });
 });

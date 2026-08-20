@@ -1247,10 +1247,11 @@ export function imposeStyle(
 ): React.CSSProperties {
   const frameWidth = pinned?.width ?? slotWidth;
   // The vertical run the frame takes. Undivided this is the top gap down to the
-  // deeper bottom one; in a split column it is this member's share, pinned to
-  // the seams either side of it. `columnMemberPins` answers with the undivided
-  // pins when there is no member or its column holds one, so the two cases are
-  // one expression rather than a branch.
+  // deeper bottom one; in a shared column it is this member's share, pinned to
+  // the seams either side of it; in an overflowing one it is this member's
+  // place down a scrolling strip. `columnMemberPins` answers with the undivided
+  // pins when there is no member or its column holds one, so every case is one
+  // expression rather than a branch.
   const run = columnMemberPins(options.member);
   const style: React.CSSProperties =
     pinned?.height === undefined
@@ -1384,23 +1385,79 @@ export function flowStripPositions(
 }
 
 /**
- * Hold an offset inside the strip's own bounds: never negative (the strip's
- * left edge is as far right as the viewport can look) and never past the point
- * where the strip's right edge reaches the band's.
+ * Hold an offset inside a strip's own bounds: never negative (the strip's near
+ * edge is as far as the viewport can look back) and never past the point where
+ * the strip's far edge reaches the band's.
  *
  * A strip shorter than the band has no travel at all and clamps to 0.
+ *
+ * Axis-free — the arithmetic is over four scalars and never asks which
+ * direction they run in, which is what lets a column's vertical strip share it
+ * (see {@link stripRevealOffset}).
  */
+export function clampStripOffset(
+  offset: number,
+  stripLength: number,
+  band: number,
+): number {
+  if (!Number.isFinite(offset)) return 0;
+  return Math.min(Math.max(0, offset), Math.max(0, stripLength - band));
+}
+
+/** The horizontal name for {@link clampStripOffset} — flow's strip runs left to
+ *  right, and the callers that only ever mean flow say so. */
 export function clampFlowOffset(
   offset: number,
   stripWidth: number,
   band: number,
 ): number {
-  if (!Number.isFinite(offset)) return 0;
-  return Math.min(Math.max(0, offset), Math.max(0, stripWidth - band));
+  return clampStripOffset(offset, stripWidth, band);
 }
 
-/** What the reveal rule is told: where the card stands in the strip, how long
- *  the strip is, how wide the band is, and where the viewport is now. */
+/** What the reveal rule is told: where the member stands in the strip, how long
+ *  the strip is, how wide the band is, and where the viewport is now. All four
+ *  are lengths along the strip's own axis, whichever axis that is. */
+export interface StripRevealInput {
+  /** The member's near edge, measured from the strip's origin. */
+  stripStart: number;
+  /** That member's extent along the strip. */
+  extent: number;
+  /** The full strip length, for the clamp. */
+  stripLength: number;
+  /** The band the strip is seen through. */
+  band: number;
+  /** The offset standing now. */
+  offset: number;
+}
+
+/**
+ * The minimal offset that brings a member fully into the band —
+ * `scrollRectToVisible` semantics, and nothing more: a member already inside
+ * the viewport returns the offset unchanged, so an activation that reveals
+ * nothing commits no geometry.
+ *
+ * A member LONGER than the band cannot be brought fully in, so its near edge is
+ * pinned instead: reading starts at the near edge, and a member whose far edge
+ * was flush would hide the side the eye goes to first.
+ *
+ * The rule has no axis in it, which is why a column's overflowing strip of
+ * `run / 2.5` members reveals by exactly this arithmetic over heights.
+ */
+export function stripRevealOffset(input: StripRevealInput): number {
+  const { stripStart, extent, stripLength, band, offset } = input;
+  if (!Number.isFinite(stripStart) || !Number.isFinite(extent)) {
+    return clampStripOffset(offset, stripLength, band);
+  }
+  const wanted =
+    extent >= band || stripStart < offset
+      ? stripStart
+      : stripStart + extent > offset + band
+        ? stripStart + extent - band
+        : offset;
+  return clampStripOffset(wanted, stripLength, band);
+}
+
+/** Flow's own name for {@link StripRevealInput}. */
 export interface FlowRevealInput {
   /** The active card's slot position along the strip. */
   stripLeft: number;
@@ -1414,28 +1471,15 @@ export interface FlowRevealInput {
   offset: number;
 }
 
-/**
- * The minimal offset that brings the active card fully into the band —
- * `scrollRectToVisible` semantics, and nothing more: a card already inside the
- * viewport returns the offset unchanged, so an activation that reveals nothing
- * commits no geometry.
- *
- * A card WIDER than the band cannot be brought fully in, so its left edge is
- * pinned instead: reading starts at the left, and a card whose right edge was
- * flush would hide the side the eye goes to first.
- */
+/** {@link stripRevealOffset} read horizontally — flow's reveal, unchanged. */
 export function flowRevealOffset(input: FlowRevealInput): number {
-  const { stripLeft, extent, stripWidth, band, offset } = input;
-  if (!Number.isFinite(stripLeft) || !Number.isFinite(extent)) {
-    return clampFlowOffset(offset, stripWidth, band);
-  }
-  const wanted =
-    extent >= band || stripLeft < offset
-      ? stripLeft
-      : stripLeft + extent > offset + band
-        ? stripLeft + extent - band
-        : offset;
-  return clampFlowOffset(wanted, stripWidth, band);
+  return stripRevealOffset({
+    stripStart: input.stripLeft,
+    extent: input.extent,
+    stripLength: input.stripWidth,
+    band: input.band,
+    offset: input.offset,
+  });
 }
 
 /* ---------------------------------------------------------------------------
@@ -2301,12 +2345,62 @@ export function columnSeamProperty(slot: number, index: number): string {
   return `--tug-slot-${slot}-seam-${index}`;
 }
 
+/**
+ * The custom property carrying slot `slot`'s column offset — how far its strip
+ * of members has been slid up behind the run, in px.
+ *
+ * The vertical twin of {@link FLOW_OFFSET_PROPERTY}, and per-slot because each
+ * overflowing column scrolls on its own. Unregistered, and every expression
+ * reading one supplies `0px` as its fallback, so a frame rendered before the
+ * property lands stands at the strip's top.
+ */
+export function columnOffsetProperty(slot: number): string {
+  return `--tug-slot-${slot}-column-offset`;
+}
+
+/**
+ * How a column of `count` members divides its run.
+ *
+ * `"shared"` — two members or fewer: the run is divided between them at a
+ * draggable seam, which is what a column has always done.
+ *
+ * `"overflow"` — three or more: division stops being useful past about two and
+ * a half visible members, so the members stop dividing and start stacking down
+ * a strip of fixed-height cards that scrolls behind the run. The half-visible
+ * member at the bottom edge IS the affordance, the way flow's clipped card at
+ * the band edge is.
+ */
+export type ColumnStanding = "shared" | "overflow";
+
+/** The member count at which a column stops dividing and starts stacking. */
+export const COLUMN_OVERFLOW_MIN_MEMBERS = 3;
+
+/** How many members an overflowing column shows at once — two whole ones and
+ *  the half that says there is more below. */
+export const COLUMN_OVERFLOW_VISIBLE_MEMBERS = 2.5;
+
+/** @see {@link ColumnStanding} */
+export function columnStanding(count: number): ColumnStanding {
+  return count >= COLUMN_OVERFLOW_MIN_MEMBERS ? "overflow" : "shared";
+}
+
 /** One split member's place in its column: which slot, which position, and how
  *  many members it divides the run with. */
 export interface ColumnMemberPlacement {
   slot: number;
   index: number;
   count: number;
+}
+
+/** An overflowing member's height: the run over the number of members meant to
+ *  be visible in it. A pure function of the run, so no pane is measured and the
+ *  browser re-resolves it on reflow. */
+const COLUMN_MEMBER_HEIGHT = `(${RAIL_RUN} / ${COLUMN_OVERFLOW_VISIBLE_MEMBERS})`;
+
+/** The strip `count` overflowing members make: their heights plus the gap
+ *  standing between each neighbouring pair. */
+function columnStripHeight(count: number): string {
+  return `(${count} * ${COLUMN_MEMBER_HEIGHT} + ${(count - 1) * IMPOSITION_GAP_PX}px)`;
 }
 
 /**
@@ -2316,11 +2410,39 @@ export interface ColumnMemberPlacement {
  * Byte-identical to the undivided frame when the member is absent or its column
  * holds one member, which is what lets {@link imposeStyle} take the option
  * unconditionally.
+ *
+ * At three members or more the column overflows ({@link columnStanding}) and
+ * the pins change shape entirely: every member takes the same
+ * {@link COLUMN_MEMBER_HEIGHT}, they stack down a strip with the imposition gap
+ * between them, and the whole strip is slid up by the slot's offset. The offset
+ * is CLAMPED HERE, in CSS, for the reason flow's is clamped inside its `left`:
+ * make the window taller and the run grows while the stored number stands
+ * still, and without the clamp the column would hold a stale slide until the
+ * settled-resize retune fired. Both terms are expressible over `100%`, so a
+ * resize costs no JavaScript ([L06]).
+ *
+ * `bottom` is not a pin the eye reads — it is `100%` less the top and the
+ * height, which is how a fixed-height member is stated in a `top`/`bottom`
+ * frame. The last members of a long strip resolve it negative, and that is the
+ * point: they hang below the run and the canvas clips them.
  */
 export function columnMemberPins(
   member: ColumnMemberPlacement | undefined,
 ): { top: string; bottom: string } {
   if (member === undefined) return { top: GAP, bottom: GAP_BOTTOM };
-  return memberPins(member, (j) => columnSeamProperty(member.slot, j));
+  if (columnStanding(member.count) === "shared") {
+    return memberPins(member, (j) => columnSeamProperty(member.slot, j));
+  }
+  const offset =
+    `min(var(${columnOffsetProperty(member.slot)}, 0px), ` +
+    `max(0px, ${columnStripHeight(member.count)} - ${RAIL_RUN}))`;
+  const advance =
+    member.index === 0
+      ? "0px"
+      : `${member.index} * (${COLUMN_MEMBER_HEIGHT} + ${GAP})`;
+  return {
+    top: `calc(${GAP} + ${advance} - ${offset})`,
+    bottom: `calc(100% - ${GAP} - ${advance} - ${COLUMN_MEMBER_HEIGHT} + ${offset})`,
+  };
 }
 
