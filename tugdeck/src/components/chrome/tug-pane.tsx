@@ -48,6 +48,8 @@ import type { CardMeta, CardSizePolicy, LayoutRole } from "@/card-registry";
 import { DEFAULT_SIZE_POLICY, getRegistration } from "@/card-registry";
 import { computeSnap, computeResizeSnap } from "@/snap";
 import type { Rect, GuidePosition, SnapResult } from "@/snap";
+import { pickLiveZone, type DropZone, type DropZoneHost } from "@/lib/drop-zones";
+import { flashCardPane } from "@/lib/flash-pane-border";
 import { getTugZoom } from "@/components/tugways/scale-timing";
 import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
 import { useResponder } from "@/components/tugways/use-responder";
@@ -1635,6 +1637,14 @@ export interface TugPaneProps {
    * card drag always falls back to onCardMoved (no merge behaviour).
    */
   onCardMerged?: (sourceCardId: string, targetCardId: string, insertIndex: number) => void;
+  /**
+   * The canvas's half of the drop-zone drag ([P09]): what places this pane may
+   * land in, how the live one is shown, and how a release commits.
+   *
+   * Absent for a pane on a canvas with no arrangement to land in, in which case
+   * the gesture is the ordinary free drag it has always been.
+   */
+  dropZones?: DropZoneHost;
   /** CSS z-index for stacking order. */
   zIndex: number;
   /**
@@ -1705,6 +1715,7 @@ export function TugPane({
   onCardMoved,
   sizePolicy: sizePolicyProp,
   onCardMerged,
+  dropZones,
   zIndex,
   placement,
   contentWidthPx,
@@ -2260,6 +2271,24 @@ export function TugPane({
   // Appearance-zone only: set/cleared via data-drop-target attribute. [D45, Rule 4]
   const dragDropTargetEl = useRef<HTMLElement | null>(null);
 
+  // The zone drag in flight, or null for a gesture that has nowhere to land —
+  // a free pane, an unimposed deck, a canvas with no host. `live` is the one
+  // indicated zone, which is never null while the drag is a zone drag ([P09]).
+  const zoneDragRef = useRef<{
+    zones: readonly DropZone[];
+    live: DropZone | null;
+  } | null>(null);
+  // Whether ⌘ was held at the most recent frame. Read like `latestAltKey` and
+  // for the same reason — the modifier's meaning is decided by where the hand
+  // is now, not by where it was at pointer-down ([P13]).
+  const latestMetaKey = useRef(false);
+  const dropZonesRef = useRef(dropZones);
+  dropZonesRef.current = dropZones;
+  // A zone drop whose commit has been made but whose parking transform is
+  // still holding the frame at the zone. Consumed by the layout effect below,
+  // on the commit that lands the new arrangement.
+  const pendingZoneDropRef = useRef<HTMLElement | null>(null);
+
   // The reorder in flight, or null for every other drag in the deck. Set at the
   // move latch on a split-rail member and cleared either at the corridor exit
   // (the gesture becomes a free drag) or at the drop.
@@ -2290,6 +2319,17 @@ export function TugPane({
    * store subscriber before this render, still previewed.
    */
   useLayoutEffect(() => {
+    const parked = pendingZoneDropRef.current;
+    if (parked !== null) {
+      // Two equal and opposite changes in one frame: the commit just moved this
+      // pane's layout to where the transform was holding it, so taking the
+      // transform off cannot flicker. Same shape as the reorder's cleanup
+      // below, and in the same effect so a drop can never leave one of them
+      // pending while the other runs.
+      pendingZoneDropRef.current = null;
+      parked.style.transform = "";
+      parked.removeAttribute("data-gesture");
+    }
     const pending = pendingRailReorderRef.current;
     if (pending === null) return;
     pendingRailReorderRef.current = null;
@@ -2652,6 +2692,91 @@ export function TugPane({
       latestAltKey.current = false;
       lastSnapResult.current = null;
 
+      /** The canvas point the pointer is over, in the layout space every drop
+       *  zone's rect is measured in. */
+      function pointerOnCanvas(client: { x: number; y: number }) {
+        const canvas = dragCanvasBounds.current;
+        return {
+          x: (client.x - (canvas?.left ?? 0)) / dragZoom,
+          y: (client.y - (canvas?.top ?? 0)) / dragZoom,
+        };
+      }
+
+      /**
+       * Latch the drag into zone mode, or answer null for a gesture with
+       * nowhere to land — a free pane, an unimposed deck, a canvas with no
+       * host, or a sidebar pane, whose places are still the corridor's until
+       * rails come across ([P11]).
+       */
+      function beginZoneDrag(): {
+        zones: readonly DropZone[];
+        live: DropZone | null;
+      } | null {
+        const host = dropZonesRef.current;
+        if (host === undefined) return null;
+        if (sidebarStackRef.current !== undefined) return null;
+        const tabBars = new Map<string, Rect>();
+        for (const entry of dragTabBarCache.current) {
+          const canvas = dragCanvasBounds.current;
+          tabBars.set(entry.paneId, {
+            x: (entry.rect.left - (canvas?.left ?? 0)) / dragZoom,
+            y: (entry.rect.top - (canvas?.top ?? 0)) / dragZoom,
+            width: entry.rect.width / dragZoom,
+            height: entry.rect.height / dragZoom,
+          });
+        }
+        const set = host.enumerate(id, tabBars);
+        if (set.zones.length === 0) return null;
+        return { zones: set.zones, live: set.origin };
+      }
+
+      /** The tab bar element a tab-bar zone names, for the indication it has
+       *  always used ([P10]). */
+      function tabBarElementOf(paneId: string): HTMLElement | null {
+        return (
+          dragTabBarCache.current.find((entry) => entry.paneId === paneId)?.el ??
+          null
+        );
+      }
+
+      /**
+       * One frame of a zone drag: the frame follows the pointer on a transform,
+       * and the indication follows the pointer to the nearest zone.
+       *
+       * The transform is why `left`/`top` are never written here — an imposed
+       * pane's are calc pins over the live band, and a pixel write would fight
+       * them for the rest of the gesture.
+       *
+       * With ⌘ held the card is being freed ([P13]): no zone is live and the
+       * indicator goes away, but the frame still travels on its transform, so
+       * the conversion to free pixels can wait for the drop. Option's snap
+       * guides do not draw during that stretch — they position against
+       * `left`/`top`, which this frame is deliberately not writing.
+       */
+      function applyZoneDragFrame(state: {
+        zones: readonly DropZone[];
+        live: DropZone | null;
+      }): void {
+        const pointer = latestDragPointer.current;
+        const start = dragStartPointer.current;
+        frame.style.transform = `translate(${(pointer.x - start.x) / dragZoom}px, ${
+          (pointer.y - start.y) / dragZoom
+        }px)`;
+        if (latestMetaKey.current) {
+          state.live = null;
+          dropZonesRef.current?.indicate(null);
+          setDragDropTarget(null);
+          return;
+        }
+        state.live = pickLiveZone(state.zones, pointerOnCanvas(pointer), state.live);
+        dropZonesRef.current?.indicate(state.live);
+        setDragDropTarget(
+          state.live?.kind === "tab-bar"
+            ? tabBarElementOf(state.live.paneId)
+            : null,
+        );
+      }
+
       // === PHASE 2: FRAME (rAF callback) ===
       // Called once per animation frame during drag. Computes position,
       // applies snap or free-drag, hit-tests merge.
@@ -2688,8 +2813,17 @@ export function TugPane({
           // today's, byte for byte, because every other pane in the deck
           // depends on it.
           const reorder = beginRailReorder(frame);
+          const zoneSet = reorder === null ? beginZoneDrag() : null;
           if (reorder !== null) {
             railReorderRef.current = reorder;
+          } else if (zoneSet !== null) {
+            // A zone drag never releases the frame. The pane keeps its derived
+            // geometry for the whole gesture and travels on a transform, so a
+            // release that lands on a zone — which is every unmodified release
+            // ([P09]) — has nothing to undo. Only a ⌘-freed drop converts, and
+            // it converts at the drop, where the decision is actually made.
+            zoneDragRef.current = zoneSet;
+            dropZonesRef.current?.indicate(zoneSet.live);
           } else if (derivedRef.current) {
             // Now it is a move. A derived pane converts to free pixel geometry
             // here, at the moment the gesture becomes one.
@@ -2716,6 +2850,15 @@ export function TugPane({
           railReorderRef.current = null;
           const released = releaseImposedFrame(frame, dragCanvasBounds.current);
           dragStartPosition.current = { x: released.x, y: released.y };
+        }
+
+        // Zone mode owns the rest of the frame for the same reason reorder
+        // mode does: the pane is still derived, so its travel is a transform
+        // and its `left`/`top` stay the arrangement's.
+        const zoneDrag = zoneDragRef.current;
+        if (zoneDrag !== null) {
+          applyZoneDragFrame(zoneDrag);
+          return;
         }
 
         // Always solo card clamping.
@@ -2781,6 +2924,118 @@ export function TugPane({
       function onPointerMove(e: PointerEvent) {
         latestDragPointer.current = { x: e.clientX, y: e.clientY };
         latestAltKey.current = e.altKey;
+        latestMetaKey.current = e.metaKey;
+        if (dragRafId.current === null) {
+          dragRafId.current = requestAnimationFrame(applyDragFrame);
+        }
+      }
+
+      /**
+       * Take the gesture's listeners off and stop its clock — everything an
+       * ending has to do whatever kind of ending it is.
+       *
+       * Shared by the drop and the two cancels so they cannot drift: a cancel
+       * path that forgot one listener would leave a dead gesture answering the
+       * pointer, which is the failure mode that makes cancel paths worth
+       * writing at all.
+       */
+      function endGestureListeners(pointerId: number | null): void {
+        dragActive.current = false;
+        if (dragRafId.current !== null) {
+          cancelAnimationFrame(dragRafId.current);
+          dragRafId.current = null;
+        }
+        frame.removeEventListener("pointermove", onPointerMove);
+        frame.removeEventListener("pointerup", onPointerUp);
+        frame.removeEventListener("pointercancel", onPointerCancel);
+        window.removeEventListener("keydown", onGestureKeyDown, true);
+        window.removeEventListener("keyup", onGestureKeyUp, true);
+        if (pointerId !== null && frame.hasPointerCapture(pointerId)) {
+          frame.releasePointerCapture(pointerId);
+        }
+      }
+
+      /**
+       * End the gesture with nothing committed: the card goes home, the
+       * indication goes away, and the arrangement is exactly what it was.
+       *
+       * Both cancel paths land here — Escape and `pointercancel` (a system
+       * gesture or a scroll takeover claiming the pointer). Neither existed
+       * before this: the pane drag registered `pointermove` and `pointerup` and
+       * nothing else, so an interrupted gesture left `data-gesture`, the
+       * occlusion bracket, and any preview transforms behind it.
+       *
+       * It unwinds a rail corridor gesture too. The handlers are live for every
+       * pane drag, so until rails come across to the engine ([P11]) a cancel
+       * that only knew about zones would leave a half-shuffled rail standing.
+       */
+      function cancelDrag(pointerId: number | null): void {
+        if (!dragActive.current) return;
+        endGestureListeners(pointerId);
+
+        const reordering = railReorderRef.current;
+        if (reordering !== null) {
+          clearRailReorder(reordering);
+          railReorderRef.current = null;
+        }
+        zoneDragRef.current = null;
+        dropZonesRef.current?.indicate(null);
+
+        frame.style.transform = "";
+        frame.removeAttribute("data-gesture");
+        clearGuideElements(dragGuideEls);
+        setDragDropTarget(null);
+        for (const entry of dragTabBarCache.current) {
+          entry.el.removeAttribute("data-card-drag-target");
+        }
+        dragTabBarCache.current = [];
+
+        // The bracket is only open if the gesture ever latched into a move.
+        if (dragMoved.current) paneOcclusionGesture.end();
+
+        dragMoved.current = false;
+        dragStartedWithMeta.current = false;
+        dragOtherRects.current = [];
+        latestAltKey.current = false;
+        latestMetaKey.current = false;
+        lastSnapResult.current = null;
+      }
+
+      /**
+       * Escape cancels, and the key goes no further.
+       *
+       * Capture phase and `stopImmediatePropagation` because the Lens's
+       * `CANCEL_DIALOG` responder is also listening for Escape, and a cancelled
+       * drag that additionally collapsed the Lens's selection would be one
+       * keypress doing two unrelated things. `card-drag-coordinator.ts` swallows
+       * it the same way for the tab drag, and `lens/block-reorder.ts`'s comment
+       * names this gesture as the same case.
+       */
+      function onGestureKeyDown(e: KeyboardEvent) {
+        if (!dragActive.current) return;
+        latestMetaKey.current = e.metaKey;
+        if (e.key !== "Escape") {
+          scheduleDragFrame();
+          return;
+        }
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        cancelDrag(null);
+      }
+
+      // ⌘ is read on its own edges as well as the pointer's, so letting go of
+      // it brings the indication back without waiting for the hand to move.
+      function onGestureKeyUp(e: KeyboardEvent) {
+        if (!dragActive.current) return;
+        latestMetaKey.current = e.metaKey;
+        scheduleDragFrame();
+      }
+
+      function onPointerCancel(e: PointerEvent) {
+        cancelDrag(e.pointerId);
+      }
+
+      function scheduleDragFrame(): void {
         if (dragRafId.current === null) {
           dragRafId.current = requestAnimationFrame(applyDragFrame);
         }
@@ -2791,14 +3046,7 @@ export function TugPane({
       // clean up listeners and reset all drag state.
       function onPointerUp(e: PointerEvent) {
         if (!dragActive.current) return;
-        dragActive.current = false;
-        if (dragRafId.current !== null) {
-          cancelAnimationFrame(dragRafId.current);
-          dragRafId.current = null;
-        }
-        frame.removeEventListener("pointermove", onPointerMove);
-        frame.removeEventListener("pointerup", onPointerUp);
-        frame.releasePointerCapture(e.pointerId);
+        endGestureListeners(e.pointerId);
 
         // Re-enable height transition now that the drag gesture is complete. [D07]
         //
@@ -2811,7 +3059,22 @@ export function TugPane({
         // converted out of the corridor IS a free drag by now, and drops its
         // attribute exactly where every other drag does.
         const reorderDrop = railReorderRef.current;
-        if (reorderDrop === null) frame.removeAttribute("data-gesture");
+        // A zone drop keeps it for the reason a reorder drop does: the frame is
+        // parked at the zone by transform, the commit below arms the settle,
+        // and the settle must skip a frame that is already standing where it
+        // will land. A ⌘-freed drop is a free drag by then and keeps nothing.
+        const zoneState = zoneDragRef.current;
+        const zoneDrop = latestMetaKey.current ? null : zoneState;
+        // ⌘ at the release is what frees the card ([P13]), and the conversion
+        // to free pixels happens here rather than the moment the key went down:
+        // the key is readable up to the last instant, so deciding earlier would
+        // make a modifier tapped and released mid-drag irreversible.
+        const freedFromZone = zoneState !== null && latestMetaKey.current;
+        zoneDragRef.current = null;
+        dropZonesRef.current?.indicate(null);
+        if (reorderDrop === null && zoneDrop === null) {
+          frame.removeAttribute("data-gesture");
+        }
 
         // Remove snap guides immediately on drop. [D03]
         // Must happen before any early return (e.g. merge) to prevent guide leaks.
@@ -2881,6 +3144,83 @@ export function TugPane({
           return;
         }
 
+        // A zone drop lands where the indicator said it would.
+        //
+        // The frame is parked at the live zone's tile before the commit, and
+        // keeps `data-gesture` so the settle skips it — the same handoff the
+        // reorder drop makes, and for the same reason: the commit changes this
+        // pane's LAYOUT to the place the transform is already holding it, so
+        // the two cancel out in one frame instead of racing.
+        //
+        // A refusal is an outcome, not a silence ([P09]). The frame goes home,
+        // the pane flashes, and nothing is left parked at a zone that never
+        // took it.
+        if (zoneDrop !== null) {
+          const live = zoneDrop.live;
+          if (live !== null && live.kind === "tab-bar") {
+            // The one zone whose commit was already written: the merge keeps
+            // its own insert index and its own verb ([P10]).
+            const barEl = tabBarElementOf(live.paneId);
+            if (onCardMerged && activeCardId && barEl !== null) {
+              frame.style.transform = "";
+              frame.removeAttribute("data-gesture");
+              onCardMerged(id, live.paneId, computeMergeInsertIndex(barEl, e.clientX));
+              dragTabBarCache.current = [];
+              dragOtherRects.current = [];
+              latestAltKey.current = false;
+              latestMetaKey.current = false;
+              lastSnapResult.current = null;
+              return;
+            }
+          }
+          const committed =
+            live !== null && dropZonesRef.current?.commit(live, id) === true;
+          if (committed && live !== null) {
+            const start = dragStartPointer.current;
+            const pointer = latestDragPointer.current;
+            const canvas = dragCanvasBounds.current;
+            const carried = frame.getBoundingClientRect();
+            // Where the frame would be standing without the drag's transform —
+            // its resting tile, which is what the zone's tile has to be
+            // measured against.
+            const resting = {
+              x:
+                (carried.left - (canvas?.left ?? 0)) / dragZoom -
+                (pointer.x - start.x) / dragZoom,
+              y:
+                (carried.top - (canvas?.top ?? 0)) / dragZoom -
+                (pointer.y - start.y) / dragZoom,
+            };
+            const dx = live.rect.x - resting.x;
+            const dy = live.rect.y - resting.y;
+            frame.style.transform =
+              dx === 0 && dy === 0 ? "" : `translate(${dx}px, ${dy}px)`;
+            pendingZoneDropRef.current = frame;
+          } else {
+            frame.style.transform = "";
+            frame.removeAttribute("data-gesture");
+            flashCardPane(store, activeCardIdRef.current ?? id);
+          }
+          dragTabBarCache.current = [];
+          dragOtherRects.current = [];
+          latestAltKey.current = false;
+          latestMetaKey.current = false;
+          lastSnapResult.current = null;
+          return;
+        }
+
+        // ⌘ frees the card ([P13]). The transform that carried it becomes its
+        // free geometry here, in this order — `releaseImposedFrame` measures a
+        // transform-inclusive rect and does not clear the transform, so banking
+        // the offset into `left`/`top` and leaving the translate on top of it
+        // would double the frame's travel, exactly as it would at the rail
+        // corridor's exit.
+        if (freedFromZone) {
+          const released = releaseImposedFrame(frame, dragCanvasBounds.current);
+          frame.style.transform = "";
+          dragStartPosition.current = { x: released.x, y: released.y };
+        }
+
         // Hit-test tab bars for merge on drop. [D45]
         if (onCardMerged && activeCardId) {
           const cx = e.clientX;
@@ -2939,6 +3279,19 @@ export function TugPane({
 
       frame.addEventListener("pointermove", onPointerMove);
       frame.addEventListener("pointerup", onPointerUp);
+      // The two endings the pane drag never had (Spec S03).
+      //
+      // On WINDOW, in capture, and that is not interchangeable with `document`.
+      // The responder chain's own key listener is a window-capture listener
+      // (`responder-chain-provider.tsx`), and capture descends outward-in — so
+      // a document-capture listener runs AFTER it and never sees a key the
+      // chain stopped. `lens/block-reorder.ts` registers its drag's Escape the
+      // same way, for the same reason; `card-drag-coordinator.ts` uses
+      // `document` and gets away with it only because nothing swallows the keys
+      // it cares about first.
+      frame.addEventListener("pointercancel", onPointerCancel);
+      window.addEventListener("keydown", onGestureKeyDown, true);
+      window.addEventListener("keyup", onGestureKeyUp, true);
     },
     // position.x/y captured into dragStartPosition at drag-start; id, onCardMoved,
     // onCardMerged, activeCardId, and store are stable or handled via closure capture.

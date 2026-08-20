@@ -470,8 +470,8 @@ App-tests must drive real code paths on real content; every new cell carries an 
 | #step-11 | I — offsets, clamp, reveal | done | `77971e85f` |
 | #step-12 | I — UI, miniature, doctrine | done | `2db61188e` |
 | #step-13 | I — integration checkpoint | done | `2db61188e` |
-| #step-14 | H — zone model and enumeration | in progress | — |
-| #step-15 | H — the gesture: free drag, snap, release | pending | — |
+| #step-14 | H — zone model and enumeration | done | `6762e1254` |
+| #step-15 | H — the gesture: free drag, snap, release | in progress | — |
 | #step-16 | H — rails unify, corridor retires | pending | — |
 | #step-17 | H — autoscroll and doctrine | pending | — |
 | #step-18 | H — integration checkpoint | pending | — |

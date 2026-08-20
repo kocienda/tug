@@ -402,6 +402,34 @@ describe("the indication moves once the pointer has committed to it", () => {
     expect(live!.rect.y).toBe(-40);
   });
 
+  it("a pointer inside a zone asks for that zone, however tall it is", () => {
+    // The case center distance alone gets wrong, and the deck is full of it: a
+    // slot's run is most of the window, so its center is far from its own top
+    // edge. A pointer resting on the title bar of the card standing in slot 1
+    // measures NEARER to the middle of slot 0's upper member than to the middle
+    // of the slot it is physically inside — and a release there would land the
+    // card in a column the user never pointed at.
+    const tall: DropZone = {
+      kind: "slot",
+      slot: 1,
+      rect: { x: 460, y: 5, width: 380, height: 1220 },
+    };
+    const neighbour: DropZone = {
+      kind: "column-index",
+      slot: 0,
+      index: 0,
+      rect: { x: 5, y: 5, width: 380, height: 607 },
+    };
+    const onTheTitleBar = { x: 650, y: 20 };
+    expect(
+      dropZoneKey(pickLiveZone([neighbour, tall], onTheTitleBar, null)!),
+    ).toBe("slot:1");
+    expect(
+      dropZoneKey(pickLiveZone([neighbour, tall], onTheTitleBar, neighbour)!),
+      "and it wins against an incumbent too — being inside is not a tie to break",
+    ).toBe("slot:1");
+  });
+
   it("a tab bar beats the tile it sits inside", () => {
     const tile: DropZone = {
       kind: "slot",

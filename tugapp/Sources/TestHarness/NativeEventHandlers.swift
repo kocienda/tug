@@ -228,6 +228,20 @@ final class NativeEventHandlers {
     /// application level — those are rebuilt as `NSEvent`s and dispatched
     /// straight into the window, below the activation-gated routing.
     private func post(_ event: CGEvent) {
+        if mouseNSEventType(event.type) != nil {
+            // Stamp the held set onto mouse events, for the same reason
+            // `postKeyEvent` stamps it onto key events: a `CGEvent(mouseEvent
+            // Source:)` derives its flags from the source's own modifier
+            // bookkeeping, which does not see a modifier pressed by
+            // `pressHeldModifiers`. Left alone, a ⌘-drag reaches WebKit with
+            // `metaKey` false — so a gesture whose whole meaning is the
+            // modifier (⌘ frees an imposed card from its slot) would be
+            // untestable, and worse, would LOOK tested.
+            //
+            // Empty unless a test is holding something, so this is a no-op for
+            // every ordinary click and drag.
+            event.flags = heldFlags
+        }
         if postToOwnPid {
             if let nsType = mouseNSEventType(event.type) {
                 sendMouseEventToWindow(event, as: nsType)

@@ -3078,7 +3078,112 @@ export class DeckManager implements IDeckManagerStore {
     const joinsChain = [...targets.keys()].some((id) => !chainBefore.has(id));
     this._commitImposition(this.deckState.imposition, panes, {
       retuneRails: joinsChain,
+      // The batch leaves its last card first responder, and that is the card
+      // the user is looking for; a slot whose column overflows must scroll it
+      // into the run or the assignment lands somewhere nobody can see.
+      revealPaneId: [...targets.keys()][targets.size - 1],
     });
+    return { ok: true };
+  }
+
+  /**
+   * The imposition the arriving pane's column should hold, with the pane at the
+   * index the caller asked for.
+   *
+   * Folded into the assignment's own commit rather than written after it,
+   * because a card crossing into a split column changes two things about the
+   * arrangement — which slot it stands in and where in that slot's order it
+   * stands — and the settle can only animate them as one motion if they arrive
+   * as one commit. Two commits would measure the deck once with the card
+   * arrived but unplaced, which is a frame nobody asked to see.
+   *
+   * Returns the imposition unchanged when no index was asked for, when the move
+   * is not a single pane's, or when the destination is not a split column — the
+   * order of a stack is z-order, and nothing here may write it.
+   */
+  private _impositionWithArrival(
+    panes: readonly TugPaneState[],
+    paneId: string,
+    slot: number,
+    index: number | undefined,
+  ): DeckImposition {
+    const imposition = this.deckState.imposition;
+    if (index === undefined) return imposition;
+    const column = deckColumnsOf({ ...this.deckState, panes }).find(
+      (c) => c.slot === slot,
+    );
+    if (column === undefined || column.mode !== "split") return imposition;
+    const others = column.members.filter((id) => id !== paneId);
+    const order = [...others];
+    order.splice(Math.max(0, Math.min(index, others.length)), 0, paneId);
+    return withColumnOrder(imposition, slot, order);
+  }
+
+  /**
+   * Move a whole pane to `slot`, optionally landing it at `index` in that
+   * slot's split column — the drop-zone drag's commit for a card crossing
+   * places ([P10]).
+   *
+   * Pane-addressed, where {@link assignCardsToSlots} is card-addressed, because
+   * the two gestures have different subjects. The Layouts click names a card
+   * and means that card, so a card pulled from a tab stack detaches into a pane
+   * of its own. A title-bar drag names the pane — the box the hand is holding,
+   * tabs and all — and detaching its front tab mid-flight would leave the rest
+   * of the stack behind at the place the user just dragged away from.
+   *
+   * One call and one commit, which is the point of taking the index here rather
+   * than in a `setColumnOrder` afterwards: the slot write and the order write
+   * are the same arrangement change, and the settle animates an arrangement
+   * change once. Two commits would show the deck a frame with the pane arrived
+   * but unplaced.
+   *
+   * Refuses on the same grounds a slot assignment refuses — no imposition, no
+   * such pane, a slot outside the arrangement, a pane pinned to a rail — and
+   * the drop must read the answer rather than assume it ([P09]).
+   */
+  movePaneToSlot(paneId: string, slot: number, index?: number): SlotAssignment {
+    const kind = this.deckState.imposition.kind;
+    if (kind === undefined) {
+      console.warn("movePaneToSlot: no active imposition; cannot place a pane");
+      return { ok: false };
+    }
+    const pane = this.deckState.panes.find((p) => p.id === paneId);
+    if (pane === undefined) {
+      console.warn(`movePaneToSlot: no pane "${paneId}"`);
+      return { ok: false };
+    }
+    const hostsSidebar = this.deckState.cards.some(
+      (c) => pane.cardIds.includes(c.id) && isSidebarCard(c.componentId),
+    );
+    if (hostsSidebar) {
+      console.warn(`movePaneToSlot: pane "${paneId}" is a sidebar pane`);
+      return { ok: false };
+    }
+    if (!Number.isFinite(slot) || slot < 0 || slot > slotCount(kind) - 1) {
+      return { ok: false, blockedCardId: pane.activeCardId };
+    }
+
+    const joinsChain = pane.slot === undefined;
+    // The raise goes ahead of the geometry for the reason it does in
+    // `assignCardsToSlots`: a pane crossing to its new place must travel over
+    // the panes it is about to sit in front of, not under them.
+    transferFocusForActivation({
+      outgoingCardId: this.getFirstResponderCardId(),
+      incomingCardId: pane.activeCardId,
+      store: this,
+      commitMutation: () => this.activateCard(pane.activeCardId),
+    });
+    this._clearBullseyeFor(paneId);
+
+    const placed = clampSlot(kind, slot);
+    const panes = this.deckState.panes.map((p) =>
+      p.id === paneId ? ({ ...p, slot: placed } as TugPaneState) : p,
+    );
+    this._commitImposition(
+      this._impositionWithArrival(panes, paneId, placed, index),
+      panes,
+      { retuneRails: joinsChain, revealPaneId: paneId },
+    );
     return { ok: true };
   }
 

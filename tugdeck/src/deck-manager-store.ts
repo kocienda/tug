@@ -21,6 +21,7 @@ import type { CardLifecycleObserver } from "./lib/card-lifecycle";
 import type { ComponentStatePreservationRegistry } from "./components/tugways/component-state-preservation-registry";
 import type { CardAssembler } from "./card-state-orchestrator";
 import type { SaveCallbackSource } from "./deck-trace";
+import type { SlotAssignment } from "./deck-manager";
 
 /**
  * Options on a pane-geometry commit. `evictSlot` releases an imposed pane back
@@ -262,7 +263,34 @@ export interface IDeckManagerStore {
 
   /** Put a slot's members in a stated vertical order — the move-in-column
    *  chords' commit, filtered to the panes actually standing in that slot. */
-  setColumnOrder: (slot: number, order: readonly string[]) => void;
+  setColumnOrder: (
+    slot: number,
+    order: readonly string[],
+    movedPaneId?: string,
+  ) => void;
+
+  /**
+   * Move a whole pane to a slot, optionally at a stated index in that slot's
+   * split column — the drop-zone drag's commit for a card crossing places
+   * ([P10]).
+   *
+   * Pane-addressed where {@link assignCardToSlot} is card-addressed: a
+   * title-bar drag holds the box, tabs and all. One call because it is one
+   * arrangement change, so the settle animates the crossing once. Refuses on
+   * the same grounds any slot assignment refuses.
+   */
+  movePaneToSlot: (
+    paneId: string,
+    slot: number,
+    index?: number,
+  ) => SlotAssignment;
+
+  /**
+   * Put a card's pane in a slot of the imposed chain — the Layouts click's
+   * commit, and the drop-zone drag's for a plain slot ([P10]). Refuses as a
+   * group, which the caller must read rather than discard.
+   */
+  assignCardToSlot: (cardId: string, slot: number) => SlotAssignment;
 
   /**
    * Move a pane within its own column — the move-in-column chords' commit.

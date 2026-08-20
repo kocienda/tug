@@ -94,6 +94,12 @@ import {
 import { shrinkLensState } from "@/components/lens/lens-escape";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
 import { flashCardPane } from "@/lib/flash-pane-border";
+import {
+  enumerateDropZones,
+  type DropZoneHost,
+} from "@/lib/drop-zones";
+import { indicateDropZone } from "@/lib/drop-zone-indicator";
+import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import {
   isSidebarPinned,
@@ -2771,6 +2777,138 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     [store],
   );
 
+  /**
+   * The canvas's half of the drop-zone drag ([P09], Spec S03).
+   *
+   * It lives here rather than in the pane because every verb needs the whole
+   * deck: which slots the arrangement has, which panes stand in them, which
+   * rails are up, and where they all are on this canvas. A pane knows only
+   * where the pointer is.
+   *
+   * The measuring is deliberately DOM-first. The arrangement's geometry is
+   * resolved in CSS — slot pins are calc expressions over the live band, member
+   * pins clamp an offset in `min()` — so the browser is the authority on where
+   * a frame actually is, and re-deriving it in JS would be a second opinion
+   * that drifts the moment a rail moves ([L09]).
+   */
+  const dropZoneHost: DropZoneHost = useMemo(
+    () => ({
+      enumerate(draggedPaneId, tabBars) {
+        const canvas = containerRef.current;
+        if (canvas === null) return { zones: [], origin: null };
+        const zoom = getTugZoom() || 1;
+        const canvasRect = canvas.getBoundingClientRect();
+        const toCanvas = (rect: DOMRect): Rect => ({
+          x: (rect.left - canvasRect.left) / zoom,
+          y: (rect.top - canvasRect.top) / zoom,
+          width: rect.width / zoom,
+          height: rect.height / zoom,
+        });
+        const state = store.getSnapshot();
+        const panes = new Map<string, Rect>();
+        for (const el of canvas.querySelectorAll<HTMLElement>(
+          ".tug-pane[data-pane-id]",
+        )) {
+          const paneId = el.getAttribute("data-pane-id");
+          if (paneId === null) continue;
+          panes.set(paneId, toCanvas(el.getBoundingClientRect()));
+        }
+        // A slot's rect is the union of what stands in it — one pane's frame
+        // for a lone card or a stack, the whole divided run for a split column.
+        // Read off the members rather than re-solved, for the reason above.
+        const slots = new Map<number, Rect>();
+        const kind = state.imposition.kind;
+        if (kind !== undefined) {
+          for (const pane of state.panes) {
+            if (pane.slot === undefined) continue;
+            const rect = panes.get(pane.id);
+            if (rect === undefined) continue;
+            const slot = clampSlot(kind, pane.slot);
+            const standing = slots.get(slot);
+            if (standing === undefined) {
+              slots.set(slot, rect);
+              continue;
+            }
+            const top = Math.min(standing.y, rect.y);
+            const bottom = Math.max(
+              standing.y + standing.height,
+              rect.y + rect.height,
+            );
+            slots.set(slot, {
+              x: Math.min(standing.x, rect.x),
+              y: top,
+              width: Math.max(standing.width, rect.width),
+              height: bottom - top,
+            });
+          }
+        }
+        return enumerateDropZones(state, draggedPaneId, {
+          slots,
+          panes,
+          tabBars,
+          rails: sidebarRailsOf(state).map((rail) => ({
+            side: rail.side,
+            members: rail.members.map((member) => member.paneId),
+          })),
+        });
+      },
+
+      indicate(zone) {
+        // A tab bar indicates through the attribute it has always indicated
+        // through, which the gesture stamps itself — showing the outline there
+        // too would be two answers to one question ([P10]).
+        indicateDropZone(
+          containerRef.current,
+          zone === null || zone.kind === "tab-bar" ? null : zone.rect,
+        );
+      },
+
+      commit(zone, draggedPaneId) {
+        const state = store.getSnapshot();
+        const pane = state.panes.find((p) => p.id === draggedPaneId);
+        if (pane === undefined) return false;
+        switch (zone.kind) {
+          case "slot": {
+            // The origin. A release that landed where it started is a gesture
+            // that succeeded at doing nothing, not a refusal.
+            if (
+              pane.slot !== undefined &&
+              state.imposition.kind !== undefined &&
+              clampSlot(state.imposition.kind, pane.slot) === zone.slot
+            ) {
+              return true;
+            }
+            return store.movePaneToSlot(draggedPaneId, zone.slot).ok;
+          }
+          case "column-index": {
+            const column = deckColumnsOf(state).find(
+              (c) => c.slot === zone.slot,
+            );
+            if (column === undefined) return false;
+            if (!column.members.includes(draggedPaneId)) {
+              return store.movePaneToSlot(
+                draggedPaneId,
+                zone.slot,
+                zone.index,
+              ).ok;
+            }
+            const order = column.members.filter((id) => id !== draggedPaneId);
+            order.splice(zone.index, 0, draggedPaneId);
+            store.setColumnOrder(zone.slot, order, draggedPaneId);
+            return true;
+          }
+          // The tab-bar merge and the rail reorder are the gesture's own to
+          // commit — the first through `onCardMerged` with the insert index it
+          // hit-tests, the second through the rail order it has been shuffling.
+          case "tab-bar":
+          case "rail-index":
+            return true;
+        }
+      },
+    }),
+    [store],
+  );
+
   // Merge `deckRootRef` (pane-focus-controller's query scope) and
   // `responderRef` (responder-chain wiring) onto the same element.
   // `useCallback` with `[responderRef]` keeps the callback identity
@@ -2915,6 +3053,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             isLensPane={stackState.id === lensPaneId}
             onCardMoved={store.handlePaneMoved}
             onClose={handleClose}
+            dropZones={dropZoneHost}
             onCardMerged={(sourceStackId, targetStackId, insertIndex) => {
               // Resolve the active card id from the source stack at commit time.
               const snapshot = store.getSnapshot();

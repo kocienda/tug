@@ -110,6 +110,10 @@ const ALLOWED_CUTS: Record<string, { max: number; why: string }> = {
     max: 0,
     why: "the column offset is a signature term, so a reveal arms the settle that carries the slide",
   },
+  "drop-zone-commit": {
+    max: 0,
+    why: "a drop is an arrangement change; the dragged frame keeps data-gesture and every other frame the commit moves is carried",
+  },
 };
 
 interface CutRecord {
@@ -544,6 +548,51 @@ describe.skipIf(!SHOULD_RUN)(
             ),
             "the overflow cell actually slid slot 1's strip",
           ).toBeGreaterThan(0);
+
+          // ---- The drop-zone drag's commit ------------------------------
+          //
+          // The one gesture in this file driven by a real pointer rather than
+          // a dispatch, because the thing being censused is the handoff at its
+          // end: the dragged frame is parked at the zone and keeps
+          // `data-gesture` (so the detector rightly exempts it), and every
+          // OTHER frame the commit moves — the column it left closing up, the
+          // slot it joined making room — must be carried by the settle like
+          // any other arrangement change.
+          const moverPane = await app.evalJS<string | null>(
+            `(function () {
+              var state = window.tugdeck.diag.getDeckState();
+              var pane = state.panes.find(function (p) {
+                return p.activeCardId === ${JSON.stringify(members[members.length - 1])};
+              });
+              return pane === undefined ? null : pane.id;
+            })()`,
+          );
+          const targetPane = await app.evalJS<string | null>(
+            `(function () {
+              var el = document.querySelector('.tug-pane[data-imposed="0"]');
+              return el === null ? null : el.getAttribute("data-pane-id");
+            })()`,
+          );
+          expect(moverPane).not.toBeNull();
+          expect(targetPane).not.toBeNull();
+          found["flow:drop-zone-commit"] = await census(app, async () => {
+            await app.nativeDragElement(
+              `.tug-pane[data-pane-id="${moverPane}"] .tug-pane-title-bar`,
+              { selector: `.tug-pane[data-pane-id="${targetPane}"]` },
+            );
+          });
+          expect(
+            await app.evalJS<number | null>(
+              `(function () {
+                var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
+                  return p.id === ${JSON.stringify(moverPane)};
+                });
+                if (pane === undefined) return null;
+                return pane.slot === undefined ? null : pane.slot;
+              })()`,
+            ),
+            "the drop-zone cell actually moved the card it dragged",
+          ).toBe(0);
 
           await disarmDetector(app);
 

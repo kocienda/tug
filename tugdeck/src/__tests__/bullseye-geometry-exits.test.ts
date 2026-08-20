@@ -91,6 +91,15 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
     expect(body).not.toContain("_clearBullseyeFor");
   });
 
+  test("movePaneToSlot clears — it writes slot on its own path too", () => {
+    // The drop-zone drag's commit ([P10]). Pane-addressed rather than
+    // card-addressed, so it does not reach `assignCardsToSlots`' clear and needs
+    // its own: a pane dragged out of bullseye into a slot is being re-placed,
+    // and a posture that survived the placing would be a resting lie.
+    const body = stripComments(bodyOf("  movePaneToSlot("));
+    expect(body).toContain("this._clearBullseyeFor(");
+  });
+
   test("setCardWidths clears — it bypasses movePane, as setContentWidth does", () => {
     const body = stripComments(bodyOf("  setCardWidths("));
     expect(body).toContain("this._clearBullseyeFor(");
@@ -102,11 +111,11 @@ describe("_clearBullseyeFor is called from every geometry-writing path", () => {
     expect(body).toContain("this.movePane(");
   });
 
-  test("there are exactly four honoring call sites", () => {
-    // Pinned so a fifth site cannot arrive without this file being updated
+  test("there are exactly five honoring call sites", () => {
+    // Pinned so a sixth site cannot arrive without this file being updated
     // to say which path it is and why it needs its own clear.
     const calls = stripComments(SRC).match(/this\._clearBullseyeFor\(/g) ?? [];
-    expect(calls.length).toBe(4);
+    expect(calls.length).toBe(5);
   });
 });
 

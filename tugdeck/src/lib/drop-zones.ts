@@ -121,6 +121,29 @@ export interface DropZoneSet {
 }
 
 /**
+ * What a dragging pane asks the canvas for, and what it hands back.
+ *
+ * The gesture lives in `tug-pane.tsx` and the arrangement lives in the deck, so
+ * neither can answer the whole question alone: a pane knows where the pointer
+ * is and nothing about the slots, and the canvas knows the arrangement and
+ * nothing about the gesture. This is the seam — three verbs, all owned by the
+ * canvas, all called from the pane.
+ */
+export interface DropZoneHost {
+  /** Measure the canvas and enumerate, given the tab bars the gesture already
+   *  snapshotted at its start. */
+  enumerate(
+    draggedPaneId: string,
+    tabBars: ReadonlyMap<string, Rect>,
+  ): DropZoneSet;
+  /** Show the live zone, or take the indication away. Imperative DOM [L06]. */
+  indicate(zone: DropZone | null): void;
+  /** Commit the zone's mutation in one deck-manager call. False is a refusal
+   *  the drop must make visible ([P09]) — never a quiet no-op. */
+  commit(zone: DropZone, draggedPaneId: string): boolean;
+}
+
+/**
  * A zone's identity, for comparing an incumbent against a freshly enumerated
  * list. Two zones with the same key are the same place, whatever their rects
  * say — rects move under autoscroll, places do not.
@@ -362,14 +385,52 @@ function centerDistance(rect: Rect, pointer: { x: number; y: number }): number {
   return Math.hypot(dx, dy);
 }
 
+/** How far outside `rect` the pointer is; zero anywhere inside it. */
+function edgeDistance(rect: Rect, pointer: { x: number; y: number }): number {
+  const dx = Math.max(rect.x - pointer.x, 0, pointer.x - (rect.x + rect.width));
+  const dy = Math.max(rect.y - pointer.y, 0, pointer.y - (rect.y + rect.height));
+  return Math.hypot(dx, dy);
+}
+
+/**
+ * How near the pointer is to a zone, as the pair the comparison actually needs.
+ *
+ * **Containment first.** A pointer standing inside a zone is asking for that
+ * zone, whatever the arithmetic says about anywhere else — and center distance
+ * alone gets this wrong in exactly the case the deck is full of: a tall slot's
+ * center is far from its own top edge, so a pointer resting on a card's title
+ * bar can measure nearer to the *middle* of a neighbouring column than to the
+ * slot it is physically inside. That is not a tuning error, it is the wrong
+ * question.
+ *
+ * **Center distance breaks ties.** Inside-ness is a yes or no, so it cannot
+ * separate two zones the pointer is inside at once — and one nesting is
+ * guaranteed: a tab bar always lies within the tile of the pane it belongs to.
+ * There the centers separate them the way the eye does, the thin bar's being
+ * close and the tall tile's far.
+ */
+function zoneScore(
+  rect: Rect,
+  pointer: { x: number; y: number },
+): { edge: number; center: number } {
+  return {
+    edge: edgeDistance(rect, pointer),
+    center: centerDistance(rect, pointer),
+  };
+}
+
+/** Whether `a` is nearer than `b`, by at least `margin` on the decisive term. */
+function nearer(
+  a: { edge: number; center: number },
+  b: { edge: number; center: number },
+  margin: number,
+): boolean {
+  if (a.edge !== b.edge) return a.edge + margin < b.edge;
+  return a.center + margin < b.center;
+}
+
 /**
  * Which zone the pointer is asking for, given the one already indicated.
- *
- * Nearness is measured to each tile's **center** rather than to its nearest
- * edge. Edge distance is zero everywhere inside a tile, so it cannot separate
- * two overlapping zones — and a tab bar always lies inside the tile of the pane
- * it belongs to. Center distance separates them the way the eye does: on the
- * tab bar, the thin rect's center is close and the tile's center is far.
  *
  * The incumbent holds its place until a challenger beats it by
  * {@link ZONE_HYSTERESIS_PX}, so the indication crosses a boundary once rather
@@ -383,10 +444,10 @@ export function pickLiveZone(
 ): DropZone | null {
   if (zones.length === 0) return null;
   let best = zones[0];
-  let bestScore = centerDistance(best.rect, pointer);
+  let bestScore = zoneScore(best.rect, pointer);
   for (const zone of zones.slice(1)) {
-    const score = centerDistance(zone.rect, pointer);
-    if (score < bestScore) {
+    const score = zoneScore(zone.rect, pointer);
+    if (nearer(score, bestScore, 0)) {
       best = zone;
       bestScore = score;
     }
@@ -396,7 +457,11 @@ export function pickLiveZone(
   const standing = zones.find((zone) => dropZoneKey(zone) === key);
   if (standing === undefined) return best;
   if (dropZoneKey(best) === key) return standing;
-  return bestScore + ZONE_HYSTERESIS_PX < centerDistance(standing.rect, pointer)
+  return nearer(
+    bestScore,
+    zoneScore(standing.rect, pointer),
+    ZONE_HYSTERESIS_PX,
+  )
     ? best
     : standing;
 }
