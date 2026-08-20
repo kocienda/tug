@@ -22,7 +22,12 @@
   gap: 3px;
   min-width: 0;
   flex: 1 1 auto;
-  padding-block: var(--tug-space-2xs);
+  /* The air between one dash and the next. A dash is a two-line block, and
+     at 2px of padding the blocks touched: the second line of one dash sat as
+     close to the eyebrow of the next as to its own. The separation is what
+     makes a block read as a unit, so it is a full step rather than a hairline
+     — 8px each side, the 16px the design settled on. */
+  padding-block: var(--tug-space-md);
 }
 
 /* The eyebrow: the dash atom at the left, hairline through the rest, the
@@ -51,11 +56,30 @@
   max-width: 180px;
 }
 
-/* The metadata line, indented one step under the atom. */
+/* The metadata line, on the atom's own left margin.
+
+   Not a space token: the indent that makes this read as a second column is
+   the one the atom above it holds its NAME in from the pill's edge, so it is
+   that inset it takes. A near-miss here is worse than no indent at all — the
+   eye reads two lines that almost line up as a mistake. */
 .lens-dashes-meta-line {
   display: flex;
   min-width: 0;
-  padding-inline-start: var(--tug-space-sm);
+  padding-inline-start: var(--tugx-session-atom-text-inset-2xs);
+}
+
+/* What the dash's JOIN is doing, on the metadata line's margin: line 1 is
+   who, line 2 is what the dash is doing, line 3 is what its join is doing.
+   Empty until there is a join arc — the register returns null before then, so
+   this box collapses rather than reserving a blank row. */
+.lens-dashes-register {
+  display: flex;
+  min-width: 0;
+  padding-inline-start: var(--tugx-session-atom-text-inset-2xs);
+}
+
+.lens-dashes-register:empty {
+  display: none;
 }
 
 /* The row's verbs, on the eyebrow's right. Always visible rather than

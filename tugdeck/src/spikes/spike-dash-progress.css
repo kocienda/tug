@@ -1,0 +1,403 @@
+/**
+ * spike-dash-progress.css — the state-colored step ring, the stage marks, and
+ * the mock frames around them.
+ *
+ * Everything here is spike vocabulary (`spdp-`). The ring and eyebrow rules
+ * are the candidate design: if they graduate, their blocks move out with
+ * them. Tokens only ([L15]) — the point of looking at a gauge is judging it
+ * across themes. The one literal color is the action role's fixed cobalt,
+ * quoted from the pulsing dot's own rule so the ring and the dot it wraps
+ * cannot disagree about what "working" looks like.
+ */
+
+/* ── Prose and specimen scaffolding ─────────────────────────────────────── */
+
+.spdp-prose {
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  max-width: 62ch;
+}
+
+.spdp-prose code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.92em;
+}
+
+.spdp-specimen-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--tug-space-md);
+}
+
+.spdp-specimen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+  padding: var(--tug-space-sm);
+  border: 1px solid var(--tug7-element-global-divider-normal-muted-rest);
+  border-radius: var(--tug-radius-sm);
+}
+
+.spdp-specimen-subject {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+}
+
+.spdp-specimen-caption,
+.spdp-mock-caption {
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.spdp-inline-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+.spdp-inline-pair[data-gapped="true"] {
+  gap: var(--tug-space-sm);
+}
+
+/* ── The ring ───────────────────────────────────────────────────────────── */
+
+.spdp-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  /* The default tone; each role below overrides it. */
+  --spdp-ring-tone: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+/* The action role's fill is the pulsing dot's own fixed cobalt — quoted from
+   `tug-progress-pulsing-dot.css` so "working" is one color on both marks. */
+.spdp-ring[data-role="action"] {
+  --spdp-ring-tone: --tug-color(cobalt, l: 635, c: 320);
+}
+
+.spdp-ring[data-role="caution"] {
+  --spdp-ring-tone: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+.spdp-ring[data-role="danger"] {
+  --spdp-ring-tone: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.spdp-ring[data-role="success"] {
+  --spdp-ring-tone: var(--tug7-element-tone-icon-normal-success-rest);
+}
+
+.spdp-ring-svg {
+  position: absolute;
+  inset: 0;
+}
+
+/* The unfilled steps, toned well back: the count is read off the CONTRAST
+   between filled and unfilled, so the todo segments are a whisper — present
+   enough to make the wheel a wheel, never competing with the fill. */
+.spdp-ring-seg {
+  stroke: var(--tug7-element-global-border-normal-muted-rest);
+  opacity: 0.35;
+}
+
+.spdp-ring-seg[data-state="done"] {
+  stroke: var(--spdp-ring-tone);
+  opacity: 1;
+}
+
+.spdp-ring-seg[data-state="current"] {
+  stroke: var(--spdp-ring-tone);
+  opacity: 1;
+  animation: spdp-seg-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes spdp-seg-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.spdp-ring-dot {
+  display: inline-flex;
+}
+
+/* ── The fraction ───────────────────────────────────────────────────────── */
+
+.spdp-fraction {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  flex: 0 0 auto;
+}
+
+.spdp-fraction-i {
+  color: var(--tug7-element-global-text-normal-rest);
+}
+
+.spdp-fraction-slash,
+.spdp-fraction-n {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* ── The stage mark ─────────────────────────────────────────────────────── */
+
+.spdp-stage-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+/* ── The title cluster ──────────────────────────────────────────────────── */
+
+.spdp-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}
+
+/* `<name>^<dash>` is one flush run: NO space between a custom name and the
+   dash sigil — the identity grammar's rule, same as the shipping atom's run. */
+.spdp-name-dash {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  min-width: 0;
+}
+
+.spdp-title-run {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+/* The custom name alone, in the identity's own register — nothing renders
+   after it, which is what `TugSessionIdentity` cannot say. */
+.spdp-compact-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* ── The masthead mock ──────────────────────────────────────────────────── */
+
+.spdp-chrome {
+  height: 72px;
+  box-sizing: border-box;
+  padding: var(--tug-space-2xs) var(--tug-space-md);
+  border: 1px solid var(--tug7-element-global-divider-normal-default-rest);
+  border-radius: var(--tug-radius-sm);
+  overflow: hidden;
+  max-width: 560px;
+}
+
+.spdp-chrome-row {
+  padding: 0;
+}
+
+/* ── The Lens rail mocks ────────────────────────────────────────────────── */
+
+.spdp-rail {
+  width: 330px;
+  border: 1px solid var(--tug7-element-global-divider-normal-default-rest);
+  border-radius: var(--tug-radius-sm);
+  padding: var(--tug-space-2xs);
+  overflow: hidden;
+}
+
+/* The Dashes section never renders narrower than a slim card, so the mock is
+   sized by the real constant (`CONTENT_WIDTH_SLIM_PX`, set inline by the
+   component) rather than by a rail-width guess. */
+.spdp-rail[data-wide="true"] {
+  width: auto;
+}
+
+.spdp-pair {
+  display: flex;
+  gap: var(--tug-space-md);
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.spdp-pair-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-2xs);
+}
+
+.spdp-activity-run {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── The Dashes section mock ────────────────────────────────────────────── */
+
+.spdp-band {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  padding: var(--tug-space-2xs) var(--tug-space-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spdp-band-title {
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.spdp-band-count {
+  font-size: var(--tug-font-size-2xs);
+  font-family: var(--tug-font-family-mono);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.spdp-dashes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xl);
+  padding: var(--tug-space-2xs) var(--tug-space-2xs) var(--tug-space-sm);
+}
+
+/* One dash, one block: the eyebrow separates it from its neighbours. */
+.spdp-dash-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* The eyebrow: name at the left, hairline through the rest, the "who" at the
+   right — the Changes shade's header grammar, quiet and hueless. */
+.spdp-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+/* Visible on purpose: the hairline is what separates dash from dash, so it
+   takes the default border tone rather than a muted divider, and it never
+   collapses below a readable run. */
+.spdp-eyebrow-rule {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 1px;
+  background: var(--tug7-element-global-border-normal-default-rest);
+}
+
+/* The step or draft note, riding the eyebrow line: elides before the
+   hairline does. */
+.spdp-dash-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spdp-dash-note[data-empty="true"] {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  font-style: italic;
+}
+
+.spdp-dashes-verbs {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: var(--tug-space-2xs);
+}
+
+
+/* The worker's mini atom: the chip skin does the rest; this only caps it. */
+.spdp-worker {
+  max-width: 180px;
+}
+
+/* The metadata line beneath the eyebrow — everything the dash is DOING:
+   ring · stage icon · count · note · age · divergence. Indented one step
+   under the atom; the note is the only run that gives way. */
+.spdp-dash-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  padding-left: var(--tug-space-sm);
+}
+
+.spdp-dash-age {
+  flex: 0 0 auto;
+  padding-inline: var(--tug-space-2xs);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.spdp-dashes-fact {
+  font-size: var(--tug-font-size-2xs);
+}
+
+.spdp-dashes-fact[data-tone="danger"] {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.spdp-dashes-fact[data-tone="caution"] {
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+.spdp-dashes-fact[data-tone="muted"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spdp-dashes-fact[data-tone="subtle"] {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.spdp-dashes-empty {
+  padding: var(--tug-space-2xs) var(--tug-space-sm) var(--tug-space-sm);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.spdp-dashes-empty code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.95em;
+}
+
+/* ── The shade-row mock ─────────────────────────────────────────────────── */
+
+.spdp-shade-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 460px;
+  box-sizing: border-box;
+  padding: var(--tug-space-2xs) var(--tug-space-sm);
+  border: 1px solid var(--tug7-element-global-divider-normal-default-rest);
+  border-radius: var(--tug-radius-sm);
+  overflow: hidden;
+}
+
+/* The atom's own line; the metadata beneath reuses `.spdp-dash-meta`. */
+.spdp-shade-l1 {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}

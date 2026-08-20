@@ -120,6 +120,7 @@ import {
   DEFAULT_CONTENT_WIDTH,
   IMPOSITION_GAP_PX,
   IMPOSITION_SETTLE_MS,
+  readSettleMs,
   PANE_ENTER_RISE_PX,
   PANE_EXIT_GHOST_MS,
   RESIZE_RETUNE_QUIET_MS,
@@ -696,24 +697,6 @@ function PlaceSeam({
       }}
     />
   );
-}
-
-/**
- * The settle duration actually in force on `el`, in milliseconds — the resolved
- * `--tugx-imposer-settle-duration`, so a tuning override anywhere up the tree
- * retimes the attribute along with the transition it gates. Falls back to
- * {@link IMPOSITION_SETTLE_MS} for an unresolvable or malformed value.
- */
-function readSettleMs(el: HTMLElement): number {
-  const raw = getComputedStyle(el)
-    .getPropertyValue("--tugx-imposer-settle-duration")
-    .trim();
-  const seconds = raw.endsWith("ms") ? 0.001 : raw.endsWith("s") ? 1 : 0;
-  if (seconds === 0) return IMPOSITION_SETTLE_MS;
-  const value = Number.parseFloat(raw);
-  return Number.isFinite(value) && value >= 0
-    ? value * seconds * 1000
-    : IMPOSITION_SETTLE_MS;
 }
 
 // ---- DeckCanvas ----

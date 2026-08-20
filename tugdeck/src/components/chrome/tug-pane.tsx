@@ -51,6 +51,7 @@ import type { Rect, GuidePosition, SnapResult } from "@/snap";
 import {
   autoscrollDelta,
   autoscrollKey,
+  dropZoneKey,
   pickLiveZone,
   type AutoscrollTarget,
   type DropZone,
@@ -82,6 +83,7 @@ import {
   type SidebarSide,
   IMPOSITION_GAP_PX,
   IMPOSITION_GAP_BOTTOM_PX,
+  readSettleMs,
   type ImposedPlacement,
   CONTENT_WIDTH_PRESETS,
   CONTENT_WIDTH_LABELS,
@@ -2199,6 +2201,10 @@ export function TugPane({
   const zoneDragRef = useRef<{
     zones: readonly DropZone[];
     live: DropZone | null;
+    /** The place the card started on, kept for the whole gesture: a release
+     *  back onto it commits nothing, and a drop that commits nothing is the one
+     *  the landing has to animate itself. */
+    origin: DropZone | null;
   } | null>(null);
   // Whether ⌘ was held at the most recent frame. Read like `latestAltKey` and
   // for the same reason — the modifier's meaning is decided by where the hand
@@ -2206,10 +2212,15 @@ export function TugPane({
   const latestMetaKey = useRef(false);
   const dropZonesRef = useRef(dropZones);
   dropZonesRef.current = dropZones;
-  // A zone drop whose commit has been made but whose parking transform is
-  // still holding the frame at the zone. Consumed by the layout effect below,
-  // on the commit that lands the new arrangement.
-  const pendingZoneDropRef = useRef<HTMLElement | null>(null);
+  // A zone drop whose frame is still wearing the transform the hand left it
+  // on, waiting to be carried into the tile the indicator promised. `from` is
+  // where the frame stood on screen at the release — measured before the
+  // commit, because that is the last moment the old arrangement is real, and it
+  // is the only rect a landing can honestly start from.
+  const pendingZoneDropRef = useRef<{
+    el: HTMLElement;
+    from: DOMRect;
+  } | null>(null);
   // Every strip this gesture has scrolled, and where it left each one. Held per
   // strip rather than as one number because a drag can cross from one
   // overflowing column to another, and each keeps what the hand did to it.
@@ -2225,24 +2236,69 @@ export function TugPane({
   const zoneTabBarsRef = useRef<ReadonlyMap<string, Rect>>(new Map());
 
   /**
-   * Take the drop's parking transform off, on the commit that made it redundant
-   * ([L03] — a layout effect, so it runs after the DOM is updated and before
-   * anything is painted or measured against it).
+   * Carry a dropped frame from where the hand left it into the place the
+   * commit gave it — a FLIP, and the reason a drop is a landing rather than a
+   * jump.
+   *
+   * **Every drop animates, including the one that commits nothing.** A release
+   * on the card's own position is still a release onto a zone ([P09]), and the
+   * card has still travelled under the hand; letting that one snap home while
+   * every other drop glides would say the gesture had been ignored. So the
+   * distance is measured rather than assumed: whatever the commit did or did
+   * not change, the frame crosses from the release rect to the resting one.
+   *
+   * The frame keeps `data-gesture` until the landing finishes, which is what
+   * holds the imposer's own settle off it — the settle carries every OTHER
+   * frame the commit moved, and this one is already being carried.
+   *
+   * Reading `--tugx-imposer-settle-duration` rather than the constant means the
+   * landing is retuned by the same override that retunes the settle: one knob
+   * for how fast cards move, and the drop is not the exception to it.
+   */
+  const landZoneDrop = useCallback(() => {
+    const pending = pendingZoneDropRef.current;
+    if (pending === null) return;
+    pendingZoneDropRef.current = null;
+    const { el, from } = pending;
+    el.style.transform = "";
+    const to = el.getBoundingClientRect();
+    const zoom = getTugZoom() || 1;
+    const dx = (from.left - to.left) / zoom;
+    const dy = (from.top - to.top) / zoom;
+    if (dx === 0 && dy === 0) {
+      el.removeAttribute("data-gesture");
+      return;
+    }
+    const landing = animate(
+      el,
+      {
+        transform: [`translate(${dx}px, ${dy}px)`, "translate(0px, 0px)"],
+      },
+      {
+        // Raw ms: TugAnimator scales by getTugTiming() itself.
+        duration: readSettleMs(el),
+        easing: "ease-out",
+        // No retained effect after the tween ends ([D6]).
+        fill: "none",
+        key: "zone-drop-landing",
+      },
+    );
+    const done = () => el.removeAttribute("data-gesture");
+    landing.finished.then(done, done);
+  }, []);
+
+  /**
+   * Land the drop on the commit that gave the frame its new place ([L03] — a
+   * layout effect, so it runs after the DOM is updated and before anything is
+   * painted or measured against it).
    *
    * A layout effect rather than a frame callback because the thing being waited
    * for is a React commit, and rAF's timing against one is a browser detail
-   * rather than a contract ([L05]).
-   *
-   * Two equal and opposite changes in one frame: the commit just moved this
-   * pane's layout to where the transform was holding it, so taking the
-   * transform off cannot flicker.
+   * rather than a contract ([L05]). A drop that commits nothing renders
+   * nothing, so it never reaches here — `onPointerUp` lands that one itself.
    */
   useLayoutEffect(() => {
-    const parked = pendingZoneDropRef.current;
-    if (parked === null) return;
-    pendingZoneDropRef.current = null;
-    parked.style.transform = "";
-    parked.removeAttribute("data-gesture");
+    landZoneDrop();
   });
 
   /**
@@ -2465,6 +2521,7 @@ export function TugPane({
       function beginZoneDrag(): {
         zones: readonly DropZone[];
         live: DropZone | null;
+        origin: DropZone | null;
       } | null {
         const host = dropZonesRef.current;
         if (host === undefined) return null;
@@ -2481,7 +2538,7 @@ export function TugPane({
         zoneTabBarsRef.current = tabBars;
         const set = host.enumerate(id, tabBars);
         if (set.zones.length === 0) return null;
-        return { zones: set.zones, live: set.origin };
+        return { zones: set.zones, live: set.origin, origin: set.origin };
       }
 
       /**
@@ -2907,15 +2964,15 @@ export function TugPane({
 
         // A zone drop lands where the indicator said it would.
         //
-        // The frame is parked at the live zone's tile before the commit and
-        // keeps `data-gesture`, so the settle skips it: the commit changes this
-        // pane's LAYOUT to the place the transform is already holding it, and
-        // the two cancel out in one frame instead of racing. Every OTHER frame
-        // the commit moves is carried by that same settle, which is what makes
-        // a drop an arrangement change rather than a jump.
+        // The frame keeps its drag transform and `data-gesture` across the
+        // commit, and `landZoneDrop` carries it from there into the place the
+        // commit gave it. The settle skips it for that whole crossing, which is
+        // the division of labour: the settle carries every OTHER frame the
+        // commit moved, and this one is being carried by its own landing. That
+        // is what makes a drop an arrangement change rather than a jump.
         //
         // A refusal is an outcome, not a silence ([P09]). The frame goes home,
-        // the pane flashes, and nothing is left parked at a zone that never
+        // the pane flashes, and nothing is left hanging at a zone that never
         // took it.
         if (zoneDrop !== null) {
           // Re-picked from the RELEASE point rather than read off the last
@@ -2950,29 +3007,32 @@ export function TugPane({
           const committed =
             live !== null && dropZonesRef.current?.commit(live, id) === true;
           if (committed && live !== null) {
-            const start = dragStartPointer.current;
-            const pointer = latestDragPointer.current;
-            const canvas = dragCanvasBounds.current;
-            const carried = frame.getBoundingClientRect();
-            // Where the frame would be standing without the drag's transform —
-            // its resting tile, which is what the zone's tile has to be
-            // measured against.
-            const resting = {
-              x:
-                (carried.left - (canvas?.left ?? 0)) / dragZoom -
-                (pointer.x - start.x) / dragZoom,
-              y:
-                (carried.top - (canvas?.top ?? 0)) / dragZoom -
-                (pointer.y - start.y) / dragZoom,
+            // The release rect, measured while the old arrangement is still the
+            // one on screen: this is where the frame visually is, and the
+            // landing has to start there whatever the commit does next.
+            pendingZoneDropRef.current = {
+              el: frame,
+              from: frame.getBoundingClientRect(),
             };
-            const dx = live.rect.x - resting.x;
-            const dy = live.rect.y - resting.y;
-            frame.style.transform =
-              dx === 0 && dy === 0 ? "" : `translate(${dx}px, ${dy}px)`;
-            pendingZoneDropRef.current = frame;
+            // A drop onto the card's own position commits nothing, so nothing
+            // renders and the layout effect never runs. It is still a drop, and
+            // it still animates ([P09]) — landed here, inline, rather than left
+            // waiting on a commit that is not coming.
+            if (
+              zoneDrop.origin !== null &&
+              dropZoneKey(live) === dropZoneKey(zoneDrop.origin)
+            ) {
+              landZoneDrop();
+            }
           } else {
-            frame.style.transform = "";
-            frame.removeAttribute("data-gesture");
+            // Home is a place too. A refused release animates back by the same
+            // landing a taken one animates in by, so the gesture ends in motion
+            // either way and the flash says which of the two it was.
+            pendingZoneDropRef.current = {
+              el: frame,
+              from: frame.getBoundingClientRect(),
+            };
+            landZoneDrop();
             flashCardPane(store, activeCardIdRef.current ?? id);
           }
           dragTabBarCache.current = [];

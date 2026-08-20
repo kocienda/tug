@@ -371,6 +371,34 @@ body {
   font-size: var(--tug-font-size-sm);
 }
 
+/* The dash line: a fact ABOUT the row, so it is drawn inside it and takes the
+   row's own band. It indents one step past the sub-lines — the row's published
+   sub-line indent plus a nesting step — so it reads as hanging off the pair
+   above it rather than as another sub-line beside them.
+
+   No tape reserve here, unlike the description and the activity: the tape
+   rides the activity line and overhangs UPWARD, so nothing is drawn over this
+   band and reserving width for it would spend room on nothing.
+
+   Nothing keys a `:has()` on this line's presence. It arrives and leaves as a
+   dash binds, and WebKit does not invalidate a `:has()` whose subject changes
+   by a descendant appearing — such a rule would paint on first render and then
+   silently stop matching. Whatever the line's presence must change is
+   expressed here, on the line itself ([L06]). */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-session-row-dashline {
+  display: flex;
+  min-inline-size: 0;
+  overflow: hidden;
+  padding-inline-start: calc(
+    var(--tugx-session-identity-row-indent, 10px) +
+      var(--tugx-session-row-dash-indent, 12px)
+  );
+  line-height: var(--tugx-session-row-description-line);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-xs);
+}
+
 /* A description standing in for itself — the session's own first prompt, or its
    creation stamp — is painted a step quieter, to say it is a fact standing in
    for a line nobody has written yet. */

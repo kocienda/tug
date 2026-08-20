@@ -412,6 +412,18 @@ export interface TugSessionRowProps
    */
   stageProps?: React.ComponentProps<"span">;
 
+  /**
+   * A last line under the activity, indented one step further in than the
+   * sub-lines. The Lens fills it with the dash a session is working on; the
+   * masthead and the picker pass nothing and the row is its three-line self.
+   *
+   * A node rather than a lookup, so the shape stays presentational and the
+   * mount keeps its own reads ([L20]). The mount must resolve "no dash" to
+   * `null` ITSELF — a component that renders null is still an element here,
+   * and would draw an empty line box on every row.
+   */
+  dashLine?: React.ReactNode;
+
   /** Selected state, forwarded to the underlying `TugListRow`. */
   selected?: boolean;
 
@@ -477,6 +489,7 @@ export const TugSessionRow = React.forwardRef<
     activity,
     sparkline,
     stageProps,
+    dashLine,
     selected,
     trailing,
     trailingReveal,
@@ -569,6 +582,14 @@ export const TugSessionRow = React.forwardRef<
           trailing={sparkline}
           stageProps={stageProps}
         />
+        {dashLine === undefined || dashLine === null ? null : (
+          <span
+            className="tug-session-row-dashline"
+            data-slot="tug-session-row-dashline"
+          >
+            {dashLine}
+          </span>
+        )}
       </span>
     </TugListRow>
   );

@@ -8,7 +8,10 @@
 .session-changes-dash-lane {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-2xs);
+  /* The air between one dash and the next — the same step the Lens gives its
+     blocks. A dash is two lines, and at 2px the blocks touched: the second
+     line of one sat as close to the eyebrow of the next as to its own. */
+  gap: var(--tug-space-xl);
 }
 
 /* The lane's group headers are `TugSectionLabel`, the same component the file
@@ -34,14 +37,35 @@
   gap: var(--tug-space-2xs);
 }
 
+/* Where the lines UNDER the atom start.
+
+   The metadata line and the join register are siblings of the row, not
+   children of it, so they begin at the row's BORDER box while the atom above
+   them begins at its content box — and the atom is then optically outdented
+   on top of that. Three offsets, none of which a space token knows about:
+   before this the lines took `--tug-space-sm` and landed nine pixels left of
+   the name they hang under, which is what made the shade's dash read as two
+   lines that missed each other.
+
+   So the indent is the arithmetic itself, in the terms each part is authored
+   in. Change the row's density, the atom's padding, or the name's outdent and
+   this follows; a literal would be right until the first of those moved. */
+body {
+  --tugx-dash-stack-indent: calc(
+    var(--tugx-list-row-padding-inline-compact) +
+      var(--tugx-list-row-indicator-gutter) +
+      var(--tugx-session-atom-text-inset-2xs) - var(--tugx-dash-name-outdent)
+  );
+}
+
 /* The metadata line beneath the atom — `DashMetaLine`, the same element the
    Lens's Dashes section renders, with its own type and tones. What is this
-   lane's to say is only where it sits: indented one step under the atom, so
+   lane's to say is only where it sits: on the atom's own left margin, so
    line 1 reads as who and line 2 as what the dash is doing. */
 .session-changes-dash-meta {
   display: flex;
   min-width: 0;
-  padding-inline-start: var(--tug-space-sm);
+  padding-inline-start: var(--tugx-dash-stack-indent);
 }
 
 /* The join register sits under the metadata line, on the same indent: line 1
@@ -51,7 +75,7 @@
 .session-changes-dash-register {
   display: flex;
   min-width: 0;
-  padding-inline-start: var(--tug-space-sm);
+  padding-inline-start: var(--tugx-dash-stack-indent);
 }
 
 .session-changes-dash-register:empty {

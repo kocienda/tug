@@ -474,14 +474,16 @@ function DashJoinRow({ row }: { row: DashRow }): React.ReactElement | null {
   const entry = row.entry;
   const landBeat = useChangesetJoinLand(row.workspaceKey, entry.display_name);
   return (
-    <DashJoinRegister
-      dash={entry.display_name}
-      base={entry.base ?? "main"}
-      stage={entry.stage}
-      join={entry.join}
-      landBeat={landBeat}
-      altitude="section"
-    />
+    <span className="lens-dashes-register">
+      <DashJoinRegister
+        dash={entry.display_name}
+        base={entry.base ?? "main"}
+        stage={entry.stage}
+        join={entry.join}
+        landBeat={landBeat}
+        altitude="section"
+      />
+    </span>
   );
 }
 
