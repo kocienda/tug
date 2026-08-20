@@ -1,0 +1,424 @@
+/**
+ * The drop-zone engine's pure half, over synthetic geometry.
+ *
+ * Everything here feeds rects in by hand rather than measuring a canvas, which
+ * is the whole point of the module being pure: the vocabulary a card sees, the
+ * tile each zone would land it in, and which zone a pointer is asking for are
+ * all answerable without a pointer, a DOM, or a deck.
+ */
+
+import { describe, expect, it } from "bun:test";
+import type { DeckState } from "../../layout-tree";
+import type { Rect } from "../../snap";
+import {
+  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
+  IMPOSITION_GAP_PX,
+} from "../layout-imposer";
+import {
+  ZONE_HYSTERESIS_PX,
+  dropZoneKey,
+  enumerateDropZones,
+  pickLiveZone,
+  type DropZone,
+  type DropZoneMeasurements,
+} from "../drop-zones";
+
+// ---- Fixtures ----
+
+const RUN_TOP = 10;
+const RUN_HEIGHT = 600;
+const SLOT_X = [0, 400, 800];
+const SLOT_WIDTH = 380;
+
+function pane(id: string, slot?: number) {
+  return {
+    id,
+    position: { x: 0, y: 0 },
+    size: { width: SLOT_WIDTH, height: RUN_HEIGHT },
+    cardIds: [`card-${id}`],
+    activeCardId: `card-${id}`,
+    title: id,
+    acceptsFamilies: ["standard"],
+    ...(slot !== undefined ? { slot } : {}),
+  };
+}
+
+function deck(
+  panes: ReturnType<typeof pane>[],
+  imposition: Omit<DeckState["imposition"], "sidebars"> = { kind: "three-up" },
+): DeckState {
+  return {
+    cards: panes.map((p) => ({
+      id: p.activeCardId,
+      componentId: "gallery",
+      title: p.title,
+      closable: true,
+    })),
+    panes,
+    imposition: { sidebars: {}, ...imposition },
+    hasFocus: true,
+  };
+}
+
+function slotRect(slot: number): Rect {
+  return { x: SLOT_X[slot], y: RUN_TOP, width: SLOT_WIDTH, height: RUN_HEIGHT };
+}
+
+/** Members of a split column, stacked down the slot's run at the given
+ *  heights — the geometry the imposer would have produced. */
+function splitRects(slot: number, heights: readonly number[]): Rect[] {
+  const rects: Rect[] = [];
+  let y = RUN_TOP;
+  for (const height of heights) {
+    rects.push({ x: SLOT_X[slot], y, width: SLOT_WIDTH, height });
+    y += height + IMPOSITION_GAP_PX;
+  }
+  return rects;
+}
+
+function measured(overrides: Partial<DropZoneMeasurements> = {}): DropZoneMeasurements {
+  return {
+    slots: new Map(),
+    panes: new Map(),
+    tabBars: new Map(),
+    rails: [],
+    ...overrides,
+  };
+}
+
+function keys(zones: readonly DropZone[]): string[] {
+  return zones.map(dropZoneKey);
+}
+
+// ---- Vocabulary ----
+
+describe("a card only ever sees the places its own kind can stand in", () => {
+  it("a lone content card sees every slot, its own included", () => {
+    const state = deck([pane("p1", 0), pane("p2", 1)]);
+    const { zones, origin } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map([
+          [0, slotRect(0)],
+          [1, slotRect(1)],
+          [2, slotRect(2)],
+        ]),
+        panes: new Map([
+          ["p1", slotRect(0)],
+          ["p2", slotRect(1)],
+        ]),
+      }),
+    );
+    expect(keys(zones)).toEqual(["slot:0", "slot:1", "slot:2"]);
+    expect(origin).not.toBeNull();
+    expect(dropZoneKey(origin!)).toBe("slot:0");
+  });
+
+  it("a stacked slot advertises itself as one zone, not one per member", () => {
+    const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)]);
+    const { zones } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map([
+          [0, slotRect(0)],
+          [1, slotRect(1)],
+        ]),
+        panes: new Map([
+          ["p1", slotRect(0)],
+          ["p2", slotRect(1)],
+          ["p3", slotRect(1)],
+        ]),
+      }),
+    );
+    expect(keys(zones)).toEqual(["slot:0", "slot:1"]);
+  });
+
+  it("an empty slot with no measured anchor advertises nothing", () => {
+    const state = deck([pane("p1", 0)]);
+    const { zones } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map([[0, slotRect(0)]]),
+        panes: new Map([["p1", slotRect(0)]]),
+      }),
+    );
+    expect(keys(zones)).toEqual(["slot:0"]);
+  });
+
+  it("a free pane on an imposed deck is arrangeable nowhere", () => {
+    const state = deck([pane("p1"), pane("p2", 1)]);
+    const set = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map([[1, slotRect(1)]]),
+        panes: new Map([["p2", slotRect(1)]]),
+      }),
+    );
+    expect(set.zones).toEqual([]);
+    expect(set.origin).toBeNull();
+  });
+
+  it("an unimposed deck advertises nothing at all", () => {
+    const state = deck([pane("p1", 0)], {});
+    const set = enumerateDropZones(
+      state,
+      "p1",
+      measured({ slots: new Map([[0, slotRect(0)]]) }),
+    );
+    expect(set.zones).toEqual([]);
+    expect(set.origin).toBeNull();
+  });
+
+  it("a sidebar card sees its rail's positions and no content slot", () => {
+    const state = deck([pane("p1", 0), pane("lens")]);
+    const railRects = splitRects(0, [280, 300]);
+    const set = enumerateDropZones(
+      state,
+      "lens",
+      measured({
+        slots: new Map([[0, slotRect(0)]]),
+        panes: new Map([
+          ["p1", slotRect(0)],
+          ["lens", railRects[0]],
+          ["notes", railRects[1]],
+        ]),
+        tabBars: new Map([["p1", { x: 0, y: RUN_TOP, width: SLOT_WIDTH, height: 30 }]]),
+        rails: [{ side: "right", members: ["lens", "notes"] }],
+      }),
+    );
+    expect(keys(set.zones)).toEqual(["rail:right:0", "rail:right:1"]);
+    expect(dropZoneKey(set.origin!)).toBe("rail:right:0");
+  });
+
+  it("tab bars are zones for a content card and never for a sidebar card", () => {
+    const state = deck([pane("p1", 0), pane("p2", 1), pane("lens")]);
+    const tabBars = new Map([
+      ["p2", { x: SLOT_X[1], y: RUN_TOP, width: SLOT_WIDTH, height: 30 }],
+    ]);
+    const panes = new Map([
+      ["p1", slotRect(0)],
+      ["p2", slotRect(1)],
+      ["lens", slotRect(2)],
+    ]);
+    const content = enumerateDropZones(
+      state,
+      "p1",
+      measured({ slots: new Map([[1, slotRect(1)]]), panes, tabBars }),
+    );
+    expect(keys(content.zones)).toContain("tab:p2");
+
+    const sidebar = enumerateDropZones(
+      state,
+      "lens",
+      measured({
+        slots: new Map([[1, slotRect(1)]]),
+        panes,
+        tabBars,
+        rails: [{ side: "right", members: ["lens"] }],
+      }),
+    );
+    expect(keys(sidebar.zones)).toEqual(["rail:right:0"]);
+  });
+});
+
+// ---- Own-column positions ----
+
+describe("a split column advertises one position per place a member can stand", () => {
+  const split = { kind: "three-up" as const, columns: { 0: { mode: "split" as const } } };
+
+  it("a two-member column offers both positions and starts on the card's own", () => {
+    const state = deck([pane("p1", 0), pane("p2", 0)], split);
+    const rects = splitRects(0, [250, 345]);
+    const { zones, origin } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map(),
+        panes: new Map([
+          ["p1", rects[0]],
+          ["p2", rects[1]],
+        ]),
+      }),
+    );
+    expect(keys(zones)).toEqual(["column:0:0", "column:0:1"]);
+    expect(dropZoneKey(origin!)).toBe("column:0:0");
+  });
+
+  it("the tiles are where the card would land, heights travelling with it", () => {
+    const state = deck([pane("p1", 0), pane("p2", 0)], split);
+    const rects = splitRects(0, [250, 345]);
+    const { zones } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        panes: new Map([
+          ["p1", rects[0]],
+          ["p2", rects[1]],
+        ]),
+      } as Partial<DropZoneMeasurements>),
+    );
+    // Position 0 is where p1 already stands.
+    expect(zones[0].rect).toEqual(rects[0]);
+    // Position 1 puts p1 below p2 — p2 rises to the run top and p1 takes its
+    // own 250px height below it, not p2's 345.
+    expect(zones[1].rect.y).toBe(RUN_TOP + 345 + IMPOSITION_GAP_PX);
+    expect(zones[1].rect.height).toBe(250);
+  });
+
+  it("an overflowing column's positions are the run/2.5 strip", () => {
+    const state = deck([pane("p1", 0), pane("p2", 0), pane("p3", 0)], split);
+    const memberH = RUN_HEIGHT / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const rects = splitRects(0, [memberH, memberH, memberH]);
+    const { zones } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        panes: new Map([
+          ["p1", rects[0]],
+          ["p2", rects[1]],
+          ["p3", rects[2]],
+        ]),
+      } as Partial<DropZoneMeasurements>),
+    );
+    expect(keys(zones)).toEqual(["column:0:0", "column:0:1", "column:0:2"]);
+    for (const [i, zone] of zones.entries()) {
+      expect(zone.rect.height).toBeCloseTo(memberH, 6);
+      expect(zone.rect.y).toBeCloseTo(RUN_TOP + i * (memberH + IMPOSITION_GAP_PX), 6);
+    }
+  });
+
+  it("a foreign split column advertises one more position than it has members", () => {
+    const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
+      kind: "three-up",
+      columns: { 1: { mode: "split" } },
+    });
+    const rects = splitRects(1, [300, 295]);
+    const { zones, origin } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map([[0, slotRect(0)]]),
+        panes: new Map([
+          ["p1", slotRect(0)],
+          ["p2", rects[0]],
+          ["p3", rects[1]],
+        ]),
+      }),
+    );
+    expect(keys(zones)).toEqual([
+      "slot:0",
+      "column:1:0",
+      "column:1:1",
+      "column:1:2",
+    ]);
+    expect(dropZoneKey(origin!)).toBe("slot:0");
+  });
+
+  it("arriving in a two-member column makes it three, so the tiles overflow", () => {
+    // The column divides its run between two members today. A third arriving
+    // stops the division ([P08]), so the zones must be drawn against the rule
+    // that will govern after the drop — not the one governing before it.
+    const state = deck([pane("p1", 0), pane("p2", 1), pane("p3", 1)], {
+      kind: "three-up",
+      columns: { 1: { mode: "split" } },
+    });
+    const rects = splitRects(1, [300, 295]);
+    const { zones } = enumerateDropZones(
+      state,
+      "p1",
+      measured({
+        slots: new Map([[0, slotRect(0)]]),
+        panes: new Map([
+          ["p1", slotRect(0)],
+          ["p2", rects[0]],
+          ["p3", rects[1]],
+        ]),
+      }),
+    );
+    const run = 300 + IMPOSITION_GAP_PX + 295;
+    const memberH = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const columnZones = zones.filter((zone) => zone.kind === "column-index");
+    expect(columnZones).toHaveLength(3);
+    for (const zone of columnZones) {
+      expect(zone.rect.height).toBeCloseTo(memberH, 6);
+    }
+  });
+});
+
+// ---- Indication ----
+
+describe("the indication moves once the pointer has committed to it", () => {
+  const a: DropZone = {
+    kind: "column-index",
+    slot: 0,
+    index: 0,
+    rect: { x: 0, y: 0, width: 100, height: 100 },
+  };
+  const b: DropZone = {
+    kind: "column-index",
+    slot: 0,
+    index: 1,
+    rect: { x: 0, y: 200, width: 100, height: 100 },
+  };
+
+  it("with no incumbent the nearest zone is live", () => {
+    expect(dropZoneKey(pickLiveZone([a, b], { x: 50, y: 20 }, null)!)).toBe(
+      "column:0:0",
+    );
+    expect(dropZoneKey(pickLiveZone([a, b], { x: 50, y: 280 }, null)!)).toBe(
+      "column:0:1",
+    );
+  });
+
+  it("a pointer at the midpoint keeps the incumbent", () => {
+    const midpoint = { x: 50, y: 150 };
+    expect(dropZoneKey(pickLiveZone([a, b], midpoint, a)!)).toBe("column:0:0");
+    expect(dropZoneKey(pickLiveZone([a, b], midpoint, b)!)).toBe("column:0:1");
+  });
+
+  it("the challenger takes over only once it beats the incumbent by the margin", () => {
+    // Centers are 100px apart on y; the challenger's advantage grows 2px for
+    // every 1px the pointer travels past the midpoint.
+    const shy = { x: 50, y: 150 + (ZONE_HYSTERESIS_PX / 2 - 1) };
+    const past = { x: 50, y: 150 + (ZONE_HYSTERESIS_PX / 2 + 1) };
+    expect(dropZoneKey(pickLiveZone([a, b], shy, a)!)).toBe("column:0:0");
+    expect(dropZoneKey(pickLiveZone([a, b], past, a)!)).toBe("column:0:1");
+  });
+
+  it("an incumbent that is no longer advertised yields to the nearest", () => {
+    expect(dropZoneKey(pickLiveZone([b], { x: 50, y: 20 }, a)!)).toBe(
+      "column:0:1",
+    );
+  });
+
+  it("an incumbent is matched by place, not by rect — autoscroll moves tiles", () => {
+    const slid: DropZone = { ...a, rect: { x: 0, y: -40, width: 100, height: 100 } };
+    const live = pickLiveZone([slid, b], { x: 50, y: 60 }, a);
+    expect(dropZoneKey(live!)).toBe("column:0:0");
+    expect(live!.rect.y).toBe(-40);
+  });
+
+  it("a tab bar beats the tile it sits inside", () => {
+    const tile: DropZone = {
+      kind: "slot",
+      slot: 1,
+      rect: { x: 0, y: 0, width: 400, height: 600 },
+    };
+    const bar: DropZone = {
+      kind: "tab-bar",
+      paneId: "p2",
+      rect: { x: 0, y: 0, width: 400, height: 30 },
+    };
+    expect(dropZoneKey(pickLiveZone([tile, bar], { x: 200, y: 15 }, null)!)).toBe(
+      "tab:p2",
+    );
+  });
+
+  it("no zones means no indication", () => {
+    expect(pickLiveZone([], { x: 0, y: 0 }, null)).toBeNull();
+  });
+});
