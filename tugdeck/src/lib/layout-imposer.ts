@@ -650,6 +650,65 @@ export function withColumnShares(
   return withColumnField(imposition, slot, { shares: { ...shares } });
 }
 
+/**
+ * The imposition with every column's order narrowed to the panes actually
+ * standing in that slot.
+ *
+ * A column is keyed by pane id, and a pane can leave the slot it was recorded
+ * in without the record being asked about it: `assignCardsToSlots` writes a new
+ * `slot` onto the pane and commits the imposition untouched, and changing the
+ * imposition's kind re-clamps every pane, collapsing the slots above the new
+ * last one. Both leave the departed member named in a column it no longer
+ * stands in — which is exactly what invariant 9 refuses, so the next validate
+ * throws and the deck comes up on the error overlay.
+ *
+ * The drop, rather than a hold: this is the policy {@link withColumnOrder}'s
+ * caller already applies on every explicit reorder ("ids the column does not
+ * currently hold are dropped"), because a place kept for a pane id is a place
+ * nothing can return to. A member that leaves and comes back arrives as a
+ * newcomer, which is what {@link effectiveColumnOrder} already does with it.
+ *
+ * Membership is read from the pane's RAW slot, not its clamped one — the same
+ * reading the invariant makes, and the one the record has to satisfy. (The
+ * clamped reading in `deckColumnsOf` answers a different question: which column
+ * DRAWS the pane.)
+ *
+ * Returns the same object when nothing moved, so a commit that changes no
+ * membership allocates nothing and compares equal.
+ */
+export function sweptColumnOrders(
+  imposition: DeckImposition,
+  panes: readonly { readonly id: string; readonly slot?: number }[],
+): DeckImposition {
+  const columns = imposition.columns;
+  if (columns === undefined) return imposition;
+  const slotByPaneId = new Map(panes.map((pane) => [pane.id, pane.slot]));
+  let changed = false;
+  const next: Record<number, ColumnArrangement> = {};
+  for (const [key, arrangement] of Object.entries(columns)) {
+    const slot = Number(key);
+    const order = arrangement.order;
+    if (order === undefined) {
+      next[slot] = arrangement;
+      continue;
+    }
+    // A pane id that names no live pane is residue, and residue is inert — the
+    // invariant tolerates it and `effectiveColumnOrder` skips it. Only a LIVE
+    // pane standing elsewhere is a lie about membership.
+    const kept = order.filter((paneId) => {
+      if (!slotByPaneId.has(paneId)) return true;
+      return slotByPaneId.get(paneId) === slot;
+    });
+    if (kept.length === order.length) {
+      next[slot] = arrangement;
+      continue;
+    }
+    changed = true;
+    next[slot] = { ...arrangement, order: kept };
+  }
+  return changed ? { ...imposition, columns: next } : imposition;
+}
+
 /** The imposition with `slot`'s height weights removed — an equal division,
  *  keeping the slot's mode and order. */
 export function withoutColumnShares(

@@ -45,6 +45,7 @@ import {
   DEFAULT_CONTENT_WIDTH,
   DEFAULT_SIDEBAR_SIDE,
   isContentWidth,
+  sweptColumnOrders,
   type DeckImposition,
   type ImpositionKind,
   type ColumnArrangement,
@@ -197,6 +198,26 @@ export function deserialize(
   canvasWidth: number,
   canvasHeight: number,
   fallbackSidebarSide: SidebarSide = DEFAULT_SIDEBAR_SIDE,
+): DeckState {
+  const state = parseDeckState(
+    json,
+    canvasWidth,
+    canvasHeight,
+    fallbackSidebarSide,
+  );
+  // A deck saved with a stranded column member has to come back usable, not on
+  // the error overlay: the record outlives the run that broke it, so healing
+  // only the live mutations would leave every already-persisted deck bad
+  // forever. Sweeping on the way in is what makes the fix retroactive.
+  const imposition = sweptColumnOrders(state.imposition, state.panes);
+  return imposition === state.imposition ? state : { ...state, imposition };
+}
+
+function parseDeckState(
+  json: string,
+  canvasWidth: number,
+  canvasHeight: number,
+  fallbackSidebarSide: SidebarSide,
 ): DeckState {
   try {
     const raw = JSON.parse(json) as Record<string, unknown>;

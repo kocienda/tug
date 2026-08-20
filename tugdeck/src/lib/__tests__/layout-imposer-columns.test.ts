@@ -38,6 +38,7 @@ import {
   isColumnMode,
   railSeamFractions,
   railSharesFromFractions,
+  sweptColumnOrders,
   withColumnMode,
   withColumnOrder,
   withColumnShares,
@@ -379,5 +380,82 @@ describe("imposeStyle takes a column member", () => {
     expect(member.height).toBe("360px");
     expect(String(member.top)).toContain("--tug-slot-1-seam-0");
     expect(String(member.top)).toContain("360px");
+  });
+});
+
+describe("sweptColumnOrders", () => {
+  /** A pane, as the sweep reads one: an id and the slot it stands in. */
+  const pane = (id: string, slot?: number): { id: string; slot?: number } =>
+    slot === undefined ? { id } : { id, slot };
+
+  test("drops a live member that has moved to another slot", () => {
+    // The defect this exists for: `assignCardsToSlots` writes the new slot
+    // onto the pane and hands the imposition back untouched, so the column it
+    // left still names it — and invariant 9 refuses exactly that, which takes
+    // the whole deck to the error overlay on the next validate.
+    const imposition = withColumnOrder(
+      withColumnMode(bare(), 0, "split"),
+      0,
+      ["p1", "p2", "p3"],
+    );
+    const swept = sweptColumnOrders(imposition, [
+      pane("p1", 0),
+      pane("p2", 1),
+      pane("p3", 0),
+    ]);
+    expect(swept.columns?.[0]).toEqual({ mode: "split", order: ["p1", "p3"] });
+  });
+
+  test("keeps residue — a name with no live pane behind it", () => {
+    // The same tolerance `effectiveColumnOrder` and invariant 9 both hold. A
+    // closed pane's id is inert; only a LIVE pane standing elsewhere is a lie
+    // about membership, and only that is worth rewriting the record over.
+    const imposition = withColumnOrder(bare(), 0, ["p1", "gone"]);
+    expect(sweptColumnOrders(imposition, [pane("p1", 0)])).toBe(imposition);
+  });
+
+  test("drops a member that left the chain entirely", () => {
+    // A pane pulled out of the arrangement into a free pane carries no slot,
+    // which is not slot 0 — the invariant reads that as standing outside the
+    // chain and refuses it just the same.
+    const imposition = withColumnOrder(bare(), 0, ["p1", "p2"]);
+    const swept = sweptColumnOrders(imposition, [pane("p1", 0), pane("p2")]);
+    expect(swept.columns?.[0]?.order).toEqual(["p1"]);
+  });
+
+  test("returns the same object when every member still stands where it is named", () => {
+    // The commit path calls this on every geometry commit, and most of them
+    // move nobody between slots. Identity is what keeps that free.
+    const imposition = withColumnOrder(bare(), 0, ["p1", "p2"]);
+    expect(sweptColumnOrders(imposition, [pane("p1", 0), pane("p2", 0)])).toBe(
+      imposition,
+    );
+  });
+
+  test("a deck with no columns is handed straight back", () => {
+    const imposition = bare();
+    expect(sweptColumnOrders(imposition, [pane("p1", 0)])).toBe(imposition);
+  });
+
+  test("mode and shares survive the sweep, and the other slots are untouched", () => {
+    // The record is a preference, and a sweep is not a reset: the slot keeps
+    // how it stands and how it divides, and a neighbour that lost nobody is
+    // left exactly as it stood.
+    const imposition = withColumnShares(
+      withColumnOrder(
+        withColumnMode(withColumnMode(bare(), 0, "split"), 1, "split"),
+        0,
+        ["p1", "p2"],
+      ),
+      0,
+      { p1: 3, p2: 1 },
+    );
+    const swept = sweptColumnOrders(imposition, [pane("p1", 0), pane("p2", 2)]);
+    expect(swept.columns?.[0]).toEqual({
+      mode: "split",
+      order: ["p1"],
+      shares: { p1: 3, p2: 1 },
+    });
+    expect(swept.columns?.[1]).toEqual({ mode: "split" });
   });
 });

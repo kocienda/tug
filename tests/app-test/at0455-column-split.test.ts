@@ -790,10 +790,26 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           ),
           "the member left behind is alone in slot 0 and no longer a split member",
         ).toBe(0);
+        const afterNudge = (await columnsRecord(app))["0"];
         expect(
-          (await columnsRecord(app))["0"]?.mode,
+          afterNudge?.mode,
           "the arrangement survives the departure ([L23]) — it is the geometry that stopped dividing",
         ).toBe("split");
+        // The order does NOT survive it. A slot move writes the new slot onto
+        // the pane and commits the imposition it was handed, so without a
+        // sweep at the geometry commit the column goes on naming a member that
+        // now stands somewhere else — which invariant 9 refuses, taking the
+        // whole deck to the error overlay on the next validate.
+        //
+        // That invariant is dev-only and this bundle is a production build, so
+        // what is asserted here is the RECORD rather than the throw: an
+        // app-test structurally cannot see invariant 9 fire. The throw itself
+        // is pinned in `layout-tree.test.ts`, which runs the validator
+        // directly.
+        expect(
+          afterNudge?.order ?? [],
+          "the column stopped naming the member that left its slot",
+        ).not.toContain("p1");
       } finally {
         await app.close();
       }

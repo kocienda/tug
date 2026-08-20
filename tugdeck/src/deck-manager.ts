@@ -109,6 +109,7 @@ import {
   withRailMode,
   withRailOrder,
   withColumnMode,
+  sweptColumnOrders,
   withColumnOrder,
   withColumnShares,
   withoutColumnShares,
@@ -1811,6 +1812,13 @@ export class DeckManager implements IDeckManagerStore {
     },
   ): void {
     const retuneRails = opts?.retuneRails ?? true;
+    // Every path that moves a pane between slots arrives here, and most of them
+    // hand back the imposition they were given — `assignCardsToSlots` writes the
+    // new `slot` onto the pane, and a kind change re-clamps every pane — so this
+    // is the one place that can keep the columns record honest without each
+    // caller remembering to. A stranded member is not cosmetic: invariant 9
+    // refuses it and the deck comes up on the error overlay.
+    imposition = sweptColumnOrders(imposition, panes);
     const { panesBySide } = this._sidebarRails(panes, imposition);
     const allocated = retuneRails
       ? this._allocatedRailWidths(panes, imposition)

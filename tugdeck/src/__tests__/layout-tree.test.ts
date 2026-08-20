@@ -1398,6 +1398,23 @@ describe("validateDeckState", () => {
       ),
     ).toThrow(DeckStateInvariantError);
   });
+
+  test("a deck persisted with a stranded member comes back usable (invariant 9)", () => {
+    // The shape that actually shipped: a card moved out of a split slot, the
+    // columns record was committed untouched, and the deck was saved naming a
+    // pane in a slot it no longer stood in. Every launch after that threw on
+    // the first validate and came up on the error overlay — so healing the
+    // live mutation is not enough, the load has to heal what is already on
+    // disk. `deserialize` sweeps, and the restored state validates.
+    const stranded = columnState({ 0: { mode: "split", order: ["s1", "s2"] } }, [0, 1]);
+    expect(() => validateDeckState(stranded)).toThrow(DeckStateInvariantError);
+
+    const restored = deserialize(JSON.stringify(serialize(stranded)), 1920, 1080);
+    expect(() => validateDeckState(restored)).not.toThrow();
+    expect(restored.imposition.columns?.[0]?.order).toEqual(["s1"]);
+    // The slot keeps how it stands; only the lie about membership is removed.
+    expect(restored.imposition.columns?.[0]?.mode).toBe("split");
+  });
 });
 
 // ---- Imposition: the additive-optional `imposition` / `slot` wire fields ----
