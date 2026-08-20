@@ -464,8 +464,8 @@ App-tests must drive real code paths on real content; every new cell carries an 
 | #step-5 | J — Swift menu items and the editor gate | done | `40fa37601` |
 | #step-6 | J — integration checkpoint | done | `40fa37601` |
 | #step-7 | G — the committed layer goes live | done | `ace99958a` |
-| #step-8 | G — one transition rule | in progress | — |
-| #step-9 | G — integration checkpoint | pending | — |
+| #step-8 | G — one transition rule | done | `42d5b8237` |
+| #step-9 | G — integration checkpoint | done | `42d5b8237` |
 | #step-10 | I — overflow geometry, pure | pending | — |
 | #step-11 | I — offsets, clamp, reveal | pending | — |
 | #step-12 | I — UI, miniature, doctrine | pending | — |
