@@ -160,8 +160,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⇧⌘S | `save-as` | Save As… | menu bar (swept) |
 | ⇧⌘Z | `redo` | Redo | JS, global |
 | ⌃⇧⌘A | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
-| ⌃⇧⌘↑ | `move-in-column:top` | Move to Top of Column | JS, global |
-| ⌃⇧⌘↓ | `move-in-column:bottom` | Move to Bottom of Column | JS, global |
+| ⌃⇧⌘↑ | `move-in-column:top` | Move to Top of Column | menu bar (swept) |
+| ⌃⇧⌘↓ | `move-in-column:bottom` | Move to Bottom of Column | menu bar (swept) |
 | ⌃⌘1 | `set-pane-width:slim` | Slim | menu bar (swept) |
 | ⌃⌘2 | `set-pane-width:comfy` | Comfy | menu bar (swept) |
 | ⌃⌘3 | `set-pane-width:wide` | Wide | menu bar (swept) |
@@ -177,11 +177,11 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘M | `commit-auto-message` | Generate a Commit Message | JS, responder |
 | ⌃⌘O | `toggle-overview` | Show Overview | menu bar (swept) |
 | ⌃⌘P | `select-composer-route:prompt` | Prompt Route | JS, global |
-| ⌃⌘S | `toggle-column-split` | Split or Stack Column | JS, global |
+| ⌃⌘S | `toggle-column-split` | Split or Stack Column | menu bar (swept) |
 | ⌃⌘T | `next-theme` | Next Theme | menu bar (swept) |
 | ⌃⌘U | `run-slash-command:usage` | Show Usage | menu bar (swept) |
-| ⌃⌘↑ | `move-in-column:up` | Move Up in Column | JS, global |
-| ⌃⌘↓ | `move-in-column:down` | Move Down in Column | JS, global |
+| ⌃⌘↑ | `move-in-column:up` | Move Up in Column | menu bar (swept) |
+| ⌃⌘↓ | `move-in-column:down` | Move Down in Column | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
 | ⌘, | `show-settings` | Settings… | JS, global |
@@ -342,6 +342,11 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.cardWidth.comfy` | `set-pane-width:comfy` | first responder | registry gate |
 | `window.cardWidth.slim` | `set-pane-width:slim` | first responder | registry gate |
 | `window.cardWidth.wide` | `set-pane-width:wide` | first responder | registry gate |
+| `window.columnMoveBottom` | `move-in-column:bottom` | first responder | registry gate |
+| `window.columnMoveDown` | `move-in-column:down` | first responder | registry gate |
+| `window.columnMoveTop` | `move-in-column:top` | first responder | registry gate |
+| `window.columnMoveUp` | `move-in-column:up` | first responder | registry gate |
+| `window.columnSplit` | `toggle-column-split` | first responder | registry gate |
 | `window.enterFullScreen` | `toggle-full-screen` | AppKit performs it | host tier |
 | `window.minimize` | `minimize` | AppKit performs it | host tier |
 | `window.nextCard` | `next-tab` | first responder | registry gate |

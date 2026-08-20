@@ -179,19 +179,40 @@ export const lensSelectionStore = new LensSelectionStore();
 // on every arrow, and folding it into the store the list renders from would
 // re-render the list at key-repeat rate to paint nothing new.
 //
-// Nothing subscribes. `resolveLayoutSelection` reads it at gesture time, which
-// is the only moment the answer matters — the same way the deck's first
-// responder is read rather than watched.
+// `resolveLayoutSelection` reads it at gesture time, which is the only moment
+// the answer matters for a chord — the same way the deck's first responder is
+// read rather than watched.
+//
+// The menu is the one watcher, and it has to be: the column items' enablement
+// is computed at menu-state flush time and cached in the host, so a cursor move
+// that changed the answer and told nobody would leave a live item dimmed — and
+// a dimmed item's key equivalent is swallowed by AppKit before the web view
+// sees it, which would take the chord down with it ([P05]). The notification is
+// deliberately not part of the selection snapshot: the cursor moves on every
+// arrow, and folding it in there would re-render the Cards list at key-repeat
+// rate to paint nothing new. This fires only on a change, and its one listener
+// schedules a coalesced, diffed flush.
 //
 // `null` means the keyboard is not in the list, published by the list itself
 // from the projection that paints the cursor, so a stale cursor can never
 // answer for a list nobody is in.
 
 let cursorCardId: string | null = null;
+const cursorListeners = new Set<() => void>();
 
 /** Publish the card the Cards list's cursor is on, or `null`. */
 export function setLayoutCursorCard(cardId: string | null): void {
+  if (cardId === cursorCardId) return;
   cursorCardId = cardId;
+  for (const listener of cursorListeners) listener();
+}
+
+/** Watch the cursor card. Returns the unsubscribe. */
+export function subscribeLayoutCursorCard(listener: () => void): () => void {
+  cursorListeners.add(listener);
+  return () => {
+    cursorListeners.delete(listener);
+  };
 }
 
 /** The card the Cards list's cursor is on, or `null`. */

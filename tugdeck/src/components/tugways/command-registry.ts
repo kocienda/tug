@@ -180,6 +180,24 @@ export interface CommandMenuFacts {
    * "is there a content pane the selection is in".
    */
   readonly bullseye: { readonly on: boolean } | null;
+  /**
+   * What the column verbs could do to the card the layout selection resolves
+   * to. `null` when none does — nothing selected, no cursor in the Cards list,
+   * no content card fronted, or a deck with no imposition to hold a column.
+   *
+   * Unlike {@link cardWidth} and {@link bullseye}, this reads the layout
+   * selection's full ladder rather than the focused pane, because that is what
+   * the chords act on: a selection in the Lens, else the row the Cards list's
+   * cursor stands on, else the first responder. A fact narrower than the verb
+   * would dim an item whose chord still fires — and a dimmed item's key
+   * equivalent is swallowed by AppKit before the web view ever sees it, so the
+   * chord would stop firing to match ([P05]).
+   */
+  readonly column: {
+    readonly canSplit: boolean;
+    readonly canMoveUp: boolean;
+    readonly canMoveDown: boolean;
+  } | null;
 }
 
 /** Nothing focused, nothing open — the answer before the first push. */
@@ -196,6 +214,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   stackDepth: 0,
   cardWidth: null,
   bullseye: null,
+  column: null,
 };
 
 /**
@@ -661,57 +680,94 @@ const NUDGE_SLOT_COMMANDS: readonly CommandEntry[] = [
  * width row is three: each is separately rebindable and each is one row in the
  * keymap pane.
  *
- * **Unpromoted**, like ⌘1..9 and the nudge pair and for the same reason
- * ([Q02]): these act on the layout selection, which is a fact about the Lens's
- * list rather than about the frontmost card, so a menu item's `validate` has
- * nothing to read that would tell a live gesture from a dead one. The refusal
- * stays where the user can see it — on the pane's own border.
+ * **Promoted to the Window menu**, unlike ⌘1..9 and the nudge pair. The
+ * objection that kept them off it was that a menu item's `validate` had
+ * nothing to read: these act on the layout selection, which is a fact about
+ * the Lens's list rather than about the frontmost card. That was answerable,
+ * and the answer costs a fact — `menu.column`, resolved through the same
+ * ladder the handlers walk, so an item is live exactly when its chord would
+ * act. The menu is where a chord is discovered, and a chord nobody can find is
+ * a chord nobody uses.
+ *
+ * `disabledChord: "keep"`, matching the width family: a dimmed item holds its
+ * key equivalent, so the beep is honest feedback that the user pressed the
+ * right keys at a moment the column had no move to make. Nothing else in the
+ * JS funnel wants ⌃⌘S or the ⌃⌘ arrows, so there is nothing for a detach to
+ * hand them back to.
+ *
+ * The refusal stays where the user can see it — on the pane's own border —
+ * for the gestures that still reach the handler.
  */
 const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
   {
     id: TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
     title: "Split or Stack Column",
     routing: "first-responder" as const,
+    menuItemId: "window.columnSplit",
+    mirrored: true,
+    disabledChord: "keep",
     bindings: [
       chord(
         { key: "KeyS", meta: true, ctrl: true, label: "s" },
-        { preventDefault: true },
+        { preventDefault: true, menuEligible: true },
       ),
     ],
+    validate: (chain: CommandValidationSource) =>
+      chain.menu.column?.canSplit === true,
   },
   ...(
     [
-      { where: "up", title: "Move Up in Column", key: "ArrowUp", shift: false },
+      {
+        where: "up",
+        title: "Move Up in Column",
+        menuItemId: "window.columnMoveUp",
+        key: "ArrowUp",
+        shift: false,
+      },
       {
         where: "down",
         title: "Move Down in Column",
+        menuItemId: "window.columnMoveDown",
         key: "ArrowDown",
         shift: false,
       },
       {
         where: "top",
         title: "Move to Top of Column",
+        menuItemId: "window.columnMoveTop",
         key: "ArrowUp",
         shift: true,
       },
       {
         where: "bottom",
         title: "Move to Bottom of Column",
+        menuItemId: "window.columnMoveBottom",
         key: "ArrowDown",
         shift: true,
       },
     ] as const
-  ).map(({ where, title, key, shift }) => ({
+  ).map(({ where, title, menuItemId, key, shift }) => ({
     id: `${TUG_ACTIONS.MOVE_IN_COLUMN}:${where}`,
     title,
     routing: "first-responder" as const,
     action: TUG_ACTIONS.MOVE_IN_COLUMN,
     payload: where,
+    menuItemId,
+    mirrored: true,
+    disabledChord: "keep" as const,
     bindings: [
       chord({ key, meta: true, ctrl: true, shift, label: key }, {
         preventDefault: true,
+        menuEligible: true,
       }),
     ],
+    // Top and bottom read the same two fields as up and down: a member that
+    // cannot step up is already at the top, and travelling to a place you
+    // already stand is the refusal `moveInColumn` returns false for.
+    validate: (chain: CommandValidationSource) =>
+      where === "up" || where === "top"
+        ? chain.menu.column?.canMoveUp === true
+        : chain.menu.column?.canMoveDown === true,
   })),
 ];
 

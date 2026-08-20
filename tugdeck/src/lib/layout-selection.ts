@@ -31,6 +31,8 @@
  */
 
 import { isSidebarCard } from "@/card-registry";
+import { columnMoveOrder, deckColumnsOf } from "@/deck-store-selectors";
+import { clampSlot } from "@/lib/layout-imposer";
 import {
   getLayoutCursorCard,
   lensSelectionStore,
@@ -61,6 +63,53 @@ export function resolveLayoutSelection(
   return [];
 }
 
+/** The cards of `ids` a geometry verb can place — rails drop out. */
+function contentCardsAmong(
+  deck: IDeckManagerStore,
+  ids: readonly string[],
+): readonly string[] {
+  const cards = deck.getSnapshot().cards;
+  return ids.filter((id) => {
+    const card = cards.find((c) => c.id === id);
+    return card !== undefined && !isSidebarCard(card.componentId);
+  });
+}
+
+/**
+ * What the column verbs could do to the card the layout selection resolves to,
+ * as the menu's `column` fact ([P05]) — `null` when no content card resolves.
+ *
+ * The same ladder and the same first-card rule the ⌃⌘S / ⌃⌘↑↓ handlers use, so
+ * a menu item is live exactly when its chord would act rather than merely when
+ * a card happens to be fronted. That equivalence is the whole promotion: AppKit
+ * resolves a key equivalent before the web view sees the keydown, so an item
+ * this fact dims is a chord that no longer fires.
+ *
+ * Quiet where {@link contentCardsInLayoutSelection} logs: this runs on every
+ * menu-state flush, and a refusal that is merely "nothing is selected" is the
+ * resting state rather than an event.
+ */
+export function resolveColumnMenuFact(
+  deck: IDeckManagerStore,
+  selection: LensSelectionStore = lensSelectionStore,
+): { canSplit: boolean; canMoveUp: boolean; canMoveDown: boolean } | null {
+  const cardIds = contentCardsAmong(deck, resolveLayoutSelection(deck, selection));
+  if (cardIds.length === 0) return null;
+  const state = deck.getSnapshot();
+  if (state.imposition.kind === undefined) return null;
+  const host = state.panes.find((p) => p.cardIds.includes(cardIds[0]));
+  if (host?.slot === undefined) return null;
+  const slot = clampSlot(state.imposition.kind, host.slot);
+  const column = deckColumnsOf(state).find((c) => c.slot === slot);
+  const order = columnMoveOrder(state, host.id);
+  const at = order.indexOf(host.id);
+  return {
+    canSplit: (column?.members.length ?? 0) >= 2,
+    canMoveUp: at > 0,
+    canMoveDown: at !== -1 && at < order.length - 1,
+  };
+}
+
 /**
  * The layout selection, narrowed to cards a geometry verb can actually place.
  *
@@ -77,12 +126,8 @@ export function contentCardsInLayoutSelection(
   deck: IDeckManagerStore,
   selection: LensSelectionStore = lensSelectionStore,
 ): readonly string[] {
-  const cards = deck.getSnapshot().cards;
   const resolved = resolveLayoutSelection(deck, selection);
-  const content = resolved.filter((id) => {
-    const card = cards.find((c) => c.id === id);
-    return card !== undefined && !isSidebarCard(card.componentId);
-  });
+  const content = contentCardsAmong(deck, resolved);
   if (content.length === 0) {
     tugDevLogStore.debug("layout-selection", "no content card to act on", {
       resolved: resolved.length,

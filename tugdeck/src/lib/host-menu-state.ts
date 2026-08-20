@@ -47,6 +47,12 @@ import { keymapRegistry } from "../components/tugways/keymap-registry";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { chordCaptureState } from "../components/tugways/chord-capture-state";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
+import { resolveColumnMenuFact } from "./layout-selection";
+import {
+  lensSelectionStore,
+  subscribeLayoutCursorCard,
+} from "../components/lens/lens-selection-store";
+import type { IDeckManagerStore } from "../deck-manager-store";
 import type {
   CommandEntry,
   CommandMenuFacts,
@@ -759,6 +765,17 @@ export class HostMenuStatePublisher {
   private validationChain: MenuValidationChain = NO_CHAIN;
   /** The facts the last flush computed its gates from. */
   private lastFacts: CommandMenuFacts = EMPTY_MENU_FACTS;
+  /**
+   * What the column verbs could do right now, asked rather than stored.
+   *
+   * A source and not a value because the fact reads the layout selection's
+   * ladder, whose lower rungs are not deck state: the Cards list's cursor is a
+   * module variable nothing subscribes to. Reading it at flush time means the
+   * answer is as fresh as whatever triggered the flush, and the two inputs
+   * that move on their own — the selection store and the cursor — schedule one
+   * (see {@link initHostMenuState}).
+   */
+  private columnFactSource: (() => CommandMenuFacts["column"]) | null = null;
   /** Recent-document MRU, mirrored outward for the Open Recent submenu. */
   private recentDocuments: string[] = [];
   /** The active theme, for the Theme submenu's checkmark. */
@@ -772,6 +789,12 @@ export class HostMenuStatePublisher {
 
   constructor(post: (payload: MenuStatePayload) => void) {
     this.post = post;
+  }
+
+  /** Register the closure the flush asks for {@link CommandMenuFacts.column}. */
+  setColumnFactSource(source: () => CommandMenuFacts["column"]): void {
+    this.columnFactSource = source;
+    this.scheduleFlush();
   }
 
   setDeckProjection(projection: MenuStateDeckProjection): void {
@@ -954,6 +977,7 @@ export class HostMenuStatePublisher {
       stackDepth,
       cardWidth,
       bullseye,
+      column: this.columnFactSource?.() ?? null,
     };
     this.lastFacts = facts;
     const commands = computeCommandCapabilities(this.validationSource(facts));
@@ -996,12 +1020,6 @@ function postToHost(payload: MenuStatePayload): void {
   handler.postMessage(payload);
 }
 
-/** Minimal slice of DeckManager the aggregator needs. */
-interface DeckSource {
-  subscribe(callback: () => void): () => void;
-  getSnapshot(): DeckState;
-}
-
 /** The boot-time singleton behind the module-level publish functions. */
 let activePublisher: HostMenuStatePublisher | null = null;
 
@@ -1026,13 +1044,24 @@ export function commandValidationSource(): CommandValidationSource {
  * the initial state immediately so the host's menu validation never
  * runs against a stale cache.
  */
-export function initHostMenuState(deck: DeckSource): void {
+export function initHostMenuState(deck: IDeckManagerStore): void {
   const publisher = new HostMenuStatePublisher(postToHost);
   activePublisher = publisher;
   const push = (): void => {
     publisher.setDeckProjection(projectDeckState(deck.getSnapshot()));
   };
   deck.subscribe(push);
+  // The column verbs act on the layout selection, so the fact that gates their
+  // menu items is asked at flush time rather than projected from deck state
+  // ([P05]). Its two non-deck inputs push a flush themselves: the selection
+  // store, and the Cards list's cursor.
+  publisher.setColumnFactSource(() => resolveColumnMenuFact(deck));
+  lensSelectionStore.subscribe(() => {
+    publisher.refresh();
+  });
+  subscribeLayoutCursorCard(() => {
+    publisher.refresh();
+  });
   // Session bindings appear/disappear without a deck mutation, and Open
   // Quickly's gate reads them — re-project so the flush recomputes it.
   cardSessionBindingStore.subscribe(push);

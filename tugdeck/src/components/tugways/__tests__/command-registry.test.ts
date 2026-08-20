@@ -275,6 +275,11 @@ describe("promoted commands", () => {
     [TUG_ACTIONS.LAST_TURN, "session.lastTurn", "detach"],
     [TUG_ACTIONS.OPEN_COMMAND_PICKER, "session.commandPicker", "detach"],
     [TUG_ACTIONS.SHOW_DEVTOOLS, "maker.devTools", "keep"],
+    [TUG_ACTIONS.TOGGLE_COLUMN_SPLIT, "window.columnSplit", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:up`, "window.columnMoveUp", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:down`, "window.columnMoveDown", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:top`, "window.columnMoveTop", "keep"],
+    [`${TUG_ACTIONS.MOVE_IN_COLUMN}:bottom`, "window.columnMoveBottom", "keep"],
   ];
 
   test("each drives its item and records its disabled-state chord", () => {

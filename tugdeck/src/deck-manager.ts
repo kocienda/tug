@@ -52,6 +52,7 @@ import {
 import { LENS_CARD_ID } from "./lib/lens-card-id";
 import {
   bullseyePaneIdOf,
+  columnMoveOrder,
   deckColumnsOf,
   deckFlowStrip,
   findLensPane,
@@ -1479,19 +1480,6 @@ export class DeckManager implements IDeckManagerStore {
     );
   }
 
-  /** The panes standing in `slot`, back to front — the deck's z-order, which is
-   *  the panes array's own order. */
-  private _columnZOrder(slot: number): readonly string[] {
-    const kind = this.deckState.imposition.kind;
-    if (kind === undefined) return [];
-    return this.deckState.panes
-      .filter(
-        (pane) =>
-          pane.slot !== undefined && clampSlot(kind, pane.slot) === slot,
-      )
-      .map((pane) => pane.id);
-  }
-
   /**
    * Move `paneId` within its column — the move-in-column chords' commit.
    *
@@ -1516,9 +1504,9 @@ export class DeckManager implements IDeckManagerStore {
     const split = columnModeOf(this.deckState.imposition, slot) === "split";
     // Split: top-to-bottom, the order the eye reads. Stacked: back-to-front,
     // reversed so index 0 is the front and "up" is one index earlier in both.
-    const order = split
-      ? [...this._columnOrder(slot)]
-      : [...this._columnZOrder(slot)].reverse();
+    // The same walk the menu's `column` fact reads to say whether this move
+    // would be refused.
+    const order = [...columnMoveOrder(this.deckState, paneId)];
     if (order.length < 2) return false;
     const from = order.indexOf(paneId);
     if (from === -1) return false;

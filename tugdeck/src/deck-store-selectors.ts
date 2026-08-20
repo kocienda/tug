@@ -352,6 +352,38 @@ export function deckColumnsOf(state: DeckState): readonly DeckColumn[] {
 }
 
 /**
+ * `columnMoveOrder(state, paneId)` — the sequence a move-in-column verb walks
+ * for the pane, or empty when the pane stands in no column.
+ *
+ * Split, that is the column's member order, top to bottom. Stacked, nothing is
+ * above anything — every member draws the same rect — so the only ordering the
+ * user can see is z, reversed so index 0 is the front and "up" is one index
+ * earlier in both arrangements.
+ *
+ * One reading, because two callers ask: `DeckManager.moveInColumn` performs the
+ * move, and the menu's `column` fact says whether the move would be refused. A
+ * fact derived from a second walk would disagree with the verb exactly at the
+ * ends, which is the only place either answer is interesting.
+ */
+export function columnMoveOrder(
+  state: DeckState,
+  paneId: string,
+): readonly string[] {
+  const kind = state.imposition.kind;
+  if (kind === undefined) return [];
+  const pane = state.panes.find((p) => p.id === paneId);
+  if (pane?.slot === undefined) return [];
+  const slot = clampSlot(kind, pane.slot);
+  if (columnModeOf(state.imposition, slot) === "split") {
+    return deckColumnsOf(state).find((column) => column.slot === slot)?.members ?? [];
+  }
+  return state.panes
+    .filter((p) => p.slot !== undefined && clampSlot(kind, p.slot) === slot)
+    .map((p) => p.id)
+    .reverse();
+}
+
+/**
  * `countWorkCards(state)` — how many cards the user is working in, i.e. every
  * card but the Lens. The Lens is app furniture (it opens by factory default),
  * so anything asking "does this deck hold work yet" — the setup wizard's
