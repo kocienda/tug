@@ -2610,6 +2610,57 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * Commit where a drag left an overflowing column's strip ([P12], Spec S03).
+   *
+   * ONE write, at the end of the gesture. The offset moved imperatively on its
+   * custom property while the hand was down, because it is an
+   * `arrangementSignature` term and a per-frame commit would arm a settle on
+   * every frame — measuring and tweening the column's other members under the
+   * user's hand. This is the frame where the store catches up with what the
+   * deck has been showing, and it changes no geometry: CSS was already drawing
+   * this number.
+   *
+   * Real state, not a preview, which is why a cancelled drag still commits it:
+   * the card goes home, the view does not.
+   */
+  setColumnOffset(slot: number, offset: number): void {
+    const run = this._columnRunHeight();
+    if (!(run > 0)) return;
+    const column = deckColumnsOf(this.deckState).find((c) => c.slot === slot);
+    if (column === undefined || column.mode !== "split") return;
+    if (columnStanding(column.members.length) !== "overflow") return;
+    const memberHeight = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const clamped = clampStripOffset(
+      offset,
+      column.members.length * memberHeight +
+        (column.members.length - 1) * IMPOSITION_GAP_PX,
+      run,
+    );
+    const standing = this.deckState.columnOffsets?.[slot] ?? 0;
+    if (clamped === standing) return;
+    this.deckState = {
+      ...this.deckState,
+      columnOffsets: { ...this.deckState.columnOffsets, [slot]: clamped },
+    };
+    this.notify();
+  }
+
+  /** The flow strip's twin of {@link setColumnOffset} — the same one-write-at-
+   *  the-end rule, read across instead of down. */
+  setFlowOffset(offset: number): void {
+    const strip = deckFlowStrip(this.deckState);
+    if (strip === null) return;
+    const clamped = clampFlowOffset(
+      offset,
+      strip.width,
+      this._flowBandWidth(this.deckState.panes, this.deckState.imposition),
+    );
+    if (clamped === (this.deckState.flowOffset ?? 0)) return;
+    this.deckState = { ...this.deckState, flowOffset: clamped };
+    this.notify();
+  }
+
+  /**
    * The band the strip is seen through: the canvas, less each standing rail's
    * inset, less the chain's own gap at either end.
    *

@@ -73,6 +73,15 @@ export interface IDeckManagerStore {
   getColumnRunHeight: () => number | null;
 
   /**
+   * Commit where a drag left a scrolled strip — an overflowing column's
+   * ([P12]) and the flow strip's. One write at the end of the gesture, never
+   * per frame: the offset is an `arrangementSignature` term, so a per-frame
+   * commit would arm a settle on every frame of the drag.
+   */
+  setColumnOffset: (slot: number, offset: number) => void;
+  setFlowOffset: (offset: number) => void;
+
+  /**
    * Stable bound callback: update a pane frame's position/size on drag-end /
    * resize-end. The frame that gets dragged is the chrome shell; individual
    * cards within it share the pane's position.

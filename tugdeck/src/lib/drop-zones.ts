@@ -55,6 +55,22 @@ export const ZONE_HYSTERESIS_PX = 24;
 /** How far inside a zone's tile the indicator is drawn, in layout px. */
 export const ZONE_INDICATOR_INSET_PX = 3;
 
+/**
+ * How close to a scrollable strip's edge the pointer must hold before the strip
+ * starts advancing under it, in layout px.
+ *
+ * The band this is measured against is the run (a column) or the band (the flow
+ * strip), so the margin has to be small enough that the middle of the band is
+ * comfortably still, and wide enough that the user does not have to find a
+ * hairline.
+ */
+export const AUTOSCROLL_MARGIN_PX = 56;
+
+/** How fast a strip advances while the pointer holds inside the margin, in
+ *  layout px per second. Constant rather than ramped by proximity: one number
+ *  to tune ([Q01]), and a rate that does not change under a held hand. */
+export const AUTOSCROLL_RATE_PX_PER_SEC = 900;
+
 // ---- The vocabulary ([P10]) ----
 
 /**
@@ -121,6 +137,59 @@ export interface DropZoneSet {
 }
 
 /**
+ * A strip a drag can scroll by holding the pointer near its edge: an
+ * overflowing column's run, or the flow strip's band.
+ *
+ * Resolved fresh each frame from the pointer, because which strip is under the
+ * hand is a question about right now — a drag that crosses from one column to
+ * another is scrolling the one it is over, not the one it started on.
+ */
+export interface AutoscrollTarget {
+  kind: "column" | "flow";
+  /** The slot whose column scrolls. Absent for the flow strip, which is the
+   *  deck's one horizontal strip and has no slot to name. */
+  slot?: number;
+  /** The axis the strip travels on — down the run, or across the band. */
+  axis: "x" | "y";
+  /** The band's near and far edges along that axis, in canvas layout px. */
+  bandStart: number;
+  bandEnd: number;
+  /** Where the strip stands now. */
+  offset: number;
+  /** How far it may travel: the strip's length less the band's. */
+  maxOffset: number;
+}
+
+/** A strip's identity, for keeping one running offset per strip across a drag
+ *  that visits several. */
+export function autoscrollKey(target: AutoscrollTarget): string {
+  return target.kind === "column" ? `column:${target.slot}` : "flow";
+}
+
+/**
+ * How far a strip should advance this frame — positive toward its far edge,
+ * zero when the pointer is not at either margin.
+ *
+ * A rate times an elapsed time, so the travel is the same for a given hold
+ * however the frames fall. `pointer` and the band are read along the strip's
+ * own axis, which is what lets one rule serve both the column's run and the
+ * flow band ([P08]'s bargain, again: an axis-free rule read twice).
+ */
+export function autoscrollDelta(input: {
+  pointer: number;
+  bandStart: number;
+  bandEnd: number;
+  elapsedMs: number;
+}): number {
+  const { pointer, bandStart, bandEnd, elapsedMs } = input;
+  if (!(elapsedMs > 0) || !Number.isFinite(pointer)) return 0;
+  const travel = (AUTOSCROLL_RATE_PX_PER_SEC * elapsedMs) / 1000;
+  if (pointer > bandEnd - AUTOSCROLL_MARGIN_PX) return travel;
+  if (pointer < bandStart + AUTOSCROLL_MARGIN_PX) return -travel;
+  return 0;
+}
+
+/**
  * What a dragging pane asks the canvas for, and what it hands back.
  *
  * The gesture lives in `tug-pane.tsx` and the arrangement lives in the deck, so
@@ -141,6 +210,19 @@ export interface DropZoneHost {
   /** Commit the zone's mutation in one deck-manager call. False is a refusal
    *  the drop must make visible ([P09]) — never a quiet no-op. */
   commit(zone: DropZone, draggedPaneId: string): boolean;
+  /** The strip the pointer is over, or null when nothing there scrolls. */
+  autoscrollTargetFor(pointer: { x: number; y: number }): AutoscrollTarget | null;
+  /**
+   * Move a strip to `offset` imperatively — its custom property and nothing
+   * else. Never a store write: the offset is an `arrangementSignature` term
+   * ([P12]), so a per-frame commit would arm a FLIP settle on every frame of
+   * the drag and tween the column's other members under the user's hand.
+   */
+  applyScroll(target: AutoscrollTarget, offset: number): void;
+  /** Commit where the gesture left a strip. One store write, at the end, and
+   *  the number is real state — a cancelled drag returns the card, not the
+   *  view. */
+  commitScroll(target: AutoscrollTarget, offset: number): void;
 }
 
 /**

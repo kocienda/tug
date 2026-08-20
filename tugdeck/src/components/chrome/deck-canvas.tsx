@@ -109,6 +109,7 @@ import {
   resolveContentWidthPx,
   clampSlot,
   columnOffsetProperty,
+  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
   columnSeamProperty,
   columnStanding,
   imposeStyle,
@@ -2911,6 +2912,73 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           case "tab-bar":
             return true;
         }
+      },
+
+      autoscrollTargetFor(pointer) {
+        const canvas = containerRef.current;
+        if (canvas === null) return null;
+        const state = store.getSnapshot();
+
+        // A column first: it is the narrower question, and a pointer inside an
+        // overflowing column's run is asking about that column rather than
+        // about the band it happens to sit in.
+        const run = store.getColumnRunHeight();
+        if (run !== null) {
+          for (const column of deckColumnsOf(state)) {
+            if (column.mode !== "split") continue;
+            if (columnStanding(column.members.length) !== "overflow") continue;
+            const first = canvas.querySelector<HTMLElement>(
+              `.tug-pane[data-pane-id="${column.members[0]}"]`,
+            );
+            if (first === null) continue;
+            const zoom = getTugZoom() || 1;
+            const canvasRect = canvas.getBoundingClientRect();
+            const rect = first.getBoundingClientRect();
+            const left = (rect.left - canvasRect.left) / zoom;
+            const width = rect.width / zoom;
+            if (pointer.x < left || pointer.x > left + width) continue;
+            const memberHeight = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+            const strip =
+              column.members.length * memberHeight +
+              (column.members.length - 1) * IMPOSITION_GAP_PX;
+            return {
+              kind: "column",
+              slot: column.slot,
+              axis: "y",
+              bandStart: IMPOSITION_GAP_PX,
+              bandEnd: IMPOSITION_GAP_PX + run,
+              offset: state.columnOffsets?.[column.slot] ?? 0,
+              maxOffset: Math.max(0, strip - run),
+            };
+          }
+        }
+
+        const band = store.getFlowBandWidth();
+        const strip = deckFlowStrip(state);
+        if (band === null || strip === null) return null;
+        return {
+          kind: "flow",
+          axis: "x",
+          bandStart: IMPOSITION_GAP_PX,
+          bandEnd: IMPOSITION_GAP_PX + band,
+          offset: state.flowOffset ?? 0,
+          maxOffset: Math.max(0, strip.width - band),
+        };
+      },
+
+      applyScroll(target, offset) {
+        const el = containerRef.current;
+        if (el === null) return;
+        const property =
+          target.kind === "column"
+            ? columnOffsetProperty(target.slot ?? 0)
+            : FLOW_OFFSET_PROPERTY;
+        el.style.setProperty(property, `${Math.round(offset)}px`);
+      },
+
+      commitScroll(target, offset) {
+        if (target.kind === "column") store.setColumnOffset(target.slot ?? 0, offset);
+        else store.setFlowOffset(offset);
       },
     }),
     [store],

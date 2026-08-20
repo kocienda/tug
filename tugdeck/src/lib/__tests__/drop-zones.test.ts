@@ -15,10 +15,15 @@ import {
   IMPOSITION_GAP_PX,
 } from "../layout-imposer";
 import {
+  AUTOSCROLL_MARGIN_PX,
+  AUTOSCROLL_RATE_PX_PER_SEC,
   ZONE_HYSTERESIS_PX,
+  autoscrollDelta,
+  autoscrollKey,
   dropZoneKey,
   enumerateDropZones,
   pickLiveZone,
+  type AutoscrollTarget,
   type DropZone,
   type DropZoneMeasurements,
 } from "../drop-zones";
@@ -448,5 +453,68 @@ describe("the indication moves once the pointer has committed to it", () => {
 
   it("no zones means no indication", () => {
     expect(pickLiveZone([], { x: 0, y: 0 }, null)).toBeNull();
+  });
+});
+
+describe("a strip advances while the pointer holds at its edge", () => {
+  const band = { bandStart: 5, bandEnd: 605 };
+
+  it("the middle of the band is still", () => {
+    expect(
+      autoscrollDelta({ ...band, pointer: 300, elapsedMs: 16 }),
+    ).toBe(0);
+  });
+
+  it("the far margin advances and the near one retreats", () => {
+    const far = autoscrollDelta({
+      ...band,
+      pointer: band.bandEnd - AUTOSCROLL_MARGIN_PX + 1,
+      elapsedMs: 16,
+    });
+    const near = autoscrollDelta({
+      ...band,
+      pointer: band.bandStart + AUTOSCROLL_MARGIN_PX - 1,
+      elapsedMs: 16,
+    });
+    expect(far).toBeGreaterThan(0);
+    expect(near).toBeLessThan(0);
+    expect(far).toBeCloseTo(-near, 6);
+  });
+
+  it("the margin is a boundary, not a gradient", () => {
+    // Inside by a hair moves; outside by a hair does not. A rate that ramped
+    // with proximity would make the first one tiny instead of full ([Q01]
+    // holds the feel open, but the RULE is a threshold).
+    expect(
+      autoscrollDelta({ ...band, pointer: band.bandEnd - AUTOSCROLL_MARGIN_PX - 1, elapsedMs: 16 }),
+    ).toBe(0);
+    expect(
+      autoscrollDelta({ ...band, pointer: band.bandEnd - AUTOSCROLL_MARGIN_PX + 1, elapsedMs: 16 }),
+    ).toBeCloseTo((AUTOSCROLL_RATE_PX_PER_SEC * 16) / 1000, 6);
+  });
+
+  it("travel is a rate times a time, so a slow frame is not a slow scroll", () => {
+    const one = autoscrollDelta({ ...band, pointer: 600, elapsedMs: 16 });
+    const four = autoscrollDelta({ ...band, pointer: 600, elapsedMs: 64 });
+    expect(four).toBeCloseTo(one * 4, 6);
+  });
+
+  it("a frame with no time in it moves nothing", () => {
+    expect(autoscrollDelta({ ...band, pointer: 600, elapsedMs: 0 })).toBe(0);
+    expect(autoscrollDelta({ ...band, pointer: 600, elapsedMs: -8 })).toBe(0);
+  });
+
+  it("each strip keeps its own running offset across one drag", () => {
+    const column: AutoscrollTarget = {
+      kind: "column", slot: 2, axis: "y",
+      bandStart: 5, bandEnd: 605, offset: 0, maxOffset: 400,
+    };
+    const flow: AutoscrollTarget = {
+      kind: "flow", axis: "x",
+      bandStart: 5, bandEnd: 1200, offset: 0, maxOffset: 900,
+    };
+    expect(autoscrollKey(column)).toBe("column:2");
+    expect(autoscrollKey(flow)).toBe("flow");
+    expect(autoscrollKey({ ...column, slot: 0 })).not.toBe(autoscrollKey(column));
   });
 });

@@ -472,8 +472,8 @@ App-tests must drive real code paths on real content; every new cell carries an 
 | #step-13 | I — integration checkpoint | done | `2db61188e` |
 | #step-14 | H — zone model and enumeration | done | `6762e1254` |
 | #step-15 | H — the gesture: free drag, snap, release | done | `0efe4343c` |
-| #step-16 | H — rails unify, corridor retires | in progress | — |
-| #step-17 | H — autoscroll and doctrine | pending | — |
+| #step-16 | H — rails unify, corridor retires | done | `a19d0ea59` |
+| #step-17 | H — autoscroll and doctrine | in progress | — |
 | #step-18 | H — integration checkpoint | pending | — |
 
 **Milestone M01: F — deterministic Escape** {#m01-escape}

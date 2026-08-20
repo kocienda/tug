@@ -48,7 +48,20 @@ import type { CardMeta, CardSizePolicy, LayoutRole } from "@/card-registry";
 import { DEFAULT_SIZE_POLICY, getRegistration } from "@/card-registry";
 import { computeSnap, computeResizeSnap } from "@/snap";
 import type { Rect, GuidePosition, SnapResult } from "@/snap";
-import { pickLiveZone, type DropZone, type DropZoneHost } from "@/lib/drop-zones";
+import {
+  autoscrollDelta,
+  autoscrollKey,
+  pickLiveZone,
+  type AutoscrollTarget,
+  type DropZone,
+  type DropZoneHost,
+} from "@/lib/drop-zones";
+
+/** One strip a drag has scrolled, and where it left it. */
+interface AutoscrollRun {
+  target: AutoscrollTarget;
+  offset: number;
+}
 import { flashCardPane } from "@/lib/flash-pane-border";
 import { getTugZoom } from "@/components/tugways/scale-timing";
 import { animate, type TugAnimation } from "@/components/tugways/tug-animator";
@@ -2197,6 +2210,19 @@ export function TugPane({
   // still holding the frame at the zone. Consumed by the layout effect below,
   // on the commit that lands the new arrangement.
   const pendingZoneDropRef = useRef<HTMLElement | null>(null);
+  // Every strip this gesture has scrolled, and where it left each one. Held per
+  // strip rather than as one number because a drag can cross from one
+  // overflowing column to another, and each keeps what the hand did to it.
+  // Written imperatively during the gesture; committed once at its end.
+  const autoscrolledRef = useRef(new Map<string, AutoscrollRun>());
+  // The timestamp of the last frame that advanced the clock, or null between
+  // gestures. Elapsed time is what makes the travel the same for a given hold
+  // however the frames happen to fall.
+  const autoscrollClockRef = useRef<number | null>(null);
+  // The tab-bar rects the gesture snapshotted at its latch, kept so a
+  // re-enumeration mid-autoscroll can be handed the same ones. Re-querying them
+  // would be a different snapshot in the middle of one gesture.
+  const zoneTabBarsRef = useRef<ReadonlyMap<string, Rect>>(new Map());
 
   /**
    * Take the drop's parking transform off, on the commit that made it redundant
@@ -2452,9 +2478,69 @@ export function TugPane({
             height: entry.rect.height / dragZoom,
           });
         }
+        zoneTabBarsRef.current = tabBars;
         const set = host.enumerate(id, tabBars);
         if (set.zones.length === 0) return null;
         return { zones: set.zones, live: set.origin };
+      }
+
+      /**
+       * Advance whatever strip the pointer is holding at the edge of, and
+       * answer whether anything moved.
+       *
+       * On the gesture's own rAF ([D135] — no second clock), and imperatively:
+       * the offset goes onto its custom property and nowhere near the store
+       * (Spec S03). A store write here would change `arrangementSignature`
+       * ([P12]) and arm a FLIP settle on every frame of the drag — the dragged
+       * frame is exempt for carrying `data-gesture`, but every OTHER member of
+       * that column would be measured and tweened under the user's hand. The
+       * number commits once, at the drop or the cancel.
+       *
+       * Rescheduling itself while it is advancing is what makes a HELD pointer
+       * keep scrolling: the drag's frames are otherwise driven by pointermove,
+       * and a hand that has stopped moving posts none.
+       */
+      function advanceAutoscroll(pointer: { x: number; y: number }): boolean {
+        const host = dropZonesRef.current;
+        if (host === undefined) return false;
+        const now = performance.now();
+        const last = autoscrollClockRef.current;
+        autoscrollClockRef.current = now;
+        const target = host.autoscrollTargetFor(pointer);
+        if (target === null || last === null) return false;
+
+        const key = autoscrollKey(target);
+        const running = autoscrolledRef.current.get(key);
+        const standing = running?.offset ?? target.offset;
+        const delta = autoscrollDelta({
+          pointer: target.axis === "y" ? pointer.y : pointer.x,
+          bandStart: target.bandStart,
+          bandEnd: target.bandEnd,
+          elapsedMs: now - last,
+        });
+        if (delta === 0) return false;
+
+        // Keep the clock alive while the hand holds, whether or not the strip
+        // still has anywhere to go — a strip pinned at its end that stopped
+        // scheduling frames would never notice the hand moving off the edge.
+        scheduleDragFrame();
+        const next = Math.min(Math.max(0, standing + delta), target.maxOffset);
+        if (next === standing) return false;
+        autoscrolledRef.current.set(key, { target, offset: next });
+        host.applyScroll(target, next);
+        return true;
+      }
+
+      /** Commit every strip this gesture scrolled — one store write each, at
+       *  the end. Real state, so a cancel commits them too: the card goes home
+       *  and the view stays where the hand took it. */
+      function commitAutoscroll(): void {
+        const host = dropZonesRef.current;
+        for (const run of autoscrolledRef.current.values()) {
+          host?.commitScroll(run.target, run.offset);
+        }
+        autoscrolledRef.current.clear();
+        autoscrollClockRef.current = null;
       }
 
       /** The tab bar element a tab-bar zone names, for the indication it has
@@ -2491,9 +2577,17 @@ export function TugPane({
         }px)`;
         if (latestMetaKey.current) {
           state.live = null;
+          autoscrollClockRef.current = null;
           dropZonesRef.current?.indicate(null);
           setDragDropTarget(null);
           return;
+        }
+        if (advanceAutoscroll(pointerOnCanvas(pointer))) {
+          // The strip moved, so every tile moved with it. Re-measure rather
+          // than translate the cached rects: the browser has already reflowed
+          // against the property this frame wrote, and reading it back is the
+          // one answer that cannot drift from what the user is looking at.
+          state.zones = dropZonesRef.current?.enumerate(id, zoneTabBarsRef.current).zones ?? state.zones;
         }
         state.live = pickLiveZone(state.zones, pointerOnCanvas(pointer), state.live);
         dropZonesRef.current?.indicate(state.live);
@@ -2678,6 +2772,10 @@ export function TugPane({
 
         zoneDragRef.current = null;
         dropZonesRef.current?.indicate(null);
+        // A cancel takes back the MOVE, not the view. The strip the hand
+        // scrolled to is where the user is now looking, and rewinding it would
+        // undo something they did not ask to undo.
+        commitAutoscroll();
 
         frame.style.transform = "";
         frame.removeAttribute("data-gesture");
@@ -2764,6 +2862,10 @@ export function TugPane({
         const freedFromZone = zoneState !== null && latestMetaKey.current;
         zoneDragRef.current = null;
         dropZonesRef.current?.indicate(null);
+        // Ahead of the zone commit below, so the settle that animates the
+        // landing is the arrangement change's rather than the offset's. This
+        // one moves no frame: CSS has been drawing the number all along.
+        commitAutoscroll();
         if (zoneDrop === null) frame.removeAttribute("data-gesture");
 
         // Remove snap guides immediately on drop. [D03]

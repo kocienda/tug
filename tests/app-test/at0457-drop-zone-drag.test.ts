@@ -34,6 +34,12 @@
  *   7. **The two vocabularies do not meet.** A content card dropped over a rail
  *      does not join it — rails are not zones for content cards ([P10]).
  *      at0401 asserts the other half from the rail side.
+ *   8. **Holding at an overflowing column's edge scrolls it, and the column's
+ *      other members are not tweened while it does.** The offset moves on its
+ *      custom property during the gesture and commits ONCE, at the drop — a
+ *      per-frame store write would arm a settle every frame ([P12]) and tween
+ *      the siblings under the user's hand. The cut detector cannot see that
+ *      (a tweened frame is not a cut), so it is asserted here.
  *
  * The indicator is asserted by presence and place rather than by appearance:
  * what matters is that something stands in the zone the release will use, and
@@ -200,6 +206,13 @@ async function indicator(app: App): Promise<Rect | null> {
         width: r.width, height: r.height,
       };
     })()`,
+  );
+}
+
+/** Slot `n`'s stored strip offset in px, as the live store holds it. */
+async function columnOffsetOf(app: App, slot: number): Promise<number> {
+  return app.evalJS<number>(
+    `((window.tugdeck.diag.getDeckState().columnOffsets || {})[${slot}] || 0)`,
   );
 }
 
@@ -424,6 +437,102 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
             "it lands in a content slot, because that is the whole of its vocabulary",
           ).not.toBeNull();
           note("rails and content slots stayed out of each other's vocabularies");
+        }
+
+        // ── 8. Holding at an overflowing column's edge scrolls it — and the
+        //    column's OTHER members are not tweened while it does. ──
+        //
+        // The second half is the point. The offset is an `arrangementSignature`
+        // term ([P12]), so committing it per frame would arm a FLIP settle on
+        // every frame of the drag: the dragged frame is exempt for carrying
+        // `data-gesture`, but every other member of that column would be
+        // measured and tweened under the user's hand. The offset therefore
+        // moves on its custom property alone during the gesture and commits
+        // once, at the drop.
+        //
+        // The cut detector cannot see this — a member moving under a tween is
+        // not a cut — so it is asserted here, where the drag machinery is,
+        // rather than in at0450's census.
+        {
+          // Put slot 1 past two members outright rather than inheriting
+          // whatever §4 and §7 left there: the case is about what an
+          // OVERFLOWING column does, so the fixture states it.
+          for (const cardId of ["A", "B", "C", "D", "E"]) {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("assign-slot", { cardId: ${JSON.stringify(cardId)}, slot: 1 }), null)`,
+            );
+          }
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "split" }), null)`,
+          );
+          await wait(AFTER_LAND_MS);
+          const members = await app.evalJS<string[]>(
+            `Array.prototype.slice.call(document.querySelectorAll(
+               '.tug-pane[data-column-split][data-imposed="1"]'
+             )).map(function (el) { return el.getAttribute("data-pane-id"); })`,
+          );
+          expect(
+            members.length,
+            "the fixture put slot 1 past two members, so its column overflows",
+          ).toBeGreaterThanOrEqual(3);
+          {
+            const before = await columnOffsetOf(app, 1);
+            const geometry = await rects(app, [members[0]]);
+            const canvas = await app.evalJS<{ bottom: number; left: number; width: number }>(
+              `(function () {
+                var r = document.querySelector("[data-deck-canvas-background]")
+                  .getBoundingClientRect();
+                return { bottom: r.bottom, left: r.left, width: r.width };
+              })()`,
+            );
+            // Just inside the run's bottom margin, in the column's own band.
+            const edge = {
+              x: Math.round(geometry[members[0]].left + geometry[members[0]].width / 2),
+              y: Math.round(canvas.bottom - 60),
+            };
+            await app.nativeDragElementWithoutRelease(titleBar(members[0]), edge);
+            // Hold. The strip advances on the gesture's own clock while the
+            // hand does nothing, which is the whole gesture.
+            await wait(400);
+            const scrolledProperty = await app.evalJS<string>(
+              `getComputedStyle(
+                 document.querySelector("[data-deck-canvas-background]")
+               ).getPropertyValue("--tug-slot-1-column-offset").trim()`,
+            );
+            const midFlight = await columnOffsetOf(app, 1);
+            const tweened = await app.evalJS<number>(
+              `Array.prototype.slice.call(document.querySelectorAll(
+                 '.tug-pane[data-column-split][data-imposed="1"]'
+               ))
+               .filter(function (el) { return !el.hasAttribute("data-gesture"); })
+               .reduce(function (n, el) {
+                 return n + el.getAnimations({ subtree: false }).length;
+               }, 0)`,
+            );
+            await app.nativeMouseUp(edge);
+            await wait(AFTER_LAND_MS);
+            const committed = await columnOffsetOf(app, 1);
+
+            note(
+              `autoscroll: property ${scrolledProperty} mid-flight, store ${midFlight} → ${committed}, ${tweened} sibling tween(s)`,
+            );
+            expect(
+              parseFloat(scrolledProperty),
+              "the strip advanced while the pointer held at the run's edge",
+            ).toBeGreaterThan(before);
+            expect(
+              midFlight,
+              "and it advanced on the property alone — the store was not written per frame",
+            ).toBe(before);
+            expect(
+              tweened,
+              "so the column's other members are not tweened under the user's hand",
+            ).toBe(0);
+            expect(
+              committed,
+              "the number commits once, at the drop",
+            ).toBeGreaterThan(before);
+          }
         }
       } finally {
         await app.close();
