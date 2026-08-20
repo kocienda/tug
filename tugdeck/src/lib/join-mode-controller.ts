@@ -431,6 +431,18 @@ export class JoinModeController implements LandingMode {
   private active = false;
   private seedMessage: string | null = null;
   private target: JoinTarget | null = null;
+  /**
+   * The dash this composer last fired a join at, kept **past the mode exit**
+   * so the register can finish its sentence ([P03]).
+   *
+   * Landing exits the mode — the host stages a join by exiting, and exiting
+   * clears the target — which used to take the composer's register down at the
+   * exact moment it had the most to say. The press was the last thing that
+   * surface reported about a join it started. So the target dies on exit and
+   * this does not: it is what the register is derived from while the join runs
+   * and after it settles, and the next entry or aim retires it.
+   */
+  private narration: JoinTarget | null = null;
   private snapshot: JoinModeSnapshot;
   private landHook: ((runJoin: () => void) => void) | null = null;
   private messageProvider: (() => string) | null = null;
@@ -562,9 +574,16 @@ export class JoinModeController implements LandingMode {
       ? null
       : joinDisabledReason(gate.reason, outcome, staleNote);
     const messagePresent = this.active && (this.messageProvider?.() ?? "").trim().length > 0;
+    // The aimed dash while there is one, the dash this composer last fired at
+    // once the press has taken the mode down. Only the register reads it —
+    // every other field on this snapshot is about a mode that is *open*, and a
+    // narration is about a run that is over.
+    const registerTarget = this.target ?? this.narration;
 
     return {
       active: this.active,
+      // Between the press and the next thing this composer is asked to do.
+      narrating: !this.active && this.narration !== null,
       seedMessage: this.seedMessage,
       canLandIgnoringMessage: gate.ok,
       landBlockedReason,
@@ -572,20 +591,20 @@ export class JoinModeController implements LandingMode {
       // three call one derivation ([P04]). The composer is where somebody who
       // typed `/dash-join` is actually looking.
       register:
-        this.target === null
+        registerTarget === null
           ? null
           : dashJoinRegister({
-              dash: this.target.name,
-              base: this.target.base,
+              dash: registerTarget.name,
+              base: registerTarget.base,
               stage: entry?.stage ?? null,
               join,
               resolvePhase: getChangesetJoinStore()?.state(
                 changesController.workspaceKey,
-                this.target.name,
+                registerTarget.name,
               ).phase,
               landBeat: getChangesetJoinStore()?.landProgress(
                 changesController.workspaceKey,
-                this.target.name,
+                registerTarget.name,
               ),
             }),
       landRole: landConfirm === null ? "action" : "danger",
@@ -640,6 +659,9 @@ export class JoinModeController implements LandingMode {
       );
     }
     this.deps.commitModeController.exit();
+    // Opening the mode is the composer being put to a new use, so the last
+    // join's settled sentence stops being what it is for.
+    this.narration = null;
     this.target = target;
     this.seedMessage = seed.length > 0 ? seed : null;
     this.active = true;
@@ -694,6 +716,10 @@ export class JoinModeController implements LandingMode {
   /** Point the mode at a dash. */
   private retarget(target: JoinTarget): void {
     if (sameTarget(this.target, target)) return;
+    // Aiming somewhere is the composer being asked about a dash, so whatever
+    // it was still saying about the last join it fired stops being what this
+    // surface is for.
+    this.narration = null;
     this.target = target;
     this.snapshot = this.derive();
     this.fire();
@@ -902,6 +928,10 @@ export class JoinModeController implements LandingMode {
       this.refuse("fault", CHANGES_SERVICE_DISCONNECTED, "no-verb-store", input);
       return;
     }
+    // This press is what retires the previous one's last word, and the only
+    // thing that may: a settled narration rests until it is replaced ([P03]).
+    getChangesetJoinStore()?.clearLand(changesController.workspaceKey, target.name);
+    this.narration = target;
     verbStore.join(changesController.entryKey, changesController.workspaceKey, target.name, {
       preview: false,
       message: text,

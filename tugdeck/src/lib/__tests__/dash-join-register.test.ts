@@ -245,4 +245,39 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     });
     expect(overlay?.word).toBe("reconciling");
   });
+  test("a join that finished says so, and keeps saying so", () => {
+    // The whole reason the terminal beat settles instead of clearing: frames
+    // arrive in batches, so on a join fast enough to finish inside one, every
+    // in-flight beat is overwritten before a single paint. The settled state
+    // is the one reading that survives batching — and it is also simply the
+    // most useful sentence the register ever shows.
+    const landed = reg(verified("green"), {
+      landBeat: { beat: "joined", status: "done", terminal: true },
+    });
+    expect(landed?.word).toBe("joined");
+    expect(landed?.phase).toBe("success");
+    expect(landed?.line).toContain("main");
+  });
+
+  test("a settled failure outranks the verdict that permitted the press", () => {
+    // A green left standing over a join that did not land reads as an
+    // invitation to do the thing that just failed.
+    const failed = reg(verified("green"), {
+      landBeat: { beat: "failed", status: "error", terminal: true },
+    });
+    expect(failed?.word).toBe("join-failed");
+    expect(failed?.phase).toBe("error");
+  });
+
+  test("but a blocker outranks the failure, because it explains it", () => {
+    const blocked = reg(
+      {
+        phase: "previewed",
+        blockers: [{ kind: "base-dirt", detail: "Commit or stash src/x.ts" }],
+      },
+      { landBeat: { beat: "failed", status: "error", terminal: true } },
+    );
+    expect(blocked?.word).toBe("blocked");
+    expect(blocked?.line).toContain("src/x.ts");
+  });
 });

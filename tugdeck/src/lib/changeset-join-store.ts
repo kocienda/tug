@@ -107,10 +107,25 @@ const IDLE: ResolveState = Object.freeze({
 
 /** One beat of a join in flight ([P03], Spec S02). */
 export interface LandProgress {
-  /** `squash` | `teardown` | `release` | `record`. */
+  /** `squash` | `teardown` | `release` | `record`, or `joined` / `failed`. */
   beat: string;
-  /** `start` | `done`. */
+  /** `start` | `done` | `error`. */
   status: string;
+  /**
+   * The run is over — this is its last word rather than a beat inside it.
+   *
+   * The terminal frame **settles** the narration instead of erasing it, and
+   * that is the difference between a progress line and a progress line nobody
+   * can ever see. Frames arrive in batches: on a fast join every beat and the
+   * terminal reply land in one, so a store that deleted on terminal would
+   * leave the renderer nothing to paint but the state before the press. The
+   * join would narrate itself perfectly and silently.
+   *
+   * Settling also matches the vocabulary the register already borrowed — a
+   * `BlockHeader` lifecycle dot pulses through the work and *rests* green or
+   * red, it does not vanish at the end.
+   */
+  terminal?: boolean;
 }
 
 function key(workspaceKey: string, dash: string): string {
@@ -169,7 +184,10 @@ export class ChangesetJoinStore {
     // A join in flight loses its narrator with the wire; its beats would
     // otherwise rest on whichever one arrived last, forever.
     let landCleared = false;
-    for (const k of [...this._land.keys()]) {
+    for (const [k, progress] of [...this._land]) {
+      // A settled join is a result, not a run — it survives the wire the same
+      // way the terminal resolve states below it do.
+      if (progress.terminal === true) continue;
       this._land.delete(k);
       landCleared = true;
     }
@@ -230,10 +248,18 @@ export class ChangesetJoinStore {
       this._emit();
       return;
     }
-    // The join is over, one way or the other — its beats stop describing
-    // anything, so they do not outlive the run that produced them.
+    // The join is over, one way or the other — and that is the one beat the
+    // reader most needs to see, so it settles rather than clearing. See
+    // {@link LandProgress.terminal}: erasing here made the whole narration
+    // unobservable on any join fast enough to arrive in one frame batch.
     if (action === "changeset_join_ok" || action === "changeset_join_err") {
-      if (this._land.delete(k)) this._emit();
+      const ok = action === "changeset_join_ok";
+      this._land.set(k, {
+        beat: ok ? "joined" : "failed",
+        status: ok ? "done" : "error",
+        terminal: true,
+      });
+      this._emit();
       return;
     }
 
@@ -466,11 +492,29 @@ export class ChangesetJoinStore {
     });
   }
 
-  /** Clear a dash's resolve state and its beats (cancel / after landing). */
+  /**
+   * Clear a dash's resolve state (cancel / after landing).
+   *
+   * Deliberately **not** the join's narration: this is called the instant a
+   * join reports done, which is exactly when the settled beat is the newest
+   * thing the reader has been told. Clearing both from one verb is how the
+   * last word of the arc came to be deleted by the arrival of that word.
+   * {@link clearLand} is the other half, and its caller is a new press.
+   */
   clear(workspaceKey: string, dash: string): void {
-    const k = key(workspaceKey, dash);
-    this._land.delete(k);
-    this._set(k, IDLE);
+    this._set(key(workspaceKey, dash), IDLE);
+  }
+
+  /**
+   * Forget a dash's join narration — what a *new* press does to the last one.
+   *
+   * A settled beat rests until something replaces it, so the press that starts
+   * the next join is what retires the previous one's last word. Nothing else
+   * should: a settled state that vanished on its own would be a progress line
+   * that erases its own result.
+   */
+  clearLand(workspaceKey: string, dash: string): void {
+    if (this._land.delete(key(workspaceKey, dash))) this._emit();
   }
 
   dispose(): void {

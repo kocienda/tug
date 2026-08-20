@@ -3898,7 +3898,11 @@ export const TugPromptEntry = React.forwardRef<
   // what keeps this component ignorant of which landing it is hosting: commit
   // mode reports null, join mode reports the same reading the Lens row and the
   // shade row show.
-  const landingRegister = landingActive ? (landingSnap?.register ?? null) : null;
+  // Deliberately NOT gated on `landingActive`: the press exits the mode, and
+  // gating here is what took this row down at the exact moment the join it
+  // started had the most to say ([P03]). Commit mode reports a null register,
+  // so an inactive join mode is the only thing this can be showing.
+  const landingRegister = landingSnap?.register ?? null;
   // The sentence the land must have answered, when the mode has armed one.
   const landingConfirmMessage = landingActive ? (landingSnap?.landConfirm ?? null) : null;
   // A confirm outlives neither the question it asks nor the mode it asks in: a

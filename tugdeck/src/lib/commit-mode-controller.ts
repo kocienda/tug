@@ -232,6 +232,9 @@ export class CommitModeController implements LandingMode {
 
     return {
       active: this.active,
+      // A commit's receipt is a transcript block, not a status row — there is
+      // no arc here to keep reporting on after the press.
+      narrating: false,
       seedMessage: this.seedMessage,
       canLandIgnoringMessage: gate.ok,
       landBlockedReason: gate.ok ? null : commitDisabledReason(gate.reason),

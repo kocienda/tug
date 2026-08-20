@@ -5234,7 +5234,17 @@ export function SessionCardBody({
               shellGrammarStore={shellGrammarStore}
               shellClassifyStore={shellClassifyStore}
               findSession={findSession}
-              landingMode={joinActive ? joinModeController : commitModeController}
+              // A join that has been pressed keeps the slot until something
+              // else claims it ([P03]): landing exits the mode, so handing the
+              // composer straight back to commit mode would take the join's
+              // own account of itself down on the beat it was pressed. Commit
+              // mode going active supersedes it — that is a person asking this
+              // composer for something else.
+              landingMode={
+                joinActive || (joinSnapshot.narrating && !commitModeActive)
+                  ? joinModeController
+                  : commitModeController
+              }
               // What the Changes room lands for this card: a dash in reach —
               // bound, or aimed at by name through `/dash-join` — means a join.
               // The aimed case matters because that command enters join mode

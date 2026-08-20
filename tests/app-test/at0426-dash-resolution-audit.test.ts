@@ -119,6 +119,9 @@ function makeArc(prefix: string, dash: string, sid: string, resolver: string): A
     verifyTier0: `grep -q SENTINEL ${FILE}`,
     resolver,
     mergeDriver: DRIVER_STUB,
+    // The run this file audits is the pilot's. There is no Resolve to press
+    // any more ([P08]), and a dash reaches the resolver by being built.
+    built: true,
   });
   const fixtureDir = seedScratchSession(scratch.repo, sid);
   return { scratch, fixtureDir, sid, dash };
@@ -182,20 +185,7 @@ async function runCommand(app: App, line: string): Promise<void> {
   await app.nativeKey("Return", ["cmd"]);
 }
 
-async function revealAndClick(app: App, selector: string): Promise<void> {
-  await app.evalJS<boolean>(
-    `(function(){
-      var el = document.querySelector(${JSON.stringify(selector)});
-      if (el === null) return false;
-      el.scrollIntoView({ block: "center" });
-      return true;
-    })()`,
-  );
-  await settle(250);
-  await app.nativeClickAtElement(selector);
-}
-
-/** Open the card on an arc's dash and press Resolve. */
+/** Open the card on an arc's dash and wait for the pilot's run to finish. */
 async function resolveArc(app: App, arc: Arc): Promise<string> {
   const row = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${arc.dash}"]`;
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -213,13 +203,14 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
   );
   await app.dispatchControlAction("toggle-lens");
 
+  // The dash is `built`, so the pilot reconciles it with nothing pressed.
+  // `/dash-join` fronts the row so the audit's own surfaces render; it does
+  // not start the run, and on a conflicted dash it never did.
   await runCommand(app, `/dash-join ${arc.dash}`);
   await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join"]`)})?.getAttribute("data-outcome") === "conflicted"`,
+    `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join"]`)}) !== null`,
     { timeoutMs: 40000 },
   );
-  await settle(400);
-  await revealAndClick(app, `${row} [data-slot="session-changes-dash-resolve"]`);
   return row;
 }
 

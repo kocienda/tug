@@ -7,9 +7,10 @@
  * that question against real dashes and the server's own standing answer for
  * each: a dash with a round over a clean base reads clean, carries no control
  * at all, and states where landing happens; an interrupted teardown reads
- * blocked, names the resume as the act that clears it, and fronts the resume
- * itself; a dash with no rounds reads empty and asks the release question in
- * words.
+ * blocked and names the resume as the act that clears it — while offering no
+ * button for it, because the journal is durable and the teardown resumes
+ * itself ([P08]); a dash with no rounds reads empty and asks the discard
+ * question in words.
  *
  * The readiness sentence is load-bearing, not decoration. Nothing on the row
  * lands a dash, so a landable one that said only "clean" would leave the reader
@@ -37,7 +38,8 @@
  * at0441 press one on their own scratch repos — so the discard is where the
  * card → server → shell ledger → reload path is walked in this file.
  *
- * The discard confirms through the lane's `TugConfirmPopover`, and both halves
+ * The discard is reached through the row's `⋯` menu, which is where the rare
+ * verbs moved ([P08]). It confirms through the lane's `TugConfirmPopover`, and both halves
  * are driven: Cancel first — proving the arming click destroys nothing and
  * sends no release — then Confirm. The confirm's message is a fact sheet
  * naming the counts and the hand-back, not a list of round subjects: those stay
@@ -80,6 +82,7 @@ import {
   seedScratchSession,
   type DashScratchRepo,
 } from "./dash-fixture";
+import { pressDashRowMenuItem } from "./dash-row-menu-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -304,15 +307,15 @@ async function settledOutcome(app: App, dash: string): Promise<string> {
 async function landingFace(
   app: App,
   dash: string,
-): Promise<{ ready: boolean; line: string; refusals: string }> {
-  return app.evalJS<{ ready: boolean; line: string; refusals: string }>(
+): Promise<{ ready: boolean; line: string }> {
+  // No refusal list: the two controls it spoke for moved into the row's menu,
+  // where a blocked verb carries its reason in its own label ([P08], [L31]).
+  return app.evalJS<{ ready: boolean; line: string }>(
     `(() => {
        const line = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-join-ready"]`)});
-       const reasons = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-join-refusals"]`)});
        return {
          ready: line !== null && line.getAttribute("data-ready") === "true",
          line: line === null ? "" : (line.textContent ?? ""),
-         refusals: reasons === null ? "" : (reasons.textContent ?? ""),
        };
      })()`,
   );
@@ -394,7 +397,12 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // because this dash lives in the developer's checkout and resolving it
         // would run the project's real declared checks there.
         expect(clean.ready).toBe(false);
-        expect(clean.line).toContain("Verify the joined tree first");
+        // And the sentence names a WAIT, not an act ([P09]). It used to read
+        // "Verify the joined tree first", which pointed at a button on this
+        // row; there is no button, and there is nothing for the reader to do —
+        // the machine is already building the tree. A refusal now points at
+        // the composer or at time, and this one is time.
+        expect(clean.line).toContain("Building the joined tree");
         // No blockers on a clean bill, and no release question either.
         const cleanFace = await app.evalJS<{ blockers: number; empty: number }>(
           `(() => {
@@ -466,14 +474,17 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // over the specific one already on screen.
         expect(stuck.ready).toBe(false);
 
-        // The stage the journal derives fronts the act itself. The button is
-        // asserted, never pressed: a resume would tear the fixture's branch
-        // down against a commit that never happened.
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${row(DASH_WORK)} [data-slot="session-changes-dash-resume"]`)}) !== null`,
-          { timeoutMs: 40000 },
-        );
-        note(`at0418 resume affordance rendered for ${DASH_WORK}`);
+        // And it fronts no button to resume with. The journal is durable and an
+        // interrupted teardown resumes itself, so a control for it was a press
+        // that existed only because nothing did ([P08]) — the blocker's own act
+        // sentence above is what the reader gets, and it is enough.
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(`${row(DASH_WORK)} [data-slot="session-changes-dash-resume"]`)}).length`,
+          ),
+          "an interrupted teardown offers no resume button",
+        ).toBe(0);
+        note(`at0418 blocked ${DASH_WORK}: the act is stated, and nothing is offered`);
         rmSync(journalPath(DASH_WORK), { force: true });
         rmSync(nudge, { force: true });
 
@@ -530,10 +541,10 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         ).toContain(RELEASE_SUBJECT);
 
         // Cancel first: the arming beat must not itself be destructive.
-        await clickUntil(
-          app,
-          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-discard"]`,
-          CONFIRM_POPOVER,
+        await pressDashRowMenuItem(app, row(DASH_RELEASE), "request-discard-dash");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CONFIRM_POPOVER)}) !== null`,
+          { timeoutMs: 8000 },
         );
         await app.nativeClickAtElement(`${CONFIRM_POPOVER} [data-slot="tug-confirm-cancel"]`);
         await app.waitForCondition<boolean>(
@@ -556,10 +567,10 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // Arm it again and read the fact sheet: counts, and where the
         // worktree's uncommitted files go. The hand-back is the sentence that
         // makes this consent rather than a click.
-        await clickUntil(
-          app,
-          `${row(DASH_RELEASE)} [data-slot="session-changes-dash-discard"]`,
-          CONFIRM_POPOVER,
+        await pressDashRowMenuItem(app, row(DASH_RELEASE), "request-discard-dash");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CONFIRM_POPOVER)}) !== null`,
+          { timeoutMs: 8000 },
         );
         const preflight = await app.evalJS<string>(
           `(document.querySelector(${JSON.stringify(`${CONFIRM_POPOVER} [data-slot="tug-confirm-message"]`)})?.textContent ?? "").trim()`,

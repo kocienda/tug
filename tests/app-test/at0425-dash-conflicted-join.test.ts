@@ -71,6 +71,7 @@ import {
   smallConflictSubject,
   type DashScratchRepo,
 } from "./dash-fixture";
+import { pressDashRowMenuItem, readDashRowMenu } from "./dash-row-menu-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -87,12 +88,8 @@ const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-lab
 
 const DASH = "at0425-conflict";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const ADOPT = `${ROW} [data-slot="session-changes-dash-bind"]`;
-const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
 const OUTCOME = `${ROW} [data-slot="session-changes-dash-join-outcome"]`;
-const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
 const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
-const RELEASE = `${ROW} [data-slot="session-changes-dash-discard"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
 const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-join-archaeology"]`;
 
@@ -248,14 +245,10 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         );
         note(`outcome: conflicted over ${conflictFile}`);
 
-        // Fronted-but-unbound offers Adopt — fronting is about what is being
+        // Fronted-but-unbound offers Bind — fronting is about what is being
         // landed, the binding about what the card works. The incident read
         // this pairing as a contradiction; it is the designed state.
-        expect(
-          await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(ADOPT)}) !== null`,
-          ),
-        ).toBe(true);
+        expect((await readDashRowMenu(app, ROW)).bind.present).toBe(true);
         // The conflict names its file.
         expect(
           await app.evalJS<string>(
@@ -285,85 +278,63 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         );
         expect(claimsReady, "a conflicted dash must not read as ready").toBe(false);
 
-        // ── Resolve: ungated by the turn, and the click must register ─────
-        // Hold a real turn open across the whole Resolve gesture. Resolving
-        // builds a candidate off to the side and touches no checkout, so the
-        // agent being mid-edit is no reason to refuse it — and refusing it
-        // locked a conflicted dash's only escape hatch behind the turn. The
-        // turn is driven through the real store wire path (the at0099 send +
-        // ingestFrame pattern), not simulated on the component.
+        // ── The turn narrows Discard, and says so where the press is ──────
+        // Hold a real turn open, driven through the real store wire path (the
+        // at0099 send + ingestFrame pattern) rather than simulated on the
+        // component.
         //
-        // Release is the witness that the turn really is in flight: it keeps
-        // the gate, because it destroys the dash. So mid-turn the two controls
-        // must disagree — Release disabled, Resolve live — which is the whole
-        // of the narrowing, read off the face.
+        // What the turn gates is Discard, because Discard destroys the dash.
+        // Everything else the row offers is unaffected — the narrowing was
+        // always about destruction, not about the row being busy. The Resolve
+        // this section used to press is gone with the rest of the shade's
+        // controls ([P08]): the machine reconciles a built dash, so a
+        // conflicted one's escape hatch is no longer a button anybody can
+        // find locked behind a turn.
+        //
+        // And the refusal is READABLE. A disabled item takes no pointer
+        // events, so a tooltip on one never fires and a `title` can never be
+        // read — the reason rides the item's own label ([L31]).
         await app.driveSession("A", { op: "send", text: "hold the turn open" });
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(RELEASE)})?.disabled === true`,
-          { timeoutMs: 8000 },
-        );
+        await settle(1200);
+        const midTurn = await readDashRowMenu(app, ROW);
+        expect(midTurn.discard.disabled, "a live turn holds the discard").toBe(true);
         expect(
-          await app.evalJS<boolean>(
-            `(function(){
-              var b = document.querySelector(${JSON.stringify(RESOLVE)});
-              return b !== null && !b.disabled;
-            })()`,
-          ),
-        ).toBe(true);
-        // Scroll it into the shade's scrollport first. The dash lane renders
-        // below the changed-file list, whose length is whatever the developer's
-        // working tree happens to be, so on a busy tree the row starts under
-        // the composer and a bare click lands on the editor instead.
-        await app.evalJS<boolean>(
-          `(function(){
-            var el = document.querySelector(${JSON.stringify(RESOLVE)});
-            if (el === null) return false;
-            el.scrollIntoView({ block: "center" });
-            return true;
-          })()`,
-        );
-        await settle(250);
-        await app.nativeClickAtElement(RESOLVE);
-        // The store flips to resolving synchronously on click, before any
-        // server frame — the offer face leaves at once. A Resolve still on
-        // screen here IS the incident's dead click.
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(RESOLVE)}) === null`,
-          { timeoutMs: 5000 },
-        );
-        note("Resolve click registered mid-turn: the offer face left");
+          midTurn.discard.label,
+          "and the item itself says what is holding it",
+        ).toContain("turn");
+        expect(
+          midTurn.bind.disabled,
+          "taking a dash on is not destroying it, so the turn does not gate it",
+        ).toBe(false);
+        note(`at0425 mid-turn menu: ${JSON.stringify(midTurn.discard.label)}`);
 
         // Close the turn — the rest of the file is an idle-state story, and
-        // Adopt below would otherwise be read against a live turn.
+        // Bind below would otherwise be read against a live turn.
         await app.driveSession("A", {
           op: "ingestFrame",
           feedId: FEED_CODE_OUTPUT,
           decoded: { tug_session_id: SID, type: "turn_complete", msg_id: "m1", result: "success" },
         });
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(RELEASE)})?.disabled === false`,
-          { timeoutMs: 8000 },
-        );
+        await settle(1200);
+        expect(
+          (await readDashRowMenu(app, ROW)).discard.disabled,
+          "and the hold lifts with the turn",
+        ).toBe(false);
 
-        // What happens *after* the press is no longer this file's subject. A
-        // conflicted resolve now hands off to the resolver, whose refusals and
-        // verdicts are pressed in at0426, at0441, at0442, and at0443 against
-        // scratch repositories with scripted resolvers. Asserting the ladder's
-        // old "still conflicting" dead end here would be asserting a terminal
-        // state the flow no longer reaches — and driving the real one would
-        // spawn a model against the developer's own checkout.
-        //
-        // The claim this file keeps is the one only it can make: the press
-        // registered, over a real conflict in a real repository, on an unbound
-        // card fronting a named join.
-
-        // ── Adopt: the real round trip ────────────────────────────────────
-        await app.nativeClickAtElement(ADOPT);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LEAVE)}) !== null`,
-          { timeoutMs: 20000 },
-        );
-        note("Adopt round-tripped: bind_dash_ok flipped the row to Leave");
+        // ── Bind: the real round trip ─────────────────────────────────────
+        // The flip is read from the menu rather than from the fronting: this
+        // row is already fronted and unbound, which is the designed state the
+        // incident misread as a contradiction. What the bind changes is which
+        // complement the menu carries.
+        await pressDashRowMenuItem(app, ROW, "bind-dash");
+        let bound = false;
+        const boundBy = Date.now() + 20_000;
+        while (Date.now() < boundBy && !bound) {
+          await settle(500);
+          bound = (await readDashRowMenu(app, ROW)).unbind.present;
+        }
+        expect(bound, "bind_dash_ok flipped the menu's complement to Unbind").toBe(true);
+        note("Bind round-tripped: the menu now offers Unbind");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

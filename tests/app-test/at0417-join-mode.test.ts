@@ -63,6 +63,7 @@ import {
   seedScratchSession,
   type DashScratchRepo,
 } from "./dash-fixture";
+import { readDashRowMenu } from "./dash-row-menu-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -372,29 +373,24 @@ describe.skipIf(!SHOULD_RUN)("AT0417: /dash-join enters join mode", () => {
           `document.querySelector(${JSON.stringify(FRONTED)}) !== null`,
           { timeoutMs: 15000 },
         );
-        const face = await app.evalJS<{
-          fronted: string | null;
-          landing: number;
-          adopt: number;
-          leave: number;
-        }>(
+        const face = await app.evalJS<{ fronted: string | null; landing: number }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              const rows = document.querySelectorAll(${JSON.stringify(`${SHEET} [data-slot="session-changes-dash-row"]`)});
              return {
                fronted: (rows[0] ?? null)?.getAttribute("data-dash") ?? null,
                landing: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-join"]').length,
-               adopt: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-bind"]').length,
-               leave: row === null ? -1 : row.querySelectorAll('[data-slot="session-changes-dash-unbind"]').length,
              };
            })()`,
         );
         note(`at0417 named-join face: ${JSON.stringify(face)}`);
         expect(face.fronted).toBe(DASH);
-        // Fronted is not bound: the card never adopted this dash, so the row
-        // offers to take it on rather than to put it down.
-        expect(face.adopt).toBe(1);
-        expect(face.leave).toBe(0);
+        // Fronted is not bound: the card never adopted this dash, so its menu
+        // offers to take it on rather than to put it down. Asked of the menu,
+        // because that is where the verbs live now ([P08]).
+        const verbs = await readDashRowMenu(app, ROW);
+        expect(verbs.bind.present).toBe(true);
+        expect(verbs.unbind.present).toBe(false);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

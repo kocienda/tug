@@ -510,6 +510,7 @@ export function SessionChangesView({
         boundDashId={boundDashId}
         frontedDashId={frontedDashId}
         projectRoot={project.project_dir}
+        workspaceKey={changesController.workspaceKey}
         joinFace={laneJoinFace}
         binding={laneBinding}
         discard={laneDiscard}

@@ -257,6 +257,7 @@ export function discardConfirmMessage(entry: DashChangesetEntry): string {
 function DashRow({
   entry,
   projectRoot,
+  workspaceKey,
   fronted,
   bound,
   expanded,
@@ -268,6 +269,8 @@ function DashRow({
 }: {
   entry: DashChangesetEntry;
   projectRoot: string;
+  /** The key the join store is written under — never the root ([L29]). */
+  workspaceKey: string;
   fronted: boolean;
   /** This card is mated to this dash — which is what Unbind-vs-Bind reads,
    *  and is not the same question as which row is fronted. */
@@ -288,7 +291,12 @@ function DashRow({
   const rowRef = useRef<HTMLDivElement | null>(null);
   // The beats of a join in flight on THIS dash ([L02], [P03]). Subscribed per
   // row so one dash landing does not re-render every other row in the lane.
-  const landBeat = useChangesetJoinLand(projectRoot, entry.display_name);
+  // Keyed on the WORKSPACE KEY, never the project root. The beat frames echo
+  // back the `project_dir` the request sent, and every send on this path sends
+  // the workspace key — so a read under the root's spelling is a subscription
+  // to a cell nothing ever writes ([L29]). That is not a hypothetical: it is
+  // the exact shape of the bug at0441 was written for, one field over.
+  const landBeat = useChangesetJoinLand(workspaceKey, entry.display_name);
   // Opening a row points the join mode at its dash and asks the server nothing:
   // the answer is already on the entry. The effect fires on the closed → open
   // edge (and on mount, since the fronted row opens with the shade), so the
@@ -504,6 +512,12 @@ export interface SessionChangesDashLaneProps {
   frontedDashId?: string | null;
   /** Absolute checkout root — the range descriptor's `root`. */
   projectRoot: string;
+  /**
+   * The workspace key this card addresses the project by — what every send on
+   * the join path carries, and therefore the only spelling the join store is
+   * ever written under. Distinct from { projectRoot} on purpose ([L29]).
+   */
+  workspaceKey: string;
   /** The fronted row's join face; omitted leaves the lane read-only. */
   joinFace?: DashLaneJoinFace;
   /** Bind / Unbind, for every row; omitted leaves the lane read-only. */
@@ -518,6 +532,7 @@ export function SessionChangesDashLane({
   boundDashId,
   frontedDashId,
   projectRoot,
+  workspaceKey,
   joinFace,
   binding,
   discard,
@@ -572,6 +587,7 @@ export function SessionChangesDashLane({
             key={fronted.owner_id}
             entry={fronted}
             projectRoot={projectRoot}
+            workspaceKey={workspaceKey}
             fronted
             bound={fronted.owner_id === boundDashId}
             expanded={isExpanded(fronted)}
@@ -594,6 +610,7 @@ export function SessionChangesDashLane({
               key={entry.owner_id}
               entry={entry}
               projectRoot={projectRoot}
+              workspaceKey={workspaceKey}
               fronted={false}
               bound={entry.owner_id === boundDashId}
               expanded={isExpanded(entry)}

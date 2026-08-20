@@ -106,6 +106,17 @@ export function sameRefusal(a: LandingRefusal | null, b: LandingRefusal | null):
 export interface LandingSnapshot {
   /** Whether the mode is active (the composer is a message editor). */
   active: boolean;
+  /**
+   * The mode is **inactive but still reporting** on a landing it fired.
+   *
+   * Landing exits the mode — the host stages a landing by exiting — so without
+   * this the composer goes blank at the exact moment it has the most to say,
+   * and a landing's own account of itself is the one thing the presser never
+   * gets to read. A mode that is narrating keeps the composer's status row,
+   * and nothing else: it is not active, it takes no press, and any mode that
+   * genuinely becomes active supersedes it.
+   */
+  narrating: boolean;
   /** The `/commit <message>` or `/dash-join … <message>` seed, or null. */
   seedMessage: string | null;
   /**

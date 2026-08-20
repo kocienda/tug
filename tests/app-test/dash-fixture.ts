@@ -474,6 +474,28 @@ export function commitRound(
 }
 
 /**
+ * Declare a dash `built` — which is what starts the join arc.
+ *
+ * The pilot acts on a `built` dash and on nothing else: reconciling it with its
+ * base and running the project's Tier 0 over the result, unprompted. So a
+ * fixture that wants the machine to do its work says so here, and then asserts
+ * with no gesture at all. A fixture that wants a dash left alone simply does
+ * not call this.
+ */
+export function markDashBuilt(
+  projectDir: string,
+  name: string,
+  opts: DashFixtureOpts = {},
+): void {
+  refuseCheckout(projectDir, "mark a dash built");
+  tugutil(["dash", "mark", name, "built"], {
+    cwd: projectDir,
+    binaryRoot: opts.binaryRoot,
+    env: opts.env,
+  });
+}
+
+/**
  * A document that parses as a plan, carrying one unstamped Review Record round
  * for `plan stamp` to write into.
  *
@@ -882,6 +904,15 @@ export interface JoinScratchOpts {
   cleanMerge?: boolean;
   /** An optional merge-driver stub body, for an arc that needs a ladder-clean candidate. */
   mergeDriver?: string;
+  /**
+   * Declare the dash `built` once the round is in — which hands it to the
+   * pilot ({@link markDashBuilt}).
+   *
+   * A fixture asserting that the machine reconciles and checks a dash *with no
+   * gesture* sets this and then presses nothing. A fixture about a dash still
+   * being worked leaves it off, and the pilot never looks at it.
+   */
+  built?: boolean;
 }
 
 /**
@@ -929,6 +960,13 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
   if (opts.mergeDriver !== undefined) {
     gitRetry(repo, "config", "tugdash.mergedriver", script("stub-driver.sh", opts.mergeDriver));
   }
+
+  // Last, and after the resolver is configured: `built` is what hands the dash
+  // to the pilot, and the pilot may start reconciling the moment a tugcast
+  // process sees the stage move. A dash declared built before its resolver
+  // exists would be reconciled by whatever `tugdash.joinresolver` said then,
+  // which is nothing.
+  if (opts.built === true) markDashBuilt(repo, opts.dash, base.cli);
 
   return { repo, dataRoot, stubDir, worktree: created.worktree, dashId: created.id };
 }

@@ -20,7 +20,7 @@
  * dash" label. The broadcast is dispatched through `dispatchAction` — the
  * production entry point the wire's decoder hands frames to.
  *
- * ## Release's reach
+ * ## Discard's reach
  *
  * Both sides of the rule are driven. An unbound dash — one no live session is
  * mated to — offers Release from any shade, because there is nobody to take it
@@ -34,10 +34,13 @@
  * workspace by spawning a real session on it — a dash is for implementing a
  * plan, not for running a test, so no fixture ever cuts one in the checkout.
  *
- * The lane's two binding gestures live here too, and are driven for real:
- * Leave on the fronted row sends `unbind_dash`, Adopt on a non-fronted row
- * sends `bind_dash`, and the lane's fronting moves on the broadcast that comes
- * back rather than on the click.
+ * The lane's two binding gestures live here too, and are driven for real —
+ * through the row's `⋯` menu, which is where they moved ([P08]): Unbind on the
+ * fronted row sends `unbind_dash`, Bind on a non-fronted row sends `bind_dash`,
+ * and the lane's fronting moves on the broadcast that comes back rather than on
+ * the press. The menu is also where a blocked verb states its block, since a
+ * disabled item takes no pointer events and a `title` on one can never be read
+ * ([L31]).
  *
  * What the masthead says about the binding is NOT asserted here, and that is
  * deliberate. The dash rides the title's own grammar now, derived from the
@@ -48,6 +51,7 @@
  * asserting it against a fabricated frame.
  *
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugdeck/src/components/tugways/tug-dash-name.tsx
@@ -76,6 +80,11 @@ import {
   tugutil,
   type DashScratchRepo,
 } from "./dash-fixture";
+import {
+  dashRowMenuOpener,
+  pressDashRowMenuItem,
+  readDashRowMenu,
+} from "./dash-row-menu-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -97,9 +106,11 @@ const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-lab
 const DASH_NAME = "at0405-lane";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
 const ROW_FOLD = `${ROW} [data-slot="session-changes-dash-fold"]`;
-const LEAVE = `${ROW} [data-slot="session-changes-dash-unbind"]`;
-const ADOPT = `${ROW} [data-slot="session-changes-dash-bind"]`;
-const RELEASE = `${ROW} [data-slot="session-changes-dash-discard"]`;
+/**
+ * The row's three rare verbs live behind its `⋯` now ([P08]), so every
+ * question about them is asked of an opened menu rather than of the row.
+ */
+const ROW_MENU_OPENER = dashRowMenuOpener(ROW);
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -281,18 +292,15 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // it available, and a disabled control with a reason is the idiom for
         // "not yet", not for "not yours".
         await settle(1500);
+        const held = await readDashRowMenu(app, ROW);
         expect(
-          await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(RELEASE)}).length`,
-          ),
-          "a dash another live session holds renders no Release",
-        ).toBe(0);
+          held.discard.present,
+          "a dash another live session holds offers no Discard",
+        ).toBe(false);
         expect(
-          await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(ADOPT)}).length`,
-          ),
-          "Adopt is unaffected — taking a dash on is not destroying it",
-        ).toBe(1);
+          held.bind.present,
+          "Bind is unaffected — taking a dash on is not destroying it",
+        ).toBe(true);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -368,15 +376,25 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
           "the other-dashes fold no longer exists",
         ).toBe(0);
 
+        // The rare verbs are behind the `⋯` and nowhere else: standing on the
+        // row they read as peers of the acts a reader performs constantly.
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(ROW_MENU_OPENER)}).length`,
+          ),
+          "the row carries one opener for its rare verbs",
+        ).toBe(1);
         // Discard reaches an unbound dash. No live session is mated to this one,
         // so it is nobody's to protect and this shade may clean it up — the
         // whole point of widening the gesture past the fronted row.
-        expect(
-          await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(RELEASE)}).length`,
-          ),
-          "an unbound dash offers Discard",
-        ).toBe(1);
+        const unbound = await readDashRowMenu(app, ROW);
+        expect(unbound.discard.present, "an unbound dash offers Discard").toBe(true);
+        expect(unbound.discard.disabled, "and nothing is blocking it").toBe(false);
+        // The reason rides the label when there is one, so an available verb
+        // is the bare word ([L31]).
+        expect(unbound.discard.label.trim(), "an available verb is the bare word").toBe(
+          "Discard",
+        );
 
         // ── The row reads in dash grammar ─────────────────────────────────
         const row = await app.evalJS<{
@@ -498,38 +516,31 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         expect(fronted.expanded).toBe("true");
 
         // ── The complement rule ───────────────────────────────────────────
-        // Leave on the fronted row, Adopt on none of it — a refactor that
-        // broke this into two buttons on one row would say the card can both
-        // take on and put down the same dash.
-        const affordances = await app.evalJS<{ leave: number; adopt: number }>(
-          `(() => {
-             const row = document.querySelector(${JSON.stringify(ROW)});
-             return {
-               leave: row.querySelectorAll('[data-slot="session-changes-dash-unbind"]').length,
-               adopt: row.querySelectorAll('[data-slot="session-changes-dash-bind"]').length,
-             };
-           })()`,
-        );
-        expect(affordances.leave).toBe(1);
-        expect(affordances.adopt).toBe(0);
+        // Unbind on the fronted row, Bind on none of it — a menu carrying both
+        // at once would say the card can take on and put down the same dash.
+        const affordances = await readDashRowMenu(app, ROW);
+        expect(affordances.unbind.present).toBe(true);
+        expect(affordances.bind.present).toBe(false);
 
-        // ── Leave: the real `unbind_dash` round trip ──────────────────────
+        // ── Unbind: the real `unbind_dash` round trip ─────────────────────
         // The fronting moves on the `unbind_dash_ok` broadcast, never on the
-        // click — nothing here writes the binding store optimistically, so
+        // press — nothing here writes the binding store optimistically, so
         // this assertion is about the round trip.
-        await clickUntil(app, LEAVE, FRONTED_LABEL, "absent");
+        await pressDashRowMenuItem(app, ROW, "unbind-dash");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) === null`,
+          { timeoutMs: 15000 },
+        );
 
-        // ── Adopt: and back again, the same way ───────────────────────────
+        // ── Bind: and back again, the same way ────────────────────────────
         // The row stays on screen when it stops being fronted — it moves into
-        // the rest group, which no longer hides anything — so Adopt is reachable
+        // the rest group, which hides nothing — so its menu is reachable
         // without a fold click first.
-        //
-        // Through a scroll-in-and-retry, because the lane is the shade's last
-        // block over an aggregate that recomposes on its own schedule, so a
-        // coordinate read can go stale between aiming and clicking. A missed
-        // click leaves the state untouched, which is what makes the retry a
-        // retry and not a double-bind.
-        await clickUntil(app, ADOPT, FRONTED_LABEL);
+        await pressDashRowMenuItem(app, ROW, "bind-dash");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) !== null`,
+          { timeoutMs: 15000 },
+        );
         expect(
           await app.evalJS<string | null>(
             `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-dash-row"]`)})?.getAttribute("data-dash") ?? null`,

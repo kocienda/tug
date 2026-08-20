@@ -285,6 +285,7 @@ export function SpikeChangesDashes(): React.ReactElement {
           boundDashId={FRONTED.owner_id}
           frontedDashId={FRONTED.owner_id}
           projectRoot={ROOT}
+          workspaceKey={ROOT}
         />
       </Stage>
 
@@ -301,6 +302,7 @@ export function SpikeChangesDashes(): React.ReactElement {
           boundDashId={null}
           frontedDashId={null}
           projectRoot={ROOT}
+          workspaceKey={ROOT}
         />
       </Stage>
 

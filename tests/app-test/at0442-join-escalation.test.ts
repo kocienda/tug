@@ -82,7 +82,6 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 const DASH = "at0442-ask";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
 const JOIN_FACE = `${ROW} [data-slot="session-changes-dash-join"]`;
-const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
 const QUESTION = `${ROW} [data-slot="session-changes-dash-join-question"]`;
 const WIZARD = `${QUESTION} [data-slot="session-question-dialog"]`;
 const VERDICT = `${ROW} [data-slot="session-changes-dash-join-verdict"]`;
@@ -133,6 +132,9 @@ beforeAll(() => {
     dashBody: "at0442 dash side — the whole file, rewritten\n",
     verifyTier0: `grep -q SENTINEL ${FILE}`,
     resolver: RESOLVER_STUB,
+    // The run that raises the escalation is the pilot's: there is no Resolve
+    // to press any more ([P08]), and `built` is what hands a dash over.
+    built: true,
   });
   fixtureDir = seedScratchSession(scratch.repo, SID);
 });
@@ -220,13 +222,14 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
         );
         await app.dispatchControlAction("toggle-lens");
 
+        // `/dash-join` fronts the row so the escalation renders in its face.
+        // It does not start the run — the pilot already did, because the dash
+        // is built.
         await runCommand(app, `/dash-join ${DASH}`);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(JOIN_FACE)})?.getAttribute("data-outcome") === "conflicted"`,
+          `document.querySelector(${JSON.stringify(JOIN_FACE)}) !== null`,
           { timeoutMs: 40000 },
         );
-        await settle(400);
-        await revealAndClick(app, RESOLVE);
 
         // ── The ask reaches the face ──────────────────────────────────────
         await app.waitForCondition<boolean>(

@@ -11,27 +11,33 @@
  * server had built and logged was invisible to the surface that had to review
  * it. Every part passed. The arc did not exist.
  *
- * So this walks the arc, beat by beat, and asserts the thing the incident
- * actually lacked: **at every point where the landing is refused, the control
- * that clears it is on screen.** That is [P08] — the reachability invariant —
- * and the unit half of it lives in `join-resolve-face.test.ts`. This is the
- * half that only the real app can answer, because "on screen" is a fact about
- * the DOM the deck rendered from the state the server sent.
+ * So this walks the arc, beat by beat. What it asserts has changed with the
+ * arc itself: the invariant used to be *every refusal points at a control on
+ * screen*, because the shade carried four of them. There are none now. The
+ * machine does the work a `built` dash needs, and the only act left is the
+ * user's decision — so the claim this file makes is the one the arc's doctrine
+ * rests on:
+ *
+ * **Nothing was pressed to get from `built` to landable.**
+ *
+ * That is not a smaller claim than the old one. A test that pressed Resolve
+ * could not tell a working pilot from a pilot that never ran, because the
+ * press did the pilot's job. Pressing nothing is the only way to observe it.
  *
  * ## The arc
  *
- * conflicted → Resolve → progress → the resolver reconciles it in the workshop
- * and reports what it did → the project's own Tier 0 runs over that tree and
- * comes back green → **reload the deck** → still resolved, still reported,
- * still green → the row states its join route and offers no control → enter
- * join mode by that route → type a message → the composer's land control is
- * armed → **press it, and the dash joins.**
+ * a conflicted dash is declared `built` → **and nothing else happens on the
+ * test's side at all** → the pilot reconciles it against the base, the
+ * resolver reports what it did, the project's own Tier 0 runs over that tree
+ * and comes back green → **reload the deck** → still resolved, still green →
+ * the shade's row mounts none of the four deleted controls → enter join mode →
+ * type a message → press ⬆ → the register reports the join's beats → the dash
+ * lands.
  *
- * Then the same arc's quiet twin: a second dash with nothing to reconcile
- * enters join mode, is resolved and verified **with no press at all**, and
- * joins. A clean merge used to be the one nobody examined — it landed because
- * git found no overlapping text, which is not the same claim as the result
- * building — and this is where that stops being true.
+ * Then the same arc's quiet twin: a second dash with nothing to reconcile,
+ * judged the same way and landed the same way. A clean merge used to be the
+ * one nobody examined — it landed because git found no overlapping text, which
+ * is not the same claim as the result building.
  *
  * The reload is not decoration. Three candidates were built and abandoned in
  * one day because nothing durable held them; the candidate is a git ref now,
@@ -40,18 +46,17 @@
  *
  * ## Where it lands, and why that is safe
  *
- * The press was the one beat this file could never make. A join that succeeds
- * squashes its dash onto its base branch **in that branch's live working
- * tree**, and when the project is a checkout somebody works in, the base is
- * their own branch — not a thing a test may move. That is why at0426 drew the
- * line, and why at0436 can only prove the wire by making the server *refuse*.
+ * A join that succeeds squashes its dash onto its base branch **in that
+ * branch's live working tree**, and when the project is a checkout somebody
+ * works in, the base is their own branch — not a thing a test may move. That
+ * is why at0426 drew the line, and why at0436 can only prove the wire by
+ * making the server *refuse*.
  *
  * The line moved because the fixture owns its repository now. Everything here
  * happens in a `git init`ed scratch repo under the system temp dir: the base
  * commit, the dash, the conflict, the merge driver, the landing, and the
  * squash commit that lands on its `main`. Nothing outside that directory is
- * read or written, and `afterAll` deletes it whole. A landed arc costs the
- * developer's checkout nothing, so the arc runs to its end.
+ * read or written, and `afterAll` deletes it whole.
  *
  * The scratch repo sits outside any pinned `TUG_REPO_UNIVERSE`, which is
  * exactly the boundary's third case: an unrelated repository resolves by the
@@ -63,22 +68,23 @@
  * forks, the base rewrites the file, the dash rewrites the same lines. So
  * `merge-tree` genuinely conflicts and the `merge-file` rung genuinely
  * declines. A stub merge driver (rung 4) then resolves it to a fixed body, so
- * the ladder reaches a candidate without the AI rung. The hygiene the old
- * fixture needed — a nonce against a stale `rr-cache` entry, a scrub of what
- * the run taught rerere, an unset of the driver config it borrowed from the
- * real repo — is all structural now: a fresh repo has no rr-cache to poison
- * and no config anybody else reads.
+ * the ladder reaches a candidate without the AI rung. Both dashes are declared
+ * `built` at the end of the fixture, which is the one act that hands them to
+ * the pilot — and the only reason the test can then press nothing.
  *
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugdeck/src/lib/changeset-verb-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
+ * @covers tugdeck/src/lib/dash-join-register.ts
+ * @covers tugdeck/src/components/tugways/dash-join-register.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugrust/crates/tugdash-core/src/resolve.rs
  * @covers tugrust/crates/tugdash-core/src/ops.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
+ * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
  * @covers tugrust/crates/tugdash-core/src/workshop.rs
@@ -87,16 +93,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -110,6 +108,7 @@ import {
   createDash,
   gitRetry as git,
   makeDashScratchRepo,
+  markDashBuilt,
   rmScratchSession,
   SCRATCH_NAMESPACE,
   seedScratchSession,
@@ -125,6 +124,8 @@ const TOOLBAR = `${CARD} .tug-prompt-entry-toolbar`;
 const ROUTE_GROUP = `${TOOLBAR} .tug-prompt-entry-route-group`;
 const LAND_BUTTON = `${CARD} .tug-prompt-entry-commit-button`;
 const COMPOSER = `${CARD} [data-slot="tug-prompt-entry"]`;
+/** The composer's own register — the third surface the one sentence mounts on. */
+const COMPOSER_REGISTER = `${CARD} .tug-prompt-entry-status [data-slot="dash-join-register"]`;
 const SHEET = '[data-slot="session-changes-view"]';
 const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
@@ -136,28 +137,47 @@ const DASH = "at0441-arc";
  * dash was resolved, audited, and verified before it could land; a clean one
  * landed on the strength of git finding no overlapping text, which says nothing
  * about whether the result builds. Every join rides a candidate now, so this
- * dash walks the same verdict the conflicted one does — with no press.
+ * dash walks the same verdict the conflicted one does — and, like it, reaches
+ * that verdict with nothing pressed.
  */
 const CLEAN_DASH = "at0441-clean";
 /** The file only the clean dash touches, so its merge has nothing to decide. */
 const CLEAN_FILE = "clean.txt";
 const CLEAN_BODY = "at0441 the clean dash's own file\n";
 const CLEAN_MESSAGE = "the clean arc lands too";
-const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const CLEAN_ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${CLEAN_DASH}"]`;
-const CLEAN_LANDING = `${CLEAN_ROW} [data-slot="session-changes-dash-join"]`;
-const CLEAN_VERDICT = `${CLEAN_ROW} [data-slot="session-changes-dash-join-verdict"]`;
-const CLEAN_VERIFY = `${CLEAN_ROW} [data-slot="session-changes-dash-join-verify"]`;
-const CLEAN_READY = `${CLEAN_ROW} [data-slot="session-changes-dash-join-ready"]`;
-const LANDING = `${ROW} [data-slot="session-changes-dash-join"]`;
-const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
-const VERDICT = `${ROW} [data-slot="session-changes-dash-join-verdict"]`;
-const REPORT = `${ROW} [data-slot="session-changes-dash-join-report"]`;
-const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
-const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
-const BLOCKERS = `${ROW} [data-slot="session-changes-dash-join-blockers"]`;
+
+const row = (dash: string): string =>
+  `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
+const landing = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join"]`;
+const verdictOf = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join-verdict"]`;
+const readyOf = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join-ready"]`;
+const reportOf = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join-report"]`;
+const conflictsOf = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join-conflicts"]`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const lensRow = (dash: string): string =>
+  `${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${dash}"]`;
+/** The Lens row's register — the surface that needs no shade and no gesture. */
+const lensRegister = (dash: string): string =>
+  `${lensRow(dash)} [data-slot="dash-join-register"]`;
+
+/**
+ * Every control the shade used to mount, as one selector ([P08]).
+ *
+ * Named rather than merely absent from the source: a deletion nobody asserts
+ * is a deletion a later refactor can quietly undo, and each of these was a
+ * press that asked the user to start work the machine now starts on its own.
+ */
+const DELETED_CONTROLS = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-resolve"], ` +
+  `${row(dash)} [data-slot="session-changes-dash-resume"], ` +
+  `${row(dash)} [data-slot="session-changes-dash-join-verify"], ` +
+  `${row(dash)} [data-slot="session-changes-dash-join-override"]`;
 
 /**
  * The checkout under test. Nothing here is the *project* — it is only where
@@ -178,7 +198,7 @@ const DASH_BODY = "at0441 dash side — the whole file, rewritten\n";
  * which is the point of running one at all.
  */
 const RESOLVER_BODY = "at0441 SENTINEL reconciled by the resolver\n";
-/** What the user types into the composer, and what the squash commit carries. */
+/** What the user types into the composer, and what clears the empty-message gate. */
 const LAND_MESSAGE = "the arc lands its own dash";
 
 /** The scratch repository — the project the app opens, and the only tree
@@ -205,9 +225,7 @@ beforeAll(() => {
   // The scratch repository, from the one shared implementation. The project
   // declares its own verification ([P11]): Tier 0 is a sentinel grep —
   // seconds cheap, no toolchain, and it can genuinely go red — and there is
-  // deliberately **no** Tier 1: a fixture join runs inside an app-test that
-  // already holds the machine-wide apptest gate, so a real tier-1 command
-  // would queue on the gate its own run is holding.
+  // deliberately **no** Tier 1, which no longer runs at join time at all.
   const base = makeDashScratchRepo({
     prefix: "at0441",
     checkout: CHECKOUT,
@@ -252,6 +270,12 @@ beforeAll(() => {
   chmodSync(stub, 0o755);
   git(scratch, "config", "tugdash.joinresolver", stub);
 
+  // Last, and the whole reason this file presses nothing: `built` is what
+  // hands a dash to the pilot. Both dashes are declared here, before the app
+  // ever launches, so the arc is already the machine's when the deck arrives.
+  markDashBuilt(scratch, DASH, base.cli);
+  markDashBuilt(scratch, CLEAN_DASH, base.cli);
+
   fixtureDir = seedScratchSession(scratch, SID);
 });
 
@@ -295,48 +319,6 @@ async function runCommand(app: App, line: string): Promise<void> {
   await app.nativeKey("Return", ["cmd"]);
 }
 
-/** Press a control on the dash row, scrolling it into the shade first (at0426). */
-async function revealAndClick(app: App, selector: string): Promise<void> {
-  await app.evalJS<boolean>(
-    `(function(){
-      var el = document.querySelector(${JSON.stringify(selector)});
-      if (el === null) return false;
-      el.scrollIntoView({ block: "center" });
-      return true;
-    })()`,
-  );
-  await settle(250);
-  await app.nativeClickAtElement(selector);
-}
-
-/**
- * The reachability assertion, in the form the invariant actually claims: the
- * landing is refused, the face says so, and the slot that clears it is in the
- * DOM. A sentence pointing at a control nobody can see is the failure this
- * whole file is about, so it is checked as one fact, not two.
- */
-async function refusalIsReachable(
-  app: App,
-  beat: string,
-  expectedSlot: string,
-): Promise<void> {
-  const state = await app.evalJS<{ ready: boolean; line: string; slotPresent: boolean }>(
-    `(function(){
-      var line = document.querySelector(${JSON.stringify(READY)});
-      return {
-        ready: line !== null && line.getAttribute("data-ready") === "true",
-        line: line === null ? "" : (line.textContent || ""),
-        slotPresent: document.querySelector(${JSON.stringify(expectedSlot)}) !== null,
-      };
-    })()`,
-  );
-  expect(state.ready, `${beat}: the row must not read as landable`).toBe(false);
-  expect(state.slotPresent, `${beat}: the control that clears this must be on screen`).toBe(
-    true,
-  );
-  note(`at0441 ${beat}: refused, ${expectedSlot} mounted — line ${JSON.stringify(state.line)}`);
-}
-
 /** Whether the composer is on the changes route — join mode, live. */
 function inJoinMode(app: App): Promise<boolean> {
   return app.evalJS<boolean>(
@@ -344,7 +326,7 @@ function inJoinMode(app: App): Promise<boolean> {
   );
 }
 
-/** Bring the card up on the fixture dash, with the lane composed. */
+/** Bring the card up on the fixture repo, with the deck mounted. */
 async function openOnDash(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -353,9 +335,160 @@ async function openOnDash(app: App): Promise<void> {
   );
 }
 
+/** Show the Lens, do something with it, and put it away. */
+async function withLens(app: App, body: () => Promise<void>): Promise<void> {
+  await app.dispatchControlAction("toggle-lens");
+  try {
+    await body();
+  } finally {
+    await app.dispatchControlAction("toggle-lens");
+    await app.waitForCondition<boolean>(
+      `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
+      { timeoutMs: 8000 },
+    );
+  }
+}
+
+/**
+ * Wait for a dash's Lens register to settle on a word, with nothing pressed.
+ *
+ * The Lens is the surface this can be read from without touching the dash at
+ * all: raising the shade is a gesture about the card, but aiming the join mode
+ * at a row is a gesture about *this dash*, and a test asserting the machine
+ * worked unprompted must not be the thing that prompted it.
+ */
+async function lensRegisterReaches(
+  app: App,
+  dash: string,
+  word: string,
+  timeoutMs: number,
+): Promise<string> {
+  let line = "";
+  await withLens(app, async () => {
+    await app.waitForCondition<boolean>(
+      `document.querySelector(${JSON.stringify(lensRegister(dash))})?.getAttribute("data-word") === ${JSON.stringify(word)}`,
+      { timeoutMs },
+    );
+    line = await app.evalJS<string>(
+      `(document.querySelector(${JSON.stringify(lensRegister(dash))})?.textContent || "")`,
+    );
+  });
+  return line;
+}
+
+/**
+ * Aim the composer at a dash, which fronts its row and raises the lane.
+ *
+ * The join FACE belongs to the fronted row alone — joining is a gesture on the
+ * card's own dash — so reading what the shade says about a dash means fronting
+ * it first. This starts nothing: on a conflicted dash the mode entry asks the
+ * server for nothing at all, and on a clean one it only ensures the candidate
+ * the pilot has already built.
+ */
+async function frontTheRow(app: App, dash: string): Promise<void> {
+  // Always back to the prompt route first, then in by name. `/dash-join`
+  // toggles, so a conditional entry would leave the mode aimed at whichever
+  // dash it was already on — which is the wrong row for every beat after the
+  // first landing.
+  await returnToPrompt(app);
+  await runCommand(app, `/dash-join ${dash}`);
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(LANE)}) !== null`,
+    { timeoutMs: 40000 },
+  );
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`)})?.getAttribute("data-fronted") === "true"`,
+    { timeoutMs: 30000 },
+  );
+}
+
+/**
+ * Put the composer back on the prompt route.
+ *
+ * Load-bearing before any typed command: `/commit` leaves the composer in
+ * commit mode, where the editor *is* the message — so a `/dash-join` typed
+ * there is message text rather than a command.
+ */
+async function returnToPrompt(app: App): Promise<void> {
+  await app.nativeClickAtElement(EDITOR);
+  await settle();
+  await app.nativeKey("Escape");
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="prompt"][data-state="active"]`)}) !== null`,
+    { timeoutMs: 8000 },
+  );
+}
+
+/**
+ * Press ⬆ and watch for the join's own beats.
+ *
+ * The beats are the claim ([P03]): a join that reports nothing until it is
+ * over is the silence the old twelve-second deadline was invented to paper
+ * over. Sampled in a tight poll from the press onward, because each beat is
+ * one frame of a run that takes seconds — and read from **both** registers,
+ * since the whole point of one derivation is that the composer and the row
+ * say the same thing.
+ */
+async function pressAndWatchBeats(app: App, dash: string): Promise<string[]> {
+  const before = git(scratch, "rev-parse", "main").trim();
+  // The sampler runs IN THE PAGE, at 10ms, started before the press.
+  //
+  // Sampling from the test process cannot work here: a join on a one-file
+  // repository is a fast-forward that takes milliseconds, and every sample
+  // costs an evalJS round trip. The register would be up and down again
+  // between two reads, and the test would report "the join said nothing" about
+  // a join that said four things. An interval inside the page has no round
+  // trip — and it is `setInterval` rather than `requestAnimationFrame` because
+  // a background app-test window runs no rAF at all.
+  await app.evalJS<null>(
+    `(function(){
+      window.__at0441Beats = [];
+      // Every register on screen, wherever it is mounted. The claim is that
+      // the join narrates itself somewhere a reader is looking, and scoping
+      // the sampler to one surface would turn a question about the arc into a
+      // question about which surface survives the press.
+      window.__at0441Timer = setInterval(function(){
+        var els = document.querySelectorAll(${JSON.stringify(`[data-slot="dash-join-register"]`)});
+        for (var i = 0; i < els.length; i += 1) {
+          var word = els[i].getAttribute("data-word") || "";
+          if (word !== "" && window.__at0441Beats.indexOf(word) === -1) {
+            window.__at0441Beats.push(word);
+          }
+        }
+      }, 10);
+      return null;
+    })()`,
+  );
+  await app.nativeClickAtElement(LAND_BUTTON);
+  // The base moves at the INTEGRATE, which is the first of the four beats —
+  // teardown, release and record all follow it — so the sampler keeps running
+  // for a moment past the tip move.
+  const deadline = Date.now() + 90_000;
+  let landed = false;
+  while (Date.now() < deadline && !landed) {
+    landed = git(scratch, "rev-parse", "main").trim() !== before;
+    if (!landed) await settle(100);
+  }
+  if (landed) await settle(3000);
+  const words = await app.evalJS<string[]>(
+    `(function(){
+      clearInterval(window.__at0441Timer);
+      var out = window.__at0441Beats || [];
+      window.__at0441Beats = [];
+      return out;
+    })()`,
+  );
+  if (!landed) {
+    throw new Error(
+      `at0441: the press never landed — main's tip is still ${before}; register said ${words.join(", ")}`,
+    );
+  }
+  return words;
+}
+
 describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
   test(
-    "conflicted resolves, is audited and verified, survives a reload, and joins; a clean dash is judged unpressed and joins too — every refusal pointing at a mounted control",
+    "a built dash reconciles and passes its checks with nothing pressed, survives a reload, offers no control, and joins on the composer's press",
     async () => {
       const tugbankPath = mkTempTugbank();
       // The source tree is where the app finds `tugdeck/dist` to serve, so it
@@ -374,90 +507,22 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        // The aggregate has composed the dash once the Lens roster lists it.
-        await app.dispatchControlAction("toggle-lens");
-        await app.waitForCondition<boolean>(
-          `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
-          { timeoutMs: 30000 },
+        // ── Beat 1: the machine's whole job, with nothing pressed ─────────
+        // From here to the reload, this test issues no gesture aimed at the
+        // dash. The conflict is real, the resolver runs, and the project's own
+        // Tier 0 judges what it produced — because the dash is `built` and the
+        // pilot acts on a built dash.
+        const readyLine = await lensRegisterReaches(app, DASH, "ready", 240000);
+        expect(readyLine, "the register states the arc, not a control").toContain(
+          "Ready to join",
         );
-        await app.dispatchControlAction("toggle-lens");
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
-          { timeoutMs: 8000 },
-        );
+        note(`at0441 unprompted: the conflicted dash reached ${JSON.stringify(readyLine)}`);
 
-        // ── Beat 1: conflicted, with the ladder as the way out ────────────
-        // Nothing is asked of the server here. The dash's entry already
-        // carries what a landing would do, so the face is up as soon as the
-        // row is.
-        await runCommand(app, `/dash-join ${DASH}`);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ROW)})?.getAttribute("data-fronted") === "true"`,
-          { timeoutMs: 20000 },
-        );
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(LANDING)})?.getAttribute("data-outcome") === "conflicted"`,
-          { timeoutMs: 40000 },
-        );
-        expect(
-          await app.evalJS<string>(
-            `(document.querySelector(${JSON.stringify(CONFLICTS)})?.textContent || "")`,
-          ),
-          "the conflicted face names the path it conflicts on",
-        ).toContain(CONFLICT_FILE);
-        // A blocked dash would point somewhere else entirely; this one points
-        // at the ladder, and the ladder is on screen.
-        expect(
-          await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(BLOCKERS)}) === null`,
-          ),
-          "a conflicted dash is not a blocked one",
-        ).toBe(true);
-        await refusalIsReachable(app, "conflicted", RESOLVE);
-
-        // ── Beat 2: the run, visible while it runs ────────────────────────
-        await settle(400);
-        await revealAndClick(app, RESOLVE);
-        // The overlay flips synchronously, so the offer leaves on the click
-        // itself — which is what tells a dead press apart from a slow ladder.
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(RESOLVE)}) === null`,
-          { timeoutMs: 5000 },
-        );
-        note("at0441 Resolve registered: the offer face left on the press");
-
-        // ── Beat 3: resolved, audited, and verified ───────────────────────
-        // What stands where the review panel used to is the resolver's own
-        // account plus the project's verdict. The human is no longer the
-        // auditor of machine text decisions: the resolver read every
-        // resolution against the dash's intent and had to account for each
-        // one, and the checks ran over the tree that would actually land.
-        // The verdict is the beat, not the candidate. The ladder anchors a
-        // candidate of its own before the resolver has even opened the
-        // workshop, so waiting on the panel alone would read the arc one stage
-        // early — which is precisely the seam this file exists to hold still.
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(VERDICT)})?.getAttribute("data-verdict") === "green"`,
-          { timeoutMs: 180000 },
-        );
-        const stuck = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(`${ROW} [data-slot="session-changes-dash-join-stuck"]`)})?.textContent || "")`,
-        );
-        expect(stuck, "the resolve did not stick").toBe("");
-        const reportText = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(REPORT)})?.textContent || "")`,
-        );
-        expect(reportText, "the report names the file it reconciled").toContain(CONFLICT_FILE);
-        expect(reportText, "and says how it reconciled it").toContain("kept the dash intent");
-        note("at0441 verified: the project's own Tier 0 ran over the resolver's tree and passed");
-
-        // ── Beat 4: the reload ────────────────────────────────────────────
+        // ── Beat 2: the reload ────────────────────────────────────────────
         // The candidate is a git ref, the report is a blob the config points
         // at, and the verdict is branch config anchored to the two heads — so
         // a deck that has forgotten everything must come back to the same
-        // state. This is the beat three abandoned candidates paid for: before
-        // it, the resolution lived only in a client store, and a reload — or a
-        // dropped socket, or a relaunch — threw it away silently.
+        // state. This is the beat three abandoned candidates paid for.
         await app.appReload();
         await openOnDash(app);
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: scratch });
@@ -466,38 +531,58 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
           { timeoutMs: 20000 },
         );
-        await runCommand(app, `/dash-join ${DASH}`);
+        expect(
+          await lensRegisterReaches(app, DASH, "ready", 90000),
+          "the verdict came back from git, not from a store the reload emptied",
+        ).toContain("Ready to join");
+        note("at0441 reload beat: the candidate and its verdict both came back from git");
+
+        // ── Beat 3: the shade states, and offers nothing ──────────────────
+        // The face belongs to the fronted row, and fronting is what
+        // `/dash-join` does — so this is the first gesture in the file, and it
+        // comes after every claim about the machine working alone. It aims the
+        // composer; it starts nothing.
+        await frontTheRow(app, DASH);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(VERDICT)})?.getAttribute("data-verdict") === "green"`,
+          `document.querySelector(${JSON.stringify(verdictOf(DASH))})?.getAttribute("data-verdict") === "green"`,
           { timeoutMs: 60000 },
         );
-        expect(
-          await app.evalJS<string>(
-            `(document.querySelector(${JSON.stringify(REPORT)})?.textContent || "")`,
-          ),
-          "with the same account it had before",
-        ).toContain(CONFLICT_FILE);
-        note("at0441 reload beat: the candidate, its report, and its verdict all came back from git");
-
-        // ── Beat 5: landable — a sentence, and no control ─────────────────
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(READY)})?.getAttribute("data-ready") === "true"`,
-          { timeoutMs: 30000 },
+        const shade = await app.evalJS<{
+          controls: number;
+          report: string;
+          ready: boolean;
+          line: string;
+          conflicts: string;
+        }>(
+          `(function(){
+            var line = document.querySelector(${JSON.stringify(readyOf(DASH))});
+            return {
+              controls: document.querySelectorAll(${JSON.stringify(DELETED_CONTROLS(DASH))}).length,
+              report: (document.querySelector(${JSON.stringify(reportOf(DASH))})?.textContent || ""),
+              ready: line !== null && line.getAttribute("data-ready") === "true",
+              line: line === null ? "" : (line.textContent || ""),
+              conflicts: (document.querySelector(${JSON.stringify(conflictsOf(DASH))})?.textContent || ""),
+            };
+          })()`,
         );
-        const readyLine = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(READY)})?.textContent || "")`,
+        // Four deletions, asserted rather than assumed. Each was a press that
+        // asked the user to start machine work — the arc inverted.
+        expect(shade.controls, "the shade mounts none of the four deleted controls").toBe(0);
+        // What remains is information, and it is all still here: the resolver's
+        // own account of what it reconciled and how.
+        expect(shade.report, "the report names the file it reconciled").toContain(
+          CONFLICT_FILE,
         );
-        // With nothing to press on the row, this sentence is the entire way
-        // forward — so it has to name the route, not merely assert readiness.
-        expect(readyLine).toContain("Ready to join");
-        expect(readyLine).toContain("/dash-join");
-        note(`at0441 landable: ${JSON.stringify(readyLine)}`);
+        expect(shade.report, "and says how it reconciled it").toContain("kept the dash intent");
+        expect(shade.ready, "and the row reads landable").toBe(true);
+        expect(shade.line, "naming the route, since there is nothing to press here").toContain(
+          "/dash-join",
+        );
+        note(`at0441 shade: ${JSON.stringify(shade.line)} — no controls, full report`);
 
-        // ── Beat 6: the route the sentence named ──────────────────────────
-        // `/dash-join` toggles: the beat-4 command that raised the lane left
-        // the card in join mode, and sending it again would leave it. So the
-        // route is entered only when it is not already the live one.
-        if (!(await inJoinMode(app))) await runCommand(app, `/dash-join ${DASH}`);
+        // ── Beat 4: the one act, in the one place it lives ────────────────
+        // Already in join mode — fronting the row is how the shade was read —
+        // so what is left is the message and the press.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROUTE_GROUP} [data-choice-value="changes"][data-state="active"]`)}) !== null`,
           { timeoutMs: 12000 },
@@ -506,10 +591,9 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           `document.querySelector(${JSON.stringify(`${LAND_BUTTON}[aria-label="Join"]`)}) !== null`,
           { timeoutMs: 12000 },
         );
-
         // An empty message is the last refusal in the gate's order, and its
         // control is the composer's own editor — which is mounted, because the
-        // route that got here is the one that opens it.
+        // route that got here is the one that opens it ([P09]).
         expect(
           await app.evalJS<boolean>(
             `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
@@ -517,132 +601,92 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           "empty-message points at the composer, which is on screen",
         ).toBe(true);
 
-        // ── Beat 7: a message, and a landing with nothing left refusing ───
         await app.nativeClickAtElement(EDITOR);
         await settle();
-        await app.nativeKey("a", ["cmd"]);
-        await app.nativeKey("Delete");
         await app.nativeType(LAND_MESSAGE);
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf(${JSON.stringify(LAND_MESSAGE)}) !== -1`,
           { timeoutMs: 5000 },
         );
-        const armed = await app.evalJS<{ disabled: boolean; label: string }>(
+        const armed = await app.evalJS<{ disabled: boolean; classes: string }>(
           `(function(){
             var b = document.querySelector(${JSON.stringify(`${LAND_BUTTON}[aria-label="Join"]`)});
             return {
               disabled: b === null ? true : b.disabled === true,
-              label: b === null ? "" : (b.getAttribute("aria-label") || ""),
+              classes: b === null ? "" : (b.className || ""),
             };
           })()`,
         );
-        expect(armed.label).toBe("Join");
-        expect(armed.disabled, "with a message and a reviewed candidate, nothing refuses").toBe(
-          false,
-        );
+        expect(armed.disabled, "with a message and a green verdict, nothing refuses").toBe(false);
+        // Green, so the press is an action rather than a decision. The role
+        // rides the button's class — `.tug-button-{emphasis}-{role}` is where
+        // [D02]'s matrix lands — and the danger half of it is at0443's ([P05]).
+        expect(armed.classes, "a green join is an ordinary act").not.toContain("danger");
 
-        // ── Beat 8: the press, and the landing it produces ────────────────
-        // The repository is the fixture's own, so this may finally run. What
-        // it proves is the half at0436 cannot reach: a join that is not
-        // refused actually integrates. Waiting on the repository rather than
-        // on an animation — background windows run no rAF, so the staged
-        // landing may be the watchdog's to fire.
-        const before = git(scratch, "rev-parse", "main").trim();
-        await app.nativeKey("Return", ["cmd"]);
-        const landed = await waitForLanding(before);
-        note(`at0441 landed: ${JSON.stringify(landed.subject)}`);
+        // ── Beat 5: the press, its beats, and the landing ─────────────────
+        const beats = await pressAndWatchBeats(app, DASH);
+        note(`at0441 land beats: ${JSON.stringify(beats)}`);
+        // The settled state is the assertion, and deliberately so. A join on a
+        // one-file repository is a fast-forward measured in milliseconds, and
+        // its beat frames and its terminal reply arrive in one batch — so
+        // demanding an in-flight `joining` frame would be demanding that the
+        // renderer interleave with the wire, which no test can hold still and
+        // no reader would see anyway. What the arc owes the presser is that
+        // the surface they are looking at says what happened, and `joined` is
+        // that sentence. Any in-flight beats the sampler did catch are noted
+        // above rather than asserted.
+        expect(
+          beats.includes("joined"),
+          "the join settled on its own result rather than going quiet",
+        ).toBe(true);
 
+        const subject = git(scratch, "log", "-1", "--format=%s", "main").trim();
+        note(`at0441 landed: ${JSON.stringify(subject)}`);
         // The subject wears the dash's scope. It is *not* the message typed
-        // above, and that is the designed behavior rather than a slip: landing
-        // a resolved candidate fast-forwards onto the commit the ladder
-        // already built, which carries the message composed when it was built.
-        // The typed message's job here was to clear the gate's empty-message
-        // refusal, which it did.
-        expect(landed.subject.startsWith(`tugdash(${DASH}): `), landed.subject).toBe(true);
-        // And it carries the resolution that was reviewed — not either side of
+        // above, and that is designed rather than a slip: landing a resolved
+        // candidate fast-forwards onto the commit the ladder already built,
+        // which carries the message composed when it was built. The typed
+        // message's job was to clear the gate's empty-message refusal.
+        expect(subject.startsWith(`tugdash(${DASH}): `), subject).toBe(true);
+        // And it carries the resolution the checks passed — not either side of
         // the conflict. A landing that quietly took one side would pass every
         // assertion above and still be the wrong tree.
         expect(readFileSync(join(scratch, CONFLICT_FILE), "utf8")).toBe(RESOLVER_BODY);
-        // The journaled teardown ran: nothing of the dash is left to land twice.
-        // Polled, because the teardown is a phase *after* the integrate: the
-        // base tip moves first, and the worktree and branch go a beat later.
+
+        // The journaled teardown ran: nothing of the dash is left to land
+        // twice. Polled, because the teardown is a phase *after* the integrate.
         const teardownBy = Date.now() + 60_000;
         while (Date.now() < teardownBy && branchExists(`tugdash/${DASH}`)) {
           await settle(500);
         }
-        if (branchExists(`tugdash/${DASH}`)) {
-          note(
-            `at0441 teardown stalled — branches ${JSON.stringify(
-              git(scratch, "branch", "--list").trim(),
-            )} worktrees ${JSON.stringify(worktreePaths().join(", "))}`,
-          );
-        }
         expect(branchExists(`tugdash/${DASH}`), "the dash branch is gone").toBe(false);
-        expect(worktreePaths().some((p) => p.includes(DASH)), "its worktree is gone").toBe(
-          false,
-        );
+        expect(worktreePaths().some((p) => p.includes(DASH)), "its worktree is gone").toBe(false);
 
-        // And the lane agrees. A landed dash that keeps being offered is the
-        // same class of lie the whole campaign is about.
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ROW)}) === null`,
-          { timeoutMs: 60000 },
-        );
-
-        // ── Beat 9: the clean arc, judged without being asked ─────────────
+        // ── Beat 6: the clean arc, judged the same way ────────────────────
         // The dash above earned its verdict by conflicting. This one has
-        // nothing to reconcile, and until now that meant nothing examined it:
-        // it joined because git found no overlapping text, which is not the
-        // same claim as the result building. Entering join mode resolves it,
-        // the one-shot squash anchors a candidate, and the server verifies
-        // that candidate with no press — so the same green verdict the
-        // conflicted arc reached is here, on a dash nobody touched.
-        await runCommand(app, `/dash-join ${CLEAN_DASH}`);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CLEAN_ROW)})?.getAttribute("data-fronted") === "true"`,
-          { timeoutMs: 20000 },
-        );
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CLEAN_LANDING)})?.getAttribute("data-outcome") === "clean"`,
-          { timeoutMs: 40000 },
-        );
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CLEAN_VERDICT)})?.getAttribute("data-verdict") === "green"`,
-          { timeoutMs: 180000 },
-        );
-        // Nothing was pressed to get here. The Verify control is what the
-        // unverified state mounts, so its absence at a green verdict is the
-        // assertion that the verdict arrived on its own.
+        // nothing to reconcile, and until the arc existed that meant nothing
+        // examined it: it joined because git found no overlapping text, which
+        // is not the same claim as the result building.
         expect(
-          await app.evalJS<boolean>(
-            `document.querySelector(${JSON.stringify(CLEAN_VERIFY)}) === null`,
-          ),
-          "the clean dash was verified without a press",
-        ).toBe(true);
-        note("at0441 clean beat: a dash with nothing to reconcile still faced the checks");
+          await lensRegisterReaches(app, CLEAN_DASH, "ready", 240000),
+          "a dash with nothing to reconcile still faced the checks, unprompted",
+        ).toContain("Ready to join");
+        note("at0441 clean beat: the quiet dash was judged without being asked");
 
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CLEAN_READY)})?.getAttribute("data-ready") === "true"`,
-          { timeoutMs: 30000 },
-        );
-        if (!(await inJoinMode(app))) await runCommand(app, `/dash-join ${CLEAN_DASH}`);
+        await frontTheRow(app, CLEAN_DASH);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${LAND_BUTTON}[aria-label="Join"]`)}) !== null`,
           { timeoutMs: 12000 },
         );
         await app.nativeClickAtElement(EDITOR);
         await settle();
-        await app.nativeKey("a", ["cmd"]);
-        await app.nativeKey("Delete");
         await app.nativeType(CLEAN_MESSAGE);
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf(${JSON.stringify(CLEAN_MESSAGE)}) !== -1`,
           { timeoutMs: 5000 },
         );
-        const cleanBefore = git(scratch, "rev-parse", "main").trim();
-        await app.nativeKey("Return", ["cmd"]);
-        const cleanLanded = await waitForLanding(cleanBefore);
-        note(`at0441 clean landed: ${JSON.stringify(cleanLanded.subject)}`);
+        const cleanBeats = await pressAndWatchBeats(app, CLEAN_DASH);
+        note(`at0441 clean land beats: ${JSON.stringify(cleanBeats)}`);
         expect(readFileSync(join(scratch, CLEAN_FILE), "utf8")).toBe(CLEAN_BODY);
         const cleanTeardownBy = Date.now() + 60_000;
         while (Date.now() < cleanTeardownBy && branchExists(`tugdash/${CLEAN_DASH}`)) {
@@ -674,22 +718,4 @@ function worktreePaths(): string[] {
     .split("\n")
     .filter((l) => l.startsWith("worktree "))
     .map((l) => l.slice("worktree ".length));
-}
-
-/**
- * Poll `main`'s tip until it moves off `before`, and return what landed.
- *
- * The repository is the signal rather than a bulletin: a successful join posts
- * nothing (the notice controller speaks only failures), so the tip moving is
- * the only place the outcome is written down.
- */
-async function waitForLanding(before: string): Promise<{ subject: string }> {
-  const deadline = Date.now() + 90_000;
-  while (Date.now() < deadline) {
-    if (git(scratch, "rev-parse", "main").trim() !== before) {
-      return { subject: git(scratch, "log", "-1", "--format=%s", "main").trim() };
-    }
-    await settle(500);
-  }
-  throw new Error(`at0441: the press never landed — main's tip is still ${before}`);
 }

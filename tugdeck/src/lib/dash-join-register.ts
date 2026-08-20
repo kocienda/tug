@@ -49,8 +49,11 @@ export interface DashJoinRegisterInput {
   join?: DashJoinStateWire | null;
   /** The client's resolve overlay phase for this dash. */
   resolvePhase?: "idle" | "resolving" | "error";
-  /** The beat a join in flight last reported ([P03]). */
-  landBeat?: { beat: string; status: string } | null;
+  /**
+   * What a join last reported ([P03]) — a beat while it runs, its result once
+   * it is over (`terminal`).
+   */
+  landBeat?: { beat: string; status: string; terminal?: boolean } | null;
   /** Whether the deck's wire is up. */
   connected?: boolean;
 }
@@ -129,8 +132,9 @@ export function dashJoinRegister(
     };
   }
 
-  if (landBeat !== null && landBeat !== undefined) {
-    const beat = BEAT_WORDS[landBeat.beat] ?? landBeat.beat;
+  const landing = landBeat ?? null;
+  if (landing !== null && landing.terminal !== true) {
+    const beat = BEAT_WORDS[landing.beat] ?? landing.beat;
     return {
       phase: "in_flight",
       line: `Joining ${dash} into ${base} — ${beat}`,
@@ -164,6 +168,20 @@ export function dashJoinRegister(
   }
   if (running === "verify") {
     return { phase: "in_flight", line: "Building the joined tree", word: "checking" };
+  }
+
+  // The run's last word, which rests until a new press replaces it. Below the
+  // blocker, the question and the stated refusal — each of those explains a
+  // failure better than "Join failed" does — and above the verdict, because a
+  // green left standing over a join that did not land would read as an
+  // invitation to do the thing that just failed.
+  if (landing !== null) {
+    const ok = landing.status !== "error";
+    return {
+      phase: ok ? "success" : "error",
+      line: ok ? `Joined ${dash} into ${base}` : `Join failed — ${dash} is still here`,
+      word: ok ? "joined" : "join-failed",
+    };
   }
 
   const tier0 = join?.verification?.tier0;

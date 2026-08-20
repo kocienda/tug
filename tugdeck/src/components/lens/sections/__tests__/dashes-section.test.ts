@@ -139,6 +139,7 @@ describe("compareDashRows", () => {
         last_activity: lastActivity ?? undefined,
       },
       projectDir: "/tmp/p",
+      workspaceKey: "/tmp/p",
       projectLabel: "p",
     };
   }

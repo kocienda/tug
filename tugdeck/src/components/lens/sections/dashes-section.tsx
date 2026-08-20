@@ -110,6 +110,15 @@ export interface DashRow {
   entry: DashChangesetEntry;
   /** The owning project's directory — what a bind has to name. */
   projectDir: string;
+  /**
+   * The key this project's join traffic is addressed by.
+   *
+   * Distinct from {@link projectDir} on purpose ([L29]): the join store is
+   * written under the `project_dir` a *request* echoed back, and every send on
+   * that path carries the workspace key. Reading beats under the root's
+   * spelling is a subscription to a cell nothing writes.
+   */
+  workspaceKey: string;
   /** The owning project's name, for Bind's refusal sentence. */
   projectLabel: string;
 }
@@ -122,6 +131,7 @@ function rowFromEntry(
     ownerId: entry.owner_id,
     entry,
     projectDir: project.project_dir,
+    workspaceKey: project.workspace_key,
     projectLabel: project.display_name,
   };
 }
@@ -462,7 +472,7 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
  */
 function DashJoinRow({ row }: { row: DashRow }): React.ReactElement | null {
   const entry = row.entry;
-  const landBeat = useChangesetJoinLand(row.projectDir, entry.display_name);
+  const landBeat = useChangesetJoinLand(row.workspaceKey, entry.display_name);
   return (
     <DashJoinRegister
       dash={entry.display_name}

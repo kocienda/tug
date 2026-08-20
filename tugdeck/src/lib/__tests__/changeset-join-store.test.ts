@@ -266,24 +266,34 @@ describe("the join narrates itself ([P03])", () => {
     expect(store.landProgress("/p", "demo")).toEqual({ beat: "teardown", status: "start" });
   });
 
-  test("the beats do not outlive the join that produced them", () => {
+  test("the terminal frame settles the narration rather than erasing it", () => {
     const store = attachChangesetJoinStore(fakeConn);
     beat("demo", "record", "start");
     expect(store.landProgress("/p", "demo")).not.toBeNull();
 
-    // The join is over. Its last beat stops describing anything, and a register
-    // left resting on it would read as a join still running on a row that has
-    // already gone.
+    // The join is over — and that is the beat the reader most needs, so it
+    // rests rather than clearing.
+    //
+    // Erasing here made the whole narration unobservable on any join fast
+    // enough to arrive in one frame batch: every beat and the terminal reply
+    // land together, the store ends the batch empty, and the renderer paints
+    // the state from before the press. The join narrated itself perfectly and
+    // silently, which an app-test caught only by sampling the DOM at 10ms and
+    // finding nothing there.
     _ingestJoinFrameForTest({
       action: "changeset_join_ok",
       ...K,
       previewed: false,
       commit_hash: "cafe1234",
     });
-    expect(store.landProgress("/p", "demo")).toBeNull();
+    expect(store.landProgress("/p", "demo")).toEqual({
+      beat: "joined",
+      status: "done",
+      terminal: true,
+    });
   });
 
-  test("a refused join clears its beats too", () => {
+  test("a refused join settles as a failure, not as silence", () => {
     const store = attachChangesetJoinStore(fakeConn);
     beat("demo", "squash", "start");
     _ingestJoinFrameForTest({
@@ -291,6 +301,29 @@ describe("the join narrates itself ([P03])", () => {
       ...K,
       detail: "stale candidate",
     });
+    expect(store.landProgress("/p", "demo")).toEqual({
+      beat: "failed",
+      status: "error",
+      terminal: true,
+    });
+  });
+
+  test("a settled narration rests until a new press retires it", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    beat("demo", "squash", "start");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_ok",
+      ...K,
+      previewed: false,
+      commit_hash: "cafe1234",
+    });
+    // `clear` is what the controller calls the instant a join reports done —
+    // which is exactly when the settled beat is the newest thing the reader
+    // has been told. It must not be what deletes it.
+    store.clear("/p", "demo");
+    expect(store.landProgress("/p", "demo")).not.toBeNull();
+
+    store.clearLand("/p", "demo");
     expect(store.landProgress("/p", "demo")).toBeNull();
   });
 

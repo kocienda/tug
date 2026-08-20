@@ -11,33 +11,30 @@
  * test selection. Minutes, routinely.
  *
  * So the deadline fired on healthy runs, and what it produced was not merely a
- * wrong sentence. The error face **re-mounts the Resolve control**, and a
+ * wrong sentence. The error face **re-mounted the Resolve control**, and a
  * second press started a second `finish_join` doing `reset --hard` on the
  * workshop the first one's resolver was live in. A false report of death was
  * an invitation to cause a real one.
  *
- * This file holds a resolver still for fifteen seconds — past the old deadline,
- * with room — and asserts the face never says it died.
+ * That history is why this file exists, and it survives the arc intact — but
+ * both ends of it have moved, so the file is rewritten rather than patched.
+ * There is no Resolve to press: the run is started by the **pilot**, on a dash
+ * declared `built`, and by nothing else. And there is no control to re-mount:
+ * the shade mounts none at all ([P08]). What is left is the claim that always
+ * mattered, now stated where it can be seen — **a resolver held still for
+ * fifteen seconds, past the old twelve-second bound, leaves the register on
+ * its running pose and never fabricates a failure.**
  *
- * ## The two halves of "one dash, one run"
- *
- * The server half is admission: a second resolve, a verify, or a non-preview
- * join is refused by name while a run holds the dash. That is pinned where it
- * lives, in `agent_supervisor.rs`
- * (`a_live_resolve_refuses_every_other_run_on_that_dash`), because it is a
- * statement about the registry rather than about the DOM.
- *
- * The client half is what this file can answer and that one cannot: **while a
- * run is live, the row mounts no control at all.** There is nothing to press,
- * which is why the admission refusal is a backstop rather than a daily event —
- * and it is the exact thing the false error face used to undo, by mounting
- * Resolve again over a run that was still going.
+ * The deleted deadline is what this pins. A client that judged this rung's
+ * liveness had no business doing so, and the register is where that judgment
+ * would show: `reconciling`, steady, for as long as the run takes.
  *
  * ## The arc
  *
- * conflicted → Resolve → the offer leaves on the press → fifteen seconds of
- * complete silence, checked past twelve → still progress, no error, no control
- * → the resolver reports → Tier 0 green → the row states its join route.
+ * built → the pilot starts the run with nothing pressed → fifteen seconds of
+ * complete silence, sampled past twelve → still `reconciling`, no error, no
+ * stuck sentence, and no control anywhere → the resolver reports → Tier 0
+ * green → the register reads `ready`.
  *
  * ## The fixture
  *
@@ -49,17 +46,19 @@
  *
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugdeck/src/lib/join-mode-controller.ts
+ * @covers tugdeck/src/lib/dash-join-register.ts
+ * @covers tugdeck/src/components/tugways/dash-join-register.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-join.tsx
  * @covers tugrust/crates/tugcast/src/feeds/join_resolver.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_occupancy.rs
+ * @covers tugrust/crates/tugcast/src/feeds/join_pilot.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
  * @covers tugrust/crates/tugcast/src/feeds/join_board.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
@@ -86,14 +85,16 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
 const DASH = "at0444-slow";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const JOIN_FACE = `${ROW} [data-slot="session-changes-dash-join"]`;
-const RESOLVE = `${ROW} [data-slot="session-changes-dash-resolve"]`;
-const PROGRESS = `${ROW} [data-slot="session-changes-dash-join-progress"]`;
+const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
 const RESOLVE_ERROR = `${ROW} [data-slot="session-changes-dash-join-resolve-error"]`;
 const STUCK = `${ROW} [data-slot="session-changes-dash-join-stuck"]`;
-const VERDICT = `${ROW} [data-slot="session-changes-dash-join-verdict"]`;
-const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
-/** Every control the join face can mount — none of them may be up mid-run. */
+/**
+ * Every control the join face used to be able to mount ([P08]).
+ *
+ * Kept as a selector rather than dropped with the buttons: the failure this
+ * file records was a control re-mounting over a live run, and a deletion
+ * nobody asserts is a deletion a later refactor can quietly undo.
+ */
 const ANY_CONTROL =
   `${ROW} [data-slot="session-changes-dash-resolve"], ` +
   `${ROW} [data-slot="session-changes-dash-join-verify"], ` +
@@ -101,6 +102,7 @@ const ANY_CONTROL =
   `${ROW} [data-slot="session-changes-dash-resume"]`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
+const LENS_REGISTER = `${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"] [data-slot="dash-join-register"]`;
 
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -134,7 +136,6 @@ printf '%s\\n' '{"files":[{"path":"${FILE}","resolved_by":"resolver","what_each_
 let scratch: JoinScratchRepo | null = null;
 let fixtureDir = "";
 
-
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeJoinScratchRepo({
@@ -148,6 +149,10 @@ beforeAll(() => {
     dashBody: "at0444 dash side — the whole file, rewritten\n",
     verifyTier0: `grep -q SENTINEL ${FILE}`,
     resolver: RESOLVER_STUB,
+    // The run this file watches is the pilot's. Nothing presses it — which is
+    // also what makes "no control was mounted" a claim rather than a tautology
+    // about a control the test declined to touch.
+    built: true,
   });
   fixtureDir = seedScratchSession(scratch.repo, SID);
 });
@@ -188,20 +193,6 @@ async function runCommand(app: App, line: string): Promise<void> {
   await app.nativeKey("Return", ["cmd"]);
 }
 
-/** Press a control on the dash row, scrolling it into the shade first. */
-async function revealAndClick(app: App, selector: string): Promise<void> {
-  await app.evalJS<boolean>(
-    `(function(){
-      var el = document.querySelector(${JSON.stringify(selector)});
-      if (el === null) return false;
-      el.scrollIntoView({ block: "center" });
-      return true;
-    })()`,
-  );
-  await settle(250);
-  await app.nativeClickAtElement(selector);
-}
-
 async function openOnDash(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -210,19 +201,28 @@ async function openOnDash(app: App): Promise<void> {
   );
 }
 
-/** What the face is saying about the run right now. */
+/** What the row is saying about the run right now. */
 async function runFace(app: App): Promise<{
+  word: string;
+  line: string;
   error: string;
   stuck: string;
-  progress: boolean;
   controls: number;
 }> {
-  return app.evalJS<{ error: string; stuck: string; progress: boolean; controls: number }>(
+  return app.evalJS<{
+    word: string;
+    line: string;
+    error: string;
+    stuck: string;
+    controls: number;
+  }>(
     `(function(){
+      var reg = document.querySelector(${JSON.stringify(REGISTER)});
       return {
+        word: reg === null ? "" : (reg.getAttribute("data-word") || ""),
+        line: reg === null ? "" : (reg.textContent || ""),
         error: (document.querySelector(${JSON.stringify(RESOLVE_ERROR)})?.textContent || ""),
         stuck: (document.querySelector(${JSON.stringify(STUCK)})?.textContent || ""),
-        progress: document.querySelector(${JSON.stringify(PROGRESS)}) !== null,
         controls: document.querySelectorAll(${JSON.stringify(ANY_CONTROL)}).length,
       };
     })()`,
@@ -252,21 +252,28 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
           `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.dispatchControlAction("toggle-lens");
 
-        await runCommand(app, `/dash-join ${DASH}`);
+        // ── The run starts, and nothing started it ────────────────────────
+        // Read from the Lens first, because the shade is not up yet: the run
+        // is the pilot's, and this file must not be the thing that began it.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(JOIN_FACE)})?.getAttribute("data-outcome") === "conflicted"`,
-          { timeoutMs: 40000 },
+          `document.querySelector(${JSON.stringify(LENS_REGISTER)})?.getAttribute("data-word") === "reconciling"`,
+          { timeoutMs: 120000 },
+        );
+        const startedAt = Date.now();
+        note("at0444: the pilot started the run with nothing pressed");
+        await app.dispatchControlAction("toggle-lens");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(LENS_SECTION)}) === null`,
+          { timeoutMs: 8000 },
         );
 
-        // ── The press ─────────────────────────────────────────────────────
-        await settle(400);
-        const pressedAt = Date.now();
-        await revealAndClick(app, RESOLVE);
+        // The shade, for the rest of the silence — the surface that used to
+        // grow a control over a live run.
+        await runCommand(app, "/commit");
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(RESOLVE)}) === null`,
-          { timeoutMs: 5000 },
+          `document.querySelector(${JSON.stringify(ROW)}) !== null`,
+          { timeoutMs: 40000 },
         );
 
         // ── The silence ───────────────────────────────────────────────────
@@ -275,11 +282,15 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         // is repaired by the answer that follows, which a single late read
         // would never see.
         let sawTwelve = false;
-        while (Date.now() - pressedAt < (SILENCE_S - 1) * 1000) {
+        while (Date.now() - startedAt < (SILENCE_S - 1) * 1000) {
           const face = await runFace(app);
-          const elapsed = Math.round((Date.now() - pressedAt) / 1000);
+          const elapsed = Math.round((Date.now() - startedAt) / 1000);
           expect(face.error, `at ${elapsed}s the run must not read as failed`).toBe("");
           expect(face.stuck, `at ${elapsed}s nothing has stuck`).toBe("");
+          // The register stays on its running pose. This is the deleted
+          // deadline, asserted: a client that judged this rung's liveness
+          // would have flipped exactly here.
+          expect(face.word, `at ${elapsed}s the register reads as work`).toBe("reconciling");
           // Nothing to press is the client half of one dash, one run: the
           // second `finish_join` that used to `reset --hard` a live workshop
           // began with a control this face should never have been mounting.
@@ -296,18 +307,19 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         // The run was never in trouble, so it lands the same green verdict a
         // fast one would — which is the whole claim: the client had no business
         // judging this rung's liveness, and stopping cost it nothing.
+        // Read from the register rather than the verdict panel: the panel
+        // belongs to the join FACE, which the fronted row alone carries, and
+        // fronting this dash would mean aiming the composer at it — a gesture,
+        // in a file whose whole claim is that nothing was pressed.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(VERDICT)})?.getAttribute("data-verdict") === "green"`,
+          `document.querySelector(${JSON.stringify(REGISTER)})?.getAttribute("data-word") === "ready"`,
           { timeoutMs: 180000 },
         );
         const settled = await runFace(app);
         expect(settled.error, "and no error was left behind by the wait").toBe("");
         expect(settled.stuck, "nor a stuck sentence").toBe("");
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(READY)})?.getAttribute("data-ready") === "true"`,
-          { timeoutMs: 30000 },
-        );
-        note("at0444: the slow run finished green and the row reads joinable");
+        expect(settled.word, "and the run ended where a green one ends").toBe("ready");
+        note("at0444: the slow run finished green and the register reads ready");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
