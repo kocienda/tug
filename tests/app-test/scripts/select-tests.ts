@@ -151,6 +151,21 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // computed style, but what they assert is an engine rule, and the phase's
     // recorded failure mode is exactly an attribute-green/pixel-dark ring.
     "tugdeck/src/components/tugways/focus-manager.ts": 29,
+
+    // The deck's one canvas. Every arrangement rule the deck has is expressed
+    // there — the frames' placements, the seam elements, and every custom
+    // property the imposer's `calc()`s read — so a test that asserts geometry
+    // in pixels has nowhere else to name. It sat at exactly 20 for a long time,
+    // which was the budget holding by luck rather than by design.
+    //
+    // 20 → 21 for at0456, which pins the overflow column: past two members a
+    // column stops dividing and starts scrolling, and BOTH halves of that live
+    // in this file — the seam handles are not rendered, and the per-slot offset
+    // property is published in its place. Naming a narrower module instead
+    // would be a fiction; the alternative of not naming it at all would leave
+    // the seam gate covered by nothing, which is the failure the declaration
+    // exists to prevent.
+    "tugdeck/src/components/chrome/deck-canvas.tsx": 21,
 };
 
 interface TestCoverage {

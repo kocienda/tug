@@ -2971,6 +2971,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           the strip with the frames it divides rather than standing at a fit
           anchor nothing is at. */}
       {deckColumns.flatMap((column) => {
+        // An overflowing column has no seams to drag: past two and a half
+        // visible members the run stops being divided and starts being
+        // scrolled, so a handle would be offering a division that no longer
+        // decides anything ([P08]). The stored `shares` are left untouched and
+        // resume meaning the moment the column drops back to two.
+        if (
+          column.mode === "split" &&
+          columnStanding(column.members.length) === "overflow"
+        ) {
+          return [];
+        }
         const pane = panes.find((p) => p.id === column.members[0]);
         const placement = pane === undefined ? undefined : placementFor(pane);
         if (placement === undefined) return [];

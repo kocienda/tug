@@ -467,8 +467,8 @@ App-tests must drive real code paths on real content; every new cell carries an 
 | #step-8 | G — one transition rule | done | `42d5b8237` |
 | #step-9 | G — integration checkpoint | done | `42d5b8237` |
 | #step-10 | I — overflow geometry, pure | done | `d5e5bc682` |
-| #step-11 | I — offsets, clamp, reveal | in progress | — |
-| #step-12 | I — UI, miniature, doctrine | pending | — |
+| #step-11 | I — offsets, clamp, reveal | done | `77971e85f` |
+| #step-12 | I — UI, miniature, doctrine | in progress | — |
 | #step-13 | I — integration checkpoint | pending | — |
 | #step-14 | H — zone model and enumeration | pending | — |
 | #step-15 | H — the gesture: free drag, snap, release | pending | — |

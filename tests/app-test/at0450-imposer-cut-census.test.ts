@@ -106,6 +106,10 @@ const ALLOWED_CUTS: Record<string, { max: number; why: string }> = {
     why: "the column mode and its seams are signature terms, so the flip arms a settle",
   },
   "column-stack": { max: 0, why: "and so is re-stacking" },
+  "column-overflow-reveal": {
+    max: 0,
+    why: "the column offset is a signature term, so a reveal arms the settle that carries the slide",
+  },
 };
 
 interface CutRecord {
@@ -469,6 +473,77 @@ describe.skipIf(!SHOULD_RUN)(
             ),
             "the flow:column-split cell actually divided slot 1",
           ).toBeGreaterThan(1);
+
+          // A third member takes the column past dividing and into scrolling
+          // ([P08]), and then raising the member below the run slides the
+          // whole strip. The offset is a signature term ([P12]) for exactly
+          // this reason: without it the raise would move every frame in the
+          // column while the signature stood still, and the slide would cut.
+          //
+          // The arrival is outside the census — it is the overflow transition,
+          // not the reveal — so its cuts are taken and discarded before the
+          // cell arms.
+          await app.evalJS<null>(
+            `(window.__tug.dispatchControlAction("assign-slot", { cardId: "C", slot: 1 }), null)`,
+          );
+          await wait(AFTER_LAND_MS);
+          // The column's members, top to bottom as they actually paint. The
+          // arrival raised whichever member it raised and may have revealed it,
+          // so the strip is brought home first — the cell has to be a slide
+          // FROM rest, or a clean census would be the trivial truth about a
+          // gesture that moved nothing.
+          const members = await app.evalJS<string[]>(
+            `(function () {
+              var state = window.tugdeck.diag.getDeckState();
+              return Array.prototype.slice
+                .call(document.querySelectorAll(
+                  '.tug-pane[data-column-split][data-imposed="1"]'
+                ))
+                .sort(function (a, b) {
+                  return a.getBoundingClientRect().top
+                       - b.getBoundingClientRect().top;
+                })
+                .map(function (el) {
+                  var id = el.getAttribute("data-pane-id");
+                  var pane = state.panes.find(function (p) { return p.id === id; });
+                  return pane === undefined ? null : pane.activeCardId;
+                })
+                .filter(function (x) { return x !== null; });
+            })()`,
+          );
+          await app.evalJS<null>(
+            `(window.__tug.activateCard(${JSON.stringify(members[0])}), null)`,
+          );
+          await wait(AFTER_LAND_MS);
+          expect(
+            await app.evalJS<number>(
+              `((window.tugdeck.diag.getDeckState().columnOffsets || {})[1] || 0)`,
+            ),
+            "the strip is at rest before the reveal cell",
+          ).toBe(0);
+          await takeCuts(app);
+          found["flow:column-overflow-reveal"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.activateCard(${JSON.stringify(members[members.length - 1])}), null)`,
+            );
+          });
+          // Engagement guard, in two parts: the column really did overflow, and
+          // the raise really did slide it. A cell that revealed nothing would
+          // report a clean census about a gesture that moved no frame.
+          expect(
+            await app.evalJS<number>(
+              `document.querySelectorAll(
+                 '.tug-pane[data-column-split][data-imposed="1"]'
+               ).length`,
+            ),
+            "the overflow cell actually took slot 1 past two members",
+          ).toBeGreaterThanOrEqual(3);
+          expect(
+            await app.evalJS<number>(
+              `((window.tugdeck.diag.getDeckState().columnOffsets || {})[1] || 0)`,
+            ),
+            "the overflow cell actually slid slot 1's strip",
+          ).toBeGreaterThan(0);
 
           await disarmDetector(app);
 

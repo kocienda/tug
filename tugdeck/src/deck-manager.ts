@@ -2473,6 +2473,20 @@ export class DeckManager implements IDeckManagerStore {
   }
 
   /**
+   * The run a column's members stand in, in px, or `null` when the canvas has
+   * no height to speak of.
+   *
+   * Public for the reason {@link getFlowBandWidth} is: the Lens's miniature
+   * draws an overflowing column as a strip behind a run, and a stored offset
+   * only means something against the run it was measured in. Reading it here
+   * keeps the deck's one measurement in one place.
+   */
+  getColumnRunHeight(): number | null {
+    const run = this._columnRunHeight();
+    return run > 0 ? run : null;
+  }
+
+  /**
    * The column offset that reveals `paneId` inside its own slot, or
    * `undefined` when there is nothing to reveal — the pane stands in no
    * column, its column is not split, its column does not overflow, or the

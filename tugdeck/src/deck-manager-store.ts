@@ -69,6 +69,7 @@ export interface IDeckManagerStore {
    * which is why it is a method and not a field of the snapshot.
    */
   getFlowBandWidth: () => number | null;
+  getColumnRunHeight: () => number | null;
 
   /**
    * Stable bound callback: update a pane frame's position/size on drag-end /

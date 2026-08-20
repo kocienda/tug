@@ -345,6 +345,34 @@ function useCommittedFlow(): CommittedFlow | null {
   }, [deck, store]);
 }
 
+/**
+ * Each overflowing column's slide, as a fraction of the run — the vertical
+ * half of what the committed drawing is told, and `null` when no column is
+ * overflowing or the canvas has no run to measure against.
+ *
+ * A fraction rather than pixels for the reason the miniature's prop is one:
+ * the drawing's field is the run at another scale, and the fraction is the one
+ * number that crosses the scale change intact. Recomputed with the snapshot
+ * ([L02]).
+ */
+function useCommittedColumnOffsets(): Readonly<
+  Record<number, number>
+> | null {
+  const deck = useDeck();
+  const store = getDeckStore();
+  return useMemo(() => {
+    const offsets = deck?.columnOffsets;
+    if (deck === null || store === null || offsets === undefined) return null;
+    const run = store.getColumnRunHeight();
+    if (run === null) return null;
+    const fractions: Record<number, number> = {};
+    for (const [slot, px] of Object.entries(offsets)) {
+      fractions[Number(slot)] = px / run;
+    }
+    return Object.keys(fractions).length === 0 ? null : fractions;
+  }, [deck, store]);
+}
+
 /** Live collapsed summary: the active kind's label. The side is not summarized
  *  — the band has room for one fact and the arrangement is it. */
 function LayoutsCollapsedSummary(): React.ReactElement {
@@ -480,6 +508,7 @@ function LayoutsSectionBody({
   // The committed drawing alone gets the live strip; every preview layer below
   // draws at rest ([P06]).
   const committedFlow = useCommittedFlow();
+  const committedColumnOffsets = useCommittedColumnOffsets();
   const shareableColumns = columns.filter(
     (column) => column.members.length > 1,
   );
@@ -773,6 +802,7 @@ function LayoutsSectionBody({
               flowOffsetPx={committedFlow?.offsetPx}
               flowBandPx={committedFlow?.bandPx}
               slotExtents={committedFlow?.extents}
+              columnOffsets={committedColumnOffsets ?? undefined}
             />
           </div>
           {layers.map((layer) => (

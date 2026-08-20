@@ -35,6 +35,8 @@ import "./layout-miniature.css";
 import React from "react";
 
 import {
+  columnStanding,
+  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
   CONTENT_WIDTH_PX,
   CONTENT_WIDTH_WIDE_PX,
   CONTENT_WIDTH_COMFY_PX,
@@ -121,6 +123,17 @@ export interface LayoutMiniatureProps {
    * cannot, and the drawing should show how many shares the run is in.
    */
   columnSplits?: Readonly<Record<number, number>>;
+  /**
+   * How far each overflowing column has slid its strip up behind the run, as a
+   * FRACTION of the run — keyed by slot, absent reading as at rest.
+   *
+   * A fraction rather than pixels because the field IS the run: the drawing's
+   * whole height is the height the deck's members stand in, so one number
+   * carries across the scale change without the picture needing to know either
+   * side's size. Only the committed drawing is given these, for the reason it
+   * alone is given the flow offset ([P06]).
+   */
+  columnOffsets?: Readonly<Record<number, number>>;
   /** Draw the cards. `false` draws the deck's frame and rails alone — the
    *  picture for a question that is only about which edge a sidebar holds. */
   cards?: boolean;
@@ -246,6 +259,7 @@ export function LayoutMiniature({
   rails = {},
   railModes,
   columnSplits,
+  columnOffsets,
   cards = true,
   width,
   layout = "fit",
@@ -391,15 +405,27 @@ export function LayoutMiniature({
               />
             );
           }
-          const drawn = Math.min(members, 3);
-          const span = (100 - RAIL_SEAM_PCT * (drawn - 1)) / drawn;
-          return Array.from({ length: drawn }, (_, m) => {
-            const top = m * (span + RAIL_SEAM_PCT);
+          // Past two members the column stops dividing and starts scrolling
+          // ([P08]), and the drawing says so rather than capping at three: EVERY
+          // member is drawn, each the same height, stacked down a strip that
+          // runs off the bottom of the field. The span is solved so the third
+          // member is cut exactly in half — `(100 - 2 * gap) / 2.5` puts two
+          // whole members and half of a third inside the run for any gap — which
+          // is the geometry the deck itself resolves, and the half-visible card
+          // IS the affordance saying there is more below.
+          const overflow = columnStanding(members) === "overflow";
+          const span = overflow
+            ? (100 - RAIL_SEAM_PCT * 2) / COLUMN_OVERFLOW_VISIBLE_MEMBERS
+            : (100 - RAIL_SEAM_PCT * (members - 1)) / members;
+          const slide = overflow ? (columnOffsets?.[block.slot] ?? 0) * 100 : 0;
+          return Array.from({ length: members }, (_, m) => {
+            const top = m * (span + RAIL_SEAM_PCT) - slide;
             return (
               <span
                 key={`${block.slot}:${m}`}
                 className="layout-mini-block"
                 data-column-member=""
+                data-column-overflow={overflow ? "" : undefined}
                 style={{
                   left: `${block.left}%`,
                   width: `${block.width}%`,
