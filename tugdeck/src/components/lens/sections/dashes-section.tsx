@@ -501,12 +501,15 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   // controls on the eyebrow ([L31]).
   const delegate = useMemo<TugListViewDelegate>(() => ({}), []);
 
-  // The empty state keeps the band and says how a dash begins. One quiet line
-  // is what buys the section its fixed address.
+  // The empty state keeps the band: the shared empty label, standing in for
+  // the list at one row's height, exactly as an empty Cards section reads.
   if (!populated) {
     return (
-      <div className="lens-dashes-empty" data-slot="lens-dashes-empty">
-        No dashes. <code>tugutil dash create</code> starts one.
+      <div
+        className="lens-section-empty lens-dashes-empty"
+        data-slot="lens-dashes-empty"
+      >
+        None
       </div>
     );
   }

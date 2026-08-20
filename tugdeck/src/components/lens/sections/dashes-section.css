@@ -75,16 +75,6 @@
   display: inline-flex;
 }
 
-/* The empty state: the band stays, and this one quiet line is what the
-   section's fixed address costs. */
-/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
-.lens-dashes-empty {
-  padding: var(--tug-space-2xs) var(--tug-space-sm) var(--tug-space-sm);
-  font-size: var(--tug-font-size-2xs);
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-.lens-dashes-empty code {
-  font-family: var(--tug-font-family-mono);
-  font-size: 0.95em;
-}
+/* The empty state: the band stays, and the label is the shared
+   `.lens-section-empty` (lens-content.css) — "None", centered, at one row's
+   height, exactly as an empty Cards section reads. Nothing to add here. */
