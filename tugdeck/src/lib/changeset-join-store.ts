@@ -17,35 +17,30 @@
  * reload, or a relaunch without costing a resolution, because the resolution
  * was never in it.
  *
- * **A run in flight always ends.** The ladder answers exactly once, over a
- * CONTROL frame that nothing replays — CONTROL is registered `LagPolicy::Warn`,
- * so a client that falls behind has frames dropped outright, and a socket that
- * dies mid-run takes the answer with it. A state left in `resolving` is a dash
- * whose Resolve button has vanished with nothing in its place and no way back,
- * for the life of the page. Two things close that, and neither needs to know
- * what went wrong:
+ * **The client stops guessing at liveness.** There was once a silence clock
+ * here — twelve seconds without a frame declared a run lost — and it was
+ * removed rather than tuned. Its premise was per-chunk streaming, which is true
+ * of the scribe rung and false of every other: the algorithmic rungs are git
+ * work, and the resolver rung reports four discrete beats with minutes of
+ * legitimate quiet between them. So the clock measured nothing and declared
+ * healthy work dead, in a sentence nobody could act on. Liveness for a run is
+ * the **server's** to bound — a per-turn silence bound, a tier-0 timeout, an
+ * overall deadline, each landing in the durable stuck fact naming which one
+ * fired.
  *
- * 1. **The wire dropping**, which is detectable the instant it happens:
- *    `connectionDidClose` fails every run in flight on the spot.
- * 2. **{@link RESOLVE_IDLE_DEADLINE_MS} of silence**, which covers everything
- *    else — a lagged stream, a server that died mid-ladder, a frame lost
- *    somewhere nobody has thought of.
+ * What survives is the one liveness fact this client can honestly see: **the
+ * wire dropping**, which `connectionDidClose` observes the instant it happens
+ * and turns into a stated failure. A state left in `resolving` forever would be
+ * a dash with a spinner and no way back, so that arm stays.
  *
- * The deadline counts SILENCE, not elapsed time: every frame for a dash
- * restarts its clock. The AI rung emits a delta when it starts and one per
- * accumulated chunk thereafter, so a scribe grinding for minutes is never quiet
- * and never trips it; the only genuinely silent stretches are the algorithmic
- * rungs (git work) and the wait for a first token.
- *
- * **And the deadline is impatience, not cancellation** — which is what makes it
- * safe to keep short. Nothing here can stop tugcast's ladder, so a run this
- * client gave up on still finishes, still writes its candidate, and still bumps
- * the feed: the row flips to the resolved face on its own, over the top of the
- * error. That is why the error says the result will appear rather than telling
- * the user to press Resolve again.
+ * **The join narrates itself too** ([P03]). `changeset_join_land_delta` frames
+ * arrive as the join moves through squash → teardown → release → record, and
+ * this store holds the latest beat per dash beside the resolve progress. Same
+ * rule applies: a beat is a liveness hint, the feed recompute is the truth, and
+ * losing every beat costs the progress line and nothing else.
  *
  * Attached once at boot with {@link attachChangesetJoinStore}; consumed via
- * {@link useChangesetJoinResolve}.
+ * {@link useChangesetJoinResolve} and {@link useChangesetJoinLand}.
  *
  * @module lib/changeset-join-store
  */
@@ -110,20 +105,13 @@ const IDLE: ResolveState = Object.freeze({
   error: null,
 });
 
-/**
- * How long a run may say NOTHING before it is declared lost.
- *
- * Silence, not duration: every frame for a dash restarts its clock, and the AI
- * rung streams continuously, so this is never the ceiling on a run that is
- * working — it is the ceiling on one that has stopped talking. Twelve seconds
- * clears the two stretches that are legitimately quiet (the algorithmic rungs,
- * and the wait for a first token from a model that may be loading) with room
- * over, and is short enough that nobody is left watching a dead spinner.
- *
- * It can afford to be tight because firing early is nearly free: the run is not
- * cancelled, and its answer still applies if it turns up.
- */
-export const RESOLVE_IDLE_DEADLINE_MS = 12_000;
+/** One beat of a join in flight ([P03], Spec S02). */
+export interface LandProgress {
+  /** `squash` | `teardown` | `release` | `record`. */
+  beat: string;
+  /** `start` | `done`. */
+  status: string;
+}
 
 function key(workspaceKey: string, dash: string): string {
   return `${workspaceKey}|${dash}`;
@@ -145,13 +133,16 @@ export class ChangesetJoinStore {
   private readonly _listeners = new Set<() => void>();
   private _states = new Map<string, ResolveState>();
   private readonly _decoder = new TextDecoder();
-  /** One live idle timer per dash with a run in flight. */
-  private readonly _deadlines = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly _deadlineMs: number;
+  /**
+   * The latest beat of a join in flight, per dash ([P03]).
+   *
+   * Held as stored objects rather than composed on read, so
+   * `useSyncExternalStore` sees a stable snapshot identity between beats.
+   */
+  private readonly _land = new Map<string, LandProgress>();
 
-  constructor(connection: TugConnection, deadlineMs = RESOLVE_IDLE_DEADLINE_MS) {
+  constructor(connection: TugConnection) {
     this._connection = connection;
-    this._deadlineMs = deadlineMs;
     this._unsubscribe = connection.onFrame(FeedId.CONTROL, (payload) =>
       this._onControl(payload),
     );
@@ -175,52 +166,25 @@ export class ChangesetJoinStore {
    * left alone — a result that already arrived survives the wire dropping.
    */
   private _failInFlight(): void {
+    // A join in flight loses its narrator with the wire; its beats would
+    // otherwise rest on whichever one arrived last, forever.
+    let landCleared = false;
+    for (const k of [...this._land.keys()]) {
+      this._land.delete(k);
+      landCleared = true;
+    }
     for (const [k, state] of [...this._states]) {
       if (state.phase !== "resolving") continue;
-      this._fail(
-        k,
-        "The connection dropped while the ladder was running — its result will appear on this row if it finished.",
-      );
+      this._fail(k, "The connection dropped — the run continues on the server.");
+      landCleared = false;
     }
+    if (landCleared) this._emit();
   }
 
-  /** End a run with a reason, and stop its clock. */
+  /** End a run with a reason. */
   private _fail(k: string, reason: string): void {
     const prev = this._states.get(k) ?? IDLE;
-    this._clearDeadline(k);
     this._set(k, { ...prev, phase: "error", error: reason });
-  }
-
-  /**
-   * (Re)start a dash's silence clock. Called on the request and on every frame
-   * that follows it, so the deadline measures the gap between frames rather
-   * than the length of the run.
-   */
-  private _armDeadline(k: string): void {
-    this._clearDeadline(k);
-    this._deadlines.set(
-      k,
-      setTimeout(() => {
-        this._deadlines.delete(k);
-        // Guard the phase: a terminal frame clears its own timer, but arriving
-        // in the same tick as one that already fired must not resurrect an
-        // error over a result.
-        if (this._states.get(k)?.phase !== "resolving") return;
-        this._fail(
-          k,
-          `No answer from the resolution ladder in ${Math.round(
-            this._deadlineMs / 1000,
-          )} seconds — its result will appear on this row if it finished.`,
-        );
-      }, this._deadlineMs),
-    );
-  }
-
-  private _clearDeadline(k: string): void {
-    const timer = this._deadlines.get(k);
-    if (timer === undefined) return;
-    clearTimeout(timer);
-    this._deadlines.delete(k);
   }
 
   private _onControl(payload: Uint8Array): void {
@@ -238,7 +202,10 @@ export class ChangesetJoinStore {
       action !== "changeset_join_resolve_err" &&
       action !== "changeset_join_override_ok" &&
       action !== "changeset_join_override_err" &&
-      action !== "changeset_join_question_answer_err"
+      action !== "changeset_join_question_answer_err" &&
+      action !== "changeset_join_land_delta" &&
+      action !== "changeset_join_ok" &&
+      action !== "changeset_join_err"
     ) {
       return;
     }
@@ -250,6 +217,24 @@ export class ChangesetJoinStore {
     if (workspaceKey === null || dash === null) return;
     const k = key(workspaceKey, dash);
     const prev = this._states.get(k) ?? IDLE;
+
+    // The join's own narration ([P03]). A hint and nothing more: the feed
+    // recompute stays the carrier of truth, so a beat that never arrives costs
+    // the progress line and nothing else.
+    if (action === "changeset_join_land_delta") {
+      const beat = typeof body.beat === "string" ? body.beat : "";
+      const status = typeof body.status === "string" ? body.status : "";
+      if (beat === "") return;
+      this._land.set(k, { beat, status });
+      this._emit();
+      return;
+    }
+    // The join is over, one way or the other — its beats stop describing
+    // anything, so they do not outlive the run that produced them.
+    if (action === "changeset_join_ok" || action === "changeset_join_err") {
+      if (this._land.delete(k)) this._emit();
+      return;
+    }
 
     // A press that changed nothing has to say so. Both of these are refusals
     // of a *side* act — the run they belong to, if there is one, is unharmed —
@@ -282,26 +267,6 @@ export class ChangesetJoinStore {
       const text = typeof body.text === "string" ? body.text : "";
       const candidate = typeof body.candidate === "string" ? body.candidate : undefined;
       const progress = prev.progress.filter((p) => p.path !== path);
-      // The resolver rung is silent by nature, at every status and not only
-      // while it waits on a person ([P02]). It reports four discrete beats —
-      // working, asking, verifying, iterating — with minutes of legitimate
-      // quiet between them: a model composing a reconciliation, a build, a
-      // test selection. The deadline's premise is per-chunk streaming, which is
-      // true of the scribe and false here, so on this rung it measured nothing
-      // and declared healthy work dead.
-      //
-      // Liveness for the resolver is the server's ([P02]): a per-turn silence
-      // bound, a tier-0 timeout, and an overall deadline, each landing in the
-      // durable stuck fact with a sentence naming which one fired. The client
-      // keeps the one failure it can genuinely see — a dropped wire — and
-      // stops guessing at the rest.
-      if (rung === "resolver") {
-        this._clearDeadline(k);
-      } else {
-        // The run is talking, so the silence clock goes back to zero. This is
-        // what lets a scribe stream for minutes under a twelve-second deadline.
-        this._armDeadline(k);
-      }
       this._set(k, {
         ...prev,
         phase: "resolving",
@@ -315,11 +280,10 @@ export class ChangesetJoinStore {
     }
 
     if (action === "changeset_join_resolve_ok") {
-      // A late answer still counts. The deadline never cancelled anything —
-      // the ladder ran to completion server-side whatever this client believed
-      // — so a result that turns up after the run was given up on is true, and
-      // takes the face back off the error it was showing.
-      this._clearDeadline(k);
+      // A late answer still counts. Nothing here ever cancelled anything — the
+      // ladder ran to completion server-side whatever this client believed —
+      // so a result that turns up after a dropped wire is true, and takes the
+      // face back off the error it was showing.
       const unresolved = readStringArray(body.unresolved);
       if (unresolved.length > 0) {
         // The ladder's honest dead end, and the one terminal fact the feed
@@ -375,6 +339,10 @@ export class ChangesetJoinStore {
     } else {
       this._states.set(k, state);
     }
+    this._emit();
+  }
+
+  private _emit(): void {
     for (const listener of [...this._listeners]) listener();
   }
 
@@ -391,7 +359,6 @@ export class ChangesetJoinStore {
    */
   resolve(workspaceKey: string, dash: string): void {
     const k = key(workspaceKey, dash);
-    this._armDeadline(k);
     this._set(k, { phase: "resolving", progress: [], error: null });
     this._connection.sendControlFrame("changeset_join_resolve", {
       project_dir: workspaceKey,
@@ -401,6 +368,11 @@ export class ChangesetJoinStore {
 
   state(workspaceKey: string, dash: string): ResolveState {
     return this._states.get(key(workspaceKey, dash)) ?? IDLE;
+  }
+
+  /** The beat a join in flight last reported, or null when none is ([P03]). */
+  landProgress(workspaceKey: string, dash: string): LandProgress | null {
+    return this._land.get(key(workspaceKey, dash)) ?? null;
   }
 
   /**
@@ -469,18 +441,17 @@ export class ChangesetJoinStore {
     });
   }
 
-  /** Clear a dash's resolve state (cancel / after landing). */
+  /** Clear a dash's resolve state and its beats (cancel / after landing). */
   clear(workspaceKey: string, dash: string): void {
     const k = key(workspaceKey, dash);
-    this._clearDeadline(k);
+    this._land.delete(k);
     this._set(k, IDLE);
   }
 
   dispose(): void {
     this._unsubscribe();
     this._unobserveClose();
-    for (const timer of this._deadlines.values()) clearTimeout(timer);
-    this._deadlines.clear();
+    this._land.clear();
     this._listeners.clear();
   }
 
@@ -492,13 +463,9 @@ export class ChangesetJoinStore {
 
 let _activeStore: ChangesetJoinStore | null = null;
 
-export function attachChangesetJoinStore(
-  conn: TugConnection,
-  /** Overridable so a test can drive the real timer instead of faking a clock. */
-  deadlineMs?: number,
-): ChangesetJoinStore {
+export function attachChangesetJoinStore(conn: TugConnection): ChangesetJoinStore {
   if (_activeStore !== null) return _activeStore;
-  _activeStore = new ChangesetJoinStore(conn, deadlineMs);
+  _activeStore = new ChangesetJoinStore(conn);
   return _activeStore;
 }
 
@@ -551,4 +518,26 @@ export function useChangesetJoinResolve(
     _activeStore?.review(workspaceKey, dash, candidate);
   };
   return { ...state, resolve, clear, review };
+}
+
+/**
+ * React hook: the beat a join in flight last reported, or null ([L02]).
+ *
+ * The stored object is returned as-is rather than composed on read, so the
+ * snapshot's identity is stable between beats and `useSyncExternalStore` does
+ * not re-render on every unrelated frame.
+ */
+export function useChangesetJoinLand(
+  workspaceKey: string,
+  dash: string,
+): LandProgress | null {
+  return useSyncExternalStore(
+    (listener) => {
+      const store = _activeStore;
+      if (store === null) return () => {};
+      return store.subscribe(listener);
+    },
+    () => _activeStore?.landProgress(workspaceKey, dash) ?? null,
+    () => null,
+  );
 }

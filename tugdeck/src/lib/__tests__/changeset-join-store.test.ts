@@ -241,104 +241,98 @@ describe("a run whose answer never arrives", () => {
   });
 });
 
-/**
- * The silence deadline, driven on the real timer at a compressed length —
- * `attachChangesetJoinStore` takes the interval so these cases exercise the
- * shipping `setTimeout` path rather than a faked clock.
- */
-describe("the silence deadline", () => {
-  const DEADLINE = 20;
-  const settle = (ms: number): Promise<void> =>
-    new Promise((done) => setTimeout(done, ms));
+describe("the join narrates itself ([P03])", () => {
+  const beat = (dash: string, name: string, status: string): void =>
+    _ingestJoinFrameForTest({
+      action: "changeset_join_land_delta",
+      project_dir: "/p",
+      dash,
+      beat: name,
+      status,
+    });
 
-  test("a run that goes quiet is declared lost, and names the deadline", async () => {
-    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
-    store.resolve("/p", "demo");
-    expect(store.state("/p", "demo").phase).toBe("resolving");
+  test("a beat lands on its own dash's cell and nobody else's", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    expect(store.landProgress("/p", "demo")).toBeNull();
 
-    await settle(DEADLINE * 3);
+    beat("demo", "squash", "start");
+    expect(store.landProgress("/p", "demo")).toEqual({ beat: "squash", status: "start" });
+    // Keyed by (workspace, dash) exactly as resolve progress is: two joins in
+    // two projects, or two dashes in one, must not narrate over each other.
+    expect(store.landProgress("/p", "other")).toBeNull();
+    expect(store.landProgress("/elsewhere", "demo")).toBeNull();
 
-    const lost = store.state("/p", "demo");
-    expect(lost.phase).toBe("error");
-    expect(lost.error).toContain("No answer");
+    beat("demo", "teardown", "start");
+    expect(store.landProgress("/p", "demo")).toEqual({ beat: "teardown", status: "start" });
   });
 
-  test("a run that keeps talking outlives the deadline", async () => {
-    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
-    store.resolve("/p", "demo");
+  test("the beats do not outlive the join that produced them", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    beat("demo", "record", "start");
+    expect(store.landProgress("/p", "demo")).not.toBeNull();
 
-    // A scribe streaming its merge. Each delta restarts the clock, so the run
-    // survives a span several deadlines long — which is the whole reason the
-    // deadline can be short enough to be useful.
-    for (let i = 0; i < 5; i++) {
-      await settle(DEADLINE / 2);
-      _ingestJoinFrameForTest({
-        action: "changeset_join_resolve_delta",
-        ...K,
-        path: "a.rs",
-        rung: "ai",
-        status: "streaming",
-        text: `chunk ${i}`,
-      });
-      expect(store.state("/p", "demo").phase).toBe("resolving");
+    // The join is over. Its last beat stops describing anything, and a register
+    // left resting on it would read as a join still running on a row that has
+    // already gone.
+    _ingestJoinFrameForTest({
+      action: "changeset_join_ok",
+      ...K,
+      previewed: false,
+      commit_hash: "cafe1234",
+    });
+    expect(store.landProgress("/p", "demo")).toBeNull();
+  });
+
+  test("a refused join clears its beats too", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    beat("demo", "squash", "start");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_err",
+      ...K,
+      detail: "stale candidate",
+    });
+    expect(store.landProgress("/p", "demo")).toBeNull();
+  });
+
+  test("a beat with no name is not a beat", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    beat("demo", "", "start");
+    expect(store.landProgress("/p", "demo")).toBeNull();
+  });
+
+  test("the wire dropping takes the narration with it", () => {
+    try {
+      const lifecycle = liveLifecycle();
+      const store = attachChangesetJoinStore(fakeConn);
+      beat("demo", "teardown", "start");
+      // Nothing will replay a CONTROL frame, so the beats stop arriving — and a
+      // register resting on whichever one landed last would say the join is
+      // still tearing down, forever.
+      lifecycle.notifyConnectionDidClose();
+      expect(store.landProgress("/p", "demo")).toBeNull();
+    } finally {
+      registerConnectionLifecycle(null);
     }
-  });
-
-  test("an answer that arrives late still lands", async () => {
-    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
-    store.resolve("/p", "demo");
-    await settle(DEADLINE * 3);
-    expect(store.state("/p", "demo").phase).toBe("error");
-
-    // Nothing was cancelled — the ladder ran to completion on the server
-    // whatever this client concluded — so its answer still takes the face off
-    // the error the deadline put there.
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [{ path: "a.rs", resolved_by: "driver", diff: "@@\n" }],
-      unresolved: [],
-      candidate_commit: "abc123",
-      shape: "squash",
-    });
-
-    const late = store.state("/p", "demo");
-    expect(late.phase).toBe("idle");
-    expect(late.error).toBeNull();
-  });
-
-  test("a terminal answer stops the clock", async () => {
-    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
-    store.resolve("/p", "demo");
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [{ path: "a.rs", resolved_by: "driver", diff: "@@\n" }],
-      unresolved: [],
-      candidate_commit: "abc123",
-      shape: "squash",
-    });
-
-    // The deadline that was live when the answer arrived must not fire behind
-    // it and paint an error over a row that has already moved on.
-    await settle(DEADLINE * 3);
-    expect(store.state("/p", "demo").phase).toBe("idle");
   });
 });
 
-describe("the resolver rung is not measured by the client's clock ([P02])", () => {
-  const DEADLINE = 20;
+describe("the client does not guess at liveness ([P03])", () => {
   const settle = (ms: number): Promise<void> =>
     new Promise((done) => setTimeout(done, ms));
 
-  test("silence on the resolver rung is work, at every status", async () => {
-    // The deadline's premise is per-chunk streaming. That is true of the scribe
-    // and false of the resolver, which reports four discrete beats with minutes
-    // of legitimate quiet between them — a model composing a reconciliation, a
-    // build, a test selection. Measured by this clock, a healthy resolve was
-    // declared dead and the error face re-mounted Resolve, which is how a
-    // second run came to `reset --hard` the workshop the first was editing.
-    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+  test("a run that goes quiet stays a run", async () => {
+    // There was a twelve-second silence clock here, and it was deleted rather
+    // than tuned. Its premise was per-chunk streaming — true of the scribe rung
+    // and false of every other: the algorithmic rungs are git work, and the
+    // resolver reports four discrete beats with minutes of legitimate quiet
+    // between them. So it measured nothing and declared healthy work dead, and
+    // the error face it produced re-mounted Resolve, which is how a second run
+    // came to `reset --hard` the workshop the first was editing.
+    //
+    // Liveness for a run is the server's to bound: a per-turn silence bound, a
+    // tier-0 timeout, an overall deadline, each landing in the durable stuck
+    // fact with a sentence naming which one fired.
+    const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
     for (const status of ["working", "verifying", "iterating"]) {
       _ingestJoinFrameForTest({
@@ -349,19 +343,15 @@ describe("the resolver rung is not measured by the client's clock ([P02])", () =
         rung: "resolver",
         status,
       });
-      await settle(DEADLINE * 3);
+      await settle(30);
       const live = store.state("/p", "demo");
       expect(live.phase).toBe("resolving");
       expect(live.error).toBeNull();
     }
-    // Liveness for this rung is the server's: a per-turn silence bound, a
-    // tier-0 timeout, and an overall deadline, each landing in the durable
-    // stuck fact with a sentence naming which one fired.
-  });
 
-  test("the scribe rung is still on the clock", async () => {
-    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
-    store.resolve("/p", "demo");
+    // And the same for a scribe that has said one thing and gone quiet: it was
+    // the one rung the old clock was right about, and it is still not this
+    // client's to judge.
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_delta",
       ...K,
@@ -370,14 +360,26 @@ describe("the resolver rung is not measured by the client's clock ([P02])", () =
       status: "streaming",
       text: "half a merge",
     });
-    await settle(DEADLINE * 3);
-    expect(store.state("/p", "demo").phase).toBe("error");
+    await settle(60);
+    expect(store.state("/p", "demo").phase).toBe("resolving");
+  });
+
+  test("both banished sentences are gone, and cannot come back", async () => {
+    // A drift assertion over the module's own source. The two sentences were
+    // word salad in different ways — one guessed at liveness the client cannot
+    // see and named no act, the other promised a result would appear on a row,
+    // which is not something this side can know.
+    const source = await Bun.file(
+      new URL("../changeset-join-store.ts", import.meta.url).pathname,
+    ).text();
+    expect(source).not.toContain("resolution ladder in");
+    expect(source).not.toContain("if it finished");
   });
 
   test("the resolver's progress names a candidate, not a path", () => {
     // The sha used to ride in `path`, which put a commit hash in the face's
     // filename column and made each status of one run key as a separate file.
-    const store = attachChangesetJoinStore(fakeConn, DEADLINE);
+    const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
     for (const status of ["working", "verifying"]) {
       _ingestJoinFrameForTest({
@@ -458,7 +460,7 @@ describe("a press that changed nothing says so ([P04], [P06])", () => {
     // have expired, or a later run may be asking something else — and nothing
     // on this side listened for the refusal. The press looked accepted and the
     // wizard sat there, which is the silence [L31] exists to forbid.
-    const store = attachChangesetJoinStore(fakeConn, 20);
+    const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
     _ingestJoinFrameForTest({
       action: "changeset_join_question_answer_err",
@@ -479,7 +481,7 @@ describe("an admission refusal does not kill the run it was refused for ([P01])"
     // streaming into. Read as an ordinary failure it would report the healthy
     // run as dead — the false error face, rebuilt out of the very mechanism
     // that exists to prevent the damage it used to invite.
-    const store = attachChangesetJoinStore(fakeConn, 20);
+    const store = attachChangesetJoinStore(fakeConn);
     store.resolve("/p", "demo");
     _ingestJoinFrameForTest({
       action: "changeset_join_resolve_delta",
