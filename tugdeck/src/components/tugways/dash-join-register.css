@@ -1,0 +1,20 @@
+/**
+ * dash-join-register.css — framing only.
+ *
+ * The register's appearance IS `BlockHeader`'s: the lifecycle dot, the target
+ * run, the trailing summary and their tones all belong to the header and are
+ * paid for once there. What is left for this file is where the header sits and
+ * how its edges read when it is mounted outside a transcript — a rounded strip
+ * on a row rather than an edge-to-edge band.
+ *
+ * [L20] — this file references register-scoped tokens only. It must never
+ * override, alias, or read `--tugx-toolheader-*`: those are the header's, and
+ * reaching into them from here is how one surface's tuning silently becomes
+ * every surface's.
+ */
+
+.tug-dash-join-register {
+  min-width: 0;
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+}

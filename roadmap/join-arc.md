@@ -558,8 +558,8 @@ Replies `changeset_join_prompt_answer_err { detail }` on a refusal — a stale `
 | #step-2 | The pilot runs | done | `66749ee54` |
 | #step-3 | Tier 1 leaves the join path; pilot integration checkpoint | done | `fa9989a81` |
 | #step-4 | The join narrates its beats | done | `cb1138138` |
-| #step-5 | The client holds the beats; the deadline dies | in progress | — |
-| #step-6 | The register derivation and its component | pending | — |
+| #step-5 | The client holds the beats; the deadline dies | done | `551e4f350` |
+| #step-6 | The register derivation and its component | in progress | — |
 | #step-7 | The register mounts on three surfaces | pending | — |
 | #step-8 | Z5 carries the role and the confirm | pending | — |
 | #step-9 | The prompt fact and the re-ask policy | pending | — |
