@@ -5621,20 +5621,6 @@ impl AgentSupervisor {
             return;
         }
 
-        // Build the AI rung from the scribe context when one is configured;
-        // without it the ladder runs its algorithmic rungs only.
-        let merger =
-            self.scribe
-                .as_ref()
-                .map(|scribe| crate::feeds::join_resolve::ScribeFileMerger {
-                    spawner: scribe.spawner.clone(),
-                    model: scribe.model.clone(),
-                    handle: tokio::runtime::Handle::current(),
-                    control_tx: self.control_tx.clone(),
-                    project_dir: project_dir.to_string(),
-                    dash: request.dash.clone(),
-                });
-
         // Take the dash before anything git-shaped happens (Spec S01). A second
         // Resolve press — the shape the false error face used to invite — would
         // otherwise start a second `finish_join` doing `reset --hard` on the
@@ -5661,12 +5647,54 @@ impl AgentSupervisor {
                 return;
             }
         };
+
+        self.run_resolve_ladder(project_dir, &request.dash, occupancy)
+            .await;
+    }
+
+    /// The resolution ladder itself, from the scribe rung through the
+    /// resolver's audit to the Tier 0 verdict a candidate earns.
+    ///
+    /// Shared by the `changeset_join_resolve` CONTROL handler and the join
+    /// pilot ([P01]), so a reconcile the machine started and one the user
+    /// started are literally the same run — the same scribe rung, the same
+    /// audit, the same verdict. A second implementation for the pilot would be
+    /// two ladders drifting apart, which is exactly what the arc cannot afford:
+    /// the whole promise is that what the machine did unprompted is what the
+    /// user would have got by pressing.
+    ///
+    /// **Admission belongs to the caller.** By the time control arrives here
+    /// the project has been validated and the dash has been taken through
+    /// `join_occupancy`; the guard is handed in and the hold travels with the
+    /// work from this point, releasing on every exit including a panic.
+    async fn run_resolve_ladder(
+        &self,
+        project_dir: &str,
+        dash_name: &str,
+        occupancy: crate::feeds::join_occupancy::JoinOccupancy,
+    ) {
+        let dir = std::path::Path::new(project_dir);
+
+        // Build the AI rung from the scribe context when one is configured;
+        // without it the ladder runs its algorithmic rungs only.
+        let merger =
+            self.scribe
+                .as_ref()
+                .map(|scribe| crate::feeds::join_resolve::ScribeFileMerger {
+                    spawner: scribe.spawner.clone(),
+                    model: scribe.model.clone(),
+                    handle: tokio::runtime::Handle::current(),
+                    control_tx: self.control_tx.clone(),
+                    project_dir: project_dir.to_string(),
+                    dash: dash_name.to_string(),
+                });
+
         // The `run` fact is what makes a reload mid-resolve land on a face that
         // still says the resolve is running, so it goes out before the work.
         self.registry.changeset_all_bump().notify_one();
 
         let dir_owned = dir.to_path_buf();
-        let dash = request.dash.clone();
+        let dash = dash_name.to_string();
         let result = tokio::task::spawn_blocking(move || {
             // Last attempt's refusal stops applying the moment this one starts;
             // leaving it standing would render a running resolve under the
@@ -5688,7 +5716,7 @@ impl AgentSupervisor {
         match result {
             Ok(Ok(outcome)) => {
                 tracing::info!(
-                    dash = %request.dash,
+                    dash = %dash_name,
                     shape = ?outcome.shape,
                     resolved = outcome.resolved.len(),
                     unresolved = outcome.unresolved.len(),
@@ -5715,7 +5743,7 @@ impl AgentSupervisor {
                 if !audit_set.is_empty() {
                     let ctx = crate::feeds::join_resolver::ResolverContext {
                         repo: dir.to_path_buf(),
-                        dash: request.dash.clone(),
+                        dash: dash_name.to_string(),
                         project_dir: project_dir.to_string(),
                         model: match &self.scribe {
                             Some(scribe) => scribe.model.clone(),
@@ -5747,7 +5775,7 @@ impl AgentSupervisor {
                     let control_tx = self.control_tx.clone();
                     let bump = self.registry.changeset_all_bump();
                     let dir_owned = dir.to_path_buf();
-                    let dash = request.dash.clone();
+                    let dash = dash_name.to_string();
                     let project_dir_owned = project_dir.to_string();
                     let outcome_owned = outcome.clone();
                     tokio::spawn(async move {
@@ -5785,7 +5813,7 @@ impl AgentSupervisor {
                 Self::send_changeset_join_resolve_ok(
                     &self.control_tx,
                     project_dir,
-                    &request.dash,
+                    dash_name,
                     &outcome,
                 );
 
@@ -5805,7 +5833,7 @@ impl AgentSupervisor {
                     self.registry.changeset_all_bump().notify_one();
 
                     let dir_owned = dir.to_path_buf();
-                    let dash = request.dash.clone();
+                    let dash = dash_name.to_string();
                     let bump = self.registry.changeset_all_bump();
                     let progress = bump.clone();
                     tokio::spawn(async move {
@@ -5829,11 +5857,11 @@ impl AgentSupervisor {
                 }
             }
             Ok(Err(detail)) => {
-                tracing::info!(dash = %request.dash, detail = %detail, "dash-join: ladder refused");
+                tracing::info!(dash = %dash_name, detail = %detail, "dash-join: ladder refused");
                 Self::send_changeset_join_resolve_err(
                     &self.control_tx,
                     project_dir,
-                    &request.dash,
+                    dash_name,
                     &detail,
                 );
             }
@@ -5841,7 +5869,7 @@ impl AgentSupervisor {
                 Self::send_changeset_join_resolve_err(
                     &self.control_tx,
                     project_dir,
-                    &request.dash,
+                    dash_name,
                     &format!("resolve task failed: {join_err}"),
                 );
             }
@@ -8318,6 +8346,77 @@ impl AgentSupervisor {
             inserted += 1;
         }
         Ok(inserted)
+    }
+
+    /// Install this supervisor as the join pilot's runner ([P01]).
+    ///
+    /// Called once from startup, after the supervisor is in its `Arc`. The
+    /// handle is weak: the pilot is a process-global and must not be what keeps
+    /// a supervisor alive.
+    pub fn register_pilot_runner(self: &Arc<Self>) {
+        crate::feeds::join_pilot::register_runner(Box::new(SupervisorPilotRunner {
+            supervisor: Arc::downgrade(self),
+        }));
+    }
+}
+
+/// The join pilot's runner, backed by the supervisor ([P01]).
+///
+/// The pilot's predicate runs on the changeset recompute, which is a cache with
+/// no route back to the supervisor — and the scribe context, the CONTROL
+/// sender, and the recompute bump all live on the supervisor. This is the
+/// bridge, and it is deliberately thin: it performs no admission and no mark
+/// work, both of which the pilot already did under its occupancy guard.
+struct SupervisorPilotRunner {
+    supervisor: std::sync::Weak<AgentSupervisor>,
+}
+
+#[async_trait::async_trait]
+impl crate::feeds::join_pilot::PilotRunner for SupervisorPilotRunner {
+    async fn reconcile(
+        &self,
+        project_dir: &str,
+        dash: &str,
+        occupancy: crate::feeds::join_occupancy::JoinOccupancy,
+    ) {
+        let Some(supervisor) = self.supervisor.upgrade() else {
+            return;
+        };
+        // The very same ladder a `changeset_join_resolve` press runs — scribe
+        // rung, resolver audit, and the Tier 0 verdict a candidate earns.
+        supervisor
+            .run_resolve_ladder(project_dir, dash, occupancy)
+            .await;
+    }
+
+    async fn check_tier0(
+        &self,
+        project_dir: &str,
+        dash: &str,
+        occupancy: crate::feeds::join_occupancy::JoinOccupancy,
+    ) {
+        let Some(supervisor) = self.supervisor.upgrade() else {
+            return;
+        };
+        let dir = std::path::Path::new(project_dir).to_path_buf();
+        let dash = dash.to_string();
+        let bump = supervisor.registry.changeset_all_bump();
+        // The `run` fact goes out before the work, so a reload mid-check lands
+        // on a face that says a check is running.
+        bump.notify_one();
+        let progress = bump.clone();
+        let _occupancy = occupancy;
+        let outcome = tokio::task::spawn_blocking(move || {
+            run_join_verification(&dir, &dash, Some("tier0"), || {
+                progress.notify_one();
+            })
+        })
+        .await;
+        if let Ok(Err(detail)) = &outcome {
+            tracing::info!(detail = %detail, "join-pilot: verification refused");
+        }
+        // The verdict is a git fact; the recompute is how it reaches the face.
+        bump.notify_one();
     }
 }
 

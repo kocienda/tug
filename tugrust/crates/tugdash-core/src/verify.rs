@@ -267,6 +267,80 @@ pub fn clear_verification(repo: &Path, name: &str) {
     );
 }
 
+/// The branch-config key holding the pilot's last attempt, as
+/// `<base_sha>:<dash_head>`.
+///
+/// The pilot runs off the changeset recompute, which fires again the moment its
+/// own run bumps the aggregate. Without a mark, a ladder pass that produces no
+/// candidate and writes no stuck line re-qualifies immediately and runs
+/// forever. The mark is written *before* the run so a crash mid-pass does not
+/// license a retry loop on restart.
+pub fn pilot_mark_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinpilot", name)
+}
+
+/// The head pair the pilot last acted on, if it ever acted.
+pub fn read_pilot_mark(repo: &Path, name: &str) -> Option<String> {
+    config_get(repo, &pilot_mark_key(name))
+}
+
+/// Record the head pair the pilot is about to act on.
+pub fn write_pilot_mark(repo: &Path, name: &str, head_pair: &str) -> Result<(), String> {
+    let out = git_output(
+        repo,
+        &["config", "--replace-all", &pilot_mark_key(name), head_pair],
+    )?;
+    if !out.status.success() {
+        return Err(format!(
+            "failed to record the pilot attempt for {}: {}",
+            name,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// The branch-config key holding a declined decision — `clean` or `red`.
+///
+/// Deliberately keyed on the **decision** rather than on the head pair that
+/// produced it, which is the opposite of [`pilot_mark_key`]. The two marks
+/// answer different questions and merging them breaks both: keyed on the pair,
+/// a dismissal would expire on any base move and the same question would be
+/// asked again on every push to `main`; keyed on the decision, the pilot would
+/// never re-run once the base moved. A base move that reconciles to the same
+/// decision must re-reconcile *silently* — and only a green going red, or a red
+/// going green, is a genuinely new question.
+pub fn prompt_mark_key(name: &str) -> String {
+    format!("branch.tugdash/{}.tugjoinprompted", name)
+}
+
+/// The decision the user last declined, if any.
+pub fn read_prompt_mark(repo: &Path, name: &str) -> Option<String> {
+    config_get(repo, &prompt_mark_key(name))
+}
+
+/// Record that the user declined this decision.
+pub fn write_prompt_mark(repo: &Path, name: &str, decision: &str) -> Result<(), String> {
+    let out = git_output(
+        repo,
+        &["config", "--replace-all", &prompt_mark_key(name), decision],
+    )?;
+    if !out.status.success() {
+        return Err(format!(
+            "failed to record the declined prompt for {}: {}",
+            name,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Drop the declined-decision mark — the user engaged, so the next decision is
+/// a fresh question.
+pub fn clear_prompt_mark(repo: &Path, name: &str) {
+    let _ = git_output(repo, &["config", "--unset-all", &prompt_mark_key(name)]);
+}
+
 impl Verification {
     /// Whether this verdict still describes the heads it was recorded against.
     ///
@@ -824,5 +898,61 @@ mod tests {
             &["config", &verification_config_key("demo"), "nonsense"],
         );
         assert!(read_verification(repo, "demo").is_none());
+    }
+
+    /// The pilot's attempt mark round-trips, and a rewrite replaces rather than
+    /// appends — `--get` on a multi-valued key errors, which would read as
+    /// "never ran" and re-license the loop the mark exists to stop.
+    #[test]
+    fn the_pilot_mark_round_trips_and_replaces() {
+        let temp = init(&[]);
+        let repo = temp.path();
+        assert!(read_pilot_mark(repo, "demo").is_none(), "absent reads None");
+
+        write_pilot_mark(repo, "demo", "base1:head1").unwrap();
+        assert_eq!(read_pilot_mark(repo, "demo").as_deref(), Some("base1:head1"));
+
+        write_pilot_mark(repo, "demo", "base2:head1").unwrap();
+        assert_eq!(
+            read_pilot_mark(repo, "demo").as_deref(),
+            Some("base2:head1"),
+            "a rewritten mark replaces the old pair"
+        );
+    }
+
+    /// The declined-decision mark round-trips and clears.
+    #[test]
+    fn the_prompt_mark_round_trips_and_clears() {
+        let temp = init(&[]);
+        let repo = temp.path();
+        assert!(read_prompt_mark(repo, "demo").is_none());
+
+        write_prompt_mark(repo, "demo", "clean").unwrap();
+        assert_eq!(read_prompt_mark(repo, "demo").as_deref(), Some("clean"));
+
+        write_prompt_mark(repo, "demo", "red").unwrap();
+        assert_eq!(read_prompt_mark(repo, "demo").as_deref(), Some("red"));
+
+        clear_prompt_mark(repo, "demo");
+        assert!(read_prompt_mark(repo, "demo").is_none());
+    }
+
+    /// The two marks live on different keys and cannot shadow one another —
+    /// they answer different questions and are keyed deliberately differently.
+    #[test]
+    fn the_two_marks_are_independent() {
+        let temp = init(&[]);
+        let repo = temp.path();
+        assert_ne!(pilot_mark_key("demo"), prompt_mark_key("demo"));
+
+        write_pilot_mark(repo, "demo", "b:h").unwrap();
+        write_prompt_mark(repo, "demo", "clean").unwrap();
+        clear_prompt_mark(repo, "demo");
+
+        assert_eq!(
+            read_pilot_mark(repo, "demo").as_deref(),
+            Some("b:h"),
+            "clearing a declined decision does not license a re-run"
+        );
     }
 }

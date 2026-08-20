@@ -1555,6 +1555,10 @@ async fn main() {
     // in-memory ledger — `client_sessions` is left untouched and real
     // clients connecting after startup send their own `spawn_session`
     // CONTROL frames.
+    // The join pilot reaches the supervisor through a process-global handle,
+    // registered once the supervisor is in its Arc ([P01]).
+    supervisor.register_pilot_runner();
+
     match supervisor.rebind_from_ledger().await {
         Ok(count) if count > 0 => info!(count, "rebound ledger rows on startup"),
         Ok(_) => {}

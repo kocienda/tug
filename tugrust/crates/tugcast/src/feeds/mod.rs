@@ -24,6 +24,7 @@ pub mod git;
 pub mod git_watch;
 pub mod join_board;
 pub mod join_occupancy;
+pub mod join_pilot;
 pub mod join_resolve;
 pub mod join_resolver;
 pub mod jots;

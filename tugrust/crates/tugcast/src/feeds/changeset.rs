@@ -1194,7 +1194,12 @@ async fn dash_entries(
                     .and_then(|plan| dash_review_state(Path::new(&detail.worktree_abs), plan));
                 let join =
                     crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
-                (detail, review, join)
+                // What the machine should do about this dash before anybody is
+                // asked to look at it ([P01]). Pure over the two values already
+                // in hand — it adds no git work to this hop, which is what
+                // makes it affordable here.
+                let pilot = crate::feeds::join_pilot::pilot_action(&detail.stage, &join);
+                (detail, review, join, pilot)
             })
             .collect::<Vec<_>>()
     })
@@ -1203,8 +1208,18 @@ async fn dash_entries(
         return Vec::new();
     };
 
+    // Dispatched from the async side rather than inside the blocking hop, so
+    // the changeset frame goes out immediately and a ladder that runs for
+    // minutes never holds a recompute (Spec S06).
+    for (detail, _, _, pilot) in &details {
+        if let Some(action) = pilot {
+            crate::feeds::join_pilot::dispatch(repo_root, &detail.name, *action);
+        }
+    }
+
     details
         .into_iter()
+        .map(|(detail, review, join, _)| (detail, review, join))
         .map(|(detail, review, join)| ChangesetEntry::Dash {
             join: Some(join),
             bound_sessions: bound_by_dash
