@@ -383,16 +383,50 @@
 
 /* ── The shade-row mock ─────────────────────────────────────────────────── */
 
+/* The shade block. Wider and airier than the Lens's: the Lens is a rail
+   glanced at, the shade is the surface you came to READ, and the compact
+   scale that suits a 330px rail makes essential facts unreadable in a card. */
 .spdp-shade-row {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  width: 460px;
+  gap: var(--tug-space-sm);
+  width: 560px;
   box-sizing: border-box;
-  padding: var(--tug-space-2xs) var(--tug-space-sm);
+  padding: var(--tug-space-md) var(--tug-space-md) var(--tug-space-lg);
   border: 1px solid var(--tug7-element-global-divider-normal-default-rest);
   border-radius: var(--tug-radius-sm);
   overflow: hidden;
+}
+
+/* ONE SCALE for lines 2 and 3. The register's target run is `sm`, so the
+   metadata line beneath the atom is `sm` too — at `2xs` the work state read
+   as a footnote under a headline, which is backwards: what the dash is doing
+   is the fact the reader came for. The Lens keeps the compact scale; only
+   this block's subtree is raised. */
+.spdp-shade-row .spdp-dash-note,
+.spdp-shade-row .spdp-dash-age,
+.spdp-shade-row .spdp-dashes-fact {
+  font-size: var(--tug-font-size-sm);
+}
+
+.spdp-shade-row .spdp-fraction {
+  font-size: var(--tug-font-size-xs);
+}
+
+/* The line gets the room its type needs — the marks and the run sit on one
+   comfortable line box rather than touching the lines above and below.
+
+   And its indent follows the FULL chip's inset, not the 2xs one: the eyebrow
+   atom here is the chip tier's own size, so what the lines hang under is that
+   pill's text, which sits a wider border-plus-padding in from its edge. */
+.spdp-shade-row .spdp-dash-meta {
+  gap: var(--tug-space-sm);
+  line-height: calc(var(--tug-font-size-sm) * 1.6);
+  padding-left: var(--tugx-session-atom-text-inset);
+}
+
+.spdp-shade-row .spdp-dash-register {
+  padding-inline-start: var(--tugx-session-atom-text-inset);
 }
 
 /* The atom's own line; the metadata beneath reuses `.spdp-dash-meta`. */
@@ -401,3 +435,130 @@
   align-items: center;
   min-width: 0;
 }
+
+/* ── Section 5: the pile, the block, and the fold ───────────────────────── */
+
+/* The coverage advisory: evidence wearing a caution bar, under the report
+   eyebrow in the fold. */
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.spdp-advisory {
+  border-inline-start: 2px solid var(--tug7-element-tone-icon-normal-caution-rest);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* The caution bar sits in the section indent rather than adding to it, so the
+   advisory keeps the column its siblings are in and the bar reads as a mark
+   on the line, not a second level of nesting. */
+.spdp-fold-section > .spdp-advisory {
+  padding-inline-start: calc(var(--tug-space-md) - 2px);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.spdp-subject {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spdp-subject[data-muted="true"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.spdp-file {
+  display: flex;
+  gap: var(--tug-space-sm);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.spdp-file-status {
+  color: var(--tug7-element-tone-icon-normal-success-rest);
+  font-weight: var(--tug-font-weight-semibold);
+}
+
+/* The third line of the block: the register on the metadata line's margin.
+
+   It SPANS the block. Shrink-to-fit made the strip a floating pill sitting in
+   the middle of a row — a widget that had landed on the block rather than the
+   block's own third line — and that, more than its type, is what made the
+   join arc read as a different species from the facts above it. Full width
+   gives it the same left and right edges as the lines it belongs to. */
+.spdp-dash-register {
+  display: flex;
+  min-width: 0;
+  padding-inline-start: var(--tugx-session-atom-text-inset-2xs);
+}
+
+.spdp-dash-register > * {
+  flex: 1 1 auto;
+}
+
+/* The expanded exhibit: the block with its fold hanging beneath. */
+.spdp-fold-frame {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+}
+
+.spdp-fold-frame .spdp-shade-row {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  border-block-end: none;
+}
+
+/* The fold hangs on the block's own left margin — the atom's text inset —
+   so the disclosure reads as more of the same block rather than as a panel
+   that arrived from somewhere else. */
+.spdp-fold {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xl);
+  box-sizing: border-box;
+  padding: var(--tug-space-lg) var(--tug-space-md);
+  padding-inline-start: calc(
+    var(--tug-space-md) + var(--tugx-session-atom-text-inset)
+  );
+  border: 1px solid var(--tug7-element-global-divider-normal-default-rest);
+  border-end-start-radius: var(--tug-radius-sm);
+  border-end-end-radius: var(--tug-radius-sm);
+}
+
+/* A section's rows hang UNDER its eyebrow rather than beside it: the label is
+   a heading, and content flush with a heading reads as one undifferentiated
+   column. One step in is enough to say "these belong to that". */
+.spdp-fold-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.spdp-fold-section > :not(.tug-section-label) {
+  padding-inline-start: var(--tug-space-md);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.spdp-fold-tier {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.spdp-fold-tier[data-tone="success"] svg {
+  color: var(--tug7-element-tone-icon-normal-success-rest);
+}
+
+

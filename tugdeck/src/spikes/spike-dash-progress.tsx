@@ -30,6 +30,19 @@
  *   - The shade's collapsed row is REGULARIZED with the Dashes rows: same
  *     icons, same ring, same fact tones — one language in both places.
  *
+ * ROUND 5, after the join-arc rollout shipped the shade's face as a pile:
+ *   - The face's facts are FIVE SPECIES — identity, work state, join state,
+ *     evidence, content — plus acts, and only the first three stand. The
+ *     collapsed block is three lines on one left margin: eyebrow,
+ *     `DashMetaLine`, `DashJoinRegister`. A line renders nothing it cannot
+ *     say, so a dash with no join arc is two lines.
+ *   - Evidence and content live in the FOLD, on the fronted row only, ranked
+ *     report → rounds → draft under the shade's own `TugSectionLabel`
+ *     eyebrows — not a third dialect.
+ *   - The outcome chip and the standing reason line are BANISHED: the chip
+ *     restates the register's word, and a refusal rides the control that
+ *     refuses ([D142]), not the face.
+ *
  * Held separately: the identity-atom work itself (decided, not begun) — the
  * fixtures here preview it.
  *
@@ -41,6 +54,7 @@ import "./spike-dash-progress.css";
 
 import React from "react";
 import {
+  EllipsisVertical,
   FileCheck,
   GitBranch,
   GitMerge,
@@ -55,7 +69,9 @@ import {
 import type { SpikeDef } from "./spike-registry";
 
 import { DashFactsRun } from "@/components/lens/sections/dash-facts";
+import { DashJoinRegisterView } from "@/components/tugways/dash-join-register";
 import { DashSigil } from "@/components/tugways/dash-sigil";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
@@ -121,6 +137,7 @@ function DotRing({
   phase = "tool_work",
   dot = false,
   complete = false,
+  size = 14,
 }: {
   current: number;
   total: number;
@@ -129,12 +146,14 @@ function DotRing({
   /** Wrap a live phase dot; omitted → the inline miniature. */
   dot?: boolean;
   complete?: boolean;
+  /** The miniature's box, in px. Ignored when `dot` sets the geometry. */
+  size?: number;
 }): React.ReactElement {
   const role = complete
     ? "success"
     : (sessionSessionPhaseVisual(phase).role ?? "inherit");
   const stroke = 2;
-  const box = dot ? RING_DOT_SIZE + 10 : 14;
+  const box = dot ? RING_DOT_SIZE + 10 : size;
   const c = box / 2;
   const r = c - stroke / 2 - 0.5;
   const segmented = total <= RING_SEGMENT_MAX;
@@ -327,23 +346,32 @@ function CompactAtom({
   dash,
   review,
   phase,
+  size = "2xs",
 }: {
   name: string;
   dash: string;
   review: string | null;
   phase: string;
+  /**
+   * Which chip size the skin wears. `2xs` is the rail's — a fact glanced at
+   * beside other rails. `full` is the chip tier's own size, for a surface
+   * whose lines beneath are set at `sm`: an atom a step smaller than the
+   * facts it heads reads as a caption over its own content.
+   */
+  size?: "2xs" | "full";
 }): React.ReactElement {
+  const small = size === "2xs";
   return (
     <span
       className="tug-session-identity"
       data-slot="spdp-compact-atom"
       data-tier="chip"
-      data-size="2xs"
+      {...(small ? { "data-size": "2xs" } : {})}
     >
       <span className="tug-session-identity-dot">
         <TugProgressIndicator
           variant="pulsing-dot"
-          size={10}
+          size={small ? 10 : 12}
           phase={phase}
           phaseVisual={sessionSessionPhaseVisual}
           aria-hidden
@@ -851,52 +879,159 @@ function DashesSection(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// Section 5 — the shade's collapsed row, regularized
+// Section 5 — the shade's dash face: five species, three lines, one fold
 // ---------------------------------------------------------------------------
+
+/** The register's collapsed reading, hand-set: the shade's built dash. */
+const READY_REGISTER = {
+  phase: "success",
+  line: "Ready to join",
+  word: "ready",
+} as const;
+
+/** The three-line collapsed block — the whole face, every dash, both surfaces. */
+function ProposedBlock(): React.ReactElement {
+  return (
+    <div className="spdp-shade-row">
+      <span className="spdp-eyebrow">
+        <CompactAtom
+          name="Layout imposer"
+          dash="imposer-polish"
+          review={null}
+          phase="idle"
+          size="full"
+        />
+        <span className="spdp-eyebrow-rule" />
+        <TugPushButton
+          size="2xs"
+          subtype="icon"
+          emphasis="ghost"
+          aria-label="Actions for dash imposer-polish"
+          icon={<EllipsisVertical size={14} />}
+        />
+      </span>
+      <span className="spdp-dash-meta">
+        <DotRing current={5} total={5} complete size={16} />
+        <StageMark stage="built" size={15} />
+        <Fraction current={5} total={5} />
+        <span className="spdp-dash-note">draft · verified</span>
+        <span className="spdp-dash-age">1d</span>
+        <span className="spdp-dashes-fact" data-tone="caution">
+          base overlap (2)
+        </span>
+      </span>
+      <span className="spdp-dash-register">
+        <DashJoinRegisterView register={READY_REGISTER} altitude="entry" />
+      </span>
+    </div>
+  );
+}
 
 function ShadeSection(): React.ReactElement {
   return (
     <section className="sp-section">
       <h2 className="sp-section-title">
-        5 · The shade's collapsed row — one language with the Lens
+        5 · The shade's dash face — three lines, then a fold
       </h2>
       <p className="spdp-prose">
-        The collapsed dash row in the Changes shade IS a Dashes block, with
-        one substitution: the leading atom is the session's, its dash riding
-        inside, because in the shade the worker is the subject. The atom has
-        its line; everything the dash is doing sits in the same metadata line
-        section 4 uses, indented under it. One design, two lead atoms.
+        What you will see when a dash is bound: <strong>three lines</strong>,
+        one left margin. Line 1 — who (the session atom, its dash inside, the ⋯
+        holding the rare verbs). Line 2 — what the dash is doing (ring · stage ·
+        count · note · age · divergence). Line 3 — what its join will do (the
+        register, resting green here). Nothing else stands: no outcome chip, no
+        "Wait for the turn to finish", no advisory, no subjects, no files.
+      </p>
+      <p className="spdp-prose">
+        <strong>All three lines are one scale.</strong> The shade is the
+        surface you came to read, not a rail you glance at, so what the dash is
+        doing is set at the register's own size rather than a footnote beneath
+        it — and the register spans the block instead of floating as a pill, so
+        it reads as line 3 rather than as a widget that landed here. The Lens
+        keeps the compact scale; that is the one place the two surfaces differ.
+      </p>
+      <ProposedBlock />
+      <span className="spdp-mock-caption">
+        The whole collapsed face. The `clean` chip is gone (line 3's word
+        already is the outcome); the standing refusal is gone (it rides the ⋯
+        menu item that refuses).
+      </span>
+      <p className="spdp-prose">
+        A dash with no join arc drops line 3 rather than showing a stub —
+        <strong> two lines</strong>:
       </p>
       <div className="spdp-shade-row">
-        <span className="spdp-shade-l1">
+        <span className="spdp-eyebrow">
           <CompactAtom
             name="Layout imposer"
-            dash="theme-audit"
+            dash="flow-mode"
             review={null}
-            phase="idle"
+            phase="tool_work"
+            size="full"
+          />
+          <span className="spdp-eyebrow-rule" />
+          <TugPushButton
+            size="2xs"
+            subtype="icon"
+            emphasis="ghost"
+            aria-label="Actions for dash flow-mode"
+            icon={<EllipsisVertical size={14} />}
           />
         </span>
         <span className="spdp-dash-meta">
-          <DotRing current={5} total={5} complete />
-          <StageMark stage="built" />
-          <Fraction current={5} total={5} />
-          <span className="spdp-dash-note">draft · verified</span>
-          <span className="spdp-dash-age">1d</span>
-          <span className="spdp-dashes-fact" data-tone="caution">
-            base overlap (2)
-          </span>
-          <span className="spdp-dashes-fact" data-tone="muted">
-            base +3
-          </span>
-          <span className="spdp-dashes-fact" data-tone="subtle">
-            replayed
-          </span>
+          <DotRing current={FLOW_CURRENT} total={12} phase="tool_work" size={16} />
+          <StageMark stage="implementing" size={15} />
+          <Fraction current={FLOW_CURRENT} total={12} />
+          <span className="spdp-dash-note">A slot becomes a place that divides</span>
+          <span className="spdp-dash-age">12m</span>
         </span>
       </div>
       <span className="spdp-mock-caption">
-        Line 1: the session atom. Line 2, indented under the atom: the
-        section-4 metadata — ring · stage icon · count · note · age ·
-        divergence, tone-colored.
+        Still being worked: no join arc yet, so no register line.
+      </span>
+      <p className="spdp-prose">
+        Everything that used to stand — the check evidence, the round's
+        subjects and files, the join message — moves into the{" "}
+        <strong>fold</strong>, which opens on the fronted row only. What you
+        will see when you front a dash:
+      </p>
+      <div className="spdp-fold-frame">
+        <ProposedBlock />
+        <div className="spdp-fold">
+          <div className="spdp-fold-section">
+            <TugSectionLabel label={{ name: "report" }} slot="spdp-fold-report" />
+            <span className="spdp-fold-tier" data-tone="success">
+              <ShieldCheck size={13} />
+              <span>Build — vite build exited 0</span>
+            </span>
+            <span className="spdp-advisory">
+              no app-test covers what this candidate changed
+            </span>
+          </div>
+          <div className="spdp-fold-section">
+            <TugSectionLabel
+              label={{ name: "rounds", qualifier: "1" }}
+              slot="spdp-fold-rounds"
+            />
+            <span className="spdp-subject">
+              tugdash(imposer-polish): adopt plan roadmap/layout-imposer-polish.md
+            </span>
+            <span className="spdp-file">
+              <span className="spdp-file-status">N</span>
+              roadmap/layout-imposer-polish.md
+            </span>
+          </div>
+          <div className="spdp-fold-section">
+            <TugSectionLabel label={{ name: "draft" }} slot="spdp-fold-draft" />
+            <span className="spdp-subject" data-muted="true">
+              adopt plan roadmap/layout-imposer-polish.md
+            </span>
+          </div>
+        </div>
+      </div>
+      <span className="spdp-mock-caption">
+        The fold, ranked: report (the verdict's evidence, advisories included) ·
+        rounds (what would land) · draft (the message it lands with). Same
+        eyebrow labels as the shade's own buckets.
       </span>
     </section>
   );
