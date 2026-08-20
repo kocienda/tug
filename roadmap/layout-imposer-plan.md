@@ -19,6 +19,14 @@
 
 **Round 1 — 2026-08-19, Fable 5.** Reviewed `plan:cdb84dfff9963eda`. Lint: 0 errors, 1 warning (the missing-review-record warning, resolved by this round). Oriented on: first review — the freshly authored document, judged against the rubric and the tree. Applied: on the technical-choices axis, Step 13's fit/flow control corrected from `TugOptionGroup` (a multi-toggle, wrong for a mutually-exclusive pair) to `TugChoiceGroup`, which [L19] and the Layouts section's own header doc mandate for every control there; on plan-coherence, [P02]'s ghost capture point pinned to the real close dispatch site (`store.handlePaneClosed` called from `deck-canvas.tsx`) rather than a vaguely named "flow". Symbol claims spot-verified against the tree during authoring and review: `assignCardToSlot`, `getFirstResponderCardId`, `arrangementSignature`, `imposeStyle`/`imposeSidebarStyle`, `RailArrangement`, `LensCardsDataSource`, `lastSelectedRowId`, gesture-record modifier fields, ⌃⌘S and ⌃⌘↑/↓ chord vacancy, and the referenced app-tests (`at0294`, `at0303`, `at0332-pane-occlusion`, `at0401`). Deferred: [Q01] flow-mode trackpad panning stays deferred by design; no new questions raised.
 
+**Round 2 — 2026-08-19, Opus 5.** Reviewed `plan:7a355388c1cb26fc`. Lint: 0 errors, 0 warnings, before and after. Oriented on: the Review Record plus the four commits that landed Phases C, A and B since round 1 (`520f094eb`, `fc9683893`, `ea6e504b2`, and the follow-on rail fix `98fe22fad`); the plan itself is tracked and clean, so the diff read was over the tree, not the document. Scope: Milestones M04 (steps 11–14) and M05 (steps 15–19) — steps 1–10 are `done` and were not reviewed or touched.
+
+Applied, on technical choices: the space allocator was the round's main find. In flow every seam is the imposition gap by construction, so `solveSidebarWidths`'s `aⱼ` terms are all zero and `seamPicture` scores every candidate total at zero on its first three keys — the lexicographic objective collapses to `|T − Σ preferred|`. Step 11 now takes the shortcut `allocateSidebarWidths` already takes for a seamless chain (and justifies in the same words) instead of leaving the allocator flexing rails against overlap that flow makes impossible; a consequence is that `imposeRect` and `seamPicture` stay fit-only, which the plan now states rather than leaves ambiguous. On correctness: `arrangementSignature` gains `imposition.layout` as a term of its own — a fit↔flow toggle moves every pane's `left` while every existing term holds still, so the plan as written would have cut on the one gesture Phase D exists to add, and the offset term does not cover it at offset 0. On the same axis, `bullseyeAnchorCentre` resolves each pane's exit-side sort line through `imposeStyle().left`, so [P10]'s "bullseye is unchanged" was true of the bullseyed pane and false of the others; the carve-out is now in Step 12. On architecture: flow breaks the invariant `ImposedPlacement`'s doc comment states outright — a placement that no longer resolves from the pane's own slot alone — so Step 11 pins strip resolution to the single deck-canvas placements memo and requires the doc amended in the same commit. On robustness: the offset clamp moves into CSS (`min()`/`max()` over the strip width and the band) so flow answers a window resize in the browser like fit does, rather than showing a stale viewport until the 200ms retune; the property is renamed `--tug-imposer-flow-offset` to join the family the same effect writes. On cold-reader gaps: the deck-canvas inset effect is keyed on a `railSummary` **string**, so Steps 12 and 16 now say to extend it or the writes never re-run; `activateCard` is a pass-through, so Step 12 names `_commitStandardFirstResponderFlip` as the commit the reveal rides and scopes it to imposed panes; the Layouts section's `focusOrder` ladder and pre-rendered preview layers are requirements Steps 13 and 17 were silent on; `railWeightOf` is module-private, which [P11] implied otherwise. On test hygiene: `at0453` was taken by `at0453-slot-move-holds-rails.test.ts` after authoring, so Phase D and E move to `at0454`/`at0455` throughout, with the collision recorded so the next reader does not "fix" the gap.
+
+Asked and settled in-round: the flow miniature draws its viewport window at rest rather than tracking the live offset (a Lens readout that repaints on every card activation is an instrument, not a plan); Phase E's per-slot column rows render only for slots holding two or more cards rather than mirroring the rail rows' always-rendered-disabled shape — the rail rows are always present to keep a one-card side's un-split gesture reachable, and a one-member column has nothing to un-split. Corrected a success criterion that claimed "cards never overlap" in flow: flow removes collisions between slots, and cards stacked *within* a slot still share its anchor. Deferred: nothing new; [Q01] (trackpad panning) and [Q03] (column persistence across card close) stand as they were.
+
+Not changed, deliberately: [P09]'s decision to keep `kind` as the slot vocabulary in flow, [P10]'s session-only offset, [P11]'s slot-keyed column record, and [P12]'s chord family — ⌃⌘S and the ⌃⌘/⌃⇧⌘ arrow pairs re-verified vacant against `command-registry.ts`.
+
 ---
 
 ### Phase Overview {#phase-overview}
@@ -42,7 +50,7 @@ The deck's layout imposer (`tugdeck/src/lib/layout-imposer.ts`) places content c
 - Shift+click, ⌘+click, and shift+arrow build a multi-card selection in the Lens Cards list, visible as the row selection fill; ⌘1..9 and ⌃⌘1..3 then act on every selected card in one animated settle (app-test verified).
 - With keyboard focus in the Lens, ⌘1 moves the selected content card(s) — the current silent refusal (deck first responder = the Lens card itself) is gone (app-test verified).
 - ⌥⇧⌘[ / ⌥⇧⌘] nudge the selection one slot left/right, clamped as a group, with a visible refusal at the edge (app-test verified).
-- In flow mode, cards never overlap, and activating a card not fully inside the band slides the deck minimally until it is, animated through the settle (app-test verified).
+- In flow mode, no two occupied slots overlap — each slot's extent is its own, so the chain can no longer collide with itself however narrow the deck gets. (Cards *stacked in one slot* still share that slot's anchor and still sit on top of one another; flow changes what a slot's position means, not what a stack is.) Activating a card not fully inside the band slides the deck minimally until it is, animated through the settle (app-test verified).
 - A content slot can be split: two cards in one slot share its column vertically with a draggable seam, and ⌃⌘S / ⌃⌘↑ / ⌃⌘↓ / ⌃⇧⌘↑ / ⌃⇧⌘↓ operate the split from the keyboard (app-test verified).
 - `cd tugdeck && bunx vite build` clean and `just app-test-changed` green at every phase exit.
 
@@ -100,7 +108,7 @@ This plan follows the devise-skeleton anchor and label conventions: explicit keb
 
 **Why it matters:** Free panning makes flow feel like a real scroll surface, but it collides with per-card scroll intent arbitration (`tuglaws/scroll-intent.md`) and would give the deck a second offset writer beside activation, complicating the settle-vs-live-scroll story.
 
-**Plan to resolve:** Ship activation-driven reveal first (Phase D). Revisit after living with flow; a follow-on can add panning behind the same `--tug-deck-flow-offset` property without reworking geometry.
+**Plan to resolve:** Ship activation-driven reveal first (Phase D). Revisit after living with flow; a follow-on can add panning behind the same `--tug-imposer-flow-offset` property without reworking geometry.
 
 **Resolution:** DEFERRED — revisit after M04 ships; tracked in #roadmap-follow-ons.
 
@@ -262,12 +270,14 @@ This plan follows the devise-skeleton anchor and label conventions: explicit keb
 
 **Implications:**
 - Pure functions in `layout-imposer.ts` compute flow lefts from the occupied-slot list; golden-tested like the allocator.
-- A slot with multiple stacked panes contributes the width of its widest member (and in Phase E, a split column contributes its column width).
+- A slot with multiple stacked panes contributes the width of its widest member (and in Phase E, a split column contributes its column width). Those stacked panes still share the slot's anchor — flow removes collisions *between* slots, not *within* one.
+- **Flow costs the placement invariant, deliberately.** `ImposedPlacement`'s doc states that a placement is a pure function of the kind and the pane's own slot, "so no pane can be resolved only from a vantage point that sees them all" — which is exactly what a running sum over occupied slots requires. Flow accepts that trade and pays it in one place: the strip is resolved in the deck-canvas placements memo, once per commit, and handed to `imposeStyle`. The invariant survives for fit, which is the mode it was written to protect.
+- **The space allocator degenerates in flow rather than being changed.** Every flow seam is the imposition gap by construction, so the allocator's lexicographic key collapses to its last term and the answer is each rail's preferred width — the same shortcut `allocateSidebarWidths` already takes for a chain with no seam, and for the same stated reason. No new tier, no new scoring, and `imposeRect`/`seamPicture` stay fit-only because nothing reaches them in flow.
 - `pane-model.md` gains flow as a documented geometry mode.
 
 #### [P10] The flow offset is activation-derived, session-only, and a signature term (DECIDED) {#p10-flow-offset}
 
-**Decision:** The deck's flow offset is state on `DeckManager` (not persisted; starts at 0 each session), written only by the reveal rule — on activation in flow mode, compute the minimal offset change that brings the active card fully inside the band (`scrollRectToVisible` semantics) — and applied to the DOM as one custom property, `--tug-deck-flow-offset`, folded as a subtraction term into `imposeStyle`'s single `left` calc. The offset (rounded px) becomes a term in `arrangementSignature`.
+**Decision:** The deck's flow offset is state on `DeckManager` (not persisted; starts at 0 each session), written only by the reveal rule — on activation in flow mode, compute the minimal offset change that brings the active card fully inside the band (`scrollRectToVisible` semantics) — and applied to the DOM as one custom property, `--tug-imposer-flow-offset`, folded as a subtraction term into `imposeStyle`'s single `left` calc. The offset (rounded px) becomes a term in `arrangementSignature`.
 
 **Rationale:**
 - `imposeStyle` already emits exactly one `left` expression per pane; one more `var()` term keeps window resize pure-CSS.
@@ -276,8 +286,9 @@ This plan follows the devise-skeleton anchor and label conventions: explicit keb
 
 **Implications:**
 - `activateCard` gains its first geometry consequence, but only via the offset term — the z-order commit itself still arms nothing when the offset doesn't change.
-- Window resize in flow re-clamps the offset via the existing settled-resize retune moment (200ms quiet), not per-frame.
-- Bullseye is unchanged: it already supersedes the pane's mode and slides others off-canvas.
+- **The mode bit is a signature term too, not just the offset.** A fit↔flow toggle moves every pane's `left` while every existing term — kind, slots, widths, rails, bullseye — holds still, and at offset 0 the offset term does not move either. Without `imposition.layout` in `arrangementSignature`, the toggle arms no settle and cuts.
+- Window resize in flow is answered in **CSS**, like fit's: the offset's clamp is written as a `min()`/`max()` over the strip width and the band, both available as expressions the browser re-resolves on every reflow. The settled-resize retune still runs, but only to write the store's offset back inside the new bounds — it is a bookkeeping moment, not the thing that keeps the picture correct.
+- Bullseye is unchanged **for the bullseyed pane** — it supersedes the mode, stays centred one-up, takes no offset. Its exit choreography is not unchanged: the line the other panes sort around is resolved through `imposeStyle().left`, so on a flow deck that line has to be the flow left or panes cross on their way off-canvas.
 
 #### [P11] Columns mirror rails: slot-keyed `{mode, order, shares}` with card-id members (DECIDED) {#p11-columns-mirror-rails}
 
@@ -285,7 +296,7 @@ This plan follows the devise-skeleton anchor and label conventions: explicit keb
 
 **Rationale:**
 - `slotStackByPaneId` in `deck-canvas.tsx` already treats a rail and a slot as the same kind of "place"; the record extension follows the abstraction the code already names.
-- Reusing the arrangement shape lets the seam math (`railSeamFractions`, `railSharesFromFractions`, `railWeightOf`), the seam component, and the split/stack choreography port rather than fork.
+- Reusing the arrangement shape lets the seam math, the seam component, and the split/stack choreography port rather than fork. `railSeamFractions` and `railSharesFromFractions` take the arrangement's parts rather than a side, so they are already place-agnostic and callable as they stand; `railWeightOf` is module-private and is the one helper a column caller has to reach (see #step-15).
 
 **Implications:**
 - Persistence is weaker than rails: card ids die with their cards, so a column's `order`/`shares` entries for closed cards are inert residue (harmless, [L23]-style never-cleaned) but do not restore across a card's close/reopen. This is accepted ([Q03]).
@@ -368,7 +379,7 @@ All chord entries follow the `command-registry.ts` pattern: `chord({key, meta, a
 | Selection set + anchor | structure | `LensSelectionStore` + `useSyncExternalStore` | [L02] |
 | Row selected fill | appearance | `data-selected` attribute stamped by TugListView; CSS owns the paint | [L06] |
 | Flow mode (`imposition.layout`) | structure | `DeckManager` state, persisted with the imposition record | [L02] |
-| Flow offset | structure → appearance | `DeckManager` field → `--tug-deck-flow-offset` custom property written in the deck-canvas inset effect | [L02], [L06] |
+| Flow offset | structure → appearance | `DeckManager` field → `--tug-imposer-flow-offset` custom property written in the deck-canvas inset effect | [L02], [L06] |
 | Column arrangements (`imposition.columns`) | structure | `DeckManager` state, persisted | [L02] |
 | Column seam positions | appearance | `--tug-slot-<k>-seam-<j>` custom properties; drag writes property per rAF like `RailSeam` | [L06] |
 | Enter/exit motion | programmatic motion | TugAnimator effects, distinct slot keys, self-removing | [L13], [L27] |
@@ -387,10 +398,10 @@ All chord entries follow the `command-registry.ts` pattern: `chord({key, meta, a
 | `tests/app-test/at0450-imposer-cut-census.test.ts` | Spec S01 battery (`@covers` deck-canvas, layout-imposer, pane-flip) |
 | `tests/app-test/at0451-lens-multiselect.test.ts` | Phase A gestures + batched verbs |
 | `tests/app-test/at0452-nudge-slot.test.ts` | Phase B nudge + group clamp |
-| `tests/app-test/at0453-flow-mode.test.ts` | Phase D reveal + no-overlap |
-| `tests/app-test/at0454-column-split.test.ts` | Phase E splits + chords |
+| `tests/app-test/at0454-flow-mode.test.ts` | Phase D reveal + no-overlap |
+| `tests/app-test/at0455-column-split.test.ts` | Phase E splits + chords |
 
-Numbers `at0450+` are placeholders — take the next free numbers at implementation time and keep the slugs.
+Numbers `at0450+` are placeholders — take the next free numbers at implementation time and keep the slugs. **`at0453` is not skipped by accident**: it was taken after this plan was authored, by `at0453-slot-move-holds-rails.test.ts` (`98fe22fad`), which pins that a card moving between slots does not re-solve the sidebar rails — the fix that follows Phase B's ⌘-digit path. Phase D and E take the next two free numbers instead. Re-check the directory before creating either file; the corpus grows between milestones.
 
 #### Symbols to add / modify {#symbols}
 
@@ -403,9 +414,10 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 | `multiSelect` props (set + intents) | props | `tugdeck/src/components/tugways/tug-list-view.tsx` | [P05] |
 | `nudge-slot:left/right` entries | CommandEntry | `tugdeck/src/components/tugways/command-registry.ts` | [P07], Spec S03 |
 | `layout?: "fit" \| "flow"` | field | `DeckImposition`, `tugdeck/src/lib/layout-imposer.ts` | [P09] |
+| `layout?` on `AllocatorInput` + flow short-circuit | field + branch | `allocateSidebarWidths`, `layout-imposer.ts` | [P09] |
 | `flowStripPositions`, `flowRevealOffset` | fn | `tugdeck/src/lib/layout-imposer.ts` | #flow-geometry, pure |
 | `setImpositionLayout`, `setFlowOffset` | method | `tugdeck/src/deck-manager.ts` | [P09], [P10] |
-| `--tug-deck-flow-offset` term | calc term | `imposeStyle`, `layout-imposer.ts` | [P10] |
+| `--tug-imposer-flow-offset` / `--tug-imposer-flow-strip` terms | calc terms | `imposeStyle`, `layout-imposer.ts` | [P10] |
 | `ColumnArrangement`, `columns?` | type/field | `layout-imposer.ts` | [P11]; shape-shared with `RailArrangement` |
 | `columnSeamProperty`, `columnMemberPins` | fn | `layout-imposer.ts` | generalized from rail equivalents |
 | `toggle-column-split`, `move-in-column:*` | CommandEntry | `command-registry.ts` | [P12], Spec S03 |
@@ -724,16 +736,19 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 **References:** [P09] flow mode bit, Spec S03, (#flow-geometry, #ground-today)
 
 **Artifacts:**
-- `layout?: "fit" | "flow"` on `DeckImposition`; `flowStripPositions`, `flowRevealOffset` pure functions; `setImpositionLayout` mutator + `set-imposition-layout` registry action; golden sweep test.
+- `layout?: "fit" | "flow"` on `DeckImposition`; `flowStripPositions`, `flowRevealOffset` pure functions; `layout` on `AllocatorInput` with the flow short-circuit in `allocateSidebarWidths`; `setImpositionLayout` mutator + `set-imposition-layout` registry action; golden sweep test.
 
 **Tasks:**
-- [ ] Extend `DeckImposition` (optional field; serialization tolerates absence — follow the `rails` pattern in `serialization.ts`).
+- [ ] Extend `DeckImposition` (optional field; serialization tolerates absence — follow the `rails` pattern: `parseRails` in `tugdeck/src/serialization.ts`, and the `isContentWidth`-style guard beside it).
 - [ ] Implement #flow-geometry as pure functions beside the allocator; slot extent = widest member pane width.
+- [ ] **The allocator degenerates in flow, and the code already names the degeneracy.** In flow every seam is exactly `IMPOSITION_GAP_PX` by construction, independent of the band — so in `solveSidebarWidths`'s linear model every `aⱼ = fⱼ₊₁ − fⱼ` term is zero, `denominator` is zero (it returns `null`, already guarded), and in `seamPicture` every candidate total scores `worstOverlap = worstShortfall = worstError = 0`. The lexicographic key therefore reduces to its last term, `|T − Σ preferred|`, whose minimum is `preferredTotal`. Add `layout` to `AllocatorInput` and take the existing shortcut: in `allocateSidebarWidths`, `const target = input.layout === "flow" || chain.length < 2 ? preferredTotal : chooseRailTotal(…)`. Comment it against the `chain.length < 2` branch's own words — "the answer falls out of the objective, so this is a shortcut, not a special case". **This is why `imposeRect` and `seamPicture` stay fit-only**: `seamPicture` is never reached in flow, and `imposeRect` has no other caller in the tree (verified). Say so in `imposeRect`'s doc comment rather than leaving the twin silently half-true.
+- [ ] **Name what flow costs the placement invariant.** `ImposedPlacement`'s doc comment states the property flow breaks: *"There is nothing here about the deck's other panes, because a slot's anchor does not depend on them… a placement is a pure function of the kind and the pane's own slot."* In flow `stripLeft(k)` sums every occupied slot's extent, so a placement can only be resolved from a vantage point that sees them all. Resolve it in **one** place — the placements memo in `deck-canvas.tsx`, which already walks every pane per commit and already raises stored widths to the stack size floor — and pass the resolved strip position down to `imposeStyle` as an argument. `TugPane` must not compute it: a pane that recomputed the strip from a store read would re-derive deck-wide geometry per frame. Amend the `ImposedPlacement` doc in the same commit to state both modes and where each is resolved.
 - [ ] `DeckManager.setImpositionLayout(layout)` through `_commitImposition`; registry action wired in `action-dispatch.ts` (Layouts UI is Step 13's door; the action exists first so tests can drive it).
 - [ ] Golden: a sweep of occupancy/width configurations → strip positions and reveal offsets, snapshotted beside `golden/imposer-solutions.json`.
 
 **Tests:**
 - [ ] bun:test unit + golden for the pure functions (edge cases: empty deck, single card wider than band, gaps from unoccupied slots, offset clamping).
+- [ ] bun:test: `allocateSidebarWidths` in flow returns each rail's preferred width for a configuration that in fit would drain a rail to its comfort floor — the assertion that the short-circuit is doing work rather than agreeing by luck.
 
 **Checkpoint:**
 - [ ] `cd tugdeck && bun test src/lib/__tests__`
@@ -750,20 +765,25 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 **References:** [P10] flow offset, [P09], Risk R01, (#flow-geometry, #state-zone-mapping)
 
 **Artifacts:**
-- `--tug-deck-flow-offset` written in the deck-canvas inset effect; offset subtraction term in `imposeStyle` (flow only); `flowOffset` on `DeckManager`; rounded-offset term in `arrangementSignature`; reveal write in `activateCard`; retune clamp on settled resize.
+- `--tug-imposer-flow-offset` and `--tug-imposer-flow-strip` written in the deck-canvas inset effect; CSS-clamped offset subtraction term in `imposeStyle` (flow only); `flowOffset` on `DeckManager`; `layout` **and** rounded-offset terms in `arrangementSignature`; reveal write on the activation commit; bullseye anchor carve-out.
 
 **Tasks:**
-- [ ] `imposeStyle` gains a flow variant of its `left` expression: strip position minus `var(--tug-deck-flow-offset, 0px)`; fit mode's expression is byte-identical to today (assert in a unit test).
-- [ ] Deck canvas writes the property in the same `useLayoutEffect` that writes the rail insets (before the settle's Last effect — the declaration order there is load-bearing; add the new write to the existing effect, do not create a second one).
-- [ ] `activateCard` in flow: compute `flowRevealOffset` for the activated card; if changed, write it in the same commit as the raise so the settle animates the slide; if unchanged, the commit stays z-only and arms nothing ([P10]).
-- [ ] Settled-resize retune clamps the offset to the new strip/band bounds.
+- [ ] `imposeStyle` gains a flow variant of its `left` expression; fit mode's expression is byte-identical to today (assert in a unit test). Property names join the family the same effect already writes (`--tug-imposer-inset-<side>`), hence `--tug-imposer-flow-offset`, not a `--tug-deck-` prefix that exists nowhere else.
+- [ ] **Clamp the offset in CSS, not only in JS.** Fit's whole resize story is that the browser re-decides the arrangement on every reflow with no JS in the loop; an offset clamped only at the 200ms settled-resize moment would make flow the one mode that shows a stale viewport — widen the window and the strip stays pushed left with dead air at the right edge until the retune fires. Both quantities needed for the clamp are available to CSS: the strip width is a deck-wide number JS already computed, and the band is the expression `imposeStyle` already writes. So the `left` term is `min(var(--tug-imposer-flow-offset, 0px), max(0px, var(--tug-imposer-flow-strip, 0px) - <band>))`, and a window resize re-resolves it for free. The settled-resize retune still runs, to write the *store's* offset back inside the new bounds so the next reveal computes from a truthful number.
+- [ ] Deck canvas writes both properties in the same `useLayoutEffect` that writes the rail insets (before the settle's Last effect — the declaration order there is load-bearing; add the new writes to the existing effect, do not create a second one). **That effect is keyed on a summary string, `railSummary`, not on the values themselves** — extend the summary with the layout mode, the rounded offset, and the strip width, or the writes will not re-run when only the offset moves.
+- [ ] **`arrangementSignature` gains `imposition.layout` as its own term, not just the offset.** Toggling fit↔flow moves every pane's `left` while leaving kind, slots, widths, rails, and bullseye identical — on today's terms the signature does not move, no settle arms, and the mode flip is a cut on the one gesture the whole phase exists to introduce. The offset term does not cover it: a toggle at offset 0 changes the signature not at all.
+- [ ] Reveal on activation ([P10]): `activateCard` is a pass-through to `_flipFirstResponder` → `_commitStandardFirstResponderFlip`, which is the commit the offset must ride. Compute `flowRevealOffset` there; if it changed, write it in the same commit as the raise so the settle animates the slide; if unchanged, the commit stays z-only and arms nothing. Scope the reveal to a pane that is actually imposed — a rail, a free pane, and a bullseyed pane all activate through this path and none of them ride the strip.
+- [ ] **Bullseye's exit-side sort line reads `imposeStyle().left`.** `bullseyeAnchorCentre` in `deck-canvas.tsx` resolves each pane's pre-bullseye anchor through `imposeStyle(placement, pane.size.width).left` and sorts panes around the bullseyed card's own former place so exits can never cross. Fed fit lefts on a flow deck that line lands in the wrong place and panes cross on the way out. [P10]'s "bullseye is unchanged" holds for the bullseyed pane's own geometry (still centred one-up, still offset-free); this anchor is the carve-out, and it takes the flow left.
+- [ ] Settled-resize retune clamps the stored offset to the new strip/band bounds.
 - [ ] ⌘1..9 in flow: `assignCardsToSlots` unchanged (slots are ordinal); after a slot move, re-run the reveal for the moved card so it never lands out of view.
 
 **Tests:**
-- [ ] `at0453-flow-mode.test.ts` (first half): enter flow via the registry action; activate an off-viewport card → minimal slide, animated (no cut records); activate an in-view card → no geometry commit; cards never overlap (pairwise rect check).
+- [ ] `at0454-flow-mode.test.ts` (first half): enter flow via the registry action; activate an off-viewport card → minimal slide, animated (no cut records); activate an in-view card → no geometry commit; occupied slots never overlap (pairwise rect check over one pane per slot).
+- [ ] The mode toggle itself is a census gesture: arm the detector, toggle fit→flow→fit, assert no cut records. This is the assertion the `layout` signature term exists for, and it fails without it.
+- [ ] Resize in flow: with the strip overflowing and the offset at its clamp, widen the canvas and assert the right-hand card's frame stays against the band's right edge *before* the 200ms retune could have fired — the CSS clamp, pinned.
 
 **Checkpoint:**
-- [ ] `just app-test tests/app-test/at0453-flow-mode.test.ts tests/app-test/at0450-imposer-cut-census.test.ts`
+- [ ] `just app-test tests/app-test/at0454-flow-mode.test.ts tests/app-test/at0450-imposer-cut-census.test.ts`
 - [ ] `cd tugdeck && bunx vite build`
 
 ---
@@ -777,18 +797,21 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 **References:** [P09], Spec S03, (#success-criteria)
 
 **Artifacts:**
-- Fit/flow control in `layouts-section.tsx` (a two-segment `TugChoiceGroup` row beside the N-up picker — every Layouts control is a `TugChoiceGroup` per [L19] and the section's own header doc; never hand-rolled, and not `TugOptionGroup`, which is a multi-toggle); miniature updated (`layout-miniature.tsx`) to draw the strip with a viewport window when flow overflows; `tuglaws/pane-model.md` flow section.
+- Fit/flow control in `tugdeck/src/components/lens/sections/layouts-section.tsx` (a two-segment `TugChoiceGroup` row beside the N-up picker — every Layouts control is a `TugChoiceGroup` per [L19] and the section's own header doc; never hand-rolled, and not `TugOptionGroup`, which is a multi-toggle); `layout` prop on `LayoutMiniature`; `tuglaws/pane-model.md` flow section.
 
 **Tasks:**
 - [ ] Layouts row dispatches `set-imposition-layout`; control state reads the store (settled controls show what the store holds).
-- [ ] Miniature: in flow, draw slots at strip proportions and a viewport rectangle at the offset; in fit, unchanged.
+- [ ] **Take a rung in the section's focus ladder.** Every row passes `focusGroup={host.focusGroup}` and an explicit `focusOrder`, and the orders are computed, not literal: `LAYOUTS_KIND_FOCUS_ORDER`, `LAYOUTS_WIDTH_FOCUS_ORDER`, then `LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER + index` for the sidebar rows and `+ sidebars.length + index` for the rail rows. The fit/flow row belongs directly under Cards, so it takes its own constant between kind and width and every later row's base shifts by one. A row added without a `focusOrder` is invisible to the keyboard ladder, which is a silent failure, not a visible one.
+- [ ] **Give the row preview layers.** The section pre-renders one hidden `LayoutMiniature` layer per offerable option and the hover/cursor handlers only toggle DOM attributes to choose which shows ([L06] — no React state in a preview). A row without layers previews nothing, which reads as a broken control beside four rows that all rehearse. Add `data-preview-axis="layout"` to the row, `previewId: "layout:fit"` / `"layout:flow"` to the items, and the two layers to the layer list.
+- [ ] Miniature: `LayoutMiniature` gains `layout?: "fit" | "flow"`. In flow it draws the slots at strip proportions — `slotCount(kind)` cards at the content-width preset, which is what it already normalizes from — and, when the strip exceeds the frame, a viewport window over it. **The window draws at rest (offset 0), always.** The miniature is a plan readout, not an instrument: it states that this arrangement overflows and scrolls, and holds still. A window tracking the live offset would repaint a Lens row on every card activation, and the preview layers would have to draw at 0 regardless, since a hypothetical mode has no offset to track. In fit, unchanged. The component stays props-in/CSS-out with no store reads ([L06]) — the section passes `layout` down like `kind` and `width`.
 - [ ] `pane-model.md`: flow as the third content geometry (beside fit and free), with the reveal rule and the ordinal-slot meaning.
 
 **Tests:**
-- [ ] `at0453` (second half): toggle the control; miniature reflects mode; mode persists across a Reload (imposition record round-trip).
+- [ ] `at0454` (second half): toggle the control; miniature reflects mode; mode persists across a Reload (imposition record round-trip).
+- [ ] The row answers the keyboard: with the Lens focused, the movement cursor reaches the fit/flow group in ladder order and selects with it.
 
 **Checkpoint:**
-- [ ] `just app-test tests/app-test/at0453-flow-mode.test.ts`
+- [ ] `just app-test tests/app-test/at0454-flow-mode.test.ts`
 - [ ] `cd tugdeck && bunx vite build`
 
 ---
@@ -803,9 +826,10 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 
 **Tasks:**
 - [ ] Full flow pass: mode toggle, reveal, slot moves, nudges (B works in flow), width changes re-reveal, bullseye in flow, census battery in flow mode.
+- [ ] Bullseye in flow gets its own look, not just a green test: enter bullseye on the leftmost card of an overflowing strip and watch that no pane crosses another on the way out (the anchor carve-out in #step-12).
 
 **Tests:**
-- [ ] `at0450` battery re-run with flow enabled prepended to its gesture set; `at0452` nudge in flow; `at0453` green.
+- [ ] `at0450` battery re-run with flow enabled prepended to its gesture set; `at0452` nudge in flow; `at0454` green.
 
 **Checkpoint:**
 - [ ] `just app-test-changed`
@@ -824,7 +848,7 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 - `ColumnArrangement` type + `columns?` field on `DeckImposition` in `layout-imposer.ts`; withers (`withColumnMode/Order/Shares`); `setColumnMode/Order/Shares` on `DeckManager` (mirroring `setRailMode/Order/Shares`, filtering to cards actually in the slot); layout-tree invariant.
 
 **Tasks:**
-- [ ] Type and field, sharing the arrangement helper functions with rails (generalize `railSeamFractions`/`railSharesFromFractions`/weight helpers to arrangement-shape functions if they are side-coupled; keep exported names stable).
+- [ ] Type and field, sharing the arrangement helper functions with rails. The good news is that none of the three are side-coupled: `railSeamFractions(order, shares)` and `railSharesFromFractions(order, fractions)` take the arrangement's parts, not a side, so columns can call them as they stand — keep the exported names. `railWeightOf` is **module-private** (no `export`), so a column caller either lives in `layout-imposer.ts` beside it or the helper is exported at that point; [P11] names it as shared math, which it is not yet.
 - [ ] New invariant in `layout-tree.ts`: a column's `order` members, when present, name cards in panes assigned to that slot (soft: unknown ids are inert residue, [P11]); invariant 6 untouched.
 - [ ] Serialization round-trip (optional field, absence-tolerant).
 
@@ -850,16 +874,16 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 
 **Tasks:**
 - [ ] `imposeStyle(placement, slotWidth, pinnedFrame, {member?})`: vertical pins as `calc()` over `--tug-slot-<k>-seam-<j>` with equal-division fallbacks, first/last members taking the bare gaps — port `railMemberPins` exactly.
-- [ ] Deck canvas: write/remove slot seam properties beside the rail ones in the same effect (stale-index removal included); `tug-pane.tsx` builds the member option when the pane's slot has a split column with >1 visible members.
+- [ ] Deck canvas: write/remove slot seam properties beside the rail ones in the same effect (stale-index removal included); `tug-pane.tsx` builds the member option when the pane's slot has a split column with >1 visible members. The rail sweep clears stale indices up to `SIDEBAR_PANE_ZINDEX_MAX_RANK`; a column needs its own upper bound for the same sweep — a slot has no z-rank ceiling to borrow, so state one (the deepest column the split UI will offer) and remove above it. Extend the effect's `railSummary` dep string with the column terms, exactly as #step-12 extends it with the flow terms; the effect re-runs on that string alone.
 - [ ] Seam component: parameterize `RailSeam` by place (side or slot) — same drag, clamp, equalize double-click; commit through `setColumnShares`.
 - [ ] Flow interplay: a split column's strip extent is its widest member ([P11], [P09]).
 
 **Tests:**
 - [ ] bun:test: `columnMemberPins` output shape; single-member byte-identity with the unsplit frame.
-- [ ] `at0454-column-split.test.ts` (first half): split a two-card slot via `setColumnMode` (test surface), both cards visible stacked vertically with the seam; drag the seam; equalize.
+- [ ] `at0455-column-split.test.ts` (first half): split a two-card slot via `setColumnMode` (test surface), both cards visible stacked vertically with the seam; drag the seam; equalize.
 
 **Checkpoint:**
-- [ ] `just app-test tests/app-test/at0454-column-split.test.ts`
+- [ ] `just app-test tests/app-test/at0455-column-split.test.ts`
 - [ ] `cd tugdeck && bunx vite build`
 
 ---
@@ -873,19 +897,21 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 **References:** [P11], [P02], Risk R01, (#ground-today)
 
 **Artifacts:**
-- Per-slot split/stack rows in `layouts-section.tsx` (mirroring the rail rows: always rendered, disabled below two members); stack-badge menu extension in `tug-pane.tsx` (`handleArrangeRail` generalizes to places); split↔stack flip choreography for columns (survivor moves with a real height term, others fade — port the rail plan in the settle); `pane-model.md` column section.
+- Per-slot split/stack rows in `layouts-section.tsx` (one row per slot **holding two or more cards**); stack-badge menu extension in `tug-pane.tsx` (`handleArrangeRail` generalizes to places); split↔stack flip choreography for columns (survivor moves with a real height term, others fade — port the rail plan in the settle); `pane-model.md` column section.
 
 **Tasks:**
 - [ ] Layouts rows dispatch `SET_COLUMN_MODE`-shaped registry actions (added beside `SET_RAIL_MODE` in `action-dispatch.ts`, with the matching `command-registry.ts` internal entries).
+- [ ] **A column row appears only for a slot with two or more cards, and does not mirror the rail rows' always-rendered-but-disabled shape.** The rail rows are always present for a stated reason — a split side dropping to one card would otherwise take the only way to un-split it away with it — and a slot cannot reach that trap, because a one-member column is already unsplit and has nothing to restore. Mirroring anyway would put up to six permanently disabled rows under the two rail rows already there. Rows are keyed and ordered by slot index, so a slot gaining a second card inserts its row in place rather than at the end.
+- [ ] Focus ladder: the column rows sit last, so their `focusOrder` base is `LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER + sidebars.length + SIDES.length` (itself already shifted by one for #step-13's fit/flow row), plus the row's own index. Because the row set is now membership-dependent, the ladder is dense over *present* rows rather than over all slots — index the rendered rows, not the slot numbers.
 - [ ] Stack-badge menu on a content pane in a multi-card slot offers split/stack/equalize.
 - [ ] Choreography: extend the settle's rail-mode fade plan to column-mode flips (the signature already gains column terms via the imposition record; verify and add explicit seam/mode terms if the record term alone is too coarse).
 - [ ] `pane-model.md`: columns section beside rails.
 
 **Tests:**
-- [ ] `at0454` (second half): flip via the Layouts row and the badge menu; choreography produces no cut records; disabled row below two members.
+- [ ] `at0455` (second half): flip via the Layouts row and the badge menu; choreography produces no cut records; a slot dropping to one card loses its row, and gaining a second card gets it back at the right rung of the ladder.
 
 **Checkpoint:**
-- [ ] `just app-test tests/app-test/at0454-column-split.test.ts tests/app-test/at0401-sidebar-split.test.ts`
+- [ ] `just app-test tests/app-test/at0455-column-split.test.ts tests/app-test/at0401-sidebar-split.test.ts`
 - [ ] `cd tugdeck && bunx vite build`
 
 ---
@@ -907,10 +933,10 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 - [ ] chord-tiers.md residents entries for all five ([P12] rationale).
 
 **Tests:**
-- [ ] `at0454` (chords): ⌃⌘S splits and re-stacks; ⌃⌘↓ swaps two members; ⌃⇧⌘↑ from bottom lands top; edge refusal flashes. Chords are delivered via the harness key path (they are not menu chords, so background delivery works; if delivery proves foreground-bound during implementation, follow #test-non-goals).
+- [ ] `at0455` (chords): ⌃⌘S splits and re-stacks; ⌃⌘↓ swaps two members; ⌃⇧⌘↑ from bottom lands top; edge refusal flashes. Chords are delivered via the harness key path (they are not menu chords, so background delivery works; if delivery proves foreground-bound during implementation, follow #test-non-goals).
 
 **Checkpoint:**
-- [ ] `just app-test tests/app-test/at0454-column-split.test.ts`
+- [ ] `just app-test tests/app-test/at0455-column-split.test.ts`
 - [ ] `cd tugdeck && bunx vite build`
 
 ---
@@ -927,7 +953,7 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 - [ ] Full-surface pass: splits in fit and flow, multi-select + nudge + width over split members, census battery with split flips included, sidebar splits unregressed.
 
 **Tests:**
-- [ ] `at0450`–`at0454` and `at0401-sidebar-split` green together.
+- [ ] `at0450`–`at0455` and `at0401-sidebar-split` green together.
 
 **Checkpoint:**
 - [ ] `just app-test-changed`
@@ -949,12 +975,12 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 - [ ] Census battery green with only the doctrine-recorded accepted classes (`at0450`).
 - [ ] Multi-select flows and batched verbs green (`at0451`), including the Lens-focused ⌘1 case.
 - [ ] Nudge with group clamp green (`at0452`); chord-tiers entry landed.
-- [ ] Flow reveal, no-overlap, persistence green (`at0453`); pane-model updated.
-- [ ] Column splits, seams, choreography, chords green (`at0454`); sidebar splits unregressed (`at0401`).
+- [ ] Flow reveal, no-overlap, persistence green (`at0454`); pane-model updated.
+- [ ] Column splits, seams, choreography, chords green (`at0455`); sidebar splits unregressed (`at0401`).
 - [ ] `cd tugdeck && bunx vite build` clean; `just app-test-changed` green at each milestone.
 
 **Acceptance tests:**
-- [ ] `just app-test tests/app-test/at0450-imposer-cut-census.test.ts tests/app-test/at0451-lens-multiselect.test.ts tests/app-test/at0452-nudge-slot.test.ts tests/app-test/at0453-flow-mode.test.ts tests/app-test/at0454-column-split.test.ts`
+- [ ] `just app-test tests/app-test/at0450-imposer-cut-census.test.ts tests/app-test/at0451-lens-multiselect.test.ts tests/app-test/at0452-nudge-slot.test.ts tests/app-test/at0454-flow-mode.test.ts tests/app-test/at0455-column-split.test.ts`
 
 #### Roadmap / Follow-ons (Explicitly Not Required for Phase Close) {#roadmap-follow-ons}
 
