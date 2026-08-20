@@ -103,3 +103,32 @@
   border-color: var(--tugx-accent);
   border-style: solid;
 }
+
+/* The committed drawing MOVES, so it moves the way the deck does: one rule over
+   every pin either geometry writes — a block's `left`/`width` in flow and fit
+   alike, its `top`/`bottom` when a column divides the run, and the window's
+   `left`/`width` as the strip slides under it. One rule rather than one per
+   case, so the drawing never cuts in one geometry while it glides in the other.
+
+   A CSS transition rather than a TugAnimator tween because the miniature is not
+   a pane: [L13] governs pane motion, and this is appearance changing through
+   CSS, which is exactly [L06]. ([P07])
+
+   The duration is the deck's own settle, published on the canvas container by
+   the settle effect and inherited all the way down here — so the picture and
+   the thing it pictures come to rest together, by construction rather than by
+   two numbers agreeing. Before the first settle has published one, the nearest
+   motion token stands in.
+
+   Preview layers are deliberately outside this rule: auditioning an
+   arrangement swaps the whole drawing, and a swap that tweened would read as
+   the deck moving rather than as a different deck being shown. */
+.layout-mini[data-committed="true"] .layout-mini-block,
+.layout-mini[data-committed="true"] .layout-mini-window {
+  transition-property: left, width, top, bottom;
+  transition-duration: var(
+    --tugx-imposer-settle-duration,
+    var(--tug-motion-duration-slow)
+  );
+  transition-timing-function: var(--tug-motion-easing-standard);
+}

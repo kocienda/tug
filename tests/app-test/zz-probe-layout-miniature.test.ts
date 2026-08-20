@@ -283,4 +283,83 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
     },
     120_000,
   );
+
+  test(
+    "the committed drawing animates to its new place; previews swap crisp",
+    async () => {
+      const app = await launchTugApp({ testName: "zz-probe-layout-miniature" });
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+        );
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="lens-layouts-plan"]') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        // What is animated is asserted from the rule, never from a value read
+        // while it is in flight — a mid-transition read is an interpolation,
+        // and asserting one would pin the clock rather than the choreography.
+        const rule = await app.evalJS<{
+          property: string;
+          duration: string;
+          previewDuration: string;
+        }>(
+          `(function () {
+             var style = getComputedStyle(
+               document.querySelector(
+                 '[data-plan-layer="committed"] .layout-mini-window',
+               ),
+             );
+             var preview = getComputedStyle(
+               document.querySelector(
+                 '[data-plan-preview-id="width:wide"] .layout-mini-block',
+               ),
+             );
+             return {
+               property: style.transitionProperty,
+               duration: style.transitionDuration,
+               previewDuration: preview.transitionDuration,
+             };
+           })()`,
+        );
+        note(`committed transition: ${rule.property} over ${rule.duration}`);
+        for (const pin of ["left", "width", "top", "bottom"]) {
+          expect(
+            rule.property,
+            `the committed drawing animates ${pin}`,
+          ).toContain(pin);
+        }
+        expect(
+          rule.duration,
+          "the committed drawing has a duration to animate over",
+        ).not.toBe("0s");
+        expect(
+          rule.previewDuration,
+          "an audition swap is crisp — a preview carries no transition",
+        ).toBe("0s");
+
+        // The END position moved: activating an off-band card slides the strip,
+        // and the window follows it to a place it was not standing before.
+        const at = async (): Promise<number> =>
+          (await drawing(app, '[data-plan-layer="committed"] .layout-mini'))
+            .windowLeft as number;
+        const before = await at();
+        await app.evalJS<null>(`(window.__tug.activateCard("E"), null)`);
+        await wait(AFTER_LAND_MS);
+        const after = await at();
+        note(`window ${before.toFixed(2)}% → ${after.toFixed(2)}%`);
+        expect(before, "the deck is seeded at rest").toBeCloseTo(0, 2);
+        expect(
+          after - before,
+          "revealing an off-band card moved the window's end position",
+        ).toBeGreaterThan(TOL);
+      } finally {
+        await app.close();
+      }
+    },
+    120_000,
+  );
 });
