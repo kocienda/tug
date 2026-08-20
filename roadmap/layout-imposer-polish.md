@@ -451,8 +451,8 @@ One `flow-rail` element inside the canvas, absolutely positioned in the bottom b
 | #step-1 | M01 — the motion census | done | `430c03495` |
 | #step-2 | M01 — one release, one notify | done | `2c36366e6` |
 | #step-3 | M01 — the drag stays pinned under autoscroll | done | `801164ed1` |
-| #step-4 | M01 — motion recipes and the springing of the settle | in progress | — |
-| #step-5 | M01 — integration checkpoint | pending | — |
+| #step-4 | M01 — motion recipes and the springing of the settle | done | `0b50a8dcd` |
+| #step-5 | M01 — integration checkpoint | done | `0b50a8dcd` |
 | #step-6 | M02 — division-true tiles | pending | — |
 | #step-7 | M02 — body-drop divides | pending | — |
 | #step-8 | M02 — integration checkpoint | pending | — |
