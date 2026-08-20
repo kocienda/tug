@@ -370,6 +370,19 @@ export interface DeckState {
    * changed while the deck was closed.
    */
   flowOffset?: number;
+  /**
+   * How far each overflowing column's strip of members has slid up behind its
+   * run, in pixels, keyed by slot. An absent slot reads as 0 — the strip at
+   * rest, its first member against the run's top.
+   *
+   * The vertical twin of {@link DeckState.flowOffset}, and per-slot because
+   * every overflowing column scrolls on its own. Written only by the reveal
+   * rule, on activation and on a move within the column ([P12]). Not
+   * serialized, for the same reason and with the same force: the number is
+   * derivable, and a restored one would be a viewport nobody asked for onto a
+   * column that may have changed while the deck was closed.
+   */
+  columnOffsets?: Readonly<Record<number, number>>;
 }
 
 // ---- Invariant validation ----

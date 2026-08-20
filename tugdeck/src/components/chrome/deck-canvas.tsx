@@ -102,7 +102,9 @@ import {
   resolvePlacement,
   resolveContentWidthPx,
   clampSlot,
+  columnOffsetProperty,
   columnSeamProperty,
+  columnStanding,
   imposeStyle,
   isColumnMoveTarget,
   type ColumnMemberPlacement,
@@ -203,6 +205,11 @@ const COLUMN_SEAM_MAX_INDEX = 9;
  *  arrangement's slot count, so dropping from six-up to three-up removes the
  *  seams of the columns the deck no longer has. */
 const COLUMN_SEAM_MAX_SLOT = slotCount("six-up") - 1;
+
+/** The offsets a deck with no overflowing column has. A shared constant rather
+ *  than a fresh `{}` per render, so the memos reading it are not re-run by an
+ *  identity that changes for no reason. */
+const EMPTY_COLUMN_OFFSETS: Readonly<Record<number, number>> = Object.freeze({});
 
 /** One member of a side's rail, in the rail's own vertical order: the order the
  *  imposition records, falling back to registration order — never z-order. */
@@ -376,13 +383,18 @@ function arrangementSignature(state: DeckState): string {
   // terms: reordering a split column swaps two frames' vertical pins while
   // every pane keeps its slot and its width, so the sorted pane list is
   // identical either side of the move.
+  //
+  // And the OFFSET is a term for the reason flow's is: an overflowing column
+  // reveals a member by sliding its strip, which moves every member's `top`
+  // while slot, width and order all hold still. Rounded to the pixel it is
+  // written at, so a reveal that computes no move arms nothing ([P12]).
   const columns = deckColumnsOf(state)
     .filter((column) => column.mode === "split")
     .map(
       (column) =>
         `${column.slot}:${column.members.join("+")}:${column.seams
           .map((f) => f.toFixed(3))
-          .join("+")}`,
+          .join("+")}:${Math.round(state.columnOffsets?.[column.slot] ?? 0)}`,
     )
     .join(";");
   return `${state.imposition.kind ?? ""}|${flow}|${bullseye}|${rails}|${columns}|${panes.join(",")}`;
@@ -802,6 +814,10 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // inset effect below publishes the seam fractions, and the effect order in
   // this file is load-bearing.
   const deckColumns = useMemo(() => deckColumnsOf(deckState), [deckState]);
+  // How far each overflowing column has slid its strip up behind the run
+  // ([P12]) — the vertical twin of `flowOffset`, and per-slot because each
+  // column scrolls on its own. Published by the inset effect below.
+  const columnOffsets = deckState.columnOffsets ?? EMPTY_COLUMN_OFFSETS;
   // Each member's standing in its column, for the panes that have one. Only a
   // SPLIT column of two or more contributes: a stacked column and a column of
   // one take the undivided run, which is the frame they had before a slot could
@@ -1772,7 +1788,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       (column) =>
         `${column.slot}:${column.mode}:${column.seams
           .map((f) => f.toFixed(4))
-          .join("+")}`,
+          .join("+")}:${Math.round(columnOffsets[column.slot] ?? 0)}`,
     )
     .join(";")}`;
   useLayoutEffect(() => {
@@ -1810,8 +1826,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // holds panes. A column that lost a member — or a whole slot that emptied,
     // or a kind change that took the slot away — would otherwise leave a seam
     // property standing for a frame to pin itself against.
+    // An overflowing column reads no seams and a shared one reads no offset,
+    // so the two writes are exclusive by construction: a slot publishes one or
+    // the other, and whichever it is not is swept away in the same pass. That
+    // is what keeps a column crossing the boundary in either direction from
+    // holding a stale number a frame could still pin itself against.
+    const overflowing = (column: DeckColumn): boolean =>
+      column.mode === "split" &&
+      columnStanding(column.members.length) === "overflow";
     const seamsBySlot = new Map(
-      deckColumns.map((column) => [column.slot, column.seams]),
+      deckColumns.map((column) => [
+        column.slot,
+        overflowing(column) ? [] : column.seams,
+      ]),
+    );
+    const offsetBySlot = new Map(
+      deckColumns
+        .filter(overflowing)
+        .map((column) => [column.slot, columnOffsets[column.slot] ?? 0]),
     );
     for (let slot = 0; slot <= COLUMN_SEAM_MAX_SLOT; slot += 1) {
       const seams = seamsBySlot.get(slot) ?? [];
@@ -1824,6 +1856,15 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         index += 1
       ) {
         el.style.removeProperty(columnSeamProperty(slot, index));
+      }
+      const offset = offsetBySlot.get(slot);
+      if (offset === undefined) {
+        el.style.removeProperty(columnOffsetProperty(slot));
+      } else {
+        el.style.setProperty(
+          columnOffsetProperty(slot),
+          `${Math.round(offset)}px`,
+        );
       }
     }
     // Both flow properties are written together or removed together: a strip

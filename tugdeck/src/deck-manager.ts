@@ -100,11 +100,16 @@ import {
   sidebarSide,
   isSidebarSide,
   clampFlowOffset,
+  clampStripOffset,
   columnModeOf,
+  columnStanding,
+  COLUMN_OVERFLOW_VISIBLE_MEMBERS,
   effectiveRailOrder,
   flowRevealOffset,
   impositionLayout,
+  IMPOSITION_GAP_BOTTOM_PX,
   IMPOSITION_GAP_PX,
+  stripRevealOffset,
   railModeOf,
   withRailMode,
   withRailOrder,
@@ -1525,7 +1530,11 @@ export class DeckManager implements IDeckManagerStore {
       const next = [...order];
       next.splice(from, 1);
       next.splice(to, 0, paneId);
-      this.setColumnOrder(slot, next);
+      // Named as the moved member, so an overflowing column slides to show
+      // where the card went in the same commit that moved it. Sending a card
+      // to the bottom of a five-member column and leaving it below the run
+      // would be a move with no visible outcome.
+      this.setColumnOrder(slot, next, paneId);
       return true;
     }
 
@@ -1589,7 +1598,11 @@ export class DeckManager implements IDeckManagerStore {
    * id, which nothing will ever bring back. Keeping them would grow the record
    * forever to preserve places no member can return to.
    */
-  setColumnOrder(slot: number, order: readonly string[]): void {
+  setColumnOrder(
+    slot: number,
+    order: readonly string[],
+    movedPaneId?: string,
+  ): void {
     const standing = new Set(
       this.deckState.panes.filter((p) => p.slot === slot).map((p) => p.id),
     );
@@ -1598,7 +1611,10 @@ export class DeckManager implements IDeckManagerStore {
     if (current !== undefined && current.length === members.length) {
       if (current.every((id, i) => id === members[i])) return;
     }
-    this._reimpose(withColumnOrder(this.deckState.imposition, slot, members));
+    this._reimpose(
+      withColumnOrder(this.deckState.imposition, slot, members),
+      movedPaneId,
+    );
   }
 
   /**
@@ -1809,6 +1825,17 @@ export class DeckManager implements IDeckManagerStore {
        * not ask the deck to arrange itself may not spend it.
        */
       readonly retuneRails: boolean;
+      /**
+       * Whose reveal this commit owes, when it is not the active pane's.
+       *
+       * The reveal rules answer for the pane the gesture was ABOUT, and for
+       * almost every caller that is the active one — the gesture raised it, or
+       * moved the arrangement under it. A move within a column is the
+       * exception: `moveInColumn` can carry a member the Lens resolved rather
+       * than the one holding focus, and it is that member the user just sent
+       * somewhere and now wants to see.
+       */
+      readonly revealPaneId?: string;
     },
   ): void {
     const retuneRails = opts?.retuneRails ?? true;
@@ -1872,11 +1899,18 @@ export class DeckManager implements IDeckManagerStore {
     // did not move the active card past the band's edge returns the offset
     // standing and this is nothing. ([P10]; in fit `deckFlowStrip` is null and
     // it is nothing always.)
-    const activePaneId = this.deckState.activePaneId;
+    const activePaneId = opts?.revealPaneId ?? this.deckState.activePaneId;
     const flowOffset =
       activePaneId === undefined
         ? undefined
         : this._flowRevealOffsetFor(activePaneId, nextPanes, imposition);
+    // The vertical half of the same re-reveal: any of these gestures can have
+    // rebuilt the column under the active member — a split, a move, a card
+    // leaving the slot — and the rule is minimal and idempotent here too.
+    const columnReveal =
+      activePaneId === undefined
+        ? undefined
+        : this._columnRevealOffsetFor(activePaneId, nextPanes, imposition);
 
     for (const cardId of moved) this.cardLifecycle.notifyCardWillMove(cardId);
     for (const cardId of resized) this.cardLifecycle.notifyCardWillResize(cardId);
@@ -1885,6 +1919,7 @@ export class DeckManager implements IDeckManagerStore {
       panes: nextPanes,
       imposition,
       ...(flowOffset !== undefined ? { flowOffset } : {}),
+      ...this._withColumnReveal(columnReveal),
     };
     this.notify();
     for (const cardId of resized) this.cardLifecycle.notifyCardDidResize(cardId);
@@ -1917,6 +1952,7 @@ export class DeckManager implements IDeckManagerStore {
     const imposition = this.deckState.imposition;
     const panes = this.deckState.panes;
     this._retuneFlowOffset(panes, imposition);
+    this._retuneColumnOffsets(panes, imposition);
     const { panesBySide } = this._sidebarRails(panes, imposition);
     if (panesBySide.size === 0) return;
     const allocated = this._allocatedRailWidths(panes, imposition);
@@ -1937,8 +1973,14 @@ export class DeckManager implements IDeckManagerStore {
    * derives. The Lens returns to its pin through here, and the space allocator
    * re-solves its width for the arrangement being committed.
    */
-  private _reimpose(imposition: DeckImposition): void {
-    this._commitImposition(imposition, this.deckState.panes);
+  private _reimpose(
+    imposition: DeckImposition,
+    revealPaneId?: string,
+  ): void {
+    this._commitImposition(imposition, this.deckState.panes, {
+      retuneRails: true,
+      ...(revealPaneId !== undefined ? { revealPaneId } : {}),
+    });
   }
 
   /** The sidebar componentId this pane hosts, or `undefined` when it hosts no
@@ -2296,12 +2338,17 @@ export class DeckManager implements IDeckManagerStore {
     // commit stays z-only — which is what keeps a click on an already-visible
     // card from arming a settle it does not owe.
     const flowOffset = this._flowRevealOffsetFor(updatedHost.id, newStacks);
+    // And the same rule down the other axis: raising a member of an
+    // overflowing column slides that column's strip by the least that shows
+    // it, in this commit, so the settle sees one arrangement change ([P12]).
+    const columnReveal = this._columnRevealOffsetFor(updatedHost.id, newStacks);
 
     this.deckState = {
       ...this.deckState,
       panes: newStacks,
       activePaneId: updatedHost.id,
       ...(flowOffset !== undefined ? { flowOffset } : {}),
+      ...this._withColumnReveal(columnReveal),
     };
     this.putFocusedCardIdGuarded(newFR);
     this.notify();
@@ -2407,6 +2454,145 @@ export class DeckManager implements IDeckManagerStore {
       offset: state.flowOffset ?? 0,
     });
     return next === (state.flowOffset ?? 0) ? undefined : next;
+  }
+
+  /**
+   * The vertical run a column's members stand in, in px: the canvas less the
+   * gap it keeps at the top and the deeper one it keeps at the bottom.
+   *
+   * The vertical twin of {@link _flowBandWidth}, and simpler for the reason
+   * the overflow pins are simpler than the share pins: nothing insets the run.
+   * A rail takes width from the band; nothing takes height from the run.
+   */
+  private _columnRunHeight(): number {
+    return (
+      this.container.clientHeight -
+      IMPOSITION_GAP_PX -
+      IMPOSITION_GAP_BOTTOM_PX
+    );
+  }
+
+  /**
+   * The column offset that reveals `paneId` inside its own slot, or
+   * `undefined` when there is nothing to reveal — the pane stands in no
+   * column, its column is not split, its column does not overflow, or the
+   * member is already fully in the run.
+   *
+   * Exactly parallel to {@link _flowRevealOffsetFor}, over the same arithmetic
+   * ({@link stripRevealOffset}) read down instead of across, and scoped the
+   * same way: a bullseyed pane supersedes the arrangement, so it does not
+   * slide its column under the user for a card that did not move.
+   *
+   * The strip it measures against is a pure function of the run — every
+   * overflowing member is `run / 2.5` tall by construction — so no pane is
+   * measured here, which is what lets the answer be computed inside a commit
+   * rather than after a layout.
+   */
+  private _columnRevealOffsetFor(
+    paneId: string,
+    panes: readonly TugPaneState[],
+    imposition?: DeckImposition,
+  ): { slot: number; offset: number } | undefined {
+    const state = {
+      ...this.deckState,
+      panes,
+      ...(imposition !== undefined ? { imposition } : {}),
+    };
+    if (state.bullseyePaneId === paneId) return undefined;
+    const pane = panes.find((p) => p.id === paneId);
+    if (pane === undefined || pane.slot === undefined) return undefined;
+    if (this._sidebarComponentIdOfPane(pane.id) !== undefined) return undefined;
+    const column = deckColumnsOf(state).find((c) =>
+      c.members.includes(paneId),
+    );
+    if (column === undefined || column.mode !== "split") return undefined;
+    if (columnStanding(column.members.length) !== "overflow") return undefined;
+    const run = this._columnRunHeight();
+    if (!(run > 0)) return undefined;
+    const memberHeight = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const index = column.members.indexOf(paneId);
+    const standing = state.columnOffsets?.[column.slot] ?? 0;
+    const next = stripRevealOffset({
+      stripStart: index * (memberHeight + IMPOSITION_GAP_PX),
+      extent: memberHeight,
+      stripLength:
+        column.members.length * memberHeight +
+        (column.members.length - 1) * IMPOSITION_GAP_PX,
+      band: run,
+      offset: standing,
+    });
+    return next === standing ? undefined : { slot: column.slot, offset: next };
+  }
+
+  /**
+   * The offsets record a reveal produces — the one standing, with the revealed
+   * slot's number written over it. `undefined` in gives `undefined` out, so a
+   * commit that reveals nothing spreads nothing and stays byte-identical.
+   */
+  private _withColumnReveal(
+    reveal: { slot: number; offset: number } | undefined,
+  ): { columnOffsets: Readonly<Record<number, number>> } | Record<string, never> {
+    if (reveal === undefined) return {};
+    return {
+      columnOffsets: {
+        ...(this.deckState.columnOffsets ?? {}),
+        [reveal.slot]: reveal.offset,
+      },
+    };
+  }
+
+  /**
+   * Write every stored column offset back inside the bounds a resized canvas
+   * leaves it, and drop the ones whose column has stopped overflowing.
+   *
+   * Bookkeeping, exactly as {@link _retuneFlowOffset} is bookkeeping: the
+   * PICTURE is already right, because `columnMemberPins` expresses the clamp
+   * in CSS over the strip and the live run. What this fixes is the NUMBER, so
+   * the next reveal computes its minimal move from an offset the deck is
+   * actually showing — and it forgets a column that dropped back to two
+   * members, whose stored slide would otherwise return with the third card.
+   */
+  private _retuneColumnOffsets(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): void {
+    const standing = this.deckState.columnOffsets;
+    if (standing === undefined) return;
+    const state = { ...this.deckState, panes, imposition };
+    const run = this._columnRunHeight();
+    const memberHeight = run / COLUMN_OVERFLOW_VISIBLE_MEMBERS;
+    const columns = deckColumnsOf(state);
+    const next: Record<number, number> = {};
+    let changed = false;
+    for (const [key, offset] of Object.entries(standing)) {
+      const slot = Number(key);
+      const column = columns.find((c) => c.slot === slot);
+      const overflowing =
+        column !== undefined &&
+        column.mode === "split" &&
+        columnStanding(column.members.length) === "overflow" &&
+        run > 0;
+      if (!overflowing) {
+        changed = true;
+        continue;
+      }
+      const clamped = clampStripOffset(
+        offset,
+        column.members.length * memberHeight +
+          (column.members.length - 1) * IMPOSITION_GAP_PX,
+        run,
+      );
+      if (clamped !== offset) changed = true;
+      next[slot] = clamped;
+    }
+    if (!changed) return;
+    this.deckState = {
+      ...this.deckState,
+      ...(Object.keys(next).length === 0
+        ? { columnOffsets: undefined }
+        : { columnOffsets: next }),
+    };
+    this.notify();
   }
 
   /**

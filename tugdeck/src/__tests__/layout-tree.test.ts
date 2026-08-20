@@ -301,6 +301,28 @@ describe("serialize and deserialize (v4 wire)", () => {
     expect(JSON.stringify(out)).toContain('"layout":"flow"');
   });
 
+  test("serialize emits no column offsets either — same rule, other axis", () => {
+    // A restored column slide would be worse than a restored flow one, not
+    // better: the column it was measured against may have gained or lost
+    // members while the deck was closed, so the number would point at a member
+    // that is not there. Activating any member re-reveals it.
+    const out = serialize({
+      cards: [],
+      panes: [],
+      imposition: {
+        kind: "three-up",
+        sidebars: { lens: { side: "right" } },
+        columns: { 1: { mode: "split", order: ["p1", "p2", "p3"] } },
+      },
+      columnOffsets: { 1: 173 },
+      hasFocus: true,
+    });
+    expect(JSON.stringify(out)).not.toContain("columnOffsets");
+    // The ARRANGEMENT is serialized, and must be: the split and its order are
+    // the user's choice. Only the viewport onto it is session state.
+    expect(JSON.stringify(out)).toContain('"mode":"split"');
+  });
+
   test("v4 round-trip: serialize → deserialize → serialize is stable", () => {
     const card: CardState = {
       id: "c1",
