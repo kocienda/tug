@@ -36,6 +36,7 @@ import {
 import {
   clampSlot,
   isImpositionKind,
+  isImpositionLayout,
   isRailMode,
   isSidebarPinned,
   isSidebarSide,
@@ -474,6 +475,11 @@ function parseV4(
   }
   const rawContentWidth = impositionRecord?.["contentWidth"];
   const rails = parseRails(impositionRecord);
+  // Additive-optional like `rails`: a blob written before the mode existed
+  // carries no `layout` and comes back fit, which is what it was. An
+  // unreadable value is dropped rather than defaulted to flow — a mode is
+  // something the user chose.
+  const rawLayout = impositionRecord?.["layout"];
   const imposition: DeckImposition = {
     kind,
     contentWidth: isContentWidth(rawContentWidth)
@@ -481,6 +487,7 @@ function parseV4(
       : DEFAULT_CONTENT_WIDTH,
     sidebars,
     ...(rails !== undefined ? { rails } : {}),
+    ...(isImpositionLayout(rawLayout) ? { layout: rawLayout } : {}),
   };
 
   const panes: TugPaneState[] = [];

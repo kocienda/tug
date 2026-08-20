@@ -233,6 +233,74 @@ describe("serialize and deserialize (v4 wire)", () => {
     expect((out as { panes: TugPaneState[] }).panes[0].size.width).toBe(511);
   });
 
+  test("the layout mode round-trips, and an unreadable one drops to fit", () => {
+    // The mode is the deck's, so it has to survive a reload — but it is
+    // additive-optional, so an absent or unreadable value must come back as
+    // the deck every earlier build described: fit.
+    const base = {
+      cards: [],
+      panes: [],
+      hasFocus: true,
+    };
+    const withFlow = deserialize(
+      JSON.stringify(
+        serialize({
+          ...base,
+          imposition: {
+            kind: "three-up" as const,
+            sidebars: { lens: { side: "right" as const } },
+            layout: "flow" as const,
+          },
+        }),
+      ),
+      1920,
+      1080,
+    );
+    expect(withFlow.imposition.layout).toBe("flow");
+
+    const absent = deserialize(
+      JSON.stringify(
+        serialize({
+          ...base,
+          imposition: { sidebars: { lens: { side: "right" as const } } },
+        }),
+      ),
+      1920,
+      1080,
+    );
+    expect(absent.imposition.layout).toBeUndefined();
+
+    const garbled = deserialize(
+      JSON.stringify({
+        version: 4,
+        cards: [],
+        panes: [],
+        imposition: { kind: "three-up", sidebars: {}, layout: "strip" },
+      }),
+      1920,
+      1080,
+    );
+    expect(garbled.imposition.layout).toBeUndefined();
+  });
+
+  test("serialize emits no flow offset — the viewport is session state", () => {
+    // Same rule bullseye follows above, and for the same reason: the offset
+    // is derivable (activating any card re-reveals it), so a restored one
+    // would be a viewport nobody asked for.
+    const out = serialize({
+      cards: [],
+      panes: [],
+      imposition: {
+        sidebars: { lens: { side: "right" } },
+        layout: "flow",
+      },
+      flowOffset: 640,
+      hasFocus: true,
+    });
+    expect(JSON.stringify(out)).not.toContain("flowOffset");
+    expect(JSON.stringify(out)).toContain('"layout":"flow"');
+  });
+
   test("v4 round-trip: serialize → deserialize → serialize is stable", () => {
     const card: CardState = {
       id: "c1",

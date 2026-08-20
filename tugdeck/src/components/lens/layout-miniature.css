@@ -80,3 +80,25 @@
   background-color: var(--tug7-element-global-divider-normal-separator-rest);
   border-color: transparent;
 }
+
+/* The flow viewport: how much of an overflowing strip is on screen. Drawn as a
+   bracket over the cards rather than a fill behind them, because it is a
+   statement about the FRAME the deck looks through, not about the cards it
+   contains — and a fill would compete with the blocks it overlaps for the
+   reading of what is solid. It sits flush with the strip's left edge, always:
+   the miniature draws the deck at rest ([P10]). */
+.layout-mini-window {
+  position: absolute;
+  inset-block: -2px;
+  border-radius: 2px;
+  border: 1px dashed var(--tug7-element-global-border-normal-strong-rest);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+/* Against a committed drawing the cards are solid, so the bracket takes the
+   accent to stay legible over them. */
+.layout-mini[data-committed="true"] .layout-mini-window {
+  border-color: var(--tugx-accent);
+  border-style: solid;
+}

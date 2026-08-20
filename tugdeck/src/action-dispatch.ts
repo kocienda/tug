@@ -39,6 +39,7 @@ import { isDiffDescriptor } from "@/lib/git-diff-store";
 import {
   isContentWidth,
   isImpositionKind,
+  isImpositionLayout,
   isRailMode,
   isSidebarSide,
 } from "@/lib/layout-imposer";
@@ -642,6 +643,19 @@ export function initActionDispatch(
       return;
     }
     deckManager.setContentWidth(preset);
+  });
+
+  // set-imposition-layout: choose whether slots resolve as band fractions (fit)
+  // or as positions in a strip (flow). Dispatched by the Lens Layouts section's
+  // Layout group. Orthogonal to the kind: the deck keeps its N-up rule and
+  // every card keeps its slot, and only what a slot MEANS changes.
+  registerAction(TUG_ACTIONS.SET_IMPOSITION_LAYOUT, (payload) => {
+    const layout = payload.layout;
+    if (!isImpositionLayout(layout)) {
+      console.warn("set-imposition-layout: missing or invalid layout", payload);
+      return;
+    }
+    deckManager.setImpositionLayout(layout);
   });
 
   // set-sidebar-side: choose the side of the deck a sidebar card holds — the

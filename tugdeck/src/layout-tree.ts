@@ -358,6 +358,18 @@ export interface DeckState {
    * id may outlive the focus that justified it.
    */
   bullseyePaneId?: string;
+  /**
+   * How far the flow strip has slid left under the band, in pixels. Absent
+   * reads as 0 — the strip at rest, its first slot against the band's left
+   * edge.
+   *
+   * Written only by the reveal rule, on activation in flow mode ([P10]). Not
+   * serialized — session state only, and deliberately: the offset is
+   * derivable, since activating any card re-reveals it, and a restored one
+   * would be a viewport nobody asked for onto an arrangement that may have
+   * changed while the deck was closed.
+   */
+  flowOffset?: number;
 }
 
 // ---- Invariant validation ----

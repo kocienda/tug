@@ -87,6 +87,11 @@ const ALLOWED_CUTS: Record<string, { max: number; why: string }> = {
     why: "the closing frame unmounts; its ghost carries the departure, survivors are carried by the settle",
   },
   retarget: { max: 0, why: "the second settle starts from where the eye is" },
+  "flow:enter": {
+    max: 0,
+    why: "the mode bit is a signature term of its own, so the toggle arms a settle",
+  },
+  "flow:leave": { max: 0, why: "and so is leaving it" },
   detach: {
     max: 0,
     why: "the detach commits inside flushSync; First must be measured before it lands",
@@ -352,11 +357,66 @@ describe.skipIf(!SHOULD_RUN)(
             );
           });
 
+          // ── The same battery again, in FLOW ─────────────────────────────
+          // Flow moves every imposed frame's `left` onto a different
+          // expression, so a gesture carried in fit is not thereby carried in
+          // flow: the settle has to arm on the mode's own signature terms and
+          // the strip has to be resolved before the Last measurement. The
+          // gestures re-run are the ones that move the chain; the ones that
+          // add or remove a frame are mode-blind and are not repeated.
+          //
+          // Entering the mode is itself a gesture, and it is the first cell —
+          // the toggle moves every pane while every pre-flow signature term
+          // holds still, which is precisely the cut this pass exists to catch.
+          found["flow:enter"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-imposition-layout", { layout: "flow" }), null)`,
+            );
+          });
+
+          found["flow:slot-move"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("assign-slot", { cardId: "A", slot: 1 }), null)`,
+            );
+          });
+
+          found["flow:content-width"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-content-width", { preset: "comfy" }), null)`,
+            );
+          });
+
+          found["flow:raise"] = await census(app, async () => {
+            await app.evalJS<null>(`(window.__tug.activateCard("B"), null)`);
+          });
+
+          found["flow:bullseye-in"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-bullseye", { paneId: "p1" }), null)`,
+            );
+          });
+
+          found["flow:bullseye-out"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-bullseye", { paneId: "p1" }), null)`,
+            );
+          });
+
+          found["flow:leave"] = await census(app, async () => {
+            await app.evalJS<null>(
+              `(window.__tug.dispatchControlAction("set-imposition-layout", { layout: "fit" }), null)`,
+            );
+          });
+
           await disarmDetector(app);
 
           const over: string[] = [];
           for (const [gesture, records] of Object.entries(found)) {
-            const allowed = ALLOWED_CUTS[gesture];
+            // A flow cell answers to its fit twin's allowance: the mode may
+            // change where a frame goes, never whether it is carried there.
+            const allowed =
+              ALLOWED_CUTS[gesture] ??
+              ALLOWED_CUTS[gesture.replace(/^flow:/, "")];
             if (allowed === undefined) {
               over.push(`${gesture}: no allowlist entry`);
               continue;

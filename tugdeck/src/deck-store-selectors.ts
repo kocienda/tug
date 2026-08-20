@@ -27,7 +27,14 @@
 
 import type { DeckState, TugPaneState } from "./layout-tree";
 import { LENS_CARD_ID } from "./lib/lens-card-id";
-import { isSidebarCard } from "./card-registry";
+import { getStackSizePolicy, isSidebarCard } from "./card-registry";
+import {
+  clampSlot,
+  flowStripPositions,
+  impositionLayout,
+  type FlowSlotExtent,
+  type FlowStrip,
+} from "./lib/layout-imposer";
 
 /**
  * `isFocusDestination(cardId, state)` — returns true iff `cardId`
@@ -208,6 +215,60 @@ export function bullseyePaneIdOf(state: DeckState): string | null {
   const pane = state.panes.find((p) => p.id === paneId);
   if (pane === undefined) return null;
   return pane.cardIds.includes(pane.activeCardId) ? paneId : null;
+}
+
+/**
+ * `paneRenderWidthOf(state, pane)` — the width a pane PAINTS at: its stored
+ * width raised to its stack's size floor.
+ *
+ * A stored width below the floor is a number the frame never shows, so any
+ * geometry packed on it — a band inset from a rail, a strip of slots — would
+ * run under an edge the deck actually draws.
+ */
+export function paneRenderWidthOf(
+  state: DeckState,
+  pane: TugPaneState,
+): number {
+  return Math.max(
+    pane.size.width,
+    getStackSizePolicy(
+      state.cards
+        .filter((card) => pane.cardIds.includes(card.id))
+        .map((card) => card.componentId),
+    ).min.width,
+  );
+}
+
+/**
+ * `deckFlowStrip(state)` — where the occupied slots stand when the deck is in
+ * flow, or `null` when it is not.
+ *
+ * **This is the deck's one strip.** Flow spends the placement invariant that
+ * makes a slot resolvable from its own pane (see `ImposedPlacement`), so the
+ * resolution has to be paid in a single place or the frames and the reveal
+ * would be reading two strips that agree only by luck. Both callers come here:
+ * `deck-canvas.tsx` to place the frames, and `DeckManager` to compute what the
+ * next activation reveals.
+ *
+ * A slot's extent is its WIDEST member's render width — panes sharing a slot
+ * share its place, exactly as they do in fit.
+ */
+export function deckFlowStrip(state: DeckState): FlowStrip | null {
+  if (state.imposition.kind === undefined) return null;
+  if (impositionLayout(state.imposition) !== "flow") return null;
+  const occupied: FlowSlotExtent[] = [];
+  for (const pane of state.panes) {
+    if (pane.slot === undefined) continue;
+    // Clamped to the kind, exactly as `resolvePlacement` clamps it, so the
+    // strip is keyed by the slot a pane actually stands in. A stored slot past
+    // the kind's last one pulls in rather than opening a place of its own —
+    // and two panes pulled onto the same slot share it, widest extent winning.
+    occupied.push({
+      slot: clampSlot(state.imposition.kind, pane.slot),
+      width: paneRenderWidthOf(state, pane),
+    });
+  }
+  return flowStripPositions(occupied);
 }
 
 /**

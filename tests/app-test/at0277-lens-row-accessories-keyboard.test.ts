@@ -329,7 +329,7 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
           // the ring (the cross-section walk is at0341's to gate further).
           await app.nativeKey("ArrowDown");
           await app.waitForCondition<boolean>(
-            `document.querySelector('[data-testid="lens-layouts-width"][data-key-view-kbd]') !== null`,
+            `document.querySelector('[data-testid="lens-layouts-layout"][data-key-view-kbd]') !== null`,
             { timeoutMs: 3_000 },
           );
           // Back to the CARDS row by the backward Tab walk — the stops are

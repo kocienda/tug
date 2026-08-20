@@ -58,8 +58,10 @@ import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { getJotsStore } from "@/lib/jots-store";
 import {
   bullseyePaneIdOf,
+  deckFlowStrip,
   findLensPane,
   findSidebarPanes,
+  paneRenderWidthOf,
 } from "@/deck-store-selectors";
 import type { SlotStackEntry } from "@/deck-store-selectors";
 import { stepCardRing } from "@/lib/card-ring";
@@ -102,8 +104,11 @@ import {
   PANE_ENTER_RISE_PX,
   PANE_EXIT_GHOST_MS,
   RESIZE_RETUNE_QUIET_MS,
+  FLOW_OFFSET_PROPERTY,
+  FLOW_STRIP_PROPERTY,
   effectiveRailOrder,
   imposeSidebarStyle,
+  impositionLayout,
   railModeOf,
   railSeamFractions,
   railSeamProperty,
@@ -191,22 +196,6 @@ interface SidebarRail {
   /** Where the gaps fall, as fractions of the run: `members.length - 1` values
    *  in split mode, empty in a stack (a stack has no gaps to place). */
   seams: readonly number[];
-}
-
-/**
- * The width a sidebar pane PAINTS at: its stored width raised to its stack's
- * size floor. A stored width below the floor is a number the frame never shows,
- * so packing the band on it would run the chain under the rail's real edge.
- */
-function paneRenderWidthOf(state: DeckState, pane: TugPaneState): number {
-  return Math.max(
-    pane.size.width,
-    getStackSizePolicy(
-      state.cards
-        .filter((card) => pane.cardIds.includes(card.id))
-        .map((card) => card.componentId),
-    ).min.width,
-  );
 }
 
 /**
@@ -336,7 +325,17 @@ function arrangementSignature(state: DeckState): string {
           .join("+")}:${rail.seams.map((f) => f.toFixed(3)).join("+")}`,
     )
     .join(";");
-  return `${state.imposition.kind ?? ""}|${bullseye}|${rails}|${panes.join(",")}`;
+  // The layout MODE is a term of its own, and the offset does not cover it.
+  // Toggling fit↔flow moves every pane's `left` while kind, slots, widths,
+  // rails and bullseye all hold still — and at rest the offset is 0 on both
+  // sides of the toggle, so without this term the signature would not move,
+  // no settle would arm, and the mode flip would CUT: the one gesture flow
+  // exists to offer ([P10]).
+  const layout = impositionLayout(state.imposition);
+  // The offset, rounded to the pixel it is written at. Sub-pixel churn is not
+  // an arrangement change, and the property carries the rounded value anyway.
+  const flow = `${layout}:${Math.round(state.flowOffset ?? 0)}`;
+  return `${state.imposition.kind ?? ""}|${flow}|${bullseye}|${rails}|${panes.join(",")}`;
 }
 
 /**
@@ -700,6 +699,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // holds no side and is absent: the arrangement spans what its rail is not
   // taking, which when nothing is pinned is the whole canvas.
   const sidebarRails = sidebarRailsOf(deckState);
+  // The strip, when the deck is in flow — the deck's ONE resolution of it
+  // ([P09]). Declared up here rather than beside the placements memo it feeds
+  // because the inset effect below publishes its width, and the effect order
+  // in this file is load-bearing.
+  const flowStrip = useMemo(() => deckFlowStrip(deckState), [deckState]);
+  const flowOffset = deckState.flowOffset ?? 0;
   const railWidthOf = (side: SidebarSide): number =>
     sidebarRails.find((rail) => rail.side === side)?.width ?? 0;
   // Each member's standing on its rail: which side, how many share it, how they
@@ -1565,14 +1570,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // order in this file is load-bearing — this one is declared before the
   // settle's Last-measure effect, so the properties are on the container before
   // any frame is measured against them.
-  const railSummary = sidebarRails
+  //
+  // The FLOW viewport rides here too, for the third time the same reason: the
+  // offset and the strip's length are two numbers a frame's `left` reads
+  // through `var()`, so a reveal rewrites them and every frame re-resolves in
+  // the next reflow — and the clamp `imposeStyle` writes over them is what
+  // answers a window resize with no JS in the loop at all.
+  //
+  // NOTE the dependency: this effect is keyed on the SUMMARY STRING below, not
+  // on the values, so anything it writes has to be in the summary or the write
+  // never re-runs. The flow terms are appended for exactly that reason.
+  const railSummary = `${sidebarRails
     .map(
       (rail) =>
         `${rail.side}:${rail.width}:${rail.mode}:${rail.seams
           .map((f) => f.toFixed(4))
           .join("+")}`,
     )
-    .join(";");
+    .join(";")}|${flowStrip === null ? "" : `${flowStrip.width}:${Math.round(flowOffset)}`}`;
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -1601,6 +1616,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       ) {
         el.style.removeProperty(railSeamProperty(side, index));
       }
+    }
+    // Both flow properties are written together or removed together: a strip
+    // width standing without an offset (or the reverse) would clamp one frame
+    // against a viewport the other does not believe in. In fit they are absent
+    // and `imposeStyle`'s fit expression never reads them.
+    if (flowStrip === null) {
+      el.style.removeProperty(FLOW_OFFSET_PROPERTY);
+      el.style.removeProperty(FLOW_STRIP_PROPERTY);
+    } else {
+      el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(flowOffset)}px`);
+      el.style.setProperty(FLOW_STRIP_PROPERTY, `${flowStrip.width}px`);
     }
     // `railWidthOf` and the seam sweep both read `sidebarRails`, which
     // `railSummary` summarises — the widths, modes, and fractions in it are
@@ -2294,19 +2320,32 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     fadePlan.clear();
   }, [arrangement]);
 
-  // Where each imposed pane sits. A slot's anchor is a pure function of the
-  // kind and the slot — no pane's place depends on any other's, and the Lens's
-  // side moves the band's edges rather than the numbering — so this is a
-  // per-pane lookup rather than a chain resolved from a vantage point that sees
-  // them all. Resolved here only because the canvas is where the kind is
-  // already in hand.
+  // Where each imposed pane sits.
+  //
+  // In FIT a slot's anchor is a pure function of the kind and the slot — no
+  // pane's place depends on any other's, and the Lens's side moves the band's
+  // edges rather than the numbering — so this is a per-pane lookup rather than
+  // a chain resolved from a vantage point that sees them all. Resolved here
+  // only because the canvas is where the kind is already in hand.
+  //
+  // In FLOW that is exactly what it is: a slot's place is the running sum of
+  // every occupied slot before it. This memo is the deck's ONE vantage point
+  // ([P09]) — it walks every pane once per commit either way — and the strip
+  // position it resolves rides down on the placement itself, so no pane ever
+  // re-derives deck-wide geometry from its own props.
   const impositionKind = deckState.imposition.kind;
   const placementFor = useCallback(
-    (pane: TugPaneState) =>
-      impositionKind === undefined || pane.slot === undefined
-        ? undefined
-        : resolvePlacement(impositionKind, pane.slot),
-    [impositionKind],
+    (pane: TugPaneState) => {
+      if (impositionKind === undefined || pane.slot === undefined) {
+        return undefined;
+      }
+      const placement = resolvePlacement(impositionKind, pane.slot);
+      const stripLeft = flowStrip?.positions.get(placement.slot);
+      return stripLeft === undefined
+        ? placement
+        : { ...placement, flow: { stripLeft } };
+    },
+    [impositionKind, flowStrip],
   );
 
   // The width an ordinary card opens at in this arrangement. Resolved with no
@@ -2365,6 +2404,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         ? `calc(${IMPOSITION_GAP_PX}px + ${half})`
         : `calc(100% - ${IMPOSITION_GAP_PX}px - ${half})`;
     }
+    // Through `placementFor`, so on a flow deck this line is the FLOW left —
+    // strip position and viewport offset — rather than the fit anchor. That is
+    // the one part of bullseye flow touches ([P10]): the bullseyed pane's own
+    // geometry is unchanged (still centred one-up, still offset-free, above),
+    // but the line the OTHERS sort around has to be where they actually stand,
+    // or the sort that makes crossings impossible sorts around a place nothing
+    // is and they cross on the way out.
     const placement = placementFor(pane);
     const left =
       placement === undefined

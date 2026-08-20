@@ -864,6 +864,14 @@ export const TUG_ACTIONS = {
   //                    per-pane widths the title-bar popup had set. Its door is
   //                    the Lens Layouts section's Card Width group.
   SET_CONTENT_WIDTH:      "set-content-width",
+  // SET_IMPOSITION_LAYOUT: payload — `{ layout }`. Choose how the deck resolves
+  //                        its slots: `"fit"`, where each slot is an anchor at
+  //                        a fraction of the band and a narrow deck overlaps
+  //                        its cards, or `"flow"`, where the occupied slots
+  //                        stand in a strip that runs off the right edge and
+  //                        the active card is revealed into view. Its door is
+  //                        the Lens Layouts section's Layout group.
+  SET_IMPOSITION_LAYOUT:  "set-imposition-layout",
   // SET_SIDEBAR_SIDE: payload — `{ componentId, side }`. Move a sidebar card to
   //                   a deck edge, re-pinning it if it had been dragged loose.
   //                   Its door is the Lens Layouts section's sidebar positions

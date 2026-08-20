@@ -52,8 +52,10 @@ import {
 import { LENS_CARD_ID } from "./lib/lens-card-id";
 import {
   bullseyePaneIdOf,
+  deckFlowStrip,
   findLensPane,
   findSidebarPanes,
+  paneRenderWidthOf,
 } from "./deck-store-selectors";
 import { getTugbankClient } from "./lib/tugbank-singleton";
 import { lensStore } from "./lib/lens-store/lens-store";
@@ -95,7 +97,11 @@ import {
   isSidebarPinned,
   sidebarSide,
   isSidebarSide,
+  clampFlowOffset,
   effectiveRailOrder,
+  flowRevealOffset,
+  impositionLayout,
+  IMPOSITION_GAP_PX,
   railModeOf,
   withRailMode,
   withRailOrder,
@@ -111,6 +117,7 @@ import {
   type ContentWidth,
   type DeckImposition,
   type ImpositionKind,
+  type ImpositionLayout,
   type RailMode,
   type RailPolicy,
   type RailWidths,
@@ -1588,6 +1595,7 @@ export class DeckManager implements IDeckManagerStore {
     return allocateSidebarWidths({
       canvasWidth,
       kind,
+      layout: imposition.layout,
       occupied,
       rails,
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1675,9 +1683,27 @@ export class DeckManager implements IDeckManagerStore {
       })
       .map((pane) => pane.activeCardId);
 
+    // Re-reveal the active card in the same commit, because in flow every one
+    // of these gestures can have moved the strip out from under it: a slot
+    // move re-sums the run, a width change re-sums it, entering flow builds it
+    // for the first time. The rule is minimal and idempotent, so a commit that
+    // did not move the active card past the band's edge returns the offset
+    // standing and this is nothing. ([P10]; in fit `deckFlowStrip` is null and
+    // it is nothing always.)
+    const activePaneId = this.deckState.activePaneId;
+    const flowOffset =
+      activePaneId === undefined
+        ? undefined
+        : this._flowRevealOffsetFor(activePaneId, nextPanes, imposition);
+
     for (const cardId of moved) this.cardLifecycle.notifyCardWillMove(cardId);
     for (const cardId of resized) this.cardLifecycle.notifyCardWillResize(cardId);
-    this.deckState = { ...this.deckState, panes: nextPanes, imposition };
+    this.deckState = {
+      ...this.deckState,
+      panes: nextPanes,
+      imposition,
+      ...(flowOffset !== undefined ? { flowOffset } : {}),
+    };
     this.notify();
     for (const cardId of resized) this.cardLifecycle.notifyCardDidResize(cardId);
     for (const cardId of moved) this.cardLifecycle.notifyCardDidMove(cardId);
@@ -1708,6 +1734,7 @@ export class DeckManager implements IDeckManagerStore {
   retuneSidebarAllocation(): void {
     const imposition = this.deckState.imposition;
     const panes = this.deckState.panes;
+    this._retuneFlowOffset(panes, imposition);
     const { panesBySide } = this._sidebarRails(panes, imposition);
     if (panesBySide.size === 0) return;
     const allocated = this._allocatedRailWidths(panes, imposition);
@@ -2081,14 +2108,126 @@ export class DeckManager implements IDeckManagerStore {
       newStacks = reordered;
     }
 
+    // The reveal rides THIS commit, so the settle sees the raise and the slide
+    // as one arrangement change and animates them together ([P10]). An
+    // activation that reveals nothing returns the offset it was given, and the
+    // commit stays z-only — which is what keeps a click on an already-visible
+    // card from arming a settle it does not owe.
+    const flowOffset = this._flowRevealOffsetFor(updatedHost.id, newStacks);
+
     this.deckState = {
       ...this.deckState,
       panes: newStacks,
       activePaneId: updatedHost.id,
+      ...(flowOffset !== undefined ? { flowOffset } : {}),
     };
     this.putFocusedCardIdGuarded(newFR);
     this.notify();
     this.scheduleSave();
+  }
+
+  /**
+   * Write the stored flow offset back inside the bounds a resized canvas
+   * leaves it — bookkeeping, not the thing that keeps the picture correct.
+   *
+   * The PICTURE is already right without this: `imposeStyle` expresses the
+   * clamp in CSS over the strip width and the live band, so widening the
+   * window re-resolves every frame in the browser's own reflow, with no JS in
+   * the loop and nothing to wait 200ms for. What this fixes is the NUMBER:
+   * left unclamped, the next reveal would compute its minimal move from an
+   * offset the deck is no longer showing.
+   *
+   * Committed straight into the state the caller is about to notify — a
+   * clamped offset changes no frame, since CSS was already drawing the clamped
+   * value, so there is nothing here for a settle to animate.
+   */
+  private _retuneFlowOffset(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): void {
+    const state = { ...this.deckState, panes };
+    const strip = deckFlowStrip(state);
+    if (strip === null) return;
+    const standing = state.flowOffset ?? 0;
+    const clamped = clampFlowOffset(
+      standing,
+      strip.width,
+      this._flowBandWidth(panes, imposition),
+    );
+    if (clamped === standing) return;
+    this.deckState = { ...this.deckState, flowOffset: clamped };
+    this.notify();
+  }
+
+  /**
+   * The flow offset that reveals `paneId`, or `undefined` when there is
+   * nothing to reveal — not in flow, no strip, or the pane does not ride it.
+   *
+   * Scoped deliberately: a rail, a free pane, and a bullseyed pane all
+   * activate through the same commit, and none of them stands in the strip. A
+   * rail is pinned to its edge, a free pane holds its stored position, and
+   * bullseye supersedes the mode entirely — moving the viewport for any of
+   * them would slide the deck under the user for a card that did not move.
+   */
+  private _flowRevealOffsetFor(
+    paneId: string,
+    panes: readonly TugPaneState[],
+    imposition?: DeckImposition,
+  ): number | undefined {
+    // The imposition being COMMITTED, when there is one: `_commitImposition`
+    // asks before its record lands, and the mode it is landing is the mode the
+    // reveal must answer for.
+    const state = {
+      ...this.deckState,
+      panes,
+      ...(imposition !== undefined ? { imposition } : {}),
+    };
+    const strip = deckFlowStrip(state);
+    if (strip === null) return undefined;
+    const pane = panes.find((p) => p.id === paneId);
+    if (pane === undefined || pane.slot === undefined) return undefined;
+    if (this._sidebarComponentIdOfPane(pane.id) !== undefined) return undefined;
+    if (state.bullseyePaneId === pane.id) return undefined;
+    const slot = clampSlot(
+      state.imposition.kind as ImpositionKind,
+      pane.slot,
+    );
+    const stripLeft = strip.positions.get(slot);
+    if (stripLeft === undefined) return undefined;
+    const next = flowRevealOffset({
+      stripLeft,
+      extent: paneRenderWidthOf(state, pane),
+      stripWidth: strip.width,
+      band: this._flowBandWidth(panes, state.imposition),
+      offset: state.flowOffset ?? 0,
+    });
+    return next === (state.flowOffset ?? 0) ? undefined : next;
+  }
+
+  /**
+   * The band the strip is seen through: the canvas, less each standing rail's
+   * inset, less the chain's own gap at either end.
+   *
+   * The same arithmetic {@link resolveSpan} does — one gap per occupied side,
+   * then one at each end of what is left — read off the standing rails rather
+   * than by building `SidebarRail` records to hand that function, since a
+   * rail's mode, members and seams are nothing this measurement reads.
+   */
+  private _flowBandWidth(
+    panes: readonly TugPaneState[],
+    imposition: DeckImposition,
+  ): number {
+    const { panesBySide } = this._sidebarRails(panes, imposition);
+    const state = { ...this.deckState, panes: [...panes] };
+    let inset = 0;
+    for (const [, sidePanes] of panesBySide) {
+      let width = 0;
+      for (const pane of sidePanes) {
+        width = Math.max(width, paneRenderWidthOf(state, pane));
+      }
+      inset += width + IMPOSITION_GAP_PX;
+    }
+    return this.container.clientWidth - inset - IMPOSITION_GAP_PX * 2;
   }
 
   /**
@@ -2345,6 +2484,27 @@ export class DeckManager implements IDeckManagerStore {
       },
       panes,
     );
+  }
+
+  /**
+   * Choose how the deck resolves its slots: `"fit"`, where a slot is an anchor
+   * at a fraction of the band, or `"flow"`, where the occupied slots stand in a
+   * strip and never overlap.
+   *
+   * Every pane keeps its slot — the mode changes what a slot MEANS, not which
+   * one a card holds — so this commits the record and nothing else, and the
+   * frames follow because their `left` is derived from it.
+   *
+   * A Layouts click is one of THE MOMENTS the deck may re-solve its rails, so
+   * this goes through {@link _commitImposition} with the retune left on. It has
+   * real work to do here in one direction: leaving flow, the rails have been
+   * standing at their preferred widths (the allocator's flow answer) and the
+   * seams the fit picture wants are almost certainly somewhere else.
+   */
+  setImpositionLayout(layout: ImpositionLayout): void {
+    const imposition = this.deckState.imposition;
+    if (impositionLayout(imposition) === layout) return;
+    this._commitImposition({ ...imposition, layout }, this.deckState.panes);
   }
 
   /**

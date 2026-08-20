@@ -472,10 +472,10 @@ Numbers `at0450+` are placeholders — take the next free numbers at implementat
 | #step-8 | A: integration checkpoint | done | `130bfd289` |
 | #step-9 | B: nudge-slot commands + chord doctrine | done | `24b56a61c` |
 | #step-10 | B: integration checkpoint | done | `24b56a61c` |
-| #step-11 | D: flow geometry + mode bit | pending | — |
-| #step-12 | D: offset plumbing + reveal-on-activation | pending | — |
-| #step-13 | D: Layouts UI + pane-model doc | pending | — |
-| #step-14 | D: integration checkpoint | pending | — |
+| #step-11 | D: flow geometry + mode bit | done | `129d84e67` |
+| #step-12 | D: offset plumbing + reveal-on-activation | done | `e2d9c6b36` |
+| #step-13 | D: Layouts UI + pane-model doc | done | `9c4f1973f` |
+| #step-14 | D: integration checkpoint | done | `13f7ffeb2` |
 | #step-15 | E: column data model | pending | — |
 | #step-16 | E: column geometry + seams | pending | — |
 | #step-17 | E: column UI + choreography | pending | — |

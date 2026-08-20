@@ -117,6 +117,25 @@ export type ImpositionKind =
 export type SidebarSide = "left" | "right";
 
 /**
+ * How the deck resolves a slot into a position.
+ *
+ * `"fit"` is the travel-fraction rule this module was written around: a slot is
+ * an anchor at a fixed fraction of the band, a pane's place depends on its own
+ * width and nothing else's, and a deck too narrow for its cards overlaps them.
+ *
+ * `"flow"` reads the same slots as ordinal positions in a strip: the occupied
+ * slots stand side by side in index order, each taking its own extent, and a
+ * strip wider than the band runs off the right edge instead of crowding. The
+ * two modes share `kind` — the slot vocabulary, the ⌘1..9 range, the miniature
+ * — and disagree only about where slot k lands.
+ */
+export type ImpositionLayout = "fit" | "flow";
+
+/** The layout mode a deck reads under when it has never said otherwise, and
+ *  what every blob written before the mode existed means. */
+export const DEFAULT_IMPOSITION_LAYOUT: ImpositionLayout = "fit";
+
+/**
  * The deck-wide content width, as one of three named presets. Absent reads as
  * `"comfy"`, which is the width content cards have always opened at — so a blob
  * written before the presets existed migrates to exactly its own behavior.
@@ -193,6 +212,15 @@ export interface DeckImposition {
   kind?: ImpositionKind;
   /** The deck-wide content width; absent reads as {@link DEFAULT_CONTENT_WIDTH}. */
   contentWidth?: ContentWidth;
+  /**
+   * How slots resolve into positions; absent reads as
+   * {@link DEFAULT_IMPOSITION_LAYOUT}, so every deck that predates the mode
+   * comes back exactly as it stood.
+   *
+   * Independent of `kind`, which keeps naming how many slots there are in
+   * either mode.
+   */
+  layout?: ImpositionLayout;
   /**
    * Where each sidebar card stands, keyed by its registered `componentId`.
    *
@@ -689,12 +717,44 @@ const GAP_BOTTOM = `${IMPOSITION_GAP_BOTTOM_PX}px`;
 const INSET_LEFT = "var(--tug-imposer-inset-left, 0px)";
 const INSET_RIGHT = "var(--tug-imposer-inset-right, 0px)";
 
+/**
+ * The flow viewport's offset — how far the strip has slid left under the band —
+ * written by the deck canvas alongside the insets above, and read back by
+ * {@link imposeStyle}'s flow `left`.
+ *
+ * Named for the imposer rather than the deck because it joins the family that
+ * effect already writes: one prefix, one place to look for what moves a frame.
+ */
+export const FLOW_OFFSET_PROPERTY = "--tug-imposer-flow-offset";
+
+/** The strip's full length, published so the offset's clamp can be expressed in
+ *  CSS. See {@link imposeStyle}. */
+export const FLOW_STRIP_PROPERTY = "--tug-imposer-flow-strip";
+
 /** Narrow an unknown (a parsed blob field, an action payload) to a kind. */
 export function isImpositionKind(value: unknown): value is ImpositionKind {
   return (
     typeof value === "string" &&
     (IMPOSITION_KINDS as readonly string[]).includes(value)
   );
+}
+
+/** Narrow an unknown to a layout mode, for the same two doors. */
+export function isImpositionLayout(value: unknown): value is ImpositionLayout {
+  return value === "fit" || value === "flow";
+}
+
+/**
+ * The mode this imposition reads under.
+ *
+ * Total by construction, like {@link sidebarSide}: the record arrives from JSON
+ * blobs and seeded test decks as well as from the store, and an absent field
+ * and a deck that has never chosen mean the same thing.
+ */
+export function impositionLayout(
+  imposition: Pick<DeckImposition, "layout">,
+): ImpositionLayout {
+  return imposition.layout ?? DEFAULT_IMPOSITION_LAYOUT;
 }
 
 /** How many slots the kind defines: 1 through 6. */
@@ -734,19 +794,42 @@ export function clampSlot(kind: ImpositionKind, slot: number): number {
 /** One pane's place in the arrangement — everything a frame needs to position
  *  itself, and no more.
  *
- *  There is nothing here about the deck's other panes, because a slot's anchor
- *  does not depend on them. That is the whole of what makes the arrangement
- *  hold still: a placement is a pure function of the kind and the pane's own
- *  slot, so no pane can be resolved only from a vantage point that sees them
- *  all.
+ *  **In fit** there is nothing here about the deck's other panes, because a
+ *  slot's anchor does not depend on them. That is the whole of what makes the
+ *  arrangement hold still: a placement is a pure function of the kind and the
+ *  pane's own slot, so no pane can be resolved only from a vantage point that
+ *  sees them all.
+ *
+ *  **In flow that property is deliberately spent** ([P09] in the layout-imposer
+ *  plan): a slot's place is the running sum of every occupied slot before it,
+ *  which is exactly such a vantage point. Flow pays for it in ONE place — the
+ *  placements memo in `deck-canvas.tsx`, which already walks every pane once
+ *  per commit — and hands the resolved strip position to {@link imposeStyle} as
+ *  an argument. Nothing downstream of that memo resolves a strip: a pane that
+ *  recomputed it from a store read would re-derive deck-wide geometry per
+ *  frame, and the invariant above would be lost in fit as well as in flow.
  *
  *  The offset is deliberately not resolved here: it depends on the band's
- *  width, which only the browser knows. {@link imposeStyle} hands that to CSS. */
+ *  width, which only the browser knows. {@link imposeStyle} hands that to CSS.
+ *  The flow viewport offset goes the same way, for the same reason. */
 export interface ImposedPlacement {
   /** The pane's slot, already clamped to the kind. */
   slot: number;
   /** How many slots the kind defines. */
   count: number;
+  /**
+   * The slot's standing in the strip — present only in flow, and written only
+   * by the deck-canvas placements memo. Absent means fit, which is what every
+   * caller that resolves a placement on its own gets.
+   */
+  flow?: FlowStanding;
+}
+
+/** Where a slot stands along the strip, resolved once per commit by the deck
+ *  canvas and carried to {@link imposeStyle} on the placement. */
+export interface FlowStanding {
+  /** This slot's left edge, measured from the strip's origin. */
+  stripLeft: number;
 }
 
 /**
@@ -857,6 +940,13 @@ export interface ImposedRect {
  * `pinned` mirrors {@link imposeStyle}'s: the slot is computed from
  * `slotWidth` either way, and a pinned card keeps its own size centred inside
  * it rather than filling it.
+ *
+ * **Fit only.** This is the travel-fraction rule, and it has no flow variant
+ * because it has no flow caller: the deck's flow lefts are resolved in the
+ * `deck-canvas.tsx` placements memo and expressed through {@link imposeStyle},
+ * and nothing else in the tree asks the imposer for a numeric imposed rect.
+ * Given a flow deck it would answer the fit question correctly, which is not
+ * the same as answering.
  */
 export function imposeRect(
   placement: ImposedPlacement,
@@ -944,16 +1034,162 @@ export function imposeStyle(
         };
 
   const band = `(100% - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;
-  const fraction = travelFraction(placement);
-  // `k / (N - 1) × max(0, band - width)` — see the module note.
-  const offset =
-    fraction === 0 ? "0px" : `${fraction} * max(0px, ${band} - ${slotWidth}px)`;
   // The centring term is a plain number, not a percentage: both widths are
   // known here, so it never needs the browser to resolve it.
   const centre =
     frameWidth === slotWidth ? "" : ` + ${Math.max(0, (slotWidth - frameWidth) / 2)}px`;
+
+  if (placement.flow !== undefined) {
+    // FLOW. The slot's place along the strip is a number the canvas resolved,
+    // and the viewport's offset is a property the canvas wrote — so this is
+    // still ONE expression the browser re-resolves on every reflow, which is
+    // the property the whole module is built on.
+    //
+    // The offset is CLAMPED HERE, in CSS, and not only where it was computed.
+    // Widen the window and the band grows while the stored offset stands
+    // still; without this clamp the strip would stay pushed left with dead air
+    // at the right edge until the settled-resize retune fired 200ms later, and
+    // flow would be the one mode whose answer to a resize is a stale picture.
+    // Both terms are available: the strip's length is the deck-wide number
+    // published as FLOW_STRIP_PROPERTY, and the band is the expression above.
+    const offset =
+      `min(var(${FLOW_OFFSET_PROPERTY}, 0px), ` +
+      `max(0px, var(${FLOW_STRIP_PROPERTY}, 0px) - ${band}))`;
+    style.left = `calc(0% + ${INSET_LEFT} + ${GAP} + ${placement.flow.stripLeft}px - ${offset}${centre})`;
+    return style;
+  }
+
+  const fraction = travelFraction(placement);
+  // `k / (N - 1) × max(0, band - width)` — see the module note.
+  const offset =
+    fraction === 0 ? "0px" : `${fraction} * max(0px, ${band} - ${slotWidth}px)`;
   style.left = `calc(0% + ${INSET_LEFT} + ${GAP} + ${offset}${centre})`;
   return style;
+}
+
+/* ---------------------------------------------------------------------------
+ * Flow geometry
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * One occupied slot's extent in the strip: the width the slot takes up, which
+ * is its WIDEST member's pane width. Panes sharing a slot share its anchor in
+ * flow exactly as they do in fit — flow removes collisions BETWEEN slots, not
+ * within one — so a stack contributes one extent, not one per member.
+ */
+export interface FlowSlotExtent {
+  /** The slot index. */
+  slot: number;
+  /** The widest member pane's render width. */
+  width: number;
+}
+
+/** Where the occupied slots stand along the strip, and how long the strip is. */
+export interface FlowStrip {
+  /** Each occupied slot's left edge, measured from the strip's own origin —
+   *  which is the band's left edge at offset 0. */
+  positions: ReadonlyMap<number, number>;
+  /** The strip's full length: the last slot's left plus its extent. No
+   *  trailing gap — the gap is what stands BETWEEN two slots. */
+  width: number;
+}
+
+/**
+ * Lay the occupied slots out as a strip, ascending by slot index:
+ * `stripLeft(k) = Σ_{j<k, occupied} (extent(j) + IMPOSITION_GAP_PX)`.
+ *
+ * This is the whole of what flow means. A slot's place is the running sum of
+ * everything before it, so no two occupied slots can overlap by construction —
+ * and, equally by construction, a card's place now depends on its neighbours'
+ * widths, which is the property fit was built to avoid. Both are the trade the
+ * mode exists to offer.
+ *
+ * Unoccupied slots contribute nothing, not even a gap: three cards in slots 0,
+ * 2 and 5 of a six-up deck stand as a run of three, because the strip is a
+ * sequence and an empty slot is not a member of it.
+ *
+ * Duplicate entries for one slot fold by taking the widest, matching
+ * {@link AllocatorInput.occupied}; unreadable widths are dropped, and a
+ * negative one reads as zero.
+ */
+export function flowStripPositions(
+  occupied: readonly FlowSlotExtent[],
+): FlowStrip {
+  const extents = new Map<number, number>();
+  for (const entry of occupied) {
+    if (!Number.isFinite(entry.slot) || !Number.isFinite(entry.width)) continue;
+    const width = Math.max(0, entry.width);
+    const standing = extents.get(entry.slot);
+    if (standing === undefined || width > standing) {
+      extents.set(entry.slot, width);
+    }
+  }
+  const slots = [...extents.keys()].sort((a, b) => a - b);
+  const positions = new Map<number, number>();
+  let running = 0;
+  for (const slot of slots) {
+    positions.set(slot, running);
+    running += (extents.get(slot) as number) + IMPOSITION_GAP_PX;
+  }
+  // `running` carries one trailing gap past the last slot; the strip ends at
+  // the last card's right edge.
+  const width = slots.length === 0 ? 0 : running - IMPOSITION_GAP_PX;
+  return { positions, width };
+}
+
+/**
+ * Hold an offset inside the strip's own bounds: never negative (the strip's
+ * left edge is as far right as the viewport can look) and never past the point
+ * where the strip's right edge reaches the band's.
+ *
+ * A strip shorter than the band has no travel at all and clamps to 0.
+ */
+export function clampFlowOffset(
+  offset: number,
+  stripWidth: number,
+  band: number,
+): number {
+  if (!Number.isFinite(offset)) return 0;
+  return Math.min(Math.max(0, offset), Math.max(0, stripWidth - band));
+}
+
+/** What the reveal rule is told: where the card stands in the strip, how long
+ *  the strip is, how wide the band is, and where the viewport is now. */
+export interface FlowRevealInput {
+  /** The active card's slot position along the strip. */
+  stripLeft: number;
+  /** That slot's extent. */
+  extent: number;
+  /** The full strip length, for the clamp. */
+  stripWidth: number;
+  /** The band the strip is seen through. */
+  band: number;
+  /** The offset standing now. */
+  offset: number;
+}
+
+/**
+ * The minimal offset that brings the active card fully into the band —
+ * `scrollRectToVisible` semantics, and nothing more: a card already inside the
+ * viewport returns the offset unchanged, so an activation that reveals nothing
+ * commits no geometry.
+ *
+ * A card WIDER than the band cannot be brought fully in, so its left edge is
+ * pinned instead: reading starts at the left, and a card whose right edge was
+ * flush would hide the side the eye goes to first.
+ */
+export function flowRevealOffset(input: FlowRevealInput): number {
+  const { stripLeft, extent, stripWidth, band, offset } = input;
+  if (!Number.isFinite(stripLeft) || !Number.isFinite(extent)) {
+    return clampFlowOffset(offset, stripWidth, band);
+  }
+  const wanted =
+    extent >= band || stripLeft < offset
+      ? stripLeft
+      : stripLeft + extent > offset + band
+        ? stripLeft + extent - band
+        : offset;
+  return clampFlowOffset(wanted, stripWidth, band);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1020,6 +1256,14 @@ export interface AllocatorInput {
   canvasWidth: number;
   /** The active kind; its slot count defines the travel fractions. */
   kind: ImpositionKind;
+  /**
+   * The deck's layout mode; absent reads as {@link DEFAULT_IMPOSITION_LAYOUT}.
+   *
+   * It reaches the allocator for one reason: in flow the seams are not a
+   * function of the rails at all, which collapses the objective. See
+   * {@link allocateSidebarWidths}.
+   */
+  layout?: ImpositionLayout;
   /**
    * The occupied slots and the width each one renders at — the RENDER width,
    * already raised to the stack's size floor, since that is the width the chain
@@ -1231,12 +1475,26 @@ export function allocateSidebarWidths(input: AllocatorInput): RailWidths | null 
   const ceilingTotal = sum((rail) => rail.ceiling);
 
   const target =
-    chain.length < 2
+    impositionLayout(input) === "flow" || chain.length < 2
       ? // No seam is no picture: every candidate scores zero on the first
         // three terms and the key reduces to its last, which is minimised at
         // Σ preferred. Returned directly rather than scanned for it — the
         // answer falls out of the objective, so this is a shortcut, not a
         // special case.
+        //
+        // FLOW joins that branch for the same reason, one step further along.
+        // A flow deck has seams, but every one of them is exactly
+        // IMPOSITION_GAP_PX by construction and independent of the band: the
+        // strip is a running sum, so widening the rails narrows the band
+        // without moving a single seam. Every candidate total therefore scores
+        // zero on `worstOverlap`, `worstShortfall` and `worstError` alike, the
+        // key reduces to its last term again, and the answer is Σ preferred.
+        // (The linear solve agrees by a different route: its `aⱼ = fⱼ₊₁ − fⱼ`
+        // terms are all zero in flow, so `solveSidebarWidths` divides by a zero
+        // denominator and returns null, which is already guarded.)
+        //
+        // Flow is why `imposeRect` and `seamPicture` stay fit-only: nothing
+        // reaches them here.
         preferredTotal
       : chooseRailTotal(input, chain, {
           floorTotal,

@@ -1,11 +1,14 @@
 /**
  * layouts-section.tsx — the Lens **Layout** section: the deck's layout picker.
  *
- * Every layout decision the deck has is made here, on four axes. **Cards** says
- * how the cards are arranged; **Card Width** says how wide they read; **Sidebar
- * positions** says which edge each sidebar card holds; and a **rail row** per
- * shared side says whether the cards on that side stack front-to-back or
- * divide it between them. All four write the deck's `imposition` record — so
+ * Every layout decision the deck has is made here, on five axes. **Cards** says
+ * how many the arrangement holds; **Layout** says how a slot resolves into a
+ * place — `Fit`, where the cards share the band and crowd when it is narrow, or
+ * `Flow`, where they keep their width and the deck runs past the edge; **Card
+ * Width** says how wide they read; **Sidebar positions** says which edge each
+ * sidebar card holds; and a **rail row** per shared side says whether the cards
+ * on that side stack front-to-back or divide it between them. All five write
+ * the deck's `imposition` record — so
  * "where is the Lens" and "how wide is a Session card" are layout questions
  * answered beside the other layout questions rather than in an app-wide
  * preference somewhere else.
@@ -51,8 +54,8 @@
  * `useLayoutEffect`; [L06] preview visibility is DOM attributes toggled in
  * event handlers and a `MutationObserver`, never React state; [L11] every
  * control emits `selectValue` through the responder chain, which this section
- * turns into `set-imposition` / `set-content-width` / `set-sidebar-side` /
- * `set-rail-mode` dispatches; [L19] every control is a `TugChoiceGroup` and
+ * turns into `set-imposition` / `set-imposition-layout` / `set-content-width` /
+ * `set-sidebar-side` / `set-rail-mode` dispatches; [L19] every control is a `TugChoiceGroup` and
  * every caption a `TugLabel`, composed rather than hand-rolled; [L30] the section never touches
  * the deck store — it goes through the command funnel like any other door.
  *
@@ -84,6 +87,8 @@ import {
   IMPOSITION_KINDS,
   isContentWidth,
   isImpositionKind,
+  isImpositionLayout,
+  impositionLayout,
   isRailMode,
   isSidebarSide,
   railModeOf,
@@ -95,6 +100,7 @@ import {
   type ContentWidth,
   type DeckImposition,
   type ImpositionKind,
+  type ImpositionLayout,
   type RailMode,
   type SidebarSide,
 } from "@/lib/layout-imposer";
@@ -113,6 +119,7 @@ const SECTION_KIND = "layouts";
  *  can tell the axes apart. A sidebar group's sender carries the componentId it
  *  moves, which is how one handler serves however many sidebar cards register. */
 const KIND_SENDER_ID = "lens-layouts-kind";
+const LAYOUT_SENDER_ID = "lens-layouts-layout";
 const WIDTH_SENDER_ID = "lens-layouts-width";
 const SIDE_SENDER_PREFIX = "lens-layouts-side:";
 const RAIL_SENDER_PREFIX = "lens-layouts-rail:";
@@ -120,6 +127,7 @@ const RAIL_SENDER_PREFIX = "lens-layouts-rail:";
 /** Ids of the captions, so each group can point `aria-labelledby` at its own
  *  `TugLabel`. */
 const KIND_CAPTION_ID = "lens-layouts-kind-caption";
+const LAYOUT_CAPTION_ID = "lens-layouts-layout-caption";
 const WIDTH_CAPTION_ID = "lens-layouts-width-caption";
 const SIDE_CAPTION_ID_PREFIX = "lens-layouts-side-caption-";
 const RAIL_CAPTION_ID_PREFIX = "lens-layouts-rail-caption-";
@@ -133,8 +141,9 @@ const RAIL_CAPTION_ID_PREFIX = "lens-layouts-rail-caption-";
  *  groups take the orders after these, one each, in registration order, and the
  *  rail rows the orders after those. */
 const LAYOUTS_KIND_FOCUS_ORDER = 0;
-const LAYOUTS_WIDTH_FOCUS_ORDER = 1;
-const LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER = 2;
+const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
+const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
+const LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER = 3;
 
 /** User-facing label for each kind. */
 const KIND_LABELS: Record<ImpositionKind, string> = {
@@ -148,6 +157,18 @@ const KIND_LABELS: Record<ImpositionKind, string> = {
 
 /** The two sides, in the order the control offers them. */
 const SIDES: readonly SidebarSide[] = ["left", "right"];
+
+/** The two geometry modes, in the order the control offers them — fit first,
+ *  because it is what the deck has always done and what an unchosen deck is. */
+const LAYOUTS: readonly ImpositionLayout[] = ["fit", "flow"];
+
+/** User-facing label for each mode. Named for what the CARDS do, not for the
+ *  mechanism: under "Fit" they share the band and crowd; under "Flow" they keep
+ *  their width and the deck runs past the edge. */
+const LAYOUT_LABELS: Record<ImpositionLayout, string> = {
+  fit: "Fit",
+  flow: "Flow",
+};
 
 const SIDE_LABELS: Record<SidebarSide, string> = {
   left: "Left",
@@ -248,12 +269,22 @@ function LayoutsCollapsedSummary(): React.ReactElement {
  * 4 5 6`) rather than the caption's spelled-out kind — the note reads as a
  * reading of the controls, which is what it is.
  */
-function planNote(kind: ImpositionKind, width: ContentWidth): string {
+function planNote(
+  kind: ImpositionKind,
+  width: ContentWidth,
+  layout: ImpositionLayout = "fit",
+): string {
   const slots = slotCount(kind);
   const px = CONTENT_WIDTH_PX[width];
-  return slots === 1
-    ? `1 card at a time, ${px} px wide`
-    : `${slots} cards side by side, ${px} px each`;
+  const cards =
+    slots === 1
+      ? `1 card at a time, ${px} px wide`
+      : `${slots} cards side by side, ${px} px each`;
+  // What the modes actually differ about, said once: fit spends the crowding
+  // on overlap, flow spends it on the right edge. The clause is on flow only —
+  // fit is the deck the reader already knows, and a note that explained both
+  // would make the familiar answer look like a new choice.
+  return layout === "flow" ? `${cards} — the deck scrolls` : cards;
 }
 
 /** One plan layer: a drawing, the caption naming it, and the note under it. */
@@ -270,6 +301,8 @@ interface PlanLayer {
   /** How each side's rail is arranged in this drawing. */
   railModes: Partial<Record<SidebarSide, RailMode>>;
   width: ContentWidth;
+  /** Which geometry this drawing stands under. */
+  layout: ImpositionLayout;
 }
 
 /** The caption's values, with a muted separator between them and the first
@@ -320,6 +353,7 @@ function LayoutsSectionBody({
   const imposition = useImposition();
   const kind = imposition.kind ?? DEFAULT_IMPOSITION_KIND;
   const contentWidth = imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH;
+  const layout = impositionLayout(imposition);
   const sidebars = sidebarEntries();
   const rails = railsOf(imposition, sidebars);
   const railModes: Partial<Record<SidebarSide, RailMode>> = {
@@ -371,6 +405,14 @@ function LayoutsSectionBody({
         if (sender === WIDTH_SENDER_ID) {
           if (isContentWidth(value)) {
             dispatchCommand(TUG_ACTIONS.SET_CONTENT_WIDTH, { preset: value });
+          }
+          return;
+        }
+        if (sender === LAYOUT_SENDER_ID) {
+          if (isImpositionLayout(value)) {
+            dispatchCommand(TUG_ACTIONS.SET_IMPOSITION_LAYOUT, {
+              layout: value,
+            });
           }
           return;
         }
@@ -443,26 +485,39 @@ function LayoutsSectionBody({
   const committedCaption = [
     KIND_LABELS[kind],
     CONTENT_WIDTH_LABELS[contentWidth],
+    ...(layout === "flow" ? [LAYOUT_LABELS[layout]] : []),
   ];
 
   const layers: PlanLayer[] = [
     ...IMPOSITION_KINDS.map((k) => ({
       previewId: `kind:${k}`,
       caption: [KIND_LABELS[k], CONTENT_WIDTH_LABELS[contentWidth]],
-      note: planNote(k, contentWidth),
+      note: planNote(k, contentWidth, layout),
       kind: k,
       rails,
       railModes,
       width: contentWidth,
+      layout,
+    })),
+    ...LAYOUTS.map((mode) => ({
+      previewId: `layout:${mode}`,
+      caption: [KIND_LABELS[kind], LAYOUT_LABELS[mode]],
+      note: planNote(kind, contentWidth, mode),
+      kind,
+      rails,
+      railModes,
+      width: contentWidth,
+      layout: mode,
     })),
     ...CONTENT_WIDTH_PRESETS.map((preset) => ({
       previewId: `width:${preset}`,
       caption: [KIND_LABELS[kind], CONTENT_WIDTH_LABELS[preset]],
-      note: planNote(kind, preset),
+      note: planNote(kind, preset, layout),
       kind,
       rails,
       railModes,
       width: preset,
+      layout,
     })),
     ...sidebars.flatMap((entry) =>
       SIDES.map((side) => ({
@@ -471,7 +526,7 @@ function LayoutsSectionBody({
         // The arrangement is unchanged by a rail moving sides, so the note
         // stands as it is: the caption says what the preview would change,
         // the note what it would leave alone.
-        note: planNote(kind, contentWidth),
+        note: planNote(kind, contentWidth, layout),
         kind,
         rails: railsOf(imposition, sidebars, {
           componentId: entry.componentId,
@@ -479,6 +534,7 @@ function LayoutsSectionBody({
         }),
         railModes,
         width: contentWidth,
+        layout,
       })),
     ),
     ...sharedSides.flatMap((side) =>
@@ -487,11 +543,12 @@ function LayoutsSectionBody({
         caption: [`${RAIL_CAPTIONS[side]} ${RAIL_MODE_LABELS[mode]}`],
         // Splitting a rail divides that side's run and leaves the cards'
         // band exactly as it was, so the note says what stands.
-        note: planNote(kind, contentWidth),
+        note: planNote(kind, contentWidth, layout),
         kind,
         rails,
         railModes: { ...railModes, [side]: mode },
         width: contentWidth,
+        layout,
       })),
     ),
   ];
@@ -503,6 +560,11 @@ function LayoutsSectionBody({
     label: String(slotCount(k)),
     "aria-label": KIND_LABELS[k],
     tooltip: KIND_LABELS[k],
+  }));
+
+  const layoutItems: TugChoiceItem[] = LAYOUTS.map((mode) => ({
+    value: mode,
+    label: LAYOUT_LABELS[mode],
   }));
 
   const widthItems: TugChoiceItem[] = CONTENT_WIDTH_PRESETS.map((preset) => ({
@@ -537,7 +599,7 @@ function LayoutsSectionBody({
             <div className="layouts-plan-summary">
               <PlanCaption values={committedCaption} />
               <span className="layouts-plan-note">
-                {planNote(kind, contentWidth)}
+                {planNote(kind, contentWidth, layout)}
               </span>
             </div>
             <LayoutMiniature
@@ -545,6 +607,7 @@ function LayoutsSectionBody({
               rails={rails}
               railModes={railModes}
               width={contentWidth}
+              layout={layout}
               committed
             />
           </div>
@@ -563,6 +626,7 @@ function LayoutsSectionBody({
                 rails={layer.rails}
                 railModes={layer.railModes}
                 width={layer.width}
+                layout={layer.layout}
               />
             </div>
           ))}
@@ -597,6 +661,29 @@ function LayoutsSectionBody({
               focusOrder={LAYOUTS_KIND_FOCUS_ORDER}
               aria-labelledby={KIND_CAPTION_ID}
               data-testid="lens-layouts-kind"
+            />
+          </div>
+
+          <div className="layouts-section-row" data-preview-axis="layout">
+            <TugLabel
+              id={LAYOUT_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Layout
+            </TugLabel>
+            <TugChoiceGroup
+              items={layoutItems}
+              value={layout}
+              senderId={LAYOUT_SENDER_ID}
+              size="xs"
+              sidePadding="xs"
+              reselect
+              focusGroup={host.focusGroup}
+              focusOrder={LAYOUTS_LAYOUT_FOCUS_ORDER}
+              aria-labelledby={LAYOUT_CAPTION_ID}
+              data-testid="lens-layouts-layout"
             />
           </div>
 

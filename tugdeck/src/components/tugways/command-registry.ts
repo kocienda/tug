@@ -1467,6 +1467,13 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its door is the Lens Layouts section's Layout group.
+    id: TUG_ACTIONS.SET_IMPOSITION_LAYOUT,
+    title: "Set Imposition Layout",
+    routing: "registry",
+    internal: true,
+  },
+  {
     // The slot set follows the active imposition, so the payload set is
     // runtime; its door is the Lens rows' slot pickers.
     id: "assign-slot",

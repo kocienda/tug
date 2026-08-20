@@ -37,9 +37,11 @@ import React from "react";
 import {
   CONTENT_WIDTH_PX,
   CONTENT_WIDTH_WIDE_PX,
+  CONTENT_WIDTH_COMFY_PX,
   slotCount,
   type ContentWidth,
   type ImpositionKind,
+  type ImpositionLayout,
   type RailMode,
   type SidebarSide,
 } from "@/lib/layout-imposer";
@@ -61,6 +63,23 @@ const RAIL_DEPTH_PCT = 3;
 /** A lone free card's width, in percent of the field it stands in — the
  *  picture for a deck with no imposition at all (`kind: null`). */
 const FREE_CARD_PCT = 46;
+
+/**
+ * The band the FLOW drawing measures against, in the same nominal pixels the
+ * presets are stated in — a comfortable three cards' worth.
+ *
+ * Flow needs a reference the fit drawing does not, and the difference is the
+ * whole distinction between the modes. Fit's cards are normalized to fill the
+ * band, so N of them tile it at any preset and any count — which is the
+ * settled arrangement fit actually holds. Flow's cards keep their own width
+ * and the band keeps its own, so how much of the deck you can see is exactly
+ * the question, and a drawing that normalized it away would answer nothing.
+ *
+ * Stating the band as a fixed width is what makes both controls mean something
+ * in flow: at a narrow preset more cards fit before the strip runs off the
+ * edge, at a wide one fewer — the real trade, drawn.
+ */
+const FLOW_BAND_NOMINAL_PX = CONTENT_WIDTH_COMFY_PX * 3;
 
 /** The space between two cards, in percent of the field. Wider than a real
  *  seam drawn to scale, which would be a fraction of a pixel at this size.
@@ -101,6 +120,13 @@ export interface LayoutMiniatureProps {
    * rail's. Omitted, the cards are drawn at the widest preset.
    */
   width?: ContentWidth;
+  /**
+   * Which geometry to draw. `"fit"` (the default, and what every caller meant
+   * before the mode existed) tiles the band; `"flow"` draws the cards at their
+   * own widths in a strip, with a viewport window over it when the strip is
+   * longer than the band.
+   */
+  layout?: ImpositionLayout;
   /**
    * Draw the arrangement as the one the deck is standing under — solid blocks.
    * Omitted, the drawing is a proposal and its blocks are hollow: the plan
@@ -191,6 +217,7 @@ export function LayoutMiniature({
   railModes,
   cards = true,
   width,
+  layout = "fit",
   committed = false,
 }: LayoutMiniatureProps): React.ReactElement {
   const left = rails.left ?? 0;
@@ -211,18 +238,40 @@ export function LayoutMiniature({
   // the seam, the first flush left and the last flush right. A free card
   // (no imposition) keeps its own width and the middle of the field instead.
   const cardGap = cardGapFor(count);
-  const share =
+  const fitShare =
     kind === null
       ? FREE_CARD_PCT
       : count > 0
         ? (100 - cardGap * (count - 1)) / count
         : 0;
+
+  // FLOW: the cards keep their own width against a band that keeps its own, so
+  // the strip can be shorter than the band (air at the right, which is what a
+  // half-full flow deck really looks like) or longer than it (the strip runs
+  // off the edge and the deck scrolls). When it is longer the WHOLE strip is
+  // scaled into the frame and a window marks the part that is on screen — the
+  // picture states the arrangement AND how much of it you see.
+  //
+  // That window is drawn at REST, always: at offset 0, flush left. The
+  // miniature is a plan readout, not an instrument. A window tracking the live
+  // offset would repaint a Lens row on every card activation, and the preview
+  // layers would have to draw at rest regardless, since an arrangement nobody
+  // has committed has no offset to track.
+  const flowCard = (cardUnits / FLOW_BAND_NOMINAL_PX) * 100;
+  const flowStrip =
+    count > 0 ? count * flowCard + cardGap * (count - 1) : 0;
+  const flowOverflows = layout === "flow" && flowStrip > 100;
+  const flowScale = flowOverflows ? 100 / flowStrip : 1;
+
+  const share = layout === "flow" && kind !== null ? flowCard * flowScale : fitShare;
+  const gap = layout === "flow" && kind !== null ? cardGap * flowScale : cardGap;
   const offsetFor = (k: number): number =>
-    kind === null ? (100 - share) / 2 : k * (share + cardGap);
+    kind === null ? (100 - share) / 2 : k * (share + gap);
   return (
     <span
       className="layout-mini"
       data-committed={committed ? "true" : undefined}
+      data-layout={layout}
       aria-hidden="true"
     >
       {left > 0 ? (
@@ -239,6 +288,12 @@ export function LayoutMiniature({
             }}
           />
         ))}
+        {flowOverflows ? (
+          <span
+            className="layout-mini-window"
+            style={{ left: "0%", width: `${100 * flowScale}%` }}
+          />
+        ) : null}
       </span>
       {right > 0 ? (
         <Rail count={right} widthPct={railPct} mode={railModes?.right} />
