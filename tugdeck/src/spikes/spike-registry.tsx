@@ -43,7 +43,6 @@ import { spike as changesDashesSpike } from "./spike-changes-dashes";
 import { spike as modalHeadersSpike } from "./spike-modal-headers";
 import { spike as focusLanguageSpike } from "./spike-focus-language";
 import { spike as dashProgressSpike } from "./spike-dash-progress";
-import { spike as joinArcSpike } from "./spike-join-arc";
 
 /**
  * One design spike. The shape a spike file exports as `spike`.
@@ -109,7 +108,6 @@ export const SPIKES: readonly SpikeDef[] = [
   pinnedHeadersSpike,
   commitSurfacesSpike,
   dashProgressSpike,
-  joinArcSpike,
   // Settled references: these began as spikes and closed into the reference
   // for their subject. They stay here rather than becoming permanent gallery
   // furniture, so the graduation path — durable content into tuglaws/, file

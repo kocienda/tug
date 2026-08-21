@@ -286,11 +286,32 @@ describe("the join narrates itself ([P03])", () => {
       previewed: false,
       commit_hash: "cafe1234",
     });
+    // The terminal beat carries what the ending was about, so the settled
+    // sheet names the outcome rather than a bare word. With no server-format
+    // summary on the frame, the sha it produced is what there is to say.
     expect(store.landProgress("/p", "demo")).toEqual({
       beat: "joined",
       status: "done",
       terminal: true,
+      detail: "cafe1234",
     });
+  });
+
+  test("a landed join settles on the summary the server formatted", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    beat("demo", "squash", "start");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_ok",
+      ...K,
+      previewed: false,
+      commit_hash: "cafe1234",
+      summary: "joined demo into main (3 rounds)",
+    });
+    // The summary outranks the sha: it is the receipt's own words, and the
+    // sha is inside it.
+    expect(store.landProgress("/p", "demo")?.detail).toBe(
+      "joined demo into main (3 rounds)",
+    );
   });
 
   test("a refused join settles as a failure, not as silence", () => {
@@ -305,6 +326,7 @@ describe("the join narrates itself ([P03])", () => {
       beat: "failed",
       status: "error",
       terminal: true,
+      detail: "stale candidate",
     });
   });
 
@@ -446,48 +468,6 @@ describe("a press that changed nothing says so ([P04], [P06])", () => {
     return { conn, sent };
   }
 
-  test("the override is sent from the settled state the old one was lost in", () => {
-    // The exact shape of the no-op. A dash that has finished resolving is
-    // *idle*, idle was the state the store deleted, and the client-local
-    // override was written into it — so the one press this control existed for
-    // set a field on an object that was thrown away in the same call.
-    const { conn, sent } = recordingConn();
-    const store = attachChangesetJoinStore(conn);
-    store.resolve("/p", "demo");
-    _ingestJoinFrameForTest({
-      action: "changeset_join_resolve_ok",
-      ...K,
-      resolved: [{ path: "a.rs", resolved_by: "driver", diff: "@@\n" }],
-      unresolved: [],
-      candidate_commit: "cafe1234",
-      shape: "squash",
-    });
-    expect(store.state("/p", "demo").phase).toBe("idle");
-
-    store.overrideRed("/p", "demo", "cafe1234");
-    expect(sent.filter((s) => s.action === "changeset_join_override")).toEqual([
-      {
-        action: "changeset_join_override",
-        body: { project_dir: "/p", dash: "demo", candidate: "cafe1234" },
-      },
-    ]);
-  });
-
-  test("a refused override states its reason without failing the dash", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest({
-      action: "changeset_join_override_err",
-      ...K,
-      detail: "that candidate no longer stands",
-    });
-    const refused = store.state("/p", "demo");
-    expect(refused.error).toBe("that candidate no longer stands");
-    // The dash is not mid-run and nothing about it failed — the *press* was
-    // refused, and painting the row as a failed resolve would be a second lie
-    // on top of the first.
-    expect(refused.phase).toBe("idle");
-  });
-
   test("a refused answer reaches the face instead of vanishing", () => {
     // The server has always been able to refuse an answer — the resolver may
     // have expired, or a later run may be asking something else — and nothing
@@ -527,6 +507,21 @@ describe("a press that changed nothing says so ([P04], [P06])", () => {
         },
       },
     ]);
+  });
+
+  test("the decision names the session that made it, when it has one", () => {
+    // What makes the prompt route leave the same durable `/dash-join` receipt
+    // the composer route leaves: the server writes the row against the session
+    // the answer names, and returns early when it has none.
+    const { conn, sent } = recordingConn();
+    const store = attachChangesetJoinStore(conn);
+    store.answerPrompt("/p", "demo", "demo:base0:head0", "join-now", "sess-1");
+    expect(sent[0]?.body.session_id).toBe("sess-1");
+
+    // A card with no identity still gets to decide — the key is omitted rather
+    // than sent empty, and the server tolerates its absence.
+    store.answerPrompt("/p", "demo", "demo:base0:head0", "not-yet", null);
+    expect(sent[1]?.body).not.toHaveProperty("session_id");
   });
 
   test("a refused decision states its reason on the same path the others take", () => {

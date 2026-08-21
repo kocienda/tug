@@ -77,6 +77,47 @@ describe("the landing round trip", () => {
     expect(state.summary).toBe("landed 3 files");
   });
 
+  test("a join this card never sent still reaches its surfaces", () => {
+    // The prompt-sheet route: the server starts the join, so nothing here ever
+    // called `join()` — and both terminal frames are dropped on a correlation
+    // miss. Without this registration the failure bulletin and the live
+    // receipt row both went dark on every prompt-route join.
+    h.store.expectServerJoin(ENTRY, PROJECT, DASH);
+    expect(h.store.joinState(ENTRY).phase).toBe("pending");
+    // And it sends nothing: the join is already under way, and a frame from
+    // here would be a second one.
+    expect(h.sent).toEqual([]);
+
+    h.reply({
+      action: "changeset_join_ok",
+      project_dir: PROJECT,
+      dash: DASH,
+      previewed: false,
+      conflicts: [],
+      commit_hash: "abc1234",
+      summary: "landed 3 files",
+    });
+    const state = h.store.joinState(ENTRY);
+    expect(state.phase).toBe("done");
+    // The summary is what `useLandingReceipts` appends the transcript row from.
+    expect(state.summary).toBe("landed 3 files");
+  });
+
+  test("a server-started join that fails posts the failure it would have swallowed", () => {
+    h.store.expectServerJoin(ENTRY, PROJECT, DASH);
+    h.reply({
+      action: "changeset_join_err",
+      project_dir: PROJECT,
+      dash: DASH,
+      detail: "base moved under the candidate",
+    });
+    const state = h.store.joinState(ENTRY);
+    // `error` is what the mounted LandingNoticeController reads to post the
+    // danger bulletin.
+    expect(state.phase).toBe("error");
+    expect(state.error).toBe("base moved under the candidate");
+  });
+
   test("an execute that aborted names the paths it aborted on", () => {
     h.store.join(ENTRY, PROJECT, DASH, { preview: false });
     h.reply({

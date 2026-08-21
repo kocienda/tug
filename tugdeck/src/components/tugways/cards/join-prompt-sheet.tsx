@@ -2,10 +2,16 @@
  * join-prompt-sheet — the one decision the join arc asks a person for ([P06]).
  *
  * Everything before this is the machine's: the pilot reconciles a dash the
- * server has derived as joinable ([D147]) with its base without being asked,
- * builds the joined tree, and runs the project's own checks over it. This is
- * where that work stops and a person decides — and it is deliberately the only
- * place in the arc that asks.
+ * server has derived as joinable ([D147]) with its base without being asked.
+ * This is where that work stops and a person decides — and it is deliberately
+ * the only place in the arc that asks.
+ *
+ * **And it is where the join is watched, not only agreed to.** A sheet that
+ * dismissed on "Join now" put the decision and its consequence in two
+ * different places — the user approved here and the work then narrated on a
+ * one-line composer register somewhere else, or on rows that unmount when the
+ * dash entry goes. So the sheet holds: it moves from `deciding` to `landing`,
+ * renders the join's beats live, and settles naming what happened.
  *
  * The sheet also shows **what would land**, and where those words came from.
  * The landing message's precedence is silent, so the one moment it is worth
@@ -33,11 +39,14 @@
  *   the sheet; the first answer clears the fact, and the other's sheet has to
  *   go with it rather than sit there offering an answer to a settled question.
  *
- * Laws: [L02] the fact arrives through the caller's own store subscription and
- * is passed in — this file reads no store; [L11] the sheet emits an action and
- * mutates nothing itself; [L19] the authoring guide's hook shape, modelled on
- * `useRewindSheet`; [L31] every answer produces an act or a stated refusal,
- * the latter landing on the register through the store's `_note` path.
+ * Laws: [L02] the *decision* arrives through the caller's own subscription and
+ * is passed in as a prop; the *progress* is the landing body's own
+ * `useSyncExternalStore` read of `ChangesetJoinStore`, because `showSheet`'s
+ * content closure renders once at raise and nothing outside can push a beat
+ * into it; [L11] the sheet emits an action and mutates nothing itself; [L19]
+ * the authoring guide's hook shape, modelled on `useRewindSheet`; [L31] every
+ * answer produces an act or a stated refusal, the latter landing on the
+ * register through the store's `_note` path.
  *
  * @tug-pairings QuestionWizard, TugSheet
  *
@@ -46,7 +55,7 @@
 
 import "./join-prompt-sheet.css";
 
-import React, { useCallback, useLayoutEffect, useRef } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   QuestionWizard,
@@ -54,7 +63,12 @@ import {
 } from "@/components/tugways/chrome/session-question-dialog";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import {
+  useChangesetJoinLand,
+  type LandProgress,
+} from "@/lib/changeset-join-store";
 import type { DashJoinPromptWire } from "@/lib/changeset-types";
+import { BEAT_WORDS } from "@/lib/dash-join-register";
 
 /** How the user answered, in the wire's own words (Spec S05). */
 export type JoinPromptAnswer = "join-now" | "review-first" | "not-yet";
@@ -142,6 +156,55 @@ export function joinPromptMessage(
   }
 }
 
+/** What the landing phase is showing right now (S03). */
+export interface JoinLandingView {
+  /** `working` while beats arrive; `joined` / `failed` once one is terminal. */
+  state: "working" | "joined" | "failed";
+  /** The sentence the sheet leads with. */
+  line: string;
+  /** The outcome's own words, when the terminal beat carried them. */
+  detail: string | null;
+}
+
+/**
+ * The beat a landing join last reported, rendered.
+ *
+ * Pure, so every beat and both endings are a table test rather than a render
+ * one. The beat vocabulary is `BEAT_WORDS`, imported rather than restated: the
+ * composer register narrates the same join from the same store, and two tables
+ * for one vocabulary drift the moment either gains a beat.
+ *
+ * A null progress is the gap between the answer going out and the first frame
+ * coming back — it reads as work under way, not as an absence, because the
+ * work is under way.
+ */
+export function joinLandingView(
+  dash: string,
+  progress: LandProgress | null,
+): JoinLandingView {
+  if (progress === null) return { state: "working", line: `Joining ${dash}`, detail: null };
+  if (progress.terminal === true) {
+    const ok = progress.status !== "error";
+    return {
+      state: ok ? "joined" : "failed",
+      line: ok ? `Joined ${dash}` : `Join failed — ${dash} is still here`,
+      detail: progress.detail ?? null,
+    };
+  }
+  const beat = BEAT_WORDS[progress.beat] ?? progress.beat;
+  return { state: "working", line: `Joining ${dash} — ${beat}`, detail: null };
+}
+
+/**
+ * How long a landed join rests on its own outcome before the sheet closes.
+ *
+ * A success that dismissed on the terminal frame would be a progress surface
+ * that erases its result — the same failure `LandProgress.terminal` exists to
+ * prevent one layer down. A failure rests indefinitely instead: it is the one
+ * outcome the user has something to do about.
+ */
+const SETTLED_REST_MS = 1600;
+
 export interface UseJoinPromptSheetArgs {
   /**
    * The decision standing on the bound dash right now, or null. Read by the
@@ -149,6 +212,15 @@ export interface UseJoinPromptSheetArgs {
    * and this hook does nothing at all.
    */
   prompt: DashJoinPromptWire | null;
+  /**
+   * The workspace and dash the landing phase reads its beats under.
+   *
+   * They come from the caller because the prompt does not carry them:
+   * `DashJoinPromptWire` names the question, not the dash, and both are
+   * already in scope at the one call site.
+   */
+  workspaceKey: string;
+  dashName: string;
   /**
    * Whether this card's composer is already in a landing mode. The sheet
    * yields to one and raises when it exits.
@@ -175,6 +247,8 @@ export interface UseJoinPromptSheetArgs {
  */
 export function useJoinPromptSheet({
   prompt,
+  workspaceKey,
+  dashName,
   landingActive,
   showSheet,
   onAnswer,
@@ -212,6 +286,11 @@ export function useJoinPromptSheet({
     // that no longer exists.
     if (prompt === null || requestId === null) {
       const close = closeRef.current;
+      // Remembered as spent before the close resolves the sheet's promise:
+      // the host-dismissal path answers "not-yet" for anything unanswered, and
+      // a question that was settled elsewhere is not one this card declined.
+      const open = openRequestIdRef.current;
+      if (open !== null) answeredRef.current.add(open);
       closeRef.current = null;
       openRequestIdRef.current = null;
       close?.();
@@ -223,7 +302,10 @@ export function useJoinPromptSheet({
 
     // A different decision than the one on screen supersedes it rather than
     // stacking on it: the tree the old question was about is not the tree the
-    // new one is about.
+    // new one is about. The superseded id is spent for the same reason as
+    // above — it was overtaken, not declined.
+    const superseded = openRequestIdRef.current;
+    if (superseded !== null) answeredRef.current.add(superseded);
     closeRef.current?.();
     openRequestIdRef.current = requestId;
     void showSheet({
@@ -234,10 +316,16 @@ export function useJoinPromptSheet({
         return (
           <JoinPromptSheetBody
             prompt={prompt}
+            workspaceKey={workspaceKey}
+            dash={dashName}
             onAnswer={(choice) => {
               answer(requestId, choice);
-              close();
+              // "Join now" is where the sheet stops being a question and
+              // becomes the surface the work plays on. The other two are
+              // decisions with nothing left to watch.
+              if (choice !== "join-now") close();
             }}
+            onClose={close}
           />
         );
       },
@@ -248,8 +336,13 @@ export function useJoinPromptSheet({
       // a question nobody answered.
       if (openRequestIdRef.current === requestId) openRequestIdRef.current = null;
       closeRef.current = null;
+      // And a dismissal is an answer: "not yet", the same one ⎋ and "Chat
+      // about this" give. Closing the host's way used to be the one route out
+      // of this sheet that decided nothing, which left the ask standing to be
+      // raised again on the next recompute.
+      if (!answeredRef.current.has(requestId)) answer(requestId, "not-yet");
     });
-  }, [prompt, requestId, landingActive, showSheet, answer]);
+  }, [prompt, requestId, workspaceKey, dashName, landingActive, showSheet, answer]);
 }
 
 /**
@@ -267,11 +360,24 @@ export function useJoinPromptSheet({
  */
 function JoinPromptSheetBody({
   prompt,
+  workspaceKey,
+  dash,
   onAnswer,
+  onClose,
 }: {
   prompt: DashJoinPromptWire;
+  workspaceKey: string;
+  dash: string;
   onAnswer: (answer: JoinPromptAnswer) => void;
+  onClose: () => void;
 }): React.ReactElement {
+  // Which half of the conversation this mount is in. Local `useState` and
+  // deliberately so: nothing outside this sheet has any use for the fact that
+  // this one is watching rather than asking ([L22]).
+  const [phase, setPhase] = useState<"deciding" | "landing">("deciding");
+  if (phase === "landing") {
+    return <JoinLandingBody workspaceKey={workspaceKey} dash={dash} onClose={onClose} />;
+  }
   const questions = joinPromptAsParsed(prompt);
   const landing = joinPromptMessage(prompt);
   return (
@@ -302,10 +408,67 @@ function JoinPromptSheetBody({
           const choice = answerForLabel(prompt, label);
           if (choice === null) return;
           onAnswer(choice);
+          if (choice === "join-now") setPhase("landing");
         }}
         onDecline={() => onAnswer("not-yet")}
         onCancel={() => onAnswer("not-yet")}
       />
+    </div>
+  );
+}
+
+/**
+ * The sheet after the decision — the join, narrated where it was agreed to.
+ *
+ * This is the one place in the file that reads a store, and it has to: the
+ * content closure `showSheet` renders is rendered **once**, at raise, so a
+ * beat cannot reach this body as a prop. It subscribes instead ([L02]), to
+ * the same `ChangesetJoinStore` the composer register reads.
+ *
+ * It also owns the `close` it was handed rather than the hook's `closeRef`,
+ * which `answer()` nulled on the way in — so the sheet's fact clearing (which
+ * happens on the very next recompute, since answering "join now" clears the
+ * prompt) has already released its claim and will not reclaim this mount.
+ */
+function JoinLandingBody({
+  workspaceKey,
+  dash,
+  onClose,
+}: {
+  workspaceKey: string;
+  dash: string;
+  onClose: () => void;
+}): React.ReactElement {
+  const progress = useChangesetJoinLand(workspaceKey, dash);
+  const view = joinLandingView(dash, progress);
+
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    // Only a landed join closes itself. A failure is the outcome the user has
+    // something to do about, so it rests until they dismiss it.
+    if (view.state !== "joined") return;
+    const timer = setTimeout(() => closeRef.current(), SETTLED_REST_MS);
+    return () => clearTimeout(timer);
+  }, [view.state]);
+
+  return (
+    <div
+      className="join-prompt-sheet join-prompt-sheet-landing"
+      data-slot="join-prompt-sheet-landing"
+      data-state={view.state}
+    >
+      <div className="join-prompt-sheet-landing-line" data-slot="join-prompt-sheet-landing-line">
+        {view.line}
+      </div>
+      {view.detail !== null ? (
+        <div
+          className="join-prompt-sheet-landing-detail"
+          data-slot="join-prompt-sheet-landing-detail"
+        >
+          {view.detail}
+        </div>
+      ) : null}
     </div>
   );
 }

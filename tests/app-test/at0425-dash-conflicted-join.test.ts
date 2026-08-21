@@ -36,7 +36,7 @@
  *   frame. This is the dead-click assertion: if the click does nothing, the
  *   Resolve affordance is still on screen and the wait below times out.
  *   What the resolve does *after* that press belongs to the scratch-repo
- *   fixtures — at0426, at0441, at0442, at0443 — which script a resolver rather
+ *   fixtures — at0426, at0441, at0442 — which script a resolver rather
  *   than spawning one against the developer's own checkout.
  * - **Adopt** round-trips for real: the click sends `bind_dash`, and the row
  *   flips to Leave only on the `bind_dash_ok` broadcast that comes back.

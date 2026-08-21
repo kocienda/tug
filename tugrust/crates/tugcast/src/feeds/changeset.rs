@@ -2451,13 +2451,6 @@ Some context.
                 drop(occupancy);
                 self.0.fetch_add(1, Ordering::SeqCst);
             }
-            async fn check_tier0(
-                &self,
-                _project_dir: &str,
-                _dash: &str,
-                _occupancy: crate::feeds::join_occupancy::JoinOccupancy,
-            ) {
-            }
         }
 
         // The dash-log lives under the data dir; nextest runs one process per

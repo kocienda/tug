@@ -279,11 +279,10 @@ stderr.
 
 A conflicted dash join is finished by an agent: it reconciles the merge in a
 workshop worktree, audits what the algorithmic rungs decided, may ask one
-intent question, and reports. Four fixtures press that arc — `at0426` (the
-audit), `at0436` (a join pressed for real), `at0442` (the escalation),
-`at0443` (a red verdict and the override past it) — and **none of them spawns
-a model.** Three seams make that possible, and a new join fixture should use
-all three.
+intent question, and reports. Three fixtures press that arc — `at0426` (the
+audit), `at0436` (a join pressed for real), `at0442` (the escalation) — and
+**none of them spawns a model.** Two seams make that possible, and a new join
+fixture should use both.
 
 **The resolver is scripted.** `git config tugdash.joinresolver <script>` in the
 fixture's repo makes tugcast run that command instead of `claude`. It speaks the
@@ -296,38 +295,35 @@ pattern one rung up. **Without a stub the seam does not fall back to a model —
 it refuses**, which is what keeps a stray fixture from quietly spending a
 minute of API time.
 
-**Verification is declared, and Tier 1 is deliberately absent.** A fixture repo
-writes `.tugtool/config.toml` with `[tugtool.dash] verify_tier0 = [...]` and
-**no `verify_tier1`**. Tier 0 is a sentinel grep — seconds cheap, needs no
-toolchain, and able to go genuinely red, which is what `at0443` requires. Tier 1
-is omitted because a fixture join runs *inside* an app-test invocation that
-already holds the machine-wide `apptest` gate: a real tier-1 command would spawn
-app-tests that queue on the gate their own run is holding, and the join would
-hang until something timed out. A project that declares no tier is green with a
-note, which is the posture a fixture wants.
+**Nothing is built or tested at join time.** A join gates on reconcile-clean
+alone: the run's ending replays the dash onto the live base and verifies the
+tree that will actually land, so by the time a join is offered the bytes have
+been checked once, warm, where a failure could still be fixed. A fixture join
+therefore runs at git speed and needs no toolchain — and cannot deadlock on the
+machine-wide `apptest` gate its own run is holding, which a join-time test tier
+could.
 
 **The repository is the fixture's own.** `makeJoinScratchRepo` in
 `dash-fixture.ts` builds one — on top of `makeDashScratchRepo`, the same
 constructor every dash fixture uses, so there is one implementation of "a repo
-Tug can open" — adding one genuine conflict, the declared Tier 0, and the stub
-scripts to the base repo's `git init`, `.tugtool/` marker and redirected
+Tug can open" — adding one genuine conflict and the stub scripts to the base
+repo's `git init`, `.tugtool/` marker and redirected
 `TUG_DATA_DIR`. Owning the repository is what lets these arcs run all the way
 through a join — a successful join squashes onto the base branch **in that
 branch's live working tree**, which for the checkout would be the developer's
 own `main`. `rmJoinScratchRepo` deletes the lot.
 
 Owning it is also what makes a fixture *safe*, and that is the newer half. Every
-join rides a candidate now, so **opening join mode resolves the dash and runs
-the project's declared checks over what that built** — a clean dash included.
-Aimed at the developer's checkout, that is the corpus building itself on the way
-to a button press. Any test that enters join mode belongs on a scratch repo with
-a cheap Tier 0, which is why `at0435` and `at0436` moved onto one.
+join rides a candidate, so **opening join mode resolves the dash** — a clean one
+included. Aimed at the developer's checkout, that is a reconcile on the way to
+a button press. Any test that enters join mode belongs on a scratch repo, which
+is why `at0435` and `at0436` moved onto one.
 
 Two options shape what the fixture builds:
 
 - **`cleanMerge: true`** puts the base's rewrite in a file of its own, so the
   squash has nothing to reconcile. The clean join is its own arc rather than the
-  absence of one: it resolves, anchors a candidate, and gets a verdict.
+  absence of one: it resolves and anchors a candidate.
 - **A slow resolver stub** — `read -r _charter; sleep 15; …` — is how `at0444`
   holds a run silent past the twelve-second deadline the client used to enforce.
   Nothing is emitted during the sleep, on purpose: the point is that a run which

@@ -26,7 +26,7 @@ use std::sync::{Mutex, OnceLock};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JoinRunKind {
     Resolve,
-    Verify,
+    Join,
 }
 
 impl JoinRunKind {
@@ -34,7 +34,7 @@ impl JoinRunKind {
     pub fn as_str(self) -> &'static str {
         match self {
             JoinRunKind::Resolve => "resolve",
-            JoinRunKind::Verify => "verify",
+            JoinRunKind::Join => "join",
         }
     }
 }
@@ -61,24 +61,6 @@ fn registry() -> &'static Mutex<HashMap<String, JoinRun>> {
 #[derive(Debug)]
 pub struct JoinOccupancy {
     owner_key: String,
-}
-
-impl JoinOccupancy {
-    /// Carry the same hold into the next phase of one run.
-    ///
-    /// A clean resolve is followed immediately by its verification ([P03]), and
-    /// the dash must not be free for the instant between them — releasing and
-    /// re-acquiring would open exactly the window a second press slips through.
-    /// So the hold does not change hands; it changes what it says it is doing.
-    pub fn become_kind(&self, kind: JoinRunKind) {
-        if let Some(run) = registry()
-            .lock()
-            .expect("join occupancy mutex")
-            .get_mut(&self.owner_key)
-        {
-            run.kind = kind;
-        }
-    }
 }
 
 impl Drop for JoinOccupancy {
@@ -147,12 +129,12 @@ mod tests {
         let held = acquire(&k, JoinRunKind::Resolve, None).expect("the dash is free");
         assert_eq!(run_kind(&k), Some("resolve"));
 
-        let refused = acquire(&k, JoinRunKind::Verify, None).expect_err("the dash is held");
+        let refused = acquire(&k, JoinRunKind::Join, None).expect_err("the dash is held");
         assert_eq!(refused, "a resolve is already running for this dash");
 
         drop(held);
         assert_eq!(run_kind(&k), None);
-        acquire(&k, JoinRunKind::Verify, None).expect("the dash is free again");
+        acquire(&k, JoinRunKind::Join, None).expect("the dash is free again");
     }
 
     /// Two dashes are two holds — the registry gates a dash, not the machine.

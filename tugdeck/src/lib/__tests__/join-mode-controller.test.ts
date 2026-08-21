@@ -22,9 +22,6 @@ import {
   deriveJoinOutcome,
   evaluateJoinGate,
   joinDisabledReason,
-  joinLandConfirm,
-  verificationVerdict,
-  redOverrideStands,
   joinTargetFromEntry,
   type JoinTarget,
 } from "@/lib/join-mode-controller";
@@ -37,6 +34,7 @@ import {
   attachChangesetVerbStore,
 } from "@/lib/changeset-verb-store";
 import {
+  _ingestJoinFrameForTest,
   _resetChangesetJoinStoreForTest,
   attachChangesetJoinStore,
 } from "@/lib/changeset-join-store";
@@ -47,29 +45,21 @@ import type { CommitModeController } from "@/lib/commit-mode-controller";
 import type { DashChangesetEntry, DashJoinStateWire } from "@/lib/changeset-types";
 
 /**
- * A dash whose merge is clean and whose candidate the project's own checks have
- * passed — the state a join may actually proceed from.
+ * A dash whose merge is clean and whose candidate stands — the state a join
+ * may actually proceed from.
  *
- * The candidate and the verdict are not decoration. Every join rides a
- * candidate now ([P03]): entering join mode on a clean dash resolves it, the
- * server verifies what that produced, and the gate refuses until there is a
- * green verdict about the exact tree that would land. A bare `{ phase:
- * "previewed" }` is the *unverified* window, and it is deliberately not
- * joinable — see {@link UNVERIFIED_CLEAN}.
+ * The candidate is not decoration. Every join rides one ([P03]): entering join
+ * mode on a clean dash reconciles it, and the gate reads the outcome that
+ * produces. A bare `{ phase: "previewed" }` is the window before the candidate
+ * anchors — see {@link UNRECONCILED_CLEAN}.
  */
 const CLEAN_JOIN: DashJoinStateWire = {
   phase: "previewed",
   candidate: "cafe1234",
-  verification: {
-    tier0: "green",
-    tier1: "green",
-    base_sha: "base0000",
-    candidate_sha: "cafe1234",
-  },
 };
 
-/** Clean, and nothing has been built or judged yet — the auto-resolve window. */
-const UNVERIFIED_CLEAN: DashJoinStateWire = { phase: "previewed" };
+/** Clean, and nothing reconciled yet — the auto-resolve window. */
+const UNRECONCILED_CLEAN: DashJoinStateWire = { phase: "previewed" };
 
 describe("joinDisabledReason", () => {
   // The regression this pins: a real `base-dirt` blocker derives `blocked`,
@@ -90,21 +80,6 @@ describe("joinDisabledReason", () => {
     // so the sentence says that rather than describing a round trip that no
     // longer exists.
     expect(joinDisabledReason("pending", "blocked")).toBe("Joining…");
-  });
-
-  it("names each verdict's own act or its wait, whatever the outcome reads", () => {
-    // The outcome word is `clean` here — a resolved candidate derives clean —
-    // so the sentence has to come from the reason, not from the outcome.
-    //
-    // The first two are waits, not acts: the pilot builds the joined tree at
-    // `built` with no gesture, so there is no Verify control left to name and
-    // a sentence that named one would point at nothing.
-    expect(joinDisabledReason("unverified", "clean")).toBe(
-      "Building the joined tree",
-    );
-    expect(joinDisabledReason("verifying", "conflicted")).toBe(
-      "Building the joined tree",
-    );
   });
 
   it("names the missing message rather than falling through to the outcome", () => {
@@ -134,70 +109,6 @@ describe("joinDisabledReason", () => {
   });
 });
 
-describe("verificationVerdict", () => {
-  it("reads the candidate's verdict, and calls absence unrun rather than green", () => {
-    // No candidate and nothing on offer to build one from: a blocked dash is
-    // never going to be verified, so demanding a verdict would refuse with a
-    // sentence naming an act that would not help.
-    expect(
-      verificationVerdict({
-        phase: "blocked",
-        blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: [] }],
-      }),
-    ).toBe("not-applicable");
-    // But a *clean* dash with no candidate yet is `unrun`, not exempt. That is
-    // the window between entering join mode and the auto-resolve anchoring a
-    // candidate, and reading it as not-applicable let the gate wave a join
-    // through in the seconds before anything had been built or judged.
-    expect(verificationVerdict({ phase: "previewed" })).toBe("unrun");
-    // A candidate nobody has asked about. This is the distinction the whole
-    // type exists for: "nobody ran the checks" is not "the checks passed", and
-    // conflating them is how a tree nobody built joins looking verified.
-    expect(verificationVerdict({ phase: "resolved", candidate: "abc" })).toBe(
-      "unrun",
-    );
-    const verdict = (tier0: string, tier1: string) =>
-      verificationVerdict({
-        phase: "resolved",
-        candidate: "abc",
-        verification: {
-          tier0,
-          tier1,
-          base_sha: "b",
-          candidate_sha: "abc",
-        },
-      });
-    expect(verdict("green", "green")).toBe("green");
-    expect(verdict("red", "unrun")).toBe("red");
-    expect(verdict("running", "unrun")).toBe("running");
-    // Tier 0 alone decides, so tier1 cannot move the verdict in any
-    // direction. It stays on the wire as durable branch state; a `running`
-    // tier1 that could refuse a join would be a wait nothing on screen
-    // explains, which is exactly what the arc deletes.
-    expect(verdict("green", "running")).toBe("green");
-    expect(verdict("green", "unrun")).toBe("green");
-    expect(verdict("green", "red")).toBe("green");
-  });
-
-  it("asks nothing of a dash the feed has said nothing about", () => {
-    expect(verificationVerdict(undefined)).toBe("not-applicable");
-    expect(verificationVerdict(null)).toBe("not-applicable");
-  });
-});
-
-describe("redOverrideStands", () => {
-  it("holds only for the candidate it was decided over", () => {
-    // The comparison is the whole design. A re-resolve — the ordinary answer
-    // to a red — puts a new candidate up, and one press of Join anyway must
-    // not wave through every candidate the dash produces afterwards.
-    expect(redOverrideStands("cafe1234", "cafe1234")).toBe(true);
-    expect(redOverrideStands("beef5678", "cafe1234")).toBe(false);
-    expect(redOverrideStands("cafe1234", null)).toBe(false);
-    expect(redOverrideStands(null, "cafe1234")).toBe(false);
-    // Absent on the wire, which is how every dash with no override arrives.
-    expect(redOverrideStands("cafe1234", undefined)).toBe(false);
-  });
-});
 
 describe("evaluateJoinGate", () => {
   const base = {
@@ -205,8 +116,6 @@ describe("evaluateJoinGate", () => {
     joinPhase: "idle" as const,
     outcome: "clean" as const,
     candidateCommit: null,
-    verdict: "not-applicable" as const,
-    redOverride: false,
     message: "land it",
   };
 
@@ -263,60 +172,13 @@ describe("evaluateJoinGate", () => {
     });
   });
 
-  it("refuses a candidate nobody has verified, and lets a red through to the confirm", () => {
-    // The 2026-08-15 failure: a stale rerere replay built a candidate that
-    // armed Join exactly as a clean preview would ([P31]).
+  it("asks nothing about a build — a standing candidate is the whole gate", () => {
+    // What stood here refused an unverified candidate and let a red through to
+    // a confirm. Both are gone: the run's ending verified the tree that lands,
+    // so a reconcile-clean dash joins on the press.
     expect(
-      evaluateJoinGate({
-        ...base,
-        outcome: "clean",
-        candidateCommit: "cafe1234",
-        verdict: "unrun",
-      }),
-    ).toEqual({ ok: false, reason: "unverified" });
-    // A red does NOT refuse ([P05]). The gate passes it and the button asks —
-    // which is the whole point of the change: the act that clears a red is now
-    // the control the user is already looking at, not a second one somewhere
-    // else. What guards the base is the server's own gate, and what passes it
-    // is an answered confirm.
-    expect(
-      evaluateJoinGate({
-        ...base,
-        candidateCommit: "cafe1234",
-        verdict: "red",
-      }),
+      evaluateJoinGate({ ...base, outcome: "clean", candidateCommit: "cafe1234" }),
     ).toEqual({ ok: true });
-    expect(
-      evaluateJoinGate({
-        ...base,
-        candidateCommit: "cafe1234",
-        verdict: "red",
-        redOverride: true,
-      }),
-    ).toEqual({ ok: true });
-  });
-
-  it("arms the confirm on a red, and asks nothing when the decision already stands", () => {
-    // The confirm and the role are one derivation, so a danger-shaded button
-    // always has a question behind it and an ordinary land never does.
-    expect(joinLandConfirm("green", false, [])).toBeNull();
-    expect(joinLandConfirm("unrun", false, undefined)).toBeNull();
-    expect(joinLandConfirm("red", false, undefined)).toBe(
-      "The build is red on the joined tree. Join anyway?",
-    );
-    // The verdict's own failures, counted — "how much is broken" is the fact
-    // that decides this, and a confirm that could only say "something" would
-    // be asking the user to go look somewhere else before answering.
-    expect(joinLandConfirm("red", false, ["cargo build"])).toBe(
-      "The build is red on the joined tree — 1 failing check. Join anyway?",
-    );
-    expect(joinLandConfirm("red", false, ["cargo build", "bun test"])).toBe(
-      "The build is red on the joined tree — 2 failing checks. Join anyway?",
-    );
-    // A standing override is this same decision, already made about this same
-    // candidate. Asking again is how a confirm becomes something to click
-    // through without reading.
-    expect(joinLandConfirm("red", true, ["cargo build"])).toBeNull();
   });
 
   it("refuses a candidate the base still blocks — resolving is not committing", () => {
@@ -337,21 +199,10 @@ describe("evaluateJoinGate", () => {
     });
   });
 
-  it("fails on the outcome before the verdict — nothing to join outranks unverified", () => {
+  it("fails on the outcome before the message — nothing to join outranks a blank draft", () => {
     expect(
-      evaluateJoinGate({ ...base, outcome: "blocked", verdict: "unrun" }),
+      evaluateJoinGate({ ...base, outcome: "blocked", message: "" }),
     ).toEqual({ ok: false, reason: "outcome" });
-  });
-
-  it("fails on the verdict before the message check", () => {
-    expect(
-      evaluateJoinGate({
-        ...base,
-        candidateCommit: "cafe1234",
-        verdict: "unrun",
-        message: "",
-      }),
-    ).toEqual({ ok: false, reason: "unverified" });
   });
 
   it("fails on an empty (whitespace) message when everything else is ready", () => {
@@ -586,6 +437,36 @@ describe("JoinModeController", () => {
     controller.dispose();
   });
 
+  it("narrates a join the server started, without entering the mode", () => {
+    // The prompt-sheet route. There is nothing to compose and no press to
+    // make — the work is under way — so entering the mode would put the
+    // composer into a landing editor over a join already running. All the
+    // narration buys is that the register resolves and carries the beats.
+    const { controller } = build();
+    controller.narrateServerJoin(TARGET);
+
+    expect(controller.getSnapshot().active).toBe(false);
+    expect(controller.getSnapshot().narrating).toBe(true);
+    // And it asks the server for nothing: the join is the server's already.
+    expect(sent.filter((s) => s.action === "changeset_join")).toHaveLength(0);
+
+    // What the narration buys: the register resolves, so the beats streaming
+    // in from the server's own join reach the composer's status row. Without
+    // it there is no target to derive a register from and the beats render
+    // nowhere on this card.
+    _ingestJoinFrameForTest({
+      action: "changeset_join_land_delta",
+      project_dir: WORKSPACE_KEY,
+      dash: "join-lane",
+      beat: "squash",
+      status: "start",
+    });
+    expect(controller.getSnapshot().register?.line).toBe(
+      "Joining join-lane into main — squashing",
+    );
+    controller.dispose();
+  });
+
   it("enter asks the server nothing — the feed already answered", () => {
     // Entering used to fire a `--preview`, which is what made the surface's
     // answer a round trip that could come back after the face had moved on.
@@ -602,7 +483,7 @@ describe("JoinModeController", () => {
     // claim as the result building; the resolve is what anchors a candidate for
     // the checks to judge.
     const { controller, changesController } = build();
-    changesController._setJoin(UNVERIFIED_CLEAN);
+    changesController._setJoin(UNRECONCILED_CLEAN);
     controller.enter(TARGET);
     const resolves = sent.filter((s) => s.action === "changeset_join_resolve");
     expect(resolves).toHaveLength(1);
@@ -668,21 +549,6 @@ describe("JoinModeController", () => {
       resolved: [{ path: "a.rs", resolved_by: "driver" }],
     });
     expect(controller.getSnapshot().outcome).toBe("clean");
-    expect(controller.getSnapshot().landBlockedReason).toBe(
-      "Building the joined tree",
-    );
-
-    changesController._setJoin({
-      phase: "resolved",
-      candidate: "cafe1234",
-      resolved: [{ path: "a.rs", resolved_by: "driver" }],
-      verification: {
-        tier0: "green",
-        tier1: "green",
-        base_sha: "base0000",
-        candidate_sha: "cafe1234",
-      },
-    });
     expect(controller.getSnapshot().canLandIgnoringMessage).toBe(true);
     controller.dispose();
   });

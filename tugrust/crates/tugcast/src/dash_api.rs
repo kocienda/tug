@@ -119,11 +119,92 @@ fn owns_session(ledger: &SessionLedger, tug_session_id: &str) -> bool {
 ///
 /// Both sides go through the [L29] gateway before they are compared, so the
 /// two spellings of one directory — the session's, recorded at spawn, and the
-/// CLI's, taken from a cwd — cannot read as two projects. A dash **worktree**
-/// counts as its own project's path here rather than the main checkout's:
-/// `dash create` from inside one already names the checkout, and reaching
-/// through would be a second, quieter path resolution beside the gateway's.
+/// CLI's, taken from a cwd — cannot read as two projects. Each side is then
+/// resolved a second time, through `linked_worktree_base`: a path inside a
+/// linked git worktree compares as the checkout that worktree belongs to.
+///
+/// That second hop is what lets a dash bind from the one directory a dash run
+/// actually works in. The worktree is not a foreign project — it is this
+/// project's other working copy — and the guard exists to refuse foreign
+/// projects, which it still does with the message unchanged. Both sides are
+/// resolved because a session can itself have been spawned in a worktree.
+///
+/// The hop runs here, server-side and after the gateway, so the CLI still
+/// canonicalizes nothing ([L29]).
 fn same_project(session_project: &str, dash_project: &std::path::Path) -> bool {
-    crate::path_resolver::resolve_to_claude_form(std::path::Path::new(session_project))
-        == crate::path_resolver::resolve_to_claude_form(dash_project)
+    let through_base = |p: &std::path::Path| {
+        let resolved = crate::path_resolver::resolve_to_claude_form(p);
+        match tugcore::registry::linked_worktree_base(&resolved) {
+            Some(base) => crate::path_resolver::resolve_to_claude_form(&base),
+            None => resolved,
+        }
+    };
+    through_base(std::path::Path::new(session_project)) == through_base(dash_project)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_project;
+    use tempfile::tempdir;
+
+    /// Builds a real checkout with a real linked worktree and returns both
+    /// paths. Real `git worktree add` output, not a hand-built `.git` file:
+    /// the pointer/`commondir` layout is exactly what the translation reads.
+    fn checkout_with_worktree(root: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        let main = root.join("checkout");
+        let worktree = root.join("dashes/join-arc");
+        std::fs::create_dir_all(&main).unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&main)
+                .args(args)
+                .output()
+                .expect("git runs")
+                .status
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "T"]);
+        std::fs::write(main.join("seed"), b"seed").unwrap();
+        git(&["add", "seed"]);
+        git(&["commit", "-qm", "seed"]);
+        git(&[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "tugdash/join-arc",
+            worktree.to_str().unwrap(),
+        ]);
+        (main, worktree)
+    }
+
+    /// The bind a dash run actually makes: the session was spawned in the
+    /// checkout, and `dash step start` runs from inside the worktree.
+    #[test]
+    fn a_dash_worktree_is_its_checkouts_project() {
+        let dir = tempdir().unwrap();
+        let (main, worktree) = checkout_with_worktree(dir.path());
+
+        assert!(same_project(&main.to_string_lossy(), &worktree));
+        // Symmetric: a session spawned in the worktree binds a dash named
+        // from the checkout.
+        assert!(same_project(&worktree.to_string_lossy(), &main));
+        // And a worktree still equals itself.
+        assert!(same_project(&worktree.to_string_lossy(), &worktree));
+    }
+
+    /// The guard's actual purpose survives: a different project refuses.
+    #[test]
+    fn an_unrelated_project_still_refuses() {
+        let dir = tempdir().unwrap();
+        let (_main, worktree) = checkout_with_worktree(dir.path());
+        let stranger = dir.path().join("stranger");
+        std::fs::create_dir_all(&stranger).unwrap();
+
+        assert!(!same_project(&stranger.to_string_lossy(), &worktree));
+    }
 }

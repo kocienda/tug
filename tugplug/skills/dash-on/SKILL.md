@@ -47,7 +47,7 @@ One command: git commit + a line in the per-project dash-log (the verbatim instr
 
 **Two spellings are house rules, not taste.** The round's subject is `tugdash(<name>): <imperative summary>` — the scope-colon form the engine's own dash commits carry, so `tug log` on the branch reads as one voice. And when you *name* a round's commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone. See `tuglaws/entity-presentation.md`.
 
-**Each committed round makes the dash offerable.** A round that lands on a clean worktree is all the server needs to derive that this dash could be joined: it reconciles it with its base, builds the joined tree, and offers the join on the bound card without waiting to be told the work is over. Nothing below is what arms that, and nothing you skip below disarms it.
+**Each committed round makes the dash offerable.** A round that lands on a clean worktree is all the server needs to derive that this dash could be joined: it reconciles it with its base and offers the join on the bound card without waiting to be told the work is over. It runs no build and no tests — the verification belongs to the run, not to the join ([D149]). Nothing below is what arms that, and nothing you skip below disarms it.
 
 ### Build (when there's something to see)
 
@@ -60,9 +60,17 @@ just instances
 
 That brings up the `(debug, <branch>)` instance. `tugutil dash mark <name> built` is available and purely optional — it stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build, and gates nothing when you didn't.
 
-### Stop, with a draft on file
+### Stop, with the fit verified and a draft on file
 
-Before you stop for the user's vet, write the dash's **join draft** — the squash message their join will land:
+**Verify the fit first** ([D149]). What you checked as you worked was the dash's own tree; what a join lands is that work replayed onto the live base, and nothing has tested it:
+
+```bash
+tugutil dash replay <name>
+```
+
+On **`Replayed`** / **`Recorded`** the tree moved — verify it, scoped to the diff (`sh scripts/verify-fit.sh <base-sha> <head-sha>`, or the project's equivalent). On **`Current`** the base never moved and the checks you already ran covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify. Do not re-run what already passed.
+
+Then write the dash's **join draft** — the squash message their join will land:
 
 ```bash
 tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
@@ -76,7 +84,9 @@ Then **stop.** Don't merge.
 
 ### Join (only on the user's word)
 
-The join is the user's gesture: **`/join <name>`** in the Session card, which previews the merge and lands the squash with the draft you left. If the user asks you to run it instead, `/tugplug:dash-join <name>` is the same join in skill form.
+The join is the user's, and the **prompt** is how it reaches them: a modal raises on the bound card offering *Join now*, *Review first*, *Not yet*, and lands the squash with the draft you left. Say the draft is written and stop — do not print a `/join <name>` chip, which reads as "nothing will happen until you type this" beside a dialog that is about to raise on its own.
+
+The chip belongs only where the prompt cannot raise: a dash the user has left unbound, or a legacy dash with no declared run and no mark. If the user asks you to run the join instead, `/tugplug:dash-join <name>` is the same join in skill form.
 
 ### Discard
 

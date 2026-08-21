@@ -1575,7 +1575,6 @@ export const TugPromptEntry = React.forwardRef<
   // transient of *this* press and nothing outside the composer has any use for
   // it. The sentence it asks comes from the landing snapshot; only whether it
   // is up lives here.
-  const [landConfirmOpen, setLandConfirmOpen] = useState(false);
 
   // Read the live commit message — the document verbatim.
   const readCommitMessage = useCallback((): string => {
@@ -2518,19 +2517,6 @@ export const TugPromptEntry = React.forwardRef<
   }, []);
   persistClearedDraftRef.current = persistClearedDraft;
 
-  // The answered confirm ([P05]): the same land the plain press makes, plus
-  // the answer. `anyway` rides the call rather than the mode, so a decision
-  // made about one candidate cannot carry to the next one.
-  const runConfirmedLand = useCallback((): void => {
-    setLandConfirmOpen(false);
-    const view = textEditorRef.current?.view() ?? null;
-    if (view === null) return;
-    const outcome = landingModeRef.current?.land(view.state.doc.toString(), { anyway: true });
-    if (outcome?.kind === "refused") {
-      tugDevLogStore.debug("prompt-entry", "land refused", { sentence: outcome.sentence });
-    }
-  }, []);
-
   // Shared submit logic. Invoked by both the SUBMIT chain-action
   // handler (button click, Cmd+Enter, etc.) and the Return /
   // Shift+Return keyboard path (via the substrate's `onSubmit`).
@@ -2558,15 +2544,6 @@ export const TugPromptEntry = React.forwardRef<
     // ([L31]) — the outcome is read here so the refusal is a value this path
     // received rather than a branch it never saw.
     if (inLandingModeRef.current) {
-      // A landing the mode has armed asks before it runs ([P05]). The press
-      // opens the confirm and nothing lands; the confirm's own button is what
-      // calls `land`, and it carries the answer with it. This is where the
-      // red verdict went when it stopped refusing — the button is enabled and
-      // consequential rather than disabled and pointing elsewhere.
-      if ((landingSnapRef.current?.landConfirm ?? null) !== null) {
-        setLandConfirmOpen(true);
-        return;
-      }
       const outcome = landingModeRef.current?.land(view.state.doc.toString());
       if (outcome?.kind === "refused") {
         tugDevLogStore.debug("prompt-entry", "land refused", { sentence: outcome.sentence });
@@ -3868,11 +3845,6 @@ export const TugPromptEntry = React.forwardRef<
           subtype="icon"
           size="lg"
           emphasis="filled"
-          // The mode's own reading ([P05]). A join over a red tree wears the
-          // deck's danger role, which is what a consequential press looks like
-          // everywhere else — and it is armed rather than disabled, because a
-          // red is a decision the user is entitled to make.
-          role={landingSnap?.landRole ?? "action"}
           // Return's home in commit mode — the Z5 the composer's own key
           // lands on, exactly as the prompt route's submit is on the prompt
           // route. The two are never co-mounted, so the entry shell still
@@ -3903,19 +3875,6 @@ export const TugPromptEntry = React.forwardRef<
   // started had the most to say ([P03]). Commit mode reports a null register,
   // so an inactive join mode is the only thing this can be showing.
   const landingRegister = landingSnap?.register ?? null;
-  // The sentence the land must have answered, when the mode has armed one.
-  const landingConfirmMessage = landingActive ? (landingSnap?.landConfirm ?? null) : null;
-  // A confirm outlives neither the question it asks nor the mode it asks in: a
-  // re-resolve that turns the verdict green, or an exit, drops the sentence,
-  // and an open flag left standing would re-raise the popover the next time a
-  // red armed it — a dialog the user never asked for, answering a press they
-  // never made.
-  // Before paint, so the popover never survives into a frame whose question it
-  // no longer matches.
-  useLayoutEffect(() => {
-    if (landingConfirmMessage === null) setLandConfirmOpen(false);
-  }, [landingConfirmMessage]);
-
   // Render the status row only when there is something to put in it.
   const hasStatusRow =
     statusContent !== undefined ||
@@ -4062,27 +4021,7 @@ export const TugPromptEntry = React.forwardRef<
             onCancel={() => setCommitConfirmOpen(false)}
           />
         ) : null}
-        {/* The land confirm ([P05]): a join whose joined tree does not build
-            asks before it lands, anchored on the land button the user just
-            pressed. Mounted only while the mode has a sentence to ask, so the
-            popover cannot linger past the verdict that armed it. */}
-        {landingActive && landingConfirmMessage !== null ? (
-          <TugConfirmPopover
-            open={landConfirmOpen}
-            anchorEl={
-              rootRef.current?.querySelector<HTMLElement>(
-                '[data-testid="tug-prompt-entry-commit-button"]',
-              ) ?? rootRef.current
-            }
-            side="top"
-            arrow
-            message={landingConfirmMessage}
-            confirmLabel={landingWords.land}
-            confirmRole="danger"
-            onConfirm={runConfirmedLand}
-            onCancel={() => setLandConfirmOpen(false)}
-          />
-        ) : null}
+
       </ResponderScope>
   );
 });

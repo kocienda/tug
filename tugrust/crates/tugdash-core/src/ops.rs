@@ -179,13 +179,6 @@ pub struct JoinOptions {
     /// dash-log's terminal note so a join is attributable after the fact;
     /// `None` writes the bare note the log carried before routes were recorded.
     pub origin: Option<String>,
-    /// Join past the verification gate (Spec S03) — the CLI's `--anyway`.
-    ///
-    /// The gate refuses a candidate the project's own checks called red, and
-    /// refuses a join with no candidate to have checked at all. This is the
-    /// stated escape from both, and it is stated in every refusal that raises
-    /// them: a gate with no way past it is a gate that gets worked around.
-    pub anyway: bool,
 }
 
 /// Outcome of [`join`].
@@ -2396,73 +2389,6 @@ fn read_join_journal(repo: &Path, name: &str) -> Option<JoinJournal> {
 
 /// Whether a join of `name` is in flight — the journal check, without exposing
 /// the journal's shape.
-/// Refuse a join whose candidate the project's own checks have not passed
-/// (Spec S03).
-///
-/// The order is deliberate. An explicit `--anyway` wins outright; a standing
-/// override wins for the candidate it names and nothing else; then the verdict
-/// itself, red and unrun refused separately because they are different
-/// sentences; and finally a join with no candidate at all, which is the case
-/// that made the whole gate necessary — a textually clean merge that nobody
-/// ever built.
-///
-/// Every refusal names its escape. A gate that only says no teaches people to
-/// route around it.
-fn verdict_gate(repo_root: &Path, name: &str, opts: &JoinOptions) -> Result<(), String> {
-    if opts.anyway {
-        return Ok(());
-    }
-
-    // The gate asks about the tree that would actually land, which is the
-    // candidate this join names. A join that names none is integrating by
-    // strategy, so no verdict describes what it would produce — and that is
-    // precisely the hole: a textually clean merge nobody ever built.
-    let Some(candidate) = opts.candidate.as_deref() else {
-        return Err(format!(
-            "no verified candidate for '{name}' — resolve the join first, or join --anyway"
-        ));
-    };
-
-    if crate::verify::read_override(repo_root, name).as_deref() == Some(candidate) {
-        return Ok(());
-    }
-
-    let Some(fact) = crate::verify::read_verification(repo_root, name) else {
-        return Err(format!(
-            "this candidate is unverified — verify it first, or join --anyway"
-        ));
-    };
-    if fact.candidate_sha != candidate {
-        return Err(
-            "this candidate is unverified — verify it first, or join --anyway".to_string(),
-        );
-    }
-
-    use crate::verify::TierStatus;
-    if fact.tier0 == TierStatus::Red || fact.tier1 == TierStatus::Red {
-        let why = fact
-            .failures
-            .first()
-            .map(|f| format!(" ({f})"))
-            .unwrap_or_default();
-        return Err(format!(
-            "verification is red for this candidate{why} — re-resolve, or join --anyway"
-        ));
-    }
-    if fact.tier0 == TierStatus::Unrun || fact.tier1 == TierStatus::Unrun {
-        return Err(
-            "this candidate is unverified — verify it first, or join --anyway".to_string(),
-        );
-    }
-    if fact.tier0 == TierStatus::Running || fact.tier1 == TierStatus::Running {
-        return Err(
-            "verification is still running for this candidate — wait for it, or join --anyway"
-                .to_string(),
-        );
-    }
-    Ok(())
-}
-
 pub fn join_in_flight(repo: &Path, name: &str) -> bool {
     read_join_journal(repo, name).is_some()
 }
@@ -3387,11 +3313,12 @@ pub fn join_in_with_progress(
         });
     }
 
-    // The verification gate (Spec S03). Here rather than in the card, because a
-    // gate the server never consults is advisory: a second deck, a stale
-    // client, or the CLI joined a red candidate with no refusal at all. One
-    // gate, and every route passes through it.
-    verdict_gate(&repo_root, name, &opts)?;
+    // The verification gate stood here. Nothing replaces it: the run's ending
+    // replays the dash onto the live base and verifies the tree that lands
+    // ([D142]'s successor), so the bytes were checked once, warm, where a
+    // failure could still be fixed. What remains between a join and the base
+    // is what the execution itself enforces — the preflight above, and a merge
+    // that either applies or does not.
 
     // Auto-commit outstanding dash-worktree changes — FATAL on error now ([P14]).
     commit_worktree_dirt(&worktree)?;
@@ -3910,19 +3837,14 @@ mod tests {
     use std::process::Command;
     use tempfile::TempDir;
 
-    /// Join options for a test whose subject is the join's **mechanics** rather
-    /// than the verification gate (Spec S03).
+    /// Join options for a test whose subject is the join's **mechanics** — the
+    /// squash, the teardown, the draft, the journal.
     ///
-    /// The gate refuses a join with no verified candidate, which is right and
-    /// is pinned by its own tests. Standing a verdict up in every other join
-    /// test would be testing the fixture: what those tests are about is the
-    /// squash, the teardown, the draft, the journal. `--anyway` is the same
-    /// escape a person has, said out loud.
+    /// Nothing but the defaults, since verification left the join: these
+    /// options carried an `anyway: true` for as long as a gate stood between a
+    /// join and the base, and there is no gate left to name.
     fn mechanics() -> JoinOptions {
-        JoinOptions {
-            anyway: true,
-            ..Default::default()
-        }
+        JoinOptions::default()
     }
 
     #[test]
@@ -5889,7 +5811,6 @@ Some context.
             &universe,
             "narrator",
             JoinOptions {
-                anyway: true,
                 preview: true,
                 ..Default::default()
             },
@@ -7039,77 +6960,17 @@ Some context.
         assert!(dlog.contains("joined"));
     }
 
-    /// The verification gate (Spec S03), from every side.
+    /// The join's preconditions are what the execution enforces, and nothing
+    /// else: a candidate rides along when one stands, the merge either applies
+    /// or does not, and no verdict is consulted anywhere.
     ///
-    /// A red candidate is refused, the standing override lets exactly that
-    /// candidate through, a re-resolve demotes the decision and the refusal
-    /// returns, and `--anyway` is the escape every refusal names. This is what
-    /// makes the gate a gate: it lived only in the card before, so a second
-    /// deck, a stale client, or the CLI joined a red candidate with no refusal
-    /// at all.
+    /// This pins the deletion rather than the deleted thing. A stale verdict
+    /// left on a live branch by an older build must not resurface as a
+    /// refusal, and a dash that was never reconciled must not be stranded — a
+    /// gate whose escape hatch also went away would be worse than the gate.
     #[serial]
     #[test]
-    fn the_verdict_gate_refuses_a_red_candidate_until_it_is_overridden() {
-        let temp = TempDir::new().unwrap();
-        let repo = temp.path();
-        let home = temp.path().join("state");
-        init_git_repo(repo);
-        redirect_state_dir(&home);
-        std::env::set_current_dir(repo).unwrap();
-        fs::write(repo.join("f.txt"), "A\n").unwrap();
-        run_git(repo, &["add", "-A"]);
-        run_git(repo, &["commit", "-m", "seed f"]);
-
-        create("gated", None, None, false, None).unwrap();
-        let worktree = repo.join(".tug/worktrees/gated");
-        fs::write(worktree.join("f.txt"), "B\n").unwrap();
-        commit("gated", "r1", None).unwrap();
-
-        let outcome = crate::resolve::resolve_conflicts(repo, "gated", None).unwrap();
-        let candidate = outcome.candidate_commit.clone().expect("candidate");
-        let base_sha = rev_parse(repo, "main").unwrap();
-
-        let red = crate::verify::Verification {
-            base_sha: base_sha.clone(),
-            candidate_sha: candidate.clone(),
-            tier0: crate::verify::TierStatus::Red,
-            tier1: crate::verify::TierStatus::Unrun,
-            failures: vec!["cargo check: error[E0308]".to_string()],
-            notes: Vec::new(),
-        };
-        crate::verify::write_verification(repo, "gated", &red).unwrap();
-
-        let opts = || JoinOptions {
-            candidate: Some(candidate.clone()),
-            ..Default::default()
-        };
-
-        let err = join("gated", opts()).expect_err("a red candidate cannot join");
-        assert!(err.contains("verification is red"), "{err}");
-        assert!(err.contains("E0308"), "the refusal quotes why: {err}");
-        assert!(err.contains("--anyway"), "and names the escape: {err}");
-
-        // The override is about this tree and nothing else.
-        crate::verify::write_override(repo, "gated", "some-other-candidate").unwrap();
-        let err = join("gated", opts()).expect_err("an override for another tree is no override");
-        assert!(err.contains("verification is red"), "{err}");
-
-        crate::verify::write_override(repo, "gated", &candidate).unwrap();
-        let landed = join("gated", opts()).expect("the standing override lets it through");
-        assert!(landed.commit_hash.is_some());
-        assert!(!worktree.exists(), "the join really ran");
-    }
-
-    /// A join naming no candidate is refused: nothing verified what it would
-    /// produce.
-    ///
-    /// This is the hole the whole gate exists for. A textually clean merge grew
-    /// no candidate, so neither tier ever ran on it, and the motivating case of
-    /// the entire arc — a renamed symbol on one side, a new call site on the
-    /// other — is exactly a clean merge that does not build.
-    #[serial]
-    #[test]
-    fn a_join_with_no_candidate_is_refused_but_a_preview_is_not() {
+    fn a_join_consults_no_verdict_and_a_stale_one_does_not_block_it() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
@@ -7122,13 +6983,19 @@ Some context.
         fs::write(worktree.join("new.txt"), "clean\n").unwrap();
         commit("unverified", "r1", None).unwrap();
 
-        let err = join("unverified", JoinOptions::default())
-            .expect_err("an unverified join is refused");
-        assert!(err.contains("no verified candidate"), "{err}");
-        assert!(err.contains("--anyway"), "{err}");
+        // The residue an older build would have left: a red verdict, in the
+        // branch config, naming this dash. Nothing reads it.
+        run_git(
+            repo,
+            &[
+                "config",
+                "--replace-all",
+                "branch.tugdash/unverified.tugjoinverified",
+                "aaa:bbb:red:unrun",
+            ],
+        );
 
-        // A preview touches nothing and answers a different question, so it is
-        // never gated — the face asks for one on every recompute.
+        // A preview touches nothing and answers a different question.
         let previewed = join(
             "unverified",
             JoinOptions {
@@ -7140,9 +7007,10 @@ Some context.
         assert!(previewed.previewed);
         assert!(previewed.commit_hash.is_none());
 
-        // …and the stated escape works.
-        let landed = join("unverified", mechanics()).expect("--anyway joins");
+        let landed = join("unverified", JoinOptions::default())
+            .expect("a reconcile-clean dash joins with no verdict anywhere");
         assert!(landed.commit_hash.is_some());
+        assert!(!worktree.exists(), "the join really ran");
     }
 
     /// A candidate built against a base head that has since moved must refuse to

@@ -2,10 +2,9 @@
  * at0435-join-refusal-speaks.test.ts — a refused land press says why, on
  * screen, in the real app ([L31]).
  *
- * The corpus had never pressed a land button. `at0417` asserts the button's
- * *word* and `at0418` asserts that the affordance opens the editor; nothing
- * walked submit → gate → refusal, which is precisely where the dash-join dead
- * press lived. The refusal was computed, discarded, and shown nowhere, so days
+ * The corpus had never pressed a land button. Nothing walked
+ * submit → gate → refusal, which is precisely where the dash-join dead press
+ * lived. The refusal was computed, discarded, and shown nowhere, so days
  * of investigation had nothing to read.
  *
  * What this drives is the mechanism, not a hypothesis about which condition
@@ -79,16 +78,16 @@ const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join"]`;
-const verdict = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-join-verdict"]`;
+const account = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join-account"]`;
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   // A repository of the fixture's own. The refusal under test is the *last* one
-  // in the gate's order, so everything before it has to pass — including the
-  // verdict, which means this dash gets resolved and verified for real when
-  // join mode opens ([P03]). Aimed at the developer's checkout that would be
-  // the project's own declared checks, run because somebody opened a composer.
+  // in the gate's order, so everything before it has to pass — which means
+  // this dash gets resolved for real when join mode opens ([P03]). Aimed at
+  // the developer's checkout that would be a reconcile of their own work,
+  // run because somebody opened a composer.
   scratch = makeJoinScratchRepo({
     prefix: "at0435",
     dash: DASH,
@@ -99,7 +98,6 @@ beforeAll(() => {
     base: "at0435 SENTINEL the base's own file\n",
     dashBody: "at0435 SENTINEL the dash rewrote it\n",
     cleanMerge: true,
-    verifyTier0: `grep -q SENTINEL ${FILE}`,
     resolver: "#!/bin/sh\nexit 0\n",
   });
   dashId = scratch.dashId;
@@ -137,7 +135,7 @@ function deckShape() {
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
-/** Click `target` until `expected` matches, re-aiming between attempts (at0418). */
+/** Click `target` until `expected` matches, re-aiming between attempts. */
 async function clickUntil(app: App, target: string, expected: string, attempts = 5): Promise<void> {
   for (let i = 0; i < attempts; i += 1) {
     await app.evalJS<null>(
@@ -169,8 +167,8 @@ async function clickUntil(app: App, target: string, expected: string, attempts =
  * **commit mode**, where the editor *is* the commit message — so a `/dash-join`
  * typed there is message text, not a command, and submitting it does nothing a
  * route assertion can see. A slash command has to be typed from the prompt
- * route, which is where every one of them is read. at0418 and at0436 record the
- * same trap.
+ * route, which is where every one of them is read. at0436 records the same
+ * trap.
  */
 async function returnToPrompt(app: App): Promise<void> {
   await app.nativeClickAtElement(EDITOR);
@@ -246,8 +244,8 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         // The join face is what the pilot found, and the pilot works only a
         // dash somebody holds ([D147]) — a client-side `bind_dash_ok` writes
-        // no ledger row for it to read. The prompt that follows a settled
-        // verdict is answered in advance: this file is about the shade.
+        // no ledger row for it to read. The prompt that follows a standing
+        // candidate is answered in advance: this file is about the shade.
         bindDash(projectDir(), DASH, SID, scratch?.cli ?? {});
         silenceJoinPrompt(projectDir(), DASH);
 
@@ -281,13 +279,12 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
           { timeoutMs: 8000 },
         );
 
-        // Wait out the verdict before pressing. Entering join mode resolved the
-        // dash and started the project's declared checks over what that built
-        // ([P03]), and an unfinished verdict is its own refusal — "Verify the
-        // joined tree first" — which fires *ahead* of the empty message in the
-        // gate's order. Pressing early therefore measures the wrong refusal.
+        // Wait for the candidate before pressing. Entering join mode resolved
+        // the dash ([P03]), and the resolver's account appearing is that
+        // resolution anchoring — a press before it measures the outcome
+        // refusal rather than the empty-message one under test.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(verdict(DASH))})?.getAttribute("data-verdict") === "green"`,
+          `document.querySelector(${JSON.stringify(account(DASH))}) !== null`,
           { timeoutMs: 180000 },
         );
 

@@ -211,15 +211,6 @@ export interface JoinArgs {
   continueJoin?: boolean;
   /** The card's tug session id, so the landing leaves a receipt ([P06]). */
   sessionId?: string;
-  /**
-   * Join past the server's verification gate — the confirmed red ([P05]).
-   *
-   * Sent only by a land press that opened the composer's confirm and had it
-   * answered. The gate it passes is the server's, so nothing else on the way
-   * there may set this: a client that sent it by default would have deleted
-   * the gate rather than passed it.
-   */
-  anyway?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -666,7 +657,28 @@ export class ChangesetVerbStore {
       ...(args.candidate !== undefined ? { candidate: args.candidate } : {}),
       ...(args.continueJoin === true ? { continue: true } : {}),
       ...(args.sessionId !== undefined ? { session_id: args.sessionId } : {}),
-      ...(args.anyway === true ? { anyway: true } : {}),
+    });
+  }
+
+  /**
+   * Register the correlation for a join **this card did not send** — the
+   * server-initiated landing a prompt-sheet "Join now" starts.
+   *
+   * The two terminal frames are dropped on a `_joinInflight` miss, and only
+   * {@link join} ever wrote that map — so a prompt-route join used to arrive
+   * at a store that had never heard of it, silencing the failure bulletin and
+   * the live receipt row at once. This registers the same correlation a
+   * composer press registers and sends nothing: the frame is already on its
+   * way from the server, and a second one would be a second join.
+   */
+  expectServerJoin(entryKey: string, workspaceKey: string, dash: string): void {
+    this._joinInflight.set(verbKey(workspaceKey, dash), entryKey);
+    this._setJoin(entryKey, {
+      phase: "pending",
+      error: null,
+      conflicts: [],
+      commitHash: null,
+      summary: null,
     });
   }
 

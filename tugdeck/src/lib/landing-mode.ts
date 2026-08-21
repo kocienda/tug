@@ -43,20 +43,6 @@ export type LandOutcome =
   | { kind: "refused"; sentence: string };
 
 /**
- * What a land press carries beyond its message.
- *
- * `anyway` is the confirmed red: the composer opened
- * {@link LandingSnapshot.landConfirm} and the user answered it, so the join
- * goes past the server's verification gate. It is a property of *this press*
- * rather than of the mode, which is why it rides the call — a mode that
- * remembered it would carry a decision made about one candidate onto the next.
- * Commit mode ignores it.
- */
-export interface LandOptions {
-  anyway?: boolean;
-}
-
-/**
  * The fault sentence both landing modes use when the changeset service is
  * absent. A missing store means the app is broken rather than that the user did
  * something wrong, so the sentence names the remediation instead of a hint
@@ -172,25 +158,6 @@ export interface LandingSnapshot {
    * the shade row show, because all three call one derivation.
    */
   register: DashJoinRegister | null;
-  /**
-   * What the land button *means* right now ([P05]).
-   *
-   * `"danger"` is the join whose joined tree does not build. The press is no
-   * longer refused — a red is a decision the user is entitled to make — so the
-   * button has to carry the weight the refusal used to, and it carries it in
-   * the same vocabulary every other consequential control in the deck uses.
-   */
-  landRole: "action" | "danger";
-  /**
-   * The sentence a confirm must answer before the land runs, or null when the
-   * press lands directly.
-   *
-   * Non-null exactly when {@link landRole} is `"danger"`. The two travel
-   * together because a red-shaded button with no confirm is a trap and a
-   * confirm on an ordinary land is friction; deriving both in one place is what
-   * keeps them from disagreeing.
-   */
-  landConfirm: string | null;
 }
 
 /**
@@ -219,7 +186,7 @@ export interface LandingMode {
    * Land, subject to the mode's gate. A refusal is surfaced by the mode itself
    * and reported here by type ([L31]) — never a silent no-op.
    */
-  land: (message: string, opts?: LandOptions) => LandOutcome;
+  land: (message: string) => LandOutcome;
   /** The user leaving the route: persist what is typed, then exit. */
   leave: () => void;
   /** Exit the mode without persisting (the land path's own way out). */

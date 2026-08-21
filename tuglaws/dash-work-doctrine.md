@@ -60,10 +60,12 @@ The bar before a round is committed:
 
 - `bunx tsc --noEmit` for TypeScript that moved.
 - Pure-logic tests for the scope that moved (`bun test <scope>`).
-- `cargo nextest run` for Rust — the affected crates while iterating, the workspace before the run ends.
+- `cargo nextest run` for Rust — the affected crates while iterating, the workspace on the **last step that touched Rust**. Not "before the run ends": the ending has its own job, and re-running this is not it.
 - A real-app test where the change is one only the real app can show.
 
 **Never commit red.** If a check fails, fix it and re-run; a round that lands broken makes every later round's verdict meaningless.
+
+**A checkpoint that passed is spent.** It ran against these bytes, inside the step that changed them; running it again at the end proves nothing new and costs minutes. So: **the run ends when the fit is verified — replay, verify only what the replay moved, report, and stop; never re-run a checkpoint that already passed.** The fit is the one thing the per-step checkpoints genuinely cannot have covered, because until the replay the dash's tree is the sandbox it forked from rather than the tree a join would land. The procedure is the devise skeleton's Integration Checkpoint pattern: `tugutil dash replay <name>`, then the scoped verification **only** on `Replayed`/`Recorded`; `Current` re-runs nothing; `Conflicted` is resolved in the worktree and then verified.
 
 **Fix what you touch.** A pre-existing warning, type error, or dead branch in a file you are editing is yours to fix, not to report. Punting it as "pre-existing" leaves the next reader the same trap.
 
@@ -102,13 +104,17 @@ Git records the diff; the log records the instruction git cannot see. `tug log` 
 
 ## Stop before the join
 
-The build is the user's to vet. Bring up the debug instance from the worktree (`just app-debug`), report it, and stop — do not merge, and do not run the join on the user's behalf.
+Do not merge, and do not run the join on the user's behalf. That is the whole of what "stop" means here; the rest of the ending is one obligation and two offers.
+
+**The build is an offer.** A change with a face is worth bringing up from the worktree (`just app-debug`) so the user can look at it before the join; a refactor, a doctrine edit, or a Rust fix its own checkpoint already covered is not, and a debug instance nobody opens is cost with no reader. Offer it, do not assume it.
 
 Before stopping, leave the **join draft** behind: compose the squash message from what the rounds actually did and write it with `tugutil draft set --owner dash:<name> --message "…"`. The join gesture lands that message; it does not compose one. A dash that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 
 Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message** ([D144]). Not one commit per round, not the rounds replayed — one, whatever the ladder did off to the side to make the bytes merge, and regardless of how many rounds the run took. The draft is therefore the *only* durable prose the base will carry about this dash, so a digest that leans on the round commits to fill in what it left out is leaning on commits that will not be there.
 
-**Marking the dash `built` is what starts the arc, and the arc runs itself.** The join pilot reconciles the dash against its base and runs the project's Tier 0 checks over the tree that would land, unprompted, exactly once per base/head pair — so by the time the user looks, the dash has already reached a verdict or a question. When there is a decision to make, the dash **asks**: a prompt raises on the bound session offering *Join now*, *Review first* or *Not yet*. So a run's report does not need to end in a `/join <name>` chip, and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142]).
+**The arc arms itself, and `tugutil dash mark <name> built` is telemetry** ([D147]). What arms it is the run reaching the step it declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time a run ended early. The mark stamps the word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
+
+Once armed, the pilot reconciles the dash against its base, unprompted. It runs no build and no tests — the run's ending already verified the tree that lands ([D149]) — so a standing candidate is the whole of readiness, and the dash **asks** the moment it has one: a prompt raises on the bound session offering *Join now*, *Review first* or *Not yet*. A run's report therefore does not end in a `/join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142], [D147]).
 
 ## The join finishes itself
 

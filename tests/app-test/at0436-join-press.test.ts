@@ -27,8 +27,8 @@
  * The refusal half moved with it, and did not go missing: a server refusal that
  * the client can also compute is now refused client-side first ([P04] puts the
  * same gate on both sides), so what remained here was a race against the feed
- * rather than a pin. `at0435` holds the refusal *surface*, `at0443` holds a
- * durable stuck sentence, and `ops.rs` holds the gate itself.
+ * rather than a pin. `at0435` holds the refusal *surface*, and `ops.rs` holds
+ * the preflight itself.
  *
  * What stays this file's own, and is why it is not at0441 twice: the dash is
  * reached by a **binding** gesture (`bind_dash_ok`) rather than by name, and
@@ -94,8 +94,8 @@ const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join"]`;
-const verdict = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-join-verdict"]`;
+const account = (dash: string): string =>
+  `${row(dash)} [data-slot="session-changes-dash-join-account"]`;
 
 
 beforeAll(() => {
@@ -117,7 +117,6 @@ beforeAll(() => {
     // Clean, because what this file presses is a *landable* join: the refusal
     // it is about comes from the server on execute, not from the merge.
     cleanMerge: true,
-    verifyTier0: `grep -q SENTINEL ${FILE}`,
     resolver: "#!/bin/sh\nexit 0\n",
   });
   dashId = scratch.dashId;
@@ -270,8 +269,8 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         // The join face is what the pilot found, and the pilot works only a
         // dash somebody holds ([D147]) — a client-side `bind_dash_ok` writes
-        // no ledger row for it to read. The prompt that follows a settled
-        // verdict is answered in advance: this file is about the shade.
+        // no ledger row for it to read. The prompt that follows a standing
+        // candidate is answered in advance: this file is about the shade.
         bindDash(projectDir(), DASH, SID, scratch?.cli ?? {});
         silenceJoinPrompt(projectDir(), DASH);
 
@@ -301,12 +300,12 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
           { timeoutMs: 8000 },
         );
 
-        // Entering join mode resolved the dash and the server verified what it
-        // built ([P03]). The press is gated on that verdict, so waiting for it
-        // is waiting for the gate to be clear — which is what makes the refusal
-        // below unambiguously the *server's*, arriving after a real send.
+        // Entering join mode resolved the dash ([P03]); the resolver's account
+        // appearing is the candidate anchoring, which is the gate. Waiting for
+        // it is what makes the refusal below unambiguously the *server's*,
+        // arriving after a real send.
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(verdict(DASH))})?.getAttribute("data-verdict") === "green"`,
+          `document.querySelector(${JSON.stringify(account(DASH))}) !== null`,
           { timeoutMs: 180000 },
         );
 

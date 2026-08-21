@@ -118,7 +118,6 @@ function makeArc(prefix: string, dash: string, sid: string, resolver: string): A
     fork: "at0426 the body both sides will rewrite\n",
     base: "at0426 base side — the whole file, rewritten\n",
     dashBody: "at0426 dash side — the whole file, rewritten\n",
-    verifyTier0: `grep -q SENTINEL ${FILE}`,
     resolver,
     mergeDriver: DRIVER_STUB,
     // The run this file audits is the pilot's. There is no Resolve to press
@@ -236,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the resolver audits what the machines deci
         const row = await resolveArc(app, arc);
 
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join-verdict"]`)})?.getAttribute("data-verdict") === "green"`,
+          `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-dash-join-account"]`)}) !== null`,
           { timeoutMs: 180000 },
         );
         const report = await app.evalJS<string>(

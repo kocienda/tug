@@ -3,14 +3,3 @@
 # A git worktree never inherits gitignored files, so these install what a
 # fresh checkout lacks. A non-zero exit rolls the worktree back.
 post_create = ["bun install --cwd tugdeck", "bun install --cwd tugcode"]
-
-# Tier 0 of a join's verification: "does the joined tree build?" Run from the
-# dash's workshop worktree with the candidate checked out, after every resolver
-# pass. The script scopes itself to the surfaces the candidate touched.
-verify_tier0 = ["sh scripts/verify-tier0.sh"]
-
-# Tier 1: "does the joined tree still pass the tests that bear on it?" Run once
-# against the candidate the resolver claims is done, never per iteration — every
-# app-test launches a Tug.app behind a machine-wide gate. The script derives its
-# selection from `@covers` over the candidate's changed files.
-verify_tier1 = ["sh scripts/verify-tier1.sh"]

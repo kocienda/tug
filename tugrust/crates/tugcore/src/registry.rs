@@ -216,7 +216,14 @@ pub fn find_for_cwd(cwd: &Path) -> Result<Option<Instance>, Error> {
 /// directory, and `read_to_string` on it fails — the `None` that correctly
 /// says "not a linked worktree"); that gitdir holds a `commondir` pointing
 /// at the shared `.git`, whose parent is the main checkout.
-fn linked_worktree_base(cwd: &Path) -> Option<PathBuf> {
+///
+/// Public because instance discovery is not its only consumer: `same_project`
+/// in `tugcast::dash_api` resolves both sides of a bind through it, so a
+/// session spawned in a checkout and a `tugutil dash` call made from inside
+/// that checkout's dash worktree read as one project rather than two. One
+/// translation, two callers — a second implementation would be a second
+/// quiet path resolver.
+pub fn linked_worktree_base(cwd: &Path) -> Option<PathBuf> {
     let dot_git = cwd
         .ancestors()
         .map(|d| d.join(".git"))

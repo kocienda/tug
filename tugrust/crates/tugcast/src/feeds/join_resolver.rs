@@ -239,8 +239,7 @@ the ladder could not settle. Your job is to make the merged tree one in which
 
 - Edit only files inside this checkout. Never touch anything outside it.
 - Never run git commands, and never move a ref. The merge is committed for you.
-- You have no shell. Verification is run for you after each pass, and its
-  failures come back to you as another turn.
+- You have no shell, and you get one pass. Resolve everything, then report.
 
 # How you answer
 
@@ -257,7 +256,6 @@ To finish, end a turn with your report:
 
     {"files": [{"path": "…", "resolved_by": "…", "what_each_side_did": "…",
                 "reconciliation": "…", "audit": "kept"}],
-     "iterations": [{"tier0": "green"}],
      "notes": "…"}
 
 **Every path listed below — the ones you finished and the ones you audited —
@@ -330,24 +328,6 @@ pub fn compose_charter(inputs: &CharterInputs) -> String {
     }
 
     out.push_str("\nAccount for every file named above in your report.\n");
-    out
-}
-
-/// The turn a Tier 0 failure comes back as ([P05]) — the same charter-defined
-/// message kind whether the spawn is still live or was re-charted, so the
-/// resolver cannot tell the difference and the orchestrator need not care.
-pub fn compose_tier0_failure_turn(failures: &[String]) -> String {
-    let mut out = String::from(
-        "Verification failed on the tree you produced. Fix it and answer with your report.\n\n",
-    );
-    if failures.is_empty() {
-        out.push_str("(the failure produced no detail)\n");
-    } else {
-        for failure in failures {
-            out.push_str(failure.trim_end());
-            out.push_str("\n\n");
-        }
-    }
     out
 }
 
@@ -685,15 +665,6 @@ async fn died(stderr: Option<tokio::process::ChildStderr>) -> String {
 // The resolve flow (#resolve-flow)
 // ---------------------------------------------------------------------------
 
-/// How many times a red Tier 0 may send the resolver back to work before the
-/// join sticks ([P05]).
-///
-/// A budget, not a knob: three passes is enough for a real repair and few
-/// enough that a resolver looping on a failure it cannot fix costs minutes
-/// rather than the afternoon. Tests drive it by scripting a resolver that never
-/// repairs, never by shrinking it.
-pub const TIER0_ITERATIONS: usize = 3;
-
 /// How long one resolver turn may produce no bytes at all before the child is
 /// killed and the turn fails.
 ///
@@ -704,13 +675,13 @@ pub const TIER0_ITERATIONS: usize = 3;
 /// resolver is still working through and short of a wedge nobody would notice.
 pub const RESOLVER_TURN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
-/// The ceiling on one whole resolve, from opening the workshop to the last
-/// tier's verdict.
+/// The ceiling on one whole resolve, from opening the workshop to the anchored
+/// candidate.
 ///
 /// Every inner bound can be paid in full and still add up to a finite number:
-/// three iterations of (a resolver turn + Tier 0) plus one expired question is
-/// a little under two hours. This catches whatever the inner bounds cannot —
-/// and names, in the stuck fact, what the resolve was doing when it expired.
+/// one resolver turn plus one expired question is well inside it. This catches
+/// whatever the inner bounds cannot — and names, in the stuck fact, what the
+/// resolve was doing when it expired.
 pub const RESOLVE_DEADLINE: Duration = Duration::from_secs(2 * 60 * 60);
 
 /// What a turn that went silent is reported as.
@@ -817,12 +788,11 @@ struct WorkshopState {
     base_branch: String,
 }
 
-/// Finish a conflicted join with the resolver, and verify what it produced.
+/// Finish a conflicted join with the resolver.
 ///
 /// The sequence is #resolve-flow's: materialize the merge in the workshop,
 /// carry the ladder's resolutions in, charter the resolver, validate what comes
-/// back, commit the candidate, and loop Tier 0 against it until it is green or
-/// the budget is spent. Every failure arm returns `Err` with a sentence — there
+/// back, and commit the candidate. Every failure arm returns `Err` with a sentence — there
 /// is no arm that ends quietly, because a join that stops without saying why is
 /// the one state the face cannot render.
 pub async fn finish_join(
@@ -866,8 +836,8 @@ pub async fn finish_join(
 ///
 /// The stuck fact is the only channel a dead resolve has, and "it took too
 /// long" without naming the activity leaves the user with nothing to act on —
-/// a wedged Tier 1 and a resolver waiting on an answer nobody saw are the same
-/// sentence otherwise.
+/// a wedged workshop open and a resolver waiting on an answer nobody saw are
+/// the same sentence otherwise.
 type Phase = Arc<Mutex<&'static str>>;
 
 fn set_phase(phase: &Phase, what: &'static str) {
@@ -917,75 +887,49 @@ async fn finish_join_inner(
     let mut turn = run.send(charter).await?;
     let mut asked: Option<tugcast_core::types::DashJoinReportQuestion> = None;
 
-    let mut iterations: Vec<tugcast_core::types::DashJoinReportIteration> = Vec::new();
-    // What the resolver's edits are measured against: the ladder's tree on the
-    // first pass, and the previous pass's candidate after that — so each pass's
-    // report answers for what *that* pass changed.
-    let mut baseline = state.ladder_tree.clone();
-    for _ in 0..TIER0_ITERATIONS {
-        // An escalation is answered before anything else can happen — the
-        // charter allows one per resolve, so this resolves at most once.
-        if let ResolverTurn::Ask(ask) = &turn {
-            set_phase(phase, "waiting on your answer");
-            let answer = escalate(ctx, ask).await?;
-            asked = Some(tugcast_core::types::DashJoinReportQuestion {
-                question: ask.question.clone(),
-                answer: answer.clone(),
-            });
-            set_phase(phase, "waiting on the resolver");
-            turn = run.send(compose_answer_turn(&answer)).await?;
-        }
+    // What the resolver's edits are measured against: the ladder's tree.
+    let baseline = state.ladder_tree.clone();
 
-        let report = match turn {
-            ResolverTurn::Report(report) => report,
-            // Two asks in one resolve: `ResolverRun` refuses the second, so
-            // reaching here means the charter was violated in a way the run
-            // could not name.
-            ResolverTurn::Ask(ask) => {
-                return Err(format!(
-                    "the resolver asked again instead of finishing: {}",
-                    ask.question
-                ));
-            }
-        };
-        let report = ResolverReport {
-            question: report.question.or_else(|| asked.clone()),
-            ..report
-        };
-
-        set_phase(phase, "committing the candidate");
-        let candidate = commit_candidate(ctx, &state, &report, &iterations, &baseline).await?;
-        baseline = candidate.clone();
-        emit_resolver_delta(ctx, "verifying", Some(&candidate));
-        ctx.bump.notify_one();
-
-        set_phase(phase, "running the build tier");
-        let verdict = run_tier0(ctx, &candidate).await?;
-        iterations.push(tugcast_core::types::DashJoinReportIteration {
-            tier0: if verdict.is_empty() { "green" } else { "red" }.to_string(),
-            detail: verdict.first().cloned(),
+    // An escalation is answered before anything else can happen — the charter
+    // allows one per resolve, so this resolves at most once.
+    if let ResolverTurn::Ask(ask) = &turn {
+        set_phase(phase, "waiting on your answer");
+        let answer = escalate(ctx, ask).await?;
+        asked = Some(tugcast_core::types::DashJoinReportQuestion {
+            question: ask.question.clone(),
+            answer: answer.clone(),
         });
-        if verdict.is_empty() {
-            record_report(ctx, &candidate, &report, &iterations).await?;
-            ctx.bump.notify_one();
-            set_phase(phase, "running the exam tier");
-            return run_tier1(ctx, &candidate).await;
-        }
-
-        // Red, and there is budget left: the failure text is the resolver's
-        // next turn ([P05]). A machine-repairable red costs a machine
-        // iteration, not the user's attention.
-        record_report(ctx, &candidate, &report, &iterations).await?;
-        emit_resolver_delta(ctx, "iterating", Some(&candidate));
-        ctx.bump.notify_one();
         set_phase(phase, "waiting on the resolver");
-        turn = run.send(compose_tier0_failure_turn(&verdict)).await?;
+        turn = run.send(compose_answer_turn(&answer)).await?;
     }
 
-    Err(format!(
-        "the resolver could not make the joined tree build in {} passes",
-        TIER0_ITERATIONS
-    ))
+    let report = match turn {
+        ResolverTurn::Report(report) => report,
+        // Two asks in one resolve: `ResolverRun` refuses the second, so
+        // reaching here means the charter was violated in a way the run
+        // could not name.
+        ResolverTurn::Ask(ask) => {
+            return Err(format!(
+                "the resolver asked again instead of finishing: {}",
+                ask.question
+            ));
+        }
+    };
+    let report = ResolverReport {
+        question: report.question.or_else(|| asked.clone()),
+        ..report
+    };
+
+    // One pass, and the candidate it produced is the answer. The loop that
+    // stood here re-ran the project's build over each pass and sent the
+    // resolver back on a red — a repair loop against a tree nobody was going
+    // to ship without checking again anyway. The run's ending is where the
+    // joined tree is built now, so a resolve resolves and stops.
+    set_phase(phase, "committing the candidate");
+    let candidate = commit_candidate(ctx, &state, &report, &baseline).await?;
+    record_report(ctx, &candidate, &report).await?;
+    ctx.bump.notify_one();
+    Ok(())
 }
 
 /// Raise the resolver's question to the user and wait for the answer.
@@ -1188,7 +1132,6 @@ async fn commit_candidate(
     ctx: &ResolverContext,
     state: &WorkshopState,
     report: &ResolverReport,
-    iterations: &[tugcast_core::types::DashJoinReportIteration],
     baseline: &str,
 ) -> Result<String, String> {
     let repo = ctx.repo.clone();
@@ -1203,7 +1146,6 @@ async fn commit_candidate(
     let rung_resolved = state.rung_resolved.clone();
     let inherited = state.inherited_candidate.clone();
     let report_for_validation = report.clone();
-    let pass = iterations.len();
 
     tokio::task::spawn_blocking(move || {
         let workshop = tugdash_core::Workshop::open_existing(&repo, &dash)?;
@@ -1219,7 +1161,7 @@ async fn commit_candidate(
         // head, turning a replay join into a squash without anybody asking.
         let candidate = match &inherited {
             Some(sha) if workshop.matches(sha)? => sha.clone(),
-            _ => workshop.commit(&format!("{message}\n\nResolve pass {}.", pass + 1))?,
+            _ => workshop.commit(&format!("{message}\n\nResolved for the join."))?,
         };
         let dash_head = tugdash_core::ops::rev_parse(&repo, &branch)?;
         tugdash_core::resolve::anchor_candidate(&repo, &dash, &candidate, &dash_head)?;
@@ -1248,17 +1190,13 @@ async fn commit_candidate(
     .map_err(|e| format!("candidate task failed: {e}"))?
 }
 
-/// Persist the report against the candidate it describes, with the loop's
-/// verdicts folded in so the account is honest about retries ([P05]).
+/// Persist the report against the candidate it describes.
 async fn record_report(
     ctx: &ResolverContext,
     candidate: &str,
     report: &ResolverReport,
-    iterations: &[tugcast_core::types::DashJoinReportIteration],
 ) -> Result<(), String> {
-    let mut stored = report.clone();
-    stored.iterations = iterations.to_vec();
-    let json = serde_json::to_string(&stored).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(report).map_err(|e| e.to_string())?;
     let repo = ctx.repo.clone();
     let dash = ctx.dash.clone();
     let candidate = candidate.to_string();
@@ -1267,94 +1205,6 @@ async fn record_report(
     })
     .await
     .map_err(|e| format!("report task failed: {e}"))?
-}
-
-/// Run the build tier against a candidate; the returned failures are empty on
-/// green.
-async fn run_tier0(ctx: &ResolverContext, candidate: &str) -> Result<Vec<String>, String> {
-    let repo = ctx.repo.clone();
-    let dash = ctx.dash.clone();
-    let candidate = candidate.to_string();
-    tokio::task::spawn_blocking(move || {
-        use tugdash_core::verify::{self, TierStatus, Verification};
-        let base_sha = {
-            let detail = tugdash_core::ops::dash_detail_entry_in(&repo, &dash)
-                .ok_or_else(|| format!("no dash named {dash}"))?;
-            tugdash_core::ops::rev_parse(&repo, &detail.base)?
-        };
-        let mut fact = Verification {
-            base_sha,
-            candidate_sha: candidate.clone(),
-            tier0: TierStatus::Running,
-            tier1: TierStatus::Unrun,
-            failures: Vec::new(),
-            notes: Vec::new(),
-        };
-        verify::write_verification(&repo, &dash, &fact)?;
-
-        let out = match verify::run_tier0(&repo, &dash, &candidate) {
-            Ok(out) => out,
-            Err(e) => {
-                fact.fail_running(&e);
-                let _ = verify::write_verification(&repo, &dash, &fact);
-                return Err(e);
-            }
-        };
-        fact.tier0 = out.status;
-        fact.failures = out.failures.clone();
-        fact.notes = out.notes;
-        if out.status == TierStatus::Red {
-            fact.notes
-                .push("tests not run: the joined tree does not build".to_string());
-        }
-        verify::write_verification(&repo, &dash, &fact)?;
-        Ok(if out.status == TierStatus::Red {
-            if out.failures.is_empty() {
-                vec!["the build tier failed without saying why".to_string()]
-            } else {
-                out.failures
-            }
-        } else {
-            Vec::new()
-        })
-    })
-    .await
-    .map_err(|e| format!("tier 0 task failed: {e}"))?
-}
-
-/// Run the exam tier once, on the claimed-done candidate ([P09]).
-async fn run_tier1(ctx: &ResolverContext, candidate: &str) -> Result<(), String> {
-    emit_resolver_delta(ctx, "verifying", Some(candidate));
-    let repo = ctx.repo.clone();
-    let dash = ctx.dash.clone();
-    let candidate = candidate.to_string();
-    let bump = ctx.bump.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        use tugdash_core::verify::{self, TierStatus};
-        let mut fact = verify::read_verification(&repo, &dash)
-            .filter(|f| f.candidate_sha == candidate)
-            .ok_or_else(|| "the build verdict went missing before the exam".to_string())?;
-        fact.tier1 = TierStatus::Running;
-        verify::write_verification(&repo, &dash, &fact)?;
-        bump.notify_one();
-
-        let out = match verify::run_tier1(&repo, &dash, &candidate) {
-            Ok(out) => out,
-            Err(e) => {
-                fact.fail_running(&e);
-                let _ = verify::write_verification(&repo, &dash, &fact);
-                return Err(e);
-            }
-        };
-        fact.tier1 = out.status;
-        fact.failures.extend(out.failures);
-        fact.notes.extend(out.notes);
-        verify::write_verification(&repo, &dash, &fact)
-    })
-    .await
-    .map_err(|e| format!("tier 1 task failed: {e}"))?;
-    ctx.bump.notify_one();
-    result
 }
 
 /// One `changeset_join_resolve_delta` for the resolver rung.
@@ -1455,14 +1305,13 @@ mod tests {
         }
 
         let report = parse_turn(
-            r#"{"files":[{"path":"a.txt","resolved_by":"resolver","what_each_side_did":"x","reconciliation":"y","audit":"kept"}],"iterations":[{"tier0":"green"}],"notes":"done"}"#,
+            r#"{"files":[{"path":"a.txt","resolved_by":"resolver","what_each_side_did":"x","reconciliation":"y","audit":"kept"}],"notes":"done"}"#,
         )
         .unwrap();
         match report {
             ResolverTurn::Report(report) => {
                 assert_eq!(report.files.len(), 1);
                 assert_eq!(report.files[0].audit.as_deref(), Some("kept"));
-                assert_eq!(report.iterations[0].tier0, "green");
             }
             other => panic!("expected a report, got {other:?}"),
         }
@@ -1623,12 +1472,7 @@ mod tests {
         }
     }
 
-    /// A repo whose base and dash both rewrote `f.txt` — a real conflict — with
-    /// a sentinel-grep Tier 0 and no Tier 1.
-    ///
-    /// A fixture declares no `verify_tier1` on purpose ([P11]): a real tier-1
-    /// command spawns app-tests behind a machine-wide gate, and a fixture join
-    /// running *inside* an app-test would queue on the gate its own run holds.
+    /// A repo whose base and dash both rewrote `f.txt` — a real conflict.
     fn conflicted_repo(resolver: &str) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
@@ -1638,11 +1482,7 @@ mod tests {
         std::fs::write(repo.join(".gitignore"), ".tug/\n").unwrap();
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         std::fs::create_dir_all(repo.join(".tugtool")).unwrap();
-        std::fs::write(
-            repo.join(".tugtool/config.toml"),
-            "[tugtool.dash]\nverify_tier0 = [\"grep -q SENTINEL f.txt\"]\n",
-        )
-        .unwrap();
+        std::fs::write(repo.join(".tugtool/config.toml"), "[tugtool.dash]\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
         git(repo, &["branch", "tugdash/demo"]);
@@ -1691,7 +1531,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_resolver_finishes_a_conflict_and_the_candidate_verifies_green() {
+    async fn the_resolver_finishes_a_conflict_and_anchors_its_candidate() {
         let temp = conflicted_repo(&resolving_stub("SENTINEL\n"));
         let repo = temp.path();
         let before_base = std::fs::read_to_string(repo.join("f.txt")).unwrap();
@@ -1717,15 +1557,6 @@ mod tests {
             .output()
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&merged.stdout), "SENTINEL\n");
-
-        // The build tier ran against it and said green.
-        let fact = tugdash_core::verify::read_verification(repo, "demo").expect("a verdict");
-        assert_eq!(
-            fact.tier0,
-            tugdash_core::verify::TierStatus::Green,
-            "{:?}",
-            fact.failures
-        );
 
         // The report is stored against the candidate and accounts for the path.
         let report =
@@ -1792,11 +1623,7 @@ mod tests {
         std::fs::write(repo.join(".gitignore"), ".tug/\n").unwrap();
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         std::fs::create_dir_all(repo.join(".tugtool")).unwrap();
-        std::fs::write(
-            repo.join(".tugtool/config.toml"),
-            "[tugtool.dash]\nverify_tier0 = [\"grep -q X f.txt\"]\n",
-        )
-        .unwrap();
+        std::fs::write(repo.join(".tugtool/config.toml"), "[tugtool.dash]\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
         git(repo, &["branch", "tugdash/demo"]);
@@ -2156,55 +1983,31 @@ mod tests {
         assert!(!answer_question("join-nobody-0", "anything".to_string()));
     }
 
-    /// A resolver that cannot make the tree build spends its budget and sticks
-    /// — with the failing command named, never silently.
+    /// The resolve judges resolution, not content: a tree the project's own
+    /// checks would have called red still finishes and anchors its candidate.
+    ///
+    /// The loop that stood here re-ran the build after every pass and sent the
+    /// resolver back on a red, spending its budget and sticking the join. What
+    /// the joined tree does is asked at the end of the run now, against the
+    /// tree that will actually land.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_red_the_resolver_cannot_repair_sticks_after_the_budget() {
+    async fn a_resolve_finishes_without_judging_what_the_tree_builds() {
         let temp = conflicted_repo(&resolving_stub("NOTHING\n"));
         let repo = temp.path();
 
         let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
         let ctx = context(repo);
-        let err = finish_join(&ctx, &outcome)
+        finish_join(&ctx, &outcome)
             .await
-            .expect_err("an unrepairable red sticks");
-        assert!(err.contains(&TIER0_ITERATIONS.to_string()), "{err}");
+            .expect("the resolve finishes on its own terms");
 
-        // The verdict still stands, and still names the failing command — the
-        // face's red has something to say.
-        let fact = tugdash_core::verify::read_verification(repo, "demo").expect("a verdict");
-        assert_eq!(fact.tier0, tugdash_core::verify::TierStatus::Red);
-        assert!(
-            fact.failures.iter().any(|f| f.contains("grep")),
-            "{:?}",
-            fact.failures
-        );
-    }
-
-    /// A tier runner that dies between writing `running` and writing its
-    /// answer leaves the verdict red naming the failure — never `running`.
-    ///
-    /// Driven by asking for a candidate that does not exist, so
-    /// `Workshop::open_candidate` refuses after the `running` fact is already
-    /// standing. A verdict stuck at `running` renders as a wait the face has no
-    /// control for.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_tier_run_that_dies_leaves_the_verdict_red() {
-        let temp = conflicted_repo(&resolving_stub("SENTINEL\n"));
-        let repo = temp.path();
-        let ctx = context(repo);
-
-        let err = run_tier0(&ctx, "0000000000000000000000000000000000000000")
-            .await
-            .expect_err("a candidate that does not exist cannot be verified");
-
-        let fact = tugdash_core::verify::read_verification(repo, "demo").expect("a verdict stands");
-        assert_eq!(fact.tier0, tugdash_core::verify::TierStatus::Red);
-        assert_eq!(
-            fact.failures,
-            vec![err],
-            "the verdict carries the sentence the run failed with"
-        );
+        let candidate = match tugdash_core::resolve::candidate_status(repo, "demo", "main") {
+            tugdash_core::resolve::CandidateStatus::Valid(sha) => sha,
+            other => panic!("expected a valid candidate, got {other:?}"),
+        };
+        let report =
+            tugdash_core::resolve::read_report(repo, "demo", &candidate).expect("a report");
+        assert!(report.contains("f.txt"), "{report}");
     }
 
     /// A resolver that writes nothing at all is killed at its silence bound,
@@ -2234,12 +2037,4 @@ mod tests {
         assert!(err.contains("went silent"), "{err}");
     }
 
-    #[test]
-    fn the_tier0_failure_turn_carries_the_failing_detail() {
-        let turn = compose_tier0_failure_turn(&["cargo check failed:\nerror[E0308]".to_string()]);
-        assert!(turn.contains("Verification failed"));
-        assert!(turn.contains("error[E0308]"));
-        // An empty failure list still says something rather than nothing.
-        assert!(compose_tier0_failure_turn(&[]).contains("no detail"));
-    }
 }

@@ -49,8 +49,8 @@
  * One scratch repository, two dashes, neither conflicting with the base and
  * neither ever marked. The bound one the pilot reconciles and checks without
  * being asked, which is what makes the prompt the *only* thing this file
- * drives; the unbound one is the control. Tier 0 is a sentinel grep, so
- * flipping it red is a one-line commit on the base rather than a toolchain.
+ * drives; the unbound one is the control. Nothing is built anywhere: the join
+ * gates on reconcile-clean alone, so the arc runs at git speed.
  *
  * @covers tugdeck/src/components/tugways/cards/join-prompt-sheet.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
@@ -98,6 +98,12 @@ const PROMPT_QUESTION = PROMPT;
 const promptOption = (label: string): string =>
   `${PROMPT} .session-question-dialog-options-list [data-option-label="${label}"]`;
 const PROMPT_SUBMIT = `${PROMPT} .session-question-dialog-actionbar-buttons .tug-button-primary-action`;
+/** The same sheet after "Join now" — the question is gone, the work is on. */
+const LANDING = '[data-slot="join-prompt-sheet-landing"]';
+const LANDING_LINE = `${LANDING} [data-slot="join-prompt-sheet-landing-line"]`;
+const LANDING_DETAIL = `${LANDING} [data-slot="join-prompt-sheet-landing-detail"]`;
+/** The durable receipt a landing leaves in the transcript. */
+const JOIN_RECEIPT = '[data-slot="join-receipt-block"]';
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 const lensRow = (dash: string): string =>
@@ -113,22 +119,16 @@ const QUIET_DASH = "at0445-quiet";
 /** The checkout whose built binaries the fixture drives. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
-/** What Tier 0 greps for, and what a base commit can take away. */
-const CONFIG_GREEN = '[tugtool.dash]\nverify_tier0 = ["true"]\n';
-const CONFIG_RED = '[tugtool.dash]\nverify_tier0 = ["false"]\n';
 
 let scratch = "";
+let boundWorktree = "";
 let dataRoot = "";
 let fixtureDir = "";
 let cli: { binaryRoot?: string; env?: Record<string, string> } = {};
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  const base = makeDashScratchRepo({
-    prefix: "at0445",
-    checkout: CHECKOUT,
-    files: { ".tugtool/config.toml": CONFIG_GREEN },
-  });
+  const base = makeDashScratchRepo({ prefix: "at0445", checkout: CHECKOUT });
   scratch = base.repo;
   dataRoot = base.dataRoot;
   cli = base.cli;
@@ -137,6 +137,7 @@ beforeAll(() => {
   // base or with the other. The arc they walk is the quiet one — reconcile,
   // check, ready — which is exactly the state the prompt asks about.
   const bound = createDash(scratch, DASH, "at0445 bound-dash fixture", cli);
+  boundWorktree = bound.worktree;
   writeFileSync(join(bound.worktree, "bound.txt"), "at0445 the bound dash's file\n");
   commitRound(scratch, DASH, "at0445(round): the bound dash's work", cli);
 
@@ -356,14 +357,17 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
           "--get",
           `branch.tugdash/${DASH}.tugjoinprompted`,
         ).trim();
-        expect(mark, "the dismissal is a fact about the dash").toBe("clean");
+        expect(
+          mark,
+          "the dismissal names the dash head it declined, so a later round is a new question",
+        ).toBe(git(scratch, "rev-parse", `tugdash/${DASH}`).trim());
         note("at0445 dismissed: the ask went down and the mark went in");
 
         // ── The base moves, and the ask stays down ────────────────────────
-        // Everything the request id is built from changes: the base sha moves,
-        // the dash is reconciled again, the candidate is rebuilt, and Tier 0
-        // runs again over a genuinely different tree. The one thing that does
-        // not change is the *decision* — and that is what the policy keys on.
+        // Everything the request id is built from changes but one: the base
+        // sha moves, the dash is reconciled again, the candidate is rebuilt.
+        // The dash head does not move — and that is what the policy keys on,
+        // because the same work reconciled again is not a new question.
         writeFileSync(join(scratch, "base-move.txt"), "at0445 the base moved\n");
         git(scratch, "add", "-A");
         git(scratch, "commit", "-m", "at0445: the base moves under a dismissed ask");
@@ -372,13 +376,15 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
         await registerReaches(app, DASH, "ready", 240000);
         expect(
           await promptAppearsWithin(app, 15000),
-          "a same-decision base move re-reconciles in silence",
+          "a base move under an unchanged dash head re-reconciles in silence",
         ).toBe(false);
         note("at0445 quiet: the base moved, the arc re-ran, and nothing asked again");
 
-        // ── The decision changes, and the ask comes back ──────────────────
-        // Tier 0 stops passing. That is a different question — a dismissal of
-        // "this builds, join it?" is not an answer to "this does not build".
+        // ── A new round, and the ask comes back ──────────────────────────
+        // The dash head moves. That is a different question — a dismissal at
+        // one milestone is not an answer about the work that came after it,
+        // which is the failure this policy was written for: a run that walked
+        // four milestones asked once and went silent for the rest.
         //
         // A draft goes in first, so the next ask can be read for the other
         // half of the provenance rule. It is the NEXT ask rather than the
@@ -405,10 +411,12 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
           ],
           { cwd: scratch, binaryRoot: cli.binaryRoot, env: cli.env },
         );
-        writeFileSync(join(scratch, ".tugtool", "config.toml"), CONFIG_RED);
-        git(scratch, "add", "-A");
-        git(scratch, "commit", "-m", "at0445: the joined tree stops building");
-        await registerReaches(app, DASH, "checks-red", 300000);
+        writeFileSync(
+          join(boundWorktree, "bound.txt"),
+          "at0445 the bound dash keeps working\n",
+        );
+        commitRound(scratch, DASH, "at0445(round): work the user has not been asked about", cli);
+        await registerReaches(app, DASH, "ready", 300000);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROMPT)}) !== null`,
           { timeoutMs: 90000 },
@@ -417,9 +425,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
           `(document.querySelector(${JSON.stringify(PROMPT_QUESTION)})?.textContent || "")`,
         );
         note(`at0445 re-asked: ${JSON.stringify(reasked)}`);
-        expect(reasked, "the new ask is about the new decision").toContain(
-          "does not build",
-        );
+        expect(reasked, "the new ask is about the new state").toContain(DASH);
         const drafted = await app.evalJS<string>(
           `(document.querySelector('${PROMPT} [data-slot="join-prompt-sheet-message"]')?.textContent || "")`,
         );
@@ -473,6 +479,65 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
           ).exitCode,
           "and nothing was ever dismissed on it, because nothing was ever asked",
         ).not.toBe(0);
+
+        // ── "Join now" ────────────────────────────────────────────────────
+        // The half of the decision the rest of this file never presses. The
+        // sheet the user agreed in is where the join then plays: it does not
+        // dismiss on the press, it narrates, and it settles naming what it
+        // did. A sheet that closed here would put the decision and its
+        // consequence on two different surfaces.
+        await revealAndClick(app, promptOption("Join now"));
+        await revealAndClick(app, PROMPT_SUBMIT);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(LANDING)}) !== null`,
+          { timeoutMs: 60000 },
+        );
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(PROMPT_SUBMIT)}) === null`,
+          ),
+          "the question is gone — the same sheet is now the progress surface",
+        ).toBe(true);
+
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(LANDING)})?.getAttribute("data-state") || "") === "joined"`,
+          { timeoutMs: 120000 },
+        );
+        const settled = await app.evalJS<{ line: string; detail: string }>(
+          `({
+             line: (document.querySelector(${JSON.stringify(LANDING_LINE)})?.textContent || ""),
+             detail: (document.querySelector(${JSON.stringify(LANDING_DETAIL)})?.textContent || ""),
+           })`,
+        );
+        note(`at0445 settled: ${JSON.stringify(settled)}`);
+        expect(settled.line, "the settled sheet names the dash it landed").toContain(DASH);
+        expect(
+          settled.detail,
+          "and the outcome's own words, not a bare status word",
+        ).not.toBe("");
+
+        // It closes itself once it has been read, rather than resting forever
+        // on a decision nobody has anything left to make about it.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(LANDING)}) === null`,
+          { timeoutMs: 30000 },
+        );
+
+        // And the landing left its durable trace. This is the whole point of
+        // threading the session id through the answer: before it, a join
+        // agreed to in the sheet wrote no transcript row at all, so the one
+        // record of the act lived on rows that unmount when the dash entry
+        // goes.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(JOIN_RECEIPT)}) !== null`,
+          { timeoutMs: 60000 },
+        );
+        const receipt = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(JOIN_RECEIPT)})?.textContent || "")`,
+        );
+        note(`at0445 receipt: ${JSON.stringify(receipt.slice(0, 200))}`);
+        expect(receipt, "the receipt names the dash that landed").toContain(DASH);
+        note("at0445 joined: the sheet narrated it, settled on it, and left a receipt");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

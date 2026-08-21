@@ -1553,15 +1553,13 @@ fn clear_candidate_marks(repo: &Path, name: &str) {
 /// Drop a candidate and everything that described it, as one act.
 ///
 /// The ref and the marks are written and cleared as a group so a half-written
-/// set cannot outlive a candidate — a stale verification verdict would report
-/// a green about a tree nobody built, and a stale report would describe a
-/// resolution nobody made.
+/// set cannot outlive a candidate — a stale report would describe a resolution
+/// nobody made. The verdict sweep rides along for the branches an older build
+/// left one on.
 pub fn clear_candidate(repo: &Path, name: &str) {
     delete_candidate_ref(repo, name);
     clear_candidate_marks(repo, name);
     crate::verify::clear_verification(repo, name);
-    // The "join it anyway" decision was about the tree that just went away.
-    crate::verify::clear_override(repo, name);
 }
 
 /// Whether the anchored candidate still describes the current heads.

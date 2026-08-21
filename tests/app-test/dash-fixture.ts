@@ -490,7 +490,7 @@ export function commitRound(
  * Declare a dash `built` — which is what starts the join arc.
  *
  * The pilot acts on a `built` dash and on nothing else: reconciling it with its
- * base and running the project's Tier 0 over the result, unprompted. So a
+ * base, unprompted. So a
  * fixture that wants the machine to do its work says so here, and then asserts
  * with no gesture at all. A fixture that wants a dash left alone simply does
  * not call this.
@@ -683,26 +683,24 @@ export function bindDash(
 /**
  * Answer the join prompt in advance, so it never raises.
  *
- * Binding a dash for real ([D147]) hands it to the pilot, and a pilot that
- * reaches a settled verdict raises the join modal on the bound card. That
- * modal takes the card's sheet host — so a test about the **shade** (the dash
- * lane, the join face, a press in the composer) finds the host occupied and
- * every wait on it times out.
+ * Binding a dash for real ([D147]) hands it to the pilot, and a reconciled
+ * dash raises the join modal on the bound card. That modal takes the card's
+ * sheet host — so a test about the **shade** (the dash lane, the join face, a
+ * press in the composer) finds the host occupied and every wait on it times
+ * out.
  *
  * This writes the same durable dismissal "Not yet" writes:
- * `branch.tugdash/<name>.tugjoinprompted`. The re-ask policy compares
- * decisions, so the value must be the one this test's verdict will settle on —
- * `clean` for a tree that builds, `red` for one that does not.
+ * `branch.tugdash/<name>.tugjoinprompted`. The re-ask policy compares the
+ * **dash head**, so the value is the head as it stands — which means a fixture
+ * that lands another round after calling this will be asked again, correctly.
+ * Call it after the last round, or call it again.
  *
  * at0445 is the file that *is* about the prompt; everywhere else it is an
  * interruption the fixture should have already answered.
  */
-export function silenceJoinPrompt(
-  projectDir: string,
-  name: string,
-  decision: "clean" | "red" = "clean",
-): void {
-  gitRetry(projectDir, "config", `branch.tugdash/${name}.tugjoinprompted`, decision);
+export function silenceJoinPrompt(projectDir: string, name: string): void {
+  const head = gitRetry(projectDir, "rev-parse", `tugdash/${name}`).trim();
+  gitRetry(projectDir, "config", `branch.tugdash/${name}.tugjoinprompted`, head);
 }
 
 /**
@@ -1023,16 +1021,6 @@ export interface JoinScratchOpts {
   fork: string;
   base: string;
   dashBody: string;
-  /**
-   * The project's declared Tier 0 command ([P11]).
-   *
-   * Every join fixture declares one and none declares a Tier 1: a fixture join
-   * runs inside an app-test that already holds the machine-wide apptest gate,
-   * so a real tier-1 command would queue on the gate its own run is holding.
-   * The tier-0 command is a sentinel grep — seconds cheap, no toolchain, and
-   * able to go genuinely red, which is what a red-path fixture needs.
-   */
-  verifyTier0: string;
   /** The resolver stub's script body, with `$1` the workshop path. */
   resolver: string;
   /**
@@ -1040,9 +1028,9 @@ export interface JoinScratchOpts {
    * reconcile.
    *
    * The clean join is its own arc now, not the absence of one: entering join
-   * mode resolves it, the one-shot squash anchors a candidate, and the declared
-   * Tier 0 judges that candidate — so a fixture that wants a *joinable* dash
-   * without a conflict asks for one here rather than skipping the pipeline.
+   * mode resolves it and the one-shot squash anchors a candidate — so a
+   * fixture that wants a *joinable* dash without a conflict asks for one here
+   * rather than skipping the pipeline.
    */
   cleanMerge?: boolean;
   /** An optional merge-driver stub body, for an arc that needs a ladder-clean candidate. */
@@ -1059,8 +1047,8 @@ export interface JoinScratchOpts {
 }
 
 /**
- * Build a scratch repository holding one genuine conflict, a declared Tier 0,
- * and a scripted resolver.
+ * Build a scratch repository holding one genuine conflict and a scripted
+ * resolver.
  *
  * A repository per fixture rather than the developer's checkout, and that is
  * safety rather than tidiness: a join that succeeds squashes its dash onto the
@@ -1072,10 +1060,7 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
   const base = makeDashScratchRepo({
     prefix: opts.prefix,
     checkout: opts.checkout,
-    files: {
-      [opts.file]: opts.fork,
-      ".tugtool/config.toml": `[tugtool.dash]\nverify_tier0 = ["${opts.verifyTier0}"]\n`,
-    },
+    files: { [opts.file]: opts.fork },
   });
   const { repo, dataRoot } = base;
   const stubDir = mkdtempSync(

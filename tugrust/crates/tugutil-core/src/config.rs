@@ -33,25 +33,6 @@ pub struct DashConfig {
     #[serde(default)]
     pub post_create: Vec<String>,
 
-    /// Shell commands that answer "does the joined tree build?" — Tier 0 of a
-    /// join's verification, run from the workshop worktree with the candidate
-    /// checked out. The first non-zero exit is the verdict.
-    ///
-    /// Declared per project rather than known by tugdash-core, because `cargo`,
-    /// `bunx`, and a test selector exist in *this* repository and in no
-    /// necessary other. A project that declares none is verified green with a
-    /// note saying so — an unanswerable question is not a failure.
-    #[serde(default)]
-    pub verify_tier0: Vec<String>,
-
-    /// Shell commands that answer "does the joined tree still pass its tests?"
-    /// — Tier 1, run once against the candidate rather than on every resolver
-    /// iteration, because a test corpus is expensive where a build is cheap.
-    ///
-    /// A fixture repository deliberately declares none: a Tier 1 run inside an
-    /// app-test would queue on the machine-wide gate that very run is holding.
-    #[serde(default)]
-    pub verify_tier1: Vec<String>,
 }
 
 impl Config {

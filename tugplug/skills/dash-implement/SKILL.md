@@ -102,11 +102,23 @@ Pragmatics:
 - If a step's verification fails, fix it before committing. Never commit red.
 - When you reach the end of the requested selection, stop walking and report the ledger state — which steps are `done` and which remain.
 
-### 3. Draft the join, and offer a build
+### 3. Verify the fit, draft the join, offer a build
 
 **The join arc has already armed itself.** When the run's final declared step went `done` — or, on a plan-less dash, when the round committed onto a clean worktree — the server derived that this dash is joinable and started reconciling it with its base. Nothing in this phase is what makes that happen, and nothing you forget to do here can stop it. That is the point: an endgame that depended on a skill remembering a chore was an endgame that went dark the first time a run ended early.
 
-So this phase has exactly **one obligation** — write the dash's **join draft**, the squash message the user's join lands with. Compose it from the run's rounds (a subject line naming the plan's deliverable, then a terse digest of what the rounds landed), and write it:
+**First, verify the fit** ([D149]). Every step's checkpoint ran against the dash's own tree — the sandbox it forked from. The tree a join actually lands is the dash *replayed onto the live base*, and nothing has tested that yet:
+
+```bash
+tugutil dash replay <name>
+```
+
+- **`Replayed`** / **`Recorded`** — the tree moved, so verify it, scoped to what the diff touches: `sh scripts/verify-fit.sh <base-sha> <head-sha>` in this repo, or the project's equivalent.
+- **`Current`** — the base never moved. The last step's checkpoint already verified these exact bytes, so **run nothing** and say so. This is the common case and it costs seconds.
+- **`Conflicted`** — the replay names the round it stopped at. Resolve it in the worktree as ordinary work, commit the fix as a round, then verify as above.
+
+Do not re-run the sweep. A checkpoint that passed is spent; the ending's job is the fit, not a second reading of the steps.
+
+**Then the phase's one obligation** — write the dash's **join draft**, the squash message the user's join lands with. Compose it from the run's rounds (a subject line naming the plan's deliverable, then a terse digest of what the rounds landed), and write it:
 
 ```bash
 tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
@@ -116,7 +128,7 @@ tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
 
 Write it even on a run that stops mid-plan: the draft is what the prompt shows the user when it asks, and a dash with no draft offers to land its branch description — or, with neither, the words `Dash work`. The prompt says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
 
-Then point the user at the join gesture: **`/join <name>`** in the Session card previews the merge and lands the squash with that draft as its message. Say it as narration — the prompt may well have raised itself already.
+**Then say what happened and stop.** The ending narration is three things: what was built, that the fit is verified (or that the replay reported `Current`, so it was already), and that the draft is written. At most add *"the join prompt will raise momentarily."* **Do not print a `/join <name>` chip.** The dash is bound and armed; the prompt raises itself on this card, and a chip alongside it teaches the user that nothing happens until they type — which is the belief this whole arc exists to retire ([D147]).
 
 **Offer a build when the work wants one.** A change the user will want to *see* — anything in tugdeck, tugapp, or a surface with a face — is worth building and vetting before the join:
 
@@ -147,7 +159,16 @@ Loop until the user is satisfied. A follow-up "now do Steps 6-8" is just another
 
 ### 5. Join (the user's join gesture)
 
-The join is the user's: **`/join <name>`** in the Session card previews the merge (in-memory `git merge-tree` — nothing is touched until it's clean) and squash-lands the dash into its base with the join draft you wrote in phase 3 as the message. Conflicts route into the shade's resolve flow. Do not run the join yourself, and do not merge on the user's behalf — your part ends at the draft. If the user reports the join blocked on base dirt, the preflight is intersection-aware: only base changes overlapping the dash's files block; unrelated base dirt should be committed or stashed first.
+**The prompt is the door.** A modal raises on the bound card — *Join now*, *Review first*, *Not yet* — and *Join now* squash-lands the dash with the draft you wrote in phase 3, narrating the beats in the sheet itself and settling on the outcome. The user answers it; you do not. Your part ended at the draft.
+
+**`/join <name>` in the Session card is the escape hatch**, the same join by hand, previewing the merge in memory before anything is touched. Reach for it only in the cases below.
+
+**The escapes.** Print the chip in exactly two situations, because in both of them the prompt genuinely cannot raise:
+
+- **The dash is unbound by choice.** The prompt only raises on a card bound to the dash, and an unbound dash is never even reconciled. If the user has declined to bind one, `/join <name>` is their only path.
+- **A legacy dash** with no declared run and no mark — nothing arms it, so nothing will ask.
+
+Everywhere else the chip is noise at best and misinformation at worst. If the user reports the join blocked on base dirt, the preflight is intersection-aware: only base changes overlapping the dash's files block; unrelated base dirt should be committed or stashed first.
 
 ## Guardrails
 

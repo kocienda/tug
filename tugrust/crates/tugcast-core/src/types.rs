@@ -632,13 +632,6 @@ pub struct DashJoinState {
     /// when it says this, so the state demotes itself rather than lying.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stale_note: Option<String>,
-    /// What the project's own checks said about the joined tree ([P04]).
-    ///
-    /// Anchored to `(base_sha, candidate_sha)`, so it caches soundly and
-    /// self-demotes the moment either head moves — absent means nobody has
-    /// asked about *this* candidate, which is not the same as green.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub verification: Option<DashJoinVerification>,
     /// What the resolver did and why, for the candidate that stands ([P10]).
     ///
     /// Anchored to the candidate sha the same way the verdict is, so a report
@@ -670,17 +663,10 @@ pub struct DashJoinState {
     /// absence — the server knows, so the wire should say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<String>,
-    /// The candidate a standing "join it anyway" decision names.
-    ///
-    /// Self-demoting like every other candidate fact: reported only while it
-    /// names the candidate that stands, so a re-resolve retires the decision
-    /// rather than carrying it onto a tree nobody agreed to.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub override_for: Option<String>,
     /// The decision the machine is waiting on a person for (Spec S04, [P06]).
     ///
-    /// Raised once the pilot's work is done and a verdict stands, cleared by an
-    /// answer. Durable and derived rather than pushed, for the same reason
+    /// Raised once the pilot's work is done and a candidate stands, cleared by
+    /// an answer. Durable and derived rather than pushed, for the same reason
     /// [`DashJoinQuestion`] is: an ask that a reload can lose is an ask that
     /// leaves a built dash sitting unmentioned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -689,23 +675,20 @@ pub struct DashJoinState {
 
 /// The one decision the join arc asks a person for (Spec S04, [P06]).
 ///
-/// Everything before it is the machine's: the reconcile, the candidate, the
-/// build over the joined tree. This is where that work stops and a person
-/// decides, and it is deliberately the only place in the arc that does.
+/// Everything before it is the machine's: the reconcile and the candidate it
+/// produced. This is where that work stops and a person decides, and it is
+/// deliberately the only place in the arc that does.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashJoinPrompt {
     /// Identifies this ask, so an answer cannot resolve a different one.
     ///
-    /// Derived rather than random: `<dash>:<base_sha>:<dash_head>:<decision>`.
-    /// The derivation is what makes it stable across recomputes — the prompt is
+    /// Derived rather than random: `<dash>:<base_sha>:<dash_head>`. The
+    /// derivation is what makes it stable across recomputes — the prompt is
     /// re-derived from durable state on every one, so an id that changed each
     /// time would invalidate the answer the user was in the middle of giving —
-    /// and what makes it change the moment any of those four facts does, so an
+    /// and what makes it change the moment any of those three facts does, so an
     /// answer to the old question cannot resolve the new one.
     pub request_id: String,
-    /// `"clean"` or `"red"` — what the verdict says, and what the re-ask policy
-    /// compares against ([P07]).
-    pub decision: String,
     pub base_sha: String,
     pub dash_head: String,
     /// The question, composed server-side so the durable fact and the rendered
@@ -764,8 +747,6 @@ pub struct DashJoinQuestionOption {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DashJoinReport {
     pub files: Vec<DashJoinReportFile>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub iterations: Vec<DashJoinReportIteration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<DashJoinReportQuestion>,
     #[serde(default)]
@@ -788,15 +769,6 @@ pub struct DashJoinReportFile {
     pub audit: Option<String>,
 }
 
-/// One pass of the Tier 0 loop, as the resolver recorded it — what keeps the
-/// account honest about retries ([P05]).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinReportIteration {
-    pub tier0: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
-
 /// The escalation the resolver raised and the answer it was given, kept so the
 /// question survives past the dialog that answered it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -804,29 +776,6 @@ pub struct DashJoinReportQuestion {
     pub question: String,
     #[serde(default)]
     pub answer: String,
-}
-
-/// A candidate's verification verdict, as the face reads it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinVerification {
-    /// `unrun` | `running` | `green` | `red` — the build tier.
-    pub tier0: String,
-    /// `unrun` | `running` | `green` | `red` — the test tier. On the wire as
-    /// durable branch state; nothing derives a verdict from it, because Tier 1
-    /// does not run at join time.
-    pub tier1: String,
-    /// The failing commands, as sentences. A red that cannot say why is the
-    /// silence the face exists to prevent, so these ride with the verdict.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub failures: Vec<String>,
-    /// What qualifies the verdict — "project declares no verification", a
-    /// selector exit that forced a fallback, tests skipped as `@foreground`.
-    /// A green with notes is a green with exclusions, and says so.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub notes: Vec<String>,
-    /// The two commits this verdict describes.
-    pub base_sha: String,
-    pub candidate_sha: String,
 }
 
 /// One reason a landing would be refused.
@@ -1651,20 +1600,12 @@ mod tests {
                 assert_eq!(*rounds, 3);
                 assert!(!worktree_dirty);
                 assert_eq!(files.len(), 1);
-                // The verification verdict is the same bytes the tugdeck suite
-                // reads off this fixture — drift on either side of the mirror
-                // fails one of the two.
-                let v = join
-                    .as_ref()
-                    .and_then(|j| j.verification.as_ref())
-                    .expect("the golden dash carries a verification verdict");
-                assert_eq!(v.tier0, "green");
-                assert_eq!(v.tier1, "red");
-                assert_eq!(v.failures.len(), 1);
-                assert!(v.notes[0].contains("@foreground"));
+                // The candidate is the same bytes the tugdeck suite reads off
+                // this fixture — drift on either side of the mirror fails one
+                // of the two.
                 assert_eq!(
-                    Some(&v.candidate_sha),
-                    join.as_ref().and_then(|j| j.candidate.as_ref())
+                    join.as_ref().and_then(|j| j.candidate.as_deref()),
+                    Some("9f1c2d3e4b5a60718293a4b5c6d7e8f901234567")
                 );
             }
             other => panic!("expected dash entry, got {other:?}"),

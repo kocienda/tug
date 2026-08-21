@@ -153,13 +153,11 @@ describe("every refusal points at the composer, or at a wait ([P09])", () => {
     // Not an exemption from [L31] — the reason there is nothing to point at is
     // exactly why the sentence has to carry the whole answer.
     //
-    // `unverified` and `verifying` joined this set when the pilot took over:
-    // the joined tree is built at `built` without a gesture, so an unrun
-    // verdict is a run about to happen. `outcome` joined it when the shade was
-    // disarmed — a conflicted dash is the pilot's to reconcile, a blocked one
-    // is cleared outside the app, and each blocker carries its own act
-    // sentence where the table used to carry a slot.
-    for (const reason of ["turn", "pending", "outcome", "unverified", "verifying"] as const) {
+    // `outcome` joined it when the shade was disarmed — a conflicted dash is
+    // the pilot's to reconcile, a blocked one is cleared outside the app, and
+    // each blocker carries its own act sentence where the table used to carry
+    // a slot.
+    for (const reason of ["turn", "pending", "outcome"] as const) {
       expect(REFUSAL_REACHABILITY[reason].slot).toBeNull();
       expect(REFUSAL_REACHABILITY[reason].where).toBe("time");
     }

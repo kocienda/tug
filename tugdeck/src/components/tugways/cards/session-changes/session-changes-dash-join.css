@@ -181,41 +181,14 @@
    before it can land. It reads as evidence under the report eyebrow now —
    the tier line fronts the verdict and the tones carry it, so the panel
    needs no framing rule of its own. */
-.session-changes-dash-join-verdict {
+.session-changes-dash-join-account {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--tug-space-2xs);
 }
 
-/* The verdict as one evidence line: the shield, then the checks' own account
-   of the tree that would land. Tone follows the verdict through the
-   attribute — never through React state ([L06]). */
-.session-changes-dash-join-tier {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-sm);
-  line-height: 1.5;
-  color: var(--tug7-element-global-text-normal-default-rest);
-}
-
-.session-changes-dash-join-tier svg {
-  flex: none;
-}
-
-.session-changes-dash-join-tier[data-verdict="green"] svg {
-  color: var(--tug7-element-tone-icon-normal-success-rest);
-}
-
-.session-changes-dash-join-tier[data-verdict="red"] svg {
-  color: var(--tug7-element-tone-icon-normal-danger-rest);
-}
-
-.session-changes-dash-join-report,
-.session-changes-dash-join-failures,
-.session-changes-dash-join-verdict-notes {
+.session-changes-dash-join-report {
   align-self: stretch;
   margin: 0;
   padding: 0;
@@ -259,7 +232,7 @@
    indent rather than adding to it, so the advisory keeps the column its
    siblings are in and the bar reads as a mark on the line, not a second level
    of nesting. */
-.session-changes-dash-join-verdict-notes > li {
+.session-changes-dash-join-account-notes > li {
   border-inline-start: 2px solid var(--tug7-element-tone-icon-normal-caution-rest);
   padding-inline-start: calc(var(--tug-space-sm) - 2px);
   color: var(--tug7-element-global-text-normal-default-rest);

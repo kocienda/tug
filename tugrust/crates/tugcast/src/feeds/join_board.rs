@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
     DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinPrompt, DashJoinPromptOption,
-    DashJoinQuestion, DashJoinReport, DashJoinState, DashJoinVerification, DashResolvedFile,
+    DashJoinQuestion, DashJoinReport, DashJoinState, DashResolvedFile,
 };
 use tugdash_core::ops::{self, DashDetail};
 use tugdash_core::resolve::{self, CandidateStatus};
@@ -184,7 +184,6 @@ pub fn join_state_for(
         // round would withhold the conversion until the next recompute.
         let question = standing_question(repo_root, detail);
         let stuck = standing_stuck(repo_root, detail);
-        let override_for = standing_override(repo_root, name, candidate.as_deref());
         // The probe's answer would not be displayed, so it is not paid for.
         return DashJoinState {
             phase: "blocked".to_string(),
@@ -194,12 +193,10 @@ pub fn join_state_for(
             candidate,
             resolved: Vec::new(),
             stale_note,
-            verification: None,
             report: None,
             stuck,
             question,
             run,
-            override_for,
             // A blocked dash is not waiting on a decision — it is waiting on an
             // act, elsewhere, that each blocker names.
             prompt: None,
@@ -225,19 +222,15 @@ pub fn join_state_for(
         "previewed"
     };
 
-    let verification =
-        standing_verification(repo_root, detail, candidate.as_deref(), run.is_none());
     let report = candidate
         .as_deref()
         .and_then(|sha| standing_report(repo_root, name, sha));
     let question = standing_question(repo_root, detail);
     let stuck = standing_stuck(repo_root, detail);
-    let override_for = standing_override(repo_root, name, candidate.as_deref());
     let prompt = standing_prompt(
         repo_root,
         detail,
-        verification.as_ref(),
-        run.is_none() && question.is_none() && stuck.is_none(),
+        candidate.is_some() && run.is_none() && question.is_none() && stuck.is_none(),
     );
 
     DashJoinState {
@@ -248,12 +241,10 @@ pub fn join_state_for(
         candidate,
         resolved,
         stale_note,
-        verification,
         report,
         stuck,
         question,
         run,
-        override_for,
         prompt,
     }
 }
@@ -289,21 +280,23 @@ fn prompt_options() -> Vec<DashJoinPromptOption> {
 /// Everything this reads is already computed by the caller, with one exception:
 /// the two head shas, which cost a `rev-parse` each. They are paid for only in
 /// the narrow branch that is actually going to ask — a dash that is join-ready,
-/// with a candidate, with a settled Tier 0 verdict, with nothing running and nothing
-/// else standing in the way — and `cached_probe` has already paid the same two
-/// on the path that reaches here, so in practice the answers are warm.
+/// with a candidate, with nothing running and nothing else standing in the way
+/// — and `cached_probe` has already paid the same two on the path that reaches
+/// here, so in practice the answers are warm. The dash head is read one gate
+/// earlier than the base sha, because the dismissal is keyed on it.
+///
+/// **Reconcile-clean is the whole gate.** The ask used to wait on a settled
+/// verdict over the candidate's tree, which put a build between the user and
+/// the dialog. The run's ending verifies the tree that lands, so a candidate
+/// standing on a ready dash is a question, immediately.
 ///
 /// **The re-ask policy is the last gate, deliberately** ([P07]). The prompt is
 /// re-derived from durable state on every recompute, so what stops a dismissed
 /// ask from reappearing on the very next one is the mark comparison here — and
-/// it compares *decisions*, not shas, which is what makes an ordinary base move
-/// silent while a green that goes red still interrupts.
-fn standing_prompt(
-    repo_root: &Path,
-    detail: &DashDetail,
-    verification: Option<&DashJoinVerification>,
-    quiet: bool,
-) -> Option<DashJoinPrompt> {
+/// it compares the *dash head*, which is what makes an ordinary base move
+/// silent while a new round still interrupts. Declining the ask at one
+/// milestone therefore says nothing about the next one.
+fn standing_prompt(repo_root: &Path, detail: &DashDetail, quiet: bool) -> Option<DashJoinPrompt> {
     // The arc's decision belongs at the end of the arc. A dash that has not
     // finished the work somebody asked it for is still being worked, and there
     // is nothing to decide about. Readiness is derived rather than declared
@@ -312,49 +305,33 @@ fn standing_prompt(
     if !detail.join_ready || !quiet {
         return None;
     }
-    let verification = verification?;
-    // Only a settled Tier 0 is a decision. `unrun` and `running` are the
-    // pilot's work still in progress, and asking about a tree nobody has built
-    // yet would be asking the user to guess.
-    let decision = match verification.tier0.as_str() {
-        "green" => "clean",
-        "red" => "red",
-        _ => return None,
-    };
     let name = detail.name.as_str();
-    // The dismissal is about the decision, so this is where a dismissed ask
-    // stays dismissed — and where a changed one comes back.
-    if verify::read_prompt_mark(repo_root, name).as_deref() == Some(decision) {
+    let dash_head = ops::rev_parse(repo_root, &detail.branch).ok()?;
+    // The dismissal is about the dash head, so this is where a dismissed ask
+    // stays dismissed — through any number of base moves — and where a new
+    // round brings it back.
+    if verify::read_prompt_mark(repo_root, name).as_deref() == Some(dash_head.as_str()) {
         return None;
     }
     let base_sha = ops::rev_parse(repo_root, &detail.base).ok()?;
-    let dash_head = ops::rev_parse(repo_root, &detail.branch).ok()?;
-    // Readiness, not the build: a dash arms from a finished selection or a
-    // landed round, and most never run a debug build at all. "The joined tree
-    // builds" stays — that half is Tier 0's own fact.
-    let question = if decision == "clean" {
-        format!(
-            "{name} is ready, reconciled with {}, and the joined tree builds — join it?",
-            detail.base
-        )
-    } else {
-        format!(
-            "{name} is ready and reconciled with {}, but the joined tree does not build — join it anyway?",
-            detail.base
-        )
-    };
+    // Readiness and reconciliation, and nothing about a build: a dash arms from
+    // a finished selection or a landed round, and what the joined tree does was
+    // asked at the end of the run.
+    let question = format!(
+        "{name} is ready and reconciled with {} — join it?",
+        detail.base
+    );
     // What the join would land with, read on the ask branch only ([P05]) — one
     // config read and one draft lookup, paid where a person is about to be
     // shown the answer.
     let (message, message_source) = ops::landing_message_preview(repo_root, name, &detail.branch);
     Some(DashJoinPrompt {
-        // The four facts the ask is about, joined. Stable across recomputes
+        // The three facts the ask is about, joined. Stable across recomputes
         // because every one of them is, which is what lets an answer given
         // several seconds after the ask still match it — and distinct the
         // moment any of them moves, which is what stops an answer to the old
         // question from resolving the new one.
-        request_id: format!("{name}:{base_sha}:{dash_head}:{decision}"),
-        decision: decision.to_string(),
+        request_id: format!("{name}:{base_sha}:{dash_head}"),
         base_sha,
         dash_head,
         question,
@@ -362,18 +339,6 @@ fn standing_prompt(
         message_source: message_source.as_str().to_string(),
         options: prompt_options(),
     })
-}
-
-/// The standing "join it anyway" decision, while it still names the candidate
-/// that stands.
-///
-/// Withheld rather than cleared when it does not: `clear_candidate` is what
-/// collects it, at the same moment it collects the verdict the decision was
-/// made against — one act, so a half-cleared set cannot leave a stale override
-/// waving a red candidate through.
-fn standing_override(repo_root: &Path, name: &str, candidate: Option<&str>) -> Option<String> {
-    let standing = verify::read_override(repo_root, name)?;
-    (Some(standing.as_str()) == candidate).then_some(standing)
 }
 
 /// The escalation a resolve is blocked on, while it still describes the dash
@@ -446,47 +411,6 @@ fn standing_stuck(repo_root: &Path, detail: &DashDetail) -> Option<String> {
     resolve::read_stuck(repo_root, detail.name.as_str(), &head)
 }
 
-/// The candidate's verdict, but only while it still describes these two heads.
-///
-/// A verdict is a pure function of `(base_sha, candidate_sha)`, so it caches
-/// against that pair — and the instant either moves it stops being stale data
-/// and becomes a green about a tree nobody built. It is therefore *cleared*
-/// here rather than merely withheld, exactly as a stale candidate is: a fact
-/// the board will not report is a fact that must not survive to be read by
-/// something else.
-/// `may_clear` is false while a run holds the dash: the verdict a live run is
-/// writing must not be deleted by a recompute that happens to land between its
-/// `running` write and its answer.
-fn standing_verification(
-    repo_root: &Path,
-    detail: &DashDetail,
-    candidate: Option<&str>,
-    may_clear: bool,
-) -> Option<DashJoinVerification> {
-    let name = detail.name.as_str();
-    let fact = verify::read_verification(repo_root, name)?;
-    let base_sha = ops::rev_parse(repo_root, &detail.base).ok()?;
-    let Some(candidate) = candidate else {
-        if may_clear {
-            verify::clear_verification(repo_root, name);
-        }
-        return None;
-    };
-    if !fact.describes(&base_sha, candidate) {
-        if may_clear {
-            verify::clear_verification(repo_root, name);
-        }
-        return None;
-    }
-    Some(DashJoinVerification {
-        tier0: fact.tier0.as_str().to_string(),
-        tier1: fact.tier1.as_str().to_string(),
-        failures: fact.failures,
-        notes: fact.notes,
-        base_sha: fact.base_sha,
-        candidate_sha: fact.candidate_sha,
-    })
-}
 
 /// The conflict probe, from cache when the head pair is unmoved.
 fn cached_probe(repo_root: &Path, detail: &DashDetail) -> Option<CachedProbe> {
@@ -770,63 +694,6 @@ mod tests {
         assert!(probe_runs() > before, "and the probe runs then");
     }
 
-    /// The verification verdict rides the join block while it describes these
-    /// two heads, and is **cleared** the moment either moves.
-    ///
-    /// Withholding a stale verdict would not be enough. It is a green about a
-    /// tree nobody built, and something else reading it back later — a face
-    /// after a reload, a gate — would believe it. The board drops it for the
-    /// same reason it drops a stale candidate.
-    #[test]
-    fn a_verdict_rides_the_join_block_until_a_head_moves() {
-        let temp = fixture();
-        let repo = temp.path();
-
-        // Resolve to a candidate the verdict can describe.
-        let resolved = tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
-        let candidate = resolved
-            .candidate_commit
-            .expect("the stub driver resolves it");
-        let base_sha = ops::rev_parse(repo, "main").unwrap();
-
-        verify::write_verification(
-            repo,
-            "demo",
-            &verify::Verification {
-                base_sha: base_sha.clone(),
-                candidate_sha: candidate.clone(),
-                tier0: verify::TierStatus::Green,
-                tier1: verify::TierStatus::Red,
-                failures: vec!["just app-test x.test.ts: 1 file failed".to_string()],
-                notes: vec!["1 test skipped as @foreground".to_string()],
-            },
-        )
-        .unwrap();
-
-        let state = compose(repo);
-        let v = state.verification.expect("the verdict rides the block");
-        assert_eq!(v.tier0, "green");
-        assert_eq!(v.tier1, "red");
-        assert_eq!(v.failures.len(), 1);
-        assert_eq!(v.notes.len(), 1);
-        assert_eq!(v.candidate_sha, candidate);
-
-        // Move the base. The candidate goes stale, and so does the verdict.
-        std::fs::write(repo.join("other.txt"), "moved\n").unwrap();
-        git(repo, &["add", "-A"]);
-        git(repo, &["commit", "-m", "base moves"]);
-
-        let after = compose(repo);
-        assert!(
-            after.verification.is_none(),
-            "a verdict about the old heads must not survive"
-        );
-        assert!(
-            verify::read_verification(repo, "demo").is_none(),
-            "and it is cleared, not merely withheld"
-        );
-    }
-
     /// A question nobody is waiting on becomes a stuck line quoting what was
     /// asked, and the question fact is gone afterwards.
     ///
@@ -1012,33 +879,14 @@ mod tests {
     /// The dash-log carries the stage and lives under the data dir, so it is
     /// redirected here. nextest runs one process per test, which is what makes
     /// that safe.
-    fn resolved_and_verified(repo: &Path, tier0: verify::TierStatus) -> String {
+    fn reconciled(repo: &Path) -> String {
         let data = Box::leak(Box::new(tempfile::tempdir().unwrap()));
         // SAFETY: single-threaded setup, and this process runs one test.
         unsafe {
             std::env::set_var("TUG_DATA_DIR", data.path());
         }
         let outcome = tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
-        let candidate = outcome.candidate_commit.clone().expect("candidate");
-        let base_sha = ops::rev_parse(repo, "main").unwrap();
-        verify::write_verification(
-            repo,
-            "demo",
-            &verify::Verification {
-                base_sha,
-                candidate_sha: candidate.clone(),
-                tier0,
-                tier1: verify::TierStatus::Unrun,
-                failures: if tier0 == verify::TierStatus::Red {
-                    vec!["cargo build: exited 101".to_string()]
-                } else {
-                    Vec::new()
-                },
-                notes: Vec::new(),
-            },
-        )
-        .unwrap();
-        candidate
+        outcome.candidate_commit.clone().expect("candidate")
     }
 
     #[test]
@@ -1050,11 +898,10 @@ mod tests {
         // nothing to decide about.
         assert!(compose(repo).prompt.is_none(), "a conflicted dash asks nothing");
 
-        resolved_and_verified(repo, verify::TierStatus::Green);
+        reconciled(repo);
         let asked = compose(repo)
             .prompt
-            .expect("a settled green on a ready dash asks — with no mark anywhere");
-        assert_eq!(asked.decision, "clean");
+            .expect("a reconciled ready dash asks — with no mark anywhere");
         assert!(
             asked.question.contains("demo") && asked.question.contains("main"),
             "the question names the dash and its base: {}",
@@ -1077,59 +924,54 @@ mod tests {
         );
     }
 
+    /// The two cases the old decision-keyed mark collapsed into one: a base
+    /// move is the same work reconciled again, and a new round is work the
+    /// user has never been asked about ([P02]).
     #[test]
-    fn a_verdict_still_being_computed_is_not_a_decision() {
+    fn a_dismissal_declines_one_head_not_the_dash() {
         let temp = fixture();
         let repo = temp.path();
-        resolved_and_verified(repo, verify::TierStatus::Running);
+        reconciled(repo);
+        let asked = compose(repo).prompt.expect("asked once");
+
+        // "Not yet" records the dash head it declined.
+        verify::write_prompt_mark(repo, "demo", &asked.dash_head).unwrap();
         assert!(
             compose(repo).prompt.is_none(),
-            "asking about a tree nobody has finished building is asking the \
-             user to guess"
-        );
-    }
-
-    #[test]
-    fn a_dismissed_decision_stays_dismissed_until_it_changes() {
-        let temp = fixture();
-        let repo = temp.path();
-        resolved_and_verified(repo, verify::TierStatus::Green);
-        let clean = compose(repo).prompt.expect("asked once");
-
-        // "Not yet" records the decision it declined.
-        verify::write_prompt_mark(repo, "demo", &clean.decision).unwrap();
-        assert!(
-            compose(repo).prompt.is_none(),
-            "the same decision does not ask twice — this is what stops the \
+            "the same state does not ask twice — this is what stops the \
              dialog from being trained into a reflex"
         );
 
-        // The tree stops building. That is a genuinely new question: what the
-        // user was about to land no longer works.
-        let candidate = tugdash_core::resolve::read_candidate(repo, "demo").expect("candidate");
-        let base_sha = ops::rev_parse(repo, "main").unwrap();
-        verify::write_verification(
-            repo,
-            "demo",
-            &verify::Verification {
-                base_sha,
-                candidate_sha: candidate,
-                tier0: verify::TierStatus::Red,
-                tier1: verify::TierStatus::Unrun,
-                failures: vec!["cargo build: exited 101".to_string()],
-                notes: Vec::new(),
-            },
-        )
-        .unwrap();
-        let red = compose(repo).prompt.expect("a changed decision asks again");
-        assert_eq!(red.decision, "red");
+        // The base moves and the dash reconciles again. Nothing about the work
+        // changed, so nothing is asked — the objection the old docstring
+        // raised, still honored.
+        std::fs::write(repo.join("f.txt"), "D\n").unwrap();
+        git(repo, &["commit", "-am", "main to D"]);
+        reconciled(repo);
+        assert!(
+            compose(repo).prompt.is_none(),
+            "a push to the base is not a new question"
+        );
+
+        // A new round on the dash is. This is the milestone case the field
+        // report found: declining at one milestone silenced every later one.
+        git(repo, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(repo.join("g.txt"), "r2\n").unwrap();
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "r2"]);
+        git(repo, &["switch", "-q", "main"]);
+        reconciled(repo);
+        let again = compose(repo).prompt.expect("a new round asks again");
+        assert_ne!(again.dash_head, asked.dash_head);
         assert_ne!(
-            red.request_id, clean.request_id,
-            "a different decision is a different ask, so an answer to the old \
+            again.request_id, asked.request_id,
+            "a different state is a different ask, so an answer to the old \
              one cannot resolve it"
         );
 
-        // Engagement clears the mark, and the next decision is fresh.
+        // Engagement clears the mark, and the next state is fresh.
+        verify::write_prompt_mark(repo, "demo", &again.dash_head).unwrap();
+        assert!(compose(repo).prompt.is_none());
         verify::clear_prompt_mark(repo, "demo");
         assert!(compose(repo).prompt.is_some());
     }
@@ -1138,7 +980,7 @@ mod tests {
     fn a_run_in_flight_holds_the_question() {
         let temp = fixture();
         let repo = temp.path();
-        resolved_and_verified(repo, verify::TierStatus::Green);
+        reconciled(repo);
         assert!(compose(repo).prompt.is_some(), "precondition: it would ask");
 
         let owner_key = ops::dash_owner_key(repo, "demo");
@@ -1166,9 +1008,9 @@ mod tests {
     fn the_ask_carries_its_landing_message_and_names_the_source() {
         let temp = fixture();
         let repo = temp.path();
-        // `resolved_and_verified` redirects the data dir; the drafts ledger
+        // `reconciled` redirects the data dir; the drafts ledger
         // goes with it, so nothing here reads the developer's own.
-        resolved_and_verified(repo, verify::TierStatus::Green);
+        reconciled(repo);
         let db = temp.path().join("changes.db");
         // SAFETY: single-threaded setup, and nextest runs one test per process.
         unsafe {

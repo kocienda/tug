@@ -126,6 +126,15 @@ export interface LandProgress {
    * red, it does not vanish at the end.
    */
   terminal?: boolean;
+  /**
+   * What the terminal beat was about — the landed summary on success, the
+   * stated reason on failure. Only ever set alongside `terminal`.
+   *
+   * A settled beat that reads only `joined` tells the reader the run ended
+   * without telling them what it did, which on the sheet's landing phase is
+   * the whole content of the last frame they see.
+   */
+  detail?: string;
 }
 
 function key(workspaceKey: string, dash: string): string {
@@ -218,8 +227,6 @@ export class ChangesetJoinStore {
       action !== "changeset_join_resolve_delta" &&
       action !== "changeset_join_resolve_ok" &&
       action !== "changeset_join_resolve_err" &&
-      action !== "changeset_join_override_ok" &&
-      action !== "changeset_join_override_err" &&
       action !== "changeset_join_question_answer_err" &&
       action !== "changeset_join_prompt_answer_err" &&
       action !== "changeset_join_land_delta" &&
@@ -254,10 +261,19 @@ export class ChangesetJoinStore {
     // unobservable on any join fast enough to arrive in one frame batch.
     if (action === "changeset_join_ok" || action === "changeset_join_err") {
       const ok = action === "changeset_join_ok";
+      // What the ending was about, carried on the same beat that reports it.
+      // Success formats its own summary server-side; a preview or a no-op
+      // join has none, and falls back to the sha it produced.
+      const text = (value: unknown): string | null =>
+        typeof value === "string" && value !== "" ? value : null;
+      const detail = ok
+        ? (text(body.summary) ?? text(body.commit_hash))
+        : text(body.detail);
       this._land.set(k, {
         beat: ok ? "joined" : "failed",
         status: ok ? "done" : "error",
         terminal: true,
+        ...(detail === null ? {} : { detail }),
       });
       this._emit();
       return;
@@ -267,27 +283,13 @@ export class ChangesetJoinStore {
     // of a *side* act — the run they belong to, if there is one, is unharmed —
     // so they land as a stated reason and leave the phase where it was.
     if (
-      action === "changeset_join_override_err" ||
       action === "changeset_join_question_answer_err" ||
       action === "changeset_join_prompt_answer_err"
     ) {
       const detail = typeof body.detail === "string" ? body.detail : null;
-      this._note(
-        k,
-        detail ??
-          (action === "changeset_join_override_err"
-            ? "Join anyway was refused"
-            : "That answer was not delivered"),
-      );
+      this._note(k, detail ?? "That answer was not delivered");
       return;
     }
-    if (action === "changeset_join_override_ok") {
-      // The override itself comes back on the dash's feed entry, as
-      // `override_for`. All this clears is a refusal from an earlier press.
-      if (prev.error !== null) this._note(k, null);
-      return;
-    }
-
     if (action === "changeset_join_resolve_delta") {
       const path = typeof body.path === "string" ? body.path : "";
       const rung = typeof body.rung === "string" ? body.rung : "";
@@ -421,30 +423,6 @@ export class ChangesetJoinStore {
   }
 
   /**
-   * Record that the user has looked at a red verdict and chosen to join past
-   * it ([P04]).
-   *
-   * Scoped to `candidate`, so a resolution built after this decision has to be
-   * decided about on its own terms.
-   *
-   * Sent, not held. The override used to be client-local on the reasoning that
-   * nothing durable should record a red being waved through — but the gate it
-   * defeats now lives in `join_in`, where the CLI and every other deck meet it
-   * too, so a local flag defeated nothing. Worse, it was written into a state
-   * the store immediately dropped: a settled post-resolve dash is idle, idle
-   * was deleted, and the one press this control existed for did nothing at
-   * all. The decision goes where the gate is, anchored to the sha it was made
-   * about, and comes back as `override_for` on the dash's feed entry.
-   */
-  overrideRed(workspaceKey: string, dash: string, candidate: string): void {
-    this._connection.sendControlFrame("changeset_join_override", {
-      project_dir: workspaceKey,
-      dash,
-      candidate,
-    });
-  }
-
-  /**
    * Answer the escalation a blocked resolve raised ([P06]).
    *
    * `requestId` is what makes the answer safe: the resolver may have expired,
@@ -483,12 +461,17 @@ export class ChangesetJoinStore {
     dash: string,
     requestId: string,
     answer: "join-now" | "review-first" | "not-yet",
+    sessionId?: string | null,
   ): void {
     this._connection.sendControlFrame("changeset_join_prompt_answer", {
       project_dir: workspaceKey,
       dash,
       request_id: requestId,
       answer,
+      // The session that answered, so a "join-now" leaves the same durable
+      // `/dash-join` receipt the composer route leaves. The server tolerates
+      // its absence, so a card without an identity still gets to decide.
+      ...(sessionId ? { session_id: sessionId } : {}),
     });
   }
 

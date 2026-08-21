@@ -1,8 +1,8 @@
 /**
  * dash-join-register — what the join arc says, in one sentence, everywhere.
  *
- * A dash on its way to landing passes through reconciling, checking, ready,
- * question, red, joining, blocked. Three surfaces show that: the Lens Dashes
+ * A dash on its way to landing passes through reconciling, ready, question,
+ * joining, blocked. Three surfaces show that: the Lens Dashes
  * row, the Changes shade's dash row, and the composer's status row. Before
  * this, each derived its own words, which is how two surfaces come to disagree
  * about one dash — and one of the sentences named a control that had been
@@ -78,8 +78,14 @@ export interface DashJoinRegisterInput {
   bound?: boolean;
 }
 
-/** The words each beat of a join in flight reads as. */
-const BEAT_WORDS: Record<string, string> = {
+/**
+ * The words each beat of a join in flight reads as.
+ *
+ * Exported because the prompt sheet's landing phase narrates the same beats
+ * from the same store, and two tables for one vocabulary drift the moment one
+ * of them gains a beat.
+ */
+export const BEAT_WORDS: Record<string, string> = {
   squash: "squashing",
   teardown: "tearing down the workshop",
   release: "releasing the branch",
@@ -188,15 +194,11 @@ export function dashJoinRegister(
       word: "reconciling",
     };
   }
-  if (running === "verify") {
-    return { phase: "in_flight", line: "Building the joined tree", word: "checking" };
-  }
-
   // The run's last word, which rests until a new press replaces it. Below the
   // blocker, the question and the stated refusal — each of those explains a
-  // failure better than "Join failed" does — and above the verdict, because a
-  // green left standing over a join that did not land would read as an
-  // invitation to do the thing that just failed.
+  // failure better than "Join failed" does — and above the readiness line,
+  // because a "ready to join" left standing over a join that did not land
+  // would read as an invitation to do the thing that just failed.
   if (landing !== null) {
     const ok = landing.status !== "error";
     return {
@@ -206,34 +208,26 @@ export function dashJoinRegister(
     };
   }
 
-  const tier0 = join?.verification?.tier0;
-  if (tier0 === "red") {
-    return {
-      phase: "error",
-      line: "Build red on the joined tree — join is a decision now",
-      word: "checks-red",
-    };
-  }
-  if (tier0 === "running") {
-    return { phase: "in_flight", line: "Building the joined tree", word: "checking" };
-  }
-  if (tier0 === "green") {
+  // A candidate that stands is the whole readiness fact now. Nothing is built
+  // here: the run's ending verified the tree that lands, so reconcile-clean is
+  // what the arc was waiting for.
+  if (typeof join?.candidate === "string" && join.candidate !== "") {
     return { phase: "success", line: "Ready to join", word: "ready" };
   }
 
-  // No verdict, nothing running. On a joinable dash somebody is holding, that
-  // is the gap between the recompute and the pilot's dispatch landing — a beat
-  // away rather than a resting state, so it reads as the check that is about to
-  // happen.
+  // No candidate, nothing running. On a joinable dash somebody is holding,
+  // that is the gap between the recompute and the pilot's dispatch landing — a
+  // beat away rather than a resting state, so it reads as the reconcile that
+  // is about to happen.
   //
   // On an **unbound** one it is not a gap at all: the pilot never runs for a
-  // dash nobody holds, so "Building the joined tree" would be a promise the
-  // machine has already declined to keep, standing forever. Say nothing
-  // instead — `/join <name>` and binding a card are both still open, and
-  // neither is a thing this line was reporting.
+  // dash nobody holds, so naming a reconcile would be a promise the machine
+  // has already declined to keep, standing forever. Say nothing instead —
+  // `/join <name>` and binding a card are both still open, and neither is a
+  // thing this line was reporting.
   if (JOINABLE_STAGES.has(input.stage ?? "")) {
     return (input.bound ?? true)
-      ? { phase: "in_flight", line: "Building the joined tree", word: "checking" }
+      ? { phase: "in_flight", line: `Reconciling with ${base}`, word: "reconciling" }
       : null;
   }
 

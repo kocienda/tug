@@ -5,9 +5,8 @@
  * draft — and this is the first. It carries everything the join arc has to
  * show for itself, and **no act at all** ([P08]): blocked names each
  * blocker's server-written detail beside the act that would clear it;
- * conflicted names the paths; resolved shows what the ladder decided and what
- * the project's own checks said about the tree that would land. Every one of
- * them is something to read.
+ * conflicted names the paths; resolved shows what the ladder decided. Every
+ * one of them is something to read.
  *
  * What deliberately does **not** render here ([D142]):
  *
@@ -40,7 +39,7 @@
 import "./session-changes-dash-join.css";
 
 import React from "react";
-import { LoaderCircle, ShieldAlert, ShieldCheck } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import {
@@ -55,11 +54,7 @@ import type {
   DashResolvedFileWire,
 } from "@/lib/changeset-types";
 import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
-import {
-  deriveJoinOutcome,
-  verificationVerdict,
-  type JoinOutcome,
-} from "@/lib/join-mode-controller";
+import { deriveJoinOutcome, type JoinOutcome } from "@/lib/join-mode-controller";
 
 /**
  * The lane's join gestures, supplied by the card that owns the dash.
@@ -117,8 +112,7 @@ export function deriveResolveFace(
   // The server's own account of what it is doing right now ([P09]). The phase
   // above it is a client overlay that dies with the page, so without this a
   // reload during a resolve — or a second deck watching the same dash — renders
-  // minutes of real work as nothing at all. A verify run keeps the resolved
-  // face: it has a candidate, and the verdict panel is where its progress goes.
+  // minutes of real work as nothing at all.
   if (run === "resolve") return "progress";
   if (candidateCommit !== null) return "resolved";
   if (phase === "error") return "error";
@@ -251,9 +245,6 @@ export function SessionChangesDashJoin({
   const question = join?.question ?? null;
   const stuck = typeof join?.stuck === "string" && join.stuck !== "" ? join.stuck : null;
   const report = join?.report ?? null;
-  const verdict = verificationVerdict(join);
-  const failures = join?.verification?.failures ?? [];
-  const notes = join?.verification?.notes ?? [];
   // One decision, made once ({@link deriveJoinFace}) and rendered here.
   const face = deriveJoinFace({ join, resolvePhase: resolve.phase });
   const { outcome, resolve: resolveFace } = face;
@@ -377,38 +368,15 @@ export function SessionChangesDashJoin({
       ) : null}
       {/* Where the review panel stood ([P07]). The human is no longer the
           auditor of machine text decisions: the resolver read every resolution
-          against the dash's intent and had to account for each one ([P10]),
-          and the project's own checks ran over the tree that would land. So
-          what shows here is the resolver's account and the verdict — and the
-          one control that moves this state, which is the exam when nobody has
-          run it and the override when it came back red. */}
+          against the dash's intent and had to account for each one ([P10]).
+          So what shows here is the resolver's account, and nothing else — what
+          the joined tree does was asked at the end of the run, against the
+          tree that will actually land. */}
       {resolveFace === "resolved" ? (
         <div
-          className="session-changes-dash-join-verdict"
-          data-slot="session-changes-dash-join-verdict"
-          data-verdict={verdict}
+          className="session-changes-dash-join-account"
+          data-slot="session-changes-dash-join-account"
         >
-          {/* The verdict as evidence, not as a chip: what the project's own
-              checks said about the tree that would land. The register already
-              carries the state's word; this is the report's account of it. */}
-          {verdict === "green" || verdict === "red" ? (
-            <span
-              className="session-changes-dash-join-tier"
-              data-slot="session-changes-dash-join-tier"
-              data-verdict={verdict}
-            >
-              {verdict === "green" ? (
-                <ShieldCheck size={13} />
-              ) : (
-                <ShieldAlert size={13} />
-              )}
-              <span>
-                {verdict === "green"
-                  ? "Build green on the joined tree"
-                  : "Build red on the joined tree"}
-              </span>
-            </span>
-          ) : null}
           {report !== null ? (
             <ul
               className="session-changes-dash-join-report"
@@ -428,29 +396,6 @@ export function SessionChangesDashJoin({
           ) : null}
           {report !== null && report.notes !== undefined && report.notes !== "" ? (
             <div className="session-changes-dash-join-note">{report.notes}</div>
-          ) : null}
-          {/* A red that cannot say why is the silence this whole surface
-              exists to prevent, so the failures render beside the override
-              rather than behind it. */}
-          {failures.length > 0 ? (
-            <ul
-              className="session-changes-dash-join-failures"
-              data-slot="session-changes-dash-join-failures"
-            >
-              {failures.map((failure) => (
-                <li key={failure}>{failure}</li>
-              ))}
-            </ul>
-          ) : null}
-          {notes.length > 0 ? (
-            <ul
-              className="session-changes-dash-join-verdict-notes"
-              data-slot="session-changes-dash-join-verdict-notes"
-            >
-              {notes.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
           ) : null}
         </div>
       ) : null}

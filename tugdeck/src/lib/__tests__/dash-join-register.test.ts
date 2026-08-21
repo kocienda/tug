@@ -23,15 +23,11 @@ const reg = (
 ): ReturnType<typeof dashJoinRegister> =>
   dashJoinRegister({ ...BASE, join, ...over });
 
-const verified = (tier0: string): DashJoinStateWire => ({
+/** A dash the pilot has reconciled — a candidate stands, and that is all the
+ *  readiness there is to have. */
+const reconciled = (): DashJoinStateWire => ({
   phase: "resolved",
   candidate: "cafe1234",
-  verification: {
-    tier0,
-    tier1: "unrun",
-    base_sha: "base0000",
-    candidate_sha: "cafe1234",
-  },
 });
 
 describe("what the register says", () => {
@@ -51,17 +47,8 @@ describe("what the register says", () => {
     expect(countless?.line).toBe("Reconciling with main");
   });
 
-  test("checking is the joined tree being built", () => {
-    const checking = reg({ phase: "resolved", candidate: "cafe1234", run: "verify" });
-    expect(checking?.phase).toBe("in_flight");
-    expect(checking?.line).toBe("Building the joined tree");
-    expect(checking?.word).toBe("checking");
-
-    expect(reg(verified("running"))?.word).toBe("checking");
-  });
-
-  test("ready is a settled green", () => {
-    const ready = reg(verified("green"));
+  test("ready is a candidate that stands — nothing is built here", () => {
+    const ready = reg(reconciled());
     expect(ready?.phase).toBe("success");
     expect(ready?.line).toBe("Ready to join");
     expect(ready?.word).toBe("ready");
@@ -78,15 +65,8 @@ describe("what the register says", () => {
     expect(asked?.word).toBe("question");
   });
 
-  test("a red is a decision, not an error report", () => {
-    const red = reg(verified("red"));
-    expect(red?.phase).toBe("error");
-    expect(red?.line).toBe("Build red on the joined tree — join is a decision now");
-    expect(red?.word).toBe("checks-red");
-  });
-
   test("a live join names the dash, the base, and the beat", () => {
-    const joining = reg(verified("green"), {
+    const joining = reg(reconciled(), {
       landBeat: { beat: "teardown", status: "start" },
     });
     expect(joining?.phase).toBe("in_flight");
@@ -95,7 +75,7 @@ describe("what the register says", () => {
 
     // A beat this table has not learned still renders as itself rather than
     // disappearing: an unknown beat is a real thing happening.
-    const unknown = reg(verified("green"), { landBeat: { beat: "polishing", status: "start" } });
+    const unknown = reg(reconciled(), { landBeat: { beat: "polishing", status: "start" } });
     expect(unknown?.line).toBe("Joining imposer2 into main — polishing");
   });
 
@@ -119,17 +99,17 @@ describe("what the register says", () => {
   });
 
   test("a dropped wire says so, and does not claim the run died", () => {
-    const offline = reg(verified("green"), { connected: false });
+    const offline = reg(reconciled(), { connected: false });
     expect(offline?.phase).toBe("idle");
     expect(offline?.line).toBe("Connection dropped — the run continues on the server");
     expect(offline?.word).toBe("offline");
   });
 
-  test("a built dash with no verdict reads as the check about to happen", () => {
+  test("a joinable dash with no candidate reads as the reconcile about to happen", () => {
     // The gap between the recompute and the pilot's dispatch landing. Calling
     // it "nothing to reconcile" would be a lie with a very short shelf life.
     const gap = reg({ phase: "previewed" });
-    expect(gap?.word).toBe("checking");
+    expect(gap?.word).toBe("reconciling");
   });
 
   test("a dash still being worked has no join arc, and mounts nothing", () => {
@@ -143,22 +123,22 @@ describe("what the register says", () => {
     // register — a face contradicting the arc. All three joinable words reach
     // the same states now.
     for (const stage of ["ready", "built", "audited"]) {
-      expect(reg(verified("green"), { stage })?.word).toBe("ready");
-      // And with no verdict yet, the beat rather than null: the pilot's
+      expect(reg(reconciled(), { stage })?.word).toBe("ready");
+      // And with no candidate yet, the beat rather than null: the pilot's
       // dispatch is one recompute away, not absent.
-      expect(reg({ phase: "previewed" }, { stage })?.word).toBe("checking");
+      expect(reg({ phase: "previewed" }, { stage })?.word).toBe("reconciling");
     }
   });
 
-  test("an unbound joinable dash says nothing rather than promising a check", () => {
-    // The pilot never runs for a dash nobody holds, so "Building the joined
-    // tree" on the Lens row would be a promise the machine has already
-    // declined to keep — standing there forever.
+  test("an unbound joinable dash says nothing rather than promising a reconcile", () => {
+    // The pilot never runs for a dash nobody holds, so naming a reconcile on
+    // the Lens row would be a promise the machine has already declined to
+    // keep — standing there forever.
     expect(reg({ phase: "previewed" }, { stage: "ready", bound: false })).toBeNull();
-    // A verdict that DID land (from a `/join` on demand, or from a bind since
-    // withdrawn) is a fact and still reported.
+    // A candidate that DID land (from a `/join` on demand, or from a bind
+    // since withdrawn) is a fact and still reported.
     expect(
-      reg(verified("green"), { stage: "ready", bound: false })?.word,
+      reg(reconciled(), { stage: "ready", bound: false })?.word,
     ).toBe("ready");
   });
 
@@ -226,7 +206,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     // "Ready to join" over a blocker is how a press comes to be refused by
     // something the row never mentioned.
     const both = reg({
-      ...verified("green"),
+      ...reconciled(),
       blockers: [{ kind: "base-dirt", detail: "commit or stash main's changes first" }],
     });
     expect(both?.word).toBe("blocked");
@@ -242,7 +222,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     );
     expect(overQuestion?.word).toBe("joining");
 
-    const overDrop = reg(verified("green"), {
+    const overDrop = reg(reconciled(), {
       landBeat: { beat: "squash", status: "start" },
       connected: false,
     });
@@ -276,7 +256,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     // in-flight beat is overwritten before a single paint. The settled state
     // is the one reading that survives batching — and it is also simply the
     // most useful sentence the register ever shows.
-    const landed = reg(verified("green"), {
+    const landed = reg(reconciled(), {
       landBeat: { beat: "joined", status: "done", terminal: true },
     });
     expect(landed?.word).toBe("joined");
@@ -287,7 +267,7 @@ describe("precedence — the part that gets re-derived wrongly", () => {
   test("a settled failure outranks the verdict that permitted the press", () => {
     // A green left standing over a join that did not land reads as an
     // invitation to do the thing that just failed.
-    const failed = reg(verified("green"), {
+    const failed = reg(reconciled(), {
       landBeat: { beat: "failed", status: "error", terminal: true },
     });
     expect(failed?.word).toBe("join-failed");

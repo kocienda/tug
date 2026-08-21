@@ -244,15 +244,6 @@ describe("aggregate changeset wire contract", () => {
     expect(join.resolved?.[0]?.added).toBe(1);
     expect(join.resolved?.[0]?.removed).toBe(1);
 
-    // The verification verdict, anchored to the two commits it describes. The
-    // failure sentences ride with it because a red that cannot say why is the
-    // silence the face exists to prevent, and the notes are what make a green
-    // read as green-*with-exclusions* rather than as an unqualified pass.
-    expect(join.verification?.tier0).toBe("green");
-    expect(join.verification?.tier1).toBe("red");
-    expect(join.verification?.failures?.[0]).toContain("at0441");
-    expect(join.verification?.notes?.[0]).toContain("@foreground");
-    expect(join.verification?.candidate_sha).toBe(join.candidate);
   });
 
   test("a dash entry with no join block still parses", () => {

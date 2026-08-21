@@ -663,8 +663,8 @@ mod tests {
 
     /// The branch is outside `refs/heads/tugdash/`, which is what keeps a
     /// workshop from rendering as a phantom dash on every surface that globs
-    /// that namespace — and what gives Tier 1 a stable app-test slug instead of
-    /// a per-candidate `detached-<sha>`.
+    /// that namespace — and what gives the checkout a stable derived-data slug
+    /// instead of a per-candidate `detached-<sha>`.
     #[test]
     fn the_workshop_branch_is_outside_the_dash_namespace() {
         let temp = init(true);
@@ -682,8 +682,8 @@ mod tests {
             "the workshop must not be enumerable as a dash: {dash_refs}"
         );
 
-        // The checkout is on a named branch, never detached — the slug Tier 1's
-        // warm DerivedData depends on.
+        // The checkout is on a named branch, never detached — the slug a warm
+        // DerivedData depends on.
         let branch = git_stdout(ws.path(), &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
         assert_eq!(branch, "tugworkshop/demo");
 

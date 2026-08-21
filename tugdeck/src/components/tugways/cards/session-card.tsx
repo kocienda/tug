@@ -3473,6 +3473,8 @@ export function SessionCardBody({
   // than about Claude.
   useJoinPromptSheet({
     prompt: boundDashEntry?.join?.prompt ?? null,
+    workspaceKey: changesController.workspaceKey,
+    dashName: boundDashEntry?.display_name ?? "",
     landingActive: commitModeActive || joinActive,
     showSheet: cardPickerSheet.showSheet,
     onAnswer: (requestId, answer) => {
@@ -3482,7 +3484,19 @@ export function SessionCardBody({
         boundDashEntry.display_name,
         requestId,
         answer,
+        changesController.tugSessionId,
       );
+      if (answer !== "join-now") return;
+      // The server is about to join, and the two surfaces that report a join
+      // only report the ones this card correlated. Registering the same
+      // correlation a composer press registers is what gives a prompt-route
+      // join its failure bulletin, its live receipt row, and its beats.
+      getChangesetVerbStore()?.expectServerJoin(
+        changesController.entryKey,
+        changesController.workspaceKey,
+        boundDashEntry.display_name,
+      );
+      joinModeController.narrateServerJoin(joinTargetFromEntry(boundDashEntry));
     },
     // The same entry `/dash-join` takes, so the composer opens on the message
     // the run maintained rather than on an empty document.

@@ -75,19 +75,7 @@
             "removed": 1
           }
         ],
-        "reviewed": false,
-        "verification": {
-          "tier0": "green",
-          "tier1": "red",
-          "failures": [
-            "just app-test at0441-join-arc-end-to-end.test.ts: 1 file failed"
-          ],
-          "notes": [
-            "2 tests skipped as @foreground"
-          ],
-          "base_sha": "1a2b3c4d5e6f708192a3b4c5d6e7f80912345678",
-          "candidate_sha": "9f1c2d3e4b5a60718293a4b5c6d7e8f901234567"
-        }
+        "reviewed": false
       }
     }
   ],

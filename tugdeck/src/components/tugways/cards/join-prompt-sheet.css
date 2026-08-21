@@ -37,3 +37,37 @@
   line-height: 1.4;
   color: var(--tug7-element-global-text-normal-subtle-rest);
 }
+
+/* The landing phase: the join, narrated where it was agreed to. Framing and
+   the outcome's own color, nothing else — the words are the component's. */
+.join-prompt-sheet-landing {
+  gap: var(--tug-space-xs, 4px);
+  min-height: var(--tug-space-9, 36px);
+  justify-content: center;
+}
+
+.join-prompt-sheet-landing-line {
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The two endings say which they are without a second line to say it. */
+.join-prompt-sheet-landing[data-state="joined"] .join-prompt-sheet-landing-line {
+  color: var(--tug7-element-global-text-normal-success-rest);
+}
+
+.join-prompt-sheet-landing[data-state="failed"] .join-prompt-sheet-landing-line {
+  color: var(--tug7-element-global-text-normal-danger-rest);
+}
+
+/* The outcome's own words — the landed summary or the stated reason. Quoted
+   in the same mono the message block above it quotes in, because it is the
+   same kind of thing: bytes somebody else wrote. */
+.join-prompt-sheet-landing-detail {
+  white-space: pre-line;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}

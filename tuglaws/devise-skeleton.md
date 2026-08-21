@@ -372,7 +372,16 @@ Table T05, (#op-rename, #fundamental-wall)
 >
 > **Patterns:**
 > - If a step is large, split the work into multiple **flat steps** (`Step N`, `Step N+1`, …) with separate commits and checkpoints, each with explicit `**Depends on:**` lines.
-> - After completing a group of related flat steps, add a lightweight **Integration Checkpoint step** that depends on all constituent steps and verifies they work together. Integration checkpoint steps use `Commit: N/A (verification only)` to signal no separate commit.
+> - End the plan with an **Integration Checkpoint step** that verifies the **fit** — not the work. Its subject is the one tree nothing else in the run ever tested: the dash replayed onto the live base, which is what a join will actually land. It uses `Commit: N/A (verification only)` to signal no separate commit.
+>
+> **The Integration Checkpoint is a procedure, and it is not a second sweep.** A checkpoint that passed is spent: every command in the per-step checkpoints already ran, against these bytes, inside the step that changed them. Re-listing them at the end costs minutes and can only re-prove what is already proven — and it proves it about the **sandbox**, frozen at branch time, rather than about the deliverable. So the ending is:
+>
+> 1. `tugutil dash replay <name>` — replays the rounds onto the live base, moving the branch and the worktree together.
+> 2. On **`Replayed`** or **`Recorded`** the tree moved, so verify it: the scoped check over `<base>..<head>` in the warm worktree — in this repo, `sh scripts/verify-fit.sh <base-sha> <head-sha>`, which scopes `cargo check` / `tsc` + `vite build` to the surfaces the diff touches.
+> 3. On **`Current`** the base has not moved, so the tree the run's last checkpoint verified *is* the deliverable, byte for byte. **Nothing re-runs.** The ending costs one `dash replay` and seconds.
+> 4. On **`Conflicted`** the replay names the round it could not apply. That is work arriving at the right desk — the model is present, the worktree is warm, and the conflict is resolved there as normal work, then verified as in (2).
+>
+> A plan whose last step re-lists `cargo nextest run`, `tsc`, `vite build`, `bun test`, and `app-test-changed` has written a sweep, not a checkpoint. Write the procedure above instead.
 >
 > **References are mandatory:** Every step must cite specific plan artifacts ([P01], Spec S01, Table T01, etc.) and anchors (#section-name). Never cite line numbers—add an anchor instead.
 >
@@ -493,19 +502,24 @@ Table T05, (#op-rename, #fundamental-wall)
 **References:** [P04] <decision>, [P05] <decision>, (#success-criteria)
 
 **Tasks:**
-- [ ] Verify all artifacts from Steps 3 and 4 are complete and work together
+- [ ] `tugutil dash replay <name>` — put the rounds on the live base, so what gets verified is what would land.
+- [ ] `Replayed` / `Recorded`: verify the replayed tree with `sh scripts/verify-fit.sh <base-sha> <head-sha>`.
+- [ ] `Current`: the base never moved, so the last step's checkpoint already verified these exact bytes — re-run nothing and say so.
+- [ ] `Conflicted`: resolve the named round in the worktree, then verify as above.
 
 **Tests:**
-- [ ] <aggregate test verifying end-to-end behavior>
+- [ ] None of its own. This step re-proves nothing the steps proved; it establishes that their work still holds on the base as it stands now.
 
 **Checkpoint:**
-- [ ] `<aggregate verification command covering all related steps>`
+- [ ] The replay reports its outcome, and the scoped verification is green **or** was correctly skipped as `Current`.
 
 ---
 
 ### Deliverables and Checkpoints {#deliverables}
 
 > This is the single place we define "done" for the phase. Keep it crisp and testable.
+>
+> **Name where each criterion was proved, not what to run at the end.** A criterion's verification is the step whose checkpoint established it — "(Rust test, Step 2)", "(prose assertion, Step 5)". Writing a command here re-creates the terminal sweep the Integration Checkpoint pattern just retired: a criterion list that reads as a to-do list of commands is a second run of the plan.
 
 **Deliverable:** <One sentence deliverable>
 

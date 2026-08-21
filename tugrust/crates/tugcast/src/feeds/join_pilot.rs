@@ -1,10 +1,15 @@
 //! The join pilot — the machine reconciles before it asks.
 //!
 //! A dash that has finished the work somebody asked it for wants machine work
-//! before it can land: reconcile with a base that moved, and ask the project
-//! whether the merged tree still builds. Both used to wait for the user to open
-//! the Changes shade and press a button, which is the arc inverted — the person
-//! came to land a finished dash and was handed a chore.
+//! before it can land: reconcile with a base that moved. That used to wait for
+//! the user to open the Changes shade and press a button, which is the arc
+//! inverted — the person came to land a finished dash and was handed a chore.
+//!
+//! Reconciling is the whole of it. The pilot also used to ask the project
+//! whether the merged tree built, and hold the prompt until it had an answer.
+//! That question moved to the end of the run, where the tree being asked about
+//! is the one that will actually land and the model is still present to fix
+//! what it finds — so a candidate that stands is prompt-eligible directly.
 //!
 //! # Finished is derived, never declared
 //!
@@ -48,12 +53,13 @@
 //!
 //! The pilot's attempt mark is keyed on the **head pair**: either head moving
 //! is new work, so the mark stops matching and the pilot runs again. The
-//! prompt's dismissal mark (`…tugjoinprompted`) is keyed on the **decision** —
-//! `clean` or `red` — so a base move that reconciles to the same answer
-//! re-reconciles silently and asks nothing. Merging them breaks both: keyed on
-//! the pair, a dismissal would expire on every push to the base and the same
-//! question would be asked forever; keyed on the decision, the pilot would
-//! never re-run after the base moved. Both live in `tugdash_core::verify`.
+//! prompt's dismissal mark (`…tugjoinprompted`) is keyed on the **dash head**
+//! alone, so a base move that reconciles the same work re-reconciles silently
+//! and asks nothing, while a new round asks. Merging them breaks both: keyed
+//! on the pair, a dismissal would expire on every push to the base and the
+//! same question would be asked forever; keyed on the dash head alone, the
+//! pilot would never re-run after the base moved. Both live in
+//! `tugdash_core::verify`.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -67,10 +73,8 @@ use super::join_occupancy::{self, JoinOccupancy, JoinRunKind};
 /// What the pilot should do about a dash, when it should do anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PilotAction {
-    /// Run the full resolution ladder — there is no candidate to check.
+    /// Run the full resolution ladder — there is no candidate yet.
     Reconcile,
-    /// A candidate stands but nobody has asked whether it builds.
-    CheckTier0,
 }
 
 /// What the pilot should consider doing about this dash, if anything.
@@ -82,18 +86,15 @@ pub enum PilotAction {
 /// 1. Not ready — the pilot acts on a finished selection, a plan-less round, or
 ///    a declared mark, and on nothing else.
 /// 2. Unbound — the ask can only be raised on a card whose session is bound to
-///    the dash, so an eager verdict on an unbound dash is spent on nobody.
-///    This also bounds the cost: readiness is derived, so the population is
-///    every dash with a landed round rather than the few somebody declared, and
-///    Tier 0 is a full workspace build. Binding a card re-enters the dash on
-///    the next recompute; `/join <name>` verifies on demand regardless.
+///    the dash, so a reconcile on an unbound dash is spent on nobody. Binding
+///    a card re-enters the dash on the next recompute; `/join <name>`
+///    reconciles on demand regardless.
 /// 3. A run holds the dash — occupancy would refuse anyway.
 /// 4. Blockers — a blocked dash needs an act that lives elsewhere.
 /// 5. A standing question or stuck line — waiting on a person, or a refusal
 ///    already stated; either way the machine has said its piece.
 /// 6. No candidate — reconcile.
-/// 7. A candidate whose Tier 0 verdict is absent or `unrun` — check it.
-/// 8. Otherwise nothing: the verdict stands, and the decision is the user's.
+/// 7. Otherwise nothing: the candidate stands, and the decision is the user's.
 pub fn pilot_action(join_ready: bool, bound: bool, state: &DashJoinState) -> Option<PilotAction> {
     if !join_ready || !bound {
         return None;
@@ -107,14 +108,10 @@ pub fn pilot_action(join_ready: bool, bound: bool, state: &DashJoinState) -> Opt
     if state.question.is_some() || state.stuck.is_some() {
         return None;
     }
-    if state.candidate.is_none() {
-        return Some(PilotAction::Reconcile);
-    }
-    match state.verification.as_ref() {
-        None => Some(PilotAction::CheckTier0),
-        Some(v) if v.tier0 == "unrun" => Some(PilotAction::CheckTier0),
-        Some(_) => None,
-    }
+    state
+        .candidate
+        .is_none()
+        .then_some(PilotAction::Reconcile)
 }
 
 /// What actually performs a pilot action.
@@ -128,8 +125,6 @@ pub trait PilotRunner: Send + Sync {
     /// Run the full resolution ladder, exactly as a `changeset_join_resolve`
     /// press would.
     async fn reconcile(&self, project_dir: &str, dash: &str, occupancy: JoinOccupancy);
-    /// Ask the project whether the candidate's tree builds.
-    async fn check_tier0(&self, project_dir: &str, dash: &str, occupancy: JoinOccupancy);
 }
 
 static RUNNER: OnceLock<Box<dyn PilotRunner>> = OnceLock::new();
@@ -176,7 +171,6 @@ async fn run_dispatch(
     let owner_key = tugdash_core::ops::dash_owner_key(&repo_root, &dash);
     let kind = match action {
         PilotAction::Reconcile => JoinRunKind::Resolve,
-        PilotAction::CheckTier0 => JoinRunKind::Verify,
     };
 
     let probe_root = repo_root.clone();
@@ -224,7 +218,6 @@ async fn run_dispatch(
     );
     match action {
         PilotAction::Reconcile => runner.reconcile(&project_dir, &dash, occupancy).await,
-        PilotAction::CheckTier0 => runner.check_tier0(&project_dir, &dash, occupancy).await,
     }
 }
 
@@ -241,7 +234,7 @@ fn head_pair(repo_root: &Path, dash: &str) -> Option<(String, String)> {
 mod tests {
     use super::*;
     use tugcast_core::types::{
-        DashJoinBlocker, DashJoinQuestion, DashJoinState, DashJoinVerification,
+        DashJoinBlocker, DashJoinQuestion, DashJoinState,
     };
 
     /// A dash with nothing standing in the way and no candidate — the state a
@@ -255,24 +248,11 @@ mod tests {
             candidate: None,
             resolved: Vec::new(),
             stale_note: None,
-            verification: None,
             report: None,
             stuck: None,
             question: None,
             run: None,
-            override_for: None,
             prompt: None,
-        }
-    }
-
-    fn verdict(tier0: &str) -> DashJoinVerification {
-        DashJoinVerification {
-            tier0: tier0.to_string(),
-            tier1: "unrun".to_string(),
-            failures: Vec::new(),
-            notes: Vec::new(),
-            base_sha: "base".to_string(),
-            candidate_sha: "cand".to_string(),
         }
     }
 
@@ -285,8 +265,8 @@ mod tests {
         for state in [bare(), working] {
             assert_eq!(pilot_action(false, true, &state), None);
         }
-        // Ready but unbound: the ask can only be raised on a bound card, so an
-        // eager Tier 0 here would spend a workspace build on nobody ([P08]).
+        // Ready but unbound: the ask can only be raised on a bound card, so a
+        // reconcile here would spend a ladder pass on nobody ([P08]).
         assert_eq!(
             pilot_action(true, false, &bare()),
             None,
@@ -336,19 +316,18 @@ mod tests {
         );
     }
 
+    /// A standing candidate is the end of the pilot's work — nothing is
+    /// checked, and the decision goes straight to the user.
     #[test]
-    fn a_candidate_with_no_verdict_is_checked() {
+    fn a_standing_candidate_is_prompt_eligible_directly() {
         let mut state = bare();
         state.candidate = Some("cand".to_string());
         state.phase = "resolved".to_string();
         assert_eq!(
             pilot_action(true, true, &state),
-            Some(PilotAction::CheckTier0),
-            "absent is not green"
+            None,
+            "reconcile-clean is the whole gate"
         );
-
-        state.verification = Some(verdict("unrun"));
-        assert_eq!(pilot_action(true, true, &state), Some(PilotAction::CheckTier0));
     }
 
     // ── The dispatch (Spec S06) ──────────────────────────────────────────
@@ -360,7 +339,6 @@ mod tests {
     /// contract the dispatch has with a runner.
     struct CountingRunner {
         reconciles: Arc<AtomicUsize>,
-        checks: Arc<AtomicUsize>,
     }
 
     #[async_trait]
@@ -368,10 +346,6 @@ mod tests {
         async fn reconcile(&self, _project_dir: &str, _dash: &str, occupancy: JoinOccupancy) {
             drop(occupancy);
             self.reconciles.fetch_add(1, Ordering::SeqCst);
-        }
-        async fn check_tier0(&self, _project_dir: &str, _dash: &str, occupancy: JoinOccupancy) {
-            drop(occupancy);
-            self.checks.fetch_add(1, Ordering::SeqCst);
         }
     }
 
@@ -400,16 +374,13 @@ mod tests {
         (dir, root)
     }
 
-    fn counting() -> (CountingRunner, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    fn counting() -> (CountingRunner, Arc<AtomicUsize>) {
         let reconciles = Arc::new(AtomicUsize::new(0));
-        let checks = Arc::new(AtomicUsize::new(0));
         (
             CountingRunner {
                 reconciles: Arc::clone(&reconciles),
-                checks: Arc::clone(&checks),
             },
             reconciles,
-            checks,
         )
     }
 
@@ -419,7 +390,7 @@ mod tests {
     #[tokio::test]
     async fn the_pilot_runs_once_per_head_pair() {
         let (_dir, root) = repo_with_dash("once");
-        let (runner, reconciles, _checks) = counting();
+        let (runner, reconciles) = counting();
 
         run_dispatch(
             &runner,
@@ -466,7 +437,7 @@ mod tests {
     #[tokio::test]
     async fn a_busy_dash_is_not_dispatched() {
         let (_dir, root) = repo_with_dash("busy");
-        let (runner, reconciles, _checks) = counting();
+        let (runner, reconciles) = counting();
 
         let owner_key = tugdash_core::ops::dash_owner_key(&root, "busy");
         let held = join_occupancy::acquire(&owner_key, JoinRunKind::Resolve, None).unwrap();
@@ -517,7 +488,6 @@ mod tests {
                     tugdash_core::verify::read_pilot_mark(&self.root, dash);
                 drop(occupancy);
             }
-            async fn check_tier0(&self, _project_dir: &str, _dash: &str, _occ: JoinOccupancy) {}
         }
 
         let (_dir, root) = repo_with_dash("crashy");
@@ -543,18 +513,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_settled_verdict_ends_the_pilots_work() {
-        let mut state = bare();
-        state.candidate = Some("cand".to_string());
-        state.phase = "resolved".to_string();
-        for tier0 in ["green", "red", "running"] {
-            state.verification = Some(verdict(tier0));
-            assert_eq!(
-                pilot_action(true, true, &state),
-                None,
-                "tier0 {tier0} leaves the decision to the user"
-            );
-        }
-    }
 }

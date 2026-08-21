@@ -285,13 +285,6 @@ export interface DashJoinStateWire {
    */
   stale_note?: string;
   /**
-   * What the project's own checks said about the joined tree.
-   *
-   * Anchored to `(base_sha, candidate_sha)` server-side, so absent means
-   * nobody has asked about *this* candidate — which is not the same as green.
-   */
-  verification?: DashJoinVerificationWire;
-  /**
    * What the resolver did and why, for the candidate that stands — anchored to
    * the candidate sha server-side, so it never outlives the resolution it
    * describes.
@@ -318,21 +311,12 @@ export interface DashJoinStateWire {
    */
   run?: string;
   /**
-   * The candidate a standing "join it anyway" decision names.
-   *
-   * Server-side and durable, because the gate it defeats is server-side too.
-   * Self-demoting: reported only while it names the candidate that stands, so a
-   * re-resolve retires the decision instead of carrying it onto a tree nobody
-   * agreed to.
-   */
-  override_for?: string;
-  /**
    * The one decision the arc asks a person for ([P06]).
    *
-   * Raised once the machine's work is done and a verdict stands; cleared by an
-   * answer. Absent is the ordinary case — a dash still being worked, one whose
-   * checks are still running, and one whose decision was already declined and
-   * has not changed since ([P07]).
+   * Raised once the machine's work is done and a candidate stands; cleared by
+   * an answer. Absent is the ordinary case — a dash still being worked, one
+   * with nothing reconciled yet, and one whose decision was already declined
+   * and has not changed since ([P07]).
    */
   prompt?: DashJoinPromptWire;
 }
@@ -340,13 +324,11 @@ export interface DashJoinStateWire {
 /** The join arc's one question, composed server-side (Spec S04). */
 export interface DashJoinPromptWire {
   /**
-   * `<dash>:<base_sha>:<dash_head>:<decision>` — stable across recomputes, and
-   * different the moment any of those four facts moves, so an answer cannot
-   * resolve a question the repository has already passed.
+   * `<dash>:<base_sha>:<dash_head>` — stable across recomputes, and different
+   * the moment any of those three facts moves, so an answer cannot resolve a
+   * question the repository has already passed.
    */
   request_id: string;
-  /** `"clean"` | `"red"` — what the verdict says, and what the re-ask policy compares. */
-  decision: string;
   base_sha: string;
   dash_head: string;
   question: string;
@@ -385,7 +367,6 @@ export interface DashJoinQuestionOptionWire {
 /** The resolver's account of a candidate — what the review panel's space now shows. */
 export interface DashJoinReportWire {
   files: DashJoinReportFileWire[];
-  iterations?: DashJoinReportIterationWire[];
   question?: DashJoinReportQuestionWire;
   notes?: string;
 }
@@ -403,35 +384,10 @@ export interface DashJoinReportFileWire {
   audit?: string;
 }
 
-/** One pass of the build-tier loop, as the resolver recorded it. */
-export interface DashJoinReportIterationWire {
-  tier0: string;
-  detail?: string;
-}
-
 /** The escalation the resolver raised and the answer it was given. */
 export interface DashJoinReportQuestionWire {
   question: string;
   answer?: string;
-}
-
-/** A candidate's verification verdict, as the join face reads it. */
-export interface DashJoinVerificationWire {
-  /** `unrun` | `running` | `green` | `red` — the build tier. */
-  tier0: string;
-  /** `unrun` | `running` | `green` | `red` — the test tier. */
-  tier1: string;
-  /** The failing commands, as sentences; a red must be able to say why. */
-  failures?: string[];
-  /**
-   * What qualifies the verdict — "project declares no verification", a
-   * selector exit that forced a fallback, tests skipped as `@foreground`. A
-   * green carrying notes is a green *with exclusions*, and the face says so.
-   */
-  notes?: string[];
-  /** The two commits this verdict describes. */
-  base_sha: string;
-  candidate_sha: string;
 }
 
 export type ChangesetEntry = SessionChangesetEntry | DashChangesetEntry;
@@ -518,9 +474,6 @@ function isOptionalDashJoinState(
   if (value.reviewed !== undefined && typeof value.reviewed !== "boolean") return false;
   if (value.stale_note !== undefined && typeof value.stale_note !== "string") return false;
   if (value.run !== undefined && typeof value.run !== "string") return false;
-  if (value.override_for !== undefined && typeof value.override_for !== "string") {
-    return false;
-  }
   if (!isOptionalStringArray(value.conflicts)) return false;
   if (
     value.blockers !== undefined &&

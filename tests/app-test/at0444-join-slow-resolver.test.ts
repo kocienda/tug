@@ -33,14 +33,14 @@
  *
  * built → the pilot starts the run with nothing pressed → fifteen seconds of
  * complete silence, sampled past twelve → still `reconciling`, no error, no
- * stuck sentence, and no control anywhere → the resolver reports → Tier 0
- * green → the register reads `ready`.
+ * stuck sentence, and no control anywhere → the resolver reports → the
+ * candidate anchors → the register reads `ready`.
  *
  * ## The fixture
  *
  * The shared join scratch repo: one file both sides rewrite wholesale, so
- * `merge-tree` genuinely conflicts, and a declared Tier 0 that greps for a
- * sentinel. The resolver stub reads its charter, sleeps, then writes the
+ * `merge-tree` genuinely conflicts. The resolver stub reads its charter,
+ * sleeps, then writes the
  * reconciled body and reports — the same two terminal shapes the real spawn
  * parses; only the transport and the pace differ.
  *
@@ -149,7 +149,6 @@ beforeAll(() => {
     fork: "at0444 the body both sides will rewrite\n",
     base: "at0444 base side — the whole file, rewritten\n",
     dashBody: "at0444 dash side — the whole file, rewritten\n",
-    verifyTier0: `grep -q SENTINEL ${FILE}`,
     resolver: RESOLVER_STUB,
     // The run this file watches is the pilot's. Nothing presses it — which is
     // also what makes "no control was mounted" a claim rather than a tautology
@@ -310,10 +309,10 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         note(`at0444: ${SILENCE_S}s of resolver silence read as work throughout`);
 
         // ── The finish ────────────────────────────────────────────────────
-        // The run was never in trouble, so it lands the same green verdict a
+        // The run was never in trouble, so it lands the same ready register a
         // fast one would — which is the whole claim: the client had no business
         // judging this rung's liveness, and stopping cost it nothing.
-        // Read from the register rather than the verdict panel: the panel
+        // Read from the register rather than the account panel: the panel
         // belongs to the join FACE, which the fronted row alone carries, and
         // fronting this dash would mean aiming the composer at it — a gesture,
         // in a file whose whole claim is that nothing was pressed.

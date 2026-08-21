@@ -33,7 +33,6 @@ import type {
 } from "@/lib/changeset-types";
 import type { JoinPhase } from "@/lib/changeset-verb-store";
 import type {
-  LandOptions,
   LandOutcome,
   LandingMode,
   LandingRefusal,
@@ -80,129 +79,19 @@ export interface JoinGateInput {
   outcome: JoinOutcome;
   /** A candidate commit from the resolution ladder, if one was built. */
   candidateCommit: string | null;
-  /** What the project's own checks said about the joined tree ([P04]). */
-  verdict: JoinVerdict;
-  /**
-   * The user has looked at a red verdict and chosen to join past it ([P07]).
-   *
-   * Pinned to a candidate sha by whoever supplies it, so an override is a
-   * decision about the tree it was made in view of and never carries to the
-   * next one.
-   *
-   * The gate no longer reads it — a red does not refuse ([P05]).
-   * {@link joinLandConfirm} does: a standing override is a decision already
-   * made, so the button lands without asking again. It stays on the gate's
-   * input because {@link joinGateFacts} writes it into the receipt, and a
-   * receipt that could not say whether an override stood would not describe
-   * the press.
-   */
-  redOverride: boolean;
   /** The trimmed join message. */
   message: string;
 }
-
-/**
- * What verification says about the candidate that stands.
- *
- * `not-applicable` is the ordinary clean join: nothing was resolved by
- * machine, so there is no candidate and nothing to examine — that join gates
- * exactly as it always did. Every other value belongs to a candidate.
- */
-export type JoinVerdict =
-  | "not-applicable"
-  | "unrun"
-  | "running"
-  | "green"
-  | "red";
 
 /** Why a join press was refused. */
 export type JoinGateReason =
   | "turn"
   | "pending"
   | "outcome"
-  | "unverified"
-  | "verifying"
   | "empty-message";
 
 /** The join-gate verdict — `ok`, or the first failing reason. */
 export type JoinGate = { ok: true } | { ok: false; reason: JoinGateReason };
-
-/**
- * What the project's own checks said about the candidate that would join
- * ([P04], [P07]).
- *
- * This replaced a gate that asked the *human* to read a diff. That framing was
- * wrong twice over: it made the person the auditor of machine text decisions,
- * and it caught nothing a careless click could not wave through. What matters
- * about a resolved tree is whether it builds and passes — and whether the
- * resolver accounted for every file it touched ([P10]), which the report
- * carries. So the gate reads a verdict.
- *
- * Absence is `unrun`, never green: nobody having asked about this candidate is
- * a different fact from the checks having passed on it, and conflating them is
- * how a tree nobody built would join looking verified. The verdict is anchored
- * to `(base_sha, candidate_sha)` server-side, so it cannot survive either head
- * moving.
- *
- * **Tier 0 alone decides.** The dash's own per-step checkpoints already ran the
- * tests; the join-time question is narrower and different — *does the merged
- * tree build* — which no checkpoint could have asked, because the merge did not
- * exist yet. Tier 1 drives real app launches behind a machine-wide gate and is
- * bounded at twenty minutes, and a wait of indeterminate length between the
- * decision and the join is precisely what this arc deletes. `tier1` stays on
- * the wire as durable branch state; nothing here reads it, and a `running`
- * tier1 must never be able to refuse a join for a reason nothing on screen
- * explains.
- */
-export function verificationVerdict(
-  join: DashJoinStateWire | null | undefined,
-): JoinVerdict {
-  if (join === null || join === undefined) return "not-applicable";
-  if (typeof join.candidate !== "string" || join.candidate === "") {
-    // A dash with something joinable and no candidate yet is `unrun`, never
-    // "no verdict applies here" ([P03]/[P04]). Entering join mode on a clean
-    // dash resolves it, and between that send and the candidate anchoring
-    // there is a stretch of a second or two where the old reading made the
-    // gate wave the join through — refusing exactly where the server's own
-    // gate would is what closes it.
-    //
-    // `not-applicable` survives for the states where no join is on offer at
-    // all: a blocked dash, an empty one, a stale resolution. Nothing is going
-    // to be built and judged there, so demanding a verdict would refuse with a
-    // sentence naming an act that would not help.
-    return deriveJoinOutcome(join) === "clean" ? "unrun" : "not-applicable";
-  }
-  const verification = join.verification;
-  if (verification === undefined) return "unrun";
-  switch (verification.tier0) {
-    case "red":
-      return "red";
-    case "running":
-      return "running";
-    case "green":
-      return "green";
-    default:
-      return "unrun";
-  }
-}
-
-/**
- * Whether a standing red override is about *this* candidate ([P07]).
- *
- * The comparison is the whole point. The override is recorded against the sha
- * it was decided over, so a re-resolve — the ordinary response to a red — puts
- * a new candidate up and the override stops applying to it. Without the
- * comparison, one press of Join anyway would wave through every candidate that
- * dash ever produced afterwards.
- */
-export function redOverrideStands(
-  candidateCommit: string | null,
-  overrideFor: string | null | undefined,
-): boolean {
-  if (candidateCommit === null) return false;
-  if (overrideFor === null || overrideFor === undefined) return false;
-  return overrideFor === candidateCommit;
-}
 
 /**
  * Whether a join may proceed, and if not, why ([P05]). Pure; exported so the Join
@@ -213,9 +102,7 @@ export function redOverrideStands(
  *
  * `outcome` passes on a clean preview, or on any state carrying a candidate
  * commit: a resolved conflict is a joinable dash even though its history is
- * `conflicted`. The verdict sits immediately after it, because it is the same
- * question one level finer — not *is* there something to join, but *does what
- * would join survive the project's own checks*.
+ * `conflicted`.
  */
 export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   if (input.turnInProgress) return { ok: false, reason: "turn" };
@@ -227,17 +114,8 @@ export function evaluateJoinGate(input: JoinGateInput): JoinGate {
   // joinable through it, which is the shade saying "blocked" and the button
   // saying "go".
   if (input.outcome !== "clean") return { ok: false, reason: "outcome" };
-  // **A red does not refuse** ([P05]). It is a decision the user is entitled
-  // to make, and the gate is not where a decision belongs: refusing here meant
-  // the only way past a red was a second control on a second surface, pressed
-  // before the one the user was already looking at. So the red arms
-  // {@link joinLandConfirm} instead — the button turns danger and asks — and
-  // what reaches the server is a press that was confirmed.
-  //
-  // The two waits below still refuse, because they are not decisions: a tree
-  // that is being built has no verdict to decide about yet.
-  if (input.verdict === "running") return { ok: false, reason: "verifying" };
-  if (input.verdict === "unrun") return { ok: false, reason: "unverified" };
+  // Nothing about a build is asked here. The run's ending verified the tree
+  // that lands, so what is left between a press and the base is the message.
   if (input.message.trim().length === 0) return { ok: false, reason: "empty-message" };
   return { ok: true };
 }
@@ -264,12 +142,6 @@ export function joinDisabledReason(
   // preview, reads "This join is not ready yet" — which names nothing the user
   // can act on when all that is missing is the message.
   if (reason === "empty-message") return "Write a join message";
-  // Both are waits: the pilot builds the joined tree at `built` without being
-  // asked, so naming a Verify control here would point at a button that no
-  // longer exists — the older sentence did exactly that. A red is no longer
-  // among them, because a red no longer refuses ([P05]).
-  if (reason === "unverified") return "Building the joined tree";
-  if (reason === "verifying") return "Building the joined tree";
   switch (outcome) {
     case "conflicted":
       return "Resolve the conflicts first";
@@ -286,35 +158,6 @@ export function joinDisabledReason(
     default:
       return "This join is not ready yet";
   }
-}
-
-/**
- * The sentence the land button must have answered before it lands, or null
- * ([P05]).
- *
- * This is where the red verdict went when it stopped refusing. The old shape
- * had two controls in two places — a Join button that refused and a JOIN
- * ANYWAY button on the shade that cleared the refusal — which meant the act
- * the refusal named was never the control the user was looking at. One button
- * that changes colour and asks is the same decision with the detour removed.
- *
- * A standing override returns null: the user already answered this question
- * about this candidate, and asking twice about one decision is how a confirm
- * becomes something to click through. The count comes from the verdict's own
- * `failures`, so the confirm says how much is broken rather than only that
- * something is.
- */
-export function joinLandConfirm(
-  verdict: JoinVerdict,
-  redOverride: boolean,
-  failures?: readonly string[] | undefined,
-): string | null {
-  if (verdict !== "red" || redOverride) return null;
-  const count = failures?.length ?? 0;
-  if (count === 0) return "The build is red on the joined tree. Join anyway?";
-  return `The build is red on the joined tree — ${count} failing ${
-    count === 1 ? "check" : "checks"
-  }. Join anyway?`;
 }
 
 /**
@@ -363,12 +206,6 @@ export const REFUSAL_REACHABILITY = {
   // What every one of them has in common is that the composer holds nothing
   // that would help, so the sentence has to be the whole answer.
   outcome: { slot: null, where: "time" },
-  // The verdict's two remaining refusals, both waits nothing can press
-  // through: the pilot runs Tier 0 unprompted at `built`, so an unrun verdict
-  // is a run about to happen rather than a control nobody has clicked. A red
-  // is no longer a refusal at all — it arms the land button's confirm ([P05]).
-  unverified: { slot: null, where: "time" },
-  verifying: { slot: null, where: "time" },
   // The message is the composer's document, so the editor is the control.
   "empty-message": { slot: "tug-prompt-entry", where: "composer" },
 } satisfies Record<JoinGateReason, ReachabilityRow>;
@@ -388,8 +225,6 @@ export function joinGateFacts(input: JoinGateInput): Record<string, unknown> {
     joinPhase: input.joinPhase,
     outcome: input.outcome,
     candidateCommit: input.candidateCommit,
-    verdict: input.verdict,
-    redOverride: input.redOverride,
     messageLen: input.message.trim().length,
   };
 }
@@ -491,7 +326,12 @@ export class JoinModeController implements LandingMode {
 
   /** The dash entry this mode is aimed at, read live off the changes snapshot. */
   private entry(): DashChangesetEntry | null {
-    const ownerId = this.target?.ownerId;
+    // The narration is the fallback for the same reason {@link entryFor} takes
+    // an id: the dash a join is *about* outlives the mode aimed at it. A
+    // server-started join never sets a target at all, and without this arm its
+    // register would derive from an absent feed entry — a live join reported
+    // as a dash nothing can say anything about.
+    const ownerId = (this.target ?? this.narration)?.ownerId;
     if (ownerId === undefined) return null;
     return this.entryFor(ownerId);
   }
@@ -551,22 +391,13 @@ export class JoinModeController implements LandingMode {
         : persistedMessage;
     const draftError = draftPhase === "error" ? overlay?.detail ?? null : null;
 
-    const verdict = verificationVerdict(join);
-    const redOverride = redOverrideStands(candidateCommit, join?.override_for);
     const gate = evaluateJoinGate({
       turnInProgress,
       joinPhase,
       outcome,
       candidateCommit,
-      verdict,
-      redOverride,
       message: "x", // ignore message emptiness here (CSS-gated on data-commit-empty)
     });
-    // A red arms the button rather than disabling it ([P05]). The confirm and
-    // the role are one derivation so the shade and the sentence cannot
-    // disagree: a danger-coloured button with nothing to answer would be a
-    // trap, and a confirm on an ordinary land would be friction.
-    const landConfirm = joinLandConfirm(verdict, redOverride, join?.verification?.failures);
     // The same sentence the fronted row's join face shows, carried to the
     // composer's button — which is where somebody who typed `/dash-join` is
     // actually looking, and which otherwise reports a constant.
@@ -607,8 +438,6 @@ export class JoinModeController implements LandingMode {
                 registerTarget.name,
               ),
             }),
-      landRole: landConfirm === null ? "action" : "danger",
-      landConfirm,
       landReady: this.active && gate.ok && messagePresent,
       landPhase: joinPhase,
       landError,
@@ -799,9 +628,8 @@ export class JoinModeController implements LandingMode {
    * fire it inline. A refusal is surfaced here and reported by type ([L31]) —
    * this path has no outcome where nothing happens and nothing is said.
    */
-  land(message: string, opts?: LandOptions): LandOutcome {
+  land(message: string): LandOutcome {
     const text = message.trim();
-    const anyway = opts?.anyway === true;
     // The dash is captured at press time and carried into the staged callback,
     // never re-read from `this.target` when it runs. The host stages a join
     // by exiting the mode, and exiting clears the target — so a staged join
@@ -827,7 +655,7 @@ export class JoinModeController implements LandingMode {
     }
     this.clearRefusal();
     sendLandingReceipt({ kind: "join", verdict: "ok", gate: joinGateFacts(input) });
-    const runJoin = () => this.performJoin(text, target, anyway);
+    const runJoin = () => this.performJoin(text, target);
     if (this.landHook !== null) {
       this.landHook(runJoin);
       return { kind: "staged" };
@@ -870,7 +698,7 @@ export class JoinModeController implements LandingMode {
 
   /**
    * The gate's inputs against live state — the same read the affordance's
-   * disable uses. Built separately from the verdict so a refusal can record
+   * disable uses. Built separately from the snapshot so a refusal can record
    * exactly what it judged, rather than a reconstruction of it.
    */
   private liveGateInput(message: string, target: JoinTarget): JoinGateInput {
@@ -886,11 +714,6 @@ export class JoinModeController implements LandingMode {
       joinPhase: getChangesetVerbStore()?.joinState(changesController.entryKey).phase ?? "idle",
       outcome: deriveJoinOutcome(join),
       candidateCommit: typeof candidate === "string" && candidate !== "" ? candidate : null,
-      verdict: verificationVerdict(join),
-      redOverride: redOverrideStands(
-        typeof candidate === "string" && candidate !== "" ? candidate : null,
-        join?.override_for,
-      ),
       message,
     };
   }
@@ -908,7 +731,7 @@ export class JoinModeController implements LandingMode {
    * the staged path already dismissed it. The gate is re-checked because the
    * staged path fires a beat later, after the shade animates out.
    */
-  private performJoin(text: string, target: JoinTarget, anyway: boolean): void {
+  private performJoin(text: string, target: JoinTarget): void {
     const { changesController } = this.deps;
     const input = this.liveGateInput(text, target);
     const gate = evaluateJoinGate(input);
@@ -937,11 +760,6 @@ export class JoinModeController implements LandingMode {
       message: text,
       sessionId: changesController.tugSessionId,
       ...(input.candidateCommit !== null ? { candidate: input.candidateCommit } : {}),
-      // The confirmed red ([P05]). The server's verification gate is the one
-      // that actually stands between a red tree and the base, so the answer to
-      // the confirm has to reach it — a client that only recoloured its button
-      // would have asked the question and then thrown the answer away.
-      ...(anyway ? { anyway: true } : {}),
     });
     const unsubscribe = verbStore.subscribe(() => {
       const phase = verbStore.joinState(changesController.entryKey).phase;
@@ -957,6 +775,26 @@ export class JoinModeController implements LandingMode {
         this.enter(target);
       }
     });
+  }
+
+  /**
+   * Narrate a join **this composer did not fire** — the one a prompt-sheet
+   * "Join now" starts on the server.
+   *
+   * Sets the narration and nothing else. Entering the mode would be wrong on
+   * every count: there is no message to compose, no gate to evaluate, and no
+   * press to make — the work is already under way. What the narration buys is
+   * that `registerTarget` resolves, so the composer's status row carries the
+   * beats and rests on the settled sentence, exactly as it does for a press.
+   *
+   * The previous run's last word is retired here for the same reason
+   * {@link performJoin} retires it: a new join is the only thing that may.
+   */
+  narrateServerJoin(target: JoinTarget): void {
+    const { changesController } = this.deps;
+    getChangesetJoinStore()?.clearLand(changesController.workspaceKey, target.name);
+    this.narration = target;
+    this.recompute();
   }
 
   dispose(): void {
@@ -1006,8 +844,6 @@ function snapshotsEqual(a: JoinModeSnapshot, b: JoinModeSnapshot): boolean {
     a.canLandIgnoringMessage === b.canLandIgnoringMessage &&
     a.landBlockedReason === b.landBlockedReason &&
     a.landReady === b.landReady &&
-    a.landRole === b.landRole &&
-    a.landConfirm === b.landConfirm &&
     sameRegister(a.register, b.register) &&
     a.landPhase === b.landPhase &&
     a.landError === b.landError &&

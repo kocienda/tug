@@ -28,7 +28,7 @@
  *
  * conflicted → Resolve → the resolver asks → the question renders on the join
  * face → press an option → the resolver takes the answer verbatim and finishes
- * → Tier 0 green → the row states its join route.
+ * → the candidate anchors → the row states its join route.
  *
  * ## The fixture
  *
@@ -86,7 +86,7 @@ const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]
 const JOIN_FACE = `${ROW} [data-slot="session-changes-dash-join"]`;
 const QUESTION = `${ROW} [data-slot="session-changes-dash-join-question"]`;
 const WIZARD = `${QUESTION} [data-slot="session-question-dialog"]`;
-const VERDICT = `${ROW} [data-slot="session-changes-dash-join-verdict"]`;
+const ACCOUNT = `${ROW} [data-slot="session-changes-dash-join-account"]`;
 const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
@@ -132,7 +132,6 @@ beforeAll(() => {
     fork: "at0442 the body both sides will rewrite\n",
     base: "at0442 base side — the whole file, rewritten\n",
     dashBody: "at0442 dash side — the whole file, rewritten\n",
-    verifyTier0: `grep -q SENTINEL ${FILE}`,
     resolver: RESOLVER_STUB,
     // The run that raises the escalation is the pilot's: there is no Resolve
     // to press any more ([P08]), and `built` is what hands a dash over.
@@ -268,7 +267,7 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
 
         // ── The resolver finishes on the answer ───────────────────────────
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(VERDICT)})?.getAttribute("data-verdict") === "green"`,
+          `document.querySelector(${JSON.stringify(ACCOUNT)}) !== null`,
           { timeoutMs: 180000 },
         );
         expect(
