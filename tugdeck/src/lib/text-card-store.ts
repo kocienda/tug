@@ -39,7 +39,11 @@
 import { FeedId } from "../protocol";
 import { getConnection } from "./connection-singleton";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
-import type { FileReadErrorKind, FileWriteOutcome } from "./file-io";
+import type {
+  FileReadErrorKind,
+  FileReadResult,
+  FileWriteOutcome,
+} from "./file-io";
 import { readFileFromDisk, writeFileToDisk } from "./file-io";
 import { applyAssetRenames, migrateDraftAssets } from "./attachment-upload";
 import {
@@ -64,6 +68,15 @@ export const AUTOSAVE_DEBOUNCE_MS = 1000;
 
 /** Consecutive write failures before the card surfaces a banner. */
 export const WRITE_FAILURE_BANNER_THRESHOLD = 3;
+
+/**
+ * How long an apparently-vanished file is given to come back before the
+ * store calls it missing. A checkout, a branch switch, or an editor's
+ * safe-write dance can leave a path absent for longer than one watcher
+ * debounce window, so the verdict is re-probed once after this delay
+ * rather than rendered from a single observation.
+ */
+export const MISSING_SETTLE_MS = 500;
 
 /**
  * Selection + scroll positions — the only state the card bag persists.
@@ -123,6 +136,19 @@ export interface FileConflict {
   reason: "hash" | "missing";
   /** Present for `hash` conflicts: the disk content's current sha256. */
   diskSha256?: string;
+  /**
+   * `missing` verdicts only: whether the buffer was clean when the verdict
+   * was raised, which is what decides banner versus modal sheet.
+   *
+   * Latched at raise time and never recomputed. Live `saveState` is not a
+   * legal input here: `noteEdit` deliberately flips a clean buffer to
+   * `editing` on the first keystroke under a conflict (so the aside gate
+   * opens and the close guard cannot destroy the edits), so reading it live
+   * would escalate a quiet banner into a modal the moment the user typed.
+   * Nothing was at risk when the verdict was raised, and that fact does not
+   * change afterwards.
+   */
+  raisedOverCleanBuffer?: boolean;
 }
 
 /**
@@ -232,6 +258,44 @@ const EMPTY_SNAPSHOT: TextCardSnapshot = {
   lastSavedAt: null,
 };
 
+/**
+ * Where a file inside a dash worktree ends up once the dash is joined.
+ *
+ * A dash worktree lives at `<repo>/.tug/worktrees/<name>/` (`worktree_path` in
+ * `tugdash-core/src/ops.rs`), and joining removes it — so a card bound inside
+ * one is left holding a path that is genuinely gone. The successor is knowable
+ * from shape alone: the same relative path under the repo root.
+ *
+ *   `/repo/.tug/worktrees/mydash/src/x.ts` → `/repo/src/x.ts`
+ *
+ * Pure string logic and no filesystem access. What it returns is a **probe
+ * input**, never a path to bind: [L29] requires the bound path be the
+ * canonical one `/api/fs/read` returns. Null when the path is not inside a
+ * dash worktree, or names the worktree root itself with nothing beneath it.
+ *
+ * Legacy `.tugtree/tugdash__<name>/` homes are deliberately not matched: they
+ * are migrated on dash access (`migrate_worktrees`), so no live card binds
+ * into one.
+ */
+export function dashSuccessorPath(path: string): string | null {
+  const marker = "/.tug/worktrees/";
+  // The LAST occurrence, not the first: worktrees nest. A dash cut inside
+  // another dash's worktree gives a path with two of these segments, and the
+  // one that encloses the file — the one a join would remove out from under
+  // it — is the innermost.
+  const at = path.lastIndexOf(marker);
+  if (at === -1) return null;
+  const root = path.slice(0, at);
+  const afterMarker = path.slice(at + marker.length);
+  const slash = afterMarker.indexOf("/");
+  // Needs a dash name AND a relative path beneath it: `<name>` alone is the
+  // worktree root, which has no successor file.
+  if (slash <= 0) return null;
+  const relative = afterMarker.slice(slash + 1);
+  if (relative === "") return null;
+  return `${root}/${relative}`;
+}
+
 /** Basename of an absolute path (trailing slashes ignored). */
 function baseName(path: string): string {
   const trimmed = path.replace(/\/+$/, "");
@@ -338,6 +402,22 @@ export class TextCardStore {
    */
   private _editedDuringWrite = false;
   private _disposed = false;
+  /**
+   * Single-shot timer between an apparent disappearance and the missing
+   * verdict. Held so a new event, a successful adoption, or `dispose()`
+   * can cancel it ([L27]).
+   */
+  private _missingSettleTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The bound file's `(dev, ino)`, captured from the last successful read.
+   *
+   * This is what tells "my file moved" from "a different file appeared where
+   * mine was". A content hash cannot: a move that carried an edit hashes to
+   * nothing we know, and two files with identical bytes hash to each other.
+   * Null when the server reports no identity (non-unix), which falls the
+   * matching back to the hash.
+   */
+  private _heldIdentity: { dev: number; ino: number } | null = null;
   /** Unregisters the FILESYSTEM feed callback; called by `dispose()`. */
   private _unsubscribeFilesystem: (() => void) | null = null;
 
@@ -417,6 +497,7 @@ export class TextCardStore {
       });
       return;
     }
+    this._noteIdentity(outcome.file);
     this._baselineSha256 = outcome.file.sha256;
     this._lastKnownEmpty = outcome.file.content === "";
     this._update({
@@ -666,7 +747,10 @@ export class TextCardStore {
   }
 
   /** The real-file write behind {@link save}, run under the single-flight latch. */
-  private async _performSave(path: string): Promise<FileSaveResult> {
+  private async _performSave(
+    path: string,
+    retriedAfterAdopt = false,
+  ): Promise<FileSaveResult> {
     const bridge = this._bridge;
     if (bridge === null) return "noop";
     this._clearDebounce();
@@ -679,6 +763,8 @@ export class TextCardStore {
       baselineSha256: this._baselineSha256,
     });
     if (this._disposed) return "noop";
+    // A frame deferred by the echo-guard while this save held `writing`.
+    this._drainRecheckQueue();
     if (outcome.ok) {
       this._baselineSha256 = outcome.sha256;
       const editedDuringWrite = this._editedDuringWrite;
@@ -730,7 +816,21 @@ export class TextCardStore {
       return "conflict";
     }
     if (outcome.error === "missing") {
-      this._update({ saveState: "editing", conflict: { reason: "missing" } });
+      // The path was gone at write time. That is what a real delete looks
+      // like and also what a save landing inside a checkout's unlink window
+      // looks like, so the ladder decides which before anything is said to
+      // the user.
+      this._update({ saveState: "editing" });
+      const verdict = await this._classifyAbsentPath();
+      if (this._disposed) return "noop";
+      // Present after all: the honest answer is that the bytes on disk are
+      // not the ones we were conditioned on.
+      if (verdict === "present") return "conflict";
+      // The file moved and we followed it; write the buffer where it went.
+      if (verdict === "adopted" && !retriedAfterAdopt) {
+        const adoptedPath = this._snapshot.path;
+        if (adoptedPath !== null) return this._performSave(adoptedPath, true);
+      }
       return "missing";
     }
     this._update({
@@ -811,7 +911,25 @@ export class TextCardStore {
    * missing-file Save must adjudicate, never overwrite blind.
    */
   async resolveMissing(): Promise<FileSaveResult> {
-    if (this._snapshot.conflict?.reason !== "missing") return "noop";
+    const conflict = this._snapshot.conflict;
+    // The verdict can change under a sheet that is still on screen — the file
+    // comes back, the store un-latches, and this gesture arrives against a
+    // state that no longer matches what the user is looking at. A sheet closes
+    // only from inside, on Escape, or on ⌘., so there is no dismissing it from
+    // here; what there is instead is an obligation to make the press mean
+    // something rather than die silently ([L31]).
+    if (conflict === null) {
+      // Nothing is wrong any more. A clean buffer already got what it asked
+      // for; a dirty one runs the ordinary save.
+      if (this._snapshot.saveState === "clean") return "ok";
+      return this.save();
+    }
+    if (conflict.reason !== "missing") {
+      // The file returned and now diverges from the buffer. Hand the card the
+      // conflict so it presents the adjudication sheet — the honest follow-up
+      // to a Save whose premise expired.
+      return "conflict";
+    }
     this._baselineSha256 = null;
     // Mark editing even when the buffer never diverged from the deleted
     // file: "Save" here means RECREATE, and save()'s clean short-circuit
@@ -903,6 +1021,11 @@ export class TextCardStore {
   private _onWriteSettled(outcome: FileWriteOutcome): void {
     const editedDuringWrite = this._editedDuringWrite;
     this._editedDuringWrite = false;
+    // A frame that hit our path mid-write was deferred to here. It is
+    // honored on every outcome — a conflict, a failure, or a buffer edited
+    // under the write are exactly the cases where the disk state we
+    // deferred asking about matters most.
+    this._drainRecheckQueue();
     if (outcome.ok) {
       this._baselineSha256 = outcome.sha256;
       if (editedDuringWrite) {
@@ -922,10 +1045,6 @@ export class TextCardStore {
         writeFailures: 0,
         lastSavedAt: Date.now(),
       });
-      if (this._recheckQueued) {
-        this._recheckQueued = false;
-        void this._recheckDisk();
-      }
       return;
     }
     if (outcome.error === "conflict") {
@@ -936,7 +1055,11 @@ export class TextCardStore {
       return;
     }
     if (outcome.error === "missing") {
-      this._update({ saveState: "editing", conflict: { reason: "missing" } });
+      // The server refused because the path was gone at write time — which
+      // is also what a write landing inside a checkout's unlink window
+      // gets. The ladder decides whether the file is actually missing.
+      this._update({ saveState: "editing" });
+      void this._classifyAbsentPath();
       return;
     }
     // Transport/server failure: back off and retry from the debounce.
@@ -951,6 +1074,13 @@ export class TextCardStore {
       8000,
     );
     this._armDebounce(backoff);
+  }
+
+  /** Run a recheck deferred by the write echo-guard, if one is pending. */
+  private _drainRecheckQueue(): void {
+    if (!this._recheckQueued) return;
+    this._recheckQueued = false;
+    void this._classifyAbsentPath();
   }
 
   private _armDebounce(delayMs: number): void {
@@ -1202,6 +1332,40 @@ export class TextCardStore {
     const root = frame.workspace_key.replace(/\/+$/, "");
     const full = (p: string): string => `${root}/${p}`;
 
+    // A `Removed` naming a DIRECTORY our file lives under takes our file with
+    // it. Removing a directory tree is reported as the directory going away,
+    // not as an event per file inside it — so a card in a torn-down dash
+    // worktree would otherwise never hear that its path is gone, and would sit
+    // on a dead binding until the next activation recheck.
+    const ourPath = snap.path;
+    const removedUnderUs = frame.events.some(
+      (event) =>
+        event.kind === "Removed" &&
+        event.path !== undefined &&
+        ourPath.startsWith(`${full(event.path)}/`),
+    );
+
+    // Does this batch name our path at all — as a subject, as the source of
+    // a rename, or as its destination?
+    const hit =
+      removedUnderUs ||
+      frame.events.some(
+        (event) =>
+          (event.path !== undefined && full(event.path) === ourPath) ||
+          (event.from !== undefined && full(event.from) === ourPath) ||
+          (event.to !== undefined && full(event.to) === ourPath),
+      );
+    if (!hit) return;
+
+    // Echo guard, ahead of every other branch: our own write is a temp file
+    // plus a rename, so mid-write it produces exactly the Removed/Renamed
+    // shape the branches below interpret as the file moving or vanishing.
+    // Re-check once the write settles, when the baseline is current.
+    if (snap.saveState === "writing") {
+      this._recheckQueued = true;
+      return;
+    }
+
     // Rename-follow. (a) An explicit `Renamed { from, to }` whose
     // `from` is our path (the Linux/Windows path) → adopt `to` directly.
     const renamed = frame.events.find(
@@ -1211,25 +1375,28 @@ export class TextCardStore {
       void this._adoptRename(full(renamed.to));
       return;
     }
-    // (b) macOS delivers renames as Removed{ours} + Created{new} in one
-    // batch. When our file was removed, try to adopt a hash-matching
-    // creation before falling back to the missing-file flow.
-    if (frame.events.some((e) => e.kind === "Removed" && e.path !== undefined && full(e.path) === snap.path)) {
-      void this._tryAdoptRemovedRename(frame, root);
+    // (b) macOS delivers a rename — and a replace-in-place — as
+    // Removed{ours} (+ Created) in one batch. The ladder decides which
+    // from disk state, never from the event flags alone.
+    if (
+      removedUnderUs ||
+      frame.events.some(
+        (e) => e.kind === "Removed" && e.path !== undefined && full(e.path) === ourPath,
+      )
+    ) {
+      void this._classifyAbsentPath({ frame, root });
       return;
     }
 
-    const hit = frame.events.some(
-      (event) => event.path !== undefined && full(event.path) === snap.path,
-    );
-    if (!hit) return;
-    if (snap.saveState === "writing") {
-      // Likely our own write echoing back; re-check once it settles so a
-      // genuinely foreign change still gets adjudicated.
-      this._recheckQueued = true;
+    if (snap.conflict !== null) {
+      // A hash conflict is a question only the user can answer, so it stays
+      // until they do. A missing verdict is a claim about the file being
+      // gone, and an event naming our path is reason enough to look again —
+      // otherwise Cancel leaves the card deaf to the file coming back.
+      if (snap.conflict.reason !== "missing") return;
+      void this._classifyAbsentPath();
       return;
     }
-    if (snap.conflict !== null) return;
     if (snap.saveState === "editing") {
       if (this._saveMode === "manual") {
         // Dirty manual buffer: the unsaved edits live only in the buffer,
@@ -1247,6 +1414,174 @@ export class TextCardStore {
   }
 
   /**
+   * The one ladder every "is this file gone?" question descends.
+   *
+   * A `Removed` event, a read that came back `not_found`, and a write that
+   * came back `missing` are all the same question asked from different
+   * places, and two code paths that can disagree about whether a file
+   * exists eventually will. So they all arrive here:
+   *
+   * 1. **Replace-in-place** — the path itself still reads. A writer
+   *    unlinked and recreated it (git checkout, a merge, an atomic
+   *    temp-and-rename save); the content changed and the file never went
+   *    away. Clean buffers adopt the new bytes, a dirty manual buffer gets
+   *    the hash conflict, a dirty automatic buffer leaves the verdict to
+   *    its next conditional write.
+   * 2. **Paired rename** — a `Created` in the same batch is our file under
+   *    a new name; adopt it.
+   * 3. **Settle** — the path is absent and nothing claimed it. Give it
+   *    `MISSING_SETTLE_MS` and ask again; only a second consecutive
+   *    absence becomes the missing verdict.
+   */
+  private async _classifyAbsentPath(opts?: {
+    frame?: FilesystemFrame;
+    root?: string;
+    afterSettle?: boolean;
+  }): Promise<"present" | "adopted" | "pending" | "missing"> {
+    const path = this._snapshot.path;
+    if (path === null) return "pending";
+
+    const outcome = await readFileFromDisk(path);
+    if (this._disposed || this._snapshot.path !== path) return "pending";
+
+    if (outcome.ok) {
+      this._clearMissingSettle();
+      this._noteIdentity(outcome.file);
+      // The file is back. A missing verdict is a claim about its absence, so
+      // it cannot outlive it — leaving one up would jail the card behind a
+      // question that has already answered itself.
+      if (this._snapshot.conflict?.reason === "missing") {
+        this._update({ conflict: null });
+      }
+      const snap = this._snapshot;
+      if (snap.saveState === "clean") {
+        if (outcome.file.sha256 !== this._baselineSha256) {
+          this._applyDiskRead(outcome.file);
+        }
+      } else if (this._saveMode === "manual" && snap.conflict === null) {
+        if (outcome.file.sha256 !== this._baselineSha256) {
+          this._update({
+            conflict: { reason: "hash", diskSha256: outcome.file.sha256 },
+          });
+        }
+      }
+      return "present";
+    }
+
+    if (opts?.frame !== undefined && opts.root !== undefined) {
+      const adopted = await this._tryAdoptRemovedRename(opts.frame, opts.root);
+      if (this._disposed) return "pending";
+      if (adopted) {
+        this._clearMissingSettle();
+        return "adopted";
+      }
+      if (this._snapshot.path !== path) return "pending";
+    }
+
+    if (await this._tryAdoptDashSuccessor(path)) return "adopted";
+
+    if (opts?.afterSettle === true) {
+      this._raiseMissingVerdict();
+      return "missing";
+    }
+    this._armMissingSettle(path);
+    return "pending";
+  }
+
+  /**
+   * A file inside a dash worktree that a join has just torn down.
+   *
+   * This is the one case where the path is *genuinely* gone and "missing" is
+   * still the wrong answer: joining removes `.tug/worktrees/<name>/`, and the
+   * file's successor — the joined version of the same work — is sitting at the
+   * repo-root path the shape rule names. Re-anchor there instead of telling
+   * the user their file was deleted.
+   *
+   * A clean buffer adopts the successor's bytes silently. A dirty manual
+   * buffer adopts the path and gets the hash conflict, which is the honest
+   * question: the unsaved edits differ from what joined.
+   */
+  private async _tryAdoptDashSuccessor(path: string): Promise<boolean> {
+    const successor = dashSuccessorPath(path);
+    if (successor === null) return false;
+    const probe = await readFileFromDisk(successor);
+    if (this._disposed || this._snapshot.path !== path) return false;
+    if (!probe.ok) return false;
+
+    this._clearMissingSettle();
+    const wasClean = this._snapshot.saveState === "clean";
+    // [L29]: bind the canonical path the read returned, never the string the
+    // shape rule built — that one is a probe input only.
+    await this._adoptRename(probe.file.path, probe.file);
+    if (this._disposed) return true;
+    if (wasClean) {
+      this._applyDiskRead(probe.file);
+    } else if (this._saveMode === "manual" && this._snapshot.conflict === null) {
+      this._update({
+        conflict: { reason: "hash", diskSha256: probe.file.sha256 },
+      });
+    }
+    return true;
+  }
+
+  /** Re-ask the ladder once, after giving the path time to come back. */
+  private _armMissingSettle(path: string): void {
+    this._clearMissingSettle();
+    this._missingSettleTimer = setTimeout(() => {
+      this._missingSettleTimer = null;
+      if (this._disposed || this._snapshot.path !== path) return;
+      void this._classifyAbsentPath({ afterSettle: true });
+    }, MISSING_SETTLE_MS);
+  }
+
+  private _clearMissingSettle(): void {
+    if (this._missingSettleTimer !== null) {
+      clearTimeout(this._missingSettleTimer);
+      this._missingSettleTimer = null;
+    }
+  }
+
+  /** The file is gone and nothing claimed it: raise the verdict. */
+  private _raiseMissingVerdict(): void {
+    if (this._snapshot.conflict !== null) return;
+    this._update({
+      conflict: {
+        reason: "missing",
+        raisedOverCleanBuffer: this._snapshot.saveState === "clean",
+      },
+    });
+  }
+
+  /**
+   * Record the identity a read reported for the bound file. An absent pair
+   * clears it rather than leaving a stale one behind — a server that stopped
+   * answering must not leave the card matching against a remembered inode.
+   */
+  private _noteIdentity(file: FileReadResult): void {
+    this._heldIdentity =
+      file.dev !== undefined && file.ino !== undefined
+        ? { dev: file.dev, ino: file.ino }
+        : null;
+  }
+
+  /** Adopt a disk read into the buffer, baseline, and snapshot. */
+  private _applyDiskRead(file: FileReadResult): void {
+    this._noteIdentity(file);
+    this._baselineSha256 = file.sha256;
+    if (this._bridge) {
+      this._bridge.replaceText(file.content);
+    }
+    this._update({
+      seedContent: file.content,
+      readOnly: file.readOnly,
+      saveState: "clean",
+      conflict: null,
+      writeFailures: 0,
+      lineEnding: detectLineEnding(file.content),
+    });
+  }
+
+  /**
    * Manual-mode watcher/focus path: re-read disk and, if it diverged from
    * the baseline the dirty buffer is based on, raise the hash conflict the
    * card renders as the modal conflict sheet.
@@ -1260,9 +1595,7 @@ export class TextCardStore {
       return;
     }
     if (!outcome.ok) {
-      if (outcome.error === "not_found") {
-        this._update({ conflict: { reason: "missing" } });
-      }
+      if (outcome.error === "not_found") await this._classifyAbsentPath();
       return;
     }
     if (outcome.file.sha256 !== this._baselineSha256) {
@@ -1273,41 +1606,69 @@ export class TextCardStore {
   }
 
   /**
-   * Try to adopt a rename from a macOS Removed+Created batch:
-   * read each `Created` candidate (same-basename first, else the sole
-   * creation) and adopt the first whose disk sha equals our baseline —
-   * unsaved edits never touch disk, so a moved file still hashes to the
-   * last-saved baseline. Zero or ambiguous matches → the missing-file
-   * flow (a prompt, never a wrong rebind).
+   * Try to adopt a rename from a macOS Removed+Created batch.
+   *
+   * Two ways to recognize our file among the batch's creations, and they take
+   * different candidates:
+   *
+   * - **By identity.** `(dev, ino)` names the file itself, so a match cannot
+   *   be wrong and every creation in the batch is worth reading — including
+   *   one under a different basename, which is exactly the move the narrow
+   *   rule below misses. It also survives a move that carried an edit.
+   * - **By content hash**, the fallback when no identity is held. A hash can
+   *   collide between two unrelated files, so it keeps the narrow candidate
+   *   rule: same-basename creations, or a sole creation. Unsaved edits never
+   *   touch disk, so a moved file still hashes to the last-saved baseline.
+   *
+   * Identity preempts: a hash match is remembered but the scan continues, so
+   * an identity match later in the batch still wins. Returns whether a
+   * candidate was adopted; zero matches return false and the ladder decides
+   * what that means (a prompt, never a wrong rebind).
    */
   private async _tryAdoptRemovedRename(
     frame: FilesystemFrame,
     root: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const path = this._snapshot.path;
-    if (path === null) return;
+    if (path === null) return false;
     const created = frame.events
       .filter((e) => e.kind === "Created" && e.path !== undefined)
       .map((e) => `${root}/${e.path}`);
     const ourBase = baseName(path);
-    let candidates = created.filter((c) => baseName(c) === ourBase);
-    if (candidates.length === 0 && created.length === 1) candidates = created;
-    for (const candidate of candidates) {
+    let narrow = created.filter((c) => baseName(c) === ourBase);
+    if (narrow.length === 0 && created.length === 1) narrow = created;
+    const held = this._heldIdentity;
+    const scan = held !== null ? created : narrow;
+
+    let hashHit: FileReadResult | null = null;
+    for (const candidate of scan) {
       const outcome = await readFileFromDisk(candidate);
-      if (this._disposed || this._snapshot.path !== path) return;
-      if (outcome.ok && outcome.file.sha256 === this._baselineSha256) {
-        await this._adoptRename(outcome.file.path);
-        return;
+      if (this._disposed || this._snapshot.path !== path) return false;
+      if (!outcome.ok) continue;
+      if (
+        held !== null &&
+        outcome.file.dev === held.dev &&
+        outcome.file.ino === held.ino
+      ) {
+        await this._adoptRename(outcome.file.path, outcome.file);
+        return true;
+      }
+      if (
+        hashHit === null &&
+        narrow.includes(candidate) &&
+        outcome.file.sha256 === this._baselineSha256
+      ) {
+        hashHit = outcome.file;
       }
     }
-    // No hash-matching candidate in this batch — the file is gone (a
-    // rename the watcher couldn't pair, or a real delete). We follow moves
-    // only for in-workspace files, via the watcher's paired events above;
-    // out-of-workspace moves fall here, and the missing sheet's Don't Save
-    // lets the user close without a jail.
-    if (this._snapshot.conflict === null) {
-      this._update({ conflict: { reason: "missing" } });
+    if (hashHit !== null) {
+      await this._adoptRename(hashHit.path, hashHit);
+      return true;
     }
+    // Nothing in this batch was ours. We follow moves only for in-workspace
+    // files, via the watcher's paired events above; out-of-workspace moves
+    // fall through to the settle window.
+    return false;
   }
 
   /**
@@ -1315,10 +1676,20 @@ export class TextCardStore {
    * re-key the aside (write the current buffer to the new key, delete the
    * old), leaving dirty state and baseline untouched — this is
    * `presentedItemDidMove(to:)` behavior, no prompt.
+   *
+   * `adopted` is the read the new path was recognized by, when there was one.
+   * Without it the held identity is cleared rather than carried over: an
+   * explicit `Renamed` event names a path we have not read, and a remembered
+   * inode that no longer describes the bound file is worse than none.
    */
-  private async _adoptRename(newPath: string): Promise<void> {
+  private async _adoptRename(
+    newPath: string,
+    adopted?: FileReadResult,
+  ): Promise<void> {
     const oldPath = this._snapshot.path;
     if (oldPath === null || newPath === oldPath) return;
+    if (adopted !== undefined) this._noteIdentity(adopted);
+    else this._heldIdentity = null;
     const wasDirty = this._snapshot.saveState === "editing";
     const oldWriter = this._asideWriter;
     if (this._saveMode === "manual") {
@@ -1366,11 +1737,10 @@ export class TextCardStore {
     const outcome = await readFileFromDisk(path);
     if (this._disposed || this._snapshot.path !== path) return;
     if (!outcome.ok) {
-      if (outcome.error === "not_found") {
-        this._update({ conflict: { reason: "missing" } });
-      }
+      if (outcome.error === "not_found") await this._classifyAbsentPath();
       return;
     }
+    this._clearMissingSettle();
     const diverged = outcome.file.sha256 !== this._baselineSha256;
     if (!diverged && opts?.force !== true) return;
     // A non-force recheck is an external-change auto-revert that applies
@@ -1378,24 +1748,14 @@ export class TextCardStore {
     // edits now own the buffer — don't clobber them; the next flush or
     // conflict check adjudicates. `force` (revert/reload) reverts anyway.
     if (opts?.force !== true && this._snapshot.saveState !== "clean") return;
-    this._baselineSha256 = outcome.file.sha256;
-    if (this._bridge) {
-      this._bridge.replaceText(outcome.file.content);
-    }
-    this._update({
-      seedContent: outcome.file.content,
-      readOnly: outcome.file.readOnly,
-      saveState: "clean",
-      conflict: null,
-      writeFailures: 0,
-      lineEnding: detectLineEnding(outcome.file.content),
-    });
+    this._applyDiskRead(outcome.file);
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   dispose(): void {
     this._clearDebounce();
+    this._clearMissingSettle();
     // Draft GC: an untitled draft that is still empty leaves nothing
     // worth keeping — remove its file (hash-conditional, keepalive so
     // the request survives teardown). A non-empty draft stays; the bag

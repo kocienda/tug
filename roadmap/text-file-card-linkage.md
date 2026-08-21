@@ -404,14 +404,14 @@ The missing conflict variant gains `raisedOverCleanBuffer: boolean`, set from `s
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Watcher: collapse same-path remove+create for files | pending | — |
-| #step-2 | Store: one ladder, guard order, settle window | pending | — |
-| #step-3 | Join-replace app-test — the regression proof | pending | — |
-| #step-4 | Identity fields on the fs endpoints | pending | — |
-| #step-5 | Identity-first rename adoption | pending | — |
-| #step-6 | Dash-worktree retirement re-anchor | pending | — |
-| #step-7 | Modality latch, un-latch, and defaults | pending | — |
-| #step-8 | Integration checkpoint | pending | — |
+| #step-1 | Watcher: collapse same-path remove+create for files | done | `fbade5129` |
+| #step-2 | Store: one ladder, guard order, settle window | done | `9065f04fc` |
+| #step-3 | Join-replace app-test — the regression proof | done | `6282de6bd` |
+| #step-4 | Identity fields on the fs endpoints | done | `6abdb34b8` |
+| #step-5 | Identity-first rename adoption | done | `c13bdcff0` |
+| #step-6 | Dash-worktree retirement re-anchor | done | `085541a14` |
+| #step-7 | Modality latch, un-latch, and defaults | done | `4826bcc68` |
+| #step-8 | Integration checkpoint | in progress | — |
 
 #### Step 1: Watcher: collapse same-path remove+create for files {#step-1}
 

@@ -150,17 +150,39 @@ fn read_file(canonical: &Path) -> (StatusCode, Value) {
         Ok(content) => content,
         Err(_) => return fs_error(StatusCode::UNPROCESSABLE_ENTITY, "binary"),
     };
-    (
-        StatusCode::OK,
-        json!({
-            "path": canonical.to_string_lossy(),
-            "content": content,
-            "sha256": sha256,
-            "size": metadata.len(),
-            "mtimeMs": mtime_ms(&metadata),
-            "readOnly": metadata.permissions().readonly(),
-        }),
-    )
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut body = json!({
+        "path": canonical.to_string_lossy(),
+        "content": content,
+        "sha256": sha256,
+        "size": metadata.len(),
+        "mtimeMs": mtime_ms(&metadata),
+        "readOnly": metadata.permissions().readonly(),
+    });
+    insert_identity(&mut body, &metadata);
+    (StatusCode::OK, body)
+}
+
+/// Add the file's `(dev, ino)` identity to a response object.
+///
+/// This pair is what survives a rename on the same volume, so a client
+/// holding it can tell "my file moved" from "a different file appeared where
+/// mine was" — which content hashing cannot do once the move carried an edit
+/// with it. Additive and unix-only: a client that finds the fields absent
+/// falls back to matching on the content hash.
+pub(crate) fn insert_identity(body: &mut Value, metadata: &std::fs::Metadata) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Some(object) = body.as_object_mut() {
+            object.insert("dev".to_string(), json!(metadata.dev()));
+            object.insert("ino".to_string(), json!(metadata.ino()));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (body, metadata);
+    }
 }
 
 /// Handle `GET /api/fs/read?path=<abs>`. Restricted to loopback.
@@ -210,6 +232,49 @@ mod tests {
         assert_eq!(body["size"], 10);
         assert_eq!(body["readOnly"], false);
         assert!(body["mtimeMs"].as_u64().unwrap() > 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_reports_the_files_dev_and_ino() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("identified.txt");
+        std::fs::write(&path, "who am i\n").unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+
+        let (status, body) = read_file(&path);
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["dev"].as_u64().unwrap(), metadata.dev());
+        assert_eq!(body["ino"].as_u64().unwrap(), metadata.ino());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_rename_carries_the_identity_and_a_rewrite_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("before.txt");
+        std::fs::write(&original, "body\n").unwrap();
+        let (_, before) = read_file(&original);
+
+        // A rename keeps the same file, so the identity follows it — which is
+        // the whole reason a card can follow a move that also changed content.
+        let moved = dir.path().join("after.txt");
+        std::fs::rename(&original, &moved).unwrap();
+        std::fs::write(&moved, "body, edited\n").unwrap();
+        let (_, after_move) = read_file(&moved);
+        assert_eq!(after_move["dev"], before["dev"]);
+        assert_eq!(after_move["ino"], before["ino"]);
+        assert_ne!(after_move["sha256"], before["sha256"]);
+
+        // Unlink-and-recreate at one path is a different file, so the identity
+        // does NOT follow — which is why replace-in-place is settled by probing
+        // the path rather than by matching identity.
+        std::fs::remove_file(&moved).unwrap();
+        std::fs::write(&moved, "recreated\n").unwrap();
+        let (_, after_replace) = read_file(&moved);
+        assert_ne!(after_replace["ino"], before["ino"]);
     }
 
     #[test]

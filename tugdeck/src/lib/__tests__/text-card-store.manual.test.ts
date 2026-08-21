@@ -17,8 +17,20 @@ interface WriteCall {
   delete: boolean;
 }
 
+/**
+ * One file in the fake filesystem. `ino` models the file's identity: a rename
+ * carries it to the new path, an unlink-and-recreate mints a new one — the
+ * same two facts `fs_read`'s unit tests pin against a real filesystem.
+ */
+interface FakeFile {
+  content: string;
+  sha256: string;
+  readOnly: boolean;
+  ino?: number;
+}
+
 const io = {
-  files: new Map<string, { content: string; sha256: string; readOnly: boolean }>(),
+  files: new Map<string, FakeFile>(),
   writes: [] as WriteCall[],
   // When set, the next non-delete write to any path fails with this
   // transport error (models a `denied`/`error`/network failure the plain
@@ -41,6 +53,9 @@ mock.module("@/lib/file-io", () => ({
         size: file.content.length,
         mtimeMs: 0,
         readOnly: file.readOnly,
+        // A file with no `ino` models a server that reports no identity, so
+        // the store falls back to hash matching exactly as on non-unix.
+        ...(file.ino === undefined ? {} : { dev: 1, ino: file.ino }),
       },
     };
   },
@@ -86,10 +101,14 @@ mock.module("@/lib/file-io", () => ({
 }));
 
 let TextCardStore: typeof import("@/lib/text-card-store").TextCardStore;
+let MISSING_SETTLE_MS: number;
+let dashSuccessorPath: typeof import("@/lib/text-card-store").dashSuccessorPath;
 let asidePathFor: typeof import("@/lib/file-aside").asidePathFor;
 let asidePathForUntitled: typeof import("@/lib/file-aside").asidePathForUntitled;
 beforeAll(async () => {
-  ({ TextCardStore } = await import("@/lib/text-card-store"));
+  ({ TextCardStore, MISSING_SETTLE_MS, dashSuccessorPath } = await import(
+    "@/lib/text-card-store"
+  ));
   ({ asidePathFor, asidePathForUntitled } = await import("@/lib/file-aside"));
 });
 
@@ -102,6 +121,14 @@ function bridge(getText: () => string, onReplace?: (t: string) => void) {
   };
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
+/**
+ * Wait past the missing-verdict settle window, then let the re-probe's
+ * read resolve. An absent path is never a verdict on first sight.
+ */
+const settle = async () => {
+  await new Promise((r) => setTimeout(r, MISSING_SETTLE_MS + 20));
+  await tick();
+};
 
 type FrameEvent = { kind: string; path?: string; from?: string; to?: string };
 
@@ -138,6 +165,21 @@ function fsFrame(
 
 function seedDisk(path: string, content: string, readOnly = false) {
   io.files.set(path, { content, sha256: shaOf(content), readOnly });
+}
+/** Seed a file that also reports a filesystem identity. */
+function seedIdentifiedDisk(path: string, content: string, ino: number) {
+  io.files.set(path, { content, sha256: shaOf(content), readOnly: false, ino });
+}
+/** Move a file to `to`, carrying its identity — what a real rename does. */
+function renameDisk(from: string, to: string, content?: string) {
+  const file = io.files.get(from)!;
+  io.files.delete(from);
+  io.files.set(to, {
+    ...file,
+    ...(content === undefined
+      ? {}
+      : { content, sha256: shaOf(content) }),
+  });
 }
 function seedAside(path: string, record: Record<string, unknown>) {
   const json = JSON.stringify(record);
@@ -303,6 +345,7 @@ describe("manual mode — dirty + aside flush target", () => {
     store.noteEdit();
     io.files.delete("/f.txt");
     await store.refreshFromDisk();
+    await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
     expect(await store.resolveMissing()).toBe("ok");
     expect(io.files.get("/f.txt")!.content).toBe("edited\n");
@@ -319,6 +362,7 @@ describe("manual mode — dirty + aside flush target", () => {
     store.noteEdit();
     io.files.delete("/f.txt");
     await store.refreshFromDisk();
+    await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
     // Another process recreated the file meanwhile.
     seedDisk("/f.txt", "FOREIGN\n");
@@ -362,7 +406,7 @@ describe("manual mode — dirty + aside flush target", () => {
     // conflict without touching saveState.
     io.files.delete("/f.txt");
     fsFrame(store, "/f.txt", "Removed");
-    await tick();
+    await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
     expect(store.getSnapshot().saveState).toBe("clean");
     // The user cancels the sheet and types: the buffer must read dirty and
@@ -384,7 +428,7 @@ describe("manual mode — dirty + aside flush target", () => {
     await store.openPath("/f.txt");
     io.files.delete("/f.txt");
     fsFrame(store, "/f.txt", "Removed");
-    await tick();
+    await settle();
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
     expect(store.getSnapshot().saveState).toBe("clean");
     // "Save" in the missing sheet means RECREATE — it must not no-op on
@@ -782,7 +826,7 @@ describe("rename-follow ([P05])", () => {
       { kind: "Created", path: "/x.txt" },
       { kind: "Created", path: "/y.txt" },
     ]);
-    await tick();
+    await settle();
 
     expect(store.getSnapshot().path).toBe("/a.txt"); // not rebound
     expect(store.getSnapshot().conflict?.reason).toBe("missing");
@@ -838,5 +882,513 @@ describe("automatic mode — unchanged", () => {
     expect(io.files.get("/a.txt")!.content).toBe("x edited\n");
     expect(store.getSnapshot().saveState).toBe("clean");
     expect(io.files.has(asidePathFor("/a.txt"))).toBe(false);
+  });
+});
+
+describe("replace-in-place — the classification ladder", () => {
+  test("a same-path remove+create over a clean buffer adopts the new bytes", async () => {
+    seedDisk("/f.txt", "before\n");
+    let buf = "before\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+
+    // git unlinks and recreates: the path never stops existing for us.
+    seedDisk("/f.txt", "joined\n");
+    fsFrameEvents(store, [
+      { kind: "Removed", path: "/f.txt" },
+      { kind: "Created", path: "/f.txt" },
+    ]);
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().conflict).toBeNull();
+    expect(store.getSnapshot().path).toBe("/f.txt");
+    expect(buf).toBe("joined\n");
+    expect(store.getSnapshot().saveState).toBe("clean");
+  });
+
+  test("the same batch over a dirty manual buffer adjudicates by hash", async () => {
+    seedDisk("/f.txt", "before\n");
+    let buf = "before\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+    buf = "mine\n";
+    store.noteEdit();
+
+    seedDisk("/f.txt", "joined\n");
+    fsFrameEvents(store, [
+      { kind: "Removed", path: "/f.txt" },
+      { kind: "Created", path: "/f.txt" },
+    ]);
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().conflict?.reason).toBe("hash");
+    expect(buf).toBe("mine\n"); // never clobbered
+  });
+
+  test("a genuinely gone file waits out the settle window before verdicting", async () => {
+    seedDisk("/f.txt", "body\n");
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => "body\n"));
+    await store.openPath("/f.txt");
+
+    io.files.delete("/f.txt");
+    fsFrame(store, "/f.txt", "Removed");
+    await tick();
+    await tick();
+    expect(store.getSnapshot().conflict).toBeNull();
+
+    await settle();
+    expect(store.getSnapshot().conflict?.reason).toBe("missing");
+  });
+
+  test("a file that returns inside the settle window never verdicts", async () => {
+    seedDisk("/f.txt", "body\n");
+    let buf = "body\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+
+    io.files.delete("/f.txt");
+    fsFrame(store, "/f.txt", "Removed");
+    await tick();
+    await tick();
+    // The checkout finishes and the file lands again before the re-probe.
+    seedDisk("/f.txt", "restored\n");
+
+    await settle();
+    expect(store.getSnapshot().conflict).toBeNull();
+    expect(buf).toBe("restored\n");
+  });
+
+  test("a save refused as missing over a present file is a conflict, not a delete", async () => {
+    seedDisk("/f.txt", "v1\n");
+    let buf = "v1\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+    buf = "mine\n";
+    store.noteEdit();
+
+    // The write lands inside the unlink window: the server sees no file and
+    // refuses. By the time we look, git has put the new content there.
+    io.files.delete("/f.txt");
+    const result = store.save();
+    // The write's existence check already ran; git lands the merged bytes
+    // before the ladder gets to look.
+    seedDisk("/f.txt", "joined\n");
+
+    expect(await result).toBe("conflict");
+    expect(store.getSnapshot().conflict?.reason).toBe("hash");
+    expect(store.getSnapshot().conflict?.diskSha256).toBe(shaOf("joined\n"));
+  });
+
+  test("a recheck deferred by the echo guard still runs when the write conflicts", async () => {
+    seedDisk("/f.txt", "v1\n");
+    let buf = "v1\n";
+    const store = new TextCardStore();
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+
+    buf = "mine\n";
+    store.noteEdit();
+    // Someone else writes first, so our conditional write will 409.
+    seedDisk("/f.txt", "theirs\n");
+    const flushed = store.flush();
+    // A frame arrives mid-write and is deferred by the echo guard.
+    fsFrame(store, "/f.txt", "Modified");
+    expect(
+      (store as unknown as { _recheckQueued: boolean })._recheckQueued,
+    ).toBe(true);
+
+    await flushed;
+    await tick();
+    await tick();
+    expect(
+      (store as unknown as { _recheckQueued: boolean })._recheckQueued,
+    ).toBe(false);
+    expect(store.getSnapshot().conflict?.reason).toBe("hash");
+  });
+});
+
+describe("rename-follow by file identity", () => {
+  test("a move that also edited the file is still followed", async () => {
+    seedIdentifiedDisk("/a.txt", "body\n", 41);
+    let buf = "body\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/a.txt");
+
+    // The move carries the file's identity but not its hash — the case the
+    // old baseline-hash match could never recognize.
+    renameDisk("/a.txt", "/moved.txt", "body, edited elsewhere\n");
+    fsFrameEvents(store, [
+      { kind: "Removed", path: "/a.txt" },
+      { kind: "Created", path: "/moved.txt" },
+    ]);
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().path).toBe("/moved.txt");
+    expect(store.getSnapshot().conflict).toBeNull();
+  });
+
+  test("a renamed-and-edited file is followed even under a new basename", async () => {
+    seedIdentifiedDisk("/a.txt", "body\n", 42);
+    let buf = "body\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/a.txt");
+
+    // Neither the basename nor the hash matches; only the identity does.
+    renameDisk("/a.txt", "/renamed-entirely.md", "different now\n");
+    fsFrameEvents(store, [
+      { kind: "Removed", path: "/a.txt" },
+      { kind: "Created", path: "/unrelated.txt" },
+      { kind: "Created", path: "/renamed-entirely.md" },
+    ]);
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().path).toBe("/renamed-entirely.md");
+    expect(store.getSnapshot().conflict).toBeNull();
+  });
+
+  test("identity picks the right file when two candidates share content", async () => {
+    seedIdentifiedDisk("/a.txt", "same bytes\n", 43);
+    let buf = "same bytes\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/a.txt");
+
+    // A decoy with identical content — a hash match would have taken whichever
+    // it read first. The identity says which one is actually ours.
+    seedIdentifiedDisk("/decoy.txt", "same bytes\n", 99);
+    renameDisk("/a.txt", "/real.txt");
+    fsFrameEvents(store, [
+      { kind: "Removed", path: "/a.txt" },
+      { kind: "Created", path: "/decoy.txt" },
+      { kind: "Created", path: "/real.txt" },
+    ]);
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().path).toBe("/real.txt");
+  });
+
+  test("with no identity reported, the hash match is unchanged", async () => {
+    // No `ino` anywhere: the pre-identity world, and the narrow candidate rule.
+    seedDisk("/a.txt", "body\n");
+    let buf = "body\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/a.txt");
+
+    io.files.delete("/a.txt");
+    seedDisk("/sub/a.txt", "body\n");
+    fsFrameEvents(store, [
+      { kind: "Removed", path: "/a.txt" },
+      { kind: "Created", path: "/sub/a.txt" },
+    ]);
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().path).toBe("/sub/a.txt");
+    expect(store.getSnapshot().conflict).toBeNull();
+  });
+
+  test("a replace-in-place is never mistaken for a move to a new inode", async () => {
+    seedIdentifiedDisk("/f.txt", "before\n", 51);
+    let buf = "before\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+
+    // git unlinks and recreates: same path, NEW identity. The ladder settles
+    // this by probing the path, never by matching identity.
+    seedIdentifiedDisk("/f.txt", "joined\n", 52);
+    fsFrameEvents(store, [
+      { kind: "Removed", path: "/f.txt" },
+      { kind: "Created", path: "/f.txt" },
+    ]);
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().path).toBe("/f.txt");
+    expect(store.getSnapshot().conflict).toBeNull();
+    expect(buf).toBe("joined\n");
+  });
+});
+
+describe("dash-worktree retirement", () => {
+  test("dashSuccessorPath names the repo-root successor, or nothing", () => {
+    expect(dashSuccessorPath("/repo/.tug/worktrees/mydash/src/x.ts")).toBe(
+      "/repo/src/x.ts",
+    );
+    // Nested relative paths keep their whole shape.
+    expect(
+      dashSuccessorPath("/repo/.tug/worktrees/d/a/b/c/deep.md"),
+    ).toBe("/repo/a/b/c/deep.md");
+    // Worktrees nest — a dash cut inside another dash's worktree. The
+    // enclosing one is the innermost, so the successor stays inside the outer
+    // worktree rather than escaping to the real repo root.
+    expect(
+      dashSuccessorPath("/repo/.tug/worktrees/outer/.tug/worktrees/inner/src/x.ts"),
+    ).toBe("/repo/.tug/worktrees/outer/src/x.ts");
+    // Not in a worktree at all.
+    expect(dashSuccessorPath("/repo/src/x.ts")).toBeNull();
+    // The worktree root itself is not a file with a successor.
+    expect(dashSuccessorPath("/repo/.tug/worktrees/mydash")).toBeNull();
+    expect(dashSuccessorPath("/repo/.tug/worktrees/mydash/")).toBeNull();
+    // A `.tug/worktrees` that is not the dash-home shape.
+    expect(dashSuccessorPath("/repo/.tug/worktrees")).toBeNull();
+    // The legacy home is deliberately not followed.
+    expect(dashSuccessorPath("/repo/.tugtree/tugdash__d/src/x.ts")).toBeNull();
+  });
+
+  test("a clean card re-anchors to the successor when the worktree is torn down", async () => {
+    const inDash = "/repo/.tug/worktrees/mydash/src/x.ts";
+    seedDisk(inDash, "dash version\n");
+    let buf = "dash version\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath(inDash);
+
+    // The join squashes the work onto the repo root and removes the worktree.
+    seedDisk("/repo/src/x.ts", "joined version\n");
+    io.files.delete(inDash);
+    fsFrame(store, inDash, "Removed");
+    await tick();
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().path).toBe("/repo/src/x.ts");
+    expect(store.getSnapshot().conflict).toBeNull();
+    expect(store.getSnapshot().saveState).toBe("clean");
+    expect(buf).toBe("joined version\n");
+  });
+
+  test("a dirty card re-anchors and is asked about the hash, not told it was deleted", async () => {
+    const inDash = "/repo/.tug/worktrees/mydash/src/y.ts";
+    seedDisk(inDash, "dash version\n");
+    let buf = "dash version\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath(inDash);
+    buf = "my unsaved edit\n";
+    store.noteEdit();
+
+    seedDisk("/repo/src/y.ts", "joined version\n");
+    io.files.delete(inDash);
+    fsFrame(store, inDash, "Removed");
+    await tick();
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().path).toBe("/repo/src/y.ts");
+    expect(store.getSnapshot().conflict?.reason).toBe("hash");
+    expect(buf).toBe("my unsaved edit\n"); // never clobbered
+  });
+
+  test("with no successor on disk, the missing verdict still arrives", async () => {
+    const inDash = "/repo/.tug/worktrees/mydash/src/z.ts";
+    seedDisk(inDash, "only here\n");
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => "only here\n"));
+    await store.openPath(inDash);
+
+    io.files.delete(inDash);
+    fsFrame(store, inDash, "Removed");
+    await settle();
+
+    expect(store.getSnapshot().path).toBe(inDash);
+    expect(store.getSnapshot().conflict?.reason).toBe("missing");
+  });
+});
+
+describe("a removed directory takes its files with it", () => {
+  test("a Removed naming an ancestor directory enters the ladder", async () => {
+    const inDash = "/repo/.tug/worktrees/mydash/src/w.txt";
+    seedDisk(inDash, "dash version\n");
+    let buf = "dash version\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath(inDash);
+
+    seedDisk("/repo/src/w.txt", "joined version\n");
+    // What `rm -rf` of a worktree actually reports: the directory, and not one
+    // event per file beneath it.
+    io.files.delete(inDash);
+    fsFrame(store, "/repo/.tug/worktrees/mydash", "Removed");
+    await tick();
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().path).toBe("/repo/src/w.txt");
+    expect(store.getSnapshot().conflict).toBeNull();
+    expect(buf).toBe("joined version\n");
+  });
+
+  test("a removed directory we do not live under is ignored", async () => {
+    seedDisk("/repo/src/mine.txt", "mine\n");
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => "mine\n"));
+    await store.openPath("/repo/src/mine.txt");
+
+    fsFrame(store, "/repo/other", "Removed");
+    await settle();
+
+    expect(store.getSnapshot().path).toBe("/repo/src/mine.txt");
+    expect(store.getSnapshot().conflict).toBeNull();
+  });
+
+  test("a sibling whose name prefixes ours is not an ancestor", async () => {
+    seedDisk("/repo/srclib/f.txt", "mine\n");
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => "mine\n"));
+    await store.openPath("/repo/srclib/f.txt");
+
+    // `/repo/src` is a string prefix of `/repo/srclib/...` but not a parent
+    // directory of it — the boundary slash is what tells them apart.
+    fsFrame(store, "/repo/src", "Removed");
+    await settle();
+
+    expect(store.getSnapshot().conflict).toBeNull();
+  });
+});
+
+describe("a missing verdict's modality and its life", () => {
+  test("a verdict raised over a clean buffer stays a banner after the user types", async () => {
+    seedDisk("/f.txt", "disk\n");
+    let buf = "disk\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+
+    io.files.delete("/f.txt");
+    fsFrame(store, "/f.txt", "Removed");
+    await settle();
+    expect(store.getSnapshot().conflict?.reason).toBe("missing");
+    expect(store.getSnapshot().conflict?.raisedOverCleanBuffer).toBe(true);
+
+    // `noteEdit` deliberately flips a clean buffer dirty under a conflict. The
+    // latch must not follow it — otherwise a banner becomes a modal mid-word.
+    buf = "typed after the banner\n";
+    store.noteEdit();
+    expect(store.getSnapshot().saveState).toBe("editing");
+    expect(store.getSnapshot().conflict?.raisedOverCleanBuffer).toBe(true);
+  });
+
+  test("a verdict raised over a dirty buffer is modal", async () => {
+    seedDisk("/f.txt", "disk\n");
+    let buf = "disk\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+    buf = "unsaved work\n";
+    store.noteEdit();
+
+    io.files.delete("/f.txt");
+    fsFrame(store, "/f.txt", "Removed");
+    await settle();
+    expect(store.getSnapshot().conflict?.reason).toBe("missing");
+    expect(store.getSnapshot().conflict?.raisedOverCleanBuffer).toBe(false);
+  });
+
+  test("the verdict clears by itself when the file comes back", async () => {
+    seedDisk("/f.txt", "disk\n");
+    let buf = "disk\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+
+    io.files.delete("/f.txt");
+    fsFrame(store, "/f.txt", "Removed");
+    await settle();
+    expect(store.getSnapshot().conflict?.reason).toBe("missing");
+
+    // Someone restores it. No gesture from the user.
+    seedDisk("/f.txt", "restored\n");
+    fsFrame(store, "/f.txt", "Created");
+    await tick();
+    await tick();
+
+    expect(store.getSnapshot().conflict).toBeNull();
+    expect(buf).toBe("restored\n");
+  });
+
+  test("a hash conflict stays latched — only missing un-latches", async () => {
+    seedDisk("/f.txt", "v1\n");
+    let buf = "v1\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+    buf = "mine\n";
+    store.noteEdit();
+    seedDisk("/f.txt", "theirs\n");
+    await store.recheckOnActivation();
+    expect(store.getSnapshot().conflict?.reason).toBe("hash");
+
+    // More external churn must not clear a question the user hasn't answered.
+    seedDisk("/f.txt", "theirs again\n");
+    fsFrame(store, "/f.txt", "Modified");
+    await tick();
+    await tick();
+    expect(store.getSnapshot().conflict?.reason).toBe("hash");
+    expect(buf).toBe("mine\n");
+  });
+
+  test("a stale missing-sheet Save adjudicates instead of dying silently", async () => {
+    seedDisk("/f.txt", "disk\n");
+    let buf = "disk\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+    buf = "unsaved work\n";
+    store.noteEdit();
+
+    io.files.delete("/f.txt");
+    fsFrame(store, "/f.txt", "Removed");
+    await settle();
+    expect(store.getSnapshot().conflict?.reason).toBe("missing");
+
+    // The file returns while the modal is up. The verdict un-latches from
+    // "missing" and the ladder raises the honest question in its place: the
+    // unsaved buffer now diverges from what is on disk.
+    seedDisk("/f.txt", "came back\n");
+    fsFrame(store, "/f.txt", "Created");
+    await tick();
+    await tick();
+    expect(store.getSnapshot().conflict?.reason).toBe("hash");
+
+    // The "File Deleted" sheet is still on screen and the user presses Save.
+    // It must produce an act or a visible reason — never a silent no-op.
+    expect(await store.resolveMissing()).toBe("conflict");
+    expect(io.files.get("/f.txt")!.content).toBe("came back\n"); // not clobbered
+  });
+
+  test("a stale Save over a file that came back unchanged just succeeds", async () => {
+    seedDisk("/f.txt", "disk\n");
+    let buf = "disk\n";
+    const store = new TextCardStore({ saveMode: "manual" });
+    store.attachEditor(bridge(() => buf, (t) => (buf = t)));
+    await store.openPath("/f.txt");
+
+    io.files.delete("/f.txt");
+    fsFrame(store, "/f.txt", "Removed");
+    await settle();
+    expect(store.getSnapshot().conflict?.reason).toBe("missing");
+
+    // Restored with the same bytes: nothing diverges, so the verdict simply
+    // clears and the banner's Save has nothing left to do.
+    seedDisk("/f.txt", "disk\n");
+    fsFrame(store, "/f.txt", "Created");
+    await tick();
+    await tick();
+    expect(store.getSnapshot().conflict).toBeNull();
+    expect(await store.resolveMissing()).toBe("ok");
   });
 });

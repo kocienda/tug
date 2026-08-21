@@ -220,7 +220,7 @@ impl FileWatcher {
                 }
 
                 // Deduplicate redundant Modified events
-                deduplicate_batch(&mut batch);
+                deduplicate_batch(&mut batch, &watch_path);
 
                 if !batch.is_empty() {
                     let _ = tx.send(batch.clone());
@@ -286,14 +286,89 @@ pub fn walk_directory(dir: &Path) -> (BTreeSet<String>, bool) {
     (files, truncated)
 }
 
+/// Collapse a same-path `Removed` + `Created` pair into a single `Modified`.
+///
+/// A writer that replaces a file by unlinking and recreating it — git checkout,
+/// `git merge`, an atomic temp-and-rename save — surfaces as `Removed{p}` and
+/// `Created{p}` for the same `p` in one batch. The content at `p` changed; the
+/// file did not go away. The pair is replaced by one `Modified{p}`, positioned
+/// where the first event for `p` was, and any raw `Modified{p}` in the batch is
+/// folded into it so exactly one survives.
+///
+/// Directories are left uncollapsed: `FileTreeFeed::remove_path` uses a
+/// directory `Removed` to evict every path indexed beneath it, and it treats
+/// `Modified` as a no-op, so collapsing a directory pair would strand those
+/// children in the index. `root` is the watch directory, against which a
+/// relative path is classified.
+///
+/// A genuine rename pair (`Removed{a}` + `Created{b}`, `a != b`) and explicit
+/// `Renamed` events are untouched.
+fn collapse_same_path_replacements(batch: &mut Vec<FsEvent>, root: &Path) {
+    let mut created: HashSet<&str> = HashSet::new();
+    let mut removed: HashSet<&str> = HashSet::new();
+    for ev in batch.iter() {
+        match ev {
+            FsEvent::Created { path } => {
+                created.insert(path.as_str());
+            }
+            FsEvent::Removed { path } => {
+                removed.insert(path.as_str());
+            }
+            _ => {}
+        }
+    }
+
+    let collapsed: HashSet<String> = created
+        .intersection(&removed)
+        .filter(|path| !path.is_empty() && !root.join(path).is_dir())
+        .map(|path| (*path).to_string())
+        .collect();
+
+    if collapsed.is_empty() {
+        return;
+    }
+
+    let mut out: Vec<FsEvent> = Vec::with_capacity(batch.len());
+    let mut emitted: HashSet<String> = HashSet::new();
+
+    for ev in batch.drain(..) {
+        let path = match &ev {
+            FsEvent::Created { path } | FsEvent::Removed { path } | FsEvent::Modified { path } => {
+                path.clone()
+            }
+            FsEvent::Renamed { .. } => {
+                out.push(ev);
+                continue;
+            }
+        };
+
+        if !collapsed.contains(&path) {
+            out.push(ev);
+            continue;
+        }
+
+        if emitted.insert(path.clone()) {
+            out.push(FsEvent::Modified { path });
+        }
+    }
+
+    *batch = out;
+}
+
 /// Remove redundant Modified events from a batch.
 ///
-/// macOS FSEvents fires modify events for parent directories when their contents
-/// change, and also fires redundant modify events alongside create/remove events
-/// for the same file. This function drops Modified events for any path that also
-/// has a Created or Removed event in the same batch, and drops Modified events
-/// for paths that look like directories (end with "" which is the watch root).
-pub(crate) fn deduplicate_batch(batch: &mut Vec<FsEvent>) {
+/// First collapses same-path remove+create replacements for files
+/// (`collapse_same_path_replacements`), then drops the remaining redundant
+/// Modified events: macOS FSEvents fires modify events for parent directories
+/// when their contents change, and also fires redundant modify events alongside
+/// create/remove events for the same path. A Modified is dropped when its path
+/// also carries a Created, Removed, or Renamed in the same batch, and when its
+/// path is empty (the watch root itself).
+///
+/// `root` is the watch directory, used to tell a file from a directory.
+pub(crate) fn deduplicate_batch(batch: &mut Vec<FsEvent>, root: &Path) {
+    collapse_same_path_replacements(batch, root);
+
     // Collect paths that have a Created, Removed, or Renamed event
     let mut non_modify_paths: HashSet<String> = HashSet::new();
     for ev in batch.iter() {
@@ -619,8 +694,33 @@ mod tests {
 
     // ── deduplicate_batch() tests ──────────────────────────────────────────────
 
+    /// A watch root holding one real file and one real directory, so the
+    /// collapse can classify the paths the batches below name.
+    fn dedup_root() -> TempDir {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path();
+        fs::write(root.join("file.txt"), "data").unwrap();
+        fs::write(root.join("real.txt"), "data").unwrap();
+        fs::write(root.join("changed.txt"), "data").unwrap();
+        fs::create_dir(root.join("adir")).unwrap();
+        temp_dir
+    }
+
+    fn paths_of(batch: &[FsEvent]) -> Vec<String> {
+        batch
+            .iter()
+            .map(|ev| match ev {
+                FsEvent::Created { path } => format!("created:{path}"),
+                FsEvent::Removed { path } => format!("removed:{path}"),
+                FsEvent::Modified { path } => format!("modified:{path}"),
+                FsEvent::Renamed { from, to } => format!("renamed:{from}->{to}"),
+            })
+            .collect()
+    }
+
     #[test]
     fn test_deduplicate_removes_modified_when_created() {
+        let temp_dir = dedup_root();
         let mut batch = vec![
             FsEvent::Created {
                 path: "file.txt".to_string(),
@@ -629,13 +729,14 @@ mod tests {
                 path: "file.txt".to_string(),
             },
         ];
-        deduplicate_batch(&mut batch);
+        deduplicate_batch(&mut batch, temp_dir.path());
         assert_eq!(batch.len(), 1);
         assert!(matches!(batch[0], FsEvent::Created { .. }));
     }
 
     #[test]
     fn test_deduplicate_removes_modified_when_removed() {
+        let temp_dir = dedup_root();
         let mut batch = vec![
             FsEvent::Modified {
                 path: "gone.txt".to_string(),
@@ -644,22 +745,24 @@ mod tests {
                 path: "gone.txt".to_string(),
             },
         ];
-        deduplicate_batch(&mut batch);
+        deduplicate_batch(&mut batch, temp_dir.path());
         assert_eq!(batch.len(), 1);
         assert!(matches!(batch[0], FsEvent::Removed { .. }));
     }
 
     #[test]
     fn test_deduplicate_keeps_standalone_modified() {
+        let temp_dir = dedup_root();
         let mut batch = vec![FsEvent::Modified {
             path: "changed.txt".to_string(),
         }];
-        deduplicate_batch(&mut batch);
+        deduplicate_batch(&mut batch, temp_dir.path());
         assert_eq!(batch.len(), 1);
     }
 
     #[test]
     fn test_deduplicate_removes_empty_path_modified() {
+        let temp_dir = dedup_root();
         let mut batch = vec![
             FsEvent::Modified {
                 path: "".to_string(),
@@ -668,8 +771,108 @@ mod tests {
                 path: "real.txt".to_string(),
             },
         ];
-        deduplicate_batch(&mut batch);
+        deduplicate_batch(&mut batch, temp_dir.path());
         assert_eq!(batch.len(), 1);
         assert!(matches!(batch[0], FsEvent::Created { .. }));
+    }
+
+    #[test]
+    fn test_deduplicate_collapses_file_replacement_to_modified() {
+        let temp_dir = dedup_root();
+        let mut batch = vec![
+            FsEvent::Removed {
+                path: "file.txt".to_string(),
+            },
+            FsEvent::Created {
+                path: "file.txt".to_string(),
+            },
+            FsEvent::Modified {
+                path: "file.txt".to_string(),
+            },
+        ];
+        deduplicate_batch(&mut batch, temp_dir.path());
+        assert_eq!(paths_of(&batch), vec!["modified:file.txt"]);
+    }
+
+    #[test]
+    fn test_deduplicate_collapses_replacement_without_raw_modified() {
+        let temp_dir = dedup_root();
+        let mut batch = vec![
+            FsEvent::Removed {
+                path: "file.txt".to_string(),
+            },
+            FsEvent::Created {
+                path: "file.txt".to_string(),
+            },
+        ];
+        deduplicate_batch(&mut batch, temp_dir.path());
+        assert_eq!(paths_of(&batch), vec!["modified:file.txt"]);
+    }
+
+    #[test]
+    fn test_deduplicate_leaves_directory_replacement_uncollapsed() {
+        let temp_dir = dedup_root();
+        let mut batch = vec![
+            FsEvent::Removed {
+                path: "adir".to_string(),
+            },
+            FsEvent::Created {
+                path: "adir".to_string(),
+            },
+        ];
+        deduplicate_batch(&mut batch, temp_dir.path());
+        assert_eq!(
+            paths_of(&batch),
+            vec!["removed:adir", "created:adir"],
+            "a directory Removed must survive so FileTreeFeed evicts its children"
+        );
+    }
+
+    #[test]
+    fn test_deduplicate_leaves_rename_pair_intact() {
+        let temp_dir = dedup_root();
+        let mut batch = vec![
+            FsEvent::Removed {
+                path: "a.txt".to_string(),
+            },
+            FsEvent::Created {
+                path: "b.txt".to_string(),
+            },
+        ];
+        deduplicate_batch(&mut batch, temp_dir.path());
+        assert_eq!(paths_of(&batch), vec!["removed:a.txt", "created:b.txt"]);
+    }
+
+    #[test]
+    fn test_deduplicate_collapses_within_a_mixed_batch() {
+        let temp_dir = dedup_root();
+        let mut batch = vec![
+            FsEvent::Removed {
+                path: "file.txt".to_string(),
+            },
+            FsEvent::Created {
+                path: "real.txt".to_string(),
+            },
+            FsEvent::Created {
+                path: "file.txt".to_string(),
+            },
+            FsEvent::Renamed {
+                from: "x.txt".to_string(),
+                to: "y.txt".to_string(),
+            },
+            FsEvent::Modified {
+                path: "file.txt".to_string(),
+            },
+        ];
+        deduplicate_batch(&mut batch, temp_dir.path());
+        assert_eq!(
+            paths_of(&batch),
+            vec![
+                "modified:file.txt",
+                "created:real.txt",
+                "renamed:x.txt->y.txt",
+            ],
+            "the collapse lands where the first event for the path was"
+        );
     }
 }

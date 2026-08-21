@@ -75,6 +75,7 @@ fn stat_paths(paths: &[String], kind: StatKind) -> Value {
     let mut exists = Map::new();
     let mut canonical = Map::new();
     let mut is_dir = Map::new();
+    let mut identity = Map::new();
     for raw in paths.iter().take(MAX_STAT_PATHS) {
         let reachable = match guard_absolute_path(raw) {
             Ok(resolved) => {
@@ -95,6 +96,13 @@ fn stat_paths(paths: &[String], kind: StatKind) -> Value {
                         if matched && md.is_dir() {
                             is_dir.insert(raw.clone(), Value::Bool(true));
                         }
+                        if matched {
+                            let mut entry = json!({});
+                            crate::fs_read::insert_identity(&mut entry, &md);
+                            if entry.as_object().is_some_and(|o| !o.is_empty()) {
+                                identity.insert(raw.clone(), entry);
+                            }
+                        }
                         matched
                     })
                     .unwrap_or(false)
@@ -106,7 +114,16 @@ fn stat_paths(paths: &[String], kind: StatKind) -> Value {
     // `is_dir` carries only the reachable directories: a caller asking the
     // loose question needs to know which of its hits are folders, because
     // opening one is a different gesture from opening a file.
-    json!({ "exists": exists, "canonical": canonical, "isDir": is_dir })
+    //
+    // `identity` carries `(dev, ino)` for the reachable paths only — an
+    // unreachable path has no file to identify. It is what lets a caller
+    // recognize one of its own files under a new name.
+    json!({
+        "exists": exists,
+        "canonical": canonical,
+        "isDir": is_dir,
+        "identity": identity,
+    })
 }
 
 /// Handle `POST /api/fs/stat`. Restricted to loopback.
@@ -139,6 +156,27 @@ pub(crate) async fn post_fs_stat(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn stat_identifies_reachable_paths_and_omits_unreachable_ones() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let present = dir.path().join("here.txt");
+        std::fs::write(&present, "x").unwrap();
+        let missing = dir.path().join("gone.txt");
+        let present_key = present.to_string_lossy().into_owned();
+        let missing_key = missing.to_string_lossy().into_owned();
+
+        let body = stat_paths(&[present_key.clone(), missing_key.clone()], StatKind::File);
+
+        let metadata = std::fs::metadata(&present).unwrap();
+        assert_eq!(body["identity"][&present_key]["dev"].as_u64().unwrap(), metadata.dev());
+        assert_eq!(body["identity"][&present_key]["ino"].as_u64().unwrap(), metadata.ino());
+        // Nothing to identify where there is no file.
+        assert!(body["identity"].get(&missing_key).is_none());
+    }
 
     #[test]
     fn stat_reports_existing_file_true_and_missing_false() {

@@ -30,6 +30,15 @@ export interface FileReadResult {
   mtimeMs: number;
   /** True when the file's permission bits refuse writes. */
   readOnly: boolean;
+  /**
+   * Filesystem identity — the device and inode numbers. Together they name
+   * THIS file rather than its contents, so they survive a rename on the same
+   * volume and a rewrite of the bytes, and they change when a path is
+   * unlinked and recreated. Absent on a non-unix server, where a caller
+   * falls back to matching on `sha256`.
+   */
+  dev?: number;
+  ino?: number;
 }
 
 /** Structured read failure kinds (server statuses + transport failure). */
@@ -137,6 +146,8 @@ export async function readFileFromDisk(path: string): Promise<FileReadOutcome> {
       size: typeof body.size === "number" ? body.size : body.content.length,
       mtimeMs: typeof body.mtimeMs === "number" ? body.mtimeMs : 0,
       readOnly: body.readOnly === true,
+      ...(typeof body.dev === "number" ? { dev: body.dev } : {}),
+      ...(typeof body.ino === "number" ? { ino: body.ino } : {}),
     },
   };
 }

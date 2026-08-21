@@ -160,7 +160,16 @@ export type OpenConflictChoice = "keep" | "disk";
 /** The card-hosted save-sheet presenters. */
 export interface FileSaveSheets {
   presentCloseSheet(fileName: string): Promise<CloseSheetChoice>;
-  presentConflictSheet(fileName: string): Promise<ConflictSheetChoice>;
+  /**
+   * `defaultChoice` overrides which button Return fires. The plain
+   * external-edit conflict keeps "Save Anyway"; the sheet raised as the
+   * follow-up to a missing-file Save passes `"reload"`, because there the
+   * destructive branch would overwrite a file that just came back.
+   */
+  presentConflictSheet(
+    fileName: string,
+    opts?: { defaultChoice?: ConflictSheetChoice },
+  ): Promise<ConflictSheetChoice>;
   presentMissingSheet(fileName: string): Promise<MissingSheetChoice>;
   presentRevertSheet(fileName: string): Promise<boolean>;
   presentReloadSheet(fileName: string): Promise<boolean>;
@@ -190,8 +199,12 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
   );
 
   const presentConflictSheet = useCallback(
-    (fileName: string): Promise<ConflictSheetChoice> =>
-      showSheet({
+    (
+      fileName: string,
+      opts?: { defaultChoice?: ConflictSheetChoice },
+    ): Promise<ConflictSheetChoice> => {
+      const defaultChoice = opts?.defaultChoice ?? "save-anyway";
+      return showSheet({
         title: "Document Changed",
         // Four buttons in one row — `sm`'s content box cannot hold them.
         displayWidth: "md",
@@ -201,15 +214,29 @@ export function useFileSaveSheets(showSheet: ShowSheet): FileSaveSheets {
             title={`“${fileName}” was changed by another application.`}
             message="Your unsaved changes conflict with the version on disk."
             buttons={[
-              { label: "Reload from Disk", result: "reload" },
-              { label: "Save As…", result: "save-as" },
+              {
+                label: "Reload from Disk",
+                result: "reload",
+                isDefault: defaultChoice === "reload",
+              },
+              {
+                label: "Save As…",
+                result: "save-as",
+                isDefault: defaultChoice === "save-as",
+              },
               { label: "Cancel", result: "cancel" },
-              { label: "Save Anyway", result: "save-anyway", isDefault: true, role: "danger" },
+              {
+                label: "Save Anyway",
+                result: "save-anyway",
+                isDefault: defaultChoice === "save-anyway",
+                role: "danger",
+              },
             ]}
             close={close}
           />
         ),
-      }).then((result) => (result as ConflictSheetChoice) ?? "cancel"),
+      }).then((result) => (result as ConflictSheetChoice) ?? "cancel");
+    },
     [showSheet],
   );
 

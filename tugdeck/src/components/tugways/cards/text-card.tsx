@@ -731,6 +731,14 @@ export function TextCardContent({ cardId }: { cardId: string }) {
     if (!isManual) return;
     const conflict = snapshot.conflict;
     if (conflict === null || conflictSheetUpRef.current) return;
+    // A missing verdict raised over a CLEAN buffer had nothing at risk, so it
+    // renders as the banner instead — a modal claiming unsaved changes are in
+    // danger would be asserting a falsehood. The flag is latched in the store
+    // at raise time (Spec S03), so this stays true for the verdict's whole
+    // life even after the user starts typing.
+    if (conflict.reason === "missing" && conflict.raisedOverCleanBuffer === true) {
+      return;
+    }
     conflictSheetUpRef.current = true;
     const fileName = snapshot.fileName ?? "Untitled";
     void (async () => {
@@ -741,7 +749,12 @@ export function TextCardContent({ cardId }: { cardId: string }) {
           // path meanwhile, this returns a hash conflict — present it here
           // rather than clobber the reappeared file silently.
           if ((await store.resolveMissing()) === "conflict") {
-            const c = await sheets.presentConflictSheet(fileName);
+            // The file came back between the verdict and the Save. Default to
+            // reloading it: "Save Anyway" here overwrites whatever reappeared
+            // — during a join, that is the joined content.
+            const c = await sheets.presentConflictSheet(fileName, {
+              defaultChoice: "reload",
+            });
             if (c === "save-anyway") await store.resolveConflict("overwrite");
             else if (c === "reload") await store.resolveConflict("reload");
             else if (c === "save-as") await runSaveAsPanel();
@@ -1287,7 +1300,15 @@ export function TextCardContent({ cardId }: { cardId: string }) {
          * makes the interference impossible by construction — the same shape
          * the Session card gets by deriving a single banner. */}
         <TugPaneBanner
-          visible={conflict !== null && snapshot.saveMode === "automatic"}
+          visible={
+            conflict !== null &&
+            (snapshot.saveMode === "automatic" ||
+              // Manual mode's verdicts are modal — except a missing verdict
+              // raised over a clean buffer, which the sheet effect declines
+              // and this shows instead. Still exactly one banner.
+              (conflict.reason === "missing" &&
+                conflict.raisedOverCleanBuffer === true))
+          }
           variant="error"
           tone="caution"
           label={conflict?.reason === "missing" ? "File deleted" : "File changed"}
