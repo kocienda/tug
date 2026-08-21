@@ -24,6 +24,11 @@ Oriented on: the whole document — a first round, with no prior stamp to diff a
 Applied: the round's central finding is that the plan deleted the server's `built` gate and missed the client's three copies of it. `tugdeck/src/lib/dash-join-register.ts` returns `null` unless `stage === "built"`, so the join register would have gone dark on all three [D143] surfaces — the Lens row, the shade lane, the session masthead — while the modal fired; the same file's no-verdict beat keys on `built` again, and `dash-meta-line.tsx`'s `STAGES_PAST_THE_WALK` decides whether `implementing (8/8)` reads as a finished walk. That is a face contradicting the arc, and it was invisible from the plan alone. Raised as a dialog; the user chose a derived `ready` stage word over a parallel boolean, now [P07], with Spec S02 fixing its precedence position (above the `Step` arm, below `built`/`audited`) and new Spec S04 tabulating the four client sites. Second finding: removing the gate widens the pilot's population from "explicitly marked" to "every dash with a round", and its attempt mark is keyed on the head pair — so one commit on the base re-fires Tier 0 (`cargo check --workspace --all-targets` here) for every such dash at once. Asked; the user scoped the pilot to dashes bound to a live session, now [P08], with the predicate gaining `bound: bool` and `pilot_action` moving out of the `spawn_blocking` closure into the async dispatch loop where `bound_sessions_by_dash()` is already in scope. That decision then broke at0445 as written — line 249 waits for the *unbound* dash's register to reach `ready`, which a bound-only pilot can never satisfy — so Step 8 now names that wait, says why it must become a bounded negative assertion, and removes the second `markDashBuilt` (which would otherwise arm the dash the claim needs unarmed). Also: verified and rewrote the watcher assumption rather than trusting it — `.tug/` is gitignored, which looked fatal until `file_watcher.rs` proved events flow unfiltered; added Risk R03 (a run dying mid-selection strands finished work) and R04 (closing the last bound card stops the pilot); noted that the 2 s probe arm is gated `if self.ledger.is_some()` and the dash-log stat must not inherit that gate; added the laws cross-check (#laws-cross-check), naming [L02], [L06], [L11], [L19], [L20], [L31] and why [L31] is the plan's spine; and extended Steps 2, 4, 6, 8 and 9 with the work all of the above implies.
 Deferred: nothing. [Q01]–[Q03] arrived already decided, and both questions this round raised were settled in the dialog rather than filed.
 
+**Round 2 — 2026-08-20, fable.** Reviewed `plan:95d15b397bab7416`. Lint: 0 errors, 0 warnings, clean before and after.
+Oriented on: the Review Record — the plan was tracked and clean at round start (the stamped round-1 document is committed at `cb0487d21`), so there was no diff to read; this round re-read the whole document against the code on a different model.
+Applied: four corrections, all from re-reading the code rather than the plan. First, `status_in` (`ops.rs`) computes only the untracked-inclusive `worktree_dirty` — Step 2's claim that every `derive_stage` call site already holds the inputs was true for `dash_detail_entries_in` (which calls `dirty_tracked_paths`) but not there, and an implementer following it as written would feed untracked dirt into `join_ready` and make `dash status` disagree with the feed over a scratch file — the exact case [P04]'s tracked-dirt distinction excludes; Step 2 now names the extra `dirty_tracked_paths` call and that it sits on the CLI path, off the recompute. Second, `dash_detail_entry_in` is a find-wrapper delegating to `dash_detail_entries_in`, not a third composition site — Step 2's task and artifact no longer send anyone hunting for one. Third, `standing_prompt`'s user-visible question copy opens `"{name} is built, reconciled with …"` in both variants — a resting lie for a dash that arms without ever building; Step 4 gains the rewrite to readiness terms (the "joined tree builds" half is Tier 0's fact and stays), held to the same [L31] bar as the provenance work. Fourth, `integrate_message` has five named tests, not six. Also verified rather than asserted: the [P06] probe's enumeration path exists (`ChangesetAllFeed.registry.project_dirs()` + `tugutil_core::project_state_dir`, with the crate dependency already in `tugcast/Cargo.toml`) — now recorded in the decision so a cold reader need not re-derive it; and re-confirmed round 1's central claims against the source (the three client `built` gates at `dash-join-register.ts`, `STAGES_PAST_THE_WALK`, at0445's `markDashBuilt` pair and its line-249 unbound wait, `pilot_action` inside the `spawn_blocking` closure with `bound_by_dash` already on the async side).
+Deferred: nothing.
+
 ---
 
 ### Phase Overview {#phase-overview}
@@ -223,7 +228,7 @@ The user settled the two design questions during devise (they are recorded as [P
 - Same doctrine as the drafts probe: the event is real, only its observation is polled.
 
 **Implications:**
-- One `stat` per open workspace per 2 s; the probe tick itself still never recomputes without a change.
+- One `stat` per open workspace per 2 s; the probe tick itself still never recomputes without a change. The enumeration is in hand: `ChangesetAllFeed` already holds `registry: Arc<WorkspaceRegistry>`, whose `project_dirs()` yields each open workspace root, and `tugutil_core::project_state_dir(root)` (tugcast already depends on the crate) resolves the `dash-log.md` path — verified 2026-08-20.
 - The existing probe arm is gated `if self.ledger.is_some()` (it exists to poll the drafts table). The dash-log stat must not inherit that gate — split the arm or drop the guard for the log half, so a harness without a ledger still observes marks.
 
 #### [P07] A joinable dash reads `ready` — a derived stage word, not a second parallel fact (DECIDED) {#p07-ready-stage}
@@ -493,12 +498,12 @@ Same precedence and scope-stripping as `integrate_message` (no override arm — 
 **Artifacts:**
 - `join_ready(rounds, worktree_dirty_tracked, joining, &DashDeclarations) -> bool` in `dash.rs`.
 - `derive_stage` gains `join_ready: bool` and the `ready` arm at the precedence position Spec S02 fixes.
-- `DashDetail.{join_ready, run_through, run_complete}` stamped in `dash_detail_entries_in` and `dash_detail_entry_in` from values the composition already holds.
+- `DashDetail.{join_ready, run_through, run_complete}` stamped in `dash_detail_entries_in` from values the composition already holds (`dash_detail_entry_in` delegates to it and needs no edit).
 
 **Tasks:**
 - [ ] Implement Spec S02 exactly; document each arm with the decision it implements.
-- [ ] Add the `ready` arm **above** the `Step` declaration arm and **below** `built`/`audited`; update every `derive_stage` call site (`dash_detail_entries_in`, `dash_detail_entry_in`, `status_in`).
-- [ ] Stamp the fields; no new git subprocess (all inputs are already computed per dash).
+- [ ] Add the `ready` arm **above** the `Step` declaration arm and **below** `built`/`audited`; update both real `derive_stage` call sites — `dash_detail_entries_in` and `status_in` (`dash_detail_entry_in` is a find-wrapper over `dash_detail_entries_in` and inherits by delegation; it composes nothing itself).
+- [ ] Stamp the fields. In `dash_detail_entries_in` every input is already computed per dash (`worktree_dirt_tracked` via `dirty_tracked_paths`) — no new git subprocess on the recompute hot path. `status_in` computes only the untracked-inclusive `worktree_dirty` today: give it a `dirty_tracked_paths` call for the `join_ready` input rather than passing `worktree_dirty`, or `dash status` disagrees with the feed over an untracked scratch file — the exact case [P04]'s tracked-dirt distinction exists to exclude. That call is on the CLI path, not the recompute, so the hot-path doctrine is untouched.
 
 **Tests:**
 - [ ] The full Table T01 truth table as unit tests over `join_ready`, one assertion per row.
@@ -523,7 +528,7 @@ Same precedence and scope-stripping as `integrate_message` (no override arm — 
 
 **Tasks:**
 - [ ] Extract the precedence walk (draft → description → fallback) into one function both callers use; preview omits trailers, landing keeps them.
-- [ ] Preserve `integrate_message`'s existing behavior byte-for-byte (its six tests must pass unchanged).
+- [ ] Preserve `integrate_message`'s existing behavior byte-for-byte (its five `integrate_message_*` tests must pass unchanged).
 
 **Tests:**
 - [ ] Preview precedence: draft present → (`draft`, draft text); description only → (`description`, …); neither → (`fallback`, `tugdash(<name>): Dash work`).
@@ -547,6 +552,7 @@ Same precedence and scope-stripping as `integrate_message` (no override arm — 
 - `changeset.rs::dash_entries`: `pilot_action` moves **out of** the `spawn_blocking` closure into the existing async dispatch loop, where `bound_by_dash` is already in scope — the predicate is pure and cheap, so this costs nothing and avoids cloning the map into the closure.
 - `standing_prompt`: `detail.stage != "built"` → `!detail.join_ready`; the `quiet` composition and every later gate unchanged. No boundness gate here — an unpiloted dash has no verdict, so the existing gates already return `None`.
 - Module docstrings in `join_pilot.rs` / `join_board.rs` rewritten: the arc's trigger is a machine fact; `built` is telemetry that also arms; the pilot works where the answer can be offered.
+- `standing_prompt`'s **question copy** rewritten too — both variants currently open `"{name} is built, reconciled with {base} …"`, which becomes a lie for a dash that arms without ever building. Speak readiness, not the build: `"{name} is ready, reconciled with {base}, and the joined tree builds — join it?"` / `"… but the joined tree does not build — join it anyway?"` (the "joined tree builds" half is Tier 0's fact and stays). This is user-visible sheet text, not a comment — the same [L31]/no-resting-lies bar the provenance work holds elsewhere.
 
 **Tasks:**
 - [ ] Swap both gates; add the boundness gate; update the pilot's rule list ("1. Not ready — the pilot acts on a finished selection, a plan-less round, or a declared mark. 2. Unbound — the ask can only be raised on a bound card, so an eager verdict would be spent on nobody").
