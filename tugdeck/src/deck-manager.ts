@@ -105,6 +105,7 @@ import {
   columnStanding,
   COLUMN_OVERFLOW_VISIBLE_MEMBERS,
   effectiveRailOrder,
+  firstVisibleFlowSlot,
   flowRevealOffset,
   impositionLayout,
   IMPOSITION_GAP_BOTTOM_PX,
@@ -1280,8 +1281,9 @@ export class DeckManager implements IDeckManagerStore {
       // than walking the cascade — the arrangement is the user's stated intent
       // for the whole deck, and a fresh card landing askew across it would be
       // the deck ignoring it. Which slot is the caller's to say (`options.slot`
-      // — an opener with an originating card names the slot beside it); the
-      // first slot is what a card arriving from nowhere takes. One-up is the
+      // — an opener with an originating card names the slot beside it); a card
+      // arriving from nowhere takes whichever slot the deck is SHOWING
+      // ({@link _openingSlot}). One-up is the
       // deck's resting state rather than a chosen arrangement, so it claims
       // nothing: a new card cascades as it always did and takes the single slot
       // only by being put there. Centered dialog cards stay centered under
@@ -1291,7 +1293,7 @@ export class DeckManager implements IDeckManagerStore {
         ? {
             slot: clampSlot(
               this.deckState.imposition.kind ?? DEFAULT_IMPOSITION_KIND,
-              options?.slot ?? 0,
+              options?.slot ?? this._openingSlot(),
             ),
           }
         : {}),
@@ -2486,6 +2488,33 @@ export class DeckManager implements IDeckManagerStore {
     const state = this.deckState;
     if (deckFlowStrip(state) === null) return null;
     return this._flowBandWidth(state.panes, state.imposition);
+  }
+
+  /**
+   * The slot a card arriving from nowhere opens into: slot 0 in fit, and in
+   * flow the leftmost slot the band is currently showing.
+   *
+   * In fit every slot is on screen, so the first one is as good an answer as
+   * any and the deck has always given it. Flow is where that answer went wrong:
+   * the strip is longer than the band, so slot 0 is routinely scrolled off the
+   * left, and a new card took it — opening somewhere the user could not see and
+   * saying nothing about it. The band is what "where the deck is" means in
+   * flow, so the card opens in it.
+   *
+   * An explicit `options.slot` outranks this; an opener that names a slot has
+   * said something about placement that a measurement should not overrule.
+   */
+  private _openingSlot(): number {
+    const state = this.deckState;
+    const strip = deckFlowStrip(state);
+    if (strip === null) return 0;
+    return (
+      firstVisibleFlowSlot({
+        strip,
+        band: this._flowBandWidth(state.panes, state.imposition),
+        offset: state.flowOffset ?? 0,
+      }) ?? 0
+    );
   }
 
   /**

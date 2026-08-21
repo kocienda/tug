@@ -39,6 +39,7 @@ import {
   IMPOSITION_GAP_PX,
   allocateSidebarWidths,
   clampFlowOffset,
+  firstVisibleFlowSlot,
   flowRevealOffset,
   flowStripPositions,
   imposeStyle,
@@ -338,6 +339,58 @@ describe("the reveal rule", () => {
         offset: first,
       }),
     ).toBe(first);
+  });
+});
+
+describe("the slot the band is showing", () => {
+  /** Four equal cards in a strip, seen through a band two of them wide. */
+  const strip = flowStripPositions([
+    { slot: 0, width: 100 },
+    { slot: 1, width: 100 },
+    { slot: 2, width: 100 },
+    { slot: 3, width: 100 },
+  ]);
+  const BAND = 100 * 2 + IMPOSITION_GAP_PX;
+
+  test("an empty strip has no leftmost anything", () => {
+    expect(
+      firstVisibleFlowSlot({ strip: flowStripPositions([]), band: BAND, offset: 0 }),
+    ).toBeUndefined();
+  });
+
+  test("at rest the band is showing slot 0", () => {
+    expect(firstVisibleFlowSlot({ strip, band: BAND, offset: 0 })).toBe(0);
+  });
+
+  test("scrolled to a slot's own edge, that slot answers", () => {
+    const left = strip.positions.get(2) as number;
+    expect(firstVisibleFlowSlot({ strip, band: BAND, offset: left })).toBe(2);
+  });
+
+  test("a slot clipped at the near edge is not the answer — the next whole one is", () => {
+    // Half of slot 1 is off the left. Slot 1 is what the deck is scrolled
+    // *into*; slot 2 is the first the band holds entire.
+    const offset = (strip.positions.get(1) as number) + 50;
+    expect(firstVisibleFlowSlot({ strip, band: BAND, offset })).toBe(2);
+  });
+
+  test("when nothing fits whole, the clipped slot the band touches answers", () => {
+    // A band narrower than one card can never hold a slot entire, so the
+    // fallback is what the eye is on rather than slot 0.
+    const offset = (strip.positions.get(2) as number) + 20;
+    expect(firstVisibleFlowSlot({ strip, band: 60, offset })).toBe(2);
+  });
+
+  test("an unoccupied slot is not a place — the strip's own members answer", () => {
+    const sparse = flowStripPositions([
+      { slot: 1, width: 100 },
+      { slot: 4, width: 100 },
+    ]);
+    expect(firstVisibleFlowSlot({ strip: sparse, band: BAND, offset: 0 })).toBe(1);
+  });
+
+  test("a band that is not a measurement yet falls back to the first slot", () => {
+    expect(firstVisibleFlowSlot({ strip, band: 0, offset: 400 })).toBe(0);
   });
 });
 

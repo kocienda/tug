@@ -1513,6 +1513,54 @@ export function flowRevealOffset(input: FlowRevealInput): number {
   });
 }
 
+/** What {@link firstVisibleFlowSlot} is asked over. */
+export interface FlowVisibleInput {
+  /** The deck's strip. */
+  strip: FlowStrip;
+  /** The band the strip is seen through. */
+  band: number;
+  /** The offset standing now. */
+  offset: number;
+}
+
+/**
+ * The leftmost slot the band is actually showing — where a card arriving from
+ * nowhere belongs.
+ *
+ * A slot is the answer when the band holds the WHOLE of it. Only when no
+ * occupied slot is wholly on screen does a clipped one answer, and then it is
+ * the leftmost slot the band touches at all: a deck scrolled to the middle of a
+ * card that is wider than the band still has somewhere the eye is, and the
+ * lowest occupied slot — which is what a caller falls back to otherwise — is
+ * not it.
+ *
+ * `undefined` for an empty strip, which is the one case with no leftmost
+ * anything. The reveal arithmetic's mirror image: {@link flowRevealOffset}
+ * moves the band to a slot, and this reads which slot the band already stands
+ * over.
+ */
+export function firstVisibleFlowSlot(
+  input: FlowVisibleInput,
+): number | undefined {
+  const { strip, band, offset } = input;
+  const slots = [...strip.positions.keys()].sort((a, b) => a - b);
+  if (slots.length === 0) return undefined;
+  if (!Number.isFinite(band) || band <= 0 || !Number.isFinite(offset)) {
+    return slots[0];
+  }
+  const bandEnd = offset + band;
+  let touched: number | undefined;
+  for (const slot of slots) {
+    const left = strip.positions.get(slot) as number;
+    const right = left + (strip.extents.get(slot) ?? 0);
+    if (left >= offset && right <= bandEnd) return slot;
+    if (touched === undefined && right > offset && left < bandEnd) {
+      touched = slot;
+    }
+  }
+  return touched ?? slots[0];
+}
+
 /* ---------------------------------------------------------------------------
  * The space allocator
  * ---------------------------------------------------------------------------*/
