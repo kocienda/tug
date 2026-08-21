@@ -87,6 +87,13 @@ export interface TugStepRingProps {
    * for rows with no dot of their own.
    */
   dot?: React.ReactNode;
+  /**
+   * The miniature's box, in px. Ignored when `dot` sets the geometry — the
+   * ring form has one size. A surface set at a reading scale (the Changes
+   * shade) takes the miniature a step larger than the rail default.
+   * @default 14
+   */
+  size?: number;
 }
 
 export function TugStepRing({
@@ -95,12 +102,13 @@ export function TugStepRing({
   complete = false,
   role = "inherit",
   dot,
+  size = RING_MINI_BOX,
 }: TugStepRingProps): React.ReactElement {
   const stroke = 2;
   const box =
     dot !== undefined && dot !== null
       ? TUG_STEP_RING_DOT_SIZE + RING_DOT_MARGIN
-      : RING_MINI_BOX;
+      : size;
   const c = box / 2;
   const r = c - stroke / 2 - 0.5;
   const segmented = total <= TUG_STEP_RING_SEGMENT_MAX;

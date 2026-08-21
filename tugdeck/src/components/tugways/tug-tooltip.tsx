@@ -34,6 +34,16 @@
  * `useResponderChain()` returns null and the subscription is silently
  * skipped — Radix's own hover/focus dismissal keeps working unchanged.
  *
+ * ## One bubble on screen, ever
+ *
+ * Radix closes other tooltips when one opens, but it hears about the open from
+ * a document event whose listener mounts with the bubble's content — so two
+ * tooltips that open in the same tick never learn of each other. Nested
+ * triggers do exactly that: `pointermove` bubbles, so one motion arms both
+ * timers at once and both bubbles paint. `lib/open-tooltip-registry` arbitrates
+ * at the open edge instead, before anything renders, and prefers the more
+ * specific bubble — the one whose trigger sits inside the other's.
+ *
  * ## Input gestures and open menus
  *
  * Two more gates sit beside that one. A click, right-click, or scroll ends a
@@ -67,6 +77,11 @@ import { cn } from "@/lib/utils";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { observeTooltipDismiss } from "@/lib/tooltip-dismiss";
 import { anyMenuOpen, observeOpenMenus } from "@/lib/open-menu-registry";
+import {
+  claimSoleTooltip,
+  releaseSoleTooltip,
+  type TooltipClaim,
+} from "@/lib/open-tooltip-registry";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 
 /* ---------------------------------------------------------------------------
@@ -249,8 +264,27 @@ export function TugTooltip({
   // prop on the next render.
   const [openMirror, setOpenMirror] = React.useState<boolean>(defaultOpen ?? false);
 
-  // Ref to the trigger DOM element for truncation measurement.
+  // Ref to the trigger DOM element — read by the open-edge gates
+  // (truncation, `suppressOpen`) and by the sole-tooltip registry, which
+  // needs it to tell a nested trigger from an unrelated one.
   const triggerElRef = React.useRef<Element | null>(null);
+
+  // This tooltip's standing claim to being the one bubble on screen. The
+  // object identity is what the registry tracks, so it is created once and
+  // its fields are kept current — `close` is re-pointed at each render so it
+  // calls the live `handleOpenChange`.
+  const claimRef = React.useRef<TooltipClaim | null>(null);
+  if (claimRef.current === null) {
+    claimRef.current = { trigger: null, close: () => {} };
+  }
+  const claim = claimRef.current;
+  claim.trigger = triggerElRef.current;
+  claim.close = () => handleOpenChange(false);
+
+  // A tooltip unmounted while its bubble stands — a row scrolled out from
+  // under the pointer, a shade dismissed — never sees a close, so the claim
+  // is dropped here as well.
+  React.useEffect(() => () => releaseSoleTooltip(claim), [claim]);
 
   // Determine whether we operate in controlled or uncontrolled mode.
   // Controlled = the consumer owns the open state via the `open` prop.
@@ -278,6 +312,14 @@ export function TugTooltip({
       if (suppressOpen && triggerElRef.current && suppressOpen(triggerElRef.current)) {
         return;
       }
+      // One bubble on screen, ever. A tooltip whose trigger wraps the one
+      // already standing keeps quiet; anything else displaces it. [L22]
+      claim.trigger = triggerElRef.current;
+      if (!claimSoleTooltip(claim)) {
+        return;
+      }
+    } else {
+      releaseSoleTooltip(claim);
     }
     if (!isControlled) {
       setOpenMirror(nextOpen);
@@ -359,16 +401,17 @@ export function TugTooltip({
     onOpenChange: handleOpenChange,
   };
 
-  // Clone the child to attach the callback ref, so both open-edge gates —
-  // truncation measurement and the caller's `suppressOpen` — can read the live
-  // trigger element. The Radix asChild trigger merges it. Nothing else is
-  // added: the child keeps its own handlers untouched. [L06]
-  const needsTriggerRef = truncated || suppressOpen !== undefined;
-  const trigger = needsTriggerRef
-    ? React.cloneElement(children, {
-        ref: triggerCallbackRef,
-      } as Record<string, unknown>)
-    : children;
+  // Clone the child to attach the callback ref, so everything that reads the
+  // live trigger element can — the open-edge gates (truncation measurement,
+  // the caller's `suppressOpen`) and the sole-tooltip registry's containment
+  // test, which is why this is unconditional rather than gated on the two
+  // opt-in props: a tooltip that cannot name its trigger cannot tell a nested
+  // bubble from an unrelated one. The Radix asChild trigger merges the ref
+  // with its own. Nothing else is added: the child keeps its own handlers
+  // untouched. [L06]
+  const trigger = React.cloneElement(children, {
+    ref: triggerCallbackRef,
+  } as Record<string, unknown>);
 
   return (
     <Tooltip.Root {...rootProps}>

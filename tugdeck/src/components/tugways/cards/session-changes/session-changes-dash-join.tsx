@@ -1,31 +1,38 @@
 /**
- * `SessionChangesDashJoin` — the dash row's join face.
+ * `SessionChangesDashJoin` — the fold's **report**: the join's evidence.
  *
- * One line answering "what would joining this dash do right now?", and **no
- * act at all** ([P08]). Blocked names each blocker's server-written detail
- * beside the act that would clear it; conflicted names the paths; resolved
- * shows what the ladder decided; joinable is a sentence. Every one of them is
- * something to read.
+ * The fronted row's fold opens on three labeled sections — report, rounds,
+ * draft — and this is the first. It carries everything the join arc has to
+ * show for itself, and **no act at all** ([P08]): blocked names each
+ * blocker's server-written detail beside the act that would clear it;
+ * conflicted names the paths; resolved shows what the ladder decided and what
+ * the project's own checks said about the tree that would land. Every one of
+ * them is something to read.
  *
- * That last state is the point of the shape. There is no Join button here. The
- * one it replaces read as an action and performed a mode entry, so on every
- * state that could not join it stood there greyed out — a control offering a
- * press whose refusal was computed somewhere the press never reached. Joining
- * lives in the composer (⌃⌘C, or `/dash-join`), where the message is typed and
- * where a refusal can be both computed and shown; the readiness line's job is
- * to name that route, because with no control on the row a sentence is the only
- * thing standing between the reader and a dead end.
+ * What deliberately does **not** render here ([D142]):
  *
- * Every value here is read from the dash's server-owned join block, so the face
- * and the join gate answer the same question from the same bytes.
+ * - **No outcome chip.** The block's third line — the join register — already
+ *   fronts the state's word, in the one vocabulary all three register
+ *   surfaces share. A chip here said it a second way, one surface over.
+ * - **No standing readiness or refusal line.** "Ready to join" is the
+ *   register's sentence; a refusal rides the control that refuses — the
+ *   composer's ⬆, or the row menu item whose label carries its reason. A
+ *   refusal standing on the face was a sentence about a press nobody made.
+ *
+ * With nothing to report the section renders nothing at all — a `report`
+ * eyebrow over silence would be a row of chrome saying nothing.
+ *
+ * Every value here is read from the dash's server-owned join block, so the
+ * face and the join gate answer the same question from the same bytes.
  *
  * The face belongs to the **fronted** row only — joining is a gesture on this
  * card's own dash, and the composer it routes to is this card's own.
  *
  * Laws: [L02] every value here arrives as a prop from the view's store reads;
- * [L06] tone paints through `data-outcome` and CSS; [L19] the face composes
- * `TugBadge` rather than hand-rolling chrome; [L31] every refusal is on screen
- * as face text, next to the act that clears it.
+ * [L06] tone paints through `data-outcome` and CSS; [L19] the section
+ * composes `TugSectionLabel` rather than hand-rolling an eyebrow; [L31] every
+ * refusal is on screen — on the control that refuses, or as the blocker's own
+ * sentence here.
  *
  * @module components/tugways/cards/session-changes/session-changes-dash-join
  */
@@ -33,9 +40,9 @@
 import "./session-changes-dash-join.css";
 
 import React from "react";
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, ShieldAlert, ShieldCheck } from "lucide-react";
 
-import { TugBadge, type TugBadgeRole } from "@/components/tugways/tug-badge";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import {
   QuestionWizard,
   type ParsedQuestion,
@@ -47,13 +54,9 @@ import type {
   DashJoinStateWire,
   DashResolvedFileWire,
 } from "@/lib/changeset-types";
-import type { JoinPhase } from "@/lib/changeset-verb-store";
 import type { ResolvePhase, ResolveState } from "@/lib/changeset-join-store";
 import {
   deriveJoinOutcome,
-  evaluateJoinGate,
-  joinDisabledReason,
-  redOverrideStands,
   verificationVerdict,
   type JoinOutcome,
 } from "@/lib/join-mode-controller";
@@ -122,112 +125,33 @@ export function deriveResolveFace(
   return outcome === "conflicted" || outcome === "stale" ? "offer" : "none";
 }
 
-/** What the face shows for one state — words, and no acts at all ([P08]). */
+/** What the face shows for one state — evidence, and no acts at all ([P08]). */
 export interface JoinFace {
   outcome: JoinOutcome;
   resolve: ResolveFace;
-  /**
-   * Whether a join would go through right now, unqualified — no refusal, and
-   * no red standing over it.
-   *
-   * This is what the `control` field became ([P08]). Every state used to
-   * answer "which button do I mount"; none of them mount one now, so the
-   * question that is left is the only one the face still needs to answer about
-   * acting: is this dash ready, or is it saying something else.
-   */
-  ready: boolean;
-  /**
-   * What the face states about joining, or `null` where the state's own block
-   * already is that sentence — see {@link JoinFace.statedBelow}.
-   */
-  line: string | null;
-  /**
-   * The state's own block carries the refusal, so `line` deliberately does not
-   * repeat it: the blockers name their causes and their acts, the conflicted
-   * paths name themselves, the stale note is the server's own sentence.
-   *
-   * It is computed from the content that will actually render, not from the
-   * outcome word, and that distinction is the whole reason it exists. A dash
-   * whose join state never reached this deck derives `blocked` with *no*
-   * blockers to show, so suppressing the line on the word alone left a row with
-   * no control, no explanation, and no way to tell that from a working one.
-   */
-  statedBelow: boolean;
 }
 
 /**
- * Table T01 as a function: one feed state in, one act and one sentence out.
+ * Table T01 as a function: one feed state in, one face out.
  *
- * Pure and exported so the face's shape is testable without a DOM, and — more
- * to the point — so there is one place that decides which control is on screen.
- * The old face decided that inline across five independent conditionals, which
- * is how it ended up mounting a disabled Join beside a Resolve beside a review
- * panel and leaving the reader to guess which one it wanted.
+ * Pure and exported so the face's shape is testable without a DOM. It used to
+ * also yield the standing readiness line and the ready boolean; both left
+ * with the standing line itself ([D142]) — the register derivation
+ * (`dashJoinRegister`) owns the sentence, and `evaluateJoinGate` owns the
+ * press, each already one place. What remains is the pair the evidence panel
+ * dispatches on: the outcome the tones follow, and which resolve face the
+ * ladder's state has earned.
  */
 export function deriveJoinFace(input: {
   join: DashJoinStateWire | null;
   resolvePhase: ResolvePhase;
-  joinPhase: JoinPhase;
-  turnInProgress: boolean;
-  /** The dash is mid-teardown from an interrupted join (`stage === "joining"`). */
-  interrupted: boolean;
 }): JoinFace {
-  const { join, resolvePhase, joinPhase, turnInProgress, interrupted } = input;
+  const { join, resolvePhase } = input;
   const outcome = deriveJoinOutcome(join);
   const candidate =
     typeof join?.candidate === "string" && join.candidate !== "" ? join.candidate : null;
-  const staleNote =
-    typeof join?.stale_note === "string" && join.stale_note !== "" ? join.stale_note : null;
   const resolve = deriveResolveFace(outcome, resolvePhase, candidate, join?.run ?? null);
-  const verdict = verificationVerdict(join);
-  const redStands = verdict === "red" && !redOverrideStands(candidate, join?.override_for);
-  const gate = evaluateJoinGate({
-    turnInProgress,
-    joinPhase,
-    outcome,
-    candidateCommit: candidate,
-    verdict,
-    // The override the server holds, not one this deck remembers ([P04]):
-    // it is a durable fact anchored to the candidate sha, so it survives a
-    // reload and reaches the CLI, and a candidate built afterwards is not
-    // covered by it.
-    redOverride: redOverrideStands(candidate, join?.override_for),
-    // The message lives in the composer, so the row asks the gate everything
-    // except that: opening the editor is what supplies it.
-    message: "x",
-  });
-  const reason = gate.ok ? null : joinDisabledReason(gate.reason, outcome, staleNote);
-
-  // The whole control ladder was deleted here ([P08]). Every rung of it asked
-  // the user to start work the machine now starts on its own — the pilot
-  // reconciles and checks a `built` dash unprompted, an interrupted teardown
-  // resumes itself off its durable journal, and a red is answered in the
-  // composer where the press is. What is left is one boolean about the state,
-  // not a button.
-  const ready = gate.ok && !redStands;
-
-  // Measured against what will render, never against the outcome word.
-  const statedBelow =
-    !gate.ok &&
-    gate.reason === "outcome" &&
-    ((outcome === "blocked" && (join?.blockers ?? []).length > 0) ||
-      (outcome === "conflicted" && (join?.conflicts ?? []).length > 0) ||
-      (outcome === "stale" && staleNote !== null) ||
-      outcome === "empty");
-  const line = gate.ok
-    ? // The gate passes a red now ([P05]), so "Ready to join" would be a
-      // resting lie on exactly the state that most needs reading. The face
-      // says what the press will be instead, and where it is made — the same
-      // thing the register says, from the one surface that still has room to
-      // show the failures underneath it.
-      redStands
-      ? "Build red on the joined tree — joining is a decision, made in the composer"
-      : "Ready to join — ⌃⌘C, or /dash-join"
-    : statedBelow
-      ? null
-      : reason;
-
-  return { outcome, resolve, ready, line, statedBelow };
+  return { outcome, resolve };
 }
 
 export interface SessionChangesDashJoinProps {
@@ -240,33 +164,12 @@ export interface SessionChangesDashJoinProps {
    * gate cannot disagree.
    */
   join: DashJoinStateWire | null;
-  /** The join round trip's phase, for the pending gate. */
-  joinPhase: JoinPhase;
   /** A verb-level refusal from an execute, if one came back. */
   error: string | null;
-  /** A Claude turn is in flight — durable acts wait. */
-  turnInProgress: boolean;
   /** The resolution ladder's live state for this dash. */
   resolve: ResolveState;
   actions: DashJoinActions;
 }
-
-/** The word the face fronts for each outcome. */
-const OUTCOME_WORDS: Record<JoinOutcome, string> = {
-  clean: "clean",
-  conflicted: "conflicted",
-  blocked: "blocked",
-  empty: "empty",
-  stale: "out of date",
-};
-
-const OUTCOME_ROLES: Record<JoinOutcome, TugBadgeRole> = {
-  clean: "success",
-  conflicted: "danger",
-  blocked: "caution",
-  empty: "data",
-  stale: "caution",
-};
 
 /**
  * The act that clears a blocker ([#blocker-acts]). Pure, and `null` for a kind
@@ -335,12 +238,10 @@ export function joinQuestionAsParsed(
 export function SessionChangesDashJoin({
   entry,
   join,
-  joinPhase,
   error,
-  turnInProgress,
   resolve,
   actions,
-}: SessionChangesDashJoinProps): React.ReactElement {
+}: SessionChangesDashJoinProps): React.ReactElement | null {
   const conflicts = join?.conflicts ?? [];
   const archaeology = join?.archaeology ?? [];
   const blockers = join?.blockers ?? [];
@@ -353,21 +254,26 @@ export function SessionChangesDashJoin({
   const verdict = verificationVerdict(join);
   const failures = join?.verification?.failures ?? [];
   const notes = join?.verification?.notes ?? [];
-  // A stale journal refuses every other act server-side, so the resume is the
-  // one gesture that can make the rest reachable.
-  const interrupted = entry.stage === "joining";
   // One decision, made once ({@link deriveJoinFace}) and rendered here.
-  const face = deriveJoinFace({
-    join,
-    resolvePhase: resolve.phase,
-    joinPhase,
-    turnInProgress,
-    interrupted,
-  });
-  const { outcome, resolve: resolveFace, ready, line: joinLine } = face;
-  // No refusal list. Both controls this face used to speak for now live in the
-  // row's own menu, where a blocked verb carries its reason in its own label —
-  // beside the item it refuses rather than in a list under it.
+  const face = deriveJoinFace({ join, resolvePhase: resolve.phase });
+  const { outcome, resolve: resolveFace } = face;
+
+  // A section renders nothing it cannot say. Measured against what will
+  // actually render below, never against the outcome word — a dash whose arc
+  // has not started derives `blocked` with no blockers to show, and a `report`
+  // eyebrow over that silence would be a row of chrome saying nothing.
+  const speaks =
+    staleNote !== null ||
+    outcome === "empty" ||
+    blockers.length > 0 ||
+    resolveFace === "progress" ||
+    resolveFace === "resolved" ||
+    question !== null ||
+    stuck !== null ||
+    resolve.error !== null ||
+    conflicts.length > 0 ||
+    error !== null;
+  if (!speaks) return null;
 
   return (
     <div
@@ -375,25 +281,10 @@ export function SessionChangesDashJoin({
       data-slot="session-changes-dash-join"
       data-outcome={outcome}
     >
-      <div className="session-changes-dash-join-head">
-        <TugBadge
-          emphasis="tinted"
-          role={OUTCOME_ROLES[outcome]}
-          size="2xs"
-          data-slot="session-changes-dash-join-outcome"
-        >
-          {OUTCOME_WORDS[outcome]}
-        </TugBadge>
-      </div>
-      {joinLine !== null ? (
-        <div
-          className="session-changes-dash-join-note"
-          data-slot="session-changes-dash-join-ready"
-          data-ready={ready ? "true" : "false"}
-        >
-          {joinLine}
-        </div>
-      ) : null}
+      <TugSectionLabel
+        label={{ name: "report" }}
+        slot="session-changes-dash-join-label"
+      />
       {/* The server's own sentence for a candidate it has already dropped. It
           names which side moved, which is the whole of what the reader needs
           to decide whether to resolve again. */}
@@ -497,6 +388,27 @@ export function SessionChangesDashJoin({
           data-slot="session-changes-dash-join-verdict"
           data-verdict={verdict}
         >
+          {/* The verdict as evidence, not as a chip: what the project's own
+              checks said about the tree that would land. The register already
+              carries the state's word; this is the report's account of it. */}
+          {verdict === "green" || verdict === "red" ? (
+            <span
+              className="session-changes-dash-join-tier"
+              data-slot="session-changes-dash-join-tier"
+              data-verdict={verdict}
+            >
+              {verdict === "green" ? (
+                <ShieldCheck size={13} />
+              ) : (
+                <ShieldAlert size={13} />
+              )}
+              <span>
+                {verdict === "green"
+                  ? "Build green on the joined tree"
+                  : "Build red on the joined tree"}
+              </span>
+            </span>
+          ) : null}
           {report !== null ? (
             <ul
               className="session-changes-dash-join-report"

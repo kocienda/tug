@@ -13,6 +13,22 @@
   min-width: 0;
 }
 
+/* The reading scale: type at `sm`, the fraction one step behind it, the line
+   packed a step looser, and a line box tall enough that the 16px marks sit on
+   it rather than touching the lines above and below. The rail scale above
+   stays the default — the Lens glances, the shade reads. */
+.tug-dash-meta-line[data-size="sm"] {
+  gap: var(--tug-space-sm);
+  line-height: calc(var(--tug-font-size-sm) * 1.6);
+  --tugx-step-fraction-font-size: var(--tug-font-size-xs);
+}
+
+.tug-dash-meta-line[data-size="sm"] .tug-dash-meta-note,
+.tug-dash-meta-line[data-size="sm"] .tug-dash-meta-age,
+.tug-dash-meta-line[data-size="sm"] .tug-dash-meta-fact {
+  font-size: var(--tug-font-size-sm);
+}
+
 /* The step or draft note: elides before anything else on the line does. */
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
 .tug-dash-meta-note {

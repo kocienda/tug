@@ -11,6 +11,11 @@
  * line once has learned it everywhere. The eyebrow above it holds the
  * IDENTITIES (the dash atom, the worker); this line holds the WORK.
  *
+ * One language, two scales. The Lens renders the rail scale (`2xs`), a fact
+ * glanced at beside other rails; the shade renders the reading scale (`sm`),
+ * because the shade is the surface you came to read and a line a step smaller
+ * than the register beneath it reads as a footnote to its own block.
+ *
  * The ring is phase-toned when a live session is on the dash (the first bound
  * session's phase, through {@link SessionStepRing}) and quiet otherwise; a
  * plan fully walked reads success either way. The stage is a glyph with its
@@ -165,11 +170,25 @@ export function dashMetaNote(entry: DashChangesetEntry): string | null {
   return subject.length > 0 ? subject : null;
 }
 
+/** The read scale's marks: the miniature ring and the stage glyph, each a
+ *  step up from the rail defaults so they sit on an `sm` line box. */
+const READ_RING_BOX = 16;
+const READ_STAGE_SIZE = 15;
+
 export function DashMetaLine({
   entry,
+  size = "2xs",
 }: {
   entry: DashChangesetEntry;
+  /**
+   * The line's type scale. `2xs` is the rail's — a fact glanced at in the
+   * Lens beside other rails. `sm` is the reading scale, for a surface whose
+   * whole job is to be read (the Changes shade): the marks step up with the
+   * type so the line stays one system.
+   */
+  size?: "2xs" | "sm";
 }): React.ReactElement {
+  const read = size === "sm";
   const counted =
     entry.step_current !== undefined && entry.step_total !== undefined;
   const complete = dashStepsComplete(entry);
@@ -183,6 +202,7 @@ export function DashMetaLine({
       className="tug-dash-meta-line"
       data-slot="tug-dash-meta-line"
       data-dash={entry.display_name}
+      data-size={size}
     >
       {counted ? (
         worker !== null ? (
@@ -191,16 +211,23 @@ export function DashMetaLine({
             current={entry.step_current!}
             total={entry.step_total!}
             complete={complete}
+            {...(read ? { size: READ_RING_BOX } : {})}
           />
         ) : (
           <TugStepRing
             current={entry.step_current!}
             total={entry.step_total!}
             complete={complete}
+            {...(read ? { size: READ_RING_BOX } : {})}
           />
         )
       ) : null}
-      {entry.stage !== undefined ? <DashStageMark stage={entry.stage} /> : null}
+      {entry.stage !== undefined ? (
+        <DashStageMark
+          stage={entry.stage}
+          {...(read ? { size: READ_STAGE_SIZE } : {})}
+        />
+      ) : null}
       {counted ? (
         <TugStepFraction
           current={entry.step_current!}

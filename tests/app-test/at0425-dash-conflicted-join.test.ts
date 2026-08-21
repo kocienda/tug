@@ -88,8 +88,8 @@ const FRONTED_LABEL = `${LANE} [data-slot="session-changes-dash-lane-fronted-lab
 
 const DASH = "at0425-conflict";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH}"]`;
-const OUTCOME = `${ROW} [data-slot="session-changes-dash-join-outcome"]`;
-const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
+const JOIN_FACE = `${ROW} [data-slot="session-changes-dash-join"]`;
+const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
 const CONFLICTS = `${ROW} [data-slot="session-changes-dash-join-conflicts"]`;
 const ARCHAEOLOGY = `${ROW} [data-slot="session-changes-dash-join-archaeology"]`;
 
@@ -240,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
           { timeoutMs: 12000 },
         );
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(OUTCOME)})?.textContent || "").trim() === "conflicted"`,
+          `document.querySelector(${JSON.stringify(JOIN_FACE)})?.getAttribute("data-outcome") === "conflicted"`,
           { timeoutMs: 30000 },
         );
         note(`outcome: conflicted over ${conflictFile}`);
@@ -272,8 +272,8 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // server's words.
         const claimsReady = await app.evalJS<boolean>(
           `(function(){
-            var line = document.querySelector(${JSON.stringify(READY)});
-            return line !== null && line.getAttribute("data-ready") === "true";
+            var reg = document.querySelector(${JSON.stringify(REGISTER)});
+            return reg !== null && reg.getAttribute("data-word") === "ready";
           })()`,
         );
         expect(claimsReady, "a conflicted dash must not read as ready").toBe(false);

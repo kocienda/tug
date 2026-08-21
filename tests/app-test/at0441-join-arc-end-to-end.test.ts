@@ -152,8 +152,8 @@ const landing = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join"]`;
 const verdictOf = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join-verdict"]`;
-const readyOf = (dash: string): string =>
-  `${row(dash)} [data-slot="session-changes-dash-join-ready"]`;
+const registerOf = (dash: string): string =>
+  `${row(dash)} [data-slot="dash-join-register"]`;
 const reportOf = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join-report"]`;
 const conflictsOf = (dash: string): string =>
@@ -555,12 +555,12 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           conflicts: string;
         }>(
           `(function(){
-            var line = document.querySelector(${JSON.stringify(readyOf(DASH))});
+            var reg = document.querySelector(${JSON.stringify(registerOf(DASH))});
             return {
               controls: document.querySelectorAll(${JSON.stringify(DELETED_CONTROLS(DASH))}).length,
               report: (document.querySelector(${JSON.stringify(reportOf(DASH))})?.textContent || ""),
-              ready: line !== null && line.getAttribute("data-ready") === "true",
-              line: line === null ? "" : (line.textContent || ""),
+              ready: reg !== null && reg.getAttribute("data-word") === "ready",
+              line: reg === null ? "" : (reg.textContent || ""),
               conflicts: (document.querySelector(${JSON.stringify(conflictsOf(DASH))})?.textContent || ""),
             };
           })()`,
@@ -575,8 +575,11 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         );
         expect(shade.report, "and says how it reconciled it").toContain("kept the dash intent");
         expect(shade.ready, "and the row reads landable").toBe(true);
-        expect(shade.line, "naming the route, since there is nothing to press here").toContain(
-          "/dash-join",
+        // The register is the block's third line and the state is its word —
+        // the standing readiness line is gone ([D142]), and the route lives
+        // where the press does, in the composer beat 4 walks.
+        expect(shade.line, "the register states the arc, not a control").toContain(
+          "Ready to join",
         );
         note(`at0441 shade: ${JSON.stringify(shade.line)} — no controls, full report`);
 

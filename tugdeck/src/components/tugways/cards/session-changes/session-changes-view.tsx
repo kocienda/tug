@@ -448,7 +448,6 @@ export function SessionChangesView({
     dashJoin !== undefined
       ? {
           join,
-          turnInProgress,
           resolve: resolveState,
           actions: dashJoin.actions,
         }

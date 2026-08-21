@@ -44,12 +44,20 @@ export function TugDashName({
   boundSessions,
   slot,
   workerSlot,
+  atomSize = "2xs",
 }: {
   name: string;
   review: string | null;
   /** Live sessions mated to this dash. Empty (or absent) is the unbound
    *  register — which is a statement, not a fallback. */
   boundSessions?: readonly string[];
+  /**
+   * Which chip size the skin wears, in both registers. `2xs` is the rail's —
+   * a fact glanced at beside other rails. `sm` is the chip tier's own size,
+   * for a surface whose lines beneath are set at `sm`: an atom a step smaller
+   * than the facts it heads reads as a caption over its own content.
+   */
+  atomSize?: "sm" | "2xs";
   /** The `data-slot` an unbound name answers to on this surface. */
   slot: string;
   /**
@@ -65,7 +73,13 @@ export function TugDashName({
   if (bound.length === 0) {
     return (
       <span className="tug-dash-name" data-register="unbound">
-        <DashSigil name={name} review={review} slot={slot} atom />
+        <DashSigil
+          name={name}
+          review={review}
+          slot={slot}
+          atom
+          atomSize={atomSize}
+        />
       </span>
     );
   }
@@ -77,6 +91,7 @@ export function TugDashName({
           sessionId={sessionId}
           dash={{ name, review }}
           slot={workerSlot}
+          size={atomSize}
         />
       ))}
     </span>
@@ -88,17 +103,19 @@ function BoundWorkerAtom({
   sessionId,
   dash,
   slot,
+  size,
 }: {
   sessionId: string;
   dash: { name: string; review: string | null };
   slot: string;
+  size: "sm" | "2xs";
 }): React.ReactElement {
   const identity = useSessionIdentity(sessionId);
   return (
     <TugSessionIdentity
       identity={identity}
       tier="chip"
-      size="2xs"
+      size={size}
       dash={dash}
       tooltip={false}
       data-slot={slot}

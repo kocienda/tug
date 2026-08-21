@@ -85,7 +85,7 @@ const JOIN_FACE = `${ROW} [data-slot="session-changes-dash-join"]`;
 const QUESTION = `${ROW} [data-slot="session-changes-dash-join-question"]`;
 const WIZARD = `${QUESTION} [data-slot="session-question-dialog"]`;
 const VERDICT = `${ROW} [data-slot="session-changes-dash-join-verdict"]`;
-const READY = `${ROW} [data-slot="session-changes-dash-join-ready"]`;
+const REGISTER = `${ROW} [data-slot="dash-join-register"]`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 
@@ -272,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
           "an answered question stops standing",
         ).toBe(true);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(READY)})?.getAttribute("data-ready") === "true"`,
+          `document.querySelector(${JSON.stringify(REGISTER)})?.getAttribute("data-word") === "ready"`,
           { timeoutMs: 30000 },
         );
         note("at0442 resolved: the answered resolver reached a verified candidate");

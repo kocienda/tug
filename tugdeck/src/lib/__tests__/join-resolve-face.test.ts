@@ -1,21 +1,20 @@
 /**
- * The landing face as a table: one feed state in, one sentence out.
+ * The evidence face as a table: one feed state in, one face out.
  *
- * This is the shape the whole rework exists for. The old face decided what to
- * mount across five independent conditionals, and the state that broke was the
- * one where they disagreed — a Join button standing greyed out beside a Resolve
- * button, its refusal computed in a place the press never reached.
+ * The face used to also yield the standing readiness line and the ready
+ * boolean; both left with the standing line itself ([D142]). The sentence is
+ * the register's — `dash-join-register.test.ts` walks that table, state by
+ * state — and a refusal rides the control that refuses, which
+ * `REFUSAL_REACHABILITY` below pins to the composer or to a named wait. What
+ * this file still owns is the pair the report section dispatches on: the
+ * outcome the tones follow, and which resolve face the ladder's state has
+ * earned.
  *
- * The answer arrived in two moves. First one function with one answer; then, at
- * [P08], no buttons at all — the machine reconciles and checks a built dash
- * unprompted, an interrupted teardown resumes itself, and a red is answered in
- * the composer. So what these cases walk is every row of a table that now
- * yields **a sentence wherever the state is not simply ready.**
- *
- * The second half drives the real ladder frames through the real overlay store,
- * because the one ranking that cannot be tested from a hand-built state is the
- * one that matters most: a candidate on the feed outranks whatever the overlay
- * holds, which is what makes a resolution survive a reload.
+ * The second half drives the real ladder frames through the real overlay
+ * store, because the one ranking that cannot be tested from a hand-built
+ * state is the one that matters most: a candidate on the feed outranks
+ * whatever the overlay holds, which is what makes a resolution survive a
+ * reload.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -33,6 +32,7 @@ import {
 } from "@/components/tugways/cards/session-changes/session-changes-dash-join";
 import {
   REFUSAL_REACHABILITY,
+  joinDisabledReason,
   type JoinGateReason,
 } from "../join-mode-controller";
 import type { DashJoinStateWire } from "@/lib/changeset-types";
@@ -48,29 +48,6 @@ const RESOLVED: DashJoinStateWire = {
   resolved: [{ path: "a.rs", resolved_by: "driver" }],
 };
 
-/** The same candidate, with the project's own checks green over it. */
-const VERIFIED: DashJoinStateWire = {
-  ...RESOLVED,
-  verification: {
-    tier0: "green",
-    tier1: "green",
-    base_sha: "base0000",
-    candidate_sha: "cafe1234",
-  },
-};
-
-/** …and red, which is the state the override exists for. */
-const RED: DashJoinStateWire = {
-  ...RESOLVED,
-  verification: {
-    tier0: "red",
-    tier1: "unrun",
-    base_sha: "base0000",
-    candidate_sha: "cafe1234",
-    failures: ["cargo check: exited 101"],
-  },
-};
-
 /** The face for a feed state, with everything else at rest. */
 function face(
   join: DashJoinStateWire | null,
@@ -79,193 +56,64 @@ function face(
   return deriveJoinFace({
     join,
     resolvePhase: "idle",
-    joinPhase: "idle",
-    turnInProgress: false,
-    interrupted: false,
     ...over,
   });
 }
 
 beforeEach(() => _resetChangesetJoinStoreForTest());
 
-describe("one sentence per state, and no acts at all ([P08])", () => {
-  test("blocked: the blockers are the text, and nothing claims to clear them", () => {
-    // Each blocker carries its own act sentence beside its own detail, and the
-    // face states nothing above them — a second sentence here would be the
-    // same refusal twice.
+describe("the outcome and the resolve face, per state", () => {
+  test("blocked derives blocked, and the blockers are the evidence", () => {
+    // The face states nothing above the blockers — each carries its own act
+    // sentence beside its own detail, and the register fronts the word.
     const blocked = face({
       phase: "blocked",
       blockers: [{ kind: "base-dirt", detail: "commit outstanding changes", paths: ["x.ts"] }],
     });
     expect(blocked.outcome).toBe("blocked");
-    expect(blocked.ready).toBe(false);
-    expect(blocked.line).toBeNull();
+    expect(blocked.resolve).toBe("none");
   });
 
-  test("conflicted: the pilot's work, not a button", () => {
-    // This state carried RESOLVE. The pilot reconciles a built dash without
-    // being asked, so what is left is a state the reader can see and a
-    // conflict list underneath it.
+  test("conflicted and untried offers the ladder", () => {
     const conflicted = face(CONFLICTED);
     expect(conflicted.outcome).toBe("conflicted");
-    expect(conflicted.ready).toBe(false);
-    expect(conflicted.statedBelow).toBe(true);
-    expect(conflicted.line).toBeNull();
+    expect(conflicted.resolve).toBe("offer");
   });
 
-  test("stale: the server's note is the text, and the machine is the act", () => {
+  test("stale demotes itself, and re-offers", () => {
     const stale = face({
       phase: "previewed",
       stale_note: "main moved since this was resolved — resolve again",
     });
     expect(stale.outcome).toBe("stale");
-    expect(stale.ready).toBe(false);
-    expect(stale.line).toBeNull();
+    expect(stale.resolve).toBe("offer");
   });
 
-  test("resolving: a run in flight is progress, and offers nothing", () => {
+  test("resolving: a run in flight is progress", () => {
     const running = face(CONFLICTED, { resolvePhase: "resolving" });
     expect(running.resolve).toBe("progress");
-    expect(running.ready).toBe(false);
   });
 
-  test("resolved and unverified: a wait, named, with nothing to press", () => {
-    // The pilot builds the joined tree at `built` without being asked, so an
-    // unrun verdict is a run about to happen rather than a control nobody has
-    // clicked. The old sentence — "Verify the joined tree first" — named a
-    // button that no longer exists, which is the [L31] failure the register
-    // and the reachability table exist to catch.
-    const unrun = face(RESOLVED);
-    expect(unrun.outcome).toBe("clean");
-    expect(unrun.resolve).toBe("resolved");
-    expect(unrun.ready).toBe(false);
-    expect(unrun.line).toBe("Building the joined tree");
+  test("a candidate reads resolved, whatever its history was", () => {
+    // A resolved conflict is a joinable dash even though its history is
+    // `conflicted` — the candidate is what would land.
+    const resolved = face(RESOLVED);
+    expect(resolved.outcome).toBe("clean");
+    expect(resolved.resolve).toBe("resolved");
   });
 
-  test("resolved and red: no control, and a line naming the decision", () => {
-    // The state that used to carry JOIN ANYWAY. The refusal it cleared is
-    // gone: a red passes the gate and arms the composer's land button, so the
-    // face has no act left to offer and says where the act lives instead
-    // ([P05]). A "Ready to join" here would be the resting lie on exactly the
-    // state that most needs reading.
-    const red = face(RED);
-    expect(red.ready).toBe(false);
-    expect(red.line).toBe(
-      "Build red on the joined tree — joining is a decision, made in the composer",
-    );
+  test("the server's own run fact reads as progress after a reload", () => {
+    // The overlay phase dies with the page; `run` is the feed's account of
+    // what it is doing right now, so a second deck watching the same dash
+    // still sees the minutes of real work.
+    const running = face({ ...CONFLICTED, run: "resolve" });
+    expect(running.resolve).toBe("progress");
   });
 
-  test("resolved and green: no control at all, and a line naming the route", () => {
-    // The state the JOIN button used to occupy. With no control on the row the
-    // sentence is the only thing between the reader and a dead end, so it has
-    // to name where joining happens rather than merely asserting readiness.
-    const verified = face(VERIFIED);
-    expect(verified.ready).toBe(true);
-    expect(verified.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
-  });
-
-  test("a red the user has overridden joins like a green", () => {
-    // The override is scoped to the candidate it was decided over, so the same
-    // press against a different sha does nothing — which is what stops one
-    // Join anyway from blessing every candidate that follows it.
-    // Read off the dash, not off this deck: the override is a durable server
-    // fact now, so it arrives on the feed entry beside the verdict it defeats.
-    const overridden = face({ ...RED, override_for: "cafe1234" });
-    expect(overridden.ready).toBe(true);
-    expect(overridden.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
-    // An override pinned to a different sha does not cover this candidate, so
-    // the row is back to stating the decision.
-    const stale = face({ ...RED, override_for: "beef5678" });
-    expect(stale.line).toBe(
-      "Build red on the joined tree — joining is a decision, made in the composer",
-    );
-  });
-
-  test("clean and verified: same — a sentence and no button", () => {
-    // Verified, because a clean dash is not joinable on the strength of git
-    // finding no overlapping text ([P03]). Entering join mode resolves it, the
-    // server judges what that built, and the row reaches this state only once
-    // there is a green verdict about the tree that would land.
-    const clean = face({
-      phase: "previewed",
-      candidate: "cafe1234",
-      verification: {
-        tier0: "green",
-        tier1: "green",
-        base_sha: "base0000",
-        candidate_sha: "cafe1234",
-      },
-    });
-    expect(clean.outcome).toBe("clean");
-    expect(clean.ready).toBe(true);
-    expect(clean.line).toBe("Ready to join — ⌃⌘C, or /dash-join");
-  });
-
-  test("clean and not yet judged: the exam, in the window before the candidate", () => {
-    // The gap between entering join mode and the auto-resolve anchoring a
-    // candidate. It used to read as ready — the verdict was "not applicable"
-    // with no candidate to be about — which made the one second where nothing
-    // had been built the one second a join could slip through.
-    const unjudged = face({ phase: "previewed" });
-    expect(unjudged.outcome).toBe("clean");
-    expect(unjudged.ready).toBe(false);
-    expect(unjudged.line).toBe("Building the joined tree");
-  });
-
-  test("a join in flight: the wait is named, and a second press is impossible", () => {
-    // No control, so nothing on the row can double-submit; the sentence is what
-    // discharges the refusal.
-    const joining = face({ phase: "previewed" }, { joinPhase: "pending" });
-    expect(joining.ready).toBe(false);
-    expect(joining.line).toBe("Joining…");
-  });
-
-  test("a turn in flight names the wait over every state, and holds the act", () => {
-    const midTurn = face(CONFLICTED, { turnInProgress: true });
-    expect(midTurn.line).toBe("Wait for the turn to finish");
-    expect(midTurn.ready).toBe(false);
-  });
-
-  test("an interrupted teardown says what is happening, and offers nothing", () => {
-    // This state carried RESUME TEARDOWN. The join journal is durable and the
-    // teardown resumes itself off it, so a button for it was a press that only
-    // existed because nothing resumed ([P08]).
-    const interrupted = face(CONFLICTED, { interrupted: true });
-    expect(interrupted.ready).toBe(false);
-    expect(interrupted.statedBelow || interrupted.line !== null).toBe(true);
-  });
-
-  test("a dash the feed says nothing about refuses, and says so", () => {
+  test("a dash the feed says nothing about derives blocked", () => {
     const silent = face(null);
     expect(silent.outcome).toBe("blocked");
-    expect(silent.ready).toBe(false);
-    expect(silent.line).toBe("Clear what blocks this join first");
-  });
-});
-
-describe("no state is both silent and inert", () => {
-  test("every state either offers an act or states a reason", () => {
-    // The invariant the dead press violated: a row that offers nothing must say
-    // why, or the reader is looking at a surface with no next move and no
-    // explanation — which is what "the button does nothing" felt like from the
-    // outside ([L31]).
-    const states: [string, JoinFace][] = [
-      ["blocked", face({ phase: "blocked", blockers: [{ kind: "off-base", detail: "d" }] })],
-      ["conflicted", face(CONFLICTED)],
-      ["stale", face({ phase: "previewed", stale_note: "moved" })],
-      ["resolving", face(CONFLICTED, { resolvePhase: "resolving" })],
-      ["unread", face(RESOLVED)],
-      ["read", face({ ...RESOLVED, reviewed: true })],
-      ["clean", face({ phase: "previewed" })],
-      ["joining", face({ phase: "previewed" }, { joinPhase: "pending" })],
-      ["interrupted", face(CONFLICTED, { interrupted: true })],
-      ["silent feed", face(null)],
-    ];
-    for (const [name, f] of states) {
-      const speaks =
-        f.line !== null || f.statedBelow || f.resolve === "progress" || f.ready;
-      expect(speaks, `${name} states no reason and is not ready`).toBe(true);
-    }
+    expect(silent.resolve).toBe("none");
   });
 });
 
@@ -277,11 +125,11 @@ describe("every refusal points at the composer, or at a wait ([P09])", () => {
   // refusal naming an unmounted control is silence in the user's terms.
   //
   // The claim is stronger now than it was, and it is stronger *because* the
-  // shade lost its controls. There is exactly one surface a refusal can point
-  // at — the composer — and one honest alternative, which is to name a wait.
-  // A table with no third option cannot drift back into naming a button that
-  // is not there, and a reason that tried would be a type error rather than a
-  // bug somebody has to notice.
+  // face lost its standing line ([D142]). There is exactly one surface a
+  // refusal can appear on — the control that refuses — and one honest
+  // alternative, which is to name a wait. A table with no third option cannot
+  // drift back into naming a button that is not there, and a reason that
+  // tried would be a type error rather than a bug somebody has to notice.
   test("no row names anything but the composer or a wait", () => {
     const reasons = Object.keys(REFUSAL_REACHABILITY) as JoinGateReason[];
     // Not a hand-kept list: `satisfies Record<JoinGateReason, …>` is what makes
@@ -315,28 +163,11 @@ describe("every refusal points at the composer, or at a wait ([P09])", () => {
       expect(REFUSAL_REACHABILITY[reason].slot).toBeNull();
       expect(REFUSAL_REACHABILITY[reason].where).toBe("time");
     }
-    expect(face(CONFLICTED, { turnInProgress: true }).line).toBe(
+    // The sentences themselves, where the control that refuses shows them.
+    expect(joinDisabledReason("turn", "clean", null)).toBe(
       "Wait for the turn to finish",
     );
-    expect(face({ phase: "previewed" }, { joinPhase: "pending" }).line).toBe("Joining…");
-  });
-
-  test("a refused state still says its own sentence, whatever the row says", () => {
-    // The table says where; the face says what. Losing the controls must not
-    // cost the sentences — a blocked dash still names the act that clears it,
-    // and a conflicted one still names its files.
-    const blocked = face({
-      phase: "blocked",
-      blockers: [{ kind: "off-base", detail: "check out main" }],
-    });
-    expect(blocked.statedBelow).toBe(true);
-    expect(face(CONFLICTED).statedBelow).toBe(true);
-    // The stale note is the server's own sentence and renders as its own
-    // block, so `line` stays null rather than saying it twice.
-    expect(
-      face({ phase: "previewed", stale_note: "main moved since this was resolved" })
-        .statedBelow,
-    ).toBe(true);
+    expect(joinDisabledReason("pending", "clean", null)).toBe("Joining…");
   });
 
   test("the message's control is the composer, which is where it is typed", () => {
@@ -399,7 +230,6 @@ describe("the overlay never outranks what is in git", () => {
     expect(state.error).toContain("b.rs");
     const f = face(CONFLICTED, { resolvePhase: state.phase });
     expect(f.resolve).toBe("error");
-    expect(f.ready).toBe(false);
   });
 });
 

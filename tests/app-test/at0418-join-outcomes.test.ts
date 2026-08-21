@@ -118,6 +118,9 @@ const row = (dash: string): string =>
   `${LANE} [data-slot="session-changes-dash-row"][data-dash="${dash}"]`;
 const landing = (dash: string): string =>
   `${row(dash)} [data-slot="session-changes-dash-join"]`;
+/** The block's third line — the join register, which fronts the state's word. */
+const registerOf = (dash: string): string =>
+  `${row(dash)} [data-slot="dash-join-register"]`;
 
 /** Owner keys, captured from `dash create` — what `bind_dash_ok` carries. */
 let workId = "";
@@ -298,25 +301,19 @@ async function settledOutcome(app: App, dash: string): Promise<string> {
 }
 
 /**
- * What the row says about landing.
+ * Whether the row claims a landable dash.
  *
- * Landing is the composer's, so what the face owes the reader is a sentence:
- * `ready` is the state that names the route, and `line` is whatever the face
- * states about landing in any state.
+ * The one place the row says so is its third line — the join register, whose
+ * word is the state ([D142]). The face's standing readiness line is gone: a
+ * refusal rides the control that refuses (the composer's ⬆, the ⋯ menu
+ * item's label), so nothing on the row states a refusal about a press nobody
+ * made — and nothing here must read as ready when the state is anything else.
  */
-async function landingFace(
-  app: App,
-  dash: string,
-): Promise<{ ready: boolean; line: string }> {
-  // No refusal list: the two controls it spoke for moved into the row's menu,
-  // where a blocked verb carries its reason in its own label ([P08], [L31]).
-  return app.evalJS<{ ready: boolean; line: string }>(
+async function claimsReady(app: App, dash: string): Promise<boolean> {
+  return app.evalJS<boolean>(
     `(() => {
-       const line = document.querySelector(${JSON.stringify(`${row(dash)} [data-slot="session-changes-dash-join-ready"]`)});
-       return {
-         ready: line !== null && line.getAttribute("data-ready") === "true",
-         line: line === null ? "" : (line.textContent ?? ""),
-       };
+       const reg = document.querySelector(${JSON.stringify(registerOf(dash))});
+       return reg !== null && reg.getAttribute("data-word") === "ready";
      })()`,
   );
 }
@@ -375,50 +372,40 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
 
         await raiseShade(app);
 
-        // ── Clean: the fronted row reads the feed and offers the join ─────
+        // ── Clean: a dash whose arc has not begun is two lines, and quiet ──
         await app.dispatchControlAction("bind_dash_ok", {
           tug_session_id: SID,
           dash_id: workId,
           dash_name: DASH_WORK,
         });
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(landing(DASH_WORK))}) !== null`,
+          `document.querySelector(${JSON.stringify(`${row(DASH_WORK)} [data-slot="tug-dash-meta-line"]`)}) !== null`,
           { timeoutMs: 20000 },
         );
-        expect(await settledOutcome(app, DASH_WORK)).toBe("clean");
-        const clean = await landingFace(app, DASH_WORK);
         // Clean, and not yet joinable: every join rides a candidate the
-        // project's own checks have judged ([P03]), and this dash has never
-        // been resolved. So the row refuses and names the exam — a clean merge
-        // is a claim about text, not about whether the result builds.
+        // project's own checks have judged ([P03]), and this dash was never
+        // marked built — the arc has not begun. The design's answer is
+        // REMOVAL, not a refusal ([D142]): no register line 3 (the arc has
+        // nothing to say), no report in the fold (there is no evidence), and
+        // no standing sentence about a press nobody made. The block is the
+        // eyebrow and the metadata line, and nothing else stands.
         //
-        // The joinable end of this arc is at0441's, which resolves a clean dash
-        // and reaches a green verdict with no press. It is not this file's,
-        // because this dash lives in the developer's checkout and resolving it
-        // would run the project's real declared checks there.
-        expect(clean.ready).toBe(false);
-        // And the sentence names a WAIT, not an act ([P09]). It used to read
-        // "Verify the joined tree first", which pointed at a button on this
-        // row; there is no button, and there is nothing for the reader to do —
-        // the machine is already building the tree. A refusal now points at
-        // the composer or at time, and this one is time.
-        expect(clean.line).toContain("Building the joined tree");
-        // No blockers on a clean bill, and no release question either.
-        const cleanFace = await app.evalJS<{ blockers: number; empty: number }>(
-          `(() => {
-             const face = document.querySelector(${JSON.stringify(landing(DASH_WORK))});
-             return {
-               blockers: face.querySelectorAll('[data-slot="session-changes-dash-join-blockers"] li').length,
-               empty: face.querySelectorAll('[data-slot="session-changes-dash-join-empty"]').length,
-             };
-           })()`,
+        // The joinable end of this arc is at0441's, which resolves a clean
+        // dash and reaches a green verdict with no press.
+        expect(await claimsReady(app, DASH_WORK)).toBe(false);
+        const clean = await app.evalJS<{ register: number; face: number }>(
+          `(() => ({
+             register: document.querySelectorAll(${JSON.stringify(registerOf(DASH_WORK))}).length,
+             face: document.querySelectorAll(${JSON.stringify(landing(DASH_WORK))}).length,
+           }))()`,
         );
-        expect(cleanFace.blockers).toBe(0);
-        expect(cleanFace.empty).toBe(0);
+        expect(clean.register, "no join arc yet, so no register line").toBe(0);
+        expect(clean.face, "no evidence yet, so no report section").toBe(0);
 
-        // The route the readiness line named opens the join-message editor.
-        // The route group is invariant, so the Changes segment is what goes
-        // active; the Z5 button is what names the landing as a join.
+        // Joining still routes through the composer — the quiet block takes
+        // nothing from the gesture. The route group is invariant, so the
+        // Changes segment is what goes active; the Z5 button is what names
+        // the landing as a join.
         await returnToPrompt(app);
         await enterJoinMode(app, DASH_WORK);
         await app.waitForCondition<boolean>(
@@ -468,11 +455,10 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         expect(blocked.detail).toContain("is incomplete");
         expect(blocked.detail).toContain("tugutil dash join");
         expect(blocked.act).toBe("Resume the interrupted teardown");
-        const stuck = await landingFace(app, DASH_WORK);
         // Nothing claims this dash is ready, and the blocker's own detail and
         // act are the sentence — the face does not repeat a generic refusal
         // over the specific one already on screen.
-        expect(stuck.ready).toBe(false);
+        expect(await claimsReady(app, DASH_WORK)).toBe(false);
 
         // And it fronts no button to resume with. The journal is durable and an
         // interrupted teardown resumes itself, so a control for it was a press
@@ -513,8 +499,7 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
         // The line is prose; the act it names is the row's own affordance, not
         // a second button inside the sentence.
         expect(emptyFace.buttons).toBe(0);
-        const noJoin = await landingFace(app, DASH_EMPTY);
-        expect(noJoin.ready).toBe(false);
+        expect(await claimsReady(app, DASH_EMPTY)).toBe(false);
 
         // ── Release: confirm, then the receipt, then a reload ──────────────
         // Its own dash, because this case destroys the one it runs on.
@@ -523,8 +508,10 @@ describe.skipIf(!SHOULD_RUN)("AT0418: the dash lane's landing outcomes", () => {
           dash_id: releaseId,
           dash_name: DASH_RELEASE,
         });
+        // The fronted row, expanded: its fold carries the rounds section even
+        // while the report has nothing to say (clean, arc unbegun → no face).
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(landing(DASH_RELEASE))}) !== null`,
+          `document.querySelector(${JSON.stringify(`${row(DASH_RELEASE)} [data-slot="session-changes-dash-subjects"]`)}) !== null`,
           { timeoutMs: 20000 },
         );
 

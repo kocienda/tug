@@ -29,6 +29,10 @@
 .session-changes-dash-row {
   display: flex;
   flex-direction: column;
+  /* Air between the block's three lines. At zero the `sm`-scale lines touched:
+     the marks' 16px boxes sat flush against the atom above and the register
+     below, and a block you came to read had no room to be read. */
+  gap: var(--tug-space-sm);
 }
 
 .session-changes-dash-row-trailing {
@@ -54,7 +58,7 @@ body {
   --tugx-dash-stack-indent: calc(
     var(--tugx-list-row-padding-inline-compact) +
       var(--tugx-list-row-indicator-gutter) +
-      var(--tugx-session-atom-text-inset-2xs) - var(--tugx-dash-name-outdent)
+      var(--tugx-session-atom-text-inset) - var(--tugx-dash-name-outdent)
   );
 }
 
@@ -78,30 +82,50 @@ body {
   padding-inline-start: var(--tugx-dash-stack-indent);
 }
 
+/* The register SPANS the block. Shrink-to-fit made the strip a floating pill
+   sitting in the middle of a row — a widget that had landed on the block
+   rather than the block's own third line — and that, more than its type, is
+   what made the join arc read as a different species from the facts above it.
+   Full width gives it the same left and right edges as the lines it belongs
+   to. */
+.session-changes-dash-register > * {
+  flex: 1 1 auto;
+}
+
 .session-changes-dash-register:empty {
   display: none;
 }
 
-/* ---- The expanded detail ---- */
+/* ---- The fold ---- */
 
-/* The detail hangs under its row, so its content starts where the row's
-   content starts — which makes a dash's file list line up with the file lists
-   in the buckets above rather than sitting a few pixels proud of them.
-
-   The measure is the row's own, read from `TugListRow`'s tokens rather than
-   copied as a number: `padding-inline-compact` is declared at body scope
-   precisely so a sibling outside a row can line up with the rows beside it,
-   and the indicator gutter is the rest of what a row's start padding is made
-   of. A literal here would be correct until somebody nudges the row density. */
+/* The fold hangs on the block's own left margin — the stacked lines' indent —
+   so the disclosure reads as more of the same block rather than as a panel
+   that arrived from somewhere else. Its sections (report · rounds · draft)
+   are separated by the same step the lane puts between blocks: each is a
+   labeled unit, and at a hairline of padding the last line of one sat as
+   close to the eyebrow of the next as to its own. */
 .session-changes-dash-detail {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-xs);
-  padding: var(--tug-space-2xs) var(--tug-space-sm) var(--tug-space-sm);
-  padding-inline-start: calc(
-    var(--tugx-list-row-padding-inline-compact) +
-      var(--tugx-list-row-indicator-gutter)
-  );
+  gap: var(--tug-space-xl);
+  padding: var(--tug-space-sm) var(--tug-space-sm) var(--tug-space-sm)
+    var(--tugx-dash-stack-indent);
+}
+
+/* A section's rows hang UNDER its eyebrow rather than beside it: the label is
+   a heading, and content flush with a heading reads as one undifferentiated
+   column. One step in is enough to say "these belong to that". */
+.session-changes-dash-rounds,
+.session-changes-dash-draft {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.session-changes-dash-rounds > :not(.tug-section-label),
+.session-changes-dash-draft > :not(.tug-section-label) {
+  padding-inline-start: var(--tug-space-md);
 }
 
 .session-changes-dash-subjects,
@@ -113,17 +137,21 @@ body {
   padding: 0;
   list-style: none;
   font-family: var(--tug-font-family-mono);
-  font-size: var(--tug-font-size-xs);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
 }
 
 .session-changes-dash-subjects > li {
-  color: var(--tug7-element-global-text-normal-muted-rest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-default-rest);
 }
 
 .session-changes-dash-files > li {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-2xs);
+  gap: var(--tug-space-sm);
   min-width: 0;
 }
 
@@ -133,30 +161,15 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
+  color: var(--tug7-element-global-text-normal-default-rest);
 }
 
-/* ---- The read-only join draft ---- */
-
-.session-changes-dash-draft {
-  display: flex;
-  flex-direction: column;
-  gap: var(--tug-space-2xs);
-  padding: var(--tug-space-xs) var(--tug-space-sm);
-  border-left: 2px solid var(--tug7-element-global-divider-normal-default-rest);
-}
-
-.session-changes-dash-draft-label {
-  font-size: var(--tug-font-size-2xs);
-  font-family: var(--tug-font-family-sans);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--tug7-element-global-text-normal-muted-rest);
-}
-
+/* The read-only join draft: the message the join lands with, muted — it is
+   the one section that quotes rather than reports. */
 .session-changes-dash-draft-message {
   white-space: pre-line;
   font-family: var(--tug-font-family-mono);
-  font-size: var(--tug-font-size-xs);
-  color: var(--tug7-element-global-text-normal-subtle-rest);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
 }

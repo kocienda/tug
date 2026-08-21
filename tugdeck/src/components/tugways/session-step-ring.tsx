@@ -47,6 +47,8 @@ export interface SessionStepRingProps {
   dot?: boolean;
   /** The dot's period jitter, forwarded to {@link SessionPhaseDot}. */
   drift?: boolean;
+  /** The miniature's box, forwarded to {@link TugStepRing}. Ignored with `dot`. */
+  size?: number;
 }
 
 export function SessionStepRing({
@@ -56,6 +58,7 @@ export function SessionStepRing({
   complete = false,
   dot = false,
   drift = false,
+  size,
 }: SessionStepRingProps): React.ReactElement {
   const phase = useSessionPhase(sessionId);
   const role = sessionSessionPhaseVisual(phase).role ?? "inherit";
@@ -65,6 +68,7 @@ export function SessionStepRing({
       total={total}
       complete={complete}
       role={role}
+      {...(size !== undefined ? { size } : {})}
       dot={
         dot ? (
           <SessionPhaseDot

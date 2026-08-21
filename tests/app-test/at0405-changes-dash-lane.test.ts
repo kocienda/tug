@@ -485,7 +485,9 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
              };
            })()`,
         );
-        expect(detail.draft).toContain("Join draft");
+        // The draft under its own `TugSectionLabel` eyebrow — the fold's
+        // third section, after report and rounds.
+        expect(detail.draft.toLowerCase()).toContain("draft");
         expect(detail.draft).toContain("at0405 join draft");
         expect(detail.subjects).toContain(ROUND_SUBJECT);
         expect(detail.files).toContain(ROUND_FILE);

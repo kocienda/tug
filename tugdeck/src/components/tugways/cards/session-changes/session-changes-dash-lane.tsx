@@ -127,10 +127,9 @@ export function dashBranchRef(entry: DashChangesetEntry): string {
  * face is the fronted row's alone.
  */
 export interface DashLaneJoinFace {
-  /** The card's one join round trip ([L02], read by the view). */
+  /** The card's one join round trip ([L02], read by the view) — the face
+   *  shows its verb-level refusal, when one came back. */
   join: JoinState;
-  /** A Claude turn is in flight — durable acts wait. */
-  turnInProgress: boolean;
   /** The resolution ladder's live progress for the fronted dash. */
   resolve: ResolveState;
   actions: DashJoinActions;
@@ -376,6 +375,12 @@ function DashRow({
             boundSessions={entry.bound_sessions}
             slot="session-changes-dash-name"
             workerSlot="session-changes-dash-worker"
+            // The chip tier's own size, not the rail's 2xs: the shade is a
+            // reading surface, and the lines beneath are set at `sm` — an
+            // atom a step smaller than the facts it heads reads as a caption
+            // over its own content. The Lens keeps the compact scale; that is
+            // the one place the two surfaces differ.
+            atomSize="sm"
           />
         }
         trailing={
@@ -419,10 +424,12 @@ function DashRow({
         }
       />
       {/* The one metadata grammar every collapsed dash surface wears — the
-          Lens's Dashes section renders the same element. Indented under the
-          atom: line 1 is who, line 2 is what the dash is doing. */}
+          Lens's Dashes section renders the same element, at the rail scale.
+          Here it wears the reading scale: all three lines of the block are one
+          size. Indented under the atom: line 1 is who, line 2 is what the
+          dash is doing. */}
       <span className="session-changes-dash-meta">
-        <DashMetaLine entry={entry} />
+        <DashMetaLine entry={entry} size="sm" />
       </span>
       {/* What the JOIN is doing, in the one shared register — the same
           sentence the Lens row and the composer show, because all three call
@@ -439,48 +446,69 @@ function DashRow({
           altitude="entry"
         />
       </span>
+      {/* The fold, ranked: report (the join's evidence, advisories included) ·
+          rounds (what would land) · draft (the message it lands with) — each
+          under the shade's own `TugSectionLabel` eyebrow, the same component
+          the file buckets above render, so the fold is not a third dialect. A
+          section renders nothing it cannot say: the report returns null with
+          nothing to show, and rounds and draft mount only with content. */}
       {expanded ? (
         <div className="session-changes-dash-detail">
           {joinFace !== null ? (
             <SessionChangesDashJoin
               entry={entry}
               join={entry.join ?? null}
-              joinPhase={joinFace.join.phase}
               error={joinFace.join.error}
-              turnInProgress={joinFace.turnInProgress}
               resolve={joinFace.resolve}
               actions={joinFace.actions}
             />
           ) : null}
-          {subjects.length > 0 ? (
-            <ul
-              className="session-changes-dash-subjects"
-              data-slot="session-changes-dash-subjects"
+          {subjects.length > 0 || entry.files.length > 0 ? (
+            <div
+              className="session-changes-dash-rounds"
+              data-slot="session-changes-dash-rounds"
             >
-              {subjects.map((subject, index) => (
-                <li key={`${index}:${subject}`}>{subject}</li>
-              ))}
-            </ul>
-          ) : null}
-          {entry.files.length > 0 ? (
-            <ul
-              className="session-changes-dash-files"
-              data-slot="session-changes-dash-files"
-            >
-              {entry.files.map((file) => (
-                <li key={file.path}>
-                  <TugStatusMark status={file.git_status} />
-                  <span className="session-changes-dash-file-path">{file.path}</span>
-                </li>
-              ))}
-            </ul>
+              <TugSectionLabel
+                label={{
+                  name: "rounds",
+                  ...(entry.rounds > 0 ? { qualifier: String(entry.rounds) } : {}),
+                }}
+                slot="session-changes-dash-rounds-label"
+              />
+              {subjects.length > 0 ? (
+                <ul
+                  className="session-changes-dash-subjects"
+                  data-slot="session-changes-dash-subjects"
+                >
+                  {subjects.map((subject, index) => (
+                    <li key={`${index}:${subject}`}>{subject}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {entry.files.length > 0 ? (
+                <ul
+                  className="session-changes-dash-files"
+                  data-slot="session-changes-dash-files"
+                >
+                  {entry.files.map((file) => (
+                    <li key={file.path}>
+                      <TugStatusMark status={file.git_status} />
+                      <span className="session-changes-dash-file-path">{file.path}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           ) : null}
           {entry.draft !== undefined ? (
             <div
               className="session-changes-dash-draft"
               data-slot="session-changes-dash-draft"
             >
-              <div className="session-changes-dash-draft-label">Join draft</div>
+              <TugSectionLabel
+                label={{ name: "draft" }}
+                slot="session-changes-dash-draft-label"
+              />
               <div className="session-changes-dash-draft-message">
                 {entry.draft.message}
               </div>
