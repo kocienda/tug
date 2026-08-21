@@ -854,6 +854,11 @@ describe("initActionDispatch: spawn_session_ok", () => {
 
     expect(sessionNameStore.getName("sess-ack-seed")).toBe("commit-inline-dialog");
     expect(sessionTagStore.getTag("sess-ack-seed")).toBe("stout-finch");
+
+    // A binding left standing keeps its services bag — and the shell / refs
+    // stores' retrying restore fetches ([P07]) — alive past this file.
+    const { cardSessionBindingStore } = await import("../lib/card-session-binding-store");
+    cardSessionBindingStore.clearBinding("card-ack-seed");
   });
 
   it("a fresh-spawn ack (no row yet) does not clobber the optimistic tag", async () => {
@@ -879,6 +884,9 @@ describe("initActionDispatch: spawn_session_ok", () => {
     });
 
     expect(sessionTagStore.getTag("sess-ack-fresh")).toBe("azure-heron");
+
+    const { cardSessionBindingStore } = await import("../lib/card-session-binding-store");
+    cardSessionBindingStore.clearBinding("card-ack-fresh");
   });
 
   it("ignores malformed ack payloads (missing workspace_key) without setting a binding", async () => {

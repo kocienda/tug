@@ -81,7 +81,7 @@ function resolvers(
     paths?: Record<string, string>;
     unsaved?: Record<string, boolean>;
     labels?: Record<string, string>;
-    names?: Record<string, string>;
+    callsignLines?: Record<string, string>;
   } = {},
 ): Partial<CardsResolvers> {
   const groups = overrides.groups ?? {};
@@ -94,7 +94,8 @@ function resolvers(
     viewPath: (cardId) => paths[cardId] ?? null,
     sessionLabel: (b) =>
       overrides.labels?.[b.tugSessionId] ?? `session ${b.tugSessionId}`,
-    sessionName: (b) => overrides.names?.[b.tugSessionId] ?? null,
+    sessionCallsignLine: (b) =>
+      overrides.callsignLines?.[b.tugSessionId] ?? `proj/${b.tugSessionId}`,
     defaultTitle: (componentId) => componentId,
     icon: () => null,
   };
@@ -680,11 +681,12 @@ describe("filtering", () => {
     ).toEqual(["header:sessions(1)", "pane:session-pane:proj/refactor"]);
   });
 
-  it("a session pane matches on the NAME the user gave it", () => {
-    // The row shows two runs — the user's name leads, the
-    // `<project>/<callsign>` label follows — and the name is the one the user
-    // chose, so it is the one they will type. Matching only the label made a
-    // renamed session findable by everything except its name.
+  it("a named session is found by its name AND by the callsign it stopped showing", () => {
+    // The row shows the user's own name and no callsign ([D141]). Both still
+    // have to find it: the name because it is what they chose and what they
+    // will type, the callsign because it is the permanent handle and hiding it
+    // must not make it unfindable — that is the promise the whole rule rests
+    // on.
     const d = deck(
       [card("s1", "session"), card("s2", "session")],
       [pane("p1", ["s1"]), pane("p2", ["s2"])],
@@ -695,45 +697,52 @@ describe("filtering", () => {
     ]);
     const r = resolvers({
       groups: STANDARD_GROUPS,
-      labels: { "sess-1": "proj/frothy-nurse", "sess-2": "proj/stocky-pixie" },
-      names: { "sess-1": "parser rewrite" },
+      labels: { "sess-1": "parser rewrite", "sess-2": "proj/stocky-pixie" },
+      callsignLines: {
+        "sess-1": "proj/frothy-nurse",
+        "sess-2": "proj/stocky-pixie",
+      },
     });
     expect(
       shape(buildCardsRows(inputs(d, { bindings, filterQuery: "parser" }), r)),
-    ).toEqual(["header:sessions(1)", "pane:session-pane:proj/frothy-nurse"]);
-    // And the callsign still finds it — the name is a second field, never a
-    // replacement for the label.
+    ).toEqual(["header:sessions(1)", "pane:session-pane:parser rewrite"]);
+    // The callsign is not on the row and still matches — and the row it
+    // returns is titled with the name, never with what the query typed.
     expect(
       shape(buildCardsRows(inputs(d, { bindings, filterQuery: "frothy" }), r)),
-    ).toEqual(["header:sessions(1)", "pane:session-pane:proj/frothy-nurse"]);
+    ).toEqual(["header:sessions(1)", "pane:session-pane:parser rewrite"]);
   });
 
   it("a rename re-runs the projection", () => {
-    // `nameVersion` is the store's "it changed" token: without it as an input
-    // the source keeps the pre-rename identity and the new name matches
-    // nothing.
+    // `nameVersion` is the store's "it changed" token, and since the name IS
+    // the row's title ([D141]) the stale projection would show the callsign of
+    // a session the user has already named — not just miss a match.
     const d = deck([card("s1", "session")], [pane("p1", ["s1"])]);
     const bindings = new Map([["s1", binding("sess-1")]]);
-    let name: string | null = null;
+    let title = "proj/frothy-nurse";
     const r: Partial<CardsResolvers> = {
-      ...resolvers({
-        groups: STANDARD_GROUPS,
-        labels: { "sess-1": "proj/frothy-nurse" },
-      }),
-      sessionName: () => name,
+      ...resolvers({ groups: STANDARD_GROUPS }),
+      sessionLabel: () => title,
+      sessionCallsignLine: () => "proj/frothy-nurse",
     };
     const source = new LensCardsDataSource(
       inputs(d, { bindings, filterQuery: "parser" }),
       r,
     );
     expect(source.numberOfItems()).toBe(0);
-    name = "parser rewrite";
+    title = "parser rewrite";
     expect(
       source.setInputsWithoutNotify(
         inputs(d, { bindings, filterQuery: "parser", nameVersion: 1 }),
       ),
     ).toBe(true);
-    expect(source.numberOfItems()).toBe(2);
+    expect(
+      shape(
+        Array.from({ length: source.numberOfItems() }, (_, i) =>
+          source.rowAt(i),
+        ),
+      ),
+    ).toEqual(["header:sessions(1)", "pane:session-pane:parser rewrite"]);
   });
 
   it("clearing the query restores the persisted order", () => {

@@ -23,6 +23,7 @@
 import { FeedId, type FeedIdValue } from "../protocol";
 import type { FeedStore } from "./feed-store";
 import { getConnection } from "./connection-singleton";
+import { LedgerRestoreFetch } from "./ledger-restore-fetch";
 import type { CodeSessionStore } from "./code-session-store";
 import type { PendingContextStore } from "./pending-context-store";
 import { composeShellShareText } from "./shell-share";
@@ -63,6 +64,8 @@ export class ShellSessionStore {
   private readonly _pendingContextStore: PendingContextStore | undefined;
   /** Exchange ids the PATH classifier auto-routed here ([P09]); client-side. */
   private readonly _autoRoutedExchanges = new Set<string>();
+  /** The retrying `list_shell_exchanges` read ([P07]). */
+  private readonly _restoreFetch: LedgerRestoreFetch;
 
   constructor(
     feedStore: FeedStore,
@@ -83,17 +86,30 @@ export class ShellSessionStore {
     this._snapshot = { ...EMPTY_SNAPSHOT, cwd: projectDir };
     this._unsubscribeFeed = feedStore.subscribe(() => this._onFeedUpdate());
     // Restore ([P07]): fetch this session's ledgered exchanges and interleave
-    // them into the transcript. Sent once at construction — HMR preserves the
-    // store, so it never re-fires; a Maker ▸ Reload / relaunch builds a
-    // fresh store and re-fetches, which is idempotent (upsert by turnKey). The
-    // `list_shell_exchanges_ok` response routes back through action-dispatch to
-    // `applyRestoredShellExchanges`.
-    getConnection()?.send(
-      FeedId.CONTROL,
-      new TextEncoder().encode(
-        JSON.stringify({ action: "list_shell_exchanges", tug_session_id: tugSessionId }),
-      ),
-    );
+    // them into the transcript. Started at construction — HMR preserves the
+    // store, so it never re-fires; a Maker ▸ Reload / relaunch builds a fresh
+    // store and re-fetches, which is idempotent (upsert by turnKey). The
+    // `list_shell_exchanges_ok` response routes back through action-dispatch
+    // to {@link applyRestore}, which settles the fetch. The ledger is the ONLY
+    // source for these rows — a `/commit` receipt is the user's act, never
+    // session context ([D111]), so it is absent from the JSONL and no replay
+    // can substitute — which is why the fetch retries instead of hoping.
+    this._restoreFetch = new LedgerRestoreFetch({
+      action: "list_shell_exchanges",
+      tugSessionId,
+      logSource: "shell-restore",
+    });
+    this._restoreFetch.start();
+  }
+
+  /**
+   * Apply a `list_shell_exchanges_ok` answer and stop the restore retry.
+   * Routed here (rather than straight to `CodeSessionStore`) so the store
+   * that asked is the one that learns it was answered.
+   */
+  applyRestore(rows: ReadonlyArray<Record<string, unknown>>): void {
+    this._restoreFetch.settle();
+    applyRestoredShellExchanges(this._codeSessionStore, rows);
   }
 
   private _onFeedUpdate(): void {
@@ -292,6 +308,7 @@ export class ShellSessionStore {
   getSnapshot = (): ShellSessionSnapshot => this._snapshot;
 
   dispose(): void {
+    this._restoreFetch.dispose();
     this._unsubscribeFeed?.();
     this._unsubscribeFeed = null;
     this._listeners.clear();

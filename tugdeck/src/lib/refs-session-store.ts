@@ -21,6 +21,7 @@
 import { FeedId, type FeedIdValue } from "../protocol";
 import type { FeedStore } from "./feed-store";
 import { getConnection } from "./connection-singleton";
+import { LedgerRestoreFetch } from "./ledger-restore-fetch";
 import type { CodeSessionStore } from "./code-session-store";
 import type { LinePreview, PreviewSegment, TextRef } from "./code-session-store/types";
 
@@ -60,6 +61,8 @@ export class RefsSessionStore {
   private readonly _tugSessionId: string;
   private readonly _projectDir: string;
   private readonly _codeSessionStore: CodeSessionStore;
+  /** The retrying `list_refs` read. */
+  private readonly _restoreFetch: LedgerRestoreFetch;
   /** The run being folded — kind/command/timing the frames don't repeat. */
   private _current: {
     runId: string;
@@ -84,17 +87,28 @@ export class RefsSessionStore {
     this._codeSessionStore = codeSessionStore;
     this._snapshot = { runId: null, refs: [], root: projectDir };
     this._unsubscribeFeed = feedStore.subscribe(() => this._onFeedUpdate());
-    // Restore: fetch this session's latest run and re-mint its block. Sent
-    // once at construction — HMR preserves the store, so it never re-fires;
-    // a Maker ▸ Reload / relaunch builds a fresh store and re-fetches, which
-    // is idempotent (upsert by turnKey). The `list_refs_ok` response routes
-    // back through action-dispatch to `applyRestoredRefs`.
-    getConnection()?.send(
-      FeedId.CONTROL,
-      new TextEncoder().encode(
-        JSON.stringify({ action: "list_refs", tug_session_id: tugSessionId }),
-      ),
-    );
+    // Restore: fetch this session's latest run and re-mint its block. Started
+    // at construction — HMR preserves the store, so it never re-fires; a
+    // Maker ▸ Reload / relaunch builds a fresh store and re-fetches, which is
+    // idempotent (upsert by turnKey). The `list_refs_ok` response routes back
+    // through action-dispatch to {@link applyRestore}, which settles the
+    // fetch. Like the shell ledger, this is the only source for the row.
+    this._restoreFetch = new LedgerRestoreFetch({
+      action: "list_refs",
+      tugSessionId,
+      logSource: "refs-restore",
+    });
+    this._restoreFetch.start();
+  }
+
+  /**
+   * Apply a `list_refs_ok` answer and stop the restore retry. A `null` run is
+   * a real answer — a session that never searched — so it settles the fetch
+   * exactly like a populated one.
+   */
+  applyRestore(run: Record<string, unknown> | null): void {
+    this._restoreFetch.settle();
+    applyRestoredRefs(this._codeSessionStore, this, run);
   }
 
   private _onFeedUpdate(): void {
@@ -252,6 +266,7 @@ export class RefsSessionStore {
   getSnapshot = (): RefsSessionSnapshot => this._snapshot;
 
   dispose(): void {
+    this._restoreFetch.dispose();
     this._unsubscribeFeed?.();
     this._unsubscribeFeed = null;
     this._listeners.clear();

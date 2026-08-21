@@ -30,6 +30,7 @@ import {
   sessionRestoreRegistry,
 } from "@/lib/session-restore";
 import { publishListCardBindingsOk } from "@/lib/session-ledger-events";
+import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import type { CardBinding } from "@/protocol";
 
 // The restore pass only reaches the transport for `send` (the
@@ -38,6 +39,7 @@ import type { CardBinding } from "@/protocol";
 // are no-ops here — the test drives the response directly via the bus.
 const fakeConnection = {
   send: (_feedId: number, _payload: Uint8Array, _flags?: number) => {},
+  trySend: (_feedId: number, _payload: Uint8Array, _flags?: number) => true,
   onFrame: (_feedId: number, _cb: (payload: Uint8Array) => void) => () => {},
   sendControlFrame: (_action: string, _payload: unknown) => {},
 } as unknown as TugConnection;
@@ -97,8 +99,14 @@ function runRestore(cardId: string, projectDir: string): void {
 
 afterEach(() => {
   // Drop registry entries (and their armed timeout timers) so a
-  // zero-turn hold from one test cannot leak into the next.
-  for (const id of TOUCHED_CARD_IDS) sessionRestoreRegistry._clear(id);
+  // zero-turn hold from one test cannot leak into the next. Clearing the
+  // binding disposes the card's services bag with it — the shell and refs
+  // stores each own a retrying restore fetch ([P07]), which would otherwise
+  // keep ticking long after this file is done.
+  for (const id of TOUCHED_CARD_IDS) {
+    sessionRestoreRegistry._clear(id);
+    cardSessionBindingStore.clearBinding(id);
+  }
   TOUCHED_CARD_IDS.clear();
 });
 
@@ -178,6 +186,10 @@ describe("session-restore — has_jsonl resume gating", () => {
     const capturing = {
       send: (_feedId: number, payload: Uint8Array) => {
         sent.push(new TextDecoder().decode(payload));
+      },
+      trySend: (_feedId: number, payload: Uint8Array) => {
+        sent.push(new TextDecoder().decode(payload));
+        return true;
       },
       onFrame: () => () => {},
       sendControlFrame: () => {},

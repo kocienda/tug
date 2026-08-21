@@ -61,7 +61,10 @@ import {
   subscribeOpenFileViewCards,
 } from "@/lib/file-view-open-registry";
 import type { LensCardsRowOrder } from "@/lib/lens-store/types";
-import { sessionIdentityLineForBinding } from "@/lib/session-identity";
+import {
+  sessionDisplayTitleForBinding,
+  sessionIdentityLineForBinding,
+} from "@/lib/session-identity";
 import { sessionNameStore } from "@/lib/session-name-store";
 import {
   getOpenTextCard,
@@ -173,19 +176,26 @@ export interface CardIdentity {
   readonly cardId: string;
   readonly componentId: string;
   readonly group: LensCardsGroup;
-  /** The name the row shows. */
+  /**
+   * The name the row shows.
+   *
+   * For a bound session this is the identity's display title ([D141]): the
+   * user's own name when they set one, the `<project>/<callsign>` Line when
+   * they did not, and both only under a name collision. The flat rows here are
+   * the same rule the three-line monitor row and the masthead already wear —
+   * the callsign is carried everywhere and shown where it is the name.
+   */
   readonly title: string;
   /**
-   * A SECOND run the row shows, when the row's title is not the whole of what
-   * it says: a bound session's user-set name, which leads its title line with
-   * `title`'s `<project>/<callsign>` beside it.
+   * The session's Line — `<project>/<callsign>` — for a bound session card,
+   * and null for everything else.
    *
-   * Never a fallback for {@link title} — the two are separate runs on separate
-   * measures. It exists so the filter can match what the reader can see: a
-   * session the user renamed `parser rewrite` is findable by that name, which
-   * is the name they gave it and the only one they are likely to type.
+   * Not drawn. It exists so a filter still matches the callsign on a row that
+   * has stopped printing one: the handle stays the way to find a session even
+   * once the user has given it a name of their own, which is the whole promise
+   * behind hiding it.
    */
-  readonly displayName: string | null;
+  readonly callsignLine: string | null;
   /** The bound file path, for file-kind cards that have one. */
   readonly path: string | null;
   /** The card wears its unsaved-changes mark. Viewers are read-only, so never. */
@@ -281,10 +291,10 @@ export interface CardsResolvers {
   textUnsaved: (cardId: string) => boolean;
   /** An open viewer card's bound path. */
   viewPath: (cardId: string) => string | null;
-  /** The label a bound session row displays. */
+  /** The title a bound session row displays — the identity's display title. */
   sessionLabel: (binding: CardSessionBinding) => string;
-  /** The user-set name a bound session row shows beside its label, if any. */
-  sessionName: (binding: CardSessionBinding) => string | null;
+  /** That session's `<project>/<callsign>` Line, for the filter to match on. */
+  sessionCallsignLine: (binding: CardSessionBinding) => string;
   /** The registration's fallback title for a card with none of its own. */
   defaultTitle: (componentId: string) => string;
   /** The registration's lucide icon name, for the generic cells. */
@@ -306,8 +316,8 @@ export const DEFAULT_RESOLVERS: CardsResolvers = {
   // A projection, not a render: this recomputes when the identity stores'
   // version tokens move (they are inputs to the section's memo), which is the
   // sanctioned non-React path into the resolver.
-  sessionLabel: (binding) => sessionIdentityLineForBinding(binding),
-  sessionName: (binding) => sessionNameStore.getName(binding.tugSessionId),
+  sessionLabel: (binding) => sessionDisplayTitleForBinding(binding),
+  sessionCallsignLine: (binding) => sessionIdentityLineForBinding(binding),
   defaultTitle: (componentId) =>
     getRegistration(componentId)?.defaultMeta.title ?? "",
   icon: (componentId) =>
@@ -401,7 +411,7 @@ interface PaneEntry {
 function matchFields(identity: CardIdentity): (string | null)[] {
   return [
     identity.title,
-    identity.displayName,
+    identity.callsignLine,
     identity.path !== null ? displayDir(dirname(identity.path)) : null,
   ];
 }
@@ -414,7 +424,7 @@ function resolveCard(
 ): CardIdentity {
   const binding = bindings.get(card.id);
   let title: string;
-  let displayName: string | null = null;
+  let callsignLine: string | null = null;
   let path: string | null = null;
   let unsaved = false;
 
@@ -430,7 +440,7 @@ function resolveCard(
     title = path !== null ? basename(path) : card.title || "File";
   } else if (binding !== undefined) {
     title = r.sessionLabel(binding);
-    displayName = r.sessionName(binding);
+    callsignLine = r.sessionCallsignLine(binding);
   } else {
     title = card.title || r.defaultTitle(card.componentId) || card.componentId;
   }
@@ -440,7 +450,7 @@ function resolveCard(
     componentId: card.componentId,
     group,
     title,
-    displayName,
+    callsignLine,
     path,
     unsaved,
     tugSessionId: binding?.tugSessionId ?? null,

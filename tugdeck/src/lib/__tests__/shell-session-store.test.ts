@@ -4,7 +4,7 @@
  * real CodeSessionStore reducer via a minimal feed double (the sibling
  * side-question-store test's pattern) — no DOM, no mock-store assertions.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Capture SHELL_INPUT frames `exec`/`kill` send. Mocked before importing the store.
 let sentFrames: Array<{ feedId: number; payload: string }> = [];
@@ -12,6 +12,10 @@ mock.module("../connection-singleton", () => ({
   getConnection: () => ({
     send: (feedId: number, payload: Uint8Array) => {
       sentFrames.push({ feedId, payload: new TextDecoder().decode(payload) });
+    },
+    trySend: (feedId: number, payload: Uint8Array) => {
+      sentFrames.push({ feedId, payload: new TextDecoder().decode(payload) });
+      return true;
     },
     onFrame: () => () => {},
   }),
@@ -65,8 +69,19 @@ function setup() {
     code,
     pendingContext,
   );
+  liveStores.push(store);
   return { store, feed, code, pendingContext };
 }
+
+/**
+ * Stores built by {@link setup}. Each owns a retrying restore fetch ([P07]),
+ * so an undisposed one keeps a timer running past the end of this file.
+ */
+const liveStores: ShellSessionStore[] = [];
+
+afterEach(() => {
+  while (liveStores.length > 0) liveStores.pop()!.dispose();
+});
 
 function shellTurns(code: CodeSessionStore) {
   return code.getSnapshot().transcript.filter((t) => t.origin === "shell");

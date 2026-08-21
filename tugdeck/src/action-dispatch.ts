@@ -87,8 +87,6 @@ import { publishListPulseLinesOk } from "./lib/pulse-store";
 import { publishListOverviewPostsOk } from "./lib/overview-store";
 import { cardServicesStore } from "./lib/card-services-store";
 import { pendingAskStore } from "./lib/pending-ask-store";
-import { applyRestoredRefs } from "./lib/refs-session-store";
-import { applyRestoredShellExchanges } from "./lib/shell-session-store";
 import {
   publishSessionUpdated,
   publishListSessionsOk,
@@ -1527,9 +1525,18 @@ export function initActionDispatch(
       return;
     }
     const services = cardServicesStore.getByTugSessionId(sid);
-    if (services === null) return;
-    applyRestoredShellExchanges(
-      services.codeSessionStore,
+    if (services === null) {
+      // No bag owns this session — the card was disposed, or this answer
+      // beat its own construction. Either way the rows are dropped, and the
+      // transcript will come back short unless the fetch asks again, so say
+      // so rather than returning into silence.
+      tugDevLogStore.warn("shell-restore", "no services bag for the answered session", {
+        tugSessionId: sid,
+        exchanges: exchanges.length,
+      });
+      return;
+    }
+    services.shellSessionStore.applyRestore(
       exchanges as ReadonlyArray<Record<string, unknown>>,
     );
   });
@@ -1545,11 +1552,14 @@ export function initActionDispatch(
       return;
     }
     const services = cardServicesStore.getByTugSessionId(sid);
-    if (services === null) return;
+    if (services === null) {
+      tugDevLogStore.warn("refs-restore", "no services bag for the answered session", {
+        tugSessionId: sid,
+      });
+      return;
+    }
     const run = payload.run;
-    applyRestoredRefs(
-      services.codeSessionStore,
-      services.refsSessionStore,
+    services.refsSessionStore.applyRestore(
       typeof run === "object" && run !== null ? (run as Record<string, unknown>) : null,
     );
   });

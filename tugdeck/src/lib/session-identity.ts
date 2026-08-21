@@ -483,6 +483,24 @@ export function sessionTitleParts(identity: SessionIdentity): {
 }
 
 /**
+ * The same title as ONE string, for a surface that cannot size two runs.
+ *
+ * {@link sessionTitleParts} exists because a measured surface wants to decide
+ * which run gives way. A flat row, a baked chip, and an aria label have one
+ * string and one truncation, and they still owe the reader the same rule — so
+ * the join lives here rather than being spelled at each call site, where the
+ * three would eventually disagree about whether a collision shows a `:` or a
+ * space.
+ *
+ * The separator is the one the two-run form renders, and it belongs to the
+ * callsign exactly as it does there: no callsign, no separator.
+ */
+export function sessionDisplayTitle(identity: SessionIdentity): string {
+  const { name, callsign } = sessionTitleParts(identity);
+  return callsign === null ? name : `${name}:${callsign}`;
+}
+
+/**
  * The callsign run split into the half that may be eaten and the half that
  * must survive — the two spans a middle truncation needs.
  *
@@ -643,4 +661,22 @@ export function sessionIdentityLineForBinding(
   return sessionIdentityLineFor(binding.tugSessionId, {
     projectDir: binding.projectDir,
   });
+}
+
+/**
+ * The display title for a card's session binding — the flat-row half of the
+ * Lens's cards projection, beside {@link sessionIdentityLineForBinding}.
+ *
+ * The Lens needs both and for different jobs: this is what a row SHOWS, the
+ * Line is what a filter still MATCHES, so typing a callsign finds a session
+ * whose row no longer prints one.
+ */
+export function sessionDisplayTitleForBinding(
+  binding: CardSessionBinding,
+): string {
+  return sessionDisplayTitle(
+    resolveSessionIdentity(binding.tugSessionId, {
+      projectDir: binding.projectDir,
+    }),
+  );
 }

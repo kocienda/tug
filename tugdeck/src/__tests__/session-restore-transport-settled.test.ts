@@ -31,6 +31,7 @@ import type { TugConnection } from "@/connection";
 // only reached for `send` / `onFrame` — both are no-op stubs here.
 const fakeConnection = {
   send: (_feedId: number, _payload: Uint8Array, _flags?: number) => {},
+  trySend: (_feedId: number, _payload: Uint8Array, _flags?: number) => true,
   onFrame: (_feedId: number, _cb: (payload: Uint8Array) => void) => () => {},
 } as unknown as TugConnection;
 

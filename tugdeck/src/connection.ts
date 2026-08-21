@@ -545,13 +545,44 @@ export class TugConnection {
   }
 
   /**
-   * Send a frame to the server
+   * Send a frame to the server, reporting whether it went out.
+   *
+   * A socket that is not OPEN drops the frame — there is no outbound queue,
+   * so a caller that needs its frame to arrive must learn that it did not.
+   * {@link send} is the fire-and-forget wrapper for callers that genuinely
+   * do not care (heartbeats, best-effort telemetry); anything whose answer
+   * the UI depends on — a ledger restore fetch, say — calls this and retries.
+   *
+   * The drop is logged at `debug` for every feed but HEARTBEAT, whose
+   * per-interval drops during a reconnect are the expected case and would
+   * bury everything else.
    */
-  send(feedId: FeedIdValue, payload: Uint8Array, flags: number = FrameFlags.DATA): void {
+  trySend(
+    feedId: FeedIdValue,
+    payload: Uint8Array,
+    flags: number = FrameFlags.DATA,
+  ): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const frame: Frame = { feedId, flags, payload };
       this.ws.send(encodeFrame(frame));
+      return true;
     }
+    if (feedId !== FeedId.HEARTBEAT) {
+      tugDevLogStore.debug("connection", "frame dropped; socket not open", {
+        feedId,
+        readyState: this.ws?.readyState ?? null,
+        bytes: payload.byteLength,
+      });
+    }
+    return false;
+  }
+
+  /**
+   * Send a frame to the server, ignoring whether it went out. See
+   * {@link trySend} when the answer matters.
+   */
+  send(feedId: FeedIdValue, payload: Uint8Array, flags: number = FrameFlags.DATA): void {
+    this.trySend(feedId, payload, flags);
   }
 
   /**

@@ -50,6 +50,10 @@ const fakeConnection = {
   send: (feedId: number, _payload: Uint8Array, _flags?: number) => {
     sentFrames.push(feedId);
   },
+  trySend: (feedId: number, _payload: Uint8Array, _flags?: number) => {
+    sentFrames.push(feedId);
+    return true;
+  },
   onFrame: (feedId: number, cb: (payload: Uint8Array) => void) => {
     if (feedId === FeedId.SESSION_STATE) sessionStateHandlers.push(cb);
     return () => {};

@@ -10,7 +10,7 @@
  * Drives the real store and the real CodeSessionStore reducer through a
  * minimal feed double (the sibling shell-session-store test's pattern).
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Capture the CONTROL frames the constructor sends. Mocked before the import.
 let sentFrames: Array<{ feedId: number; payload: string }> = [];
@@ -18,6 +18,10 @@ mock.module("../connection-singleton", () => ({
   getConnection: () => ({
     send: (feedId: number, payload: Uint8Array) => {
       sentFrames.push({ feedId, payload: new TextDecoder().decode(payload) });
+    },
+    trySend: (feedId: number, payload: Uint8Array) => {
+      sentFrames.push({ feedId, payload: new TextDecoder().decode(payload) });
+      return true;
     },
     onFrame: () => () => {},
   }),
@@ -56,8 +60,19 @@ function setup() {
     "/proj",
     code,
   );
+  liveStores.push(store);
   return { store, code };
 }
+
+/**
+ * Stores built by {@link setup}. Each owns a retrying restore fetch, so an
+ * undisposed one keeps a timer running past the end of this file.
+ */
+const liveStores: RefsSessionStore[] = [];
+
+afterEach(() => {
+  while (liveStores.length > 0) liveStores.pop()!.dispose();
+});
 
 /** The wire shape of one ledgered run, as `list_refs_ok` carries it. */
 function run(overrides: Record<string, unknown> = {}): Record<string, unknown> {

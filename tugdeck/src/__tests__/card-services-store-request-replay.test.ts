@@ -36,6 +36,10 @@ const fakeConnection = {
   send: (feedId: number, payload: Uint8Array, _flags?: number) => {
     sentFrames.push({ feedId, payload });
   },
+  trySend: (feedId: number, payload: Uint8Array, _flags?: number) => {
+    sentFrames.push({ feedId, payload });
+    return true;
+  },
   onFrame: (_feedId: number, _cb: (payload: Uint8Array) => void) => () => {},
 } as unknown as TugConnection;
 

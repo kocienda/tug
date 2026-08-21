@@ -16,6 +16,7 @@ import {
   projectLeafName,
   resolveCitedSession,
   sessionCitation,
+  sessionDisplayTitle,
   sessionIdentityLine,
   sessionTitleParts,
   shortSessionId,
@@ -174,6 +175,43 @@ describe("sessionTitleParts", () => {
       callsign: null,
     });
     expect(cited.resolved).toBe(false);
+  });
+});
+
+describe("sessionDisplayTitle — the flat form of the same rule", () => {
+  test("a custom name is the whole string", () => {
+    expect(
+      sessionDisplayTitle(identity({ name: "Refactor the Lens" })),
+    ).toBe("Refactor the Lens");
+  });
+
+  test("a collision appends the callsign with the two-run separator", () => {
+    expect(
+      sessionDisplayTitle(
+        identity({ name: "Refactor the Lens", nameShared: true }),
+      ),
+    ).toBe("Refactor the Lens:tugtool/stocky-pixie");
+  });
+
+  test("an unnamed session is its identity line, unchanged", () => {
+    expect(sessionDisplayTitle(identity())).toBe("tugtool/stocky-pixie");
+    expect(sessionDisplayTitle(identity())).toBe(
+      sessionIdentityLine(identity()),
+    );
+  });
+
+  test("it is the two runs joined — never a third spelling", () => {
+    for (const record of [
+      identity(),
+      identity({ name: "The mint work" }),
+      identity({ name: "The mint work", nameShared: true }),
+      identity({ tag: null }),
+    ]) {
+      const { name, callsign } = sessionTitleParts(record);
+      expect(sessionDisplayTitle(record)).toBe(
+        callsign === null ? name : `${name}:${callsign}`,
+      );
+    }
   });
 });
 

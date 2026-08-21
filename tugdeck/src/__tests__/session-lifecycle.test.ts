@@ -96,5 +96,9 @@ describe("sendRequestReplay", () => {
     const binding = cardSessionBindingStore.getBinding("card-rr");
     expect(binding).toBeDefined();
     expect(binding?.tugSessionId).toBe("sess-rr");
+
+    // A binding left standing keeps its services bag — and the shell / refs
+    // stores' retrying restore fetches ([P07]) — alive past this file.
+    cardSessionBindingStore.clearBinding("card-rr");
   });
 });

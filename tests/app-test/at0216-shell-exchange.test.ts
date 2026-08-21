@@ -31,6 +31,7 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/lib/shell-session-store.ts
+ * @covers tugdeck/src/lib/ledger-restore-fetch.ts
  * @covers tugdeck/src/lib/shell-line-classifier.ts
  * @covers tugdeck/src/lib/shell-share.ts
  * @covers tugrust/crates/tugcast/

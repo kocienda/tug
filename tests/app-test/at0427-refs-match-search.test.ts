@@ -35,6 +35,7 @@
  * @covers tugrust/crates/tugcast/src/feeds/text_ref.rs
  * @covers tugrust/crates/tugcast/src/refs_ledger.rs
  * @covers tugdeck/src/lib/refs-session-store.ts
+ * @covers tugdeck/src/lib/ledger-restore-fetch.ts
  * @covers tugdeck/src/lib/refs-flags.ts
  * @covers tugdeck/src/lib/ref-spec.ts
  * @covers tugdeck/src/components/tugways/cards/refs-result-block.tsx
