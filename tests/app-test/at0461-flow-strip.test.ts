@@ -1,44 +1,54 @@
 /**
- * at0461-flow-dots.test.ts — the deck says which slots it has, and which of
+ * at0461-flow-strip.test.ts — the deck says which slots it has, and which of
  * them the band is showing.
  *
  * In flow the strip runs past the band it is seen through, and the cards alone
- * cannot say how many places there are or which of them are on screen. The dots
- * are that readout: one numbered chip per slot the kind defines, centered in the
- * bottom band the imposition already keeps clear, drawn as the same `TugSlot`
- * the Lens's Cards row arranges slots with.
+ * cannot say how many places there are or which of them are on screen. The
+ * flow strip is that readout: the arrangement drawn TO SCALE in the bottom band
+ * the imposition already keeps clear — each slot at its own place and its own
+ * width — in the same `TugSlot` vocabulary the Lens's Cards row arranges places
+ * with, elongated.
  *
  * What this file pins:
  *
- *   1. **They stand in flow and nowhere else.** Fit has no strip to report on.
- *      The moment the layout is flow the dots are there, one chip per slot the
- *      kind defines — occupied or not — centered on the canvas and standing on
- *      the same baseline the host's build stamps use.
- *   2. **Centering is the clearance.** The chips clear the bottom-left corner
- *      the host reserves for those stamps by construction rather than by a
- *      stated number: a row of at most six chips centered on the canvas cannot
- *      reach a corner.
- *   3. **A chip reads whether its slot is on screen.** In-band slots are
- *      `outlined`, everything else rests — and scrolling the strip changes which
- *      chips are which.
- *   4. **Clicking a chip reveals its slot** by the least the strip can move —
+ *   1. **It stands in flow and nowhere else.** Fit has no strip to report on.
+ *      The moment the layout is flow the strip is there, one segment per slot
+ *      the kind defines — occupied or not — centered on the canvas and standing
+ *      on the same baseline the host's build stamps use.
+ *   2. **Centering is the clearance.** The drawing clears the bottom-left
+ *      corner the host reserves for those stamps by construction rather than by
+ *      a stated number: a share of the canvas, centered, under a ceiling.
+ *   3. **The bracket says which part of the strip is on screen.** It covers the
+ *      share of the strip the band shows and stands where that share begins, and
+ *      scrolling moves it without changing its size.
+ *   4. **Clicking a segment reveals its slot** by the least the strip can move —
  *      the same arithmetic an activation reveals with — in one commit the settle
  *      animates as one crossing.
- *   5. **The chips are live between commits.** A held gesture moves the strip on
- *      the gauge channel; the chips repaint from a DOM projection with ZERO
- *      notifies, which is what makes it a projection rather than a render.
+ *   5. **The bracket is live between commits.** A held gesture moves the strip
+ *      on the gauge channel and the bracket follows with ZERO store notifies —
+ *      a projection rather than a render, and here not even a scripted one: its
+ *      geometry is a `calc()` over the published property.
  *   6. **A scrub previews and commits once.** Pointer down on the row and drag
- *      across it: every crossed chip previews, nothing commits, and the release
- *      is the one write the census counts.
+ *      across it: every crossed segment previews, nothing commits, and the
+ *      release is the one write the census counts.
  *   7. **A sideways wheel scrolls, and quiet commits it.** A wheel has no
  *      release, so the idle timeout is its end; a plain vertical wheel is not
  *      this gesture at all and leaves the strip alone.
- *   8. **A live card drag takes the dots out of the way.** The band is drop-zone
- *      country while a card is being dragged over it, and the channel's
- *      `data-gauge-drag` stamp is what makes the dots decline the pointer.
+ *   8. **A live card drag takes the strip out of the way.** The band is
+ *      drop-zone country while a card is being dragged over it, and the
+ *      channel's `data-gauge-drag` stamp is what makes the strip decline the
+ *      pointer.
+ *   9. **The bracket is withheld when there is no position to state.** A strip
+ *      that fits its band is wholly on screen, so the bracket goes and the
+ *      drawing steps back a register — the same elements, quieter, never a
+ *      component that arrives. And it is a READOUT: it declines the pointer, so
+ *      a hand aiming at a card is not caught by the picture of where it already
+ *      is.
  *
- * @covers tugdeck/src/components/chrome/flow-dots.tsx
- * @covers tugdeck/src/components/chrome/flow-dots.css
+ * @covers tugdeck/src/components/chrome/flow-strip.tsx
+ * @covers tugdeck/src/components/chrome/flow-strip.css
+ * @covers tugdeck/src/components/tugways/tug-slot-layout.tsx
+ * @covers tugdeck/src/components/tugways/tug-slot-layout.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -67,44 +77,42 @@ const FLOW_WHEEL_IDLE_MS = 180;
 /**
  * The corner the host's maker-mode build stamps are drawn into
  * (`MainWindow.swift`'s `setDevInfo`): a monospaced line running as long as the
- * branch name. The dots must never reach into it — which centering guarantees,
+ * branch name. The strip must never reach into it — which centering guarantees,
  * and this is the number that would catch a drawing that stopped being centered.
  */
 const STAMP_CORNER_PX = 420;
 
-const DOTS = '[data-testid="flow-dots"]';
-/** The chip row itself. The container spans the canvas so it can center against
+const STRIP_ROOT = '[data-testid="flow-strip"]';
+/** The segment row itself. The container spans the canvas so it can center against
  *  it, so the ROW is what a placement assertion has to measure. */
-const ROW = `${DOTS} [data-slot="tug-slot-layout"]`;
-const CHIPS = `${ROW} [data-slot="tug-slot"]`;
+const ROW = `${STRIP_ROOT} [data-slot="tug-slot-layout"]`;
+const SEGMENTS = `${ROW} [data-slot="tug-slot"]`;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 /**
- * The looks the readout owes, derived here from the strip's own arithmetic
- * rather than read from the thing under test. A slot is shown when any part of
- * it is inside the band; a card clipped at the band edge is still a card the
- * reader can see.
+ * Where the band bracket stands, as fractions of the drawn strip — which is the
+ * scale the whole instrument works in, and the one a reader is comparing
+ * against when they look at it.
  *
- * The band is measured off the real deck, so this holds at whatever width the
- * harness's window happens to open at.
+ * Read off the boxes rather than off the custom properties behind them: what is
+ * under test is what the reader sees, and a property that resolved to nothing
+ * would still read back as the number that was written.
  */
-function expectedStates(options: {
-  count: number;
-  occupied: number;
-  cardWidth: number;
-  band: number;
-  offset: number;
-}): string[] {
-  const { count, occupied, cardWidth, band, offset } = options;
-  const stride = cardWidth + GAP_PX;
-  return Array.from({ length: count }, (_, slot) => {
-    if (slot >= occupied) return "rest";
-    const left = slot * stride;
-    const right = left + cardWidth;
-    return right > offset && left < offset + band ? "outlined" : "rest";
-  });
+async function bracket(app: App): Promise<{ left: number; width: number }> {
+  return app.evalJS(
+    `(function () {
+      var frame = document.querySelector(".flow-strip-frame")
+        .getBoundingClientRect();
+      var band = document.querySelector('[data-testid="flow-strip-band"]')
+        .getBoundingClientRect();
+      return {
+        left: (band.left - frame.left) / frame.width,
+        width: band.width / frame.width
+      };
+    })()`,
+  );
 }
 
 /** A deck of `count` content cards, one per slot, with the Lens on the right. */
@@ -191,14 +199,14 @@ async function committedOffset(app: App): Promise<number> {
   );
 }
 
-/** What the gauge channel has published onto the dots — a fraction of the band,
+/** What the gauge channel has published onto the strip — a fraction of the band,
  *  and the deck's live position between commits. */
 async function publishedOffset(app: App): Promise<number | null> {
   return app.evalJS<number | null>(
     `(function () {
-      var dots = document.querySelector(${JSON.stringify(DOTS)});
-      if (dots === null) return null;
-      var raw = dots.style.getPropertyValue("--gauge-flow-offset");
+      var stripEl = document.querySelector(${JSON.stringify(STRIP_ROOT)});
+      if (stripEl === null) return null;
+      var raw = stripEl.style.getPropertyValue("--gauge-flow-offset");
       return raw === "" ? null : parseFloat(raw);
     })()`,
   );
@@ -218,20 +226,20 @@ async function boxOf(
   );
 }
 
-/** Whether the channel has stamped a live drag on the dots, and what the row
- *  and a chip are answering the pointer with. */
+/** Whether the channel has stamped a live drag on the strip, and what the row
+ *  and a segment are answering the pointer with. */
 async function pointerGate(
   app: App,
-): Promise<{ stamped: boolean; row: string; chip: string }> {
+): Promise<{ stamped: boolean; row: string; segment: string }> {
   return app.evalJS(
     `(function () {
-      var dots = document.querySelector(${JSON.stringify(DOTS)});
+      var stripEl = document.querySelector(${JSON.stringify(STRIP_ROOT)});
       var row = document.querySelector(${JSON.stringify(ROW)});
-      var chip = document.querySelector(${JSON.stringify(CHIPS)});
+      var segment = document.querySelector(${JSON.stringify(SEGMENTS)});
       return {
-        stamped: dots !== null && dots.hasAttribute("data-gauge-drag"),
+        stamped: stripEl !== null && stripEl.hasAttribute("data-gauge-drag"),
         row: row === null ? "" : getComputedStyle(row).pointerEvents,
-        chip: chip === null ? "" : getComputedStyle(chip).pointerEvents,
+        segment: segment === null ? "" : getComputedStyle(segment).pointerEvents,
       };
     })()`,
   );
@@ -258,13 +266,13 @@ async function wheel(
   );
 }
 
-interface DotsReading {
+interface StripReading {
   present: boolean;
-  chips: number;
+  segments: number;
   digits: string[];
-  states: string[];
-  /** The chip row's box, and the canvas's, so the placement can be judged. Null
-   *  when there are no dots: an absent element has no box. */
+
+  /** The segment row's box, and the canvas's, so the placement can be judged. Null
+   *  when there is no strip: an absent element has no box. */
   rowLeft: number | null;
   rowRight: number | null;
   rowBottom: number | null;
@@ -273,29 +281,29 @@ interface DotsReading {
   canvasBottom: number;
 }
 
-async function readDots(app: App): Promise<DotsReading> {
-  return app.evalJS<DotsReading>(
+async function readStrip(app: App): Promise<StripReading> {
+  return app.evalJS<StripReading>(
     `(function () {
       var canvas = document.querySelector("[data-deck-canvas-background]")
         .getBoundingClientRect();
       var row = document.querySelector(${JSON.stringify(ROW)});
       if (row === null) {
         return {
-          present: false, chips: 0, digits: [], states: [],
+          present: false, segments: 0, digits: [],
           rowLeft: null, rowRight: null, rowBottom: null,
           canvasLeft: canvas.left, canvasRight: canvas.right,
           canvasBottom: canvas.bottom,
         };
       }
       var box = row.getBoundingClientRect();
-      var chips = Array.prototype.slice.call(
-        document.querySelectorAll(${JSON.stringify(CHIPS)})
+      var segments = Array.prototype.slice.call(
+        document.querySelectorAll(${JSON.stringify(SEGMENTS)})
       );
       return {
         present: true,
-        chips: chips.length,
-        digits: chips.map(function (el) { return el.textContent; }),
-        states: chips.map(function (el) { return el.getAttribute("data-state"); }),
+        segments: segments.length,
+        digits: segments.map(function (el) { return el.textContent; }),
+
         rowLeft: box.left,
         rowRight: box.right,
         rowBottom: box.bottom,
@@ -307,17 +315,17 @@ async function readDots(app: App): Promise<DotsReading> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
+describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
   test(
     "stand in flow, centered in the bottom band, and nowhere in fit",
     async () => {
-      const app = await launchTugApp({ testName: "at0461-flow-dots" });
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
         await openDeck(app, { cards: 3, cardWidth: SLIM_PX, layout: "fit" });
 
         expect(
-          (await readDots(app)).present,
-          "fit has no strip to report on, so it has no dots",
+          (await readStrip(app)).present,
+          "fit has no strip to report on, so it has no strip",
         ).toBe(false);
 
         await app.evalJS<null>(
@@ -325,24 +333,24 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        const dots = await readDots(app);
-        const rowCenter = ((dots.rowLeft ?? 0) + (dots.rowRight ?? 0)) / 2;
-        const canvasCenter = (dots.canvasLeft + dots.canvasRight) / 2;
+        const strip = await readStrip(app);
+        const rowCenter = ((strip.rowLeft ?? 0) + (strip.rowRight ?? 0)) / 2;
+        const canvasCenter = (strip.canvasLeft + strip.canvasRight) / 2;
         note(
-          `dots: present=${dots.present} chips=${dots.chips} ` +
-            `digits=${dots.digits.join("")} states=${dots.states.join(",")} ` +
+          `strip: present=${strip.present} segments=${strip.segments} ` +
+            `digits=${strip.digits.join("")} ` +
             `centerOff=${(rowCenter - canvasCenter).toFixed(2)}px ` +
-            `up=${Math.round(dots.canvasBottom - (dots.rowBottom ?? 0))} ` +
-            `leftClear=${Math.round((dots.rowLeft ?? 0) - dots.canvasLeft)}`,
+            `up=${Math.round(strip.canvasBottom - (strip.rowBottom ?? 0))} ` +
+            `leftClear=${Math.round((strip.rowLeft ?? 0) - strip.canvasLeft)}`,
         );
 
-        expect(dots.present, "flow puts the dots on the canvas").toBe(true);
+        expect(strip.present, "flow puts the strip on the canvas").toBe(true);
         expect(
-          dots.chips,
-          "one chip per slot the kind defines — three-up is three",
+          strip.segments,
+          "one segment per slot the kind defines — three-up is three",
         ).toBe(3);
         expect(
-          dots.digits,
+          strip.digits,
           "numbered the way the Cards control numbers the same places",
         ).toEqual(["1", "2", "3"]);
         expect(
@@ -350,13 +358,13 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
           "the row stands centered on the canvas",
         ).toBeLessThanOrEqual(1);
         // The band is 32px deep and the host draws its stamps 8px up in it; the
-        // dots share that line rather than inventing a second one.
+        // strip shares that line rather than inventing a second one.
         expect(
-          Math.round(dots.canvasBottom - (dots.rowBottom ?? 0)),
+          Math.round(strip.canvasBottom - (strip.rowBottom ?? 0)),
           "on the stamps' own baseline",
         ).toBe(8);
         expect(
-          (dots.rowLeft ?? 0) - dots.canvasLeft,
+          (strip.rowLeft ?? 0) - strip.canvasLeft,
           "and clear of the corner the stamps are reserved — which centering buys",
         ).toBeGreaterThanOrEqual(STAMP_CORNER_PX);
       } finally {
@@ -367,12 +375,11 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
   );
 
   test(
-    "every slot the kind defines gets a chip, occupied or not",
+    "a slot with no card is rendered, and drawn nowhere",
     async () => {
-      const app = await launchTugApp({ testName: "at0461-flow-dots" });
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
-        // Two cards in a five-up deck: three of the five slots stand empty, and
-        // an empty slot is never in the band in any useful sense, so it rests.
+        // Two cards in a five-up deck: three of the five slots stand empty.
         const state = deckShape(5, SLIM_PX);
         (state.imposition as Record<string, unknown>).layout = "flow";
         (state.imposition as Record<string, unknown>).kind = "five-up";
@@ -388,13 +395,30 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
         await app.seedDeckState({ state, focusCardId: "A" });
         await wait(AFTER_LAND_MS);
 
-        const dots = await readDots(app);
-        note(`five-up, two cards: states=${dots.states.join(",")}`);
-        expect(dots.chips, "five slots, five chips").toBe(5);
+        const strip = await readStrip(app);
+        const drawn = await app.evalJS<number[]>(
+          `Array.prototype.map.call(
+            document.querySelectorAll(${JSON.stringify(SEGMENTS)}),
+            function (el) { return Math.round(el.getBoundingClientRect().width); }
+          )`,
+        );
+        note(`five-up, two cards: widths=${drawn.join(",")}`);
         expect(
-          dots.states.slice(2),
-          "the three unoccupied slots rest — there is nothing of them to show",
-        ).toEqual(["rest", "rest", "rest"]);
+          strip.segments,
+          "every slot the kind defines is rendered — five, not two",
+        ).toBe(5);
+        // Rendered and NOT DRAWN. A slot with no card in it has no place in the
+        // strip and no width, so there is nothing to draw — but it keeps its
+        // index, which is what lets every reading here stay addressed by slot
+        // rather than by how many slots happen to be occupied.
+        expect(
+          drawn.slice(0, 2).every((width) => width > 0),
+          "the two occupied slots are drawn",
+        ).toBe(true);
+        expect(
+          drawn.slice(2),
+          "and the three empty ones take no room at all",
+        ).toEqual([0, 0, 0]);
       } finally {
         await app.close();
       }
@@ -403,13 +427,13 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
   );
 
   test(
-    "a chip reads whether the band is showing its slot",
+    "the bracket says which part of the strip is on screen",
     async () => {
-      const app = await launchTugApp({ testName: "at0461-flow-dots" });
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
         // Five slim cards run far past the band, so the two ends of the strip
-        // have no slot in common — which is what makes "which chips are
-        // outlined" a reading that changes as the strip moves.
+        // have no slot in common — which is what makes where the bracket stands
+        // a reading that changes as the strip moves.
         await openDeck(app, { cards: 5, cardWidth: SLIM_PX, layout: "flow" });
         const band = await bandWidth(app);
         const stripWidth = 5 * SLIM_PX + 4 * GAP_PX;
@@ -419,27 +443,20 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
           "the fixture needs a strip that runs past its band",
         ).toBeLessThan(stripWidth);
 
-        const home = await readDots(app);
-        const atHome = expectedStates({
-          count: 5,
-          occupied: 5,
-          cardWidth: SLIM_PX,
-          band,
-          offset: 0,
-        });
-        note(`at home: ${home.states.join(",")} — owed ${atHome.join(",")}`);
+        const owedWidth = band / stripWidth;
+        const home = await bracket(app);
+        note(
+          `at home: bracket ${home.left.toFixed(3)}..${(home.left + home.width).toFixed(3)}` +
+            ` — owed 0..${owedWidth.toFixed(3)}`,
+        );
         expect(
-          home.states[0],
-          "the strip starts home, so the first slot is on screen",
-        ).toBe("outlined");
+          home.left,
+          "the strip starts home, so the bracket starts at its head",
+        ).toBeCloseTo(0, 3);
         expect(
-          home.states[4],
-          "and the last one is not — that is what the readout is for",
-        ).toBe("rest");
-        expect(
-          home.states,
-          "and every chip reads what the strip's own arithmetic says it should",
-        ).toEqual(atHome);
+          home.width,
+          "and covers exactly the share of the strip the band shows",
+        ).toBeCloseTo(owedWidth, 2);
 
         // Move the strip to the far end — through the deck's own wheel gesture,
         // which is the path a reader takes. The committed picture is what is
@@ -449,33 +466,28 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
         await wait(AFTER_LAND_MS);
 
         const landed = await committedOffset(app);
-        const away = await readDots(app);
-        const atEnd = expectedStates({
-          count: 5,
-          occupied: 5,
-          cardWidth: SLIM_PX,
-          band,
-          offset: landed,
-        });
+        const away = await bracket(app);
         note(
-          `at ${Math.round(landed)}px: ${away.states.join(",")} — owed ${atEnd.join(",")}`,
+          `at ${Math.round(landed)}px: bracket ${away.left.toFixed(3)}..` +
+            `${(away.left + away.width).toFixed(3)} — owed ` +
+            `${(landed / stripWidth).toFixed(3)}..1`,
         );
         expect(
           landed,
           "the wheel ran the strip to its far end",
         ).toBeCloseTo(stripWidth - band, 0);
         expect(
-          away.states[4],
-          "scrolled to the end, the last slot is what the band shows",
-        ).toBe("outlined");
+          away.left,
+          "so the bracket stands where that far end begins",
+        ).toBeCloseTo(landed / stripWidth, 2);
         expect(
-          away.states[0],
-          "and the first has gone off the other side",
-        ).toBe("rest");
+          away.left + away.width,
+          "and its far edge is the end of the strip",
+        ).toBeCloseTo(1, 2);
         expect(
-          away.states,
-          "and the readout still matches the arithmetic, chip for chip",
-        ).toEqual(atEnd);
+          away.width,
+          "the band did not change size, only where it looks",
+        ).toBeCloseTo(home.width, 2);
       } finally {
         await app.close();
       }
@@ -484,9 +496,9 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
   );
 
   test(
-    "clicking a chip reveals its slot, by the least the strip can move",
+    "clicking a segment reveals its slot, by the least the strip can move",
     async () => {
-      const app = await launchTugApp({ testName: "at0461-flow-dots" });
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
         await openDeck(app, { cards: 3, cardWidth: SLIM_PX, layout: "flow" });
         const band = await bandWidth(app);
@@ -504,7 +516,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
 
         const landed = await committedOffset(app);
         note(
-          `${summarizeMotionCensus("chip click", census)} — ` +
+          `${summarizeMotionCensus("segment click", census)} — ` +
             `offset ${Math.round(landed)}px, expected ${Math.round(expected)}px`,
         );
         expect(
@@ -525,7 +537,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
           );
           await wait(AFTER_LAND_MS);
         });
-        note(summarizeMotionCensus("chip click, already shown", still));
+        note(summarizeMotionCensus("segment click, already shown", still));
         expect(
           await committedOffset(app),
           "a slot already in the band stays where it is",
@@ -538,16 +550,16 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
   );
 
   test(
-    "the chips repaint under the hand with the store hearing nothing at all",
+    "the segments repaint under the hand with the store hearing nothing at all",
     async () => {
-      const app = await launchTugApp({ testName: "at0461-flow-dots" });
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
         await openDeck(app, { cards: 5, cardWidth: SLIM_PX, layout: "flow" });
-        const before = await readDots(app);
+        const before = await bracket(app);
         expect(
-          before.states[4],
-          "the fixture starts with the last slot off screen",
-        ).toBe("rest");
+          before.left + before.width,
+          "the fixture starts home, with the strip's far end off screen",
+        ).toBeLessThan(0.99);
 
         // The press and the travel happen OUTSIDE the census, so what it counts
         // is the held gesture alone. A pointer gesture is the right one to hold
@@ -558,37 +570,39 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
           `${ROW} [aria-label="Reveal slot 1"]`,
           { selector: `${ROW} [aria-label="Reveal slot 5"]` },
         );
-        let held: DotsReading | null = null;
+        let held: { left: number; width: number } | null = null;
         let live: number | null = null;
         let committed = -1;
         const census = await app.motionCensus(async () => {
           live = await publishedOffset(app);
-          held = await readDots(app);
+          held = await bracket(app);
           committed = await committedOffset(app);
         }, 0);
 
-        const during = held as unknown as DotsReading;
+        const during = held as unknown as { left: number; width: number };
         note(
           `${summarizeMotionCensus("held scrub", census)} — ` +
             `published=${(live as number | null)?.toFixed(4)} ` +
-            `committed=${committed}px states=${during.states.join(",")}`,
+            `committed=${committed}px bracket at ${during.left.toFixed(3)}`,
         );
         expect(committed, "the store has not heard about the gesture yet").toBe(
           0,
         );
         expect(
-          during.states[4],
-          "and the chips already say the last slot is on screen",
-        ).toBe("outlined");
+          during.left + during.width,
+          "and the bracket has already reached the strip's far end",
+        ).toBeCloseTo(1, 2);
         expect(
-          during.states,
+          during.left,
           "which is a different picture from the one React rendered",
-        ).not.toEqual(before.states);
+        ).toBeGreaterThan(before.left);
         // The claim the census carries: the picture moved without one store
-        // notify, so no render can have produced it.
+        // notify, so no render can have produced it. Here the projection is not
+        // even script — the bracket's geometry is a `calc()` over the property
+        // the channel publishes, so the frame is the style engine's alone.
         expect(
           census.notifies,
-          "the chips repainted with zero store notifies — a DOM projection, not a render",
+          "the bracket moved with zero store notifies — a projection, not a render",
         ).toBe(0);
 
         const box = await boxOf(app, `${ROW} [aria-label="Reveal slot 5"]`);
@@ -605,9 +619,9 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
   );
 
   test(
-    "a scrub across the chips previews each one and commits once at release",
+    "a scrub across the segments previews each one and commits once at release",
     async () => {
-      const app = await launchTugApp({ testName: "at0461-flow-dots" });
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
         await openDeck(app, { cards: 5, cardWidth: SLIM_PX, layout: "flow" });
         expect(await committedOffset(app), "the strip starts home").toBe(0);
@@ -621,11 +635,11 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
           await wait(120);
 
           const live = await publishedOffset(app);
-          const during = await readDots(app);
+          const during = await bracket(app);
           const committed = await committedOffset(app);
           note(
             `under the hand: published=${live?.toFixed(4)} committed=${committed}px ` +
-              `states=${during.states.join(",")}`,
+              `bracket at ${during.left.toFixed(3)}`,
           );
           expect(
             live ?? 0,
@@ -636,9 +650,9 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
             "and nothing is committed until the hand lets go",
           ).toBe(0);
           expect(
-            during.states[4],
-            "while the chips already read the slot under the finger",
-          ).toBe("outlined");
+            during.left + during.width,
+            "while the bracket already stands over the slot under the finger",
+          ).toBeCloseTo(1, 2);
 
           const box = await boxOf(app, last);
           await app.nativeMouseUp({
@@ -656,7 +670,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
         );
         expect(
           landed,
-          "the release is where the deck now stands — the last chip's reveal",
+          "the release is where the deck now stands — the last segment's reveal",
         ).toBeCloseTo(stripWidth - band, 0);
         expect(
           census.notifies,
@@ -670,57 +684,57 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
   );
 
   test(
-    "a live card drag takes the dots out of the pointer's way",
+    "a live card drag takes the strip out of the pointer's way",
     async () => {
-      const app = await launchTugApp({ testName: "at0461-flow-dots" });
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
         await openDeck(app, { cards: 3, cardWidth: SLIM_PX, layout: "flow" });
 
         const atRest = await pointerGate(app);
-        note(`at rest: drag=${atRest.stamped} row=${atRest.row} chip=${atRest.chip}`);
+        note(`at rest: drag=${atRest.stamped} row=${atRest.row} segment=${atRest.segment}`);
         expect(atRest.stamped, "no drag, no stamp").toBe(false);
-        expect(atRest.chip, "and the chips take the pointer as usual").toBe(
+        expect(atRest.segment, "and the segments take the pointer as usual").toBe(
           "auto",
         );
 
-        // A real card drag: the band becomes drop-zone country, and the dots
+        // A real card drag: the band becomes drop-zone country, and the strip
         // stand right in it.
-        const dots = await boxOf(app, ROW);
+        const map = await boxOf(app, ROW);
         await app.nativeDragElementWithoutRelease(
           `.tug-pane[data-pane-id="p1"] .tug-pane-title-bar`,
           {
-            x: Math.round(dots.left + dots.width / 2),
-            y: Math.round(dots.top + dots.height / 2),
+            x: Math.round(map.left + map.width / 2),
+            y: Math.round(map.top + map.height / 2),
           },
         );
         try {
           await wait(120);
           const under = await pointerGate(app);
           note(
-            `under the hand: drag=${under.stamped} row=${under.row} chip=${under.chip}`,
+            `under the hand: drag=${under.stamped} row=${under.row} segment=${under.segment}`,
           );
           expect(
             under.stamped,
             "the channel stamps the drag on every registered element",
           ).toBe(true);
           expect(
-            under.chip,
-            "so the dots decline the pointer rather than swallowing the release",
+            under.segment,
+            "so the strip declines the pointer rather than swallowing the release",
           ).toBe("none");
         } finally {
           await app.nativeMouseUp({
-            x: Math.round(dots.left + dots.width / 2),
-            y: Math.round(dots.top + dots.height / 2),
+            x: Math.round(map.left + map.width / 2),
+            y: Math.round(map.top + map.height / 2),
           });
           await wait(AFTER_LAND_MS);
         }
 
         const after = await pointerGate(app);
-        note(`after release: drag=${after.stamped} chip=${after.chip}`);
+        note(`after release: drag=${after.stamped} segment=${after.segment}`);
         expect(after.stamped, "the drag ending takes its stamp with it").toBe(
           false,
         );
-        expect(after.chip, "and the chips are a target again").toBe("auto");
+        expect(after.segment, "and the segments are a target again").toBe("auto");
       } finally {
         await app.close();
       }
@@ -731,7 +745,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
   test(
     "a sideways wheel scrolls the strip and commits where it came to rest",
     async () => {
-      const app = await launchTugApp({ testName: "at0461-flow-dots" });
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
         await openDeck(app, { cards: 3, cardWidth: SLIM_PX, layout: "flow" });
 
@@ -765,6 +779,110 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow dots", () => {
           360,
           0,
         );
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the band is drawn over the strip, and withheld when there is none to draw",
+    async () => {
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
+      try {
+        // Two narrow cards: the whole strip fits the band, so there is no
+        // position to state.
+        await openDeck(app, { cards: 2, cardWidth: 300, layout: "flow" });
+
+        const quiet = await app.evalJS<{
+          overflow: string;
+          bandShown: string;
+          present: boolean;
+        }>(
+          `(function () {
+            var strip = document.querySelector(${JSON.stringify(STRIP_ROOT)});
+            var band = document.querySelector('[data-testid="flow-strip-band"]');
+            return {
+              overflow: strip.getAttribute("data-overflow"),
+              bandShown: band === null ? "" : getComputedStyle(band).display,
+              present: band !== null
+            };
+          })()`,
+        );
+        note(
+          `fits: overflow=${quiet.overflow} band present=${quiet.present} display=${quiet.bandShown}`,
+        );
+        expect(quiet.overflow, "a strip inside its band does not overflow").toBe(
+          "false",
+        );
+        // In the DOM at BOTH registers. The boundary is a change of how loudly
+        // the same elements speak, never a component arriving ([P10]) — an
+        // instrument that materialised when the strip grew would read as a new
+        // thing rather than as this one speaking up.
+        expect(quiet.present, "the bracket is in the DOM either way").toBe(true);
+        expect(
+          quiet.bandShown,
+          "and withheld while there is no position to state",
+        ).toBe("none");
+
+        // Now a strip that runs well past its band.
+        await openDeck(app, { cards: 3, cardWidth: SLIM_PX, layout: "flow" });
+        const band = await bandWidth(app);
+        const stripWidth = SLIM_PX * 3 + GAP_PX * 2;
+
+        const drawn = await app.evalJS<{
+          overflow: string;
+          pointer: string;
+          frameLeft: number;
+          frameWidth: number;
+          bandLeft: number;
+          bandWidth: number;
+        }>(
+          `(function () {
+            var strip = document.querySelector(${JSON.stringify(STRIP_ROOT)});
+            var frame = strip.querySelector(".flow-strip-frame")
+              .getBoundingClientRect();
+            var el = document.querySelector('[data-testid="flow-strip-band"]');
+            var box = el.getBoundingClientRect();
+            return {
+              overflow: strip.getAttribute("data-overflow"),
+              pointer: getComputedStyle(el).pointerEvents,
+              frameLeft: frame.left,
+              frameWidth: frame.width,
+              bandLeft: box.left,
+              bandWidth: box.width
+            };
+          })()`,
+        );
+
+        // What the bracket owes, from the deck's own numbers rather than from
+        // the stylesheet's: it covers the share of the strip on screen, and it
+        // starts where that share starts.
+        const owedWidth = (band / stripWidth) * drawn.frameWidth;
+        const owedLeft =
+          drawn.frameLeft + ((await committedOffset(app)) / stripWidth) * drawn.frameWidth;
+        note(
+          `overflowing: band ${Math.round(drawn.bandWidth)}px (owed ${Math.round(owedWidth)}) ` +
+            `at +${Math.round(drawn.bandLeft - drawn.frameLeft)} ` +
+            `(owed +${Math.round(owedLeft - drawn.frameLeft)}) pointer=${drawn.pointer}`,
+        );
+
+        expect(drawn.overflow, "the strip runs past its band").toBe("true");
+        expect(
+          Math.abs(drawn.bandWidth - owedWidth),
+          "the bracket is as wide as the share of the strip on screen",
+        ).toBeLessThanOrEqual(1.5);
+        expect(
+          Math.abs(drawn.bandLeft - owedLeft),
+          "and stands where that share begins",
+        ).toBeLessThanOrEqual(1.5);
+        // A readout, not a control. It is drawn OVER the segments, so a hand
+        // aiming at a card must pass straight through it.
+        expect(
+          drawn.pointer,
+          "the bracket declines the pointer it is drawn over",
+        ).toBe("none");
       } finally {
         await app.close();
       }

@@ -25,3 +25,43 @@
 .tug-slot-layout[data-disabled="true"] .tug-slot {
   opacity: 1;
 }
+
+/* ── The scaled form ──────────────────────────────────────────────────────
+   The arrangement drawn as a MAP rather than as a run: the layout is a box of
+   its own, and each slot is placed inside it at the fraction the caller gave.
+
+   The slots keep everything else — their border, their radius, their digit,
+   their three state paints — so a map and a run are legibly the same
+   vocabulary at two scales. What they give up is the token WIDTH, which is a
+   chip's answer and not a segment's; the height stays, so a scaled layout is
+   as tall as the run it is a map of.
+
+   No gap: the places are already separated by the real gaps between them,
+   drawn to the same scale as everything else. */
+
+.tug-slot-layout[data-scaled="true"] {
+  display: block;
+  position: relative;
+  inline-size: 100%;
+  gap: 0;
+}
+
+.tug-slot-layout[data-scaled="true"].tug-slot-layout-size-sm {
+  block-size: var(--tugx-slot-height-sm, 19px);
+}
+
+.tug-slot-layout[data-scaled="true"].tug-slot-layout-size-md {
+  block-size: var(--tugx-slot-height-md, 26px);
+}
+
+.tug-slot-layout[data-scaled="true"] .tug-slot {
+  position: absolute;
+  inset-block: 0;
+  /* `left` and `width` arrive inline, as percentages of this box. */
+  block-size: auto;
+  inline-size: auto;
+  /* A segment can be narrower than its digit — a card at the far end of a long
+     strip draws a few pixels wide — and a digit that spilled would paint over
+     its neighbours. */
+  overflow: clip;
+}

@@ -1,0 +1,38 @@
+/**
+ * card-slot-badge.css — the badge's popup, given room to be pressed in.
+ *
+ * The chip's own seating is `masthead-frame.css`: it stands in the frame's
+ * dead leading column, and where that column is is the frame's fact rather
+ * than this component's. What is here is the surface the chip OPENS, which is
+ * portalled out of the frame entirely and so belongs to nobody else.
+ *
+ * Two things, and both of them are the same mistake corrected. `TugPopover`
+ * ships a bubble with no padding — deliberately, since most of its consumers
+ * are lists that pad their own rows — so a run of chips handed straight to it
+ * sat flush against the bubble's border with its 8px radius biting the corner
+ * chips. And the chips were the primitive's default `sm` (15×19), which is a
+ * READOUT's size: right for the badge in the tier, too small for the thing you
+ * open the badge to press.
+ *
+ * So the popup wears the Lens picker's cut. That is not a coincidence to be
+ * kept in step by hand — the two surfaces do the same job, moving a card to a
+ * place by pressing its number, and a reader who learns the gesture in one
+ * should meet the same target in the other.
+ *
+ * @tug-pairings: none — geometry only. Every colour in here belongs to the
+ * composed `TugSlot`s ([L20]) and to the popover bubble around them.
+ */
+
+.card-slot-badge-picker {
+  /* Air inside the bubble, so the run is seated in the surface rather than
+     pressed against its border and clipped by its radius. */
+  padding: var(--tug-space-sm);
+  /* The Lens picker's cut, one step up from the primitive's `sm` default —
+     `slot-picker.css` states the same three. A popup is a thing to press. */
+  --tugx-slot-width-sm: 18px;
+  --tugx-slot-height-sm: 22px;
+  --tugx-slot-font-size-sm: 11px;
+  /* And one more pixel between them than a row's run carries: at rest these
+     read as one arrangement, but here each is a separate target. */
+  --tugx-slot-layout-gap-sm: 4px;
+}

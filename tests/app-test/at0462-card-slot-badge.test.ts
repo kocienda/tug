@@ -41,6 +41,7 @@
  *      a hand pass.
  *
  * @covers tugdeck/src/components/tugways/card-slot-badge.tsx
+ * @covers tugdeck/src/components/tugways/card-slot-badge.css
  * @covers tugdeck/src/components/tugways/tug-slot.tsx
  * @covers tugdeck/src/components/tugways/masthead-frame.css
  */
@@ -263,7 +264,7 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         const geometry = await app.evalJS<{
           insideFrame: boolean;
           chip: { left: number; top: number; right: number; bottom: number };
-          dot: { bottom: number; inkLeft: number };
+          dot: { bottom: number; axis: number };
           description: { top: number; inkLeft: number };
           title: { left: number };
           frameBottom: number;
@@ -285,13 +286,10 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
             return {
               insideFrame: frame.contains(badge),
               chip: { left: c.left, top: c.top, right: c.right, bottom: c.bottom },
-              // The dot BOX reaches left of its ink: the row pulls it back by
-              // --tugx-session-row-dot-lead so the breathing ring can paint
-              // past the vertical the ink sits on. The badge stands on the INK.
-              dot: {
-                bottom: d.bottom,
-                inkLeft: d.left - parseFloat(getComputedStyle(dot).marginInlineStart),
-              },
+              // The dot BOX is the tier's leading column — the mark centres in
+              // it and paints a disc half its width, and the badge centres in
+              // the same column. Axes, therefore, not edges.
+              dot: { bottom: d.bottom, axis: d.left + d.width / 2 },
               // The sub-lines take their indent as PADDING, so the box's own
               // left edge is the column edge and the ink starts inside it. The
               // dead column is bounded by the INK, so that is what is read.
@@ -319,11 +317,12 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         const pairCenter =
           (geometry.description.top + geometry.frameBottom) / 2;
         const chipCenter = (geometry.chip.top + geometry.chip.bottom) / 2;
+        const chipCenterX = (geometry.chip.left + geometry.chip.right) / 2;
 
         note(
           `chip ${geometry.chip.left.toFixed(1)},${geometry.chip.top.toFixed(1)}` +
             `–${geometry.chip.right.toFixed(1)},${geometry.chip.bottom.toFixed(1)} ` +
-            `dot ink=${geometry.dot.inkLeft.toFixed(1)} bottom=${geometry.dot.bottom.toFixed(1)} ` +
+            `dot axis=${geometry.dot.axis.toFixed(1)} bottom=${geometry.dot.bottom.toFixed(1)} ` +
             `desc ink=${geometry.description.inkLeft.toFixed(1)} top=${geometry.description.top.toFixed(1)} ` +
             `title left=${geometry.title.left.toFixed(1)} ` +
             `pairCenter=${pairCenter.toFixed(1)} chipCenter=${chipCenter.toFixed(1)}`,
@@ -342,12 +341,14 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           geometry.chip.right,
           "so it clears the description's ink as well",
         ).toBeLessThanOrEqual(geometry.description.inkLeft);
-        // The frame seats the mark's ink and the chip on ONE vertical: both read
-        // the same leading inset, so a drift here means one of them stopped.
+        // The frame gives the tier ONE leading column, and the mark and the
+        // chip both centre in it. An edge match would hold only while the two
+        // were the same width, and a phase dot's ink is half this chip's —
+        // which is exactly the coincidence at0464 watches across card types.
         expect(
-          Math.abs(geometry.chip.left - geometry.dot.inkLeft),
-          "on the mark's own vertical",
-        ).toBeLessThanOrEqual(3);
+          Math.abs(chipCenterX - geometry.dot.axis),
+          "on the mark's own axis",
+        ).toBeLessThanOrEqual(0.51);
         expect(
           Math.abs(chipCenter - pairCenter),
           "centered on the pair beneath the title, the tape's own rule",
@@ -378,6 +379,10 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 8_000 },
         );
+        // The bubble enters on a scale keyframe, and a box read mid-flight
+        // reports the interpolated pose — 17.33px for an 18px chip. Let it
+        // land before measuring anything geometric.
+        await wait(400);
 
         const chips = await app.evalJS<{ digits: string[]; states: string[] }>(
           `(function () {
@@ -391,6 +396,52 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           })()`,
         );
         note(`picker: ${chips.digits.join("")} ${chips.states.join(",")}`);
+
+        // The popup is a thing to PRESS, so it is neither cramped nor bitten
+        // by the bubble it sits in. `TugPopover` pads nothing — its usual
+        // consumers are lists that pad their own rows — so a run handed
+        // straight to it sat flush against a border with an 8px radius, and
+        // the corner chips were clipped by the curve.
+        const room = await app.evalJS<{
+          inset: number;
+          width: number;
+          height: number;
+        }>(
+          `(function () {
+            var chips = Array.prototype.slice.call(
+              document.querySelectorAll(${JSON.stringify(PICKER_CHIPS)})
+            );
+            // The bubble itself, reached from the run inside it: the popover
+            // content is portalled and does not carry the picker's testid.
+            var bubble = chips[0].closest(".tug-popover-content");
+            var box = bubble.getBoundingClientRect();
+            var first = chips[0].getBoundingClientRect();
+            var last = chips[chips.length - 1].getBoundingClientRect();
+            return {
+              inset: Math.min(
+                first.left - box.left,
+                box.right - last.right,
+                first.top - box.top,
+                box.bottom - first.bottom
+              ),
+              width: first.width,
+              height: first.height
+            };
+          })()`,
+        );
+        note(
+          `popup room: inset ${room.inset} chip ${room.width}x${room.height}`,
+        );
+        // Enough to clear the bubble's own 8px corner radius on the chips that
+        // stand in its corners.
+        expect(
+          room.inset,
+          "the run is seated inside the bubble, not pressed against its border",
+        ).toBeGreaterThanOrEqual(4);
+        // The Lens picker's cut. Same job, same target — a reader who learns
+        // the gesture on one surface meets the same size on the other.
+        expect(room.width, "chips are the Lens picker's width").toBe(18);
+        expect(room.height, "chips are the Lens picker's height").toBe(22);
         expect(chips.digits, "one chip per place in the arrangement").toEqual([
           "1",
           "2",
@@ -454,6 +505,10 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 8_000 },
         );
+        // The bubble enters on a scale keyframe, and a box read mid-flight
+        // reports the interpolated pose — 17.33px for an 18px chip. Let it
+        // land before measuring anything geometric.
+        await wait(400);
 
         const registered = await app.evalJS<
           { focusable: boolean; key: string | null }[]

@@ -1,0 +1,100 @@
+/**
+ * flow-strip.css — where the strip's drawing stands, and how loudly it speaks.
+ *
+ * The segments are `TugSlot`s and bring their own ink, their own shape and
+ * their own state paints ([L20] — this file sets no colour on them). What is
+ * left is three things: where the drawing stands in the band, the band bracket
+ * over it, and the register change that overflow makes.
+ *
+ * Centered, because the host's build stamps live in the bottom-left corner and
+ * a centered drawing with a ceiling on its width cannot reach a corner. The
+ * centering and the ceiling together are the clearance.
+ *
+ * @tug-pairings
+ * | Element                                              | Surface                                            | Role          | Context           |
+ * |------------------------------------------------------|----------------------------------------------------|---------------|-------------------|
+ * | --tug7-element-global-border-normal-default-rest      | --tug7-surface-global-primary-normal-canvas-rest   | informational | .flow-strip-band (quiet)   |
+ * | --tug7-element-global-border-normal-strong-rest       | --tug7-surface-global-primary-normal-canvas-rest   | informational | .flow-strip-band (raised)  |
+ */
+
+.flow-strip {
+  position: absolute;
+  inset-block-end: var(--flow-strip-inset-bottom);
+  inset-inline: 0;
+  display: flex;
+  justify-content: center;
+  /* The row is a strip across the canvas so it can center against it, but only
+     the drawing itself is a target — the empty span either side of it must stay
+     drop-zone country. */
+  pointer-events: none;
+}
+
+/**
+ * The drawing. A share of the canvas with a ceiling, and a hard floor under
+ * that: the stamps' corner is reserved, and centered means the strip spends
+ * half of whatever it takes toward each end of the band — so the widest it may
+ * ever be is the canvas less both clearances.
+ */
+.flow-strip-frame {
+  position: relative;
+  pointer-events: auto;
+  inline-size: min(
+    calc(100% * var(--flow-strip-canvas-share)),
+    var(--flow-strip-max-width)
+  );
+  max-inline-size: calc(
+    100% - 2 * (var(--flow-strip-stamp-clearance) + var(--flow-strip-edge-inset))
+  );
+  box-sizing: border-box;
+}
+
+/**
+ * The quiet register, and the whole of the difference between the two.
+ *
+ * A strip that fits its band has nowhere else to be, so the drawing is a
+ * statement of what there is rather than of where you are: it steps back, and
+ * the bracket is withheld because a bracket around everything says nothing.
+ * When the strip overflows both come forward. No element mounts or unmounts on
+ * that boundary ([P10]) — only how loudly the same elements speak.
+ */
+.flow-strip[data-overflow="false"] .flow-strip-map {
+  opacity: 0.55;
+}
+
+/* ── The band, over the strip ─────────────────────────────────────────────
+   Where the band starts and how much of the strip it covers, as percentages of
+   the drawing — one gauge reading scaled by that same share, which is why the
+   two can never disagree. `--flow-strip-offset` is written by the component as
+   `var(--gauge-flow-offset, <committed>) * <share>`: live while a gesture
+   publishes, committed truth otherwise ([P08]).
+
+   Neutral ink, never the accent. An accent marks a live selection, and where
+   the reader is standing is not one — it is the instrument's resting subject.
+   The raised register takes the strong border token rather than a tint. */
+.flow-strip-band {
+  display: none;
+  position: absolute;
+  inset-block: -2px;
+  left: calc(var(--flow-strip-offset, 0) * 100%);
+  width: calc(var(--flow-strip-band-share, 1) * 100%);
+  box-sizing: border-box;
+  border-radius: 3px;
+  /* @tug-renders-on: --tug7-surface-global-primary-normal-canvas-rest */
+  border: 1px solid var(--tug7-element-global-border-normal-strong-rest);
+  /* A readout drawn OVER the segments: a hand aiming at a card must not be
+     caught by the picture of where it already is. */
+  pointer-events: none;
+}
+
+.flow-strip[data-overflow="true"] .flow-strip-band {
+  display: block;
+}
+
+/* While a card is being dragged the band is drop-zone country: the strip must
+   not shadow a hit band or swallow the release. The channel stamps the drag on
+   every registered element, so the gate is a selector rather than a decision
+   anyone has to make in JS. */
+.flow-strip[data-gauge-drag],
+.flow-strip[data-gauge-drag] .flow-strip-frame {
+  pointer-events: none;
+}

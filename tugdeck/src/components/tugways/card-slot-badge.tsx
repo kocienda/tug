@@ -40,6 +40,8 @@
 
 import React, { useSyncExternalStore } from "react";
 
+import "./card-slot-badge.css";
+
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { slotCount } from "@/lib/layout-imposer";
 import { findSidebarPanes } from "@/deck-store-selectors";
@@ -147,7 +149,7 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
               this card's business to report from here. */}
           <TugSlotLayout
             ref={picker}
-            className="tug-masthead-frame-slot-badge-picker"
+            className="card-slot-badge-picker"
             data-testid="card-slot-badge-picker"
             count={count}
             states={Array.from({ length: count }, (_, slot) =>

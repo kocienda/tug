@@ -16,6 +16,14 @@
  * `"rest"`. A layout with no `states` at all is therefore an empty
  * arrangement — the right picture for a chooser option.
  *
+ * Crossing both of those is how the arrangement is DRAWN. By default it is a
+ * run: equal chips, side by side, saying how many places there are. Given
+ * {@link TugSlotLayoutProps.spans} it is a map instead — each slot at its own
+ * place and its own width, as fractions of the layout. Same slots, same states,
+ * same projection; only the scale changes, which is why the deck's flow strip
+ * is this component rather than a second one that had to be kept looking like
+ * it.
+ *
  * **Two write paths reach a slot's resting look, and they are ordered.** The
  * `states` prop is the committed truth: every commit re-renders the arrangement
  * from it. `setStates`, on the handle, is the LIVE truth between commits — for a
@@ -97,6 +105,26 @@ export interface TugSlotLayoutProps
    * reach.
    */
   focusGroup?: string;
+  /**
+   * Draw the arrangement TO SCALE — the layout's third form.
+   *
+   * Without it the slots are a RUN: equal chips side by side, saying how many
+   * places there are and what each one's look is. With it they are a MAP: each
+   * slot stands where it stands and is as wide as it is, given as fractions of
+   * the layout's own width, so the drawing follows a resize with no
+   * measurement of itself.
+   *
+   * Same slots, same states, same `setStates` projection — a scaled layout is
+   * the same arrangement drawn at another scale, which is exactly why it is
+   * this component and not a second one. The deck's flow strip is the caller:
+   * it is the arrangement, seen small.
+   *
+   * A slot with no entry is rendered and not drawn. It keeps its index, so
+   * `states` and `setStates` stay addressed by slot rather than by how many
+   * slots happen to be occupied this frame.
+   * @selector [data-scaled="true"]
+   */
+  spans?: readonly ({ left: number; width: number } | undefined)[];
 }
 
 /* ---------------------------------------------------------------------------
@@ -137,6 +165,7 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
       size = "sm",
       slotLabel,
       focusGroup,
+      spans,
       className,
       ...rest
     },
@@ -175,12 +204,24 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
         ref={rootRef}
         data-slot="tug-slot-layout"
         data-count={count}
+        data-scaled={spans !== undefined ? "true" : undefined}
         data-disabled={disabled ? "true" : undefined}
         className={cn("tug-slot-layout", `tug-slot-layout-size-${size}`, className)}
         {...rest}
       >
         {Array.from({ length: count }, (_, slot) => {
           const label = slotLabel?.(slot) ?? `Position ${slot + 1}`;
+          // Percentages of the layout, so the map redraws on a resize with
+          // nothing measuring itself. A slot the caller placed nowhere is
+          // rendered undrawn rather than skipped, so every index still
+          // addresses the same slot.
+          const span = spans?.[slot];
+          const placement =
+            spans === undefined
+              ? undefined
+              : span === undefined
+                ? { display: "none" }
+                : { left: `${span.left * 100}%`, width: `${span.width * 100}%` };
           return (
             <TugSlot
               key={slot}
@@ -188,6 +229,7 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
               state={states?.[slot] ?? "rest"}
               size={size}
               disabled={disabled}
+              {...(placement !== undefined ? { style: placement } : {})}
               focusGroup={onSelectSlot !== undefined ? focusGroup : undefined}
               focusOrder={slot}
               aria-label={onSelectSlot !== undefined ? label : undefined}

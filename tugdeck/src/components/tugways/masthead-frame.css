@@ -53,13 +53,25 @@
   box-sizing: border-box;
   block-size: 100%;
   justify-content: flex-start;
-  /* The row's leading inset, hoisted from the row's own mount rule to the frame
-     so the badge can read it too. Custom properties inherit, so the row still
-     receives exactly what it received before. Chrome, not a rail: there is no
-     movement caret on this edge and no column of other rows to line up with, so
-     the tier seats the mark's ink a few pixels inside its own content edge and
-     the three lines hang off that. */
-  --tugx-session-row-leading-inset: 6px;
+  /* ── The leading column ──────────────────────────────────────────────
+     The tier's two leading numbers, stated on the FRAME rather than on the row
+     inside it, because the badge is not inside the row and reads them too.
+     Custom properties inherit, and the row's own defaults are declared on
+     `body`, so an ancestor saying it here is what both children receive.
+
+     A masthead packs against a COLUMN, not against ink — the rest of that
+     argument is on `SessionIdentityRow`'s `indicatorPacking`. What it means
+     here is that these two numbers are the whole of the tier's leading: air
+     before the column, and the column's own width. Everything that stands in
+     it — a phase dot, a step ring, a document glyph, the slot badge — centres
+     on one axis whatever its ink is, and everything after it starts at the
+     column's far edge plus the row's name gap.
+
+     The air is small on purpose. Chrome, not a rail: there is no movement caret
+     on this edge and no column of other rows to line up with, so the tier gives
+     the column a couple of pixels and spends the rest on the text. */
+  --tugx-session-row-leading-inset: 2px;
+  --tugx-session-row-dot-advance: 20px;
   padding-block-start: calc(
     (
         var(--tug-chrome-height) - var(--tug-font-size-sm) *
@@ -169,20 +181,24 @@
    Absolute against the frame, which is already `position: relative` and is
    deliberately NOT clipped, so the chip cannot be bitten by an overflow rule.
 
-   Both offsets are one token each, and neither is a re-derivation. The block
+   Every offset is one token, and none of them is a re-derivation. The block
    start is the FIRST chrome band's end: the title line and the pane's controls
    share that band, so where it ends is exactly where the dead column begins,
    and the chip lands on the description line without having to reconstruct the
    type ladder plus the dot's advance plus the identity's lead gap to find it.
-   The inline start is the same leading inset the row seats its mark ink on, so
-   the chip and the dot stand on one vertical. */
+   The inline span is the tier's LEADING COLUMN — the same air and the same
+   width the mark above stands in — and the chip centres in it, so badge and
+   mark share an axis rather than an edge. An edge would only hold while the two
+   were the same width; a phase dot's ink is half this chip's. */
 .tug-masthead-frame-slot-badge {
   position: absolute;
   inset-block-start: var(--tug-chrome-height);
   inset-block-end: 0;
   inset-inline-start: var(--tugx-session-row-leading-inset);
+  inline-size: var(--tugx-session-row-dot-advance);
   display: flex;
   align-items: center;
+  justify-content: center;
   /* The BOX spans the tier's whole lower band so it can center the chip in it,
      and the two lines of the stack are drawn under that span. The box takes no
      events; the chip inside it takes its own. */

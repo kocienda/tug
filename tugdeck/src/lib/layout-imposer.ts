@@ -1603,42 +1603,6 @@ export function firstVisibleFlowSlot(
   return touched ?? slots[0];
 }
 
-/**
- * Every occupied slot the band is showing any part of.
- *
- * A slot is in the band when its interval intersects the band's — any part of
- * it on screen counts, because a card clipped at the band edge is still a card
- * the reader can see, and the clip is what makes that slice honest rather than
- * a hairline running off under a rail.
- *
- * The difference from {@link firstVisibleFlowSlot} is the question, not the
- * arithmetic: that one answers *where a new card belongs* and so wants the
- * leftmost WHOLLY visible slot; this one answers *what the band is showing* and
- * so wants every slot it touches.
- *
- * It exists as one function because two readers ask it. The flow readout renders
- * its committed looks from it, and its gauge listener derives its live looks
- * from it per frame. A second derivation would agree with the first only by
- * luck, and the frame where they disagreed would be a chip claiming a card is
- * on screen while the card is not.
- *
- * An empty strip, a band that is not a positive finite length, or a non-finite
- * offset all answer with the empty set: none of them is a picture of anything.
- */
-export function slotsInBand(input: FlowVisibleInput): ReadonlySet<number> {
-  const { strip, band, offset } = input;
-  const inBand = new Set<number>();
-  if (!Number.isFinite(band) || band <= 0 || !Number.isFinite(offset)) {
-    return inBand;
-  }
-  const bandEnd = offset + band;
-  for (const [slot, left] of strip.positions) {
-    const right = left + (strip.extents.get(slot) ?? 0);
-    if (right > offset && left < bandEnd) inBand.add(slot);
-  }
-  return inBand;
-}
-
 /* ---------------------------------------------------------------------------
  * The space allocator
  * ---------------------------------------------------------------------------*/

@@ -40,7 +40,6 @@ import {
   allocateSidebarWidths,
   clampFlowOffset,
   firstVisibleFlowSlot,
-  slotsInBand,
   FLOW_CLIP_SLACK_PX,
   flowRevealOffset,
   flowStripPositions,
@@ -397,67 +396,6 @@ describe("the slot the band is showing", () => {
 
   test("a band that is not a measurement yet falls back to the first slot", () => {
     expect(firstVisibleFlowSlot({ strip, band: 0, offset: 400 })).toBe(0);
-  });
-});
-
-describe("every slot the band is showing", () => {
-  /** Four equal cards in a strip, seen through a band two of them wide. Slot
-   *  lefts are 0, 105, 210, 315; the strip is 415 long. */
-  const strip = flowStripPositions([
-    { slot: 0, width: 100 },
-    { slot: 1, width: 100 },
-    { slot: 2, width: 100 },
-    { slot: 3, width: 100 },
-  ]);
-  const BAND = 100 * 2 + IMPOSITION_GAP_PX;
-
-  const shown = (band: number, offset: number): number[] =>
-    [...slotsInBand({ strip, band, offset })].sort((a, b) => a - b);
-
-  test("at rest the band shows the run it covers, and nothing beyond it", () => {
-    expect(shown(BAND, 0)).toEqual([0, 1]);
-  });
-
-  test("a slot clipped at either edge is still a slot the reader can see", () => {
-    // Half of slot 1 is off the left and half of slot 3 is off the right.
-    expect(shown(BAND, 155)).toEqual([1, 2, 3]);
-  });
-
-  test("a slot wholly past the band is not shown", () => {
-    expect(shown(100, 0)).toEqual([0]);
-  });
-
-  test("a band ending exactly on a slot's left edge does not show that slot", () => {
-    // The band is [0, 105) and slot 1 starts at 105 — half-open at both ends,
-    // so a boundary is a clean cut rather than a one-pixel claim.
-    expect(shown(105, 0)).toEqual([0]);
-  });
-
-  test("a band starting exactly on a slot's right edge does not show it", () => {
-    expect(shown(BAND, 100)).toEqual([1, 2]);
-  });
-
-  test("an unoccupied slot is never shown — it is not a member of the strip", () => {
-    const sparse = flowStripPositions([
-      { slot: 1, width: 100 },
-      { slot: 4, width: 100 },
-    ]);
-    expect([...slotsInBand({ strip: sparse, band: 1000, offset: 0 })].sort()).toEqual(
-      [1, 4],
-    );
-  });
-
-  test("an empty strip shows nothing", () => {
-    expect(
-      slotsInBand({ strip: flowStripPositions([]), band: BAND, offset: 0 }).size,
-    ).toBe(0);
-  });
-
-  test("a band that is not a measurement yet is not a picture of anything", () => {
-    expect(slotsInBand({ strip, band: 0, offset: 0 }).size).toBe(0);
-    expect(slotsInBand({ strip, band: -10, offset: 0 }).size).toBe(0);
-    expect(slotsInBand({ strip, band: Number.NaN, offset: 0 }).size).toBe(0);
-    expect(slotsInBand({ strip, band: BAND, offset: Number.NaN }).size).toBe(0);
   });
 });
 

@@ -413,8 +413,8 @@ Modal scope is the Pane stacking context, not the canvas-overlay tier — pickin
 | `tugdeck/src/components/lens/sections/layouts-section.tsx` | The Lens **Layout** section — the arrangement, the deck's content width, each sidebar's side, and each shared rail's Stack | Split |
 | `tugdeck/src/lib/imposer-gauges.ts` | The gauge channel: register an element for a signal, publish the deck's live fractions onto it — motion without a render |
 | `tugdeck/src/components/lens/layout-miniature.tsx` | `LayoutMiniature` — the deck drawn small, rails stacked or divided; live on the gauge channel when committed |
-| `tugdeck/src/components/chrome/flow-dots.tsx` | `FlowDots` — which slots the deck has and which the band is showing, and the click and scrub that move the strip |
-| `tugdeck/src/components/chrome/flow-dots.css` | The dots' seating in the bottom band, and the drag gate that takes them out of the pointer's way |
+| `tugdeck/src/components/chrome/flow-strip.tsx` | `FlowStrip` — the deck's arrangement drawn to scale in the bottom band, the band bracket over it, and the click and scrub that move the strip |
+| `tugdeck/src/components/chrome/flow-strip.css` | The strip's seating and its two registers, and the drag gate that takes it out of the pointer's way |
 | `tugdeck/src/components/lens/slot-picker.tsx` | `SlotPicker` — the numbered slot buttons on a Lens list row |
 | `tugdeck/src/components/tugways/card-slot-badge.tsx` | `CardSlotBadge` — the slot a card stands in, said on the card, and the picker that moves it there |
 | `tugdeck/src/components/tugways/action-vocabulary.ts` | `FOCUS_PANE`, `ADD_CARD_TO_ACTIVE_PANE`, `CLOSE`, ... |

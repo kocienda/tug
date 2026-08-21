@@ -431,6 +431,27 @@ export interface SessionIdentityRowProps
    */
   dotSize?: number;
   /**
+   * What the row's leading packs against — the mark's INK, or the fixed COLUMN
+   * the mark stands in.
+   *
+   * `"ink"` is a rail's answer and the default: the title closes up against
+   * the pixels the dot actually paints, so a row reads as one reading rather
+   * than as a glyph beside a paragraph. Every mount in a list wants it.
+   *
+   * `"column"` is a masthead's. A chrome tier is not a list of one kind of row:
+   * the same tier is worn by a session (an 8px disc inside a breathing ring)
+   * and by a document (a glyph that fills its box), and a slot badge stands
+   * under both of them. Packed against ink those three land on three different
+   * verticals, each correct and none matching. Packed against the column they
+   * share one, and the marks centre in it whatever size their ink is.
+   *
+   * It is also what makes a tier hold still: a session that joins a counted
+   * dash swaps its dot for a step ring, which packs at the column already — so
+   * under `"ink"` the title moves several pixels sideways when a dash starts.
+   * @default "ink"
+   */
+  indicatorPacking?: "ink" | "column";
+  /**
    * Whether the dot's period is jittered — on in a LIST of separate sessions,
    * each doing its own work, and off where the dots belong to one thing.
    * @default false
@@ -536,6 +557,7 @@ export function SessionIdentityRow({
   cardId,
   projectDir = "",
   dotSize = TUG_SESSION_ROW_STACK_DOT_SIZE,
+  indicatorPacking = "ink",
   drift = false,
   tape = false,
   renderTape,
@@ -800,7 +822,13 @@ export function SessionIdentityRow({
           <SessionPhaseDot sessionId={sessionId} size={dotSize} drift={drift} />
         )
       }
-      indicatorSize={dashCounted ? undefined : dotSize}
+      // No size, no ink correction: the row falls back to packing at the
+      // stylesheet's own advance, which is the column. The ring form takes that
+      // path already — it fills the advance, so there is no slack to reclaim —
+      // and a masthead asks for it outright.
+      indicatorSize={
+        dashCounted || indicatorPacking === "column" ? undefined : dotSize
+      }
       name={
         nameProps !== undefined ? (
           <span {...nameProps}>{titleRun}</span>
