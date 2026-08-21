@@ -46,8 +46,8 @@ There is also a positive discovery that shapes two of the three milestones: **th
 
 #### Success Criteria (Measurable) {#success-criteria}
 
-- On a four-up slim flow deck with rails on both edges, the band's far edge falls on a slot boundary — the smaller piece it cuts any slot into is 0px — whenever the rails' flex range contains such a total. Verification: unit assertion over `stripPicture` at the real content-width presets, plus a hand pass on a debug build.
-- When no total in the rails' range reaches a boundary, the chosen total is the one minimising that cut, and it is never worse than `Σ preferred`. Verification: exhaustive 1px cross-check in `layout-imposer-solutions.test.ts`, the same net the fit scan already carries.
+- On a four-up slim flow deck with rails on both edges, the band's far edge never leaves a HAIRLINE of a card — the piece it cuts is either 0px or at least `SLIVER_PX` — whenever the rails' flex range contains such a total ([P02], as amended). Verification: unit assertion over `stripPicture` at the real content-width presets, plus a hand pass on a debug build.
+- On a deck that already reads well, the rails do not move at all. Verification: the reference sweep — across 2001 canvas widths of that configuration, the rails move at exactly the widths that carried a hairline and nowhere else.
 - The fit allocator's answers are byte-identical to today's for every configuration in the existing golden tables. Verification: `layout-imposer-solutions.test.ts` golden table unchanged (no `IMPOSER_GOLDEN_UPDATE` regeneration on the fit rows).
 - The flow dots stand centered in the canvas's bottom band, draw exactly `slotCount(kind)` chips, and never overlap the host's bottom-left build stamps at any canvas width ≥ the deck's minimum. Verification: app-test measuring the dots' box against the canvas box.
 - Scrolling the strip by wheel repaints which chips read as on-screen with **zero** React renders of the dots component. Verification: app-test render counter across a wheel gesture, the same shape the miniature's liveness is pinned with.
@@ -166,18 +166,25 @@ There is also a positive discovery that shapes two of the three milestones: **th
 
 **Implications:**
 - `impositionLayout(input)` is read at two sites — `scoreRailTotal` and the tier predicate — and nowhere else in the allocator.
-- The `chain.length < 2` short-circuit stays for both modes: no chain is no picture in either.
+- **The short-circuit's threshold is mode-dependent, because the picture is.** This decision first said `chain.length < 2` stays for both modes; the exhaustive sweep refuted it on `one-up` with a single card. Fit scores the seams *between* cards, so one card has nothing to fit — but flow scores the band's far edge, and a lone card wider than the band is cut by that edge exactly as a chain member would be, with narrowing the rails a real repair. So flow's floor is one card and fit's is two.
 - Flow's answer degenerates to `Σ preferred` on its own whenever the strip fits the band, because every candidate then scores 0 on the first term and the key reduces to its last. The old behavior survives exactly where it was right.
 
 #### [P02] The flow picture measures the smaller piece the band's far edge cuts (DECIDED) {#p02-sliver-measure}
 
-**Decision:** `stripPicture` returns one number, `worstSliver`: with the strip laid out by `flowStripPositions` and the band's far edge at `B`, it is the smaller of the two pieces `B` cuts a slot into — `min(B − left, left + extent − B)` for the slot containing `B` — and `0` when `B` falls in a gap between slots, on a slot boundary, or past the strip's end. The flow key is `[worstSliver, |T − Σ preferred|]`.
+**Decision:** `stripPicture` returns one number, `worstSliver`: with the strip laid out by `flowStripPositions` and the band's far edge at `B`, it is the smaller of the two pieces `B` cuts a slot into — `min(B − left, left + extent − B)` for the slot containing `B` — and `0` when `B` falls in a gap between slots, on a slot boundary, or past the strip's end.
+
+**AMENDED DURING IMPLEMENTATION.** As first written this decision made the flow key `[worstSliver, |T − Σ preferred|]` — the raw measurement, minimised. That is wrong, and the sweep proved it: **the fit key's first three terms are breakage readings with a rest state at zero**, so on a deck that already reads well the distance-from-preferred term governs and the rails stay where their owner put them. A raw sliver has no rest state — it is nonzero at nearly every candidate total — so it would govern *always*, and the allocator would chase a cut it can only ever shrink. It did: on a two-card wide deck whose nearest boundary sat past the rail ceiling, the Lens was pushed from the 420px its owner set to its 675px maximum, taking a 316px cut down to 61px. Still cut, still not a boundary, and the user's rail gone.
+
+So the score is **graded, not minimised**: `hairlineOf(worstSliver)` is the sliver when `0 < sliver < SLIVER_PX` and `0` otherwise, and the flow key is `[hairlineOf(worstSliver), |T − Σ preferred|]`. A boundary is clean; an honest slice of a card is clean; only the hairline between them is a defect. That restores the rest state the fit key depends on. `SLIVER_PX = 32` is the one tunable in the objective — below it, what shows is a pane's rounded corner and the edge of its shadow rather than any content.
+
+Measured over the reference configuration (four-up slim, rails both edges) across 2001 canvas widths: 155 produced a hairline at the preferred widths, 0 do now, and the rails move at exactly those 155 widths and nowhere else.
 
 **Rationale:**
 - `worstSliver = 0` is exactly "the band's far edge lands on a card boundary", which is the picture the user is asking for.
 - The measure is symmetric on purpose. A three-pixel stripe of a card *peeking* and a three-pixel stripe *hidden* are equally ugly, and both are three pixels of rail away from clean; a one-sided measure would fix one and chase the other.
-- It is a smooth objective, so it degrades correctly: when no total in the rails' range reaches a boundary, the scan lands on the total that comes closest, rather than refusing.
-- A card cut near its middle scores worst, and that is right: it is the furthest from a boundary in either direction. A cut card remains a perfectly readable overflow affordance — the doctrine already says so for columns — but it is what you get when a boundary is out of reach, not what the allocator aims for.
+- **The grading is what gives the objective a rest state**, which is the property the fit key has and a raw magnitude does not. Without it the term is nonzero almost everywhere, so it outranks the user's own rail widths on every deck rather than only on a broken one.
+- A cut card remains a perfectly readable overflow affordance — the doctrine already says so for columns — and the grading states that rather than merely tolerating it: an honest slice scores exactly as well as a boundary, so the allocator has no reason to spend rail width on one.
+- The optima are computable rather than searchable, so they are seeded into the scan (`flowSeedTotals`). Grading makes the score spiky — wide clean plateaus, narrow hairline valleys, and boundary optima a single pixel wide — and the 16px coarse stride steps over those. It did, choosing a total 37px further from the user's rail than one it stepped past.
 
 **Implications:**
 - One term, not three: flow's key is shorter than fit's. `compareScores` already compares element-wise over equal-length arrays and is never handed one of each.
@@ -335,7 +342,8 @@ Exported for the same reason `seamPicture` is: the objective must be inspectable
 
 - In `scoreRailTotal`, branch on `impositionLayout(input)`. Flow returns `[stripPicture(input, widths).worstSliver, Math.abs(total − preferredTotal)]`; fit returns today's four-term key unchanged.
 - In `chooseRailTotal`, `tierOf(total)` returns `1` when the flow key's first term is `0` and `0` otherwise; fit's three-tier predicate is unchanged. The two-domain search and the "descend below comfort only for a higher tier" rule are shared verbatim.
-- `allocateSidebarWidths` keeps `chain.length < 2 → preferredTotal` for both modes and drops `impositionLayout(input) === "flow"` from that condition.
+- `allocateSidebarWidths` drops `impositionLayout(input) === "flow"` from the `target` short-circuit, and the remaining chain-length guard becomes mode-dependent — `< 2` in fit, `< 1` in flow ([P02], as amended).
+- The flow scan is seeded with `flowSeedTotals` — the totals that put the band on a slot edge, on an edge ± `SLIVER_PX`, or at the strip's own length — because the graded score is spiky and a coarse stride can step over a one-pixel-wide optimum.
 
 **Spec S03: the two write paths into a chip's resting look** {#s03-two-write-paths}
 
@@ -462,9 +470,9 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | M01 — the flow picture, pure | pending | — |
-| #step-2 | M01 — the allocator scans in flow | pending | — |
-| #step-3 | M01 — integration checkpoint | pending | — |
+| #step-1 | M01 — the flow picture, pure | done | `0e8187fbc` |
+| #step-2 | M01 — the allocator scans in flow | done | `ecc71755c` |
+| #step-3 | M01 — integration checkpoint | done | `481416b77` |
 | #step-4 | M02 — the gauge listener and the layout's own projection | pending | — |
 | #step-5 | M02 — flow dots replace the rail | pending | — |
 | #step-6 | M02 — the dots go live and take the gestures | pending | — |
@@ -515,7 +523,7 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 **Tasks:**
 - [ ] Branch `scoreRailTotal` on `impositionLayout(input)` per Spec S02. Keep the fit key's construction untouched.
 - [ ] Make `tierOf` in `chooseRailTotal` mode-aware; leave the two-domain search and the comfort rule exactly as they are.
-- [ ] Remove `impositionLayout(input) === "flow"` from the `target` short-circuit, keeping `chain.length < 2`.
+- [ ] Remove `impositionLayout(input) === "flow"` from the `target` short-circuit, and make the remaining chain-length guard mode-dependent — `< 2` in fit, `< 1` in flow.
 - [ ] Rewrite the short-circuit comment: it must no longer claim flow has no picture, and it should name where flow's picture now lives.
 - [ ] Update the `allocateSidebarWidths` doc block's "Flow is why `imposeRect` and `seamPicture` stay fit-only" sentence — that remains true, and the reason is now that flow has its own picture rather than none.
 

@@ -1843,27 +1843,34 @@ export function allocateSidebarWidths(input: AllocatorInput): RailWidths | null 
   const comfortTotal = sum((rail) => rail.comfortFloor);
   const ceilingTotal = sum((rail) => rail.ceiling);
 
+  // How much chain a mode needs before it has a picture worth scanning for,
+  // and the two answers differ because the two pictures do. FIT scores the
+  // seams BETWEEN cards, so one card has no seam and nothing to fit. FLOW
+  // scores where the band's far edge falls, and a lone card wider than the
+  // band is cut by that edge exactly as a chain member would be — narrowing
+  // the rails widens the band until the whole of it shows, which is a real
+  // repair the scan can find. So flow's floor is one card, not two.
+  const minimumChain = impositionLayout(input) === "flow" ? 1 : 2;
   const target =
-    impositionLayout(input) === "flow" || chain.length < 2
-      ? // No seam is no picture: every candidate scores zero on the first
-        // three terms and the key reduces to its last, which is minimised at
-        // Σ preferred. Returned directly rather than scanned for it — the
-        // answer falls out of the objective, so this is a shortcut, not a
-        // special case.
+    chain.length < minimumChain
+      ? // Nothing to score: every candidate ties on every term but the last,
+        // the key reduces to that last term, and it is minimised at
+        // Σ preferred. Returned directly rather than scanned for — the answer
+        // falls out of the objective, so this is a shortcut, not a special
+        // case.
         //
-        // FLOW joins that branch for the same reason, one step further along.
-        // A flow deck has seams, but every one of them is exactly
-        // IMPOSITION_GAP_PX by construction and independent of the band: the
-        // strip is a running sum, so widening the rails narrows the band
-        // without moving a single seam. Every candidate total therefore scores
-        // zero on `worstOverlap`, `worstShortfall` and `worstError` alike, the
-        // key reduces to its last term again, and the answer is Σ preferred.
-        // (The linear solve agrees by a different route: its `aⱼ = fⱼ₊₁ − fⱼ`
-        // terms are all zero in flow, so `solveSidebarWidths` divides by a zero
-        // denominator and returns null, which is already guarded.)
+        // FLOW USED TO SHARE THIS BRANCH, and the reasoning was sound as far as
+        // it went: every flow seam is exactly IMPOSITION_GAP_PX by construction
+        // and independent of the band, so `worstOverlap`, `worstShortfall` and
+        // `worstError` really are identically zero at every candidate total.
+        // What all three measure is the seam BETWEEN two cards, and what flow
+        // can get wrong is where the band's FAR EDGE lands — a degree of
+        // freedom no fit term watches, because in fit it cannot go wrong at
+        // all. So flow scans like everything else now, against a picture of its
+        // own ({@link stripPicture}).
         //
-        // Flow is why `imposeRect` and `seamPicture` stay fit-only: nothing
-        // reaches them here.
+        // `imposeRect` and `seamPicture` still stay fit-only, and the reason is
+        // now that flow has its own picture rather than that it has none.
         preferredTotal
       : chooseRailTotal(input, chain, {
           floorTotal,
@@ -1979,8 +1986,17 @@ function waterFill(
 const TOTAL_SCAN_STRIDE_PX = 16;
 
 /**
- * The lexicographic score of a candidate total: occlusion, then cramping, then
- * raggedness, then distance from the widths the user chose.
+ * The lexicographic score of a candidate total.
+ *
+ * **In fit:** occlusion, then cramping, then raggedness, then distance from the
+ * widths the user chose. **In flow:** the cut the band's far edge makes, then
+ * that same distance. The modes score different things because they can fail in
+ * different ways, and each key ends on the same last term — which is what makes
+ * every answer unique, and breaks every remaining tie toward leaving the rails
+ * where their owner put them.
+ *
+ * A key is only ever compared against another key of its own mode, so the two
+ * lengths never meet.
  *
  * The candidate is evaluated through a `RailWidths` carrying THE SAME SIDES
  * the answer will carry. The split across those sides is immaterial — the band
@@ -1996,12 +2012,19 @@ function scoreRailTotal(
 ): readonly number[] {
   const widths: RailWidths = {};
   for (const side of sides) widths[side] = total / sides.length;
+  const distance = Math.abs(total - preferredTotal);
+  if (impositionLayout(input) === "flow") {
+    return [
+      hairlineOf(sliverOfChain(input, chain, widths).worstSliver),
+      distance,
+    ];
+  }
   const picture = pictureOfChain(input, chain, widths);
   return [
     picture.worstOverlap,
     picture.worstShortfall,
     picture.worstError,
-    Math.abs(total - preferredTotal),
+    distance,
   ];
 }
 
@@ -2011,6 +2034,46 @@ function compareScores(a: readonly number[], b: readonly number[]): number {
     if (a[i] !== b[i]) return a[i] - b[i];
   }
   return 0;
+}
+
+/**
+ * The rail totals worth trying in flow, derived rather than searched for.
+ *
+ * The band is an affine function of the rails' total —
+ * `band = canvasWidth − total − gap × (R + 2)` — so a band worth landing on
+ * inverts straight into a total worth trying. Three families qualify, and
+ * together they contain every point at which the flow score can change class:
+ *
+ *  - **Every slot edge.** A band ending on one is a boundary, and scores clean.
+ *  - **Every edge ± {@link SLIVER_PX}.** These are where a hairline becomes an
+ *    honest slice, which is the other way to leave the defect tier.
+ *  - **The strip's own length**, where the chain stops overflowing at all.
+ *
+ * Out-of-range seeds are harmless: `bestIn` clamps each into its domain before
+ * scoring, and a clamped duplicate merely costs one extra evaluation.
+ *
+ * At most six slots stand in a strip, so this is a couple of dozen numbers.
+ */
+function flowSeedTotals(
+  input: AllocatorInput,
+  chain: readonly { slot: number; width: number }[],
+  sides: readonly SidebarSide[],
+): readonly number[] {
+  if (impositionLayout(input) !== "flow") return [];
+  const strip = flowStripPositions(chain);
+  const constant =
+    input.canvasWidth - IMPOSITION_GAP_PX * (sides.length + 2);
+  const totalFor = (band: number): number => constant - band;
+  const seeds: number[] = [totalFor(strip.width)];
+  for (const [slot, left] of strip.positions) {
+    const right = left + (strip.extents.get(slot) ?? 0);
+    for (const edge of [left, right]) {
+      seeds.push(totalFor(edge));
+      seeds.push(totalFor(edge - SLIVER_PX));
+      seeds.push(totalFor(edge + SLIVER_PX));
+    }
+  }
+  return seeds.filter((seed) => Number.isFinite(seed));
 }
 
 /**
@@ -2043,6 +2106,16 @@ function chooseRailTotal(
   // The closed-form fit is no longer the answer, but it is still an excellent
   // guess at where the answer sits, so it joins the coarse candidates.
   const fitted = solveSidebarWidths(input);
+  // Flow's optima are COMPUTABLE, so they are handed to the scan rather than
+  // searched for. Grading the sliver ({@link hairlineOf}) makes the flow score
+  // spiky where fit's is smooth: wide plateaus that already read well, narrow
+  // hairline valleys, and optima that can be a single pixel wide where the band
+  // lands exactly on a slot edge. A coarse stride walks straight over those —
+  // it chose a total 37px further from the user's rail than one it stepped
+  // past — and the answer is not a finer stride but the fact that nothing here
+  // needs searching: the totals that put the band on a slot's edge, or exactly
+  // on the hairline threshold, follow from the strip's own geometry.
+  const seeds = flowSeedTotals(input, chain, sides);
 
   const bestIn = (lo: number, hi: number): number => {
     if (hi <= lo) return lo;
@@ -2066,6 +2139,7 @@ function chooseRailTotal(
     }
     consider(hi);
     if (fitted !== null) consider(Math.min(Math.max(fitted, lo), hi));
+    for (const seed of seeds) consider(Math.min(Math.max(seed, lo), hi));
     // Then 1px around the coarse winner, which is where the true optimum sits:
     // the score is monotone in the total on either side of it up to the stride.
     const fineLo = Math.max(lo, best - TOTAL_SCAN_STRIDE_PX);
@@ -2094,14 +2168,27 @@ function chooseRailTotal(
   // comfort still buys the user their cards back, and a clean-or-nothing rule
   // would refuse it. Tiers say both of those in one comparison, and keep the
   // yes/no character that makes the rule testable.
+  //
+  // FLOW has one failure, so it has two tiers: the band's far edge leaves a
+  // HAIRLINE of a card, or it does not — a boundary and an honest slice are
+  // both the clean tier ({@link hairlineOf}). The rule above is unchanged in
+  // shape — comfort is surrendered if and only if doing so reaches a higher
+  // tier — and a shorter ladder does not weaken it, because a flow deck cannot
+  // be cramped or occluded to begin with.
+  const flow = impositionLayout(input) === "flow";
   const tierOf = (total: number): number => {
     const key = score(total);
+    if (flow) return key[0] > 0 ? 0 : 1;
     if (key[0] > 0) return 0;
     return key[1] > 0 ? 1 : 2;
   };
+  // The top tier is the mode's own: `clean` is 2 of fit's three, and 1 of
+  // flow's two. Reaching it is the early-out — there is nothing above it to
+  // spend comfort on.
+  const cleanTier = flow ? 1 : 2;
   const comfortBest = bestIn(comfortTotal, ceilingTotal);
   const comfortTier = tierOf(comfortBest);
-  if (comfortTier === 2) return comfortBest;
+  if (comfortTier === cleanTier) return comfortBest;
   const hardBest = bestIn(floorTotal, ceilingTotal);
   return tierOf(hardBest) > comfortTier ? hardBest : comfortBest;
 }
@@ -2231,6 +2318,127 @@ export function seamPicture(
     return { worstError: 0, worstOverlap: 0, worstShortfall: 0 };
   }
   return pictureOfChain(input, chain, widths);
+}
+
+/**
+ * How the chain reads **in flow**: the smaller of the two pieces the band's far
+ * edge cuts a slot into, and `0` when it cuts none.
+ *
+ * Flow's failure is not the one the three readings above measure, and it cannot
+ * be. Every flow seam is exactly {@link IMPOSITION_GAP_PX} by construction —
+ * the strip is a running sum, so widening the rails narrows the band without
+ * moving a single seam — which leaves `worstOverlap`, `worstShortfall` and
+ * `worstError` identically zero at every candidate total. What none of them
+ * watches is where the band's FAR EDGE lands, and in flow that is the only
+ * thing that can go wrong: the strip is designed to run past the band, so the
+ * edge falls wherever the rails' width leaves it. In fit it cannot go wrong at
+ * all, because `imposeRect` pins every card inside the band.
+ *
+ * This is the raw measurement, and it is deliberately not the score:
+ *
+ *  - **`0` is a boundary.** The edge landed on a slot's near or far edge, or in
+ *    the gap between two slots, or past the strip's end. Nothing is cut.
+ *  - **A small reading is a hairline** — a sliver of a card peeking past the
+ *    band, or a sliver of it hidden — and it is a few pixels of rail away from
+ *    a boundary, which is exactly what the scan will find.
+ *  - **The largest reading is a card cut near its middle**, the furthest from a
+ *    boundary in either direction, and a perfectly good overflow affordance.
+ *
+ * {@link hairlineOf} is what grades it for the objective, and the reason the
+ * grading exists is written there. Kept honest here so the golden tables and
+ * the tests can read the real number rather than the judgement of it.
+ *
+ * The measure is SYMMETRIC on purpose. Three pixels of a card showing and three
+ * pixels of it hidden are the same ugliness and the same three pixels of rail
+ * from clean; a one-sided reading would repair one and chase the other.
+ *
+ * Evaluated at flow offset 0 and nowhere else. Rails whose widths followed the
+ * live offset would breathe as the strip scrolled, which is a far worse picture
+ * than the one this repairs. It costs nothing in the common case: with every
+ * card at one content-width preset the strip has a uniform stride, every
+ * revealed offset is a multiple of it, and an edge on a boundary at rest is on
+ * a boundary at every revealed offset.
+ */
+/**
+ * The narrowest strip of a card that still reads as a card.
+ *
+ * Below this, what the band leaves showing is a pane's rounded corner and the
+ * edge of its shadow — chrome, with no content in it — and it reads as a
+ * rendering artifact rather than as the next card in the chain. That is the
+ * thing worth spending rail width to remove, and it is the whole of it.
+ *
+ * A tunable, and the only number in the flow objective.
+ */
+export const SLIVER_PX = 32;
+
+/**
+ * The part of a cut that is worth moving the rails for: a hairline, and zero
+ * for everything else.
+ *
+ * **This threshold is what keeps the objective honest, and it is not a fudge.**
+ * The fit key's first three terms are BREAKAGE readings — a chain that is not
+ * occluded and not cramped scores zero on all three — so the distance from the
+ * widths the user chose governs every deck that already reads well, and the
+ * rails stay where their owner put them. A raw sliver has no such rest state:
+ * it is nonzero at nearly every candidate total, so it would govern always, and
+ * the allocator would drag a rail across its whole range chasing a cut it can
+ * only ever shrink. It did exactly that before this existed — a two-card wide
+ * deck whose nearest boundary sat past the rail ceiling had the Lens pushed
+ * from the 420px its owner set to its 675px maximum, to take a 316px cut down
+ * to 61px. Still cut, still not a boundary, and the user's rail gone.
+ *
+ * So the reading is graded rather than minimised, and it has a rest state like
+ * fit's: a boundary is clean, an honest slice of a card is clean, and only the
+ * hairline between them is a defect. That restores the property the fit key
+ * relies on — the picture term is zero on a deck that reads well, so the last
+ * term decides, and the answer is the width the user asked for.
+ */
+export function hairlineOf(worstSliver: number): number {
+  return worstSliver > 0 && worstSliver < SLIVER_PX ? worstSliver : 0;
+}
+
+export function stripPicture(
+  input: AllocatorInput,
+  widths: RailWidths,
+): { worstSliver: number } {
+  const chain = chainOf(input);
+  if (chain === null || chain.length === 0) return { worstSliver: 0 };
+  return sliverOfChain(input, chain, widths);
+}
+
+/**
+ * {@link stripPicture} with the chain already in hand — the form the total
+ * chooser calls, for the reason {@link pictureOfChain} exists.
+ */
+function sliverOfChain(
+  input: AllocatorInput,
+  chain: readonly { slot: number; width: number }[],
+  widths: RailWidths,
+): { worstSliver: number } {
+  // The band is the span less the gap the chain keeps at each of its ends —
+  // the same derivation `DeckManager._flowBandWidth` makes from the same
+  // `resolveSpan`, rather than a second one that would agree with it by luck.
+  const band =
+    resolveSpan({ width: input.canvasWidth, height: 0 }, railsOf(widths))
+      .width -
+    IMPOSITION_GAP_PX * 2;
+  if (!Number.isFinite(band) || band <= 0) return { worstSliver: 0 };
+
+  const strip = flowStripPositions(chain);
+  // A strip inside its band has no far edge to cut anything with.
+  if (strip.width <= band) return { worstSliver: 0 };
+
+  for (const [slot, left] of strip.positions) {
+    const extent = strip.extents.get(slot) as number;
+    // Half-open: an edge exactly on a slot's near edge belongs to the gap
+    // before it, and one exactly on its far edge belongs to the next gap. Both
+    // are boundaries, and both must read as 0 rather than as a zero-width cut.
+    if (band > left && band < left + extent) {
+      return { worstSliver: Math.min(band - left, left + extent - band) };
+    }
+  }
+  // The edge fell in a gap between two slots, or past the last one.
+  return { worstSliver: 0 };
 }
 
 /**

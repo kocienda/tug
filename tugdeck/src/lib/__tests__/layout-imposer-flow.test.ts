@@ -42,14 +42,18 @@ import {
   firstVisibleFlowSlot,
   flowRevealOffset,
   flowStripPositions,
+  hairlineOf,
   imposeStyle,
+  SLIVER_PX,
   impositionLayout,
+  stripPicture,
   FLOW_OFFSET_PROPERTY,
   FLOW_STRIP_PROPERTY,
   isImpositionLayout,
   type AllocatorInput,
   type FlowSlotExtent,
   type RailPolicy,
+  type RailWidths,
 } from "@/lib/layout-imposer";
 
 const GAP = IMPOSITION_GAP_PX;
@@ -394,6 +398,83 @@ describe("the slot the band is showing", () => {
   });
 });
 
+describe("the band's far edge", () => {
+  /** One rail, so a band is one subtraction away from a canvas width:
+   *  `band = canvas − (rail + gap) − 2 × gap`. Inverted here so each case can
+   *  state the band it means rather than the canvas that produces it. */
+  const RAIL_PX = 300;
+  const rail: RailPolicy = {
+    preferredWidth: RAIL_PX,
+    minWidth: RAIL_PX,
+    comfortWidth: RAIL_PX,
+    greedRank: 1,
+  };
+  const railWidths = { left: RAIL_PX };
+
+  const forBand = (
+    band: number,
+    occupied: readonly FlowSlotExtent[],
+  ): AllocatorInput => ({
+    canvasWidth: band + RAIL_PX + IMPOSITION_GAP_PX * 3,
+    kind: "four-up",
+    layout: "flow",
+    occupied: [...occupied],
+    rails: { left: rail },
+    maxRailWidth: CONTENT_WIDTH_SLIM_PX,
+  });
+
+  /** Four slim cards: lefts 0, 680, 1360, 2040; strip 2715 long. */
+  const FOUR_SLIM: readonly FlowSlotExtent[] = [
+    { slot: 0, width: CONTENT_WIDTH_SLIM_PX },
+    { slot: 1, width: CONTENT_WIDTH_SLIM_PX },
+    { slot: 2, width: CONTENT_WIDTH_SLIM_PX },
+    { slot: 3, width: CONTENT_WIDTH_SLIM_PX },
+  ];
+  const sliver = (band: number): number =>
+    stripPicture(forBand(band, FOUR_SLIM), railWidths).worstSliver;
+
+  test("an edge on a slot's near edge cuts nothing", () => {
+    expect(sliver(680)).toBe(0);
+  });
+
+  test("an edge on a slot's far edge cuts nothing", () => {
+    expect(sliver(CONTENT_WIDTH_SLIM_PX)).toBe(0);
+  });
+
+  test("an edge in the gap between two slots cuts nothing", () => {
+    expect(sliver(CONTENT_WIDTH_SLIM_PX + 2)).toBe(0);
+  });
+
+  test("three pixels of a card peeking reads as three", () => {
+    // The failure this whole objective exists for: a hairline of slot 1 past
+    // the band's end, three pixels of rail away from clean.
+    expect(sliver(683)).toBe(3);
+  });
+
+  test("three pixels of a card hidden reads as three too", () => {
+    // Slot 1 spans 680..1355. The measure is symmetric: a hairline withheld is
+    // the same ugliness, and the same three pixels from a boundary.
+    expect(sliver(1352)).toBe(3);
+  });
+
+  test("a card cut near its middle reads as the smaller piece", () => {
+    // 300px of slot 1 shown, 375px hidden.
+    expect(sliver(980)).toBe(300);
+  });
+
+  test("a strip inside its band has no far edge to cut with", () => {
+    expect(sliver(3000)).toBe(0);
+  });
+
+  test("an empty strip is nothing to cut", () => {
+    expect(stripPicture(forBand(800, []), railWidths).worstSliver).toBe(0);
+  });
+
+  test("a band that is not a measurement yet cuts nothing", () => {
+    expect(sliver(0)).toBe(0);
+  });
+});
+
 describe("the allocator in flow", () => {
   /** A rail with a comfort band the fit solver can spend. */
   const overview: RailPolicy = {
@@ -436,14 +517,144 @@ describe("the allocator in flow", () => {
     ).toBe(true);
   });
 
-  test("flow leaves every rail at its preferred width", () => {
-    // Every flow seam is the imposition gap by construction and independent of
-    // the band, so no rail total scores better than any other on overlap,
-    // shortfall or raggedness, and the key reduces to |T − Σ preferred|.
-    expect(allocateSidebarWidths(crowded("flow"))).toEqual({
-      left: lens.preferredWidth,
-      right: overview.preferredWidth,
-    });
+  /** One rail, three comfy cards (lefts 0, 805, 1610; strip 2410), and a canvas
+   *  chosen so the band at the rail's preferred width ends THREE PIXELS inside
+   *  the second card — the hairline under the Lens this objective exists for. */
+  const hairlineDeck: AllocatorInput = {
+    canvasWidth: 1243,
+    kind: "three-up",
+    layout: "flow",
+    occupied: [
+      { slot: 0, width: CONTENT_WIDTH_COMFY_PX },
+      { slot: 1, width: CONTENT_WIDTH_COMFY_PX },
+      { slot: 2, width: CONTENT_WIDTH_COMFY_PX },
+    ],
+    rails: {
+      left: {
+        preferredWidth: 420,
+        minWidth: 300,
+        comfortWidth: 380,
+        greedRank: 1,
+      },
+    },
+    maxRailWidth: CONTENT_WIDTH_SLIM_PX,
+  };
+
+  test("flow spends rail width to clear a hairline", () => {
+    expect(
+      stripPicture(hairlineDeck, { left: 420 }).worstSliver,
+      "the premise: at the width its owner chose, the band cuts 3px of a card",
+    ).toBe(3);
+    const answer = allocateSidebarWidths(hairlineDeck) as RailWidths;
+    expect(
+      answer.left,
+      "three more pixels of rail put the band on that card's near edge",
+    ).toBe(423);
+    expect(stripPicture(hairlineDeck, answer).worstSliver).toBe(0);
+  });
+
+  test("flow keeps its comfort when the fix is reachable above the floors", () => {
+    const answer = allocateSidebarWidths(hairlineDeck) as RailWidths;
+    expect(answer.left).toBeGreaterThanOrEqual(380);
+  });
+
+  test("an honest slice of a card is not a defect, and costs the rails nothing", () => {
+    // Two WIDE cards (strip 2465) seen through a canvas whose nearest boundary
+    // needs a 736px rail — past the 675px ceiling, so no boundary is reachable
+    // at all. Minimising the cut would drag the rail from the 420 its owner set
+    // to its 675 maximum to take 316px down to 61px: still cut, still not a
+    // boundary, and the user's rail gone. A slice this size reads as the next
+    // card, so it is not a defect, and the rails stay where they were put.
+    const wideDeck: AllocatorInput = {
+      canvasWidth: 1986,
+      kind: "two-up",
+      layout: "flow",
+      occupied: [
+        { slot: 0, width: CONTENT_WIDTH_WIDE_PX },
+        { slot: 1, width: CONTENT_WIDTH_WIDE_PX },
+      ],
+      rails: {
+        left: {
+          preferredWidth: 420,
+          minWidth: 300,
+          comfortWidth: 380,
+          greedRank: 1,
+        },
+      },
+      maxRailWidth: CONTENT_WIDTH_SLIM_PX,
+    };
+    const answer = allocateSidebarWidths(wideDeck) as RailWidths;
+    expect(answer.left).toBe(420);
+    expect(
+      hairlineOf(stripPicture(wideDeck, answer).worstSliver),
+      "graded clean: a slice this wide is a card, not an artifact",
+    ).toBe(0);
+    expect(
+      stripPicture(wideDeck, answer).worstSliver,
+      "and the raw measurement still reports what it really is",
+    ).toBeGreaterThan(SLIVER_PX);
+  });
+
+  test("flow surrenders comfort only to reach a boundary it otherwise cannot", () => {
+    // One rail, so the band is one subtraction from the canvas. Three comfy
+    // cards stand at 0, 805 and 1610; the band's far edge is on a boundary at
+    // 1605 (slot 1's far edge, rail 660) and at 1610 (slot 2's near edge, rail
+    // 655). The comfort floor is set at 665 so NEITHER is inside the comfort
+    // domain, and the hard floor at 600 so both are below it.
+    const pinched: RailPolicy = {
+      preferredWidth: 670,
+      minWidth: 600,
+      comfortWidth: 665,
+      greedRank: 1,
+    };
+    const deck: AllocatorInput = {
+      canvasWidth: 2280,
+      kind: "three-up",
+      layout: "flow",
+      occupied: [
+        { slot: 0, width: CONTENT_WIDTH_COMFY_PX },
+        { slot: 1, width: CONTENT_WIDTH_COMFY_PX },
+        { slot: 2, width: CONTENT_WIDTH_COMFY_PX },
+      ],
+      rails: { left: pinched },
+      maxRailWidth: CONTENT_WIDTH_SLIM_PX,
+    };
+    const answer = allocateSidebarWidths(deck) as RailWidths;
+    expect(stripPicture(deck, answer).worstSliver).toBe(0);
+    expect(
+      answer.left,
+      "below its comfort floor, and at the boundary nearest the width its owner chose",
+    ).toBe(660);
+  });
+
+  test("flow keeps Σ preferred when no total in range reaches a boundary", () => {
+    // A rail pinned to one width has one candidate total, so the scan cannot
+    // improve the picture. The answer degrades to that width rather than
+    // refusing — and the cut it leaves is the overflow affordance.
+    const pinned: RailPolicy = {
+      preferredWidth: 300,
+      minWidth: 300,
+      comfortWidth: 300,
+      greedRank: 1,
+    };
+    const deck: AllocatorInput = {
+      canvasWidth: 2280,
+      kind: "three-up",
+      layout: "flow",
+      occupied: [
+        { slot: 0, width: CONTENT_WIDTH_COMFY_PX },
+        { slot: 1, width: CONTENT_WIDTH_COMFY_PX },
+        { slot: 2, width: CONTENT_WIDTH_COMFY_PX },
+      ],
+      rails: { left: pinned },
+      maxRailWidth: 300,
+    };
+    const answer = allocateSidebarWidths(deck) as RailWidths;
+    expect(answer.left).toBe(300);
+    expect(
+      stripPicture(deck, answer).worstSliver,
+      "a cut it cannot repair is still reported rather than hidden",
+    ).toBeGreaterThan(0);
   });
 
   test("an absent layout allocates as fit", () => {

@@ -37,9 +37,12 @@ import {
   IMPOSITION_GAP_PX,
   IMPOSITION_KINDS,
   allocateSidebarWidths,
+  hairlineOf,
   seamPicture,
+  SLIVER_PX,
   slotCount,
   solveSidebarWidths,
+  stripPicture,
   travelFraction,
   type AllocatorInput,
   type ImpositionKind,
@@ -763,6 +766,130 @@ describe("the allocator's solution space", () => {
     expect(compared).toBeGreaterThan(1_000);
   });
 
+  test("the flow scan finds what a 1px exhaustive search finds", () => {
+    // The fit cross-check above, run against flow's own objective. Flow scores
+    // one term rather than three — the cut the band's far edge makes — and
+    // ends on the same distance-from-preferred tiebreak, so the same
+    // coarse-to-fine stride has to be shown to find the same answer here too.
+    let compared = 0;
+    let repaired = 0;
+    for (const kind of IMPOSITION_KINDS) {
+      for (const occupancy of occupanciesFor(kind)) {
+        for (const fixture of RAIL_FIXTURES) {
+          for (const canvasWidth of [1400, 2200, 3000, 3800]) {
+            const input: AllocatorInput = {
+              canvasWidth,
+              kind,
+              layout: "flow",
+              occupied: occupancy.occupied,
+              rails: fixture.rails,
+              maxRailWidth: CEILING,
+            };
+            const sides = sidesOf(fixture.rails);
+            const bounds = sides.map((side) =>
+              boundsOf(input.rails[side] as RailPolicy),
+            );
+            const floorTotal = bounds.reduce((sum, b) => sum + b.floor, 0);
+            const comfortTotal = bounds.reduce(
+              (sum, b) => sum + b.comfortFloor,
+              0,
+            );
+            const ceilingTotal = bounds.reduce((sum, b) => sum + b.ceiling, 0);
+            const preferredTotal = bounds.reduce((sum, b) => sum + b.preferred, 0);
+            const answer = allocateSidebarWidths(input) as RailWidths;
+            const chosen = sides.reduce(
+              (sum, side) => sum + (answer[side] as number),
+              0,
+            );
+
+            const sliverAt = (total: number): number =>
+              hairlineOf(stripPicture(input, spread(total, sides)).worstSliver);
+            // Flow's two tiers: a boundary, or a cut. Comfort is surrendered
+            // only to cross between them — the same rule fit applies over its
+            // three, and the same domain choice made from it.
+            const domainLow =
+              sliverAt(comfortTotal) > 0 && sliverAt(floorTotal) === 0
+                ? floorTotal
+                : comfortTotal;
+            const key = (total: number): readonly number[] => [
+              sliverAt(total),
+              Math.abs(total - preferredTotal),
+            ];
+            let best = key(domainLow);
+            for (let t = domainLow + 1; t <= ceilingTotal; t += 1) {
+              const candidate = key(t);
+              for (let i = 0; i < candidate.length; i += 1) {
+                if (candidate[i] === best[i]) continue;
+                if (candidate[i] < best[i]) best = candidate;
+                break;
+              }
+            }
+            const scored = key(chosen);
+            const where = `${kind}/${occupancy.name}/${fixture.name}@${canvasWidth}`;
+            // Same rounding allowance the fit cross-check makes: the solver
+            // leaves at most a pixel per rail with the band's travel.
+            expect(
+              scored[0],
+              `${where}: the flow scan's cut is no worse than exhaustive`,
+            ).toBeLessThanOrEqual(best[0] + sides.length);
+            if (best[0] === 0) repaired += 1;
+            compared += 1;
+          }
+        }
+      }
+    }
+    expect(compared).toBeGreaterThan(1_000);
+    // The premise: on most of this space a boundary IS reachable, so the
+    // assertion above is doing work rather than agreeing that nothing can be
+    // fixed anywhere.
+    expect(repaired).toBeGreaterThan(compared / 2);
+  });
+
+  test("flow never leaves a hairline it could have cleared", () => {
+    // The claim the whole milestone rests on, stated directly over the
+    // enumeration: wherever some total in the rails' range clears the hairline
+    // — by landing the band on a slot boundary, or by leaving an honest slice
+    // of a card rather than an artifact — the answer clears it too.
+    let checked = 0;
+    for (const kind of IMPOSITION_KINDS) {
+      for (const occupancy of occupanciesFor(kind)) {
+        for (const fixture of RAIL_FIXTURES) {
+          for (const canvasWidth of [1600, 2400, 3200]) {
+            const input: AllocatorInput = {
+              canvasWidth,
+              kind,
+              layout: "flow",
+              occupied: occupancy.occupied,
+              rails: fixture.rails,
+              maxRailWidth: CEILING,
+            };
+            const sides = sidesOf(fixture.rails);
+            const bounds = sides.map((side) =>
+              boundsOf(input.rails[side] as RailPolicy),
+            );
+            const floorTotal = bounds.reduce((sum, b) => sum + b.floor, 0);
+            const ceilingTotal = bounds.reduce((sum, b) => sum + b.ceiling, 0);
+            let reachable = false;
+            for (let t = floorTotal; t <= ceilingTotal && !reachable; t += 1) {
+              const cut = stripPicture(input, spread(t, sides)).worstSliver;
+              if (hairlineOf(cut) === 0) reachable = true;
+            }
+            if (!reachable) continue;
+            const answer = allocateSidebarWidths(input) as RailWidths;
+            const where = `${kind}/${occupancy.name}/${fixture.name}@${canvasWidth}`;
+            const cut = stripPicture(input, answer).worstSliver;
+            expect(
+              cut === 0 || cut >= SLIVER_PX - sides.length,
+              `${where}: a clean total was reachable, so nothing is left cut to ${cut}px`,
+            ).toBe(true);
+            checked += 1;
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(500);
+  });
+
   test("no rail standing is the only shape with no answer", () => {
     for (const kind of IMPOSITION_KINDS) {
       for (const occupancy of occupanciesFor(kind).slice(0, 4)) {
@@ -785,6 +912,11 @@ describe("the allocator's solution space", () => {
  * ---------------------------------------------------------------------------*/
 
 const GOLDEN_PATH = join(import.meta.dir, "golden", "imposer-solutions.json");
+const FLOW_GOLDEN_PATH = join(
+  import.meta.dir,
+  "golden",
+  "imposer-solutions-flow.json",
+);
 
 interface GoldenRow {
   config: string;
@@ -835,6 +967,57 @@ function goldenRows(): GoldenRow[] {
   );
 }
 
+/**
+ * The same slice in flow, with the picture each answer paints carried beside
+ * it. `sliver` is the point of the table: a retune that moved a rail by a pixel
+ * and a retune that stopped repairing a cut look identical in the widths alone,
+ * and are not remotely the same change.
+ *
+ * A SEPARATE file from the fit table on purpose. The two modes now answer
+ * different questions, and a shared table would make a flow-only change churn
+ * the fit rows' diff — which is exactly the drift-reading this net exists to
+ * keep legible.
+ */
+function flowGoldenRows(): (GoldenRow & { sliver: number })[] {
+  const rows: (GoldenRow & { sliver: number })[] = [];
+  for (const kind of IMPOSITION_KINDS) {
+    const slots = slotCount(kind);
+    const occupied = Array.from({ length: slots }, (_, slot) => ({
+      slot,
+      width: CONTENT_WIDTH_COMFY_PX,
+    }));
+    for (const fixture of RAIL_FIXTURES) {
+      const base: AllocatorInput = {
+        canvasWidth: 2000,
+        kind,
+        layout: "flow",
+        occupied,
+        rails: fixture.rails,
+        maxRailWidth: CEILING,
+      };
+      for (const canvas of [1400, 1800, 2200, 2600, 3000, 3400]) {
+        const input = { ...base, canvasWidth: canvas };
+        const answer = allocateSidebarWidths(input);
+        rows.push({
+          config: `${kind}/${fixture.name}`,
+          canvas,
+          left: answer?.left ?? null,
+          right: answer?.right ?? null,
+          sliver:
+            answer === null ? -1 : stripPicture(input, answer).worstSliver,
+        });
+      }
+    }
+  }
+  return rows.sort((a, b) =>
+    a.config === b.config
+      ? a.canvas - b.canvas
+      : a.config < b.config
+        ? -1
+        : 1,
+  );
+}
+
 describe("the golden table", () => {
   test("the checked-in table is what the solver produces", () => {
     const rows = goldenRows();
@@ -846,6 +1029,18 @@ describe("the golden table", () => {
     expect(
       serialized,
       "the solver's answers moved — review the diff, then regenerate with IMPOSER_GOLDEN_UPDATE=1",
+    ).toBe(golden);
+  });
+
+  test("the checked-in flow table is what the solver produces", () => {
+    const serialized = `${JSON.stringify(flowGoldenRows(), null, 2)}\n`;
+    if (process.env.IMPOSER_GOLDEN_UPDATE === "1") {
+      writeFileSync(FLOW_GOLDEN_PATH, serialized);
+    }
+    const golden = readFileSync(FLOW_GOLDEN_PATH, "utf8");
+    expect(
+      serialized,
+      "flow's answers moved — review the diff, then regenerate with IMPOSER_GOLDEN_UPDATE=1",
     ).toBe(golden);
   });
 });
