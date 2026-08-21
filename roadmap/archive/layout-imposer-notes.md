@@ -1,0 +1,6 @@
+
+More notes:
+- The Layout miniature in the Lens *is not* updating as I asked. It must not be merely a schematic of the layout choices, especially in flow mode. Instead, it must accurately reflect the disposition of the cards *live*.
+- The position of the drop zone below the card in this circumstance is wrong. ![CleanShot 2026-08-20 at 14.39.55@2x.png](<assets/CleanShot 2026-08-20 at 14.39.55@2x.png>). The drop zone prview should show me *what I'll get when I drop*, which in this case, is a split column down the middle.
+- There is a *terrible amount of flashing and hopping* basically everywhere when I drag and drop using the new scheme. It looks horrid. Amateur quality. Not at all polished*. We need to track this down. These layout imposer algorithms must be smooth like *butter*, and feel elegant and completely put together. Now, with the quality we are delivering at the moment, it makes me not what to use this feature. We *must* fix this.
+- There is no good way now for me to *see* the horizontal scroll position I'm in when we are in flow mode. I think we need to make use of the zone we leave at the bottom of the deck canvas and figure out some way to offer a custom scrollbar affordance, one that show the numbered layout slots.
