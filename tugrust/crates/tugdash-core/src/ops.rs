@@ -165,8 +165,14 @@ pub struct JoinOptions {
     /// Resume an interrupted join's teardown from the journal.
     pub continue_join: bool,
     /// Land a pre-built candidate commit from the resolution ladder ([P31])
-    /// instead of integrating per `strategy`: fast-forward the base onto it
-    /// (staleness-guarded), then run the normal journaled teardown.
+    /// instead of merging the dash branch: the candidate supplies the resolved
+    /// **bytes**, `strategy` still decides the **shape**, and the normal
+    /// journaled teardown follows. Staleness-guarded by ancestry, the same test
+    /// [`crate::resolve::candidate_status`] applies.
+    ///
+    /// The candidate's own internal shape — one commit on the base, or a chain
+    /// of replayed rounds — is an implementation detail of the ladder and never
+    /// decides what the base's history looks like.
     pub candidate: Option<String>,
     /// Which route asked for this join — `cli` or `card`. Recorded in the
     /// dash-log's terminal note so a join is attributable after the fact;
@@ -3096,7 +3102,7 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
 ///
 /// | Beat | What it surrounds |
 /// |---|---|
-/// | `squash` | the integrate — squash-merge and commit, a fast-forward onto a candidate, a merge, or a rebase |
+/// | `squash` | the integrate — squash-merge and commit, of the dash branch or of a resolved candidate, per `strategy` |
 /// | `teardown` | removing the dash worktree |
 /// | `release` | dropping the candidate ref, removing the workshop, deleting the branch |
 /// | `record` | the dash-log line and clearing the join journal |
@@ -3239,24 +3245,98 @@ pub fn join_in_with_progress(
     }
 
     // Land a pre-built candidate from the resolution ladder ([P31]) instead of
-    // integrating per strategy: fast-forward the base onto it (git's `--ff-only`
-    // IS the staleness guard — a base that advanced past the candidate's base
-    // refuses to fast-forward), then run the same journaled teardown.
+    // merging the dash branch. The candidate is the resolved bytes; `strategy`
+    // still decides the shape, and the journaled teardown is the same one.
     if let Some(candidate) = opts.candidate.clone() {
         on_beat("squash", "start");
-        let ff = git_output(&repo_root, &["merge", "--ff-only", &candidate])?;
-        if !ff.status.success() {
+
+        // Staleness, stated rather than inferred. This used to ride on
+        // `merge --ff-only` failing, which conflated two different facts: a
+        // base that moved past the candidate, and a strategy that declines to
+        // fast-forward. Asking ancestry directly is the same test
+        // `resolve::candidate_status` applies, so the join's verdict and the
+        // face's verdict cannot disagree — and it leaves the landing free to be
+        // whatever the caller asked for.
+        let base_head = git_stdout(&repo_root, &["rev-parse", &base_branch])?;
+        let current = git_output(
+            &repo_root,
+            &["merge-base", "--is-ancestor", &base_head, &candidate],
+        )?;
+        if !current.status.success() {
             return Err(format!(
-                "stale candidate: base '{}' advanced since the conflicts were resolved; re-resolve and try again ({})",
-                base_branch,
-                String::from_utf8_lossy(&ff.stderr).trim()
+                "stale candidate: base '{}' advanced since the conflicts were resolved; re-resolve and try again",
+                base_branch
             ));
         }
-        let commit_hash = git_stdout(&repo_root, &["rev-parse", "HEAD"])?;
-        // The candidate carries its own message — the ladder wrote it when it
-        // built the resolution — so the receipt reports that rather than a
-        // message this path never composed.
-        let message = git_stdout(&repo_root, &["log", "-1", "--format=%B", &commit_hash]).ok();
+
+        // **The candidate is the bytes, never the shape.** What the ladder
+        // hands back is a tree that resolves the join — sometimes one commit on
+        // the base, sometimes a chain of replayed rounds. Landing it by
+        // fast-forward let that internal shape decide what the base's history
+        // looks like and threw the authored draft away with it: a clean join
+        // arrived on the base as N round commits carrying no composed message
+        // at all, because a fast-forward has no commit to put one in. The
+        // strategy the caller asked for is what decides the shape, exactly as
+        // it does for a join with no candidate, and `Squash` is the default
+        // every route asks for.
+        let final_msg = integrate_message(&repo_root, name, &branch, opts.message.clone());
+        let commit_hash = match opts.strategy {
+            JoinStrategy::Squash => {
+                // The candidate is a descendant of the base head, so this
+                // stages its tree without conflict; the commit below is what
+                // the draft was written for.
+                let merge = git_output(&repo_root, &["merge", "--squash", &candidate])?;
+                if !merge.status.success() {
+                    let _ = git_output(&repo_root, &["reset", "--hard"]);
+                    return Err(format!(
+                        "failed to stage the resolved candidate: {}",
+                        String::from_utf8_lossy(&merge.stderr).trim()
+                    ));
+                }
+                let commit = git_output(&repo_root, &["commit", "-m", &final_msg])?;
+                if !commit.status.success() {
+                    let _ = git_output(&repo_root, &["reset", "--hard"]);
+                    return Err(format!(
+                        "git commit failed: {}",
+                        String::from_utf8_lossy(&commit.stderr).trim()
+                    ));
+                }
+                git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+            }
+            JoinStrategy::Merge => {
+                let merge =
+                    git_output(&repo_root, &["merge", "--no-ff", "-m", &final_msg, &candidate])?;
+                if !merge.status.success() {
+                    let _ = git_output(&repo_root, &["merge", "--abort"]);
+                    return Err(format!(
+                        "failed to merge the resolved candidate: {}",
+                        String::from_utf8_lossy(&merge.stderr).trim()
+                    ));
+                }
+                git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+            }
+            // The one strategy that asks for the candidate's own history on the
+            // base, and therefore the one that keeps its own messages.
+            JoinStrategy::Rebase => {
+                let ff = git_output(&repo_root, &["merge", "--ff-only", &candidate])?;
+                if !ff.status.success() {
+                    return Err(format!(
+                        "failed to fast-forward '{}' onto the resolved candidate: {}",
+                        base_branch,
+                        String::from_utf8_lossy(&ff.stderr).trim()
+                    ));
+                }
+                git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+            }
+        };
+        // A rebase landed the candidate's own commits, so the receipt reports
+        // what is actually on the base rather than a message it never wrote.
+        let message = match opts.strategy {
+            JoinStrategy::Rebase => {
+                git_stdout(&repo_root, &["log", "-1", "--format=%B", &commit_hash]).ok()
+            }
+            _ => Some(final_msg),
+        };
         let journal = JoinJournal {
             name: name.to_string(),
             base_branch: base_branch.clone(),
@@ -7641,6 +7721,86 @@ Some context.
             3,
             "merge commit has two parents: {parents}"
         );
+    }
+
+    /// A join riding a candidate lands **one** commit, carrying the composed
+    /// message — even when the candidate is a chain of rounds.
+    ///
+    /// The candidate is the resolved *bytes*; the strategy is the shape. Landing
+    /// it with `merge --ff-only` conflated the two, so the ladder's internal
+    /// shape decided what the base's history looked like: a multi-round dash
+    /// arrived on the base as N round commits with the authored draft dropped on
+    /// the floor, because a fast-forward has no commit to put a message in. The
+    /// candidate here is deliberately the dash branch tip — the exact shape rung
+    /// 1 hands back — so this fails on the old code no matter what the ladder
+    /// decides.
+    #[serial]
+    #[test]
+    fn test_join_squashes_a_multi_commit_candidate_into_one_commit() {
+        let (_temp, repo) = repo_with_committed_dash("cand");
+        let worktree = repo.join(".tug/worktrees/cand");
+        fs::write(worktree.join("g.txt"), "second\n").unwrap();
+        commit("cand", "cand-round-2", None).unwrap();
+
+        let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let candidate = git_stdout(&repo, &["rev-parse", "tugdash/cand"]).unwrap();
+        let rounds = git_stdout(&repo, &["rev-list", "--count", "main..tugdash/cand"]).unwrap();
+        assert_eq!(rounds, "2", "the candidate really is a chain");
+
+        let out = join(
+            "cand",
+            JoinOptions {
+                strategy: JoinStrategy::Squash,
+                candidate: Some(candidate),
+                message: Some("the authored subject".to_string()),
+                ..mechanics()
+            },
+        )
+        .unwrap();
+        assert!(out.commit_hash.is_some());
+
+        let landed = git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")])
+            .unwrap();
+        assert_eq!(landed, "1", "one commit on the base, never the chain");
+
+        let subject = git_stdout(&repo, &["log", "-1", "--format=%s"]).unwrap();
+        assert_eq!(subject, "tugdash(cand): the authored subject");
+
+        // Both rounds' bytes are present — squashing the shape never drops work.
+        for (rel, want) in [("f.txt", "dash"), ("g.txt", "second")] {
+            let blob = git_stdout(&repo, &["show", &format!("HEAD:{rel}")]).unwrap();
+            assert_eq!(blob, want, "{rel} landed");
+        }
+    }
+
+    /// The one strategy that asks for the candidate's own history keeps it —
+    /// `rebase` is an explicit opt-in to a linear land, and the fix above must
+    /// not quietly take it away.
+    #[serial]
+    #[test]
+    fn test_join_rebase_keeps_a_candidates_own_commits() {
+        let (_temp, repo) = repo_with_committed_dash("candrb");
+        let worktree = repo.join(".tug/worktrees/candrb");
+        fs::write(worktree.join("g.txt"), "second\n").unwrap();
+        commit("candrb", "candrb-round-2", None).unwrap();
+
+        let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let candidate = git_stdout(&repo, &["rev-parse", "tugdash/candrb"]).unwrap();
+        join(
+            "candrb",
+            JoinOptions {
+                strategy: JoinStrategy::Rebase,
+                candidate: Some(candidate),
+                ..mechanics()
+            },
+        )
+        .unwrap();
+
+        let landed = git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")])
+            .unwrap();
+        assert_eq!(landed, "2", "the rounds stand");
+        let subject = git_stdout(&repo, &["log", "-1", "--format=%s"]).unwrap();
+        assert_eq!(subject, "candrb-round-2", "and keep their own messages");
     }
 
     #[serial]

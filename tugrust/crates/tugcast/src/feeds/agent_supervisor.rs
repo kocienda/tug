@@ -1888,8 +1888,9 @@ struct ChangesetJoinPayload {
     message: Option<String>,
     preview: bool,
     /// A pre-resolved candidate commit to land ([P31]/[P32], Spec S12): when
-    /// present the join fast-forwards the base onto it (staleness-guarded)
-    /// instead of integrating per strategy.
+    /// present the join takes its resolved bytes instead of merging the dash
+    /// branch, staleness-guarded by ancestry. `strategy` still decides the
+    /// shape — a candidate never turns a squash into anything else.
     candidate: Option<String>,
     /// Resume an interrupted teardown from the journal (Spec S04).
     continue_join: bool,

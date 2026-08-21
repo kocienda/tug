@@ -160,7 +160,7 @@ impl Workshop {
 
     /// Write the workshop's working tree as a candidate commit parented on the
     /// base head — the same shape the ladder's candidate has, so
-    /// [`crate::ops::join_in`] fast-forwards onto it unchanged.
+    /// [`crate::ops::join_in`] lands it unchanged.
     ///
     /// **Refuses a tree that still carries conflict markers**, and that is the
     /// check that matters rather than the index's.
@@ -582,7 +582,7 @@ mod tests {
 
     /// A commit over an unresolved index is refused, and the same workshop
     /// commits once the conflict is worked — with the base head as its parent,
-    /// so the join fast-forwards onto it.
+    /// so the join lands it.
     #[test]
     fn commit_refuses_unresolved_and_writes_the_worked_tree() {
         let temp = init(true);

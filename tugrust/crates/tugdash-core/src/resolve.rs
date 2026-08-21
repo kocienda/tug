@@ -3,12 +3,22 @@
 //! A conflicted join is not a dead end. This module works the conflict as hard
 //! as it can **off to the side** — never touching the user's checkouts — and,
 //! when every file resolves, hands back a pre-built candidate commit for
-//! [`crate::ops::join_in`] to fast-forward the base onto ([P31], Spec S12). The
-//! rungs, in order:
+//! [`crate::ops::join_in`] to land ([P31], Spec S12). The candidate carries the
+//! resolved **bytes**; the join's `strategy` still decides the shape it lands
+//! as, so nothing here can make a squash arrive on the base as anything else.
+//!
+//! **The ladder only runs where there is a conflict.** A join whose one-shot
+//! squash is clean exits above rung 1 with the squash's own tree — a rung that
+//! answers a question nobody asked decides the join's shape by accident, which
+//! is exactly what rung 1 did while it stood at the top.
+//!
+//! The rungs, in order:
 //!
 //! 1. **Replay probe** — replay the dash's rounds one at a time in memory
 //!    (`merge-tree --merge-base=<round^>` + `commit-tree`, git ≥ 2.40); a clean
-//!    replay lands as the replayed rounds (shape change accepted).
+//!    replay resolves the conflict as the replayed rounds. Reached only when the
+//!    squash conflicts; the replayed chain is the candidate's bytes, not the
+//!    shape the base gets.
 //! 2. **rerere** — a scratch detached worktree replays previously recorded
 //!    conflict resolutions (shared `rr-cache`).
 //! 3. **merge-file** — an opportunistic per-file 3-way re-merge (histogram).
@@ -236,6 +246,32 @@ fn resolve_ladder(
     let (cand_tree, stages) = merge_tree_stages(repo, &base_branch, &branch)?;
     let preview_conflicts: Vec<String> = stages.keys().cloned().collect();
 
+    if stages.is_empty() {
+        // Nothing conflicts — the one-shot squash is clean, so commit its tree
+        // directly. With no conflicts there is nothing for anybody to audit,
+        // which is the no-audit case by construction rather than by exit shape.
+        //
+        // **This arm stands ahead of every rung, and the order is the policy.**
+        // The ladder is a *conflict* ladder: no rung may decide the shape of a
+        // join that had no conflict for it to decide. Rung 1 sitting above this
+        // check is how an ordinary clean join came to land as a chain of
+        // replayed rounds with the draft never read — a replay is trivially
+        // clean whenever the base has not moved, so the probe answered first
+        // and this arm was unreachable for very nearly every dash that joined.
+        let msg = integrate_message(repo, name, &branch, None);
+        let candidate = commit_tree(repo, &cand_tree, &base_head, &msg)?;
+        return Ok(ResolveOutcome {
+            shape: JoinShape::Squash,
+            resolved: Vec::new(),
+            unresolved: Vec::new(),
+            candidate_commit: Some(candidate),
+            base_branch,
+            warnings,
+            staged_tree: Some(cand_tree),
+            preview_conflicts,
+        });
+    }
+
     // Rung 1 — replay probe (in-memory per round; git ≥ 2.40).
     if let Some(replayed) = replay_probe(repo, &base_head, &base_branch, &branch)? {
         return Ok(ResolveOutcome {
@@ -263,23 +299,6 @@ fn resolve_ladder(
     }
 
     let msg = integrate_message(repo, name, &branch, None);
-
-    if stages.is_empty() {
-        // The one-shot squash is actually clean — commit its tree directly.
-        // With no conflicts there is nothing for anybody to audit, which is the
-        // no-audit case by construction rather than by exit shape.
-        let candidate = commit_tree(repo, &cand_tree, &base_head, &msg)?;
-        return Ok(ResolveOutcome {
-            shape: JoinShape::Squash,
-            resolved: Vec::new(),
-            unresolved: Vec::new(),
-            candidate_commit: Some(candidate),
-            base_branch,
-            warnings,
-            staged_tree: Some(cand_tree),
-            preview_conflicts,
-        });
-    }
 
     // Rungs 2–5, per file. A scratch tempdir holds the merge-file / driver
     // working files; the rerere rung has its own scratch worktree.
@@ -1568,9 +1587,9 @@ pub fn candidate_status_in(repo: &Path, name: &str) -> Result<CandidateStatus, S
 /// **Ancestry, not parenthood.** The squash shape builds its candidate directly
 /// on the base head, but the replay shape returns the tip of a chain of replayed
 /// rounds whose parent is the previous round — so a parent-equality test would
-/// call every multi-round replay candidate stale. Ancestry is also exactly what
-/// the join demands (`git merge --ff-only`), which is what keeps this verdict and
-/// the join's verdict from ever disagreeing.
+/// call every multi-round replay candidate stale. Ancestry is also the test
+/// [`crate::ops::join_in`] applies before it lands a candidate, which is what
+/// keeps this verdict and the join's verdict from ever disagreeing.
 pub fn candidate_status(repo: &Path, name: &str, base_branch: &str) -> CandidateStatus {
     let candidate = match read_candidate(repo, name) {
         Some(c) => c,
@@ -1707,6 +1726,59 @@ mod tests {
     }
 
     // ---- ladder end-to-end ----
+
+    /// The rung order, pinned at the exit that matters: a dash with nothing to
+    /// resolve takes the clean-squash arm, and the candidate it hands back is
+    /// **one commit parented on the base head** carrying the composed message.
+    ///
+    /// This is the 2026-08-20 incident, reduced. Rung 1 used to run first, and a
+    /// replay is trivially clean whenever the base has not moved — so an
+    /// ordinary two-round dash exited as `Replay` with the round chain as its
+    /// candidate, the base fast-forwarded onto it, and the authored draft was
+    /// never read because a fast-forward has no commit to put one in. Every test
+    /// in this file passed throughout: the ladder was pinned on what it does
+    /// with a conflict and never on what it does without one.
+    #[test]
+    fn a_clean_dash_never_reaches_the_replay_rung() {
+        let temp = init(&[("f.txt", "B\n", "r1"), ("g.txt", "G\n", "r2")]);
+        let repo = temp.path();
+        git(
+            repo,
+            &[
+                "config",
+                "branch.tugdash/demo.description",
+                "the authored subject",
+            ],
+        );
+
+        // Precondition: the one-shot squash really is clean.
+        let (_t, stages) = merge_tree_stages(repo, "main", "tugdash/demo").unwrap();
+        assert!(stages.is_empty(), "nothing conflicts");
+
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(
+            outcome.shape,
+            JoinShape::Squash,
+            "no conflict, so no rung decides the shape"
+        );
+        assert!(outcome.preview_conflicts.is_empty());
+        assert!(outcome.resolved.is_empty(), "nothing to audit");
+
+        let candidate = outcome.candidate_commit.expect("clean-squash candidate");
+        let base_head = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        let parents = git_stdout(repo, &["rev-list", "--parents", "-1", &candidate]).unwrap();
+        let parents: Vec<&str> = parents.split_whitespace().skip(1).collect();
+        assert_eq!(parents, vec![base_head.as_str()], "one commit on the base");
+
+        let subject = git_stdout(repo, &["log", "-1", "--format=%s", &candidate]).unwrap();
+        assert_eq!(subject, "tugdash(demo): the authored subject");
+
+        // And it carries the dash's whole tree, not just the last round's.
+        for (rel, want) in [("f.txt", "B\n"), ("g.txt", "G\n")] {
+            let blob = git_stdout(repo, &["show", &format!("{candidate}:{rel}")]).unwrap();
+            assert_eq!(blob, want.trim_end(), "{rel} landed");
+        }
+    }
 
     #[test]
     fn replay_probe_resolves_base_already_advanced_and_lands_replay_shape() {

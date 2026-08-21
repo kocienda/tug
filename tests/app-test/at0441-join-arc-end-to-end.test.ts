@@ -459,6 +459,13 @@ async function pressAndWatchBeats(app: App, dash: string): Promise<string[]> {
       return null;
     })()`,
   );
+  // What the composer actually holds when the button is pressed. The message
+  // that lands is derived from this and nothing else, so a landed subject that
+  // disagrees with it is a fact about the wire rather than about the typing.
+  const composed = await app.evalJS<string>(
+    `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "")`,
+  );
+  note(`at0441 composer at press: ${JSON.stringify(composed)}`);
   await app.nativeClickAtElement(LAND_BUTTON);
   // The base moves at the INTEGRATE, which is the first of the four beats —
   // teardown, release and record all follow it — so the sampler keeps running
@@ -627,6 +634,7 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
         expect(armed.classes, "a green join is an ordinary act").not.toContain("danger");
 
         // ── Beat 5: the press, its beats, and the landing ─────────────────
+        const beforeLand = git(scratch, "rev-parse", "main").trim();
         const beats = await pressAndWatchBeats(app, DASH);
         note(`at0441 land beats: ${JSON.stringify(beats)}`);
         // The settled state is the assertion, and deliberately so. A join on a
@@ -643,14 +651,20 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           "the join settled on its own result rather than going quiet",
         ).toBe(true);
 
+        // What arrives on the base is the contract, and it is asserted here
+        // rather than at the layer that composes the message — a draft that
+        // composes correctly and is then never landed is exactly the failure
+        // this beat exists to catch ([D144]).
+        const landed = git(scratch, "rev-list", "--count", `${beforeLand}..main`).trim();
+        note(`at0441 landed ${landed} commit(s) on main`);
+        expect(landed, "a join lands one commit, never the dash's rounds").toBe("1");
+
         const subject = git(scratch, "log", "-1", "--format=%s", "main").trim();
         note(`at0441 landed: ${JSON.stringify(subject)}`);
-        // The subject wears the dash's scope. It is *not* the message typed
-        // above, and that is designed rather than a slip: landing a resolved
-        // candidate fast-forwards onto the commit the ladder already built,
-        // which carries the message composed when it was built. The typed
-        // message's job was to clear the gate's empty-message refusal.
-        expect(subject.startsWith(`tugdash(${DASH}): `), subject).toBe(true);
+        // Scoped to the dash, and carrying the words the presser typed. The
+        // candidate the ladder built supplied the resolved *bytes*; it never
+        // supplied the message, and it never supplied the shape.
+        expect(subject).toBe(`tugdash(${DASH}): ${LAND_MESSAGE}`);
         // And it carries the resolution the checks passed — not either side of
         // the conflict. A landing that quietly took one side would pass every
         // assertion above and still be the wrong tree.
@@ -688,9 +702,22 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the join arc, end to end", () => {
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf(${JSON.stringify(CLEAN_MESSAGE)}) !== -1`,
           { timeoutMs: 5000 },
         );
+        const beforeCleanLand = git(scratch, "rev-parse", "main").trim();
         const cleanBeats = await pressAndWatchBeats(app, CLEAN_DASH);
         note(`at0441 clean land beats: ${JSON.stringify(cleanBeats)}`);
         expect(readFileSync(join(scratch, CLEAN_FILE), "utf8")).toBe(CLEAN_BODY);
+
+        // The unconflicted dash is the 2026-08-20 incident's exact shape, and
+        // it is the harder half to pin: with nothing to reconcile, a landing
+        // that replayed the rounds instead of squashing them would still leave
+        // the right bytes on `main`. The *message* is what tells the two apart
+        // — a replayed round carries its own subject, and the composed one is
+        // never written at all ([D144]).
+        const cleanLanded = git(scratch, "rev-list", "--count", `${beforeCleanLand}..main`).trim();
+        const cleanSubject = git(scratch, "log", "-1", "--format=%s", "main").trim();
+        note(`at0441 clean landed ${cleanLanded}: ${JSON.stringify(cleanSubject)}`);
+        expect(cleanLanded, "one commit, whether or not there was anything to reconcile").toBe("1");
+        expect(cleanSubject).toBe(`tugdash(${CLEAN_DASH}): ${CLEAN_MESSAGE}`);
         const cleanTeardownBy = Date.now() + 60_000;
         while (Date.now() < cleanTeardownBy && branchExists(`tugdash/${CLEAN_DASH}`)) {
           await settle(500);

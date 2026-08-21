@@ -106,6 +106,8 @@ The build is the user's to vet. Bring up the debug instance from the worktree (`
 
 Before stopping, leave the **join draft** behind: compose the squash message from what the rounds actually did and write it with `tugutil draft set --owner dash:<name> --message "…"`. The join gesture lands that message; it does not compose one. A dash that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 
+Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message** ([D144]). Not one commit per round, not the rounds replayed — one, whatever the ladder did off to the side to make the bytes merge, and regardless of how many rounds the run took. The draft is therefore the *only* durable prose the base will carry about this dash, so a digest that leans on the round commits to fill in what it left out is leaning on commits that will not be there.
+
 **Marking the dash `built` is what starts the arc, and the arc runs itself.** The join pilot reconciles the dash against its base and runs the project's Tier 0 checks over the tree that would land, unprompted, exactly once per base/head pair — so by the time the user looks, the dash has already reached a verdict or a question. When there is a decision to make, the dash **asks**: a prompt raises on the bound session offering *Join now*, *Review first* or *Not yet*. So a run's report does not need to end in a `/join <name>` chip, and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142]).
 
 ## The join finishes itself
