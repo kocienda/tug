@@ -25,6 +25,8 @@ import type { FeedStore } from "./feed-store";
 import { getConnection } from "./connection-singleton";
 import { LedgerRestoreFetch } from "./ledger-restore-fetch";
 import type { CodeSessionStore } from "./code-session-store";
+import { isInkOrigin } from "./code-session-store/types";
+import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import type { PendingContextStore } from "./pending-context-store";
 import { composeShellShareText } from "./shell-share";
 import { interactiveStagingSteer } from "./shell-interactive-staging";
@@ -35,6 +37,31 @@ export interface ShellInflight {
   command: string;
 }
 
+/**
+ * What the restore knows about its own completeness ([P07]).
+ *
+ * The whole point of carrying this on the snapshot is that "the transcript is
+ * short" and "the transcript is complete" stop being the same picture. A card
+ * can only refuse to lie about a gap if something tells it a gap exists.
+ */
+export interface ShellRestoreCensus {
+  /** Rows the ledger reports for this session in the requested window. */
+  ledgerTotal: number;
+  /** Rows this store has applied to the transcript. */
+  applied: number;
+  /** Whether the last answer accounted for every row the ledger reported. */
+  complete: boolean;
+  /** Whether any answer has landed at all — false while still asking. */
+  answered: boolean;
+}
+
+const EMPTY_CENSUS: ShellRestoreCensus = {
+  ledgerTotal: 0,
+  applied: 0,
+  complete: false,
+  answered: false,
+};
+
 export interface ShellSessionSnapshot {
   /** Whether a shell child is live for this session. */
   live: boolean;
@@ -42,12 +69,15 @@ export interface ShellSessionSnapshot {
   cwd: string | null;
   /** The in-flight exchange, or `null` when idle. */
   inflight: ShellInflight | null;
+  /** The ledger-restore census ([P07]) — see {@link ShellRestoreCensus}. */
+  restore: ShellRestoreCensus;
 }
 
 const EMPTY_SNAPSHOT: ShellSessionSnapshot = {
   live: false,
   cwd: null,
   inflight: null,
+  restore: EMPTY_CENSUS,
 };
 
 export class ShellSessionStore {
@@ -66,6 +96,10 @@ export class ShellSessionStore {
   private readonly _autoRoutedExchanges = new Set<string>();
   /** The retrying `list_shell_exchanges` read ([P07]). */
   private readonly _restoreFetch: LedgerRestoreFetch;
+  /** Unsubscribe from the code store's window watch; cleared on dispose. */
+  private _unsubscribeWindow: (() => void) | null = null;
+  /** The window floor the last fetch was sent under. */
+  private _lastWindowFloorMs: number | null = null;
 
   constructor(
     feedStore: FeedStore,
@@ -94,22 +128,113 @@ export class ShellSessionStore {
     // source for these rows — a `/commit` receipt is the user's act, never
     // session context ([D111]), so it is absent from the JSONL and no replay
     // can substitute — which is why the fetch retries instead of hoping.
+    //
+    // `since_ms` is the replay window's floor, read at send time ([P07]):
+    // the Claude turns replay bounded to `lastTurns`, so an unbounded ink
+    // read would seat rows older than the window above the oldest turn —
+    // two paging models over one transcript, agreeing about nothing. Before
+    // the first `replay_complete` there is no floor, and the read goes
+    // unbounded on purpose: over-fetching a capped ledger is free, and
+    // losing a `/commit` receipt is not.
     this._restoreFetch = new LedgerRestoreFetch({
       action: "list_shell_exchanges",
       tugSessionId,
       logSource: "shell-restore",
+      params: () => {
+        const floor = this._windowFloorMs();
+        return floor === null ? {} : { since_ms: floor };
+      },
     });
     this._restoreFetch.start();
+    // When the window grows older — the first replay landing, or a "load
+    // previous" page — the ink rows for the newly-loaded span have never
+    // been asked for. Re-ask; the apply is an upsert, so re-delivery of rows
+    // already held costs nothing.
+    this._lastWindowFloorMs = this._windowFloorMs();
+    this._unsubscribeWindow = codeSessionStore.subscribe(() => {
+      const floor = this._windowFloorMs();
+      const prior = this._lastWindowFloorMs;
+      if (floor === prior) return;
+      this._lastWindowFloorMs = floor;
+      // Only a floor that moved *older* (or appeared) widens the span.
+      if (prior !== null && floor !== null && floor >= prior) return;
+      this._restoreFetch.refresh();
+    });
   }
 
   /**
-   * Apply a `list_shell_exchanges_ok` answer and stop the restore retry.
-   * Routed here (rather than straight to `CodeSessionStore`) so the store
-   * that asked is the one that learns it was answered.
+   * The oldest loaded Claude turn's timestamp — the replay window's floor —
+   * or `null` when no Claude turn is loaded yet.
+   *
+   * Ink turns are excluded deliberately: they are what this floor is used to
+   * fetch, so counting them would let the window define itself and ratchet
+   * the floor forward until older rows became unreachable.
    */
-  applyRestore(rows: ReadonlyArray<Record<string, unknown>>): void {
-    this._restoreFetch.settle();
+  private _windowFloorMs(): number | null {
+    let floor: number | null = null;
+    for (const turn of this._codeSessionStore.getSnapshot().transcript) {
+      if (isInkOrigin(turn.origin)) continue;
+      const ts = turn.messages[0]?.createdAt ?? turn.endedAt;
+      if (typeof ts !== "number") continue;
+      if (floor === null || ts < floor) floor = ts;
+    }
+    return floor;
+  }
+
+  /**
+   * Apply a `list_shell_exchanges_ok` answer, and settle the restore retry
+   * **only if the answer was complete** ([P07]).
+   *
+   * Routed here (rather than straight to `CodeSessionStore`) so the store
+   * that asked is the one that learns it was answered — and so the
+   * completeness check has somewhere to live.
+   *
+   * `total` is the ledger's own count for the same window, taken separately
+   * from the rows. When it exceeds what arrived, the answer was short: a
+   * truncated send, or a request that raced the ledger. Settling on that is
+   * how a `/commit` receipt stays in sqlite and out of the transcript, so a
+   * short answer applies what it has and keeps asking. A payload with no
+   * `total` at all is an older tugcast; trust the rows, as before.
+   *
+   * `answered: false` means there was no ledger to read — never the same
+   * thing as "this session has no rows", so it does not settle either.
+   */
+  applyRestore(
+    rows: ReadonlyArray<Record<string, unknown>>,
+    census?: { total?: unknown; answered?: unknown },
+  ): void {
     applyRestoredShellExchanges(this._codeSessionStore, rows);
+
+    const total = typeof census?.total === "number" ? census.total : rows.length;
+    const hadLedger = census?.answered !== false;
+    const complete = hadLedger && rows.length >= total;
+    this._set({
+      ...this._snapshot,
+      restore: {
+        ledgerTotal: total,
+        applied: rows.length,
+        complete,
+        answered: true,
+      },
+    });
+    if (complete) {
+      this._restoreFetch.settle();
+      return;
+    }
+    tugDevLogStore.warn("shell-restore", "short restore answer; still asking", {
+      tugSessionId: this._tugSessionId,
+      applied: rows.length,
+      ledgerTotal: total,
+      hadLedger,
+    });
+  }
+
+  /**
+   * Re-ask the restore now — the replay window moved, so the request's
+   * `since_ms` has changed and the previous answer described a different span.
+   */
+  refreshRestore(): void {
+    this._restoreFetch.refresh();
   }
 
   private _onFeedUpdate(): void {
@@ -311,6 +436,8 @@ export class ShellSessionStore {
     this._restoreFetch.dispose();
     this._unsubscribeFeed?.();
     this._unsubscribeFeed = null;
+    this._unsubscribeWindow?.();
+    this._unsubscribeWindow = null;
     this._listeners.clear();
   }
 

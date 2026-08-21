@@ -48,6 +48,7 @@ import {
   type CodeSessionStore,
   type CodeSessionSnapshot,
 } from "@/lib/code-session-store";
+import type { ShellSessionStore } from "@/lib/shell-session-store";
 import { deriveColdRestoreActive } from "./session-card-restore-gate";
 import {
   countClaudeTurns,
@@ -90,8 +91,10 @@ export interface SessionLoadControlBarProps {
  */
 export function SessionTranscriptTopRow({
   codeSessionStore,
+  shellSessionStore,
 }: {
   codeSessionStore: CodeSessionStore;
+  shellSessionStore?: ShellSessionStore;
 }): React.ReactElement {
   const onLoad = React.useCallback(
     (amount: number) => {
@@ -106,6 +109,60 @@ export function SessionTranscriptTopRow({
   return (
     <div className="session-transcript-top-row" data-slot="session-transcript-top-row">
       <ControlBarMetadata codeSessionStore={codeSessionStore} onLoad={onLoad} />
+      {shellSessionStore !== undefined ? (
+        <InkRestoreGapNotice shellSessionStore={shellSessionStore} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The ink-restore gap notice ([P07], [feedback_never_fail_silently]).
+ *
+ * A `/commit` receipt and a `/match` run live only in their ledgers — no
+ * replay can reconstruct them — so when a restore comes back holding fewer
+ * rows than the ledger reports, the transcript is *missing* something rather
+ * than merely short. Before this, that difference was invisible: the card
+ * rendered a clean, shorter transcript and said nothing, which is how the
+ * same loss got reported three times before anyone could name it.
+ *
+ * Renders only in the gap case. The restore keeps retrying on its own, so
+ * this is a statement of fact with a way to hurry it, not an error to clear.
+ */
+function InkRestoreGapNotice({
+  shellSessionStore,
+}: {
+  shellSessionStore: ShellSessionStore;
+}): React.ReactElement | null {
+  const restore = React.useSyncExternalStore(
+    shellSessionStore.subscribe,
+    () => shellSessionStore.getSnapshot().restore,
+  );
+  // Silent until an answer has landed AND that answer was short: before the
+  // first answer "0 of ?" would accuse a healthy session mid-restore.
+  if (!restore.answered || restore.complete) return null;
+  const missing = Math.max(0, restore.ledgerTotal - restore.applied);
+  if (missing === 0) return null;
+  return (
+    <div
+      className="session-load-control-bar-ink-gap"
+      data-slot="session-transcript-ink-gap"
+      data-missing={missing}
+    >
+      <TugLabel emphasis="proposal" className="session-load-control-bar-label">
+        {`${missing.toLocaleString()} shell ${missing === 1 ? "row" : "rows"} not restored yet`}
+      </TugLabel>
+      <span className="session-load-control-bar-meta-sep" aria-hidden="true">
+        ·
+      </span>
+      <TugPushButton
+        size="sm"
+        emphasis="outlined"
+        role="action"
+        onClick={() => shellSessionStore.refreshRestore()}
+      >
+        Retry
+      </TugPushButton>
     </div>
   );
 }

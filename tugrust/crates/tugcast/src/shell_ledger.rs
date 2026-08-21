@@ -64,6 +64,16 @@ pub struct ShellExchangeRow {
     pub settled_at_ms: i64,
 }
 
+/// One session's ink holdings, as `GET /api/ink-census` reports them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InkCensusRow {
+    pub tug_session_id: String,
+    pub rows: i64,
+    pub max_seq: i64,
+    pub first_settled_at_ms: Option<i64>,
+    pub last_settled_at_ms: Option<i64>,
+}
+
 /// A card→session summary for {@link ShellLedger::reconcile_orphaned_rows}.
 /// The caller (`main`) maps `SessionLedger::list_with_card_id` rows to this,
 /// keeping the ledger's most-recent-first (`last_used_at DESC`) order.
@@ -344,20 +354,82 @@ impl ShellLedger {
     }
 
     /// List a session's exchanges oldest-first (the transcript's natural order).
-    pub fn list_exchanges(
+    ///
+    /// `since_ms` bounds the read to exchanges that settled at or after it —
+    /// the transcript's replay window, so restored ink rows describe the same
+    /// span as the replayed Claude turns rather than an unbounded one.
+    /// `None` reads the whole session.
+    pub fn list_exchanges_since(
         &self,
         tug_session_id: &str,
+        since_ms: Option<i64>,
     ) -> Result<Vec<ShellExchangeRow>, ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
         let mut stmt = conn.prepare(
             "SELECT id, tug_session_id, seq, command, output, exit_code, cwd, cwd_after,
                     started_at_ms, settled_at_ms
-             FROM shell_exchanges WHERE tug_session_id = ?1 ORDER BY id ASC",
+             FROM shell_exchanges
+             WHERE tug_session_id = ?1 AND (?2 IS NULL OR settled_at_ms >= ?2)
+             ORDER BY id ASC",
         )?;
         let rows = stmt
-            .query_map(params![tug_session_id], exchange_from_row)?
+            .query_map(params![tug_session_id, since_ms], exchange_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Per-session ink census for `GET /api/ink-census` — rows, high-water
+    /// `seq`, and the span they cover, newest activity first.
+    ///
+    /// The durability half of "why is this row not in my transcript". Pair it
+    /// with the deck's own restore census and the two answer the question
+    /// between them: rows here but not there is a restore fault; rows in
+    /// neither is a write fault.
+    pub fn ink_census(&self, only: Option<&str>) -> Result<Vec<InkCensusRow>, ShellLedgerError> {
+        let conn = self.db.lock().expect("shell ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT tug_session_id, COUNT(*), COALESCE(MAX(seq), 0),
+                    MIN(settled_at_ms), MAX(settled_at_ms)
+             FROM shell_exchanges
+             WHERE (?1 IS NULL OR tug_session_id = ?1)
+             GROUP BY tug_session_id
+             ORDER BY MAX(settled_at_ms) DESC",
+        )?;
+        let rows = stmt
+            .query_map(params![only], |row| {
+                Ok(InkCensusRow {
+                    tug_session_id: row.get(0)?,
+                    rows: row.get(1)?,
+                    max_seq: row.get(2)?,
+                    first_settled_at_ms: row.get(3)?,
+                    last_settled_at_ms: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// How many rows the session holds in the same window, and its highest
+    /// `seq` — the completeness pair the deck checks its answer against.
+    ///
+    /// Read on the same connection lock as the rows themselves would be, but
+    /// as a separate statement: the client compares `exchanges.len()` to
+    /// `total`, so a short answer (a truncated send, a mistimed request) is
+    /// detectable rather than indistinguishable from an empty session.
+    pub fn exchange_census(
+        &self,
+        tug_session_id: &str,
+        since_ms: Option<i64>,
+    ) -> Result<(i64, i64), ShellLedgerError> {
+        let conn = self.db.lock().expect("shell ledger mutex");
+        let census = conn.query_row(
+            "SELECT COUNT(*), COALESCE(MAX(seq), 0)
+             FROM shell_exchanges
+             WHERE tug_session_id = ?1 AND (?2 IS NULL OR settled_at_ms >= ?2)",
+            params![tug_session_id, since_ms],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok(census)
     }
 }
 
@@ -419,13 +491,69 @@ mod tests {
         let led = ShellLedger::open_in_memory().unwrap();
         led.record_exchange(&ex("s1", "echo a", Some(0))).unwrap();
         led.record_exchange(&ex("s1", "false", Some(1))).unwrap();
-        let rows = led.list_exchanges("s1").unwrap();
+        let rows = led.list_exchanges_since("s1", None).unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].command, "echo a");
         assert_eq!(rows[0].seq, 1);
         assert_eq!(rows[1].command, "false");
         assert_eq!(rows[1].seq, 2);
         assert_eq!(rows[1].exit_code, Some(1));
+    }
+
+    /// The completeness pair the deck checks its restore answer against. A
+    /// short answer is only detectable if `total` is counted independently of
+    /// the rows handed over — otherwise an empty array from a mistimed request
+    /// reads exactly like a session that never ran a command.
+    #[test]
+    fn the_census_counts_rows_and_the_high_water_seq() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        assert_eq!(led.exchange_census("s1", None).unwrap(), (0, 0));
+
+        led.record_exchange(&ex("s1", "echo a", Some(0))).unwrap();
+        led.record_exchange(&ex("s1", "echo b", Some(0))).unwrap();
+        led.record_exchange(&ex("other", "echo c", Some(0))).unwrap();
+
+        let (total, max_seq) = led.exchange_census("s1", None).unwrap();
+        assert_eq!(total, 2, "scoped to the session");
+        assert_eq!(max_seq, 2);
+        assert_eq!(
+            led.list_exchanges_since("s1", None).unwrap().len() as i64,
+            total,
+            "the census and the rows must agree, or the deck cannot trust either",
+        );
+    }
+
+    /// The window: ink rows restore over the same span the Claude turns
+    /// replayed, so `since_ms` bounds rows and census alike. A census taken
+    /// over a different window than the rows would make every windowed answer
+    /// look short and retry forever.
+    #[test]
+    fn since_ms_bounds_the_rows_and_the_census_together() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        let at = |cmd: &str, settled: i64| NewShellExchange {
+            tug_session_id: "s1".to_string(),
+            command: cmd.to_string(),
+            output: String::new(),
+            exit_code: Some(0),
+            cwd: "/proj".to_string(),
+            cwd_after: None,
+            started_at_ms: settled - 10,
+            settled_at_ms: settled,
+        };
+        led.record_exchange(&at("old", 1_000)).unwrap();
+        led.record_exchange(&at("edge", 5_000)).unwrap();
+        led.record_exchange(&at("new", 9_000)).unwrap();
+
+        let rows = led.list_exchanges_since("s1", Some(5_000)).unwrap();
+        let commands: Vec<&str> = rows.iter().map(|r| r.command.as_str()).collect();
+        assert_eq!(commands, ["edge", "new"], "the bound is inclusive");
+
+        let (total, max_seq) = led.exchange_census("s1", Some(5_000)).unwrap();
+        assert_eq!(total, rows.len() as i64);
+        assert_eq!(max_seq, 3, "seq stays the session's, not the window's index");
+
+        // Unbounded still sees everything — the window is the caller's choice.
+        assert_eq!(led.exchange_census("s1", None).unwrap(), (3, 3));
     }
 
     /// `shell.history` promises a substring match, and LIKE's own wildcards
@@ -501,8 +629,8 @@ mod tests {
 
         let moved = led.reconcile_orphaned_rows(&sessions).unwrap();
         assert_eq!(moved, 1);
-        assert_eq!(led.list_exchanges("old").unwrap().len(), 0);
-        let recovered = led.list_exchanges("new").unwrap();
+        assert_eq!(led.list_exchanges_since("old", None).unwrap().len(), 0);
+        let recovered = led.list_exchanges_since("new", None).unwrap();
         assert_eq!(recovered.len(), 1);
         assert_eq!(recovered[0].command, "ls");
 
@@ -518,13 +646,13 @@ mod tests {
         // Current session has a real Claude turn — the user moved on.
         let with_turn = [sess("new", "card-1", 3), sess("old", "card-1", 0)];
         assert_eq!(led.reconcile_orphaned_rows(&with_turn).unwrap(), 0);
-        assert_eq!(led.list_exchanges("old").unwrap().len(), 1);
+        assert_eq!(led.list_exchanges_since("old", None).unwrap().len(), 1);
 
         // Current session already owns a shell row — likewise untouched.
         led.record_exchange(&ex("new", "pwd", Some(0))).unwrap();
         let with_row = [sess("new", "card-1", 0), sess("old", "card-1", 0)];
         assert_eq!(led.reconcile_orphaned_rows(&with_row).unwrap(), 0);
-        assert_eq!(led.list_exchanges("old").unwrap().len(), 1);
+        assert_eq!(led.list_exchanges_since("old", None).unwrap().len(), 1);
     }
 
     #[test]
@@ -535,14 +663,14 @@ mod tests {
         // cross-card adoption.
         let sessions = [sess("new", "card-1", 0), sess("old", "card-2", 0)];
         assert_eq!(led.reconcile_orphaned_rows(&sessions).unwrap(), 0);
-        assert_eq!(led.list_exchanges("old").unwrap().len(), 1);
+        assert_eq!(led.list_exchanges_since("old", None).unwrap().len(), 1);
     }
 
     #[test]
     fn null_exit_code_round_trips() {
         let led = ShellLedger::open_in_memory().unwrap();
         led.record_exchange(&ex("s1", "sleep 60", None)).unwrap();
-        let rows = led.list_exchanges("s1").unwrap();
+        let rows = led.list_exchanges_since("s1", None).unwrap();
         assert_eq!(rows[0].exit_code, None);
     }
 
@@ -552,8 +680,8 @@ mod tests {
         led.record_exchange(&ex("sa", "a1", Some(0))).unwrap();
         led.record_exchange(&ex("sb", "b1", Some(0))).unwrap();
         led.record_exchange(&ex("sa", "a2", Some(0))).unwrap();
-        let a = led.list_exchanges("sa").unwrap();
-        let b = led.list_exchanges("sb").unwrap();
+        let a = led.list_exchanges_since("sa", None).unwrap();
+        let b = led.list_exchanges_since("sb", None).unwrap();
         assert_eq!(a.len(), 2);
         assert_eq!(b.len(), 1);
         // Per-session seq is independent.
@@ -569,7 +697,7 @@ mod tests {
             led.record_exchange(&ex("s1", &format!("cmd{i}"), Some(0)))
                 .unwrap();
         }
-        let rows = led.list_exchanges("s1").unwrap();
+        let rows = led.list_exchanges_since("s1", None).unwrap();
         assert_eq!(rows.len(), MAX_EXCHANGES_PER_SESSION);
         // The 5 oldest were evicted; the newest survive.
         assert_eq!(

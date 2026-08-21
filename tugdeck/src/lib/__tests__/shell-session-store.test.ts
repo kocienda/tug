@@ -312,3 +312,83 @@ describe("applyRestoredShellExchanges — restore interleave ([P07])", () => {
   });
 });
 
+/**
+ * The completeness contract ([P07]). The bug this exists for: an answer that
+ * carried fewer rows than the ledger holds used to settle the retry exactly
+ * like a full one, so 49 ledgered rows across two cards stayed in sqlite and
+ * out of the transcript with nothing said.
+ */
+describe("restore completeness", () => {
+  function row(id: number, cmd: string, startedAt: number): Record<string, unknown> {
+    return {
+      id,
+      tug_session_id: "sess-1",
+      seq: id,
+      command: cmd,
+      output: `out:${cmd}\n`,
+      exit_code: 0,
+      cwd: "/proj",
+      cwd_after: "/proj",
+      started_at_ms: startedAt,
+      settled_at_ms: startedAt + 5,
+    };
+  }
+
+  test("a complete answer settles the retry and reports complete", () => {
+    const { store, code: c } = setup();
+    store.applyRestore([row(1, "a", 100), row(2, "b", 200)], { total: 2, answered: true });
+
+    const census = store.getSnapshot().restore;
+    expect(census).toMatchObject({
+      ledgerTotal: 2,
+      applied: 2,
+      complete: true,
+      answered: true,
+    });
+    expect(c.getSnapshot().transcript.filter((t) => t.origin === "shell").length).toBe(2);
+  });
+
+  test("a short answer applies its rows but is NOT complete", () => {
+    const { store, code: c } = setup();
+    // The ledger holds 15; the answer carried 2. This is the `#s15` case.
+    store.applyRestore([row(1, "a", 100), row(2, "b", 200)], { total: 15, answered: true });
+
+    expect(store.getSnapshot().restore).toMatchObject({
+      ledgerTotal: 15,
+      applied: 2,
+      complete: false,
+      answered: true,
+    });
+    // What did arrive is still seated — a short answer is not a lost one.
+    expect(c.getSnapshot().transcript.filter((t) => t.origin === "shell").length).toBe(2);
+  });
+
+  test("an empty answer from a session with rows is short, not complete", () => {
+    const { store } = setup();
+    store.applyRestore([], { total: 15, answered: true });
+    expect(store.getSnapshot().restore).toMatchObject({ applied: 0, complete: false });
+  });
+
+  test("a genuinely empty session is complete", () => {
+    const { store } = setup();
+    store.applyRestore([], { total: 0, answered: true });
+    expect(store.getSnapshot().restore).toMatchObject({ ledgerTotal: 0, complete: true });
+  });
+
+  test("no ledger at all never reads as no rows", () => {
+    const { store } = setup();
+    store.applyRestore([], { total: 0, answered: false });
+    expect(store.getSnapshot().restore.complete).toBe(false);
+  });
+
+  test("an older tugcast without a total is trusted on its rows", () => {
+    const { store } = setup();
+    store.applyRestore([row(1, "a", 100)]);
+    expect(store.getSnapshot().restore).toMatchObject({
+      ledgerTotal: 1,
+      applied: 1,
+      complete: true,
+    });
+  });
+});
+

@@ -330,7 +330,7 @@ import {
  * only place those semantics can be asserted against the real object.
  * Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.11.0" as const;
+export const SURFACE_VERSION = "2.12.0" as const;
 
 /**
  * `sessionStorage` key for the cross-reload generation counter.
@@ -1245,6 +1245,20 @@ export interface TugTestSurface {
    * every distinct matrix row with this and asserts the rendered
    * Z1 / Z2 / Z5 zones. Test-mode-only.
    */
+  /**
+   * Ink-restore truth for one card, read from the stores rather than the DOM
+   * ([P07]) — see the implementation for why the DOM cannot answer this.
+   */
+  inkRestoreFacts(cardId: string): {
+    shellTurns: number;
+    commands: string[];
+    restore: {
+      ledgerTotal: number;
+      applied: number;
+      complete: boolean;
+      answered: boolean;
+    };
+  };
   driveSession(cardId: string, action: SessionDriveAction): void;
 
   /**
@@ -2415,6 +2429,44 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         opts.projectDir,
         "resume",
       );
+    },
+
+    /**
+     * Ink-restore truth for one card, read from the **stores** rather than
+     * the DOM ([P07]).
+     *
+     * A transcript is windowed and its rows are virtualized, so counting
+     * `[data-slot=...]` elements answers "what is painted", not "what was
+     * restored" — and those two diverging silently is precisely how a
+     * ledgered `/commit` receipt went missing three times without a red test.
+     * `shellTurns` counts ink turns in the committed transcript; `restore` is
+     * the store's own census of the last answer.
+     */
+    inkRestoreFacts(cardId: string): {
+      shellTurns: number;
+      commands: string[];
+      restore: {
+        ledgerTotal: number;
+        applied: number;
+        complete: boolean;
+        answered: boolean;
+      };
+    } {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(`inkRestoreFacts: card "${cardId}" has no bound session`);
+      }
+      const turns = services.codeSessionStore
+        .getSnapshot()
+        .transcript.filter((t) => t.origin === "shell");
+      return {
+        shellTurns: turns.length,
+        commands: turns.map((t) => {
+          const msg = t.messages[0] as { command?: unknown } | undefined;
+          return typeof msg?.command === "string" ? msg.command : "";
+        }),
+        restore: services.shellSessionStore.getSnapshot().restore,
+      };
     },
 
     driveSession(cardId: string, action: SessionDriveAction): void {

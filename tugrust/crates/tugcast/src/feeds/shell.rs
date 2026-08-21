@@ -1512,7 +1512,7 @@ mod tests {
         cancel.cancel();
         drop(tx);
         let _ = handle.await;
-        let rows = ledger.list_exchanges("s1").unwrap();
+        let rows = ledger.list_exchanges_since("s1", None).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].command, "echo persisted");
         assert!(rows[0].output.contains("persisted"));

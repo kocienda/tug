@@ -9,7 +9,7 @@
 use axum::Extension;
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -180,6 +180,54 @@ async fn changesets_handler(
         None => (
             StatusCode::SERVICE_UNAVAILABLE,
             axum::Json(serde_json::json!({ "status": "error", "message": "no supervisor" })),
+        )
+            .into_response(),
+    }
+}
+
+/// Handle GET /api/ink-census — what the shell ledger holds per session.
+///
+/// The instrument that was missing when a `/commit` receipt went absent from
+/// a transcript three separate times. "Is the row durable?" and "did the deck
+/// get it?" are different questions, and until this route there was no way to
+/// answer the first one without copying a live sqlite file by hand. Answers
+/// `{sessions: [{tug_session_id, rows, max_seq, first_settled_at_ms,
+/// last_settled_at_ms}]}`, newest activity first; `?session=<id>` narrows it.
+///
+/// Loopback only, read-only, no eval gate — a census is not a capability.
+async fn ink_census_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    State(router): State<FeedRouter>,
+) -> Response {
+    if !addr.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "status": "error", "message": "forbidden" })),
+        )
+            .into_response();
+    }
+    let Some(ledger) = router
+        .supervisor
+        .as_ref()
+        .and_then(|sup| sup.shell_ledger.as_ref())
+    else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({ "status": "error", "message": "no shell ledger" })),
+        )
+            .into_response();
+    };
+    let only = params.get("session").map(String::as_str);
+    match ledger.ink_census(only) {
+        Ok(sessions) => (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({ "status": "ok", "sessions": sessions })),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            axum::Json(serde_json::json!({ "status": "error", "message": err.to_string() })),
         )
             .into_response(),
     }
@@ -1097,6 +1145,7 @@ pub(crate) fn build_app(
         .route("/api/ask", post(ask_handler))
         .route("/api/host", get(crate::host::get_host))
         .route("/api/changesets", get(changesets_handler))
+        .route("/api/ink-census", get(ink_census_handler))
         .route("/api/draft", post(draft_handler))
         .route("/api/dash", post(dash_handler))
         .route("/api/changes-write", post(changes_write_handler))

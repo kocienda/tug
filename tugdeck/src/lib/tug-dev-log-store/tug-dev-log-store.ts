@@ -38,6 +38,8 @@
  */
 
 import { getTugbankClient } from "../tugbank-singleton";
+import { getConnection } from "../connection-singleton";
+import { FeedId } from "../../protocol";
 import type { TaggedValue } from "../tugbank-client";
 import {
   createInitialState,
@@ -258,6 +260,15 @@ class TugDevLogStore {
     if (IS_DEV_BUILD) {
       mirrorToConsole(level, source, message, data);
     }
+    // Host mirror, every build: `warn`/`error` also go to tugcast's log.
+    // The Log tab is only readable by someone sitting in front of the app
+    // with the Lens open, and a release instance exposes no `window`
+    // handle onto this store — so a warning about a restore that came back
+    // short was, in practice, written nowhere a person could later read.
+    // `tugcast.log` is the durable, after-the-fact surface.
+    if (level === "warn" || level === "error") {
+      mirrorToHost(level, source, message, data);
+    }
   }
 
   /** Empty the buffer. Filters + cap are preserved. */
@@ -439,6 +450,54 @@ const IS_DEV_BUILD = (() => {
     return false;
   }
 })();
+
+/**
+ * Mirror one `warn`/`error` to tugcast, which writes it into `tugcast.log`.
+ *
+ * Best-effort and deliberately un-retried: this is a diagnostic echo, not a
+ * ledger write, and a dropped frame must never become a second thing to
+ * diagnose. Failures fall back to the console rather than re-entering this
+ * store, which would recurse.
+ */
+function mirrorToHost(
+  level: TugDevLogLevel,
+  source: string,
+  message: string,
+  data: unknown,
+): void {
+  try {
+    const conn = getConnection();
+    if (!conn) return;
+    conn.trySend(
+      FeedId.CONTROL,
+      new TextEncoder().encode(
+        JSON.stringify({
+          action: "deck_log",
+          level,
+          source,
+          message,
+          // Serialized here rather than server-side: `data` is arbitrary and
+          // may hold cycles, and a throw inside JSON.stringify of the whole
+          // frame would drop the message along with it.
+          data: safeDetail(data),
+        }),
+      ),
+    );
+  } catch {
+    // Cannot recurse into this store; plain console.
+    console.warn(`[${source}] host-log mirror failed:`, message);
+  }
+}
+
+/** `data` as a short string, or undefined — never a throw, never unbounded. */
+function safeDetail(data: unknown): string | undefined {
+  if (data === undefined) return undefined;
+  try {
+    return JSON.stringify(data)?.slice(0, 2000);
+  } catch {
+    return String(data).slice(0, 2000);
+  }
+}
 
 function mirrorToConsole(
   level: TugDevLogLevel,

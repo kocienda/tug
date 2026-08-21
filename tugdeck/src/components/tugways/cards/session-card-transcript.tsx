@@ -2785,7 +2785,10 @@ export const SessionTranscriptHost = forwardRef<
               // top) and stays topmost as older turns prepend below it.
               leadingContent={
                 showZ0Strip ? (
-                  <SessionTranscriptTopRow codeSessionStore={codeSessionStore} />
+                  <SessionTranscriptTopRow
+                    codeSessionStore={codeSessionStore}
+                    shellSessionStore={shellSessionStore}
+                  />
                 ) : undefined
               }
               // Freeze the per-commit scroll battery across the restore

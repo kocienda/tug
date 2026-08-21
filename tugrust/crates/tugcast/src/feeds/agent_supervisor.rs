@@ -33,7 +33,7 @@ use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
+use tracing::{debug, warn};
 use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 
 use super::agent_bridge::{
@@ -3351,17 +3351,53 @@ impl AgentSupervisor {
                 self.do_list_overview_posts(before_id, limit).await;
                 Ok(())
             }
+            "deck_log" => {
+                // The deck's `warn`/`error` dev-log entries, mirrored here so
+                // they survive into `tugcast.log`. The Lens Log tab is only
+                // readable live, and a release build exposes no handle onto
+                // that store — so without this a warning about, say, a restore
+                // that came back short is written nowhere anyone can read
+                // afterwards. Diagnostic echo only: never trusted, never acted
+                // on, and bounded by the client's own 2000-char detail cap.
+                let v = serde_json::from_slice::<serde_json::Value>(payload)
+                    .unwrap_or(serde_json::Value::Null);
+                let str_at = |k: &str| {
+                    v.get(k)
+                        .and_then(|s| s.as_str())
+                        .unwrap_or_default()
+                        .to_owned()
+                };
+                let (level, source, message, detail) = (
+                    str_at("level"),
+                    str_at("source"),
+                    str_at("message"),
+                    v.get("data").and_then(|s| s.as_str()).unwrap_or_default().to_owned(),
+                );
+                if level == "error" {
+                    tracing::error!(source, detail, "deck: {message}");
+                } else {
+                    warn!(source, detail, "deck: {message}");
+                }
+                Ok(())
+            }
             "list_shell_exchanges" => {
                 // Session-scoped read — the deck's shell-restore tail fetch.
-                let tug_session_id = serde_json::from_slice::<serde_json::Value>(payload)
-                    .ok()
+                // `since_ms` is the replay window's oldest-turn timestamp when
+                // the deck knows it, so ink rows span what the turns span.
+                let parsed = serde_json::from_slice::<serde_json::Value>(payload).ok();
+                let tug_session_id = parsed
+                    .as_ref()
                     .and_then(|v| {
                         v.get("tug_session_id")
                             .and_then(|s| s.as_str())
                             .map(String::from)
                     })
                     .unwrap_or_default();
-                self.do_list_shell_exchanges(&tug_session_id).await;
+                let since_ms = parsed
+                    .as_ref()
+                    .and_then(|v| v.get("since_ms"))
+                    .and_then(|s| s.as_i64());
+                self.do_list_shell_exchanges(&tug_session_id, since_ms).await;
                 Ok(())
             }
             "list_refs" => {
@@ -7006,25 +7042,56 @@ impl AgentSupervisor {
         let _ = self.changeset_watch.set(watch_rx);
     }
 
-    /// Handle a `list_shell_exchanges { tug_session_id }` CONTROL request — the
-    /// deck's shell-restore tail read. Broadcasts `list_shell_exchanges_ok
-    /// { tug_session_id, exchanges: ShellExchangeRow[] }`, oldest-first; a
-    /// missing ledger or empty session yields an empty array.
-    async fn do_list_shell_exchanges(&self, tug_session_id: &str) {
-        let exchanges = self
-            .shell_ledger
-            .as_ref()
-            .map(|ledger| {
-                ledger.list_exchanges(tug_session_id).unwrap_or_else(|err| {
+    /// Handle a `list_shell_exchanges { tug_session_id, since_ms? }` CONTROL
+    /// request — the deck's shell-restore read. Broadcasts
+    /// `list_shell_exchanges_ok { tug_session_id, exchanges, total, max_seq,
+    /// answered }`, oldest-first.
+    ///
+    /// `total` and `max_seq` are the completeness pair: the deck compares
+    /// `exchanges.length` against `total` and only settles its restore when
+    /// they agree. Without them an empty array from a mistimed request is
+    /// indistinguishable from a session that genuinely has no rows — which is
+    /// exactly how a transcript comes back short and silent. `answered` is
+    /// false when there is no ledger at all, so "no ledger" never reads as
+    /// "no rows".
+    async fn do_list_shell_exchanges(&self, tug_session_id: &str, since_ms: Option<i64>) {
+        let started = std::time::Instant::now();
+        let read = self.shell_ledger.as_ref().map(|ledger| {
+            let rows = ledger
+                .list_exchanges_since(tug_session_id, since_ms)
+                .unwrap_or_else(|err| {
                     warn!(error = %err, %tug_session_id, "list_shell_exchanges failed");
                     Vec::new()
-                })
-            })
-            .unwrap_or_default();
+                });
+            let (total, max_seq) = ledger
+                .exchange_census(tug_session_id, since_ms)
+                .unwrap_or_else(|err| {
+                    warn!(error = %err, %tug_session_id, "shell exchange census failed");
+                    (rows.len() as i64, 0)
+                });
+            (rows, total, max_seq)
+        });
+        let answered = read.is_some();
+        let (exchanges, total, max_seq) = read.unwrap_or_else(|| (Vec::new(), 0, 0));
+        // The load-bearing diagnostic for a transcript that came back short:
+        // ground truth for "what did the server actually hand this session".
+        debug!(
+            %tug_session_id,
+            since_ms = ?since_ms,
+            rows = exchanges.len(),
+            total,
+            max_seq,
+            answered,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "list_shell_exchanges"
+        );
         let body = serde_json::json!({
             "action": "list_shell_exchanges_ok",
             "tug_session_id": tug_session_id,
             "exchanges": exchanges,
+            "total": total,
+            "max_seq": max_seq,
+            "answered": answered,
         });
         let _ = self.control_tx.send(Frame::new(
             FeedId::CONTROL,
@@ -15052,7 +15119,7 @@ mod tests {
         assert!(summary.starts_with("committed "), "summary: {summary}");
         assert!(summary.contains("1 file(s) · +1 −0"), "summary: {summary}");
 
-        let rows = shell_ledger.list_exchanges("sess").expect("list");
+        let rows = shell_ledger.list_exchanges_since("sess", None).expect("list");
         assert_eq!(rows.len(), 1, "exactly one /commit row");
         assert_eq!(rows[0].command, "/commit");
         assert_eq!(rows[0].exit_code, Some(0));
@@ -15072,7 +15139,7 @@ mod tests {
         sup.do_changeset_commit(&bare).await;
         let _ = drain_until_action(&mut rx, "changeset_commit_ok");
         assert_eq!(
-            shell_ledger.list_exchanges("sess").expect("list").len(),
+            shell_ledger.list_exchanges_since("sess", None).expect("list").len(),
             1,
             "the session-less commit added no ledger row",
         );

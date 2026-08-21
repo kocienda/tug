@@ -40,13 +40,13 @@ function warningsFor(tugSessionId: string): ReadonlyArray<{ message: string; dat
     .entries.filter(
       (e) =>
         e.level === "warn" &&
-        e.message === "ledger restore never answered" &&
+        e.message === "ledger restore not yet answered" &&
         (e.data as { tugSessionId?: string } | undefined)?.tugSessionId === tugSessionId,
     );
 }
 
 /** Fast timings so a test pins the retry behaviour, not its wall-clock. */
-const FAST = { answerTimeoutMs: 10, backoffMs: [5], maxAttempts: 4 } as const;
+const FAST = { answerTimeoutMs: 10, backoffMs: [5], warnAfterAttempts: 4 } as const;
 
 describe("LedgerRestoreFetch", () => {
   test("a frame dropped by a closed socket is asked again once it opens", async () => {
@@ -108,7 +108,7 @@ describe("LedgerRestoreFetch", () => {
     expect(warningsFor("sess-3")).toEqual([]);
   });
 
-  test("exhausting the attempts warns rather than going quiet", async () => {
+  test("a stuck restore warns once and keeps asking anyway", async () => {
     sent = [];
     socketOpen = true;
     const fetch = new LedgerRestoreFetch({
@@ -120,14 +120,46 @@ describe("LedgerRestoreFetch", () => {
     fetch.start();
 
     await sleep(80);
-    fetch.dispose();
+    const atWarn = sent.length;
+    expect(atWarn).toBeGreaterThanOrEqual(4);
 
+    // The warning is for the Log tab, not a stop signal: the give-up is what
+    // stranded 49 ledgered rows, so asking must outlive the complaint.
     const warnings = warningsFor("sess-4");
     expect(warnings.length).toBe(1);
     expect(warnings[0]!.data).toMatchObject({
       action: "list_shell_exchanges",
       tugSessionId: "sess-4",
-      attempts: 4,
     });
+
+    await sleep(60);
+    fetch.dispose();
+    expect(sent.length).toBeGreaterThan(atWarn);
+    expect(warningsFor("sess-4").length).toBe(1);
+  });
+
+  test("refresh re-asks a fetch a previous answer had settled", async () => {
+    sent = [];
+    socketOpen = true;
+    const fetch = new LedgerRestoreFetch({
+      action: "list_shell_exchanges",
+      tugSessionId: "sess-5",
+      logSource: "shell-restore",
+      ...FAST,
+      params: () => ({ since_ms: 4242 }),
+    });
+    fetch.start();
+    fetch.settle();
+    const afterSettle = sent.length;
+
+    await sleep(30);
+    expect(sent.length).toBe(afterSettle);
+
+    // The window moved, so the settled answer answered a different question.
+    fetch.refresh();
+    fetch.settle();
+    fetch.dispose();
+    expect(sent.length).toBe(afterSettle + 1);
+    expect(JSON.parse(sent[sent.length - 1]!).since_ms).toBe(4242);
   });
 });

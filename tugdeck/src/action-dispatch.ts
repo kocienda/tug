@@ -1536,8 +1536,11 @@ export function initActionDispatch(
       });
       return;
     }
+    // The completeness pair rides through: the store settles its retry only
+    // when the rows account for the ledger's own `total` ([P07]).
     services.shellSessionStore.applyRestore(
       exchanges as ReadonlyArray<Record<string, unknown>>,
+      { total: payload.total, answered: payload.answered },
     );
   });
 

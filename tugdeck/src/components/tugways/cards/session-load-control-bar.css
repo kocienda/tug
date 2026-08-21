@@ -185,3 +185,31 @@
 .session-load-control-bar-meta-right .tug-push-button {
   font-size: var(--tug-button-xs-font-size);
 }
+
+/* The ink-restore gap notice ([P07]). Sits after the metadata strip on its own
+   line — the strip is a full-width flex row, so wrapping the top row lets the
+   notice take the next line rather than compressing the "Turns displayed"
+   math. Present only when a restore came back short, so it costs no height in
+   the ordinary case. */
+.session-transcript-top-row {
+  flex-wrap: wrap;
+}
+
+.session-load-control-bar-ink-gap {
+  box-sizing: border-box;
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-xs);
+  padding-block-end: var(--tug-space-xs);
+}
+
+/* The gap is a fact about missing content, not a failure the user caused —
+   `notice` tint, never `danger`. */
+.session-load-control-bar-ink-gap .session-load-control-bar-label {
+  color: var(--tugx-notice, var(--tugx-fg-muted));
+}
+
+.session-load-control-bar-ink-gap .tug-push-button {
+  font-size: var(--tug-button-xs-font-size);
+}
