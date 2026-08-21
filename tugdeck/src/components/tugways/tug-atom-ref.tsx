@@ -209,9 +209,6 @@ export function TugAtomRef({
     <span
       className={cn("tug-atom-ref", stamps && ANNOTATION_CLASS, className)}
       data-slot={dataSlot}
-      // Which kind this is, so the sheet can size a commit label smaller than
-      // the prose it sits in without the consumer threading a prop.
-      data-tugx-atom-kind={entity.kind}
       {...marks}
     >
       <span className="tug-atom-ref-icon" aria-hidden="true">
