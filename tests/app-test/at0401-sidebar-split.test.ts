@@ -554,11 +554,15 @@ describe.skipIf(!SHOULD_RUN)(
                 }
               }
 
-              // Straight down the rail's own column, past the lower member's
-              // midpoint — a vertical trajectory never leaves the corridor.
+              // Straight down the rail's own column, into the bottom position's
+              // DRAWN tile. A position is asked for at the tile the preview
+              // draws, and shares travel with cards — the dragged member's
+              // seam-clamped share previews at its own height above the run's
+              // bottom edge, so that is where the title bar must arrive for
+              // the indication (and the trade) to follow.
               await app.nativeDragElement(`${frame(upperPane)} .tug-pane-title-bar`, {
                 x: column,
-                y: Math.round(lower.top + lower.height * 0.75),
+                y: Math.round(lower.bottom - 40),
               });
               await app.waitForCondition<boolean>(
                 `(function () {

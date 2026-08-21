@@ -45,6 +45,7 @@ import { CardHost } from "./card-host";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
+import { FlowRail } from "./flow-rail";
 import { usePaneFocusController } from "./pane-focus-controller";
 import { usePaneOcclusionController } from "./pane-occlusion-controller";
 import {
@@ -104,6 +105,13 @@ import {
   type DropZoneHost,
 } from "@/lib/drop-zones";
 import { indicateDropZone } from "@/lib/drop-zone-indicator";
+import {
+  publishColumnOffset,
+  publishDragFrame,
+  publishDragZone,
+  publishFlowOffset,
+  type GaugeRect,
+} from "@/lib/imposer-gauges";
 import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import {
@@ -131,6 +139,7 @@ import {
   RESIZE_RETUNE_QUIET_MS,
   FLOW_OFFSET_PROPERTY,
   FLOW_STRIP_PROPERTY,
+  clampFlowOffset,
   effectiveRailOrder,
   imposeSidebarStyle,
   impositionLayout,
@@ -223,6 +232,13 @@ const COLUMN_SEAM_MAX_SLOT = slotCount("six-up") - 1;
  *  than a fresh `{}` per render, so the memos reading it are not re-run by an
  *  identity that changes for no reason. */
 const EMPTY_COLUMN_OFFSETS: Readonly<Record<number, number>> = Object.freeze({});
+
+/** How long the strip waits after the last wheel event before it commits where
+ *  it came to rest ([P11]). A wheel has no release to commit on, so quiet is
+ *  the only end it has: long enough that the pauses inside one flick are not
+ *  read as three gestures, short enough that the store is caught up by the
+ *  time a hand reaches for anything else. */
+const FLOW_WHEEL_IDLE_MS = 180;
 
 /** One member of a side's rail, in the rail's own vertical order: the order the
  *  imposition records, falling back to registration order — never z-order. */
@@ -804,6 +820,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // in this file is load-bearing.
   const flowStrip = useMemo(() => deckFlowStrip(deckState), [deckState]);
   const flowOffset = deckState.flowOffset ?? 0;
+  // The band the strip is seen through, for the rail that draws it ([P10]).
+  // Read here rather than measured in the rail for the reason the strip is
+  // resolved in one place: the deck's one measurement, taken where the store
+  // is at hand, so the rail and the frames can never part company about how
+  // much of the strip is on screen. A commit re-renders the canvas, and the
+  // settled-resize retune commits — so the number follows the window.
+  const flowBandPx = flowStrip === null ? null : store.getFlowBandWidth();
   // The occupied slots and how each one's panes stand — the deck's ONE reading
   // of its columns ([P11]). Declared here for the same reason the strip is: the
   // inset effect below publishes the seam fractions, and the effect order in
@@ -1840,6 +1863,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         .filter(overflowing)
         .map((column) => [column.slot, columnOffsets[column.slot] ?? 0]),
     );
+    const columnRun = store.getColumnRunHeight();
     for (let slot = 0; slot <= COLUMN_SEAM_MAX_SLOT; slot += 1) {
       const seams = seamsBySlot.get(slot) ?? [];
       seams.forEach((fraction, index) => {
@@ -1861,6 +1885,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           `${Math.round(offset)}px`,
         );
       }
+      // The gauge channel carries the same number to instruments outside the
+      // canvas ([P08]). It rides the COMMITTED write as well as the per-frame
+      // one so a gauge and the deck agree at rest, not only mid-gesture, and
+      // it is a fraction of the run for the reason the whole channel is
+      // fractional: the miniature's field is this run at another scale.
+      publishColumnOffset(
+        slot,
+        offset === undefined || columnRun === null || columnRun <= 0
+          ? null
+          : offset / columnRun,
+      );
     }
     // Both flow properties are written together or removed together: a strip
     // width standing without an offset (or the reverse) would clamp one frame
@@ -1873,6 +1908,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(flowOffset)}px`);
       el.style.setProperty(FLOW_STRIP_PROPERTY, `${flowStrip.width}px`);
     }
+    const flowBand = store.getFlowBandWidth();
+    publishFlowOffset(
+      flowStrip === null || flowBand === null || flowBand <= 0
+        ? null
+        : flowOffset / flowBand,
+    );
     // `railWidthOf` and both seam sweeps read `sidebarRails` and `deckColumns`,
     // which `railSummary` summarises — the widths, modes, and fractions in it
     // are exactly what this effect writes.
@@ -2875,8 +2916,43 @@ export function DeckCanvas(_props: DeckCanvasProps) {
    * a frame actually is, and re-deriving it in JS would be a second opinion
    * that drifts the moment a rail moves ([L09]).
    */
-  const dropZoneHost: DropZoneHost = useMemo(
-    () => ({
+  const dropZoneHost: DropZoneHost = useMemo(() => {
+    /** A client rect in canvas coordinates — the space every zone is stated
+     *  in, and the space the gauge fractions are taken against. */
+    const canvasRectOf = (rect: DOMRect): Rect | null => {
+      const canvas = containerRef.current;
+      if (canvas === null) return null;
+      const zoom = getTugZoom() || 1;
+      const box = canvas.getBoundingClientRect();
+      return {
+        x: (rect.left - box.left) / zoom,
+        y: (rect.top - box.top) / zoom,
+        width: rect.width / zoom,
+        height: rect.height / zoom,
+      };
+    };
+    /**
+     * A canvas-space rect as fractions of the canvas box — the gauge channel's
+     * unit ([P08]). An instrument drawing the deck at another scale multiplies
+     * these straight into its own; it never has to learn what this canvas
+     * measures, which is the whole reason the channel is fractional.
+     */
+    const canvasFractionOf = (rect: Rect | null): GaugeRect | null => {
+      const canvas = containerRef.current;
+      if (canvas === null || rect === null) return null;
+      const zoom = getTugZoom() || 1;
+      const box = canvas.getBoundingClientRect();
+      const width = box.width / zoom;
+      const height = box.height / zoom;
+      if (width <= 0 || height <= 0) return null;
+      return {
+        x: rect.x / width,
+        y: rect.y / height,
+        width: rect.width / width,
+        height: rect.height / height,
+      };
+    };
+    return {
       enumerate(draggedPaneId, tabBars) {
         const canvas = containerRef.current;
         if (canvas === null) return { zones: [], origin: null };
@@ -2930,10 +3006,24 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           slots,
           panes,
           tabBars,
-          rails: sidebarRailsOf(state).map((rail) => ({
-            side: rail.side,
-            members: rail.members.map((member) => member.paneId),
-          })),
+          rails: sidebarRailsOf(state).map((rail) => {
+            // The engine keys everything by pane id; the rail's stored shares
+            // are keyed by componentId, so they re-key here, at the one place
+            // that can see both names for a member.
+            const stored = state.imposition.rails?.[rail.side]?.shares;
+            const shares: Record<string, number> = {};
+            if (stored !== undefined) {
+              for (const member of rail.members) {
+                const weight = stored[member.componentId];
+                if (weight !== undefined) shares[member.paneId] = weight;
+              }
+            }
+            return {
+              side: rail.side,
+              members: rail.members.map((member) => member.paneId),
+              shares,
+            };
+          }),
         });
       },
 
@@ -2941,9 +3031,23 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         // A tab bar indicates through the attribute it has always indicated
         // through, which the gesture stamps itself — showing the outline there
         // too would be two answers to one question ([P10]).
-        indicateDropZone(
-          containerRef.current,
-          zone === null || zone.kind === "tab-bar" ? null : zone.rect,
+        const rect =
+          zone === null || zone.kind === "tab-bar" ? null : zone.rect;
+        indicateDropZone(containerRef.current, rect);
+        // Instruments away from the canvas hear the same answer ([P08]): a
+        // place being offered, or none. A tab bar publishes none, so the
+        // miniature's highlight and the canvas outline say the same thing.
+        publishDragZone(canvasFractionOf(rect));
+      },
+
+      gaugeDragFrame(frame) {
+        // Measured off the DOM for the same reason the zones are: the frame is
+        // travelling on a transform the browser has already resolved, and its
+        // own box is the only answer that cannot drift from what the user sees.
+        publishDragFrame(
+          frame === null
+            ? null
+            : canvasFractionOf(canvasRectOf(frame.getBoundingClientRect())),
         );
       },
 
@@ -3064,15 +3168,140 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             ? columnOffsetProperty(target.slot ?? 0)
             : FLOW_OFFSET_PROPERTY;
         el.style.setProperty(property, `${Math.round(offset)}px`);
+        // The same number, in the same frame, to every instrument listening
+        // ([P08]). The band the strip slides under is the target's own, so the
+        // fraction is exact rather than re-measured off the DOM.
+        const band = target.bandEnd - target.bandStart;
+        if (band <= 0) return;
+        if (target.kind === "column") {
+          publishColumnOffset(target.slot ?? 0, offset / band);
+        } else {
+          publishFlowOffset(offset / band);
+        }
       },
 
       commitScroll(target, offset) {
         if (target.kind === "column") store.setColumnOffset(target.slot ?? 0, offset);
         else store.setFlowOffset(offset);
       },
-    }),
+    };
+  }, [store]);
+
+  // ---------------------------------------------------------------------------
+  // Scrolling the flow strip
+  // ---------------------------------------------------------------------------
+  // Three gestures move the strip — the rail's thumb, a click on one of its
+  // numbered segments, and a horizontal (or shift-vertical) wheel anywhere on
+  // the canvas — and all three come through this pair ([P11]). One per-frame
+  // writer and one commit, which is what makes them one gesture family rather
+  // than three implementations that agree by luck: the same clamp, the same
+  // property, the same channel, and the same one-write-at-the-end rule the
+  // autoscroll already obeys ([P01], [P12]).
+  //
+  // `previewFlowOffset` is the per-frame half. It writes the offset the deck
+  // draws from and publishes it to the instruments, and touches no store —
+  // a commit per frame would arm the settle on every one of them and tween the
+  // strip under the user's hand.
+  const previewFlowOffset = useCallback(
+    (offset: number): void => {
+      const el = containerRef.current;
+      if (el === null) return;
+      const band = store.getFlowBandWidth();
+      if (band === null || band <= 0) return;
+      el.style.setProperty(FLOW_OFFSET_PROPERTY, `${Math.round(offset)}px`);
+      publishFlowOffset(offset / band);
+    },
     [store],
   );
+
+  // And the commit: the store catches up with what the deck has been showing.
+  // It changes no geometry — CSS was already drawing this number — except when
+  // the caller is a segment click, which hands it a number the deck was NOT
+  // showing and lets the settle animate the crossing.
+  const commitFlowOffset = useCallback(
+    (offset: number): void => {
+      store.setFlowOffset(offset);
+    },
+    [store],
+  );
+
+  // The wheel. Registered on the canvas itself in a layout effect ([L03]) and
+  // non-passive, because acting on the event means taking it — otherwise the
+  // page would pan under a deck that just scrolled its strip.
+  //
+  // It listens in the BUBBLE phase deliberately: a card's own scroller is
+  // nearer the pointer and gets the event first, and this handler declines
+  // whenever the target chain crosses something that can still scroll the way
+  // the wheel is pointing. Skimming a transcript sideways must not slide the
+  // deck (the routing conventions in `use-outer-scroll-on-modifier-wheel.ts`).
+  //
+  // Accumulation lives in a ref and the gesture ends on an idle timeout, which
+  // is the only end a wheel has — there is no "up" to commit on.
+  const wheelGestureRef = useRef<{ offset: number; timer: number | null }>({
+    offset: 0,
+    timer: null,
+  });
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (el === null) return;
+    const gesture = wheelGestureRef.current;
+
+    const scrollableAncestor = (target: EventTarget | null): boolean => {
+      let node = target instanceof Element ? target : null;
+      while (node !== null && node !== el) {
+        if (node.scrollWidth - node.clientWidth > 1) {
+          const overflow = getComputedStyle(node).overflowX;
+          if (overflow === "auto" || overflow === "scroll") return true;
+        }
+        node = node.parentElement;
+      }
+      return false;
+    };
+
+    const onWheel = (event: WheelEvent): void => {
+      // Shift+vertical is the mouse's horizontal: a wheel with one axis says
+      // sideways by holding the modifier, a trackpad says it with deltaX. A
+      // mostly-vertical trackpad swipe carries a little deltaX with it, so the
+      // dominant axis decides — otherwise scrolling a card would drift the
+      // deck sideways.
+      const horizontal =
+        event.deltaX !== 0 && Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      const delta = horizontal
+        ? event.deltaX
+        : event.shiftKey && event.deltaX === 0
+          ? event.deltaY
+          : 0;
+      if (delta === 0) return;
+      const state = store.getSnapshot();
+      const strip = deckFlowStrip(state);
+      const band = store.getFlowBandWidth();
+      if (strip === null || band === null || band <= 0) return;
+      if (scrollableAncestor(event.target)) return;
+      event.preventDefault();
+      // Picked up from the store on the first event of a gesture and carried in
+      // the ref after that, so a commit landing mid-gesture cannot rewind the
+      // hand. Clamped every frame with the store's own arithmetic, so the frame
+      // never shows an overshoot the commit would reject.
+      const standing =
+        gesture.timer === null ? (state.flowOffset ?? 0) : gesture.offset;
+      gesture.offset = clampFlowOffset(standing + delta, strip.width, band);
+      previewFlowOffset(gesture.offset);
+      if (gesture.timer !== null) window.clearTimeout(gesture.timer);
+      gesture.timer = window.setTimeout(() => {
+        gesture.timer = null;
+        commitFlowOffset(gesture.offset);
+      }, FLOW_WHEEL_IDLE_MS);
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      if (gesture.timer !== null) {
+        window.clearTimeout(gesture.timer);
+        gesture.timer = null;
+      }
+    };
+  }, [store, previewFlowOffset, commitFlowOffset]);
 
   // Merge `deckRootRef` (pane-focus-controller's query scope) and
   // `responderRef` (responder-chain wiring) onto the same element.
@@ -3323,6 +3552,20 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         );
       })}
+      {/* The flow rail: where the deck stands in its own strip, in the bottom
+          band the imposition already keeps clear ([P10]). Mounted whenever the
+          layout is flow — a strip that fits its band gets the quiet register,
+          not an absent rail — and never in fit, where there is no strip to
+          stand in. */}
+      {flowStrip !== null && flowBandPx !== null && flowBandPx > 0 ? (
+        <FlowRail
+          strip={flowStrip}
+          band={flowBandPx}
+          offset={flowOffset}
+          onPreview={previewFlowOffset}
+          onCommit={commitFlowOffset}
+        />
+      ) : null}
       </div>
       {/*
         * CanvasOverlayRoot: single deck-level container for popup-class

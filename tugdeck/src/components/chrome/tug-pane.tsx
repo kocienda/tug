@@ -2742,6 +2742,11 @@ export function TugPane({
         frame.style.transform = `translate(${
           (pointer.x - start.x) / dragZoom + slide.dx
         }px, ${(pointer.y - start.y) / dragZoom + slide.dy}px)`;
+        // Where the frame now stands, published once per frame to whoever is
+        // drawing the deck elsewhere ([P08]). After the transform write and
+        // before the zone work, so an instrument's ghost and the canvas's own
+        // indication are answering the same frame.
+        dropZonesRef.current?.gaugeDragFrame(frame);
         if (latestMetaKey.current) {
           state.live = null;
           autoscrollClockRef.current = null;
@@ -2943,6 +2948,7 @@ export function TugPane({
 
         zoneDragRef.current = null;
         dropZonesRef.current?.indicate(null);
+        dropZonesRef.current?.gaugeDragFrame(null);
         // A cancel takes back the MOVE, not the view. The strip the hand
         // scrolled to is where the user is now looking, and rewinding it would
         // undo something they did not ask to undo.
@@ -3054,6 +3060,7 @@ export function TugPane({
         const freedFromZone = zoneState !== null && latestMetaKey.current;
         zoneDragRef.current = null;
         dropZonesRef.current?.indicate(null);
+        dropZonesRef.current?.gaugeDragFrame(null);
         // Ahead of the zone commit below, so the settle that animates the
         // landing is the arrangement change's rather than the offset's. This
         // one moves no frame: CSS has been drawing the number all along.

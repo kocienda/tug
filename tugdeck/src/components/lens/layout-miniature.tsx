@@ -32,7 +32,14 @@
 
 import "./layout-miniature.css";
 
-import React from "react";
+import React, { useLayoutEffect, useRef } from "react";
+
+import {
+  columnOffsetSignal,
+  gaugeProperties,
+  registerGauge,
+  type GaugeSignal,
+} from "@/lib/imposer-gauges";
 
 import {
   columnStanding,
@@ -182,6 +189,31 @@ export interface LayoutMiniatureProps {
 /** The air between two members of a divided rail, in percent of the drawing's
  *  height — the seam's share, exaggerated for the same reason the card gap is. */
 const RAIL_SEAM_PCT = 2.5;
+
+/**
+ * The deviation from a committed offset, written as the drawing's own motion.
+ *
+ * Every gauge value is a fraction ([P08]), and the committed fraction the
+ * drawing was rendered at is a number this component already holds — so the
+ * live term is their DIFFERENCE, which is exactly the "between commits" motion
+ * the channel exists to carry. Expressing it that way keeps the committed
+ * geometry in the inline `left`/`top` where it has always been, so the drawing
+ * at rest is unchanged and needs no publisher to look right, and the gauge only
+ * ever adds a translation on top of it.
+ *
+ * `scale` converts a fraction of the deck's band or run into a percentage of
+ * the element being moved, which is the unit a CSS translation is stated in.
+ * The result is consumed as `calc(var(--mini-slide) * 1%)`.
+ */
+function slideExpression(
+  signal: GaugeSignal,
+  committed: number,
+  scale: number,
+): string {
+  // The channel spells its own properties — the drawing never guesses one.
+  const property = gaugeProperties(signal)[0];
+  return `calc((var(${property}, ${committed}) - ${committed}) * ${scale})`;
+}
 
 /**
  * One side's rail, holding `count` cards at `widthPct` of the drawing, drawn
@@ -374,12 +406,49 @@ export function LayoutMiniature({
   // The window marks the band over the strip: as wide a share of the drawing as
   // the band is of the strip, standing where the offset has slid the strip
   // under it. At rest — or with no live truth to read — that is flush left.
-  const windowLeft =
-    flowLive === null
-      ? 0
-      : (flowLive.offsetPx / flowLive.bandPx) * 100 * flowScale;
+  const flowFraction =
+    flowLive === null ? 0 : flowLive.offsetPx / flowLive.bandPx;
+  const windowLeft = flowFraction * 100 * flowScale;
+
+  // Which columns are drawn as sliding strips — the signals this drawing has
+  // anything to do with. A column that divides rather than overflows has no
+  // offset, and a drawing that is not the committed one is a proposal nobody
+  // has stood under, so neither listens ([P06]).
+  const overflowSlots = !committed
+    ? []
+    : blocks
+        .filter(
+          (block) =>
+            columnStanding(columnSplits?.[block.slot] ?? 1) === "overflow",
+        )
+        .map((block) => block.slot);
+  const root = useRef<HTMLSpanElement | null>(null);
+  const signature = `${committed ? "live" : "still"}|${layout}|${overflowSlots.join(",")}`;
+  // [L03] — the channel is a registration events depend on, so it is claimed in
+  // a layout effect and released with it. The registry writes the deck's live
+  // numbers straight onto this element and every child inherits them, which is
+  // how the drawing moves per frame without React hearing about it ([L06]).
+  useLayoutEffect(() => {
+    const el = root.current;
+    if (el === null || !committed) return;
+    const signals: GaugeSignal[] = [
+      "flow-offset",
+      "drag-frame",
+      "drag-zone",
+      ...overflowSlots.map(columnOffsetSignal),
+    ];
+    const releases = signals.map((signal) => registerGauge(signal, el));
+    return () => {
+      for (const release of releases) release();
+    };
+    // The signal list is what the effect subscribes to, and `signature` is that
+    // list — the slots, the geometry, and whether this drawing is the live one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
+
   return (
     <span
+      ref={root}
       className="layout-mini"
       data-committed={committed ? "true" : undefined}
       data-layout={layout}
@@ -417,7 +486,19 @@ export function LayoutMiniature({
           const span = overflow
             ? (100 - RAIL_SEAM_PCT * 2) / COLUMN_OVERFLOW_VISIBLE_MEMBERS
             : (100 - RAIL_SEAM_PCT * (members - 1)) / members;
-          const slide = overflow ? (columnOffsets?.[block.slot] ?? 0) * 100 : 0;
+          const fraction = overflow ? (columnOffsets?.[block.slot] ?? 0) : 0;
+          const slide = fraction * 100;
+          // A fraction of the RUN is the whole field's height; the member is
+          // `span` percent of it, and a translation is stated in percent of the
+          // element being translated. Negative because sliding the strip UP is
+          // what a positive offset means. ([P08])
+          const slideExpr = overflow
+            ? slideExpression(
+                columnOffsetSignal(block.slot),
+                fraction,
+                -10000 / span,
+              )
+            : null;
           return Array.from({ length: members }, (_, m) => {
             const top = m * (span + RAIL_SEAM_PCT) - slide;
             return (
@@ -426,12 +507,16 @@ export function LayoutMiniature({
                 className="layout-mini-block"
                 data-column-member=""
                 data-column-overflow={overflow ? "" : undefined}
-                style={{
-                  left: `${block.left}%`,
-                  width: `${block.width}%`,
-                  top: `${top}%`,
-                  bottom: `${100 - top - span}%`,
-                }}
+                style={
+                  {
+                    left: `${block.left}%`,
+                    width: `${block.width}%`,
+                    top: `${top}%`,
+                    bottom: `${100 - top - span}%`,
+                    "--mini-slide-y":
+                      committed && slideExpr !== null ? slideExpr : undefined,
+                  } as React.CSSProperties
+                }
               />
             );
           });
@@ -439,12 +524,40 @@ export function LayoutMiniature({
         {flowOverflows ? (
           <span
             className="layout-mini-window"
-            style={{ left: `${windowLeft}%`, width: `${100 * flowScale}%` }}
+            style={
+              {
+                left: `${windowLeft}%`,
+                width: `${100 * flowScale}%`,
+                // The window IS the band, so a slide of one band moves it by
+                // its own width — which makes the scale from "fractions of the
+                // band" to "percent of this element" exactly 100, whatever the
+                // drawing's size or the strip's scale. The reason the gauge is
+                // a fraction, in one number.
+                "--mini-slide-x": committed
+                  ? slideExpression("flow-offset", flowFraction, 100)
+                  : undefined,
+              } as React.CSSProperties
+            }
           />
         ) : null}
       </span>
       {right > 0 ? (
         <Rail count={right} widthPct={railPct} mode={railModes?.right} />
+      ) : null}
+      {/*
+        * The drag, drawn. Both stand over the WHOLE drawing rather than inside
+        * the field, because a drag crosses rails and gaps as freely as it
+        * crosses slots — the gauges state a rect as a fraction of the canvas,
+        * and this element is the canvas at another scale. They are rendered
+        * once and moved by CSS forever after: their visibility is the
+        * channel's attributes and their position is its properties, so a whole
+        * drag costs no render at all ([P09]).
+        */}
+      {committed ? (
+        <>
+          <span className="layout-mini-ghost" />
+          <span className="layout-mini-zone" />
+        </>
       ) : null}
     </span>
   );

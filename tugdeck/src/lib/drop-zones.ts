@@ -18,9 +18,10 @@
  *
  * A zone's rect is **the tile the card would occupy if released there**, not a
  * hit-target drawn around a boundary. That is what lets the indicator be
- * honest: what it shows is what the release does. Tiles are derived the way the
- * imposer derives them — heights travel with cards, members stack a gap apart,
- * and a column that would end up with three or more members lands under the
+ * honest: what it shows is what the release does. Tiles are derived with the
+ * commit's own arithmetic — the post-drop order's weights through
+ * `railSeamFractions`, cut into the run with half-gap seams ([P06]) — and a
+ * column that would end up with three or more members lands under the
  * overflow rule rather than dividing ([P08]).
  */
 
@@ -32,6 +33,7 @@ import {
   IMPOSITION_GAP_PX,
   clampSlot,
   columnStanding,
+  railSeamFractions,
   slotCount,
   type SidebarSide,
 } from "./layout-imposer";
@@ -135,6 +137,11 @@ export interface DropZoneRail {
   side: SidebarSide;
   /** The rail's member pane ids, top to bottom. */
   members: readonly string[];
+  /** The members' division weights, keyed by pane id — the rail's stored
+   *  shares re-keyed from componentId at the measurement boundary, since a
+   *  pure module cannot see the registry that maps one to the other. Absent
+   *  members weigh 1 (`railWeightOf`'s rule). */
+  shares?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -241,6 +248,16 @@ export interface DropZoneHost {
   ): DropZoneSet;
   /** Show the live zone, or take the indication away. Imperative DOM [L06]. */
   indicate(zone: DropZone | null): void;
+  /**
+   * Publish where the dragged frame stands to the gauge channel ([P08]), so
+   * instruments away from the canvas can draw the drag itself. `null` retires
+   * the drag: the frame gauge goes quiet and the drag-only affordances with it.
+   *
+   * The frame is passed as its ELEMENT rather than a rect because the canvas
+   * is the one that knows what a rect on it means — the same reason
+   * {@link DropZoneHost.enumerate} measures rather than being told.
+   */
+  gaugeDragFrame(frame: HTMLElement | null): void;
   /** Commit the zone's mutation in one deck-manager call. False is a refusal
    *  the drop must make visible ([P09]) — never a quiet no-op. */
   commit(zone: DropZone, draggedPaneId: string): boolean;
@@ -320,56 +337,59 @@ function overflowTiles(
 }
 
 /**
- * Tiles for a place whose members keep their own measured heights, one tile per
- * position the dragged card could take.
+ * The tile member `index` of a divided place takes, given where the seams
+ * fall: the run cut at the cumulative fractions, half an imposition gap
+ * surrendered at each interior edge.
  *
- * Heights travel with cards — a member's share is keyed by its pane id — so
- * taking position `i` means the others close up around the dragged card's own
- * height wherever it lands, which is exactly what this stacks.
+ * This is `memberPins`' arithmetic with the run resolved to measured pixels —
+ * the same fractions, the same half-gap seams, the same bare-run endpoints —
+ * which is what makes the tile a promise the commit keeps by construction
+ * ([P06]): both sides compute the landing from `railSeamFractions`, so they
+ * cannot drift.
  */
-function stackTiles(
-  others: readonly Rect[],
-  draggedHeight: number,
-  runTop: number,
-  x: number,
-  width: number,
-): Rect[] {
-  const tiles: Rect[] = [];
-  for (let i = 0; i <= others.length; i++) {
-    const above = others.slice(0, i).reduce((sum, rect) => sum + rect.height, 0);
-    tiles.push({
-      x,
-      width,
-      y: runTop + above + i * IMPOSITION_GAP_PX,
-      height: draggedHeight,
-    });
-  }
-  return tiles;
-}
-
-/**
- * Tiles for a foreign card arriving into a column that will still share its
- * run: the run divides equally among the resulting members, because that is
- * what the commit does — the arriving member carries no height weight, so the
- * seam lands at the equal share. Stacking the arrival below the standing
- * members' CURRENT heights instead hangs the preview off the run's bottom
- * edge: the members it lands among shrink to take it in, and the preview must
- * show the world after the drop, not before it.
- */
-function sharedArrivalTiles(
+function divisionTile(
+  fractions: readonly number[],
+  index: number,
   count: number,
   run: { top: number; height: number },
   x: number,
   width: number,
+): Rect {
+  const half = IMPOSITION_GAP_PX / 2;
+  const top =
+    index === 0 ? run.top : run.top + fractions[index - 1] * run.height + half;
+  const bottom =
+    index === count - 1
+      ? run.top + run.height
+      : run.top + fractions[index] * run.height - half;
+  return { x, width, y: top, height: bottom - top };
+}
+
+/**
+ * One tile per position the dragged card could take in a divided place: for
+ * each candidate index, the post-drop order is the sitting members with the
+ * dragged card inserted there, the seams are `railSeamFractions` over that
+ * order's weights, and the tile is the dragged card's cut of the run.
+ *
+ * Weights travel with cards — a member's share is keyed by its id, and a card
+ * absent from `shares` weighs 1, which is exactly `railWeightOf`'s rule. So a
+ * foreign arrival previews the re-division its extra member forces (equal,
+ * when nobody carries a share), and a member reordering its own place
+ * previews its share standing wherever it lands.
+ */
+function divisionTiles(
+  others: readonly string[],
+  shares: Readonly<Record<string, number>> | undefined,
+  draggedId: string,
+  run: { top: number; height: number },
+  x: number,
+  width: number,
 ): Rect[] {
-  const height =
-    (run.height - IMPOSITION_GAP_PX * (count - 1)) / count;
-  return Array.from({ length: count }, (_, i) => ({
-    x,
-    width,
-    y: run.top + i * (height + IMPOSITION_GAP_PX),
-    height,
-  }));
+  const count = others.length + 1;
+  return Array.from({ length: count }, (_, i) => {
+    const order = [...others.slice(0, i), draggedId, ...others.slice(i)];
+    return divisionTile(railSeamFractions(order, shares), i, count, run, x, width);
+  });
 }
 
 /**
@@ -408,35 +428,30 @@ function tileHitBands(
  * Each position of a split column: the tile the card would land in, and the
  * band that asks for it.
  *
- * `draggedIndex` is the card's own index when the column is its own, or null
- * when it is arriving from elsewhere — the difference being whether the card
- * is already one of the measured members. Either way the resulting column has
- * `others.length + 1` members, and its standing is read off that count rather
- * than off the count the column has now: a two-member column that is about to
- * take a third divides no longer.
+ * `order` is the column's sitting member order and `rects` their measured
+ * frames, same indexing; the dragged card may be one of them (its own column)
+ * or absent (arriving from elsewhere). Either way the resulting column has
+ * one member per sitter-other-than-the-dragged plus the dragged card itself,
+ * and both the standing and the seams are read off that post-drop world: a
+ * two-member column about to take a third stacks the overflow strip, and a
+ * column that will still share divides at the fractions the commit's own
+ * arithmetic will write ([P06]).
  */
 function columnPlaces(
-  members: readonly Rect[],
-  draggedIndex: number | null,
+  order: readonly string[],
+  rects: readonly Rect[],
+  shares: Readonly<Record<string, number>> | undefined,
+  draggedPaneId: string,
 ): { tile: Rect; hit: Rect }[] {
-  if (members.length === 0) return [];
-  const run = runOf(members);
-  const { x, width } = members[0];
-  const others =
-    draggedIndex === null
-      ? members
-      : members.filter((_, i) => i !== draggedIndex);
+  if (rects.length === 0) return [];
+  const run = runOf(rects);
+  const { x, width } = rects[0];
+  const others = order.filter((id) => id !== draggedPaneId);
   const count = others.length + 1;
-  // Three post-drop worlds, each drawn as it will be, not as it is: an
-  // overflowing count stacks the run/2.5 strip; a foreign arrival into a
-  // shared column re-divides the run equally; a member of its own column
-  // keeps every measured height, rearranged.
   const tiles =
     columnStanding(count) === "overflow"
       ? overflowTiles(count, run, x, width)
-      : draggedIndex === null
-        ? sharedArrivalTiles(count, run, x, width)
-        : stackTiles(others, members[draggedIndex].height, run.top, x, width);
+      : divisionTiles(others, shares, draggedPaneId, run, x, width);
   const hits = tileHitBands(
     tiles,
     { top: run.top, bottom: run.top + run.height },
@@ -463,12 +478,15 @@ function railZonesOf(
   const draggedIndex = rail.members.indexOf(draggedPaneId);
   const { x, width } = members[0];
   const runTop = Math.min(...members.map((rect) => rect.y));
-  const others = members.filter((_, i) => i !== draggedIndex);
   const runBottom = Math.max(...members.map((rect) => rect.y + rect.height));
-  const tiles = stackTiles(
+  const others = rail.members.filter((id) => id !== draggedPaneId);
+  // A rail divides at any count — overflow is a column rule — so its tiles
+  // are the fraction path alone, division-true the way a column's are ([P06]).
+  const tiles = divisionTiles(
     others,
-    members[draggedIndex].height,
-    runTop,
+    rail.shares,
+    draggedPaneId,
+    { top: runTop, height: runBottom - runTop },
     x,
     width,
   );
@@ -538,7 +556,12 @@ export function enumerateDropZones(
       }
       if (members.length !== column.members.length) continue;
       const draggedIndex = own ? column.members.indexOf(draggedPaneId) : null;
-      const places = columnPlaces(members, draggedIndex);
+      const places = columnPlaces(
+        column.members,
+        members,
+        state.imposition.columns?.[slot]?.shares,
+        draggedPaneId,
+      );
       // The card's own column keeps its member count; a foreign one grows by
       // the arriving card, so it advertises one more position than it has
       // members.
@@ -559,8 +582,38 @@ export function enumerateDropZones(
       continue;
     }
 
-    // A stacked slot, a slot holding one pane, or an empty anchor: the whole
-    // slot is the zone, and dropping on it means joining what stands there.
+    // A foreign card standing alone in its slot: the drop divides ([P07]).
+    // The slot advertises the two positions the split will make — upper half
+    // index 0, lower half index 1 — through the same division path a split
+    // column's places take, with the sitter as the sole sitting member, so
+    // the tiles are the halves the commit's seam will cut (Spec S02). A
+    // stacked multi-pane column keeps its whole-slot join below: a stack is
+    // an arrangement the user chose, and body-dropping into it joins it.
+    if (column !== undefined && column.members.length === 1 && !own) {
+      const sitterRect = measured.panes.get(column.members[0]);
+      if (sitterRect !== undefined) {
+        const places = columnPlaces(
+          column.members,
+          [sitterRect],
+          state.imposition.columns?.[slot]?.shares,
+          draggedPaneId,
+        );
+        for (const [index, place] of places.entries()) {
+          zones.push({
+            kind: "column-index",
+            slot,
+            index,
+            rect: place.tile,
+            hit: place.hit,
+          });
+        }
+        continue;
+      }
+    }
+
+    // A stacked slot, the card's own single-pane slot, or an empty anchor:
+    // the whole slot is the zone — dropping on it means joining what stands
+    // there, or standing where the card already stands.
     const rect = measured.slots.get(slot);
     if (rect === undefined) continue;
     const zone: DropZone = { kind: "slot", slot, rect };

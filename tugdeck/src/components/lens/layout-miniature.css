@@ -21,6 +21,9 @@
 
 .layout-mini {
   display: flex;
+  /* The drag's ghost and the offered place stand over the whole drawing, at
+     fractions of it — so the drawing is their containing block. */
+  position: relative;
   gap: 2px;
   inline-size: 100%;
   aspect-ratio: 16 / 10;
@@ -130,10 +133,97 @@
    the deck moving rather than as a different deck being shown. */
 .layout-mini[data-committed="true"] .layout-mini-block,
 .layout-mini[data-committed="true"] .layout-mini-window {
-  transition-property: left, width, top, bottom;
+  transition-property: left, width, top, bottom, transform;
   transition-duration: var(
     --tugx-imposer-settle-duration,
     var(--tug-motion-duration-slow)
   );
   transition-timing-function: var(--tug-motion-easing-standard);
+}
+
+/* The live half. The committed drawing's pins say where the deck STOOD at the
+   last commit; the gauge channel says where it is right now, and the difference
+   between the two is a translation ([P08], [P09]). Writing it as a translation
+   rather than as the position itself is what keeps the rest state exactly the
+   drawing it always was: with no publisher — a preview layer, a deck at rest, a
+   Lens mounted before anything moved — the slide is zero and nothing composes.
+
+   `--mini-slide-x` / `--mini-slide-y` are written by the component, which is the
+   only place that knows which slot's signal a block listens to and what scale
+   turns a fraction of the deck into a percent of this element. */
+.layout-mini-window {
+  transform: translateX(calc(var(--mini-slide-x, 0) * 1%));
+}
+
+.layout-mini-block[data-column-overflow] {
+  transform: translateY(calc(var(--mini-slide-y, 0) * 1%));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   The drag, mirrored.
+
+   A dragged card is a rect on the canvas and the place being offered is
+   another; the channel publishes both as fractions of the canvas box ([P08]),
+   which is exactly what a percentage of this drawing means. So the two
+   elements need no scale factor and no measurement — `* 100%` is the whole
+   conversion, and it stays right through a window resize, a zoom, and a rail
+   opening, none of which either side has to hear about.
+
+   Both are absent from the drawing at rest. `data-gauge-drag` says a drag is
+   happening and `data-gauge-zone` says it is offering a place, which are two
+   facts: a ⌘-freed stretch keeps the ghost and drops the highlight, matching
+   what the canvas itself indicates ([P13] of plan-2).
+   ───────────────────────────────────────────────────────────────────────── */
+.layout-mini-ghost,
+.layout-mini-zone {
+  display: none;
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  left: calc(var(--gauge-drag-x, 0) * 100%);
+  top: calc(var(--gauge-drag-y, 0) * 100%);
+  width: calc(var(--gauge-drag-w, 0) * 100%);
+  height: calc(var(--gauge-drag-h, 0) * 100%);
+}
+
+.layout-mini-zone {
+  left: calc(var(--gauge-zone-x, 0) * 100%);
+  top: calc(var(--gauge-zone-y, 0) * 100%);
+  width: calc(var(--gauge-zone-w, 0) * 100%);
+  height: calc(var(--gauge-zone-h, 0) * 100%);
+}
+
+.layout-mini[data-gauge-drag] .layout-mini-ghost {
+  display: block;
+}
+
+.layout-mini[data-gauge-drag][data-gauge-zone] .layout-mini-zone {
+  display: block;
+}
+
+/* The card in the hand: a solid block in the accent, the one thing in the
+   drawing that is neither committed nor proposed but in motion. */
+.layout-mini-ghost {
+  border-radius: 1px;
+  background-color: var(--tugx-accent);
+  opacity: 0.55;
+  z-index: 1;
+}
+
+/* The place it would land: the same dashed bracket the window uses, in the
+   accent, drawn UNDER the ghost so the card reads as being over it. */
+.layout-mini-zone {
+  border-radius: 2px;
+  border: 1px dashed var(--tugx-accent);
+}
+
+/* While a gesture is publishing, the drawing is being written to every frame,
+   and a transition over per-frame writes would smooth what is already smooth —
+   the picture would lag the hand by the settle's duration. The channel stamps
+   the drag on the root, so the gate is a selector rather than a decision
+   anybody has to make in JS. Commit-driven jumps — a reveal, a Layouts click —
+   land outside a drag and keep their glide ([P09]). */
+.layout-mini[data-gauge-drag] .layout-mini-block,
+.layout-mini[data-gauge-drag] .layout-mini-window {
+  transition: none;
 }

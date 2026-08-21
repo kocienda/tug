@@ -453,16 +453,16 @@ One `flow-rail` element inside the canvas, absolutely positioned in the bottom b
 | #step-3 | M01 — the drag stays pinned under autoscroll | done | `801164ed1` |
 | #step-4 | M01 — motion recipes and the springing of the settle | done | `0b50a8dcd` |
 | #step-5 | M01 — integration checkpoint | done | `0b50a8dcd` |
-| #step-6 | M02 — division-true tiles | pending | — |
-| #step-7 | M02 — body-drop divides | pending | — |
-| #step-8 | M02 — integration checkpoint | pending | — |
-| #step-9 | M03 — the gauge channel | pending | — |
-| #step-10 | M03 — the miniature goes live | pending | — |
-| #step-11 | M03 — the miniature mirrors the drag | pending | — |
-| #step-12 | M03 — integration checkpoint | pending | — |
-| #step-13 | M04 — the flow rail, standing | pending | — |
-| #step-14 | M04 — the rail moves things: thumb, segments, wheel | pending | — |
-| #step-15 | M04 — integration checkpoint | pending | — |
+| #step-6 | M02 — division-true tiles | done | `a04b36b54` |
+| #step-7 | M02 — body-drop divides | done | `854bf2c43` |
+| #step-8 | M02 — integration checkpoint | done | `69272cd52` |
+| #step-9 | M03 — the gauge channel | done | `ae8cd0fc6` |
+| #step-10 | M03 — the miniature goes live | done | `ec032256f` |
+| #step-11 | M03 — the miniature mirrors the drag | done | `b4abba7ae` |
+| #step-12 | M03 — integration checkpoint | done | `5e7e5e7a1` |
+| #step-13 | M04 — the flow rail, standing | done | `91fc21e96` |
+| #step-14 | M04 — the rail moves things: thumb, segments, wheel | done | `b20cd12dd` |
+| #step-15 | M04 — integration checkpoint | done | `41adfc554` |
 
 **Milestone M01: Butter** {#m01-butter} · **Milestone M02: Truthful zones** {#m02-truthful-zones} · **Milestone M03: Live miniature** {#m03-live-miniature} · **Milestone M04: Flow rail** {#m04-flow-rail}
 

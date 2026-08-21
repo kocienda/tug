@@ -498,6 +498,23 @@ describe("sweptColumnOrders", () => {
     expect(swept.columns?.[0]).toEqual({ mode: "split", order: ["p1", "p3"] });
   });
 
+  test("a drop-created split stays honest when the arrival leaves again", () => {
+    // The body-drop divide writes mode and order in one commit; dragging the
+    // arrival away afterwards is an ordinary departure, and the sweep narrows
+    // the created record the same way it narrows any column's — the sitter
+    // keeps a one-member split rather than a record still naming the leaver.
+    const imposition = withColumnOrder(
+      withColumnMode(bare(), 1, "split"),
+      1,
+      ["sitter", "arrival"],
+    );
+    const swept = sweptColumnOrders(imposition, [
+      pane("sitter", 1),
+      pane("arrival", 2),
+    ]);
+    expect(swept.columns?.[1]).toEqual({ mode: "split", order: ["sitter"] });
+  });
+
   test("keeps residue — a name with no live pane behind it", () => {
     // The same tolerance `effectiveColumnOrder` and invariant 9 both hold. A
     // closed pane's id is inert; only a LIVE pane standing elsewhere is a lie

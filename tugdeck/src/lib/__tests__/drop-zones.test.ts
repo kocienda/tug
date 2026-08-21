@@ -99,7 +99,11 @@ function keys(zones: readonly DropZone[]): string[] {
 // ---- Vocabulary ----
 
 describe("a card only ever sees the places its own kind can stand in", () => {
-  it("a lone content card sees every slot, its own included", () => {
+  it("a lone content card sees its own slot, a neighbour's halves, and the empty anchor", () => {
+    // p2 stands alone in slot 1, so dropping there divides ([P07]): the slot
+    // advertises the two positions the split will make, not a whole-slot
+    // join. The card's own slot and the empty anchor keep their whole-slot
+    // zones — nothing to divide in either.
     const state = deck([pane("p1", 0), pane("p2", 1)]);
     const { zones, origin } = enumerateDropZones(
       state,
@@ -116,9 +120,30 @@ describe("a card only ever sees the places its own kind can stand in", () => {
         ]),
       }),
     );
-    expect(keys(zones)).toEqual(["slot:0", "slot:1", "slot:2"]);
+    expect(keys(zones)).toEqual([
+      "slot:0",
+      "column:1:0",
+      "column:1:1",
+      "slot:2",
+    ]);
     expect(origin).not.toBeNull();
     expect(dropZoneKey(origin!)).toBe("slot:0");
+    // The two positions preview the halves the commit's seam will cut, and
+    // their bands meet at the run's midpoint.
+    const half = (RUN_HEIGHT - IMPOSITION_GAP_PX) / 2;
+    const upper = zones[1];
+    const lower = zones[2];
+    expect(upper.rect.y).toBeCloseTo(RUN_TOP, 6);
+    expect(upper.rect.height).toBeCloseTo(half, 6);
+    expect(lower.rect.y).toBeCloseTo(RUN_TOP + half + IMPOSITION_GAP_PX, 6);
+    expect(lower.rect.y + lower.rect.height).toBeCloseTo(
+      RUN_TOP + RUN_HEIGHT,
+      6,
+    );
+    expect(hitRectOf(upper).y + hitRectOf(upper).height).toBeCloseTo(
+      hitRectOf(lower).y,
+      6,
+    );
   });
 
   it("a stacked slot advertises itself as one zone, not one per member", () => {
@@ -254,9 +279,19 @@ describe("a split column advertises one position per place a member can stand", 
     expect(dropZoneKey(origin!)).toBe("column:0:0");
   });
 
-  it("the tiles are where the card would land, heights travelling with it", () => {
-    const state = deck([pane("p1", 0), pane("p2", 0)], split);
-    const rects = splitRects(0, [250, 345]);
+  it("the tiles are the division the commit would produce, shares travelling with the card", () => {
+    // p1 holds a quarter share, p2 three quarters. The measured rects are what
+    // `memberPins` draws for those shares: fractions of the 600 run, half a
+    // gap surrendered at the seam.
+    const state = deck([pane("p1", 0), pane("p2", 0)], {
+      kind: "three-up",
+      columns: { 0: { mode: "split", shares: { p1: 0.5, p2: 1.5 } } },
+    });
+    const half = IMPOSITION_GAP_PX / 2;
+    const rects = splitRects(0, [
+      RUN_HEIGHT / 4 - half,
+      (RUN_HEIGHT * 3) / 4 - half,
+    ]);
     const { zones } = enumerateDropZones(
       state,
       "p1",
@@ -267,12 +302,20 @@ describe("a split column advertises one position per place a member can stand", 
         ]),
       } as Partial<DropZoneMeasurements>),
     );
-    // Position 0 is where p1 already stands.
-    expect(zones[0].rect).toEqual(rects[0]);
-    // Position 1 puts p1 below p2 — p2 rises to the run top and p1 takes its
-    // own 250px height below it, not p2's 345.
-    expect(zones[1].rect.y).toBe(RUN_TOP + 345 + IMPOSITION_GAP_PX);
-    expect(zones[1].rect.height).toBe(250);
+    // Position 0 is where p1 already stands — the fraction arithmetic lands
+    // on the measured rect to the pixel, because both come from the same
+    // seam fractions.
+    expect(zones[0].rect.y).toBeCloseTo(rects[0].y, 6);
+    expect(zones[0].rect.height).toBeCloseTo(rects[0].height, 6);
+    // Position 1 puts p1 below p2, and p1's QUARTER share travels with it:
+    // the seam of the candidate order [p2, p1] falls at three quarters of the
+    // run, so the tile is quarter-height at the bottom — never p1's place cut
+    // at p2's measured height.
+    expect(zones[1].rect.y).toBeCloseTo(
+      RUN_TOP + (RUN_HEIGHT * 3) / 4 + half,
+      6,
+    );
+    expect(zones[1].rect.height).toBeCloseTo(RUN_HEIGHT / 4 - half, 6);
   });
 
   it("an overflowing column's positions are the run/2.5 strip", () => {
@@ -465,10 +508,14 @@ describe("a position is asked for at the tile the preview draws", () => {
   });
 
   it("a rail's positions are asked for the same way", () => {
+    // No shares, so every candidate order divides the measured run into equal
+    // thirds — a rail divides at any count, division-true like a column.
     const state = deck([pane("s1"), pane("s2"), pane("s3")], {
       kind: "three-up",
     });
     const rects = splitRects(0, [200, 150, 180]);
+    const run = 200 + 150 + 180 + 2 * IMPOSITION_GAP_PX;
+    const half = IMPOSITION_GAP_PX / 2;
     const { zones } = enumerateDropZones(
       state,
       "s1",
@@ -483,16 +530,48 @@ describe("a position is asked for at the tile the preview draws", () => {
     );
     const bands = zones.map(hitRectOf);
     expect(bands).toHaveLength(3);
-    // Position 1's tile puts s1 below s2's 150px — its band begins where
-    // that tile does, one gap under s2's new bottom edge.
+    // The bands divide at the drawn tiles' top edges: a third of the run plus
+    // the seam's half gap, then two thirds plus the same.
     expect(bands[0].y + bands[0].height).toBeCloseTo(
-      RUN_TOP + 150 + IMPOSITION_GAP_PX,
+      RUN_TOP + run / 3 + half,
       6,
     );
-    expect(bands[2].y).toBeCloseTo(
-      RUN_TOP + 150 + IMPOSITION_GAP_PX + 180 + IMPOSITION_GAP_PX,
-      6,
+    expect(bands[2].y).toBeCloseTo(RUN_TOP + (2 * run) / 3 + half, 6);
+    // And the last band's end is the run's own bottom edge — nothing hangs.
+    expect(bands[2].y + bands[2].height).toBeCloseTo(RUN_TOP + run, 6);
+  });
+
+  it("a rail member's share travels with it to every previewed position", () => {
+    // s3 carries a double weight. Dragging s1 (weight 1), the last position's
+    // tile begins where s2's quarter and s3's half leave off — three quarters
+    // of the run — and the tile is s1's own quarter share.
+    const state = deck([pane("s1"), pane("s2"), pane("s3")], {
+      kind: "three-up",
+    });
+    const rects = splitRects(0, [200, 150, 180]);
+    const run = 200 + 150 + 180 + 2 * IMPOSITION_GAP_PX;
+    const half = IMPOSITION_GAP_PX / 2;
+    const { zones } = enumerateDropZones(
+      state,
+      "s1",
+      measured({
+        panes: new Map([
+          ["s1", rects[0]],
+          ["s2", rects[1]],
+          ["s3", rects[2]],
+        ]),
+        rails: [
+          {
+            side: "left",
+            members: ["s1", "s2", "s3"],
+            shares: { s1: 1, s2: 1, s3: 2 },
+          },
+        ],
+      }),
     );
+    const last = zones[2].rect;
+    expect(last.y).toBeCloseTo(RUN_TOP + (run * 3) / 4 + half, 6);
+    expect(last.y + last.height).toBeCloseTo(RUN_TOP + run, 6);
   });
 });
 

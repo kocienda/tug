@@ -3225,9 +3225,16 @@ export class DeckManager implements IDeckManagerStore {
    * as one commit. Two commits would measure the deck once with the card
    * arrived but unplaced, which is a frame nobody asked to see.
    *
-   * Returns the imposition unchanged when no index was asked for, when the move
-   * is not a single pane's, or when the destination is not a split column — the
-   * order of a stack is z-order, and nothing here may write it.
+   * An indexed arrival into a slot holding exactly one other pane is the
+   * dividing gesture ([P07]): the drop CREATES the split — mode and order in
+   * the same imposition, so the commit that places the pane is the commit
+   * that divides the slot. The zones advertised that index (Spec S02), so
+   * honoring it by z-stacking would break the indicator's promise.
+   *
+   * Returns the imposition unchanged when no index was asked for, when the
+   * destination is a stacked column of two or more other panes — a stack is
+   * an arrangement the user chose, its order is z-order, and nothing here may
+   * write it — or when the slot holds nothing else (nothing to divide).
    */
   private _impositionWithArrival(
     panes: readonly TugPaneState[],
@@ -3240,11 +3247,20 @@ export class DeckManager implements IDeckManagerStore {
     const column = deckColumnsOf({ ...this.deckState, panes }).find(
       (c) => c.slot === slot,
     );
-    if (column === undefined || column.mode !== "split") return imposition;
+    if (column === undefined) return imposition;
+    // `panes` already carries the arrival, so a slot that held one pane reads
+    // back as a column of two: the arrival plus the sitter it divides with.
+    if (column.mode !== "split" && column.members.length !== 2) {
+      return imposition;
+    }
     const others = column.members.filter((id) => id !== paneId);
     const order = [...others];
     order.splice(Math.max(0, Math.min(index, others.length)), 0, paneId);
-    return withColumnOrder(imposition, slot, order);
+    const divided =
+      column.mode === "split"
+        ? imposition
+        : withColumnMode(imposition, slot, "split");
+    return withColumnOrder(divided, slot, order);
   }
 
   /**

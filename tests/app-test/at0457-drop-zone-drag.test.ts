@@ -24,7 +24,12 @@
  *      which is the half that proves the key was swallowed rather than merely
  *      handled. An unswallowed Escape would also reach the Lens's
  *      `CANCEL_DIALOG` responder and empty it.
- *   3. **A card crossing to another slot joins what stands there.**
+ *   3. **Body-drop divides.** A card dropped on the lower half of a slot
+ *      where one card stands alone creates a two-member split column with the
+ *      arrival below — the zone previewed a division, so the commit divides
+ *      ([P07]) — and the indicated tile is the rect the card lands in.
+ *      Joining stays available as the tab-bar gesture; a stacked multi-pane
+ *      slot still joins as a whole.
  *   4. **A card crossing into another split column lands at an index**, in one
  *      commit — the slot and the order together.
  *   5. **A tab bar is still a drop zone.** The shipped merge gesture survives
@@ -334,22 +339,59 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
           note("escape cancelled with the selection intact");
         }
 
-        // ── 3. A card crossing to another slot joins what stands there. ──
+        // ── 3. Body-drop on a lone card divides its slot down the middle. ──
         {
-          const target = await titleBarPoint(app, "p3");
-          await app.nativeDragElement(titleBar("p4"), target);
+          // C stands alone in slot 1. Dropping D on the LOWER half must not
+          // z-stack it: the zone previewed the bottom half of a split, so the
+          // release creates that split — mode and order in one commit — with
+          // the arrival below the sitter. And the tile the indicator drew is
+          // the rect the card lands in, to within the tween's tolerance.
+          const before = await rects(app, ["p3"]);
+          const lowerHalf = {
+            x: Math.round(before.p3.left + before.p3.width / 2),
+            y: Math.round(before.p3.top + before.p3.height * 0.8),
+          };
+          await app.nativeDragElementWithoutRelease(titleBar("p4"), lowerHalf);
+          const indicated = await indicator(app);
+          expect(
+            indicated,
+            "a zone is indicated over the lone card's lower half",
+          ).not.toBeNull();
+          await app.nativeMouseUp(lowerHalf);
           await wait(AFTER_LAND_MS);
-          expect(await slotOf(app, "p4"), "D joined C's slot").toBe(1);
+          expect(await slotOf(app, "p4"), "D crossed to C's slot").toBe(1);
           expect(await slotOf(app, "p3"), "and C stayed there").toBe(1);
-          note("cross-slot drop: D joined slot 1");
+          const mode = await app.evalJS<string>(
+            `((((window.tugdeck.diag.getDeckState().imposition.columns || {})[1] || {}).mode) || "stack")`,
+          );
+          expect(mode, "the drop created the split").toBe("split");
+          expect(
+            await columnOrder(app, 1),
+            "with the arrival below the sitter",
+          ).toEqual(["p3", "p4"]);
+          // The tile the zone promised: the lower half of the run the sitter
+          // held alone, one imposition gap (5) between the halves. The landed
+          // frame takes exactly that rect, and the indicator stood inside it
+          // (it draws inset by 3, and its 2px border pushes its measured box
+          // a hair past the inset — so containment is the honest assertion
+          // for it, and equality is the landing's).
+          const GAP = 5;
+          const half = (before.p3.bottom - before.p3.top - GAP) / 2;
+          const tileTop = before.p3.top + half + GAP;
+          const landed = await rects(app, ["p4"]);
+          expect(Math.abs(landed.p4.top - tileTop)).toBeLessThan(EPSILON);
+          expect(Math.abs(landed.p4.bottom - before.p3.bottom)).toBeLessThan(
+            EPSILON,
+          );
+          expect(indicated!.top).toBeGreaterThan(tileTop - EPSILON);
+          expect(indicated!.bottom).toBeLessThan(before.p3.bottom + EPSILON);
+          note(
+            `body-drop divide: slot 1 split as ${JSON.stringify(await columnOrder(app, 1))}, tile matched landing`,
+          );
         }
 
         // ── 4. A card crossing INTO a split column lands at an index. ──
         {
-          await app.evalJS<null>(
-            `(window.__tug.dispatchControlAction("set-column-mode", { slot: 1, mode: "split" }), null)`,
-          );
-          await wait(AFTER_LAND_MS);
           const members = await rects(app, ["p3", "p4"]);
           const top = members.p3.top < members.p4.top ? "p3" : "p4";
           const bottom = top === "p3" ? "p4" : "p3";
