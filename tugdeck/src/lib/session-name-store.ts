@@ -64,21 +64,26 @@ class SessionNameStore {
     this.names.get(tugSessionId) ?? null;
 
   /**
-   * Whether this session's custom name is also some other session's.
+   * The other sessions whose custom name is spelled exactly like this one's.
    *
-   * The collision test behind the title rule: a custom name REMOVES the
-   * callsign from the title, and the callsign returns only when two sessions
-   * share one name and the reader needs the final disambiguation. An unnamed
-   * session never collides. A linear scan — the map holds one entry per named
-   * session this client has seen, a small set by construction.
+   * A NAME fact, deliberately not the collision verdict: whether two sessions
+   * sharing a name is a collision worth showing a callsign for is an identity
+   * rule, and it turns on lineage — which this store does not hold and should
+   * not learn (the tag store already spells every callsign, and a second copy
+   * here could disagree with it). `nameCollides` in `session-identity.ts` is
+   * where the verdict lives; this is the candidate set it rules on.
+   *
+   * Empty for an unnamed session. A linear scan — the map holds one entry per
+   * named session this client has seen, a small set by construction.
    */
-  isNameShared = (tugSessionId: string): boolean => {
+  sessionsSharingName = (tugSessionId: string): string[] => {
     const name = this.names.get(tugSessionId);
-    if (name === undefined) return false;
+    if (name === undefined) return [];
+    const peers: string[] = [];
     for (const [id, other] of this.names) {
-      if (id !== tugSessionId && other === name) return true;
+      if (id !== tugSessionId && other === name) peers.push(id);
     }
-    return false;
+    return peers;
   };
 
   /**

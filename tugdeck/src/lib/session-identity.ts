@@ -92,13 +92,21 @@ export interface SessionIdentity {
   /** The agent's rolling description. Independent of {@link customName}. */
   description: string | null;
   /**
-   * Whether {@link customName} is also some other session's custom name.
+   * Whether some session **outside this one's lineage** carries the same
+   * custom name.
    *
    * The collision fact behind the title rule: a custom name removes the
    * callsign from the title ({@link sessionTitleParts}), and the callsign
    * returns only when two sessions share one name — the final disambiguation,
    * and the prod toward picking a non-colliding name. Always `false` for an
    * unnamed session.
+   *
+   * **Lineage kin do not collide.** A fork carries its parent's name across
+   * the branch point, so `nutty-gnat` and `nutty-gnat-A1` sharing one name is
+   * inheritance, not contention: they are the same work continued, there is no
+   * second thing for a reader to tell apart, and no better name to be prodded
+   * toward. The test is {@link rootCallsign} equality — see
+   * {@link nameCollides}.
    */
   nameShared: boolean;
   /** Ledger state, when the caller knows it. */
@@ -238,6 +246,25 @@ export function parseTagLineage(
 }
 
 /**
+ * The lineage root's callsign — the composed tag with its lineage tail
+ * removed, and the identity of the whole family a fork belongs to.
+ *
+ * Read off the tag alone rather than taking `tagLineage` beside it, for the
+ * reason {@link SessionIdentityContext.tagLineage} gives about a `rootTag`
+ * field: the root is already spelled inside the tag, and a second input is a
+ * second spelling that could disagree with it. A root session is its own root
+ * (`nutty-gnat` → `nutty-gnat`); a legacy tagless session has none.
+ */
+export function rootCallsign(tag: string | null): string | null {
+  const composed = tag?.trim() ?? "";
+  if (composed.length === 0) return null;
+  const depth = parseTagLineage(composed).length;
+  if (depth === 0) return composed;
+  const parts = composed.split("-");
+  return parts.slice(0, parts.length - depth).join("-");
+}
+
+/**
  * Compose an identity record from explicit facts — the pure half, with no
  * store reads. This is what the unit tests exercise; {@link resolveSessionIdentity}
  * is this function with the three stores read for it.
@@ -314,6 +341,48 @@ export function sessionIdentityContextFrom(
   };
 }
 
+/**
+ * The collision verdict behind {@link SessionIdentity.nameShared}: another
+ * session outside this one's lineage answers to the same custom name.
+ *
+ * Two stores, because the fact is two facts. `sessionNameStore` knows who
+ * spells the name the same way; `sessionTagStore` knows which family each of
+ * them belongs to. The rule lives here rather than in either store because it
+ * is neither store's business — and because a store that had to learn the
+ * other's fact would end up holding a second copy of it.
+ *
+ * An unknown root — either side — counts as a collision. A tagless session
+ * cannot be shown to be kin, and the conservative answer is the one that keeps
+ * the handle on screen: showing a callsign that was not needed costs a reader
+ * some width, and hiding one that was needed costs them the disambiguation the
+ * whole rule exists to provide.
+ */
+function nameCollides(sessionId: string): boolean {
+  const peers = sessionNameStore.sessionsSharingName(sessionId);
+  if (peers.length === 0) return false;
+  const root = rootCallsign(sessionTagStore.getTag(sessionId));
+  if (root === null) return true;
+  return peers.some((id) => rootCallsign(sessionTagStore.getTag(id)) !== root);
+}
+
+/**
+ * The two stores {@link nameCollides} reads, as one subscription.
+ *
+ * A tag seed can flip the verdict with no name change at all — a peer that
+ * arrives untagged reads as a collision until its callsign lands and proves it
+ * kin — so subscribing to the name store alone would leave the title one frame
+ * stale in exactly the case this rule was written for. Neither store is new to
+ * an identity surface; this adds a listener, not a dependency.
+ */
+function subscribeNameCollision(listener: () => void): () => void {
+  const unsubscribeName = sessionNameStore.subscribe(listener);
+  const unsubscribeTag = sessionTagStore.subscribe(listener);
+  return () => {
+    unsubscribeName();
+    unsubscribeTag();
+  };
+}
+
 /** The project dir of whichever card is bound to `sessionId`, or null. */
 function boundProjectDirFor(sessionId: string): string | null {
   for (const binding of cardSessionBindingStore.getSnapshot().values()) {
@@ -338,7 +407,7 @@ export function resolveSessionIdentity(
   return composeSessionIdentity({
     sessionId,
     name: sessionNameStore.getName(sessionId),
-    nameShared: sessionNameStore.isNameShared(sessionId),
+    nameShared: nameCollides(sessionId),
     synopsis: sessionSynopsisStore.getSynopsis(sessionId),
     tag: sessionTagStore.getTag(sessionId),
     recordedTag: context?.recordedTag ?? null,
@@ -385,15 +454,14 @@ export function useSessionIdentity(
       [sessionId],
     ),
   );
-  // A boolean selector, not the store's version token: the snapshot changes
+  // A boolean selector, not either store's version token: the snapshot changes
   // only when THIS session's collision state flips, so a rename elsewhere in
   // the app repaints this surface only if it creates or breaks a collision
   // with this session's name.
   const nameShared = useSyncExternalStore(
-    sessionNameStore.subscribe,
+    subscribeNameCollision,
     useCallback(
-      () =>
-        sessionId === null ? false : sessionNameStore.isNameShared(sessionId),
+      () => (sessionId === null ? false : nameCollides(sessionId)),
       [sessionId],
     ),
   );
