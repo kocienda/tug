@@ -31,6 +31,8 @@ tugutil dash create <name> --description "<first ~100 chars of the instruction>"
 
 Idempotent — returns the existing active dash if `<name>` already exists. **Capture the absolute `worktree` path** and `branch` from the response; that path is the working root for everything that follows. `create` hydrates the fresh worktree itself (its `[tugtool.dash].post_create` hook runs `bun install`), so it arrives ready.
 
+`create` records that this session is working the dash — every time, including the idempotent call that resumes one — so there is no bind to remember. Boundness is what the server reads to decide whether to work the join arc at all — an unbound dash is never reconciled, never checked, and never offered.
+
 ### Work (in-thread, per round)
 
 Carry out the instruction yourself in the worktree. Run the checks the doctrine names, then commit the round:
@@ -45,6 +47,8 @@ One command: git commit + a line in the per-project dash-log (the verbatim instr
 
 **Two spellings are house rules, not taste.** The round's subject is `tugdash(<name>): <imperative summary>` — the scope-colon form the engine's own dash commits carry, so `tug log` on the branch reads as one voice. And when you *name* a round's commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone. See `tuglaws/entity-presentation.md`.
 
+**Each committed round makes the dash offerable.** A round that lands on a clean worktree is all the server needs to derive that this dash could be joined: it reconciles it with its base, builds the joined tree, and offers the join on the bound card without waiting to be told the work is over. Nothing below is what arms that, and nothing you skip below disarms it.
+
 ### Build (when there's something to see)
 
 For a change the user should look at in the app, build + launch from the worktree:
@@ -52,10 +56,9 @@ For a change the user should look at in the app, build + launch from the worktre
 ```bash
 just app-debug
 just instances
-tugutil dash mark <name> built
 ```
 
-That brings up the `(debug, <branch>)` instance and declares the dash `built`, which is what the Lens and the Changes card report while the user looks at it.
+That brings up the `(debug, <branch>)` instance. `tugutil dash mark <name> built` is available and purely optional — it stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build, and gates nothing when you didn't.
 
 ### Stop, with a draft on file
 
@@ -67,7 +70,9 @@ tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
 
 Compose it from what the rounds actually did: an imperative subject under 50 chars naming the deliverable, then a terse factual digest. **The subject is bare — no `tugdash(<name>): ` prefix**, because the join adds the scope itself and a scope naming a different dash is stripped there rather than preserved. Every line unbroken to its end (**no hard wrapping**), no AI or agent attribution, ever. The join gesture lands this message and does not compose one — a dash that reaches it draftless stops there.
 
-Then **stop and let the user vet the build.** Don't merge.
+Write the draft whether or not you built anything: the join prompt shows it, and a draftless dash offers to land its branch description — or, with neither, the words `Dash work`.
+
+Then **stop.** Don't merge.
 
 ### Join (only on the user's word)
 

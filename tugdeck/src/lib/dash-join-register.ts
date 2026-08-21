@@ -37,13 +37,25 @@ export interface DashJoinRegister {
   word: string;
 }
 
+/**
+ * The stage words that mean "this dash can be joined" ([D147], Spec S04).
+ *
+ * The server derives readiness once and spends it on a single word; this is
+ * the client's reading of that word, and it is deliberately a set rather than
+ * an equality test — `ready` is the derived arm, `built` and `audited` are the
+ * declarations that outrank it, and all three describe the same joinable dash.
+ * A test against one of them alone leaves the register dark on the other two
+ * while the join modal fires.
+ */
+const JOINABLE_STAGES = new Set(["ready", "built", "audited"]);
+
 /** Everything the register reads. Nothing here is fetched; it is all passed. */
 export interface DashJoinRegisterInput {
   /** The dash's display name. */
   dash: string;
   /** The base branch it joins onto. */
   base: string;
-  /** The dash's stage — only `built` reaches the decision states. */
+  /** The dash's stage — `ready`, `built` and `audited` reach the decision states. */
   stage?: string | null;
   /** The `join` block from the dash's feed entry. */
   join?: DashJoinStateWire | null;
@@ -56,6 +68,14 @@ export interface DashJoinRegisterInput {
   landBeat?: { beat: string; status: string; terminal?: boolean } | null;
   /** Whether the deck's wire is up. */
   connected?: boolean;
+  /**
+   * Whether any live session holds this dash.
+   *
+   * The pilot works only for bound dashes ([D147]), so an unbound one is not
+   * mid-check — nothing is going to happen to it at all. Defaults to `true`
+   * for the callers that only ever render a dash they are holding.
+   */
+  bound?: boolean;
 }
 
 /** The words each beat of a join in flight reads as. */
@@ -95,11 +115,13 @@ export function dashJoinRegister(
   const { dash, base, join, landBeat } = input;
   const connected = input.connected ?? true;
 
-  // **The arc begins at `built`.** Before that there is nothing to say: a dash
-  // being worked is not trying to join, and its blockers are not a join
-  // failure — a freshly created dash with no rounds carries an `empty` blocker
-  // that means "nothing here yet", which read as a join refusal would put a
-  // red register on every new dash in the Lens.
+  // **The arc begins where the dash is joinable.** The server derives that and
+  // says it in one word — `ready` for a dash whose facts arm it, `built` or
+  // `audited` for one somebody declared finished ([D147]). Before that there is
+  // nothing to say: a dash being worked is not trying to join, and its blockers
+  // are not a join failure — a freshly created dash with no rounds carries an
+  // `empty` blocker that means "nothing here yet", which read as a join refusal
+  // would put a red register on every new dash in the Lens.
   //
   // The exception is anything that implies somebody already acted. A live
   // join, a run in flight, a standing question or a stated refusal cannot
@@ -111,7 +133,7 @@ export function dashJoinRegister(
     input.resolvePhase === "resolving" ||
     (join?.question ?? null) !== null ||
     (typeof join?.stuck === "string" && join.stuck !== "");
-  if (input.stage !== "built" && !acted) return null;
+  if (!JOINABLE_STAGES.has(input.stage ?? "") && !acted) return null;
 
   if (!connected) {
     return {
@@ -199,14 +221,23 @@ export function dashJoinRegister(
     return { phase: "success", line: "Ready to join", word: "ready" };
   }
 
-  // No verdict, nothing running. On a `built` dash that is the gap between the
-  // recompute and the pilot's dispatch landing — a beat away rather than a
-  // resting state, so it reads as the check that is about to happen.
-  if (input.stage === "built") {
-    return { phase: "in_flight", line: "Building the joined tree", word: "checking" };
+  // No verdict, nothing running. On a joinable dash somebody is holding, that
+  // is the gap between the recompute and the pilot's dispatch landing — a beat
+  // away rather than a resting state, so it reads as the check that is about to
+  // happen.
+  //
+  // On an **unbound** one it is not a gap at all: the pilot never runs for a
+  // dash nobody holds, so "Building the joined tree" would be a promise the
+  // machine has already declined to keep, standing forever. Say nothing
+  // instead — `/join <name>` and binding a card are both still open, and
+  // neither is a thing this line was reporting.
+  if (JOINABLE_STAGES.has(input.stage ?? "")) {
+    return (input.bound ?? true)
+      ? { phase: "in_flight", line: "Building the joined tree", word: "checking" }
+      : null;
   }
 
   // Reachable only through the `acted` exception above: a run that has ended
-  // on a dash that never reached `built`. Nothing to report.
+  // on a dash that never became joinable. Nothing to report.
   return null;
 }

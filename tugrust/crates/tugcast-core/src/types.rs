@@ -699,6 +699,19 @@ pub struct DashJoinPrompt {
     /// The question, composed server-side so the durable fact and the rendered
     /// one are the same bytes.
     pub question: String,
+    /// The message this join would land with, composed exactly as the landing
+    /// itself would compose it ([P05]).
+    ///
+    /// Display, not identity: it is deliberately absent from `request_id`, so
+    /// editing the draft while the ask stands does not orphan the answer the
+    /// user is in the middle of giving.
+    #[serde(default)]
+    pub message: String,
+    /// `"draft"`, `"description"`, or `"fallback"` — which precedence arm the
+    /// message came from, so a forgotten draft says so instead of landing a
+    /// branch description silently.
+    #[serde(default)]
+    pub message_source: String,
     pub options: Vec<DashJoinPromptOption>,
 }
 

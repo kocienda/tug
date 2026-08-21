@@ -11050,6 +11050,43 @@ mod tests {
         );
     }
 
+    /// A session may only bind a dash in its **own** project ([D147]).
+    ///
+    /// The Lens's Bind control has always said this to the user ("This dash
+    /// belongs to …") and the server took it on trust — so any short-lived CLI
+    /// process on the machine could rebind a live session to a dash in a
+    /// directory that session had never seen. It happened: an app-test's
+    /// `dash bind` walked the instance registry, found the developer's live
+    /// Tug, and mated their session to a scratch dash in a temp dir, which
+    /// then evaporated with the fixture and left the masthead blank.
+    #[test]
+    fn api_dash_bind_refuses_a_dash_in_another_project() {
+        let (_dir, root) = repo_with_dash("demo");
+        let (_elsewhere_dir, elsewhere) = repo_with_dash("stranger");
+        let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
+        seed_live_session(&ledger, "sess-1", "card-1", &root.to_string_lossy());
+
+        let refused = crate::dash_api::bind(&ledger, &elsewhere, "sess-1", "stranger");
+        match refused {
+            crate::dash_api::DashApiOutcome::Error(message) => assert!(
+                message.contains("cannot bind"),
+                "the refusal names what it refused: {message}"
+            ),
+            _ => panic!("a cross-project bind must be refused, not written"),
+        }
+        assert!(
+            ledger.get("sess-1").unwrap().unwrap().dash_id.is_none(),
+            "and it left the session's own binding alone"
+        );
+
+        // The same session's own project still binds, so the guard costs the
+        // ordinary path nothing.
+        assert!(matches!(
+            crate::dash_api::bind(&ledger, &root, "sess-1", "demo"),
+            crate::dash_api::DashApiOutcome::Bound { .. }
+        ));
+    }
+
     /// A bind for a session this instance's ledger does not hold answers
     /// `unknown_session`, so the CLI's try-each-instance loop continues
     /// silently ([P04]).

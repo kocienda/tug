@@ -288,8 +288,8 @@ fn prompt_options() -> Vec<DashJoinPromptOption> {
 ///
 /// Everything this reads is already computed by the caller, with one exception:
 /// the two head shas, which cost a `rev-parse` each. They are paid for only in
-/// the narrow branch that is actually going to ask — a dash at `built`, with a
-/// candidate, with a settled Tier 0 verdict, with nothing running and nothing
+/// the narrow branch that is actually going to ask — a dash that is join-ready,
+/// with a candidate, with a settled Tier 0 verdict, with nothing running and nothing
 /// else standing in the way — and `cached_probe` has already paid the same two
 /// on the path that reaches here, so in practice the answers are warm.
 ///
@@ -304,9 +304,12 @@ fn standing_prompt(
     verification: Option<&DashJoinVerification>,
     quiet: bool,
 ) -> Option<DashJoinPrompt> {
-    // The arc's decision belongs at the end of the arc. Before `built` the dash
-    // is still being worked and there is nothing to decide about.
-    if detail.stage != "built" || !quiet {
+    // The arc's decision belongs at the end of the arc. A dash that has not
+    // finished the work somebody asked it for is still being worked, and there
+    // is nothing to decide about. Readiness is derived rather than declared
+    // ([D147]) — see `join_pilot`'s module docstring for why the `built` mark
+    // stopped being the gate.
+    if !detail.join_ready || !quiet {
         return None;
     }
     let verification = verification?;
@@ -326,17 +329,24 @@ fn standing_prompt(
     }
     let base_sha = ops::rev_parse(repo_root, &detail.base).ok()?;
     let dash_head = ops::rev_parse(repo_root, &detail.branch).ok()?;
+    // Readiness, not the build: a dash arms from a finished selection or a
+    // landed round, and most never run a debug build at all. "The joined tree
+    // builds" stays — that half is Tier 0's own fact.
     let question = if decision == "clean" {
         format!(
-            "{name} is built, reconciled with {}, and the joined tree builds — join it?",
+            "{name} is ready, reconciled with {}, and the joined tree builds — join it?",
             detail.base
         )
     } else {
         format!(
-            "{name} is built and reconciled with {}, but the joined tree does not build — join it anyway?",
+            "{name} is ready and reconciled with {}, but the joined tree does not build — join it anyway?",
             detail.base
         )
     };
+    // What the join would land with, read on the ask branch only ([P05]) — one
+    // config read and one draft lookup, paid where a person is about to be
+    // shown the answer.
+    let (message, message_source) = ops::landing_message_preview(repo_root, name, &detail.branch);
     Some(DashJoinPrompt {
         // The four facts the ask is about, joined. Stable across recomputes
         // because every one of them is, which is what lets an answer given
@@ -348,6 +358,8 @@ fn standing_prompt(
         base_sha,
         dash_head,
         question,
+        message,
+        message_source: message_source.as_str().to_string(),
         options: prompt_options(),
     })
 }
@@ -988,13 +1000,19 @@ mod tests {
 
     // ── The join prompt (Spec S04, [P06], [P07]) ────────────────────────────
 
-    /// Take the fixture's dash all the way to a settled verdict at `built` —
-    /// the only state the arc asks a question in.
+    /// Take the fixture's dash all the way to a settled verdict — the only
+    /// state the arc asks a question in.
+    ///
+    /// **Nothing is declared here.** The dash is a plan-less generation with a
+    /// landed round and a clean worktree, which is the whole arming fact
+    /// ([P02]) — this helper appended a `built` mark until [D147], and its
+    /// removal is the Rust-level pin that the endgame no longer waits on a
+    /// skill to say a word.
     ///
     /// The dash-log carries the stage and lives under the data dir, so it is
     /// redirected here. nextest runs one process per test, which is what makes
     /// that safe.
-    fn built_and_verified(repo: &Path, tier0: verify::TierStatus) -> String {
+    fn resolved_and_verified(repo: &Path, tier0: verify::TierStatus) -> String {
         let data = Box::leak(Box::new(tempfile::tempdir().unwrap()));
         // SAFETY: single-threaded setup, and this process runs one test.
         unsafe {
@@ -1020,13 +1038,6 @@ mod tests {
             },
         )
         .unwrap();
-        tugdash_core::dash::append_mark_declaration(
-            repo,
-            "demo",
-            tugdash_core::MarkStage::Built,
-            "",
-        )
-        .unwrap();
         candidate
     }
 
@@ -1039,8 +1050,10 @@ mod tests {
         // nothing to decide about.
         assert!(compose(repo).prompt.is_none(), "a conflicted dash asks nothing");
 
-        built_and_verified(repo, verify::TierStatus::Green);
-        let asked = compose(repo).prompt.expect("a settled green at built asks");
+        resolved_and_verified(repo, verify::TierStatus::Green);
+        let asked = compose(repo)
+            .prompt
+            .expect("a settled green on a ready dash asks — with no mark anywhere");
         assert_eq!(asked.decision, "clean");
         assert!(
             asked.question.contains("demo") && asked.question.contains("main"),
@@ -1068,7 +1081,7 @@ mod tests {
     fn a_verdict_still_being_computed_is_not_a_decision() {
         let temp = fixture();
         let repo = temp.path();
-        built_and_verified(repo, verify::TierStatus::Running);
+        resolved_and_verified(repo, verify::TierStatus::Running);
         assert!(
             compose(repo).prompt.is_none(),
             "asking about a tree nobody has finished building is asking the \
@@ -1080,7 +1093,7 @@ mod tests {
     fn a_dismissed_decision_stays_dismissed_until_it_changes() {
         let temp = fixture();
         let repo = temp.path();
-        built_and_verified(repo, verify::TierStatus::Green);
+        resolved_and_verified(repo, verify::TierStatus::Green);
         let clean = compose(repo).prompt.expect("asked once");
 
         // "Not yet" records the decision it declined.
@@ -1125,7 +1138,7 @@ mod tests {
     fn a_run_in_flight_holds_the_question() {
         let temp = fixture();
         let repo = temp.path();
-        built_and_verified(repo, verify::TierStatus::Green);
+        resolved_and_verified(repo, verify::TierStatus::Green);
         assert!(compose(repo).prompt.is_some(), "precondition: it would ask");
 
         let owner_key = ops::dash_owner_key(repo, "demo");
@@ -1141,5 +1154,82 @@ mod tests {
         );
         drop(held);
         assert!(compose(repo).prompt.is_some(), "and asks again once it is");
+    }
+
+    /// The ask carries the words it would land, and says where they came from
+    /// ([P05], Spec S03).
+    ///
+    /// The precedence is silent by construction — a forgotten draft lands the
+    /// branch description and nobody is told — so the whole point of the pair
+    /// of fields is that the prompt can name the arm it fell through to.
+    #[test]
+    fn the_ask_carries_its_landing_message_and_names_the_source() {
+        let temp = fixture();
+        let repo = temp.path();
+        // `resolved_and_verified` redirects the data dir; the drafts ledger
+        // goes with it, so nothing here reads the developer's own.
+        resolved_and_verified(repo, verify::TierStatus::Green);
+        let db = temp.path().join("changes.db");
+        // SAFETY: single-threaded setup, and nextest runs one test per process.
+        unsafe {
+            std::env::set_var("TUG_CHANGES_DB", &db);
+        }
+
+        // Neither draft nor description: the stand-in, declared as one rather
+        // than passed off as somebody's words.
+        let bare = compose(repo).prompt.expect("asked");
+        assert_eq!(bare.message, "tugdash(demo): Dash work");
+        assert_eq!(bare.message_source, "fallback");
+
+        git(
+            repo,
+            &[
+                "config",
+                "branch.tugdash/demo.description",
+                "Teach the imposer to breathe",
+            ],
+        );
+        let described = compose(repo).prompt.expect("asked");
+        assert_eq!(described.message, "tugdash(demo): Teach the imposer to breathe");
+        assert_eq!(described.message_source, "description");
+
+        // An authored draft outranks it — and the ask keeps its identity, so
+        // editing the draft while the dialog stands cannot orphan the answer
+        // the user is in the middle of giving.
+        seed_draft_row(&db, "tugdash/demo", repo, "The words the author chose");
+        let drafted = compose(repo).prompt.expect("asked");
+        assert_eq!(drafted.message, "tugdash(demo): The words the author chose");
+        assert_eq!(drafted.message_source, "draft");
+        assert_eq!(
+            drafted.request_id, described.request_id,
+            "the message is display, not identity"
+        );
+    }
+
+    /// Seed a draft row the way every writer bootstraps the table.
+    fn seed_draft_row(db: &Path, owner_id: &str, project: &Path, message: &str) {
+        let project = std::fs::canonicalize(project).unwrap_or_else(|_| project.to_path_buf());
+        let conn = rusqlite::Connection::open(db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS changeset_drafts (
+                owner_kind   TEXT NOT NULL,
+                owner_id     TEXT NOT NULL,
+                project_dir  TEXT NOT NULL,
+                fingerprint  TEXT NOT NULL,
+                message      TEXT NOT NULL,
+                updated_at   INTEGER NOT NULL,
+                edited       INTEGER NOT NULL DEFAULT 0,
+                selection    TEXT,
+                PRIMARY KEY (owner_kind, owner_id, project_dir)
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO changeset_drafts \
+             (owner_kind, owner_id, project_dir, fingerprint, message, updated_at, edited) \
+             VALUES ('dash', ?1, ?2, '', ?3, 0, 1)",
+            rusqlite::params![owner_id, project.to_string_lossy(), message],
+        )
+        .unwrap();
     }
 }

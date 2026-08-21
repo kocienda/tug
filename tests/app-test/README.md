@@ -203,7 +203,7 @@ Everything a scratch fixture makes carries the `tug-scratch-` prefix — the
 repo, its data root, its stub scripts, and the transcript directory under
 `~/.claude/projects` — and the recipe sweeps that namespace at the start
 of every run, so a test killed before its teardown leaves nothing behind.
-`at0441` is the worked example for a join arc; `at0421` for a plain
+`at0426` is the worked example for a join arc; `at0421` for a plain
 dash-UI one.
 
 ## Environment variables
@@ -280,7 +280,7 @@ stderr.
 A conflicted dash join is finished by an agent: it reconciles the merge in a
 workshop worktree, audits what the algorithmic rungs decided, may ask one
 intent question, and reports. Four fixtures press that arc — `at0426` (the
-audit), `at0441` (the whole arc, through a join), `at0442` (the escalation),
+audit), `at0436` (a join pressed for real), `at0442` (the escalation),
 `at0443` (a red verdict and the override past it) — and **none of them spawns
 a model.** Three seams make that possible, and a new join fixture should use
 all three.

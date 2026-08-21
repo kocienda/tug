@@ -1,10 +1,22 @@
 //! The join pilot — the machine reconciles before it asks.
 //!
-//! A dash that reaches `built` has finished its work; what stands between it
-//! and landing is machine work: reconcile with a base that moved, and ask the
-//! project whether the merged tree still builds. Both used to wait for the user
-//! to open the Changes shade and press a button, which is the arc inverted —
-//! the person came to land a finished dash and was handed a chore.
+//! A dash that has finished the work somebody asked it for wants machine work
+//! before it can land: reconcile with a base that moved, and ask the project
+//! whether the merged tree still builds. Both used to wait for the user to open
+//! the Changes shade and press a button, which is the arc inverted — the person
+//! came to land a finished dash and was handed a chore.
+//!
+//! # Finished is derived, never declared
+//!
+//! The trigger is `DashDetail.join_ready` — a fact `tugdash_core` derives from
+//! the dash's own recorded telemetry: a declared step selection reaching its
+//! final step, a plan-less round landing on a clean worktree, or a `built` /
+//! `audited` mark ([D147]). It was once the `built` mark alone, and that made
+//! the whole arc wait on a skill remembering a chore: a run that walked every
+//! step, committed every round and wrote its draft still left the arc dark,
+//! because nothing had *said* the word. Skills narrate; verbs record; the
+//! server derives. `mark built` still arms — it is the hand-driven override and
+//! the unblock for dashes older than the derivation — but nothing gates on it.
 //!
 //! This module is the predicate that decides whether a dash wants that work.
 //! The dispatch that performs it lives beside the changeset recompute in
@@ -13,10 +25,11 @@
 //!
 //! # The predicate reads nothing it would have to fetch
 //!
-//! [`pilot_action`] is pure over `DashDetail.stage` and the `DashJoinState` the
-//! board just computed. That is deliberate: it runs inside the recompute's
-//! single `spawn_blocking` hop, once per dash, on a path that already does a
-//! blocking git walk. `DashDetail` carries no head sha, and
+//! [`pilot_action`] is pure over facts the recompute already holds — the
+//! derived readiness bool, whether any live session is bound to the dash, and
+//! the `DashJoinState` the board just computed. That is deliberate: the caller
+//! sits on a path that already does a blocking git walk, once per dash.
+//! `DashDetail` carries no head sha, and
 //! `resolve::candidate_status` returns early *before* its `rev-parse` calls
 //! when no candidate ref exists — so asking the predicate about shas would cost
 //! two new git subprocesses per dash per recompute, on exactly the dashes the
@@ -66,16 +79,23 @@ pub enum PilotAction {
 /// the reasons in the module docstring. The rules are applied in order and the
 /// first that matches wins:
 ///
-/// 1. Not `built` — the pilot acts on a finished dash only.
-/// 2. A run holds the dash — occupancy would refuse anyway.
-/// 3. Blockers — a blocked dash needs an act that lives elsewhere.
-/// 4. A standing question or stuck line — waiting on a person, or a refusal
+/// 1. Not ready — the pilot acts on a finished selection, a plan-less round, or
+///    a declared mark, and on nothing else.
+/// 2. Unbound — the ask can only be raised on a card whose session is bound to
+///    the dash, so an eager verdict on an unbound dash is spent on nobody.
+///    This also bounds the cost: readiness is derived, so the population is
+///    every dash with a landed round rather than the few somebody declared, and
+///    Tier 0 is a full workspace build. Binding a card re-enters the dash on
+///    the next recompute; `/join <name>` verifies on demand regardless.
+/// 3. A run holds the dash — occupancy would refuse anyway.
+/// 4. Blockers — a blocked dash needs an act that lives elsewhere.
+/// 5. A standing question or stuck line — waiting on a person, or a refusal
 ///    already stated; either way the machine has said its piece.
-/// 5. No candidate — reconcile.
-/// 6. A candidate whose Tier 0 verdict is absent or `unrun` — check it.
-/// 7. Otherwise nothing: the verdict stands, and the decision is the user's.
-pub fn pilot_action(stage: &str, state: &DashJoinState) -> Option<PilotAction> {
-    if stage != "built" {
+/// 6. No candidate — reconcile.
+/// 7. A candidate whose Tier 0 verdict is absent or `unrun` — check it.
+/// 8. Otherwise nothing: the verdict stands, and the decision is the user's.
+pub fn pilot_action(join_ready: bool, bound: bool, state: &DashJoinState) -> Option<PilotAction> {
+    if !join_ready || !bound {
         return None;
     }
     if state.run.is_some() {
@@ -257,18 +277,25 @@ mod tests {
     }
 
     #[test]
-    fn only_a_built_dash_is_piloted() {
-        for stage in ["planning", "implementing", "joined", ""] {
-            assert_eq!(
-                pilot_action(stage, &bare()),
-                None,
-                "stage {stage} must not pilot"
-            );
+    fn only_a_ready_bound_dash_is_piloted() {
+        // A dash still being worked wants nothing from the pilot, whatever else
+        // is true of it.
+        let mut working = bare();
+        working.candidate = Some("cand".to_string());
+        for state in [bare(), working] {
+            assert_eq!(pilot_action(false, true, &state), None);
         }
+        // Ready but unbound: the ask can only be raised on a bound card, so an
+        // eager Tier 0 here would spend a workspace build on nobody ([P08]).
         assert_eq!(
-            pilot_action("built", &bare()),
+            pilot_action(true, false, &bare()),
+            None,
+            "an unbound dash is left alone"
+        );
+        assert_eq!(
+            pilot_action(true, true, &bare()),
             Some(PilotAction::Reconcile),
-            "built with no candidate reconciles"
+            "ready with no candidate reconciles"
         );
     }
 
@@ -276,7 +303,7 @@ mod tests {
     fn a_held_dash_is_left_alone() {
         let mut state = bare();
         state.run = Some("resolve".to_string());
-        assert_eq!(pilot_action("built", &state), None);
+        assert_eq!(pilot_action(true, true, &state), None);
     }
 
     #[test]
@@ -287,7 +314,7 @@ mod tests {
             detail: "commit or stash the base first".to_string(),
             paths: Vec::new(),
         });
-        assert_eq!(pilot_action("built", &state), None);
+        assert_eq!(pilot_action(true, true, &state), None);
     }
 
     #[test]
@@ -298,12 +325,12 @@ mod tests {
             question: "which side wins?".to_string(),
             options: Vec::new(),
         });
-        assert_eq!(pilot_action("built", &asked), None, "waiting on a person");
+        assert_eq!(pilot_action(true, true, &asked), None, "waiting on a person");
 
         let mut stuck = bare();
         stuck.stuck = Some("the resolver exhausted its budget".to_string());
         assert_eq!(
-            pilot_action("built", &stuck),
+            pilot_action(true, true, &stuck),
             None,
             "a refusal already stated is not re-attempted"
         );
@@ -315,13 +342,13 @@ mod tests {
         state.candidate = Some("cand".to_string());
         state.phase = "resolved".to_string();
         assert_eq!(
-            pilot_action("built", &state),
+            pilot_action(true, true, &state),
             Some(PilotAction::CheckTier0),
             "absent is not green"
         );
 
         state.verification = Some(verdict("unrun"));
-        assert_eq!(pilot_action("built", &state), Some(PilotAction::CheckTier0));
+        assert_eq!(pilot_action(true, true, &state), Some(PilotAction::CheckTier0));
     }
 
     // ── The dispatch (Spec S06) ──────────────────────────────────────────
@@ -524,7 +551,7 @@ mod tests {
         for tier0 in ["green", "red", "running"] {
             state.verification = Some(verdict(tier0));
             assert_eq!(
-                pilot_action("built", &state),
+                pilot_action(true, true, &state),
                 None,
                 "tier0 {tier0} leaves the decision to the user"
             );

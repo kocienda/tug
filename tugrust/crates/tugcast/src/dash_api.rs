@@ -43,8 +43,22 @@ pub(crate) fn bind(
     tug_session_id: &str,
     dash: &str,
 ) -> DashApiOutcome {
-    if !owns_session(ledger, tug_session_id) {
+    let Some(row) = ledger.get(tug_session_id).ok().flatten() else {
         return DashApiOutcome::UnknownSession;
+    };
+    // **A session may only bind a dash in its own project**, which is the rule
+    // the Lens's Bind control already states to the user ("This dash belongs to
+    // …") and the server was taking on trust. It is not a nicety: without it a
+    // short-lived CLI process anywhere on the machine can rebind a live
+    // session to a dash in a directory that session has never seen. That is
+    // how an app-test's scratch dash came to own a developer's session, and
+    // the face went blank because the dash it named no longer existed.
+    if !same_project(&row.project_dir, project_dir) {
+        return DashApiOutcome::Error(format!(
+            "session {tug_session_id} works {} — it cannot bind a dash in {}",
+            row.project_dir,
+            project_dir.display()
+        ));
     }
     let dash_id = match tugdash_core::ops::ensure_dash_id(project_dir, dash) {
         Ok(id) => id,
@@ -98,4 +112,18 @@ pub(crate) fn dash_gone(
 /// that makes try-each-instance terminate on the right instance.
 fn owns_session(ledger: &SessionLedger, tug_session_id: &str) -> bool {
     ledger.get(tug_session_id).ok().flatten().is_some()
+}
+
+/// Whether a session working `session_project` may bind a dash in
+/// `dash_project`.
+///
+/// Both sides go through the [L29] gateway before they are compared, so the
+/// two spellings of one directory — the session's, recorded at spawn, and the
+/// CLI's, taken from a cwd — cannot read as two projects. A dash **worktree**
+/// counts as its own project's path here rather than the main checkout's:
+/// `dash create` from inside one already names the checkout, and reaching
+/// through would be a second, quieter path resolution beside the gateway's.
+fn same_project(session_project: &str, dash_project: &std::path::Path) -> bool {
+    crate::path_resolver::resolve_to_claude_form(std::path::Path::new(session_project))
+        == crate::path_resolver::resolve_to_claude_form(dash_project)
 }

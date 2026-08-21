@@ -11,3 +11,29 @@
   flex-direction: column;
   gap: var(--tug-space-3, 12px);
 }
+
+.join-prompt-sheet-message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs, 4px);
+  min-width: 0;
+}
+
+/* The same muted mono the shade's draft fold quotes a landing message in: this
+   block quotes rather than reports, and the two surfaces show the same bytes,
+   so they read the same way. */
+.join-prompt-sheet-message-body {
+  white-space: pre-line;
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* Prose, not the message — so it is deliberately not mono, and reads as the
+   sheet talking about the quote above it. */
+.join-prompt-sheet-message-note {
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.4;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}

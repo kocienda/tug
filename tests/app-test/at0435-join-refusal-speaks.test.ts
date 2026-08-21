@@ -43,10 +43,12 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
+  bindDash,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
   seedScratchSession,
+  silenceJoinPrompt,
   type JoinScratchRepo,
 } from "./dash-fixture";
 
@@ -242,6 +244,12 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // its workspace.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        // The join face is what the pilot found, and the pilot works only a
+        // dash somebody holds ([D147]) — a client-side `bind_dash_ok` writes
+        // no ledger row for it to read. The prompt that follows a settled
+        // verdict is answered in advance: this file is about the shade.
+        bindDash(projectDir(), DASH, SID, scratch?.cli ?? {});
+        silenceJoinPrompt(projectDir(), DASH);
 
         await raiseShade(app);
         await app.dispatchControlAction("bind_dash_ok", {

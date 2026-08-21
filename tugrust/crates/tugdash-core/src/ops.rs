@@ -20,7 +20,8 @@ use tugutil_core::{Config, find_repo_root, sanitize_branch_name};
 
 use crate::dash::{
     DashDeclaration, DashRoundMeta, MarkStage, StepPhase, append_dash_log, append_mark_declaration,
-    append_step_declaration, detect_default_branch, read_declarations, validate_dash_name,
+    append_run_through, append_step_declaration, detect_default_branch, read_declarations,
+    validate_dash_name,
 };
 
 /// Outcome of [`create`].
@@ -1070,6 +1071,16 @@ pub struct DashDetail {
     /// tracked dirt, so a dash with no rounds but dirty tracked files is not
     /// empty, while one whose only dirt is an untracked scratch file is.
     pub worktree_dirty_tracked: bool,
+    /// Whether this dash has finished the work somebody asked it for, derived
+    /// by [`crate::dash::join_ready`] ([P04]). The join pilot and the standing
+    /// prompt both act on this and nothing else, so what a face says and what
+    /// the arc does cannot disagree.
+    pub join_ready: bool,
+    /// The final step of the run's declared selection ([P01]), for display and
+    /// for tests. `None` for a generation that declared no run.
+    pub run_through: Option<u32>,
+    /// Whether that declared selection finished.
+    pub run_complete: bool,
     /// The note of the dash-log's most recent `replayed` line — the settled
     /// mark's text. `None` when this dash has never been replayed.
     pub last_replay: Option<String>,
@@ -1222,6 +1233,16 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         // append-only, and parsed line by line. No plan markdown is read here
         // ([P01]): the declarations are the record this path derives from.
         let declarations = read_declarations(repo_root, name);
+        let joining = read_join_journal(repo_root, name).is_some();
+        let plan_path = dash_plan_path(repo_root, name);
+        // Every input is already in hand from this dash's own composition, so
+        // readiness costs no extra git call on the recompute's hot path ([P04]).
+        let join_ready = crate::dash::join_ready(
+            rounds,
+            crate::dash::unfinished_tracked_dirt(&worktree_dirt_tracked, plan_path.as_deref()),
+            joining,
+            &declarations,
+        );
 
         entries.push(DashDetail {
             owner_key: dash_owner_key(repo_root, name),
@@ -1231,14 +1252,18 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
                 rounds as i64,
                 worktree_dirty,
                 false,
-                read_join_journal(repo_root, name).is_some(),
+                joining,
                 declarations.latest,
+                join_ready,
             )
             .to_owned(),
+            join_ready,
+            run_through: declarations.run_through,
+            run_complete: declarations.run_complete,
             step_current: declarations.step.map(|(current, _)| current),
             step_total: declarations.step.map(|(_, total)| total),
             step_title: declarations.step_title.clone(),
-            plan_path: dash_plan_path(repo_root, name),
+            plan_path,
             base_ahead,
             base_overlap: overlap.tracked,
             base_overlap_untracked: overlap.untracked,
@@ -1306,12 +1331,18 @@ pub struct DashStatus {
 
 /// The stage a dash is in, from what git derives and what the dash declared.
 ///
-/// Precedence is `joining > declared > draft-ready > working > created`
-/// ([P03]): a join in flight outranks everything; otherwise the latest
-/// declaration wins, because the last thing a run said about itself is the
-/// truest current answer; only an undeclared dash falls through to the derived
-/// chain, where an authored draft outranks mere activity and any round or
-/// worktree dirt outranks a freshly created dash.
+/// Precedence is
+/// `joining > built|audited > ready > implementing > draft-ready > working >
+/// created` ([P03], [P07]): a join in flight outranks everything; otherwise a
+/// declared mark wins, because the last thing a run said about itself is the
+/// truest current answer; a dash the machine derives as joinable reads `ready`;
+/// only an undeclared dash falls through to the derived chain, where an
+/// authored draft outranks mere activity and any round or worktree dirt
+/// outranks a freshly created dash.
+///
+/// `ready` sits above `implementing` because a finished run's latest
+/// declaration is a `step-done` — left below, a completed selection would read
+/// as step *m* still being worked, forever.
 ///
 /// Declarations outrank `draft-ready` deliberately: a planned run writes its
 /// join draft when it stops for the user's vet, *before* the audit, so a draft
@@ -1325,15 +1356,21 @@ pub fn derive_stage(
     has_draft: bool,
     joining: bool,
     declared: Option<DashDeclaration>,
+    join_ready: bool,
 ) -> &'static str {
     if joining {
         "joining"
-    } else if let Some(declaration) = declared {
-        match declaration {
-            DashDeclaration::Step { .. } => "implementing",
-            DashDeclaration::Built => "built",
-            DashDeclaration::Audited => "audited",
-        }
+    } else if matches!(declared, Some(DashDeclaration::Built)) {
+        "built"
+    } else if matches!(declared, Some(DashDeclaration::Audited)) {
+        "audited"
+    } else if join_ready {
+        // Above the step arm: a finished run's latest declaration is a
+        // `step-done`, which would otherwise read `implementing` forever. Below
+        // `built`/`audited` so a dash somebody marked keeps its own word ([P07]).
+        "ready"
+    } else if declared.is_some() {
+        "implementing"
     } else if has_draft {
         "draft-ready"
     } else if rounds > 0 || worktree_dirty {
@@ -1400,11 +1437,29 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
             .map(|s| !s.is_empty())
             .unwrap_or(false);
 
+    // Readiness is measured over tracked dirt only ([P04]), which the porcelain
+    // read above cannot answer — an untracked scratch file makes `worktree_dirty`
+    // true and must not make the dash unready, or `dash status` would disagree
+    // with the feed about the same dash. This is the CLI path, not the
+    // recompute, so the extra git call costs the hot path nothing.
+    let worktree_dirt_tracked = if worktree.exists() {
+        dirty_tracked_paths(&worktree)
+    } else {
+        Vec::new()
+    };
+    let plan_path = dash_plan_path(repo_root, name);
+
     let draft = dash_draft_message(repo_root, &branch).is_some();
     let join_journal_phase =
         read_join_journal(repo_root, name).map(|journal| format!("{:?}", journal.phase));
     let bound_sessions = bound_sessions_for(&id);
     let declarations = read_declarations(repo_root, name);
+    let join_ready = crate::dash::join_ready(
+        rounds.max(0) as u32,
+        crate::dash::unfinished_tracked_dirt(&worktree_dirt_tracked, plan_path.as_deref()),
+        join_journal_phase.is_some(),
+        &declarations,
+    );
 
     Ok(DashStatus {
         stage: derive_stage(
@@ -1413,6 +1468,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
             draft,
             join_journal_phase.is_some(),
             declarations.latest,
+            join_ready,
         )
         .to_string(),
         name: name.to_string(),
@@ -1428,7 +1484,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         step_current: declarations.step.map(|(current, _)| current as i64),
         step_total: declarations.step.map(|(_, total)| total as i64),
         step_title: declarations.step_title.clone(),
-        plan_path: dash_plan_path(repo_root, name),
+        plan_path,
         last_activity: declarations.last_activity.clone(),
     })
 }
@@ -1481,6 +1537,10 @@ pub struct StepOutcome {
     /// The commit recorded in the row, on `done`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
+    /// The run's declared final step — the `--through <m>` of [P01]. Present on
+    /// a start, and on a done when the generation has declared a run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub through: Option<u32>,
 }
 
 /// Resolve which plan a step verb drives, as a path relative to the dash's
@@ -1541,6 +1601,7 @@ fn step_in(
     phase: StepPhase,
     plan: Option<&str>,
     commit: Option<&str>,
+    through: Option<u32>,
 ) -> Result<StepOutcome, String> {
     let branch = branch_name(name);
     let worktree = worktree_path(repo_root, name);
@@ -1588,6 +1649,25 @@ fn step_in(
         .map(|r| r.title.clone())
         .ok_or_else(|| format!("{rel}: no ledger row for #{anchor}"))?;
 
+    // The run's selection is declared before its first step moves, so a run that
+    // dies after the start still says what it set out to do ([P01], Spec S01).
+    let declared = read_declarations(repo_root, name);
+    if let Some(through) = through {
+        if through < step {
+            return Err(format!(
+                "--through {through} is before step {step}: it names the final step of this run's selection"
+            ));
+        }
+        let through_anchor = format!("step-{through}");
+        if !doc.ledger_rows.iter().any(|r| r.anchor == through_anchor) {
+            return Err(format!("{rel}: no ledger row for #{through_anchor}"));
+        }
+        if declared.run_through != Some(through) {
+            append_run_through(repo_root, name, through).map_err(|e| e.to_string())?;
+        }
+    }
+    let through = through.or(declared.run_through);
+
     let status = match phase {
         StepPhase::Start => "in progress",
         StepPhase::Done => "done",
@@ -1618,6 +1698,7 @@ fn step_in(
         total,
         status: status.to_string(),
         commit: sha,
+        through,
     })
 }
 
@@ -1625,17 +1706,33 @@ fn step_in(
 ///
 /// Idempotent on a row already `in progress` ([P04]), so an interrupted run
 /// re-enters the step it was on without a hand-edit.
-pub fn step_start(name: &str, step: u32, plan: Option<&str>) -> Result<StepOutcome, String> {
+///
+/// `through` is the final step of this run's selection, which the log records
+/// so the join arc can tell a finished run from a paused one ([P01]).
+pub fn step_start(
+    name: &str,
+    step: u32,
+    plan: Option<&str>,
+    through: u32,
+) -> Result<StepOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
-    step_in(&repo_root, name, step, StepPhase::Start, plan, None)
+    step_in(
+        &repo_root,
+        name,
+        step,
+        StepPhase::Start,
+        plan,
+        None,
+        Some(through),
+    )
 }
 
 /// Finish a step: the ledger row goes `done` and records the round's commit.
 pub fn step_done(name: &str, step: u32, commit: Option<&str>) -> Result<StepOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
-    step_in(&repo_root, name, step, StepPhase::Done, None, commit)
+    step_in(&repo_root, name, step, StepPhase::Done, None, commit, None)
 }
 
 // --- plan adoption ---------------------------------------------------------
@@ -2721,14 +2818,66 @@ pub fn integrate_message(
     branch: &str,
     override_msg: Option<String>,
 ) -> String {
-    let description = config_get(repo, &format!("branch.{}.description", branch));
-    let body = override_msg
-        .or_else(|| dash_draft_message(repo, branch))
-        .or(description)
-        .unwrap_or_else(|| "Dash work".to_string());
-    let body = strip_dash_scope(&body);
+    let subject = match override_msg {
+        Some(body) => compose_landing_subject(name, &body),
+        None => landing_message_preview(repo, name, branch).0,
+    };
     // Subject stays `tugdash(<name>): …`; the trailers ride the body ([P08]).
-    with_dash_trailers(repo, name, branch, &format!("tugdash({}): {}", name, body))
+    with_dash_trailers(repo, name, branch, &subject)
+}
+
+/// Where a landing message's words came from ([P05]).
+///
+/// The precedence itself is silent — a forgotten draft lands the branch
+/// description, and a dash with neither lands `Dash work` — so the source
+/// travels beside the text and the prompt says which one it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LandingMessageSource {
+    /// The dash's authored join draft.
+    Draft,
+    /// The branch description, because no draft was written.
+    Description,
+    /// Neither existed: the message is the generic stand-in.
+    Fallback,
+}
+
+impl LandingMessageSource {
+    /// The wire spelling, which is also what the sheet keys its annotation on.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LandingMessageSource::Draft => "draft",
+            LandingMessageSource::Description => "description",
+            LandingMessageSource::Fallback => "fallback",
+        }
+    }
+}
+
+/// Scope-strip a body and wear this dash's own scope — the one composition
+/// [`integrate_message`] and [`landing_message_preview`] share, so what the
+/// prompt shows and what the join lands cannot drift.
+fn compose_landing_subject(name: &str, body: &str) -> String {
+    format!("tugdash({}): {}", name, strip_dash_scope(body))
+}
+
+/// The message a join would land with right now, and where it came from ([P05]).
+///
+/// Trailers are omitted: they are composed against the round set at landing
+/// time, and a preview that carried them would be showing the user provenance
+/// they cannot act on. The subject and body are byte-identical to what
+/// [`integrate_message`] would produce with no override.
+pub fn landing_message_preview(
+    repo: &Path,
+    name: &str,
+    branch: &str,
+) -> (String, LandingMessageSource) {
+    let (body, source) = match dash_draft_message(repo, branch) {
+        Some(draft) => (draft, LandingMessageSource::Draft),
+        None => match config_get(repo, &format!("branch.{}.description", branch)) {
+            Some(description) => (description, LandingMessageSource::Description),
+            None => ("Dash work".to_string(), LandingMessageSource::Fallback),
+        },
+    };
+    (compose_landing_subject(name, &body), source)
 }
 
 /// Strip one leading `tugdash(<anything>): `, or return the body unchanged.
@@ -3990,7 +4139,7 @@ Some context.
     fn step_verbs_drive_the_ledger_and_the_dash_log_together() {
         let (_temp, root) = stepped_dash("step-dash");
 
-        let started = step_start("step-dash", 1, Some("roadmap/plan.md")).unwrap();
+        let started = step_start("step-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         assert_eq!(started.plan_path, "roadmap/plan.md");
         assert_eq!((started.step, started.total), (1, 2));
         assert_eq!(started.status, "in progress");
@@ -4017,7 +4166,7 @@ Some context.
             dash_plan_path(&root, "step-dash").as_deref(),
             Some("roadmap/plan.md")
         );
-        let next = step_start("step-dash", 2, None).unwrap();
+        let next = step_start("step-dash", 2, None, 2).unwrap();
         assert_eq!(next.plan_path, "roadmap/plan.md");
         assert_eq!(
             ledger_row(&root, "step-dash", "step-2").status,
@@ -4025,11 +4174,98 @@ Some context.
         );
     }
 
+    /// The incident's shape, inverted: a dash driven only by the verbs a run
+    /// cannot skip is offerable without anybody declaring anything ([P01]–[P04]).
+    #[serial]
+    #[test]
+    fn a_finished_run_reads_ready_without_a_mark() {
+        let (_temp, root) = stepped_dash("ready-dash");
+        let worktree = worktree_path(&root, "ready-dash");
+
+        step_start("ready-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
+        fs::write(worktree.join("one.txt"), "first\n").unwrap();
+        commit("ready-dash", "r1", None).unwrap();
+
+        // Mid-run: a step is open and the selection is unfinished.
+        let detail = dash_detail_entry_in(&root, "ready-dash").unwrap();
+        assert!(!detail.join_ready);
+        assert_eq!(detail.stage, "implementing");
+        assert_eq!(detail.run_through, Some(2));
+
+        step_done("ready-dash", 1, None).unwrap();
+        // Still short of the declared end.
+        let detail = dash_detail_entry_in(&root, "ready-dash").unwrap();
+        assert!(!detail.join_ready);
+        assert!(!detail.run_complete);
+
+        step_start("ready-dash", 2, None, 2).unwrap();
+        fs::write(worktree.join("two.txt"), "second\n").unwrap();
+        commit("ready-dash", "r2", None).unwrap();
+        step_done("ready-dash", 2, None).unwrap();
+
+        let detail = dash_detail_entry_in(&root, "ready-dash").unwrap();
+        assert!(detail.run_complete);
+        assert!(detail.join_ready, "the declared selection finished");
+        assert_eq!(detail.stage, "ready");
+        // And the CLI's own composition agrees with the feed's.
+        assert_eq!(status_in(&root, "ready-dash").unwrap().stage, "ready");
+
+        // An untracked scratch file does not unready the dash — the join's
+        // preamble would not commit it, so it is not the run's unfinished work.
+        fs::write(worktree.join("scratch.tmp"), "notes\n").unwrap();
+        let detail = dash_detail_entry_in(&root, "ready-dash").unwrap();
+        assert!(detail.join_ready, "untracked dirt is not unfinished work");
+        assert_eq!(status_in(&root, "ready-dash").unwrap().stage, "ready");
+
+        // A tracked edit does: that is work the join would sweep in.
+        fs::write(worktree.join("one.txt"), "edited\n").unwrap();
+        let detail = dash_detail_entry_in(&root, "ready-dash").unwrap();
+        assert!(!detail.join_ready);
+        assert_eq!(status_in(&root, "ready-dash").unwrap().stage, "implementing");
+    }
+
+    #[serial]
+    #[test]
+    fn the_run_declares_its_selection_once_and_refuses_a_nonsense_one() {
+        let (_temp, root) = stepped_dash("through-dash");
+
+        let started = step_start("through-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
+        assert_eq!(started.through, Some(2));
+        assert_eq!(
+            crate::dash::read_declarations(&root, "through-dash").run_through,
+            Some(2)
+        );
+
+        // Re-entering the same step re-declares nothing.
+        step_start("through-dash", 1, None, 2).unwrap();
+        let log =
+            fs::read_to_string(tugutil_core::project_state_dir(&root).join("dash-log.md")).unwrap();
+        assert_eq!(
+            log.lines()
+                .filter(|l| l.contains("  through-dash  run-through  "))
+                .count(),
+            1,
+            "an unchanged selection writes no second line"
+        );
+
+        // A done carries the standing declaration without re-writing it.
+        let done = step_done("through-dash", 1, Some("abc1234")).unwrap();
+        assert_eq!(done.through, Some(2));
+
+        // A selection ending before the step it starts is not a selection.
+        let err = step_start("through-dash", 2, None, 1).unwrap_err();
+        assert!(err.contains("--through 1 is before step 2"), "{err}");
+
+        // Nor is one naming a row the ledger does not carry.
+        let err = step_start("through-dash", 2, None, 9).unwrap_err();
+        assert!(err.contains("no ledger row for #step-9"), "{err}");
+    }
+
     #[serial]
     #[test]
     fn step_done_records_the_branch_tip_when_no_commit_is_named() {
         let (_temp, root) = stepped_dash("tip-dash");
-        step_start("tip-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("tip-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         let tip = git_stdout(&root, &["rev-parse", "--short", "tugdash/tip-dash"]).unwrap();
 
         let done = step_done("tip-dash", 1, None).unwrap();
@@ -4048,26 +4284,26 @@ Some context.
         let before = fs::read_to_string(&plan).unwrap();
 
         // No plan recorded and none named.
-        let err = step_start("refuse-dash", 1, None).unwrap_err();
+        let err = step_start("refuse-dash", 1, None, 2).unwrap_err();
         assert!(err.contains("--plan"), "{err}");
 
         // A plan outside the dash worktree is not this dash's plan.
         fs::write(root.join("elsewhere.md"), TWO_STEP_PLAN).unwrap();
-        let err = step_start("refuse-dash", 1, Some("../../../elsewhere.md")).unwrap_err();
+        let err = step_start("refuse-dash", 1, Some("../../../elsewhere.md"), 2).unwrap_err();
         assert!(err.contains("outside the dash worktree"), "{err}");
 
         // A path that resolves to nothing.
-        let err = step_start("refuse-dash", 1, Some("roadmap/missing.md")).unwrap_err();
+        let err = step_start("refuse-dash", 1, Some("roadmap/missing.md"), 2).unwrap_err();
         assert!(err.contains("plan not found"), "{err}");
 
         // An anchor the ledger does not carry.
-        let err = step_start("refuse-dash", 9, Some("roadmap/plan.md")).unwrap_err();
+        let err = step_start("refuse-dash", 9, Some("roadmap/plan.md"), 2).unwrap_err();
         assert!(err.contains("no ledger row for #step-9"), "{err}");
 
         // A finished row refuses to be started again, naming its status.
-        step_start("refuse-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("refuse-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         step_done("refuse-dash", 1, Some("abc1234")).unwrap();
-        let err = step_start("refuse-dash", 1, None).unwrap_err();
+        let err = step_start("refuse-dash", 1, None, 2).unwrap_err();
         assert!(err.contains("is 'done'"), "{err}");
 
         // Only the two successful calls moved the document.
@@ -4096,7 +4332,7 @@ Some context.
         assert_eq!(fresh.stage, "working");
         assert!(fresh.step_current.is_none() && fresh.plan_path.is_none());
 
-        step_start("status-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("status-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         let stepping = status_in(&root, "status-dash").unwrap();
         assert_eq!(stepping.stage, "implementing");
         assert_eq!(
@@ -4115,7 +4351,7 @@ Some context.
         assert_eq!(status_in(&root, "status-dash").unwrap().stage, "audited");
 
         // A follow-up step range demotes the dash back to implementing.
-        step_start("status-dash", 2, None).unwrap();
+        step_start("status-dash", 2, None, 2).unwrap();
         let again = status_in(&root, "status-dash").unwrap();
         assert_eq!(again.stage, "implementing");
         assert_eq!(again.step_current, Some(2));
@@ -4135,7 +4371,7 @@ Some context.
         assert_eq!(entry.stage, "working");
         assert!(entry.step_current.is_none() && entry.step_total.is_none());
 
-        step_start("feed-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("feed-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         let stepped = dash_detail_entries_in(&root);
         let entry = stepped.iter().find(|d| d.name == "feed-dash").unwrap();
         assert_eq!(entry.stage, "implementing");
@@ -4163,7 +4399,7 @@ Some context.
             entry.plan_path
         );
 
-        step_start("plan-path-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("plan-path-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         let after = dash_detail_entries_in(&root);
         let entry = after.iter().find(|d| d.name == "plan-path-dash").unwrap();
         assert_eq!(entry.plan_path.as_deref(), Some("roadmap/plan.md"));
@@ -4249,12 +4485,12 @@ Some context.
     #[test]
     fn step_start_re_enters_an_interrupted_step() {
         let (_temp, root) = stepped_dash("resume-dash");
-        step_start("resume-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("resume-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         let interrupted =
             fs::read_to_string(worktree_path(&root, "resume-dash").join("roadmap/plan.md"))
                 .unwrap();
 
-        step_start("resume-dash", 1, None).expect("a resumed run re-enters its own step");
+        step_start("resume-dash", 1, None, 2).expect("a resumed run re-enters its own step");
         let after = fs::read_to_string(worktree_path(&root, "resume-dash").join("roadmap/plan.md"))
             .unwrap();
         assert_eq!(after, interrupted, "re-entry moves no byte of the plan");
@@ -4418,7 +4654,7 @@ Some context.
     #[test]
     fn adopt_cleans_a_progress_only_base_copy_and_keeps_worktree_progress() {
         let (_temp, root) = adopted_from_committed_plan("progress-dash");
-        step_start("progress-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("progress-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         // Base dirt whose body is unchanged; the worktree carries real progress.
         write_base_plan(&root, &format!("{TWO_STEP_PLAN}\n"));
 
@@ -4439,7 +4675,7 @@ Some context.
     fn adopt_replays_worktree_progress_onto_an_edited_base_body() {
         let (_temp, root) = adopted_from_committed_plan("replay-dash");
         // Progress on the worktree, committed there as a round would.
-        step_start("replay-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("replay-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         step_done("replay-dash", 1, Some("abc1234")).unwrap();
         let worktree = worktree_path(&root, "replay-dash");
         run_git(&worktree, &["add", "-A"]);
@@ -4532,7 +4768,7 @@ Some context.
     #[test]
     fn preflight_names_the_plan_when_the_base_copy_is_what_jails_the_join() {
         let (_temp, root) = adopted_from_committed_plan("jail-dash");
-        step_start("jail-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("jail-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         commit("jail-dash", "a round", None).unwrap();
         write_base_plan(
             &root,
@@ -4617,7 +4853,7 @@ Some context.
     fn step_verbs_refuse_while_a_base_plan_copy_diverges() {
         let (_temp, root) = adopted_from_committed_plan("jailed-dash");
         let plan = worktree_path(&root, "jailed-dash").join("roadmap/plan.md");
-        step_start("jailed-dash", 1, Some("roadmap/plan.md")).unwrap();
+        step_start("jailed-dash", 1, Some("roadmap/plan.md"), 2).unwrap();
         let before = fs::read_to_string(&plan).unwrap();
 
         // Tracked-dirty on base.
@@ -4638,12 +4874,12 @@ Some context.
         run_git(&root, &["checkout", "HEAD", "--", "roadmap/plan.md"]);
         run_git(&root, &["rm", "--cached", "roadmap/plan.md"]);
         run_git(&root, &["commit", "-m", "untrack the plan"]);
-        let err = step_start("jailed-dash", 2, None).unwrap_err();
+        let err = step_start("jailed-dash", 2, None, 2).unwrap_err();
         assert!(err.contains("adopt-plan jailed-dash"), "{err}");
 
         // Adoption is the remedy, and the same call then succeeds.
         adopt_plan_in(&root, "jailed-dash", None).unwrap();
-        let resumed = step_start("jailed-dash", 2, None).unwrap();
+        let resumed = step_start("jailed-dash", 2, None, 2).unwrap();
         assert_eq!(resumed.status, "in progress");
         assert_eq!(
             ledger_row(&root, "jailed-dash", "step-1").status,
@@ -4729,14 +4965,14 @@ Some context.
         create("e2e-join", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(!root.join("roadmap/plan.md").exists(), "one live copy");
 
-        step_start("e2e-join", 1, None).unwrap();
+        step_start("e2e-join", 1, None, 2).unwrap();
         commit("e2e-join", "the first round", None).unwrap();
         step_done("e2e-join", 1, None).unwrap();
 
         // The user revises the plan on base mid-run. Every seam refuses.
         let revised = TWO_STEP_PLAN.replace("Some context.", "Revised mid-run.");
         write_base_plan(&root, &revised);
-        let err = step_start("e2e-join", 2, None).unwrap_err();
+        let err = step_start("e2e-join", 2, None, 2).unwrap_err();
         assert!(err.contains("adopt-plan e2e-join"), "{err}");
         let blockers = join_preflight_in(&root, "e2e-join").unwrap();
         let dirt = blockers.iter().find(|b| b.kind == "base-dirt").unwrap();
@@ -4748,7 +4984,7 @@ Some context.
         assert!(merged.contains("Revised mid-run."));
         assert_eq!(ledger_row(&root, "e2e-join", "step-1").status, "done");
 
-        step_start("e2e-join", 2, None).unwrap();
+        step_start("e2e-join", 2, None, 2).unwrap();
         commit("e2e-join", "the second round", None).unwrap();
         step_done("e2e-join", 2, None).unwrap();
 
@@ -4777,7 +5013,7 @@ Some context.
         let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
 
         create("e2e-abandon", None, Some("roadmap/plan.md"), false, None).unwrap();
-        step_start("e2e-abandon", 1, None).unwrap();
+        step_start("e2e-abandon", 1, None, 2).unwrap();
         commit("e2e-abandon", "a round", None).unwrap();
         assert!(!root.join("roadmap/plan.md").exists());
 
@@ -5813,16 +6049,16 @@ Some context.
     #[test]
     fn stage_derivation_follows_its_precedence() {
         // An undeclared dash derives exactly what it always did.
-        assert_eq!(derive_stage(0, false, false, false, None), "created");
-        assert_eq!(derive_stage(1, false, false, false, None), "working");
-        assert_eq!(derive_stage(0, true, false, false, None), "working");
-        assert_eq!(derive_stage(2, true, true, false, None), "draft-ready");
+        assert_eq!(derive_stage(0, false, false, false, None, false), "created");
+        assert_eq!(derive_stage(1, false, false, false, None, false), "working");
+        assert_eq!(derive_stage(0, true, false, false, None, false), "working");
+        assert_eq!(derive_stage(2, true, true, false, None, false), "draft-ready");
         // A draft with no work yet is still draft-ready — the draft is the
         // stronger signal.
-        assert_eq!(derive_stage(0, false, true, false, None), "draft-ready");
+        assert_eq!(derive_stage(0, false, true, false, None, false), "draft-ready");
         // A join in flight outranks everything below it.
-        assert_eq!(derive_stage(3, true, true, true, None), "joining");
-        assert_eq!(derive_stage(0, false, false, true, None), "joining");
+        assert_eq!(derive_stage(3, true, true, true, None, false), "joining");
+        assert_eq!(derive_stage(0, false, false, true, None, false), "joining");
 
         let stepping = Some(DashDeclaration::Step {
             current: 3,
@@ -5830,17 +6066,84 @@ Some context.
         });
         // Declarations outrank a draft — a planned run writes its draft before
         // the audit, so a draft that won would hide `built` and `audited`.
-        assert_eq!(derive_stage(2, true, true, false, stepping), "implementing");
+        assert_eq!(derive_stage(2, true, true, false, stepping, false), "implementing");
         assert_eq!(
-            derive_stage(2, true, true, false, Some(DashDeclaration::Built)),
+            derive_stage(2, true, true, false, Some(DashDeclaration::Built), false),
             "built"
         );
         assert_eq!(
-            derive_stage(2, true, true, false, Some(DashDeclaration::Audited)),
+            derive_stage(2, true, true, false, Some(DashDeclaration::Audited), false),
             "audited"
         );
         // …and a join still outranks a declaration.
-        assert_eq!(derive_stage(2, true, true, true, stepping), "joining");
+        assert_eq!(derive_stage(2, true, true, true, stepping, false), "joining");
+
+        // A finished run's latest declaration is still a step, so `ready` must
+        // outrank `implementing` or a completed selection reads as step three
+        // of nine forever ([P07]).
+        assert_eq!(derive_stage(2, false, false, false, stepping, true), "ready");
+        // A dash somebody marked keeps its own word, ready or not.
+        assert_eq!(
+            derive_stage(2, false, false, false, Some(DashDeclaration::Built), true),
+            "built"
+        );
+        assert_eq!(
+            derive_stage(2, false, false, false, Some(DashDeclaration::Audited), true),
+            "audited"
+        );
+        // And a plan-less ready dash reads `ready` rather than `working`.
+        assert_eq!(derive_stage(1, false, false, false, None, true), "ready");
+    }
+
+    /// Table T01 — what arms and what stays dark, one assertion per row.
+    #[test]
+    fn join_readiness_follows_the_arming_matrix() {
+        use crate::dash::{DashDeclarations, join_ready};
+
+        let run = |through: Option<u32>, complete: bool, step: Option<(u32, u32)>| {
+            DashDeclarations {
+                latest: step.map(|(current, total)| DashDeclaration::Step { current, total }),
+                step,
+                run_through: through,
+                run_complete: complete,
+                ..DashDeclarations::default()
+            }
+        };
+        let marked = |stage: DashDeclaration| DashDeclarations {
+            latest: Some(stage),
+            step: Some((8, 15)),
+            ..DashDeclarations::default()
+        };
+
+        // A declared selection that finished.
+        assert!(join_ready(3, false, false, &run(Some(8), true, Some((8, 15)))));
+        // …and one that stopped short of its declared end.
+        assert!(!join_ready(
+            3,
+            false,
+            false,
+            &run(Some(8), false, Some((7, 15)))
+        ));
+        // A step still open is never ready, whatever the arithmetic says.
+        assert!(!join_ready(
+            3,
+            false,
+            false,
+            &run(Some(8), false, Some((8, 15)))
+        ));
+        // A mark arms on its own — the manual and legacy path ([P03]).
+        assert!(join_ready(3, false, false, &marked(DashDeclaration::Built)));
+        assert!(join_ready(3, false, false, &marked(DashDeclaration::Audited)));
+        // A plan-less generation arms on every round ([P02])…
+        assert!(join_ready(1, false, false, &DashDeclarations::default()));
+        // …but not while its tracked work is uncommitted.
+        assert!(!join_ready(1, true, false, &DashDeclarations::default()));
+        // A legacy plan dash — steps declared, no run — stays dark until marked.
+        assert!(!join_ready(3, false, false, &run(None, false, Some((8, 15)))));
+        // A join in flight is landing, not ready; and nothing to join is not
+        // ready either.
+        assert!(!join_ready(1, false, true, &DashDeclarations::default()));
+        assert!(!join_ready(0, false, false, &DashDeclarations::default()));
     }
 
     /// `status` walks a dash's whole lifecycle: fresh → a round → an authored
@@ -5899,9 +6202,12 @@ Some context.
         assert_eq!(dirty.stage, "working");
         assert!(dirty.worktree_dirty);
 
+        // A committed round on a plan-less dash is a finished unit of asked
+        // work, so the dash is offerable the moment its worktree is clean
+        // ([P02]) — no mark, no build, nothing declared.
         commit("status-dash", "Add f", None).unwrap();
         let after_round = status("status-dash").unwrap();
-        assert_eq!(after_round.stage, "working");
+        assert_eq!(after_round.stage, "ready");
         assert_eq!(after_round.rounds, 1);
         assert!(!after_round.worktree_dirty);
 
@@ -5920,8 +6226,11 @@ Some context.
             )
             .unwrap();
         }
+        // The draft is recorded, but `ready` outranks `draft-ready`: a dash the
+        // machine will offer says so, and the draft becomes the message that
+        // offer carries rather than a stage of its own.
         let drafted = status("status-dash").unwrap();
-        assert_eq!(drafted.stage, "draft-ready");
+        assert_eq!(drafted.stage, "ready");
         assert!(drafted.draft);
 
         // An interrupted join leaves a journal, and outranks the draft.
@@ -7010,6 +7319,53 @@ Some context.
 
     fn canonical(p: &Path) -> std::path::PathBuf {
         fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    }
+
+    /// The precedence a join walks silently, said out loud ([P05], Spec S03).
+    #[serial]
+    #[test]
+    fn the_landing_preview_names_where_its_words_came_from() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "prov");
+        isolate_changes_db(&temp);
+        let repo = temp.path();
+        let db = temp.path().join("changes.db");
+
+        // Neither a draft nor a description: the generic stand-in, and the
+        // preview says so rather than letting it pass as authored.
+        let (message, source) = landing_message_preview(repo, "prov", "tugdash/prov");
+        assert_eq!(message, "tugdash(prov): Dash work");
+        assert_eq!(source, LandingMessageSource::Fallback);
+
+        git_output(
+            repo,
+            &[
+                "config",
+                "branch.tugdash/prov.description",
+                "Teach the imposer to breathe",
+            ],
+        )
+        .unwrap();
+        let (message, source) = landing_message_preview(repo, "prov", "tugdash/prov");
+        assert_eq!(message, "tugdash(prov): Teach the imposer to breathe");
+        assert_eq!(source, LandingMessageSource::Description);
+
+        // An authored draft outranks the description, and wears this dash's
+        // scope exactly once even though the draft carried a foreign one.
+        seed_draft_row(
+            &db,
+            &dash_draft_key(repo, "prov").owner_id,
+            &canonical(repo),
+            "tugdash(elsewhere): The words the author chose",
+        );
+        let (message, source) = landing_message_preview(repo, "prov", "tugdash/prov");
+        assert_eq!(message, "tugdash(prov): The words the author chose");
+        assert_eq!(source, LandingMessageSource::Draft);
+
+        // And the preview is what the join would land, minus the trailers the
+        // landing composes against its round set.
+        let landed = integrate_message(repo, "prov", "tugdash/prov", None);
+        assert!(landed.starts_with(&message), "{landed}");
     }
 
     #[serial]

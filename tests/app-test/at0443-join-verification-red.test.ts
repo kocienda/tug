@@ -73,6 +73,8 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
+  bindDash,
+  silenceJoinPrompt,
   gitRetry as git,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
@@ -230,6 +232,12 @@ describe.skipIf(!SHOULD_RUN)("AT0443: a red verdict, and the decision past it", 
         await openOnDash(app);
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: repo });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        // The pilot only works a dash somebody holds ([D147]); without the
+        // ledger row nothing below ever starts.
+        bindDash(repo, DASH, SID, scratch?.cli ?? {});
+        // This dash settles RED, so the dismissal must name that decision —
+        // the re-ask policy compares decisions, not shas.
+        silenceJoinPrompt(repo, DASH, "red");
 
         // ── The red, reached by the machine ───────────────────────────────
         // Nothing is pressed to get here. The dash is `built`, the pilot

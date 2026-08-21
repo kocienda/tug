@@ -62,6 +62,8 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
+  bindDash,
+  silenceJoinPrompt,
   gitRetry as git,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
@@ -213,6 +215,10 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
         await openOnDash(app);
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: repo });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        // The pilot only works a dash somebody holds ([D147]); without the
+        // ledger row nothing below ever starts.
+        bindDash(repo, DASH, SID, scratch?.cli ?? {});
+        silenceJoinPrompt(repo, DASH);
 
         // The aggregate has composed the dash once the Lens roster lists it.
         await app.dispatchControlAction("toggle-lens");

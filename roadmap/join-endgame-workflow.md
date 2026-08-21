@@ -449,16 +449,16 @@ Same precedence and scope-stripping as `integrate_message` (no override arm — 
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The declared run: `--through`, the `run-through` marker, the folded facts | pending | — |
-| #step-2 | Join readiness derived in tugdash-core; a ready dash says so | pending | — |
-| #step-3 | The landing-message preview with provenance | pending | — |
-| #step-4 | The pilot and the prompt key off readiness | pending | — |
-| #step-5 | The prompt carries the message; the probe observes the dash-log | pending | — |
-| #step-6 | The ready stage reaches the faces; the sheet names its message | pending | — |
-| #step-7 | The skills shrink to narration and prose | pending | — |
-| #step-8 | at0445: the no-mark path and the provenance pin | pending | — |
-| #step-9 | Doctrine: [D146] amends [D142] | pending | — |
-| #step-10 | Integration checkpoint | pending | — |
+| #step-1 | The declared run: `--through`, the `run-through` marker, the folded facts | done | `556f8ea0d` |
+| #step-2 | Join readiness derived in tugdash-core; a ready dash says so | done | `c4c0638ad` |
+| #step-3 | The landing-message preview with provenance | done | `7678be054` |
+| #step-4 | The pilot and the prompt key off readiness | done | `692450e73` |
+| #step-5 | The prompt carries the message; the probe observes the dash-log | done | `dbbc72a16` |
+| #step-6 | The ready stage reaches the faces; the sheet names its message | done | `803b78aa8` |
+| #step-7 | The skills shrink to narration and prose | done | `d72fdb864` |
+| #step-8 | at0445: the no-mark path and the provenance pin | done | `ae388cbb6` |
+| #step-9 | Doctrine: [D146] amends [D142] | done | `c392ea288` |
+| #step-10 | Integration checkpoint | done | `bb0c2d887` |
 
 #### Step 1: The declared run: `--through`, the `run-through` marker, the folded facts {#step-1}
 

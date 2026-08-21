@@ -341,6 +341,15 @@ export interface DashJoinPromptWire {
   base_sha: string;
   dash_head: string;
   question: string;
+  /**
+   * The message this join would land with, composed server-side by the same
+   * code the landing itself uses, so the preview cannot drift from the act.
+   * Deliberately absent from `request_id`: editing the draft while the ask
+   * stands must not orphan the answer being given.
+   */
+  message?: string;
+  /** `"draft"` | `"description"` | `"fallback"` — which arm the message came from. */
+  message_source?: string;
   options: DashJoinPromptOptionWire[];
 }
 

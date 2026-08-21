@@ -481,6 +481,9 @@ function DashJoinRow({ row }: { row: DashRow }): React.ReactElement | null {
         stage={entry.stage}
         join={entry.join}
         landBeat={landBeat}
+        // The Lens is the one surface that renders dashes nobody is holding,
+        // so it is the one that has to hand the register that fact ([D147]).
+        bound={(entry.bound_sessions ?? []).length > 0}
         altitude="section"
       />
     </span>

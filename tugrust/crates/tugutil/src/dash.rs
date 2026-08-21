@@ -138,14 +138,7 @@ fn run_create(
     quiet: bool,
 ) -> Result<(), String> {
     let data = ops::create(name, description, plan, carry, base)?;
-    // The session that made the dash is working on it. Best-effort: a headless
-    // run with no live instance loses nothing (binding is a UI concept), so a
-    // failure warns and never fails the create.
-    if std::env::var("TUG_SESSION_ID").is_ok_and(|s| !s.is_empty())
-        && let Err(e) = run_bind(name, None, false, true)
-    {
-        eprintln!("warning: could not bind this session to dash '{name}': {e}");
-    }
+    claim_dash(name);
     if json {
         print_ok("dash create", &data);
     } else if !quiet {
@@ -218,6 +211,12 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
     };
 
     let data = ops::commit(name, message, round_meta)?;
+    // Deliberately no `claim_dash` here. A round is the plainest statement
+    // that this session is working this dash, but the claim costs an HTTP walk
+    // over every live instance, and `commit` is the one dash verb that runs on
+    // every round and from inside a Shell-route turn — paying that per round,
+    // in front of the user, to re-assert a fact `create` and `step start`
+    // already recorded is a cost with no reader.
     if json {
         print_ok("dash commit", &data);
     } else if !quiet {
@@ -471,14 +470,34 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 /// the row named, and leaves the plan file untouched.
 fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), String> {
     let data = match action {
-        StepAction::Start { step, plan } => ops::step_start(name, step, plan.as_deref())?,
+        StepAction::Start {
+            step,
+            plan,
+            through,
+        } => {
+            let through = through.ok_or_else(|| {
+                "dash step start requires --through <m>: the final step of this run's selection \
+                 (the machine arms the join from it)"
+                    .to_string()
+            })?;
+            // Opening a step is the resume path's "I am working this dash".
+            // A run that picks a plan up mid-way never calls `create`, so this
+            // is the only place the claim can be made for it.
+            let outcome = ops::step_start(name, step, plan.as_deref(), through)?;
+            claim_dash(name);
+            outcome
+        }
         StepAction::Done { step, commit } => ops::step_done(name, step, commit.as_deref())?,
     };
     if json {
         print_ok("dash step", &data);
     } else if !quiet {
+        let through = match data.through {
+            Some(through) => format!(" (run through {through})"),
+            None => String::new(),
+        };
         println!(
-            "Step {}/{} of {} is {}",
+            "Step {}/{} of {} is {}{through}",
             data.step, data.total, data.plan_path, data.status
         );
         if let Some(commit) = &data.commit {
@@ -728,6 +747,31 @@ fn run_bind(
     Ok(())
 }
 
+/// Say that the calling session is working this dash.
+///
+/// **The verbs that start or resume work on a dash call this** — `create` and
+/// `step start` — because a run that resumes an existing plan never creates
+/// one, and leaving the claim to whoever remembered to type `dash bind` is the
+/// same mistake [D147] removed from the join arc's other end. `commit` is
+/// deliberately not among them: see the note there. A dash whose worker
+/// nobody recorded shows no worker on its Lens row, on the session masthead or
+/// in the shade, and — since the pilot works only for bound dashes — is never
+/// offered for joining at all.
+///
+/// Best-effort by construction, and silent on both no-op paths. There is
+/// nothing to claim without a calling session (a headless run, a fixture), and
+/// nothing to claim it *on* without a live instance, since a binding is a fact
+/// the ledger holds rather than something the worktree needs. A failure warns
+/// on stderr and never fails the verb the user actually asked for.
+fn claim_dash(name: &str) {
+    if !std::env::var("TUG_SESSION_ID").is_ok_and(|s| !s.is_empty()) {
+        return;
+    }
+    if let Err(e) = run_bind(name, None, false, true) {
+        eprintln!("warning: could not bind this session to dash '{name}': {e}");
+    }
+}
+
 fn run_unbind(project: Option<std::path::PathBuf>, json: bool, quiet: bool) -> Result<(), String> {
     let session = calling_session_id()?;
     let _project = binding_project(project)?;
@@ -840,4 +884,28 @@ fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_start_refuses_without_through() {
+        let err = run_step(
+            "any-dash",
+            StepAction::Start {
+                step: 1,
+                plan: None,
+                through: None,
+            },
+            false,
+            true,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("--through"),
+            "the refusal must name the flag: {err}"
+        );
+    }
 }

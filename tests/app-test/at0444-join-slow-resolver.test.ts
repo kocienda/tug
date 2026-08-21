@@ -67,6 +67,8 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
+  bindDash,
+  silenceJoinPrompt,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
   rmScratchSession,
@@ -245,6 +247,10 @@ describe.skipIf(!SHOULD_RUN)("AT0444: a slow resolver is not a dead one", () => 
         await openOnDash(app);
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: repo });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
+        // The pilot only works a dash somebody holds ([D147]); without the
+        // ledger row nothing below ever starts.
+        bindDash(repo, DASH, SID, scratch?.cli ?? {});
+        silenceJoinPrompt(repo, DASH);
 
         // The aggregate has composed the dash once the Lens roster lists it.
         await app.dispatchControlAction("toggle-lens");

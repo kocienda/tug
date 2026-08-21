@@ -1,10 +1,15 @@
 /**
  * join-prompt-sheet — the one decision the join arc asks a person for ([P06]).
  *
- * Everything before this is the machine's: the pilot reconciles a `built` dash
- * with its base without being asked, builds the joined tree, and runs the
- * project's own checks over it. This is where that work stops and a person
- * decides — and it is deliberately the only place in the arc that asks.
+ * Everything before this is the machine's: the pilot reconciles a dash the
+ * server has derived as joinable ([D147]) with its base without being asked,
+ * builds the joined tree, and runs the project's own checks over it. This is
+ * where that work stops and a person decides — and it is deliberately the only
+ * place in the arc that asks.
+ *
+ * The sheet also shows **what would land**, and where those words came from.
+ * The landing message's precedence is silent, so the one moment it is worth
+ * breaking that silence is here, where a person is about to agree to it.
  *
  * **Modal, because the whole point is that it is not missed.** A passive line
  * on a shade is exactly the "come find it later" this arc replaces: the dash
@@ -48,6 +53,7 @@ import {
   type ParsedQuestion,
 } from "@/components/tugways/chrome/session-question-dialog";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
+import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import type { DashJoinPromptWire } from "@/lib/changeset-types";
 
 /** How the user answered, in the wire's own words (Spec S05). */
@@ -91,6 +97,49 @@ export function answerForLabel(
   const index = prompt.options.findIndex((option) => option.label === label);
   const order: JoinPromptAnswer[] = ["join-now", "review-first", "not-yet"];
   return order[index] ?? null;
+}
+
+/** The message block above the wizard: what would land, and a note if the
+ *  words are not the author's (Spec S03). */
+export interface JoinPromptMessageBlock {
+  /** The subject the join would land with, verbatim. */
+  message: string;
+  /** Why these are the words, when nobody wrote them. Null for a real draft. */
+  note: string | null;
+}
+
+/**
+ * What the sheet shows above the question ([P05], Spec S03).
+ *
+ * The landing message's precedence is silent by construction — a forgotten
+ * draft lands the branch description, a dash with neither lands `Dash work` —
+ * and the whole reason the prompt carries its source is so that silence can be
+ * broken at the one moment a person is about to say yes to it. A `draft` shows
+ * plainly, because that is the case where the words *are* somebody's.
+ *
+ * Pure, so the three renderings are a table test rather than a render one. An
+ * older sender with no `message` at all yields null, and the sheet renders the
+ * question alone rather than an empty quote box.
+ */
+export function joinPromptMessage(
+  prompt: DashJoinPromptWire,
+): JoinPromptMessageBlock | null {
+  const message = prompt.message ?? "";
+  if (message === "") return null;
+  switch (prompt.message_source) {
+    case "description":
+      return {
+        message,
+        note: "landing with the branch description — no draft was written",
+      };
+    case "fallback":
+      return {
+        message,
+        note: "no draft or description — this join would land as “Dash work”",
+      };
+    default:
+      return { message, note: null };
+  }
 }
 
 export interface UseJoinPromptSheetArgs {
@@ -224,8 +273,25 @@ function JoinPromptSheetBody({
   onAnswer: (answer: JoinPromptAnswer) => void;
 }): React.ReactElement {
   const questions = joinPromptAsParsed(prompt);
+  const landing = joinPromptMessage(prompt);
   return (
     <div className="join-prompt-sheet" data-slot="join-prompt-sheet">
+      {landing !== null ? (
+        <div
+          className="join-prompt-sheet-message"
+          data-slot="join-prompt-sheet-message"
+          data-source={prompt.message_source ?? ""}
+        >
+          <TugSectionLabel
+            label={{ name: "lands as" }}
+            slot="join-prompt-sheet-message-label"
+          />
+          <div className="join-prompt-sheet-message-body">{landing.message}</div>
+          {landing.note !== null ? (
+            <div className="join-prompt-sheet-message-note">{landing.note}</div>
+          ) : null}
+        </div>
+      ) : null}
       <QuestionWizard
         requestId={prompt.request_id}
         questions={questions}

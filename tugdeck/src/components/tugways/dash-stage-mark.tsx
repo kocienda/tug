@@ -20,6 +20,7 @@ import "./dash-stage-mark.css";
 
 import React from "react";
 import {
+  CircleCheck,
   FileCheck,
   GitMerge,
   Hammer,
@@ -37,6 +38,7 @@ export const DASH_STAGE_ICONS: Record<string, LucideIcon> = {
   created: Sprout,
   working: Wrench,
   implementing: Hammer,
+  ready: CircleCheck,
   built: Package,
   audited: ShieldCheck,
   "draft-ready": FileCheck,

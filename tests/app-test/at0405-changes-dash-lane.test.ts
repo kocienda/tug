@@ -431,9 +431,11 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // the name it belongs to.
         expect(row.badge).toBe(`^${DASH_NAME}`);
         // The derived stage, as the glyph whose word rides the hover ([D141]).
-        // One committed round and no plan is `working`.
-        expect(row.stage).toBe("working");
-        expect(row.stageWord).toBe("working");
+        // One committed round, no plan and a clean worktree is `ready`: with
+        // no declared selection to finish, a landed round is the whole of the
+        // intent, and the server arms the join from it ([D147]).
+        expect(row.stage).toBe("ready");
+        expect(row.stageWord).toBe("ready");
         // No plan adopted, said aloud rather than as silence.
         expect(row.note).toBe("no plan adopted");
         expect(row.noteEmpty).toBe("true");

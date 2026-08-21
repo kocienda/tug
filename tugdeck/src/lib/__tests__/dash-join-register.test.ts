@@ -137,6 +137,31 @@ describe("what the register says", () => {
     expect(reg({ phase: "previewed" }, { stage: "implementing" })).toBeNull();
   });
 
+  test("a `ready` dash has the same arc a `built` one does", () => {
+    // The gate this pins used to be `stage === "built"`, which meant a dash
+    // that armed from its own recorded facts ([D147]) got the modal and a dark
+    // register — a face contradicting the arc. All three joinable words reach
+    // the same states now.
+    for (const stage of ["ready", "built", "audited"]) {
+      expect(reg(verified("green"), { stage })?.word).toBe("ready");
+      // And with no verdict yet, the beat rather than null: the pilot's
+      // dispatch is one recompute away, not absent.
+      expect(reg({ phase: "previewed" }, { stage })?.word).toBe("checking");
+    }
+  });
+
+  test("an unbound joinable dash says nothing rather than promising a check", () => {
+    // The pilot never runs for a dash nobody holds, so "Building the joined
+    // tree" on the Lens row would be a promise the machine has already
+    // declined to keep — standing there forever.
+    expect(reg({ phase: "previewed" }, { stage: "ready", bound: false })).toBeNull();
+    // A verdict that DID land (from a `/join` on demand, or from a bind since
+    // withdrawn) is a fact and still reported.
+    expect(
+      reg(verified("green"), { stage: "ready", bound: false })?.word,
+    ).toBe("ready");
+  });
+
   test("a fresh dash's `empty` blocker is not a join refusal", () => {
     // A dash created a moment ago has no rounds, so the board reports an
     // `empty` blocker meaning "nothing here yet". Read as a join failure it

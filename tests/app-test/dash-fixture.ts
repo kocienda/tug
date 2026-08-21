@@ -565,7 +565,10 @@ export function recordStampedPlan(
 ): string {
   const planPath = join(worktree, "plan.md");
   writeFileSync(planPath, FIXTURE_PLAN);
-  tugutil(["dash", "step", name, "start", "1", "--plan", "plan.md"], {
+  // `--through 1` because the fixture plan has exactly one step, so this run's
+  // selection ends where it begins. The flag is required: a run that does not
+  // say where it ends cannot be told from one that stopped early ([D147]).
+  tugutil(["dash", "step", name, "start", "1", "--through", "1", "--plan", "plan.md"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
     env: opts.env,
@@ -576,6 +579,75 @@ export function recordStampedPlan(
     env: opts.env,
   });
   return planPath;
+}
+
+/**
+ * Record that a session is working this dash — a **ledger** binding, through
+ * the real verb.
+ *
+ * Not optional for any test whose arc the server has to drive: the join pilot
+ * reconciles and Tier-0-checks only dashes bound to a live session ([D147]),
+ * so an unbound fixture dash simply sits there and every wait on its register
+ * times out. A `bind_dash_ok` control action is **not** a substitute — it moves
+ * the deck's own store and writes no row, so the server still believes nobody
+ * holds the dash.
+ *
+ * `TUG_SESSION_ID` is passed explicitly because the scratch fixture clears it:
+ * a fixture is not a session, and the only session it may claim for is the one
+ * the test seeded.
+ */
+export function bindDash(
+  projectDir: string,
+  name: string,
+  tugSessionId: string,
+  opts: DashFixtureOpts = {},
+): void {
+  // **The ledger row lags the engine.** `awaitEngineReady` answers for the
+  // engine, not for the row `record_spawn` writes, and a bind for a session
+  // no instance holds yet answers `unknown_session` — which is the CLI's
+  // "not mine, keep looking" and arrives as a hard failure once every
+  // instance has said it. So poll: the row is coming, it is simply not here
+  // on the first millisecond.
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const out = Bun.spawnSync([tugutilPath(opts.binaryRoot ?? projectDir), "dash", "bind", name], {
+      cwd: projectDir,
+      env: { ...process.env, ...(opts.env ?? {}), TUG_SESSION_ID: tugSessionId },
+    });
+    if (out.exitCode === 0) return;
+    const stderr = out.stderr.toString();
+    if (!stderr.includes("unknown_session") || Date.now() >= deadline) {
+      throw new Error(
+        `dash bind ${name} failed\n  exit ${out.exitCode}\n  stderr: ${stderr.trim()}`,
+      );
+    }
+    sleepSync(500);
+  }
+}
+
+/**
+ * Answer the join prompt in advance, so it never raises.
+ *
+ * Binding a dash for real ([D147]) hands it to the pilot, and a pilot that
+ * reaches a settled verdict raises the join modal on the bound card. That
+ * modal takes the card's sheet host — so a test about the **shade** (the dash
+ * lane, the join face, a press in the composer) finds the host occupied and
+ * every wait on it times out.
+ *
+ * This writes the same durable dismissal "Not yet" writes:
+ * `branch.tugdash/<name>.tugjoinprompted`. The re-ask policy compares
+ * decisions, so the value must be the one this test's verdict will settle on —
+ * `clean` for a tree that builds, `red` for one that does not.
+ *
+ * at0445 is the file that *is* about the prompt; everywhere else it is an
+ * interruption the fixture should have already answered.
+ */
+export function silenceJoinPrompt(
+  projectDir: string,
+  name: string,
+  decision: "clean" | "red" = "clean",
+): void {
+  gitRetry(projectDir, "config", `branch.tugdash/${name}.tugjoinprompted`, decision);
 }
 
 /**
@@ -718,7 +790,21 @@ export function makeDashScratchRepo(opts: DashScratchOpts): DashScratchRepo {
   return {
     repo,
     dataRoot,
-    cli: { binaryRoot: opts.checkout, env: { TUG_DATA_DIR: dataRoot } },
+    cli: {
+      binaryRoot: opts.checkout,
+      env: {
+        TUG_DATA_DIR: dataRoot,
+        // **A fixture is not a session.** `tugutil` spreads `process.env`, and
+        // an app-test inherits the developer's shell — including the
+        // `TUG_SESSION_ID` of the session running the test. Left in place,
+        // every dash verb that records a worker (`create`, `commit`,
+        // `step start`) claims this scratch dash *for the developer's live
+        // session*, which is exactly how one came to be bound to a temp dir
+        // that evaporated with the fixture. A test that genuinely wants a
+        // session sets this itself, to its own seeded id.
+        TUG_SESSION_ID: "",
+      },
+    },
   };
 }
 
@@ -862,6 +948,8 @@ export interface JoinScratchRepo {
   worktree: string;
   /** The dash's creation id — what a bind gesture addresses it by. */
   dashId: string;
+  /** CLI opts for verbs the test runs itself — notably {@link bindDash}. */
+  cli: { binaryRoot?: string; env?: Record<string, string> };
 }
 
 /** How a join scratch repo is shaped. */
@@ -968,7 +1056,14 @@ export function makeJoinScratchRepo(opts: JoinScratchOpts): JoinScratchRepo {
   // which is nothing.
   if (opts.built === true) markDashBuilt(repo, opts.dash, base.cli);
 
-  return { repo, dataRoot, stubDir, worktree: created.worktree, dashId: created.id };
+  return {
+    repo,
+    dataRoot,
+    stubDir,
+    worktree: created.worktree,
+    dashId: created.id,
+    cli: base.cli,
+  };
 }
 
 /** Delete everything {@link makeJoinScratchRepo} made. */

@@ -23,6 +23,12 @@
 //! `changes.changeset_drafts`) fires the existing bump only when the value
 //! moves — the event is real (a draft write), only its *observation* is
 //! polled, the same relationship `git_watch` has to git state.
+//!
+//! The same probe stats each open project's `dash-log.md` ([P06]). That file
+//! lives under the data dir rather than the workspace, so a log-only write
+//! reaches no watcher at all — and since the join arc now derives its
+//! readiness from what the log records, an unobserved append would leave a
+//! ready dash dark until something unrelated moved.
 
 use std::sync::Arc;
 
@@ -94,6 +100,7 @@ impl SnapshotFeed for ChangesetAllFeed {
         let mut probe = tokio::time::interval(std::time::Duration::from_secs(2));
         probe.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_drafts_version = drafts_version(self.ledger.as_deref());
+        let mut last_dash_log_stamps = dash_log_stamps(&self.registry);
 
         // Compose the initial snapshot immediately, then recompute only when the
         // bump fires — every recompute is driven by a real event (an attributed
@@ -150,10 +157,19 @@ impl SnapshotFeed for ChangesetAllFeed {
                         .await;
                         break 'wait;
                     }
-                    _ = probe.tick(), if self.ledger.is_some() => {
+                    // Deliberately ungated: the dash-log half must run in a
+                    // harness with no ledger too, and gating the whole tick on
+                    // `ledger.is_some()` (as the drafts probe alone once did)
+                    // would take the mark path down with it ([P06]).
+                    _ = probe.tick() => {
                         let version = drafts_version(self.ledger.as_deref());
-                        if version != last_drafts_version {
+                        if self.ledger.is_some() && version != last_drafts_version {
                             last_drafts_version = version;
+                            self.bump.notify_one();
+                        }
+                        let stamps = dash_log_stamps(&self.registry);
+                        if stamps != last_dash_log_stamps {
+                            last_dash_log_stamps = stamps;
                             self.bump.notify_one();
                         }
                     }
@@ -167,6 +183,26 @@ impl SnapshotFeed for ChangesetAllFeed {
 /// `changes.changeset_drafts`, `None` when no ledger or no rows.
 fn drafts_version(ledger: Option<&SessionLedger>) -> Option<i64> {
     ledger.and_then(|l| l.changeset_drafts_version().ok().flatten())
+}
+
+/// Each open project's `dash-log.md` mtime, in registry order ([P06]).
+///
+/// The log lives under the data dir, outside every watched workspace root, so
+/// a write that touches nothing else — `dash mark`, a lone `run-through` line
+/// — reaches no watcher. The same relationship the drafts probe has to a
+/// draft write: the event is real, only its observation is polled. A missing
+/// log is `None`, which means creating the first one moves the vector and
+/// fires the bump exactly like a later append does.
+fn dash_log_stamps(registry: &WorkspaceRegistry) -> Vec<Option<std::time::SystemTime>> {
+    registry
+        .project_dirs()
+        .iter()
+        .map(|(root, _key)| {
+            std::fs::metadata(tugutil_core::project_state_dir(root).join("dash-log.md"))
+                .and_then(|meta| meta.modified())
+                .ok()
+        })
+        .collect()
 }
 
 /// Compose one aggregate snapshot over the registry's current entries.

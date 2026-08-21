@@ -231,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // ── The step opens: the fraction and the ring arrive ──────────────
         await shellAndSettle(
           app,
-          `${tugutilPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --plan plan.md`,
+          `${tugutilPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --through 1 --plan plan.md`,
           1,
         );
         await app.waitForCondition<boolean>(

@@ -311,6 +311,18 @@ pub struct DashDeclarations {
     /// with everything else at a terminal line, so a reused name reports its own
     /// generation's age. `None` when the generation has logged nothing.
     pub last_activity: Option<String>,
+    /// The final step of the run's declared selection — the `--through <m>` the
+    /// step verb refuses to start without ([P01]). `None` for a generation that
+    /// declared no run, which includes every dash whose log predates the flag.
+    pub run_through: Option<u32>,
+    /// The latest step declaration is a `step-start`: a step is open and its
+    /// work is unfinished.
+    pub step_in_flight: bool,
+    /// The declared selection finished: the latest step declaration is a
+    /// `step-done` whose step number reaches [`Self::run_through`]. `false`
+    /// when no run was declared, so a legacy generation never arms on
+    /// arithmetic it never recorded.
+    pub run_complete: bool,
 }
 
 /// Split a dash-log line into its timestamp, dash, marker, and note fields.
@@ -392,6 +404,10 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
     };
 
     let mut found = DashDeclarations::default();
+    // The step number the latest step declaration reached, and whether that
+    // declaration was a `done`. Kept beside `found` rather than on it because
+    // the completion arithmetic is answered once, after the fold.
+    let mut last_step_done: Option<u32> = None;
     for line in text.lines() {
         let Some((timestamp, name, marker, note)) = split_log_line(line) else {
             continue;
@@ -401,6 +417,7 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
         }
         if is_terminal(marker, note) {
             found = DashDeclarations::default();
+            last_step_done = None;
             continue;
         }
         // Every surviving line dates the dash, whatever it declares — including
@@ -416,16 +433,88 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
                     // start's title stays current until the next start.
                     if marker == "step-start" {
                         found.step_title = read_step_title(note, current);
+                        found.step_in_flight = true;
+                        last_step_done = None;
+                    } else {
+                        found.step_in_flight = false;
+                        last_step_done = Some(current);
                     }
                 }
             }
             "built" => found.latest = Some(DashDeclaration::Built),
             "audited" => found.latest = Some(DashDeclaration::Audited),
             "replayed" => found.last_replay = Some(note.to_owned()),
+            "run-through" => found.run_through = note.trim().parse().ok(),
             _ => {}
         }
     }
+    found.run_complete = match (last_step_done, found.run_through) {
+        (Some(done), Some(through)) => done >= through,
+        _ => false,
+    };
     found
+}
+
+/// Whether a dash has finished the work somebody asked it for, and so may be
+/// offered for joining (Spec S02).
+///
+/// The whole point is that no chore stands between finishing and being offered:
+/// the inputs are facts the dash already recorded, so a run that narrates
+/// nothing still arms the arc. Three ways to be *armed*, one for each way work
+/// is asked for:
+///
+/// 1. the declared selection finished — `done(m)` against the run's
+///    `--through <m>` ([P01]);
+/// 2. `built` or `audited` was declared — the hand-driven "I say it's done",
+///    and the unblock for any generation whose log predates the declaration
+///    ([P03]);
+/// 3. the generation declared no steps at all — a plan-less dash, where every
+///    committed round is itself the completed unit of asked work ([P02]).
+///
+/// A dash mid-step satisfies neither 1 nor 3, so an open step is never ready.
+///
+/// Dirt is measured over *tracked* paths only: the join's preamble commits
+/// tracked changes, so an untracked scratch file must not hold the arc hostage
+/// — the same distinction the join blockers draw. The dash's own plan is
+/// excluded from that count by the callers ([`unfinished_tracked_dirt`]): the
+/// step verb rewrites the ledger row *after* the round commits, so a finished
+/// run always ends with its plan dirty, and counting that would leave every
+/// completed selection permanently unready.
+/// Tracked dirt that represents *unfinished work*, which is all of it except
+/// the plan the dash is driving.
+///
+/// The ledger row a step verb writes lands after the round it describes has
+/// already been committed, so the last `done` of every run leaves the plan
+/// dirty. That is the machine's own bookkeeping catching up, not work in
+/// flight, and the join's preamble commits it either way.
+pub fn unfinished_tracked_dirt(dirt: &[String], plan_path: Option<&str>) -> bool {
+    dirt.iter().any(|path| Some(path.as_str()) != plan_path)
+}
+
+pub fn join_ready(
+    rounds: u32,
+    worktree_dirty_tracked: bool,
+    joining: bool,
+    decls: &DashDeclarations,
+) -> bool {
+    if joining || rounds < 1 || worktree_dirty_tracked {
+        return false;
+    }
+    decls.run_complete
+        || matches!(
+            decls.latest,
+            Some(DashDeclaration::Built) | Some(DashDeclaration::Audited)
+        )
+        || decls.step.is_none()
+}
+
+/// Append the run's declared selection — the `--through <m>` of [P01], Spec S01.
+///
+/// Written by `step start` before the step's own declaration, and only when the
+/// value differs from what the generation already declared, so re-entering an
+/// interrupted step writes no duplicate.
+pub fn append_run_through(repo_root: &Path, dash: &str, through: u32) -> Result<(), TugError> {
+    append_dash_log(repo_root, dash, "run-through", &through.to_string())
 }
 
 /// Append a step declaration (Spec S01). `tail` is the step's title on a start
@@ -589,6 +678,91 @@ mod tests {
             Some("Wire the feed"),
             "the start's title survives the done's sha tail"
         );
+    }
+
+    #[test]
+    #[serial]
+    fn a_declared_run_completes_when_its_final_step_is_done() {
+        let log = format!(
+            "{}{}{}{}{}",
+            log_line("d", "run-through", "8"),
+            log_line("d", "step-start", "6/15 Step 6: Sixth"),
+            log_line("d", "step-done", "6/15 a4477d5"),
+            log_line("d", "step-start", "7/15 Step 7: Seventh"),
+            log_line("d", "step-done", "7/15 b5588e6"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_through, Some(8));
+        assert!(!found.step_in_flight);
+        assert!(!found.run_complete, "step 7 of a run through 8 is not done");
+
+        let log = format!(
+            "{}{}",
+            log,
+            log_line("d", "step-start", "8/15 Step 8: Eighth"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert!(found.step_in_flight, "the final step is open, not finished");
+        assert!(!found.run_complete);
+
+        let log = format!("{}{}", log, log_line("d", "step-done", "8/15 c6699f7"));
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert!(found.run_complete, "the declared selection finished");
+
+        // A second run on the same dash re-declares and re-opens.
+        let log = format!(
+            "{}{}{}",
+            log,
+            log_line("d", "run-through", "12"),
+            log_line("d", "step-start", "9/15 Step 9: Ninth"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_through, Some(12));
+        assert!(found.step_in_flight);
+        assert!(!found.run_complete);
+    }
+
+    #[test]
+    #[serial]
+    fn a_run_without_a_declaration_never_completes() {
+        // Every generation whose log predates `--through`: steps done, no run
+        // declared, so the completion arithmetic has nothing to compare against.
+        let log = format!(
+            "{}{}",
+            log_line("d", "step-start", "1/2 Step 1: First"),
+            log_line("d", "step-done", "1/2 a4477d5"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_through, None);
+        assert!(!found.run_complete);
+
+        // And a run-through with no step declaration yet is not complete either.
+        let fixture = log_repo(&log_line("d", "run-through", "3"));
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_through, Some(3));
+        assert!(!found.run_complete);
+    }
+
+    #[test]
+    #[serial]
+    fn a_terminal_line_resets_the_run_facts() {
+        let log = format!(
+            "{}{}{}{}",
+            log_line("d", "run-through", "2"),
+            log_line("d", "step-start", "2/2 Step 2: Second"),
+            log_line("d", "step-done", "2/2 a4477d5"),
+            log_line("d", "a4477d5", "joined via card"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_through, None);
+        assert!(!found.run_complete);
+        assert!(!found.step_in_flight);
     }
 
     #[test]

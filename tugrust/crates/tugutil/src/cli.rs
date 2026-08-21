@@ -562,6 +562,11 @@ pub enum StepAction {
         /// Required the first time; recorded and reused after that.
         #[arg(long)]
         plan: Option<String>,
+        /// The final step of this run's selection. Required: the join arc arms
+        /// from it, so a run that does not say where it ends cannot be told
+        /// from one that stopped early.
+        #[arg(long)]
+        through: Option<u32>,
     },
     /// Move the step's ledger row to `done` and record its commit.
     Done {

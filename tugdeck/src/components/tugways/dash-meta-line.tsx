@@ -129,6 +129,9 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
 /** The stages where a full counter means the walk is OVER rather than the
  *  last step being worked — `implementing (12/12)` is still step twelve. */
 const STAGES_PAST_THE_WALK = new Set([
+  // A declared run whose final step is done reads `ready` ([D147]) — the
+  // stage a finished walk rests at when nobody ever typed `mark built`.
+  "ready",
   "built",
   "audited",
   "draft-ready",

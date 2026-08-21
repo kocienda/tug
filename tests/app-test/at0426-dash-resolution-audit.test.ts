@@ -56,6 +56,8 @@ import {
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
 import {
+  bindDash,
+  silenceJoinPrompt,
   gitRetry as git,
   makeJoinScratchRepo,
   rmJoinScratchRepo,
@@ -195,6 +197,10 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
   );
   await app.spawnSessionResume("A", { tugSessionId: arc.sid, projectDir: arc.scratch.repo });
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
+  // The pilot only works a dash somebody holds ([D147]); without the ledger
+  // row the audit has no candidate to audit.
+  bindDash(arc.scratch.repo, arc.dash, arc.sid, arc.scratch.cli);
+  silenceJoinPrompt(arc.scratch.repo, arc.dash);
 
   await app.dispatchControlAction("toggle-lens");
   await app.waitForCondition<boolean>(

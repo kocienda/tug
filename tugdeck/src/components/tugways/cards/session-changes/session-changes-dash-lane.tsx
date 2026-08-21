@@ -443,6 +443,10 @@ function DashRow({
           join={entry.join ?? null}
           resolvePhase={joinFace?.resolve.phase}
           landBeat={landBeat}
+          // The lane shows unfronted, unheld dashes too, and the pilot never
+          // works one ([D147]) — so this is the difference between "the check
+          // is a beat away" and a promise nothing will ever keep.
+          bound={(entry.bound_sessions ?? []).length > 0}
           altitude="entry"
         />
       </span>

@@ -42,6 +42,8 @@ If no plan exists yet, author one first with `/tugplug:plan-devise`, or write it
    `--plan` is what puts the plan **inside the worktree**, and it is the only thing that may: the dash adopts the document ([D139]), committing its bytes on the branch and cleaning the base copy, so there is one live copy from second zero. **Never copy a plan file by hand.** A hand-copy leaves two live copies with no receipt and no divergence detection, which is the failure this verb exists to make impossible. The receipt names the adoption commit and what happened to the base copy; from here you drive the worktree copy only.
 
    `create` also hydrates the fresh worktree itself (its `[tugtool.dash].post_create` hook runs `bun install`), so it arrives ready — no manual dependency install.
+
+   You do not bind the dash to this session, and there is nothing to remember here: `create` and `dash step start` each record the claim themselves, so both starting a plan and resuming one mid-way are covered. That matters because boundness is what the server reads to decide whether to work the join arc at all — an unbound dash is never reconciled, never checked, and never offered — and a rule that load-bearing does not belong in prose a run can skip.
 3. **Check that the plan's review covers the plan.** Against the **worktree** copy — the one you are about to drive:
 
    ```bash
@@ -67,9 +69,11 @@ Walk the resolved steps in dependency order. For each step:
 
 - **Open the step.** Flip its task to in-progress (`TaskUpdate`), then:
   ```bash
-  tugutil dash step <name> start <n> [--plan <path>]
+  tugutil dash step <name> start <n> --through <m> [--plan <path>]
   ```
   This moves the ledger row to `in progress` and records the step in the dash-log, which is what makes the dash read as `implementing (i/N)` in the Lens and the Changes card while you work. `create --plan` already recorded which plan this dash drives, so `--plan` here is only for a dash that never adopted one.
+
+  **`--through <m>` is the last step of the selection you resolved in Setup**, and it is required. It is how the machine can tell a run that finished from a run that stopped early: when step `m` goes `done`, the dash is finished, the join arc arms itself, and the user is offered the join without anybody having to remember to say so. A run that never declared where it ends can only ever look like a run still in progress. Pass the same `m` on every step of the run — re-declaring the same value is a no-op.
 - Read the step's Tasks / References / Checkpoint.
 - Do the work yourself, in the worktree.
 - Run **that step's checkpoint** before committing. The bar is in the doctrine; the step names the specific commands.
@@ -98,23 +102,11 @@ Pragmatics:
 - If a step's verification fails, fix it before committing. Never commit red.
 - When you reach the end of the requested selection, stop walking and report the ledger state — which steps are `done` and which remain.
 
-### 3. Build
+### 3. Draft the join, and offer a build
 
-From the worktree directory:
+**The join arc has already armed itself.** When the run's final declared step went `done` — or, on a plan-less dash, when the round committed onto a clean worktree — the server derived that this dash is joinable and started reconciling it with its base. Nothing in this phase is what makes that happen, and nothing you forget to do here can stop it. That is the point: an endgame that depended on a skill remembering a chore was an endgame that went dark the first time a run ended early.
 
-```bash
-just app-debug
-```
-
-This builds + signs + launches a separate `(debug, <branch>)` instance derived from the worktree's cwd — independent of the user's main instance. Confirm it's live (`just instances`), and report the instance id plus `just launch-debug` / `just logs-debug` / `just stop-debug`. Then declare it:
-
-```bash
-tugutil dash mark <name> built
-```
-
-**Stop here.** Do not merge. The build is the user's to vet and test.
-
-Before you stop, write the dash's **join draft** — the squash message the user's join lands with. Compose it from the run's rounds (a subject line naming the plan's deliverable, then a terse digest of what the rounds landed), and write it:
+So this phase has exactly **one obligation** — write the dash's **join draft**, the squash message the user's join lands with. Compose it from the run's rounds (a subject line naming the plan's deliverable, then a terse digest of what the rounds landed), and write it:
 
 ```bash
 tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
@@ -122,7 +114,27 @@ tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
 
 **Write the subject bare — no `tugdash(<name>): ` prefix.** The join adds the scope itself, so one written here is redundant; a scope naming a *different* dash is stripped at the join rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
 
-Then point the user at the join gesture: **`/join <name>`** in the Session card previews the merge and lands the squash with that draft as its message.
+Write it even on a run that stops mid-plan: the draft is what the prompt shows the user when it asks, and a dash with no draft offers to land its branch description — or, with neither, the words `Dash work`. The prompt says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
+
+Then point the user at the join gesture: **`/join <name>`** in the Session card previews the merge and lands the squash with that draft as its message. Say it as narration — the prompt may well have raised itself already.
+
+**Offer a build when the work wants one.** A change the user will want to *see* — anything in tugdeck, tugapp, or a surface with a face — is worth building and vetting before the join:
+
+```bash
+just app-debug
+```
+
+This builds + signs + launches a separate `(debug, <branch>)` instance derived from the worktree's cwd, independent of the user's main instance. Confirm it's live (`just instances`) and report the instance id plus `just launch-debug` / `just logs-debug` / `just stop-debug`.
+
+A purely internal change — a refactor, a doctrine edit, a Rust-only fix already covered by its checkpoint — does not need one, and a debug instance nobody looks at is cost with no reader. Offer, do not assume.
+
+```bash
+tugutil dash mark <name> built
+```
+
+Optional telemetry, and nothing gates on it. It stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you *did* build so the Lens says what happened. Skipping it changes nothing about whether the join is offered.
+
+**Stop here either way.** Do not merge. The join is the user's.
 
 ### 4. Iterate (interactive)
 

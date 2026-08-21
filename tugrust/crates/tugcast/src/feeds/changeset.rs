@@ -1194,12 +1194,7 @@ async fn dash_entries(
                     .and_then(|plan| dash_review_state(Path::new(&detail.worktree_abs), plan));
                 let join =
                     crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
-                // What the machine should do about this dash before anybody is
-                // asked to look at it ([P01]). Pure over the two values already
-                // in hand — it adds no git work to this hop, which is what
-                // makes it affordable here.
-                let pilot = crate::feeds::join_pilot::pilot_action(&detail.stage, &join);
-                (detail, review, join, pilot)
+                (detail, review, join)
             })
             .collect::<Vec<_>>()
     })
@@ -1208,18 +1203,26 @@ async fn dash_entries(
         return Vec::new();
     };
 
-    // Dispatched from the async side rather than inside the blocking hop, so
-    // the changeset frame goes out immediately and a ladder that runs for
-    // minutes never holds a recompute (Spec S06).
-    for (detail, _, _, pilot) in &details {
-        if let Some(action) = pilot {
-            crate::feeds::join_pilot::dispatch(repo_root, &detail.name, *action);
+    // What the machine should do about each dash before anybody is asked to
+    // look at it ([P01]). Decided here rather than inside the blocking hop
+    // because boundness lives in `bound_by_dash`, which is already composed on
+    // this side — and the predicate is pure and cheap, so deciding it here
+    // costs nothing and saves cloning the map into the closure. Dispatched from
+    // the async side for the same reason the frame is: a ladder that runs for
+    // minutes must never hold a recompute (Spec S06).
+    for (detail, _, join) in &details {
+        let bound = bound_by_dash
+            .get(&detail.owner_key)
+            .is_some_and(|sessions| !sessions.is_empty());
+        if let Some(action) =
+            crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)
+        {
+            crate::feeds::join_pilot::dispatch(repo_root, &detail.name, action);
         }
     }
 
     details
         .into_iter()
-        .map(|(detail, review, join, _)| (detail, review, join))
         .map(|(detail, review, join)| ChangesetEntry::Dash {
             join: Some(join),
             bound_sessions: bound_by_dash
@@ -2387,13 +2390,14 @@ Some context.
     /// uishable from a dash with no plan.
     /// The recompute is what starts the pilot ([P01]) — nobody presses.
     ///
-    /// This is the seam the two halves meet at: the predicate runs inside the
-    /// blocking hop over state already in hand, and the dispatch fires from the
-    /// async side so the changeset frame goes out without waiting on a ladder
-    /// that may run for minutes. A `built` dash with a base that moved wants
-    /// reconciling, and one still implementing wants nothing.
+    /// This is the seam the two halves meet at: the predicate and the dispatch
+    /// both run on the async side, over state already in hand, so the changeset
+    /// frame goes out without waiting on a ladder that may run for minutes. A
+    /// ready dash bound to a live session wants reconciling; one still
+    /// implementing wants nothing, and neither does one nobody is looking at
+    /// ([P08]).
     #[tokio::test]
-    async fn a_built_dash_is_piloted_off_the_recompute_with_no_press() {
+    async fn a_ready_bound_dash_is_piloted_off_the_recompute_with_no_press() {
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -2442,15 +2446,37 @@ Some context.
         git(&root, &["add", "."]);
         git(&root, &["commit", "-q", "-m", "r1"]);
         git(&root, &["switch", "-q", "main"]);
-        tugdash_core::dash::append_mark_declaration(
-            &root,
-            "finished",
-            tugdash_core::MarkStage::Built,
-            "",
-        )
-        .unwrap();
+        // Nothing declares this dash finished: a landed round on a plan-less
+        // dash with a clean worktree is the arming fact ([P02]).
 
+        // Nobody is bound to it yet, so the pilot leaves it alone — the ask it
+        // would be preparing has no card to raise on ([P08]).
         let entries = dash_entries(&root, None).await;
+        assert_eq!(entries.len(), 2, "both dashes compose");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            0,
+            "an unbound dash is never piloted, ready or not"
+        );
+
+        let owner_key = tugdash_core::ops::ensure_dash_id(&root, "finished").unwrap();
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "sess-1",
+                &root.to_string_lossy(),
+                &root.to_string_lossy(),
+                "card-1",
+                crate::session_ledger::now_millis(),
+                None,
+            )
+            .unwrap();
+        ledger
+            .set_dash_binding("sess-1", Some((&owner_key, "finished")))
+            .unwrap();
+
+        let entries = dash_entries(&root, Some(&ledger)).await;
         assert_eq!(entries.len(), 2, "both dashes compose");
 
         // The dispatch is a spawned task, so give it its scheduling turn. It is
@@ -2465,7 +2491,7 @@ Some context.
         assert_eq!(
             runs.load(Ordering::SeqCst),
             1,
-            "exactly the built dash is piloted, and exactly once"
+            "exactly the ready dash is piloted, and exactly once"
         );
         assert_eq!(
             tugdash_core::verify::read_pilot_mark(&root, "finished").is_some(),
@@ -2478,7 +2504,7 @@ Some context.
         );
 
         // A second recompute over unmoved heads adds nothing: the mark holds.
-        let _ = dash_entries(&root, None).await;
+        let _ = dash_entries(&root, Some(&ledger)).await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(
             runs.load(Ordering::SeqCst),
@@ -2625,7 +2651,9 @@ Some context.
         assert_eq!(owner_id, &owner_key);
         assert!(owner_id.starts_with("tugdash/demo#"));
         assert_eq!(branch.as_deref(), Some("tugdash/demo"));
-        assert_eq!(stage.as_deref(), Some("working"));
+        // A plan-less dash with a landed round and nothing uncommitted is
+        // offerable, and says so ([P02]).
+        assert_eq!(stage.as_deref(), Some("ready"));
         assert_eq!(bound_sessions, &vec!["sess-1".to_string()]);
         assert_eq!(display_name, "demo");
         assert_eq!(base, "main");
