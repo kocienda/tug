@@ -102,20 +102,22 @@ export type DropZone =
  * Where a zone is **asked for**, as opposed to where it lands.
  *
  * For most zones the two are the same rect and `hit` is absent. They come apart
- * wherever the tile a card would land in is a poor description of the region
- * that should select it — which is every position of a split column or a rail.
+ * in the stacked places — a split column's positions and a rail's — where the
+ * tiles must widen into abutting full-run bands for every position to be
+ * askable from anywhere in the run.
  *
- * A column's positions are asked for at its MEMBERS: the run divides at the
- * midpoint of each member standing there, so position 0 is asked for over the
- * top member's upper half, the last position over the bottom member's lower
- * half, and every position is a band the eye can find. Selecting by the landing
- * tile instead makes the last position of a column about to overflow nearly
- * unreachable — its tile begins four fifths of the way down a run it then hangs
- * off the bottom of, so the only pointer that asks for it is one in the last
- * sliver of the band, while everything above it reads as the middle position.
- * That is the wrong question, in the same way center distance was: the card is
- * being placed AMONG the cards that are there, and where they are is the fact
- * the hand is aiming at.
+ * A position is asked for AT ITS TILE. The indicator draws where the release
+ * lands, so the region that selects a position is the region the preview
+ * draws — a drag latches at the title bar, so the pointer IS the title bar,
+ * and the moment it crosses into the next drawn tile the indication follows.
+ * The bands divide the run at each successive tile's top edge, with the
+ * outermost stretched to whichever is further out, the run's edge or the
+ * strip's own, so a column scrolled off its run still has every position
+ * askable somewhere. Dividing anywhere else — the sitting members' midpoints
+ * were the previous rule — makes the indication disagree with its own
+ * drawing: the title bar stands inside the bottom tile while the outline
+ * still claims the top one, and the switch lands three quarters of the way
+ * down the run instead of where the preview said it would.
  *
  * The tile stays exactly what it was, so the indicator keeps its promise: what
  * it draws is still where the release lands.
@@ -346,36 +348,50 @@ function stackTiles(
 }
 
 /**
- * The bands that ask for each of a place's positions, given the members the
- * dragged card would be standing among.
- *
- * One band per position — `others.length + 1` of them — divided at each other
- * member's midpoint, so crossing a member's middle is what moves the indication
- * past it. The outermost bands are stretched to whichever is further out, the
- * run's edge or the member's own, so a column scrolled off its run still has
- * every position askable somewhere.
- *
- * @see {@link hitRectOf} for why selection is asked at the members rather than
- * at the tiles.
+ * Tiles for a foreign card arriving into a column that will still share its
+ * run: the run divides equally among the resulting members, because that is
+ * what the commit does — the arriving member carries no height weight, so the
+ * seam lands at the equal share. Stacking the arrival below the standing
+ * members' CURRENT heights instead hangs the preview off the run's bottom
+ * edge: the members it lands among shrink to take it in, and the preview must
+ * show the world after the drop, not before it.
  */
-function positionHitBands(
-  others: readonly Rect[],
+function sharedArrivalTiles(
+  count: number,
+  run: { top: number; height: number },
+  x: number,
+  width: number,
+): Rect[] {
+  const height =
+    (run.height - IMPOSITION_GAP_PX * (count - 1)) / count;
+  return Array.from({ length: count }, (_, i) => ({
+    x,
+    width,
+    y: run.top + i * (height + IMPOSITION_GAP_PX),
+    height,
+  }));
+}
+
+/**
+ * The bands that ask for each of a place's positions, one per tile.
+ *
+ * The bands divide the run at each successive tile's top edge, so a position
+ * is asked for over the tile the indicator draws for it ({@link hitRectOf}
+ * says why). The outermost bands are stretched to whichever is further out,
+ * the run's edge or the strip's own, so a column scrolled off its run still
+ * has every position askable somewhere.
+ */
+function tileHitBands(
+  tiles: readonly Rect[],
   bounds: { top: number; bottom: number },
   x: number,
   width: number,
 ): Rect[] {
-  if (others.length === 0) {
-    return [{ x, width, y: bounds.top, height: bounds.bottom - bounds.top }];
-  }
-  const first = others[0];
-  const last = others[others.length - 1];
-  const top = Math.min(bounds.top, first.y);
+  if (tiles.length === 0) return [];
+  const last = tiles[tiles.length - 1];
+  const top = Math.min(bounds.top, tiles[0].y);
   const bottom = Math.max(bounds.bottom, last.y + last.height);
-  const edges = [
-    top,
-    ...others.map((rect) => rect.y + rect.height / 2),
-    bottom,
-  ];
+  const edges = [top, ...tiles.slice(1).map((tile) => tile.y), bottom];
   const bands: Rect[] = [];
   for (let i = 0; i < edges.length - 1; i++) {
     bands.push({
@@ -411,14 +427,18 @@ function columnPlaces(
       ? members
       : members.filter((_, i) => i !== draggedIndex);
   const count = others.length + 1;
-  const draggedHeight =
-    draggedIndex === null ? run.height / count : members[draggedIndex].height;
+  // Three post-drop worlds, each drawn as it will be, not as it is: an
+  // overflowing count stacks the run/2.5 strip; a foreign arrival into a
+  // shared column re-divides the run equally; a member of its own column
+  // keeps every measured height, rearranged.
   const tiles =
     columnStanding(count) === "overflow"
       ? overflowTiles(count, run, x, width)
-      : stackTiles(others, draggedHeight, run.top, x, width);
-  const hits = positionHitBands(
-    others,
+      : draggedIndex === null
+        ? sharedArrivalTiles(count, run, x, width)
+        : stackTiles(others, members[draggedIndex].height, run.top, x, width);
+  const hits = tileHitBands(
+    tiles,
     { top: run.top, bottom: run.top + run.height },
     x,
     width,
@@ -452,8 +472,8 @@ function railZonesOf(
     x,
     width,
   );
-  const hits = positionHitBands(
-    others,
+  const hits = tileHitBands(
+    tiles,
     { top: runTop, bottom: runBottom },
     x,
     width,
