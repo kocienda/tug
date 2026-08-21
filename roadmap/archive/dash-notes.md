@@ -1,3 +1,18 @@
+
+The join-arc at the end of the work to implement a dash still needs major work. 
+
+- We are not communicating anywhere near the extent that we need to. We strand the user at the ned of the dash steps, while we freaking *build and test again*, when basically every dash ends with a build/integration/test step. WE MUST STOP THIS. It adds a multi-minute process to the end of a dash implementation that provides *utterly dubious value*. We just build and test again exactly what we just built and tested. And for sure, the app-tests are a F&*%^#$ ***boat anchor***. We must not gate dash joins on these test runs beyond what we do while implementing the dash plans themselves. WE MUST NOT tack on more app-tests as a gate to the join process.
+- When the join dialog presents itself, and if I choose join, we give *no indication* or either progress or success. The user is left *wondering* what happened, and whether the dash joined or not.
+- Sometimes the session doesn't present the join dialog at all, espcially when we've implemented a miletsone in a multi-milestone dash plan.
+- I saw this in a session just now... WTF does this even mean: "One thing to know: `tugutil dash step` warned each time that it **could not bind this session to the dash**, because this session works the base checkout.". This seems utterly confused. 
+
+
+
+
+The yellow dash name *must be banished*. I have no idea what this is trying to communicate. 
+
+
+
 OK. I want to pull back on this dashes work and discuss terminology and typography. Two main points:
 - I don't like *parked* or *leave*. Instead, I want dashes to be bound/unbound to sessions, and to have the verbs be bind/unbind. Make these changes up and down the code. Comprehensive update. No lingering *parked* or *leave*. Any issues with this?
 - I want to reconsider the `#` sigil. We should use a different character, mostly because we already use the `#` for message numbers in the transcript. I suggest either `◊` or `∫`. What do you think?
