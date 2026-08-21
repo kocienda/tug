@@ -1,9 +1,10 @@
-/* @tug-pairings: none — layout only. The sheet chrome comes from the composed
-   TugSheet; the turn list reuses the session picker's section + bordered host
-   (`session-card-picker-section` / `session-card-picker-sessions-host`) and option
-   visual; the scope picker from TugChoiceGroup; the buttons from
-   TugPushButton. No color-setting rules (secondary text dimmed via opacity,
-   which inherits the sheet foreground), so no `@tug-renders-on` ([L16]). */
+/* @tug-pairings: `.rewind-cut-label` (text) on the sheet surface — the list
+   host is transparent, so the cut line and its label paint over the sheet's
+   own background. Everything else is layout: the sheet chrome comes from the
+   composed TugSheet; the message list reuses the session picker's section +
+   bordered host (`session-card-picker-section` /
+   `session-card-picker-sessions-host`) and row visual; the scope picker from
+   TugChoiceGroup; the buttons from TugPushButton ([L20]). */
 
 .rewind-sheet {
   display: flex;
@@ -20,28 +21,64 @@
   gap: 0.75rem;
 }
 
-/* Rare in-sheet empty state inside the bordered host: the sheet opened with
-   targets but every turn filtered out as non-rewindable once previews resolved.
-   (The no-target case is handled before open by the "Can't rewind" alert.) */
-.rewind-empty {
+/* ------------------------------------------------------------------------ */
+/* The cut — the line the user places between two messages                   */
+/* ------------------------------------------------------------------------ */
+
+/* Drawn at the bottom edge of the rewind point (the last KEPT message), so the
+   line literally sits between two messages. A centered label rides on it
+   saying what the cut costs; the rules to either side are the line itself. */
+.rewind-cut {
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 1rem;
-  text-align: center;
-  opacity: 0.6;
+  gap: var(--tug-space-xs);
+  padding-inline: var(--tug-space-sm);
+  padding-block: var(--tug-space-xs);
 }
 
-/* The `(current)` row's label — an italic marker for the live present, the
-   picker's default selection at the bottom of the list. Quiet (dimmed) at
-   rest so it reads as an anchor rather than a prompt; full-strength when
-   selected, where it inherits the row's selected-text color over the fill. */
-.rewind-current-label {
-  font-style: italic;
+/* The line is quiet while it discards nothing (it rests at the end of the list
+   as an affordance, not a warning) and goes to the danger tone the moment it
+   actually cuts something off. */
+.rewind-cut {
+  --tugx-rewind-cut-color: var(--tug7-element-global-border-normal-muted-rest);
+  --tugx-rewind-cut-label-color: var(--tug7-element-global-text-normal-muted-rest);
 }
-.tug-list-row:not([data-selected="true"]) .rewind-current-label {
-  opacity: 0.6;
+
+.rewind-cut[data-armed="true"] {
+  --tugx-rewind-cut-color: var(--tug7-element-global-text-normal-danger-rest);
+  --tugx-rewind-cut-label-color: var(--tug7-element-global-text-normal-danger-rest);
+}
+
+.rewind-cut::before,
+.rewind-cut::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--tugx-rewind-cut-color);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.rewind-cut-label {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--tugx-rewind-cut-label-color);
+}
+
+/* Discarded messages stay legible but visibly spent — they are what the cut
+   throws away. Kept messages, and the rewind point itself, render at full
+   strength (the point additionally carries the row's selected fill). */
+.tug-list-row[data-rewind-state="discarded"] {
+  opacity: 0.5;
+}
+
+.tug-list-row[data-rewind-state="discarded"] .tug-list-row-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 
 .rewind-busy,

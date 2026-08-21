@@ -1,9 +1,10 @@
 /**
- * rewind-turn-source.test.ts — `/rewind` turn-picker projection ([#step-7-3]).
+ * rewind-turn-source.test.ts — `/rewind` message-list projection ([#step-7-3]).
  *
- * Pins the pure projection: which turns become rows (targetable = user opener
- * + anchor), the `promptUuid` carriage, ordering, the `(current)` marker, and
- * the empty-state count that gates whether `/rewind` is offered.
+ * Pins the pure projection: every user message becomes a row carrying its own
+ * text, time, anchor, and attachments (targetable = user opener + anchor), the
+ * ordering, the two-message floor that gates whether `/rewind` is offered, and
+ * the data source's blocked-cut enablement.
  *
  * @module components/tugways/cards/__tests__/rewind-turn-source
  */
@@ -13,8 +14,7 @@ import { describe, expect, test } from "bun:test";
 import {
   projectRewindTurns,
   canOfferRewind,
-  REWIND_CURRENT_ROW_ID,
-  REWIND_CURRENT_KIND,
+  REWIND_MESSAGE_KIND,
   RewindTurnDataSource,
 } from "@/components/tugways/cards/rewind-turn-source";
 import type { Message, TurnEntry } from "@/lib/code-session-store/types";
@@ -64,38 +64,45 @@ function wakeTurn(turnKey: string): TurnEntry {
 }
 
 describe("projectRewindTurns", () => {
-  test("the newest turn is the present; the row returns to the earlier turn", () => {
+  test("one row per user message, as typed, with its own anchor", () => {
     const rows = projectRewindTurns([
       userTurn("t1", "uuid-1", "first prompt", 100),
       userTurn("t2", "uuid-2", "second prompt", 200),
     ]);
-    // One row: return to turn 1 (displayed), anchored on turn 2 (the dropped
-    // turn, whose prompt is offered back as the re-edit draft).
     expect(rows).toEqual([
+      {
+        promptUuid: "uuid-1",
+        turnKey: "t1",
+        text: "first prompt",
+        submitAt: 100,
+        atoms: [],
+      },
       {
         promptUuid: "uuid-2",
         turnKey: "t2",
-        landingPreview: "first prompt",
-        landingSubmitAt: 100,
-        draftText: "second prompt",
-        draftAtoms: [],
+        text: "second prompt",
+        submitAt: 200,
+        atoms: [],
       },
     ]);
   });
 
-  test("walks destination/anchor pairs in order (oldest first)", () => {
+  test("keeps conversation order (oldest first), newest message included", () => {
     const rows = projectRewindTurns([
       userTurn("t1", "uuid-1", "a", 1),
       userTurn("t2", "uuid-2", "b", 2),
       userTurn("t3", "uuid-3", "c", 3),
     ]);
-    // Destinations a, b (c is the present); anchored on b, c respectively.
-    expect(rows.map((r) => r.landingPreview)).toEqual(["a", "b"]);
-    expect(rows.map((r) => r.promptUuid)).toEqual(["uuid-2", "uuid-3"]);
-    expect(rows.map((r) => r.turnKey)).toEqual(["t2", "t3"]);
+    expect(rows.map((r) => r.text)).toEqual(["a", "b", "c"]);
+    expect(rows.map((r) => r.promptUuid)).toEqual([
+      "uuid-1",
+      "uuid-2",
+      "uuid-3",
+    ]);
+    expect(rows.map((r) => r.turnKey)).toEqual(["t1", "t2", "t3"]);
   });
 
-  test("carries the dropped turn's attachments as the re-edit draft atoms", () => {
+  test("carries each message's attachments (the re-edit draft atoms)", () => {
     const atom = {
       kind: "atom" as const,
       type: "image",
@@ -111,20 +118,18 @@ describe("projectRewindTurns", () => {
       userTurn("t1", "uuid-1", "first", 1),
       turn,
     ]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].draftAtoms).toEqual([atom]);
+    expect(rows).toHaveLength(2);
+    expect(rows[1].atoms).toEqual([atom]);
   });
 
   test("skips turns with no anchor (older / pre-[#step-7-1] sessions)", () => {
-    // t1 anchorless → not targetable; t2/t3 targetable → t2 is the first
-    // destination (returned to by the t3-anchored row), t3 is the present.
     const rows = projectRewindTurns([
       userTurn("t1", undefined, "no anchor", 1),
       userTurn("t2", "uuid-2", "has anchor", 2),
       userTurn("t3", "uuid-3", "also anchored", 3),
     ]);
-    expect(rows.map((r) => r.promptUuid)).toEqual(["uuid-3"]);
-    expect(rows.map((r) => r.landingPreview)).toEqual(["has anchor"]);
+    expect(rows.map((r) => r.promptUuid)).toEqual(["uuid-2", "uuid-3"]);
+    expect(rows.map((r) => r.text)).toEqual(["has anchor", "also anchored"]);
   });
 
   test("skips wake turns (no user_message opener)", () => {
@@ -133,11 +138,7 @@ describe("projectRewindTurns", () => {
       userTurn("t2", "uuid-2", "real2", 2),
       wakeTurn("w1"),
     ]);
-    expect(rows.map((r) => r.turnKey)).toEqual(["t2"]);
-  });
-
-  test("a single targetable turn projects to zero rows", () => {
-    expect(projectRewindTurns([userTurn("t1", "uuid-1", "only", 1)])).toEqual([]);
+    expect(rows.map((r) => r.turnKey)).toEqual(["t1", "t2"]);
   });
 
   test("empty transcript → no rows", () => {
@@ -146,7 +147,7 @@ describe("projectRewindTurns", () => {
 });
 
 describe("canOfferRewind (empty-state gating)", () => {
-  test("false for 0- or 1-turn sessions; true once a valid target exists", () => {
+  test("false below two messages; true once a cut has both sides", () => {
     expect(canOfferRewind([])).toBe(false);
     expect(canOfferRewind([userTurn("t1", "uuid-1", "only", 1)])).toBe(false);
     expect(
@@ -168,32 +169,42 @@ describe("canOfferRewind (empty-state gating)", () => {
 });
 
 describe("RewindTurnDataSource", () => {
-  test("indexes rows by promptUuid and exposes them by index", () => {
-    const rows = projectRewindTurns([
-      userTurn("t1", "uuid-1", "a", 1),
-      userTurn("t2", "uuid-2", "b", 2),
-      userTurn("t3", "uuid-3", "c", 3),
-    ]);
+  const rows = projectRewindTurns([
+    userTurn("t1", "uuid-1", "a", 1),
+    userTurn("t2", "uuid-2", "b", 2),
+    userTurn("t3", "uuid-3", "c", 3),
+  ]);
+
+  test("indexes every message by promptUuid and exposes it by index", () => {
     const ds = new RewindTurnDataSource(rows);
-    // Two targetable turns (the first is skipped) plus the trailing
-    // `(current)` marker row.
     expect(ds.numberOfItems()).toBe(3);
-    expect(ds.idForIndex(0)).toBe("uuid-2");
-    expect(ds.kindForIndex(0)).toBe("rewind-turn");
-    expect(ds.isCurrentRow(0)).toBe(false);
-    expect(ds.rowAt(1).landingPreview).toBe("b");
+    expect(ds.idForIndex(0)).toBe("uuid-1");
+    expect(ds.kindForIndex()).toBe(REWIND_MESSAGE_KIND);
+    expect(ds.rowAt(1).text).toBe("b");
   });
 
-  test("appends a selectable `(current)` marker below the last turn", () => {
-    const rows = projectRewindTurns([
-      userTurn("t1", "uuid-1", "a", 1),
-      userTurn("t2", "uuid-2", "b", 2),
-      userTurn("t3", "uuid-3", "c", 3),
-    ]);
+  test("blocked cuts disable their row and tick subscribers", () => {
     const ds = new RewindTurnDataSource(rows);
-    const current = ds.numberOfItems() - 1;
-    expect(ds.isCurrentRow(current)).toBe(true);
-    expect(ds.idForIndex(current)).toBe(REWIND_CURRENT_ROW_ID);
-    expect(ds.kindForIndex(current)).toBe(REWIND_CURRENT_KIND);
+    let ticks = 0;
+    const unsubscribe = ds.subscribe(() => {
+      ticks += 1;
+    });
+    expect(ds.enabledForIndex(0)).toBe(true);
+
+    ds.setBlockedCuts(new Set([0]));
+    expect(ticks).toBe(1);
+    expect(ds.enabledForIndex(0)).toBe(false);
+    expect(ds.enabledForIndex(1)).toBe(true);
+
+    // The row set never changes, so the identity holds and the list keeps its
+    // selection; only the version moves.
+    const version = ds.getVersion();
+    ds.setBlockedCuts(new Set());
+    expect(ds.getVersion()).not.toBe(version);
+    expect(ds.enabledForIndex(0)).toBe(true);
+
+    unsubscribe();
+    ds.setBlockedCuts(new Set([1]));
+    expect(ticks).toBe(2);
   });
 });

@@ -1,5 +1,5 @@
 /**
- * rewind-sheet.tsx — the `/rewind` turn picker + restore-scope sheet
+ * rewind-sheet.tsx — the `/rewind` cut-line picker + restore-scope sheet
  * ([#step-7-3]).
  *
  * `/rewind` is a turns-within-this-session picker (NOT the `/resume` sessions
@@ -8,19 +8,31 @@
  * to its `rewind` `RUN_SLASH_COMMAND` handler and presents it through the
  * shared `cardPickerSheet` host as a **wide** card-scoped overlay ([D15]).
  *
- * One step, no view switch: a `TugListView` turn picker (rendered with the same
- * session-option visual as the `/resume` sessions list) above an inline
- * `TugChoiceGroup` that picks the restore scope — *Conversation* or *Code +
- * conversation* (the code segment enables only when the selected turn has a
- * restorable checkpoint, reported by its lazy diff-stat). Cancel / Rewind sit
- * at the bottom, Rewind as the default (Enter), to the right of Cancel.
+ * **The gesture is a cut, not a pick.** The list shows every user message in
+ * the session as it was typed, oldest first. The user places a line between
+ * two of them: everything above the line is **kept**, everything below is
+ * **discarded**, and the last kept message is the rewind point. Selecting a
+ * row IS placing the line below it — click or walk with the arrows — so the
+ * list carries no synthetic "present" row; the line simply rests below the
+ * last message when nothing is being discarded, which is how the sheet opens
+ * (Rewind disabled until the line moves up). The line can never sit above the
+ * first message: claude refuses a session with no retained submission
+ * (`no_retained_turns`).
  *
- * The per-turn diff-stat is fetched lazily on row selection (not per cell on
- * open — the N+1 trap) and cached in the store snapshot's `rewindPreviews`,
- * read via `useSyncExternalStore` ([L02]). Rewinding sends `session_rewind`
- * ([#step-7-1]/[#step-7-2]); conversation/both fork by default. The sheet
- * dismisses on a successful `rewind_result` ack and surfaces the error
- * otherwise (the local L26-safe truncation runs in the store on the ack).
+ * Below the list an inline `TugChoiceGroup` picks the restore scope —
+ * *Conversation* or *Code + conversation* (the code segment enables only when
+ * the cut has a restorable checkpoint, reported by its lazy diff-stat). Cancel
+ * / Rewind sit at the bottom, Rewind as the default (Enter), to the right of
+ * Cancel.
+ *
+ * The anchor `session_rewind` takes is the FIRST DISCARDED message — tugcode
+ * chops that turn and everything past it ([#step-7-2]) — so a line below row
+ * `i` sends `rows[i + 1]`. Diff-stats are fetched per anchor (one batch on
+ * open, cached in the store snapshot's `rewindPreviews`) and read via
+ * `useSyncExternalStore` ([L02]). A cut whose conversation rewind would cross
+ * a `/compact` boundary is unpickable — the row stays visible and says why.
+ * The sheet dismisses on a successful `rewind_result` ack and surfaces the
+ * error otherwise (the local L26-safe truncation runs in the store on the ack).
  *
  * Compositional — composes `TugSheet`, `TugListView`, `TugChoiceGroup`,
  * `TugPushButton`; composed children keep their own tokens ([L20]). The
@@ -42,7 +54,9 @@ import React, {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -63,6 +77,7 @@ import {
   type TugListViewCellProps,
   type TugListViewCellRenderer,
   type TugListViewDelegate,
+  type TugListViewHandle,
 } from "@/components/tugways/tug-list-view";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 import type {
@@ -71,9 +86,9 @@ import type {
 } from "@/lib/code-session-store/types";
 import {
   projectRewindTurns,
-  REWIND_CURRENT_KIND,
+  REWIND_MESSAGE_KIND,
   RewindTurnDataSource,
-  type RewindRow,
+  type RewindMessageRow,
 } from "./rewind-turn-source";
 
 type RewindScope = "conversation" | "both";
@@ -100,24 +115,26 @@ export function useRewindSheet({
   showSheet,
 }: UseRewindSheetArgs): RewindSheetController {
   const openRewindSheet = useCallback(() => {
-    // `/rewind` is never a silent no-op. With no rewind target (a 0/1-turn
-    // session, or everything cleared by the last /compact) present a "Can't
-    // rewind" alert explaining why; otherwise open the turn picker.
+    // `/rewind` is never a silent no-op. A cut needs a message to keep and a
+    // message to discard, so a 0- or 1-message session has nowhere to put the
+    // line: present a "Can't rewind" alert explaining why.
     const rows = projectRewindTurns(codeSessionStore.getSnapshot().transcript);
-    if (rows.length === 0) {
+    if (rows.length < 2) {
       void presentAlertSheet(showSheet, {
         title: "Can't Rewind",
         message:
-          "Rewind needs at least one completed turn before the current point. " +
-          "A fresh session — or one the last /compact reset — has nothing " +
-          "earlier to return to.",
+          "Rewind splits your messages into the ones you keep and the ones " +
+          "you discard, so it needs at least two. A fresh session — or one " +
+          "the last /compact reset — has nothing earlier to return to.",
       });
       return;
     }
     void showSheet({
       title: "Rewind",
       icon: "History",
-      description: "Pick a turn to return to. Newer turns are discarded.",
+      description:
+        "Place the line. Messages above it are kept — the last one is where " +
+        "you return to. Messages below it are discarded.",
       displayWidth: "lg",
       content: (close) => (
         <RewindSheetBody
@@ -133,43 +150,46 @@ export function useRewindSheet({
 }
 
 // ---------------------------------------------------------------------------
-// Cell — one turn row, rendered with the session-picker visual
+// Cell — one user message, kept or discarded, with the cut line under the
+// rewind point
 // ---------------------------------------------------------------------------
 
 /**
- * Read-only context the picker cells consume: the live preview cache and the
- * sheet-selected row. `onSelect` lives on the delegate (in body scope); the
- * context only carries render inputs, keeping cells presentational ([L11]).
+ * Read-only context the message cells consume: where the line sits and what
+ * it says. `onSelect` lives on the delegate (in body scope); the context only
+ * carries render inputs, keeping cells presentational ([L11]).
  */
 interface RewindCellContextValue {
-  previews: ReadonlyMap<string, RewindTurnPreview>;
-  selectedPromptUuid: string | null;
-  /** The `(current)` marker is the selection (the default no-rewind state). */
-  currentSelected: boolean;
+  /** Index of the first DISCARDED row; `rows.length` when nothing is cut. */
+  cutIndex: number;
+  /** Rows the line may not rest below (their cut crosses a `/compact`). */
+  blockedCuts: ReadonlySet<number>;
+  /** The label the cut line carries — the discard count + code diff-stat. */
+  cutLabel: string;
 }
 const RewindCellContext = React.createContext<RewindCellContextValue>({
-  previews: new Map(),
-  selectedPromptUuid: null,
-  currentSelected: false,
+  cutIndex: 0,
+  blockedCuts: new Set(),
+  cutLabel: "",
 });
 
-/** Format a turn's diff-stat for the row subtitle. */
+/** Format a cut's diff-stat for the cut line. */
 function diffStatLabel(preview: RewindTurnPreview | undefined): string {
   if (preview === undefined) return "";
   if (preview.loading) return "…";
-  if (!preview.canRewind) return "No code changes";
+  if (!preview.canRewind) return "no code changes";
   const ins = preview.insertions ?? 0;
   const del = preview.deletions ?? 0;
-  if (ins === 0 && del === 0) return "No code changes";
+  if (ins === 0 && del === 0) return "no code changes";
   return `+${ins} −${del}`;
 }
 
 /**
- * Format a turn's wall-clock `submitAt` for the row subtitle — a
+ * Format a message's wall-clock `submitAt` for the row subtitle — a
  * friendly day + time (`Today, 3:45 PM`, `Yesterday, 11:20 AM`, or
  * `Jun 19, 3:45 PM`; the year is added once it differs from now).
- * Returns "" when the timestamp is missing or unparseable, so a turn
- * with no recorded time simply shows its diff-stat alone.
+ * Returns "" when the timestamp is missing or unparseable, so a message
+ * with no recorded time simply shows no subtitle.
  */
 function submittedAtLabel(submitAt: number): string {
   if (!Number.isFinite(submitAt) || submitAt <= 0) return "";
@@ -200,67 +220,49 @@ function submittedAtLabel(submitAt: number): string {
   return `${day}, ${time}`;
 }
 
-const RewindTurnCell: TugListViewCellRenderer<RewindTurnDataSource> =
-  function RewindTurnCell({
+const RewindMessageCell: TugListViewCellRenderer<RewindTurnDataSource> =
+  function RewindMessageCell({
     index,
     dataSource,
   }: TugListViewCellProps<RewindTurnDataSource>): React.ReactElement {
-    const { previews, selectedPromptUuid } = React.useContext(RewindCellContext);
+    const { cutIndex, blockedCuts, cutLabel } =
+      React.useContext(RewindCellContext);
     const row = dataSource.rowAt(index);
-    const preview = previews.get(row.promptUuid);
-    const selected = row.promptUuid === selectedPromptUuid;
-    // A turn whose conversation rewind would cross a /compact boundary can't be
-    // rewound to (both sheet scopes truncate the conversation), so its row is
-    // disabled and says why. `undefined` (still loading) ⇒ enabled.
-    const blocked = preview?.conversationRewindable === false;
-    const title =
-      row.landingPreview.trim().length > 0
-        ? row.landingPreview
-        : "(empty prompt)";
-    const stat = diffStatLabel(preview);
-    const when = submittedAtLabel(row.landingSubmitAt);
-    // The meta line reads: [when] [diff-stat] — either segment dropped when
-    // absent, joined by a middot. The present lives in the `(current)` row
-    // below the last turn, so no per-turn "Current" prefix here.
-    const subtitle = [when, stat]
-      .filter((seg) => seg.length > 0)
-      .join(" · ");
-    // A reserved non-breaking space keeps stat-less rows the same height
-    // as rows that carry a subtitle, so the turn list reads as an even stack.
-    const subtitleText = blocked
+    const isRewindPoint = index === cutIndex - 1;
+    const discarded = index >= cutIndex;
+    const blocked = blockedCuts.has(index);
+    const state = discarded ? "discarded" : isRewindPoint ? "point" : "kept";
+    const title = row.text.trim().length > 0 ? row.text : "(empty prompt)";
+    const when = submittedAtLabel(row.submitAt);
+    // A reserved non-breaking space keeps timestamp-less rows the same height
+    // as rows that carry a subtitle, so the list reads as an even stack.
+    const subtitle = blocked
       ? "Can't rewind past a /compact"
-      : subtitle.length > 0
-        ? subtitle
-        : " ";
+      : when.length > 0
+        ? when
+        : " ";
     return (
-      <TugListRow
-        title={title}
-        titleMaxLines={2}
-        subtitle={subtitleText}
-        selected={selected}
-        disabled={blocked}
-        data-testid="rewind-turn-row"
-        data-prompt-uuid={row.promptUuid}
-      />
-    );
-  };
-
-/**
- * The `(current)` row pinned below the last turn — the picker's default
- * selection and a quiet anchor for the live present, so the newest turn reads
- * as *not* the end of the timeline. Selectable like any row (the arrows reach
- * it), but it is no rewind target: while it holds the selection the sheet
- * keeps the rewind target `null` and Rewind stays disabled. Rendered through
- * `TugListRow` so it picks up the selection fill + keyboard cursor; the italic
- * `(current)` label reads as a marker, not a prompt.
- */
-const RewindCurrentCell: TugListViewCellRenderer<RewindTurnDataSource> =
-  function RewindCurrentCell(): React.ReactElement {
-    const { currentSelected } = React.useContext(RewindCellContext);
-    return (
-      <TugListRow selected={currentSelected} data-testid="rewind-current-row">
-        <span className="rewind-current-label">(current)</span>
-      </TugListRow>
+      <>
+        <TugListRow
+          title={title}
+          titleMaxLines={3}
+          subtitle={subtitle}
+          selected={isRewindPoint}
+          disabled={blocked}
+          data-testid="rewind-message-row"
+          data-rewind-state={state}
+          data-prompt-uuid={row.promptUuid}
+        />
+        {isRewindPoint ? (
+          <div
+            className="rewind-cut"
+            data-armed={cutIndex < dataSource.numberOfItems() ? "true" : "false"}
+            data-testid="rewind-cut"
+          >
+            <span className="rewind-cut-label">{cutLabel}</span>
+          </div>
+        ) : null}
+      </>
     );
   };
 
@@ -271,16 +273,15 @@ const REWIND_CELL_RENDERERS: Record<
   string,
   TugListViewCellRenderer<RewindTurnDataSource>
 > = {
-  "rewind-turn": RewindTurnCell,
-  [REWIND_CURRENT_KIND]: RewindCurrentCell,
+  [REWIND_MESSAGE_KIND]: RewindMessageCell,
 };
 
 // ---------------------------------------------------------------------------
-// Sheet body — single step: turn list + restore-scope choice group + actions
+// Sheet body — message list with the cut line + restore-scope choice + actions
 // ---------------------------------------------------------------------------
 
 interface RewindSheetBodyProps {
-  rows: RewindRow[];
+  rows: RewindMessageRow[];
   codeSessionStore: CodeSessionStore;
   onClose: (value?: string) => void;
 }
@@ -298,15 +299,22 @@ function RewindSheetBody({
   const previews = snapshot.rewindPreviews;
   const isIdle = snapshot.phase === "idle";
 
-  // Default the selection to the `(current)` row (the live present) on open, so
-  // the sheet opens doing nothing until the user picks an earlier turn to walk
-  // back to — matching Claude Code. `null` IS "the (current) row is selected":
-  // the rewind target is absent, so Rewind disables (`canApply` below) until a
-  // real turn is picked.
-  const [selected, setSelected] = useState<RewindRow | null>(null);
+  // The line rests below the LAST message on open — everything kept, nothing
+  // discarded — so the sheet opens doing nothing until the user walks it back
+  // in time. `rewindPointIndex` is the last KEPT row; the cut (the first
+  // discarded row) is the index after it.
+  const [rewindPointIndex, setRewindPointIndex] = useState(rows.length - 1);
   const [scope, setScope] = useState<RewindScope>("conversation");
-  const [applying, setApplying] = useState(false);
+  const [applyingUuid, setApplyingUuid] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const cutIndex = rewindPointIndex + 1;
+  const discardCount = rows.length - cutIndex;
+  // The `session_rewind` anchor: the FIRST discarded message. `null` while the
+  // line rests at the end (nothing to discard — Rewind stays disabled).
+  const anchor = discardCount > 0 ? rows[cutIndex] : null;
+  const anchorPreview =
+    anchor !== null ? previews.get(anchor.promptUuid) : undefined;
 
   // The scope choice group is a control: it emits `selectValue` through the
   // chain; this form binding captures it into local state ([L11]).
@@ -318,93 +326,72 @@ function RewindSheetBody({
     },
   });
 
-  // Only show turns the user can actually rewind to: omit any whose
-  // conversation rewind would cross a `/compact` boundary (tugcode reports
-  // `conversationRewindable:false`). A turn whose preview is still loading
-  // (`undefined`) is shown until its result lands — so an uncompacted session
-  // shows every turn immediately with no flicker; a compacted one drops the
-  // pre-compaction turns as their previews resolve.
-  const visibleRows = useMemo(
-    () =>
-      rows.filter(
-        (r) => previews.get(r.promptUuid)?.conversationRewindable !== false,
-      ),
-    [rows, previews],
-  );
-  // Rebuild the data source only when the visible SET changes (as previews
-  // resolve), not on every snapshot tick — keyed on the row-id signature.
-  const visibleKey = visibleRows.map((r) => r.promptUuid).join(",");
-  const dataSource = useMemo(
-    () => new RewindTurnDataSource(visibleRows),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on visibleKey
-    [visibleKey],
-  );
+  const dataSource = useMemo(() => new RewindTurnDataSource(rows), [rows]);
 
-  // If the selected turn gets omitted (its preview resolved to not-rewindable
-  // after it was picked), drop the selection so the scope group + Rewind
-  // disable.
-  useEffect(() => {
-    if (
-      selected !== null &&
-      !visibleRows.some((r) => r.promptUuid === selected.promptUuid)
-    ) {
-      setSelected(null);
-    }
-  }, [visibleRows, selected]);
-
-  // Lazily fetch a row's diff-stat on selection (cached in the store).
-  const ensurePreview = useCallback(
-    (promptUuid: string) => {
-      if (!previews.has(promptUuid)) {
-        codeSessionStore.requestRewindPreview(promptUuid);
+  // The line cannot rest below a row whose cut would cross a `/compact`
+  // boundary (tugcode reports `conversationRewindable:false` for that anchor —
+  // both sheet scopes truncate the conversation). Such rows stay visible and
+  // say why, but the list refuses to land on them. A preview still loading
+  // (`undefined`) is treated as permitted, so an uncompacted session is fully
+  // walkable immediately with no flicker.
+  const blockedCuts = useMemo(() => {
+    const blocked = new Set<number>();
+    for (let i = 0; i < rows.length - 1; i++) {
+      if (previews.get(rows[i + 1].promptUuid)?.conversationRewindable === false) {
+        blocked.add(i);
       }
-    },
-    [previews, codeSessionStore],
-  );
+    }
+    return blocked;
+  }, [rows, previews]);
+  // Enablement reaches the list through the data source's own tick — never a
+  // rebuild, which would re-seed the selection out from under the user.
+  useEffect(() => {
+    dataSource.setBlockedCuts(blockedCuts);
+  }, [dataSource, blockedCuts]);
+
+  // The line opens at the very end of the list, and it hangs below its row —
+  // so the seeded scroll, which only has to reveal the ROW, leaves the line
+  // itself a few pixels past the bottom edge. Land the list on its true
+  // content bottom once the rows have laid out, so the resting line is whole.
+  const listRef = useRef<TugListViewHandle | null>(null);
+  useLayoutEffect(() => {
+    listRef.current?.scrollToBottom({ animated: false });
+  }, [rows.length]);
 
   const delegate = useMemo<TugListViewDelegate>(
     () => ({
+      // Selecting a row IS placing the line below it.
       onSelect: (index) => {
-        // The trailing `(current)` row (index === visibleRows.length) is the
-        // no-rewind selection: clear the target so Rewind disables. A turn row
-        // sets it as the target and warms its diff-stat.
-        const row = visibleRows[index];
-        if (row === undefined) {
-          setSelected(null);
-          return;
-        }
-        setSelected(row);
-        ensurePreview(row.promptUuid);
+        if (index < 0 || index >= rows.length) return;
+        setRewindPointIndex(index);
       },
     }),
-    [visibleRows, ensurePreview],
+    [rows.length],
   );
 
-  // Fetch every row's diff-stat once, when the sheet opens, so each turn shows
-  // its `+N −M` / "No code changes" upfront rather than popping in on click.
-  // Cached in the store, so re-opening the sheet re-fetches nothing. (For a
-  // user-opened sheet over a bounded turn list these dry-run round-trips are
-  // cheap; keyed on `rows` so it runs once per open, not per snapshot tick.)
+  // Fetch every cut's diff-stat once, when the sheet opens, so moving the line
+  // shows its `+N −M` / "no code changes" immediately rather than popping in.
+  // Every message except the first is a possible anchor (the first can never
+  // be discarded — the retained prefix must hold one submission). Cached in
+  // the store, so re-opening the sheet re-fetches nothing.
   useEffect(() => {
-    const snap = codeSessionStore.getSnapshot().rewindPreviews;
-    for (const row of rows) {
-      if (!snap.has(row.promptUuid)) {
-        codeSessionStore.requestRewindPreview(row.promptUuid);
+    const cached = codeSessionStore.getSnapshot().rewindPreviews;
+    for (let i = 1; i < rows.length; i++) {
+      if (!cached.has(rows[i].promptUuid)) {
+        codeSessionStore.requestRewindPreview(rows[i].promptUuid);
       }
     }
   }, [rows, codeSessionStore]);
 
-  // Code restore is offered only when the selected turn has a restorable
-  // checkpoint with actual changes (its lazy diff-stat says so).
-  const selectedPreview =
-    selected !== null ? previews.get(selected.promptUuid) : undefined;
+  // Code restore is offered only when the cut has a restorable checkpoint with
+  // actual changes (its lazy diff-stat says so).
   const codeRestorable =
-    selectedPreview !== undefined &&
-    !selectedPreview.loading &&
-    selectedPreview.canRewind &&
-    (selectedPreview.insertions ?? 0) + (selectedPreview.deletions ?? 0) > 0;
-  // If "both" is picked but the current selection can't restore code, the
-  // effective (and displayed) scope falls back to conversation.
+    anchorPreview !== undefined &&
+    !anchorPreview.loading &&
+    anchorPreview.canRewind &&
+    (anchorPreview.insertions ?? 0) + (anchorPreview.deletions ?? 0) > 0;
+  // If "both" is picked but the current cut can't restore code, the effective
+  // (and displayed) scope falls back to conversation.
   const effectiveScope: RewindScope =
     scope === "both" && codeRestorable ? "both" : "conversation";
 
@@ -413,56 +400,69 @@ function RewindSheetBody({
     { value: "both", label: "Code + conversation", disabled: !codeRestorable },
   ];
 
+  // What the line itself says: how much it discards, and what the code side of
+  // that cut would restore.
+  const cutBlocked = blockedCuts.has(rewindPointIndex);
+  const cutLabel = cutBlocked
+    ? "Can't rewind past a /compact"
+    : discardCount === 0
+      ? "Nothing discarded — move the line up"
+      : [
+          `${discardCount} message${discardCount === 1 ? "" : "s"} discarded`,
+          diffStatLabel(anchorPreview),
+        ]
+          .filter((seg) => seg.length > 0)
+          .join(" · ");
+
   // React to OUR applied rewind's ack: dismiss on success, surface the error
   // (and re-enable) on failure ([L02]).
   const ack = snapshot.lastRewindResult;
   useEffect(() => {
     if (
-      !applying ||
+      applyingUuid === null ||
       ack === null ||
-      selected === null ||
-      ack.promptUuid !== selected.promptUuid
+      ack.promptUuid !== applyingUuid
     ) {
       return;
     }
     if (ack.canRewind) {
-      onClose(selected.promptUuid);
+      onClose(applyingUuid);
     } else {
-      setApplying(false);
+      setApplyingUuid(null);
       setErrorMsg(ack.error ?? "Rewind failed.");
     }
-  }, [applying, ack, selected, onClose]);
+  }, [applyingUuid, ack, onClose]);
 
-  // Block Rewind if the selected turn's conversation rewind would error (e.g.
-  // a preview that resolved to not-rewindable after selection).
+  // Block Rewind if the cut's conversation rewind would error (e.g. a preview
+  // that resolved to not-rewindable after the line was placed).
   const canApply =
-    selected !== null &&
+    anchor !== null &&
     isIdle &&
-    !applying &&
-    selectedPreview?.conversationRewindable !== false;
+    applyingUuid === null &&
+    !cutBlocked &&
+    anchorPreview?.conversationRewindable !== false;
   const apply = useCallback(() => {
-    if (selected === null || !isIdle) return;
+    if (anchor === null || !isIdle) return;
     setErrorMsg(null);
-    setApplying(true);
-    // Fork is the default for conversation/both ([#step-7-2]). The dropped
-    // turn's command (the one just past the destination) rides along as the
-    // draft: on a successful ack the store offers it back in the composer for
-    // re-edit (both sheet scopes truncate the conversation, so the draft
-    // applies to either).
-    codeSessionStore.sessionRewind(selected.promptUuid, effectiveScope, true, {
-      text: selected.draftText,
-      atoms: selected.draftAtoms,
+    setApplyingUuid(anchor.promptUuid);
+    // Fork is the default for conversation/both ([#step-7-2]). The first
+    // discarded message rides along as the draft: on a successful ack the
+    // store offers it back in the composer for re-edit (both sheet scopes
+    // truncate the conversation, so the draft applies to either).
+    codeSessionStore.sessionRewind(anchor.promptUuid, effectiveScope, true, {
+      text: anchor.text,
+      atoms: anchor.atoms,
     });
-  }, [selected, isIdle, effectiveScope, codeSessionStore]);
+  }, [anchor, isIdle, effectiveScope, codeSessionStore]);
 
-  // Author the controls into the sheet's trapped focus mode: Tab walks the turn
-  // list → Cancel → Rewind. Single-select picker: the list is seeded as the key
-  // view, and the `(current)` row at the bottom auto-selects on open (cursor +
-  // selection land there, scrolled into view) — so the sheet opens doing
-  // nothing, Rewind disabled, until ArrowUp walks back in time to an earlier
-  // turn. Rewind keeps its `persistentDefaultRing` as the surface default;
-  // Return falls through the list to it. The no-target case never reaches here —
-  // it's the "Can't rewind" alert.
+  // Author the controls into the sheet's trapped focus mode: Tab walks the
+  // message list → Cancel → Rewind. Single-select picker: the list is seeded as
+  // the key view with the last message selected (the line at the end, nothing
+  // discarded), so the sheet opens doing nothing, Rewind disabled, until
+  // ArrowUp walks the line back in time. Rewind keeps its
+  // `persistentDefaultRing` as the surface default; Return falls through the
+  // list to it. The no-target case never reaches here — it's the "Can't
+  // rewind" alert.
   const focusGroup = useId();
   const LIST_ORDER = 0;
   const CANCEL_ORDER = 1;
@@ -476,40 +476,27 @@ function RewindSheetBody({
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
         <RewindCellContext.Provider
-          value={{
-            previews,
-            selectedPromptUuid: selected?.promptUuid ?? null,
-            currentSelected: selected === null,
-          }}
+          value={{ cutIndex, blockedCuts, cutLabel }}
         >
           {/* Reuse the session picker's section + bordered host so the two
               pickers read the same ([L20] cascade-scoped). */}
           <div className="session-card-picker-section">
-            <span className="session-card-picker-label">Turns</span>
+            <span className="session-card-picker-label">Messages</span>
             <div className="session-card-picker-sessions-host">
-              {visibleRows.length > 0 ? (
-                <TugListView<RewindTurnDataSource>
-                  dataSource={dataSource}
-                  delegate={delegate}
-                  cellRenderers={REWIND_CELL_RENDERERS}
-                  scrollKey="rewind-turns"
-                  rowLayout="flush"
-                  className="session-card-picker-sessions-list session-card-picker-list-view"
-                  focusGroup={focusGroup}
-                  focusOrder={LIST_ORDER}
-                  singleSelect
-                  seedSelection
-                  initialSelectedIndex={visibleRows.length}
-                />
-              ) : (
-                // Rare in-sheet empty: the sheet opened with targets but every
-                // turn filtered out as non-rewindable once previews resolved
-                // (the no-target case is handled before open by the "Can't
-                // rewind" alert).
-                <div className="rewind-empty" role="status">
-                  No turns to rewind to.
-                </div>
-              )}
+              <TugListView<RewindTurnDataSource>
+                ref={listRef}
+                dataSource={dataSource}
+                delegate={delegate}
+                cellRenderers={REWIND_CELL_RENDERERS}
+                scrollKey="rewind-turns"
+                rowLayout="flush"
+                className="session-card-picker-sessions-list session-card-picker-list-view"
+                focusGroup={focusGroup}
+                focusOrder={LIST_ORDER}
+                singleSelect
+                seedSelection
+                initialSelectedIndex={rows.length - 1}
+              />
             </div>
           </div>
         </RewindCellContext.Provider>
@@ -521,7 +508,7 @@ function RewindSheetBody({
             value={effectiveScope}
             senderId={scopeGroupId}
             size="sm"
-            disabled={selected === null}
+            disabled={anchor === null}
             aria-label="Restore scope"
             data-testid="rewind-scope"
           />

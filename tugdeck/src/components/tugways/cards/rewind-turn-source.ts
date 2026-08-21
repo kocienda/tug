@@ -1,20 +1,31 @@
 /**
- * rewind-turn-source.ts — the `/rewind` turn-picker projection ([#step-7-3]).
+ * rewind-turn-source.ts — the `/rewind` message list projection.
  *
  * Projects the committed `code-session-store` transcript into the rows the
- * `RewindSheet`'s picker lists: one row per turn the user can *return to* — a
- * targetable turn (opened with a real user submission AND carrying the
- * `promptUuid` anchor, [#step-7-1]) that has a later targetable turn to anchor
- * the chop on. The row is displayed as its destination but anchored on the
- * next turn (the first one dropped). The newest turn is the `(current)`
- * present, not a row. Wake turns (no user message) and pre-anchor turns (older
- * sessions) are skipped — they cannot be `session_rewind` targets.
+ * `RewindSheet` lists: **one row per user message, as it was typed**, oldest
+ * first. Every targetable turn (opened with a real user submission AND
+ * carrying the `promptUuid` anchor, [#step-7-1]) becomes a row displaying its
+ * own text and its own submission time — no offset, no synthetic present.
+ *
+ * The rewind gesture is a *cut*: the user places a line between two messages,
+ * splitting the list into a **kept** prefix and a **pruned** suffix. The last
+ * kept message is the rewind point; the first pruned message is the
+ * `session_rewind` anchor (tugcode chops that turn and everything past it,
+ * [#step-7-2]). So a cut below row `i` sends `rows[i + 1].promptUuid` — which
+ * is why the projection carries each message's own anchor and lets the sheet
+ * do the pairing.
+ *
+ * The line can rest below the last message (nothing pruned — the sheet's
+ * opening state, where Rewind is disabled), but never above the first: the
+ * retained prefix must hold at least one earlier submission or claude refuses
+ * the resume (`no_retained_turns` in `tugcode/src/session.ts`). Hence
+ * {@link canOfferRewind} needs two messages, not one.
  *
  * This is NOT a `SessionPickerSheet` data source ([D05]): that lists *distinct
- * sessions* for `/resume`; this lists *turns within the current session*. The
- * projection is pure (no diff-stat) — the per-row diff-stat is fetched lazily
- * by the cell from the store snapshot's `rewindPreviews`, keyed by
- * `promptUuid` (the N+1-avoiding lazy/cached discipline lives in the sheet).
+ * sessions* for `/resume`; this lists *messages within the current session*.
+ * The projection is pure (no diff-stat) — the cut's diff-stat is fetched
+ * lazily from the store snapshot's `rewindPreviews`, keyed by `promptUuid`
+ * (the N+1-avoiding lazy/cached discipline lives in the sheet).
  *
  * @module components/tugways/cards/rewind-turn-source
  */
@@ -25,93 +36,51 @@ import type {
 import type { TurnEntry } from "@/lib/code-session-store/types";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 
-/**
- * Stable id + kind for the `(current)` row the picker appends below the last
- * targetable turn. It marks the live present — the state after the most recent
- * turn — so the list reads "…earlier turns… → (current)". Unlike a turn row it
- * is NOT a rewind anchor: it is the picker's **default selection**, and while
- * it is selected Rewind is disabled (picking "the present" is a no-op). The
- * sheet maps a selection on this row to a `null` rewind target. A selectable
- * `"cell"`-role row — the arrows reach it; the consumer gates Rewind on it.
- */
-export const REWIND_CURRENT_ROW_ID = "rewind-current";
-export const REWIND_CURRENT_KIND = "rewind-current";
+/** The single cell kind — every row is a user message. */
+export const REWIND_MESSAGE_KIND = "rewind-message";
 
 /**
- * One turn-picker row — a turn the user can *return to*.
+ * One user message, as typed.
  *
- * The row is displayed as its destination (the turn that stays as the new
- * tip) but is anchored on the turn that gets dropped to reach it. Picking
- * "return to T" rewinds by chopping the turn that came AFTER T (and
- * everything past it), so the anchor is that next turn, not T itself.
- *
- * - `promptUuid` — the rewind anchor passed to `session_rewind` /
- *   `rewind_preview`: the FIRST dropped turn (the one after the destination).
- *   Diff-stats and the conversation/code restore key off this.
- * - `turnKey` — the anchor turn's committed React-key seed (a stable, unique
- *   row id).
- * - `landingPreview` / `landingSubmitAt` — the DESTINATION turn's submission
- *   text and wall-clock: what the cell renders as the row title + timestamp
- *   ("the message you navigate back to").
- * - `draftText` / `draftAtoms` — the DROPPED turn's submission, carried so a
- *   rewind can seed the composer with the full original prompt (text +
- *   attachments) for re-edit, not the destination's.
+ * - `promptUuid` — this message's own rewind anchor ([#step-7-1]). Passed to
+ *   `session_rewind` / `rewind_preview` when this message is the FIRST pruned
+ *   one (i.e. when the line sits directly above it).
+ * - `turnKey` — the turn's committed React-key seed (a stable row id).
+ * - `text` / `submitAt` — what the user typed and when they sent it.
+ * - `atoms` — the submission's attachments, carried so a rewind can seed the
+ *   composer with the full original prompt (text + attachments) for re-edit.
  */
-export interface RewindRow {
+export interface RewindMessageRow {
   promptUuid: string;
   turnKey: string;
-  landingPreview: string;
-  landingSubmitAt: number;
-  draftText: string;
-  draftAtoms: ReadonlyArray<AtomSegment>;
+  text: string;
+  submitAt: number;
+  atoms: ReadonlyArray<AtomSegment>;
 }
 
 /**
- * Pure projection of the committed transcript into the picker's *valid* rewind
- * rows, in conversation order (oldest first).
+ * Pure projection of the committed transcript into the sheet's message rows,
+ * in conversation order (oldest first) — one row per targetable turn.
  *
- * A row represents "return to this turn" — keeping it as the new tip and
- * dropping everything that came after. The tugcode chop ([#step-7-2]) drops a
- * given turn and all turns past it, so to LAND on turn T the anchor is the turn
- * AFTER T (the first one dropped). Each row therefore pairs a destination
- * (displayed) with the next turn (the anchor + the prompt offered back for
- * re-edit).
- *
- * The newest targetable turn is the live present — it is the `(current)`
- * marker, never a row (returning to it is a no-op). A turn is a valid
- * destination only when a later targetable turn exists to anchor the chop, so
- * the projection walks consecutive targetable pairs (destination, next) and
- * emits one row per pair. The newest turn closes the list as `(current)`; a 0-
- * or 1-targetable-turn session yields zero rows — exactly the empty-state gate
- * ({@link canOfferRewind}) the plan specifies. (Returning to the present, or to
- * a session with nothing earlier, is not a rewind.)
+ * Wake turns (no user message) and pre-anchor turns (older sessions) are
+ * skipped: they carry no submission to show and cannot be `session_rewind`
+ * anchors.
  */
 export function projectRewindTurns(
   transcript: ReadonlyArray<TurnEntry>,
-): RewindRow[] {
-  const rows: RewindRow[] = [];
-  let landing: TurnEntry | null = null;
+): RewindMessageRow[] {
+  const rows: RewindMessageRow[] = [];
   transcript.forEach((turn) => {
     if (!isTargetable(turn)) return;
-    // The first targetable turn has no earlier turn to anchor on; it opens as
-    // the first destination for the turn that follows it.
-    if (landing === null) {
-      landing = turn;
-      return;
-    }
-    // `turn` is the dropped anchor; `landing` is the destination it returns to.
-    const dropped = turn.messages[0];
-    const dest = landing.messages[0];
+    const opener = turn.messages[0];
+    if (opener.kind !== "user_message") return;
     rows.push({
       promptUuid: turn.promptUuid as string,
       turnKey: turn.turnKey,
-      landingPreview: dest.kind === "user_message" ? dest.text : "",
-      landingSubmitAt:
-        dest.kind === "user_message" ? dest.submitAt : landing.endedAt,
-      draftText: dropped.kind === "user_message" ? dropped.text : "",
-      draftAtoms: dropped.kind === "user_message" ? dropped.attachments : [],
+      text: opener.text,
+      submitAt: opener.submitAt,
+      atoms: opener.attachments,
     });
-    landing = turn;
   });
   return rows;
 }
@@ -127,60 +96,82 @@ function isTargetable(turn: TurnEntry): boolean {
 }
 
 /**
- * Whether `/rewind` should be offered for this transcript ([#step-7-3]
- * empty-state gating). True iff there is at least one valid rewind row — i.e.
- * ≥2 targetable turns (a 0- or 1-turn session offers nothing to rewind to).
+ * Whether `/rewind` should be offered for this transcript (the empty-state
+ * gate). True iff there are ≥2 messages — a cut needs something to keep and
+ * something to prune, and the retained prefix must hold at least one earlier
+ * submission.
  */
 export function canOfferRewind(
   transcript: ReadonlyArray<TurnEntry>,
 ): boolean {
-  return projectRewindTurns(transcript).length > 0;
+  return projectRewindTurns(transcript).length >= 2;
 }
 
 /**
- * Static, single-section data source over the projected rows. The row set is
- * resolved at sheet-open time and fixed for the sheet's lifetime, so
- * `subscribe` is a no-op and `getVersion` a stable constant — exactly the
- * `ModelPickerDataSource` shape. Diff-stats update underneath via the store
- * snapshot the cell reads, not via this data source.
+ * Static, single-section data source over the projected messages. The row set
+ * is resolved at sheet-open time and fixed for the sheet's lifetime, so the
+ * only thing that moves underneath is *enablement*: a message the line cannot
+ * rest above (its cut would cross a `/compact` boundary) becomes unpickable as
+ * previews resolve. That arrives through {@link setBlockedCuts}, which ticks
+ * `subscribe` — so the row set, and therefore the data-source identity, never
+ * changes and the list never re-seeds its selection underneath the user.
+ *
+ * Diff-stats update via the store snapshot the cell reads, not via this data
+ * source.
  */
 export class RewindTurnDataSource implements TugListViewDataSource {
-  private readonly rows: readonly RewindRow[];
+  private readonly rows: readonly RewindMessageRow[];
+  /** Row indices that cannot be the rewind point (cut blocked below them). */
+  private blockedCuts: ReadonlySet<number> = new Set();
+  private version = 0;
+  private readonly listeners = new Set<() => void>();
 
-  constructor(rows: readonly RewindRow[]) {
+  constructor(rows: readonly RewindMessageRow[]) {
     this.rows = rows;
   }
 
-  /** The turns, plus one trailing `(current)` marker row. */
   numberOfItems(): number {
-    return this.rows.length + 1;
-  }
-
-  /** True for the trailing `(current)` marker (the last index). */
-  isCurrentRow(index: number): boolean {
-    return index === this.rows.length;
+    return this.rows.length;
   }
 
   idForIndex(index: number): string {
-    if (this.isCurrentRow(index)) return REWIND_CURRENT_ROW_ID;
     // `promptUuid` is intrinsically unique per turn — a stable row id.
     return this.rows[index].promptUuid;
   }
 
-  kindForIndex(index: number): string {
-    return this.isCurrentRow(index) ? REWIND_CURRENT_KIND : "rewind-turn";
+  kindForIndex(): string {
+    return REWIND_MESSAGE_KIND;
   }
 
-  /** Cell-renderer accessor — the turn at `index` (never the `(current)` row). */
-  rowAt(index: number): RewindRow {
+  /** Unpickable while its cut is blocked — visible for context, inert. */
+  enabledForIndex(index: number): boolean {
+    return !this.blockedCuts.has(index);
+  }
+
+  /** Cell-renderer accessor — the message at `index`. */
+  rowAt(index: number): RewindMessageRow {
     return this.rows[index];
   }
 
-  subscribe(): () => void {
-    return () => {};
+  /**
+   * Replace the set of rows the line may not rest below, ticking the list.
+   * Called from an effect (never during render) as `rewind_preview_result`
+   * frames resolve.
+   */
+  setBlockedCuts(blocked: ReadonlySet<number>): void {
+    this.blockedCuts = blocked;
+    this.version += 1;
+    this.listeners.forEach((listener) => listener());
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   getVersion(): unknown {
-    return 0;
+    return this.version;
   }
 }

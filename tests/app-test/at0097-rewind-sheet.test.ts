@@ -1,5 +1,5 @@
 /**
- * at0097-rewind-sheet.test.ts — `/rewind` turn picker + restore confirm,
+ * at0097-rewind-sheet.test.ts — `/rewind` cut-line picker + restore confirm,
  * end-to-end through the real sheet ([#step-7-3]).
  *
  * Drives a deterministic 3-turn dev session via `driveSession` (no live
@@ -7,12 +7,13 @@
  * so the committed turns carry the rewind anchor). Then:
  *   1. Open `/rewind` via the real submit path (type, dismiss completion,
  *      Cmd+Enter) — the local-command dispatch opens the card-scoped sheet.
- *   2. Assert the picker shows the VALID rewind rows (turns 2 + 3; the first
- *      turn is excluded — rewinding to it would empty the session).
- *   3. Pick the last turn → confirm step → "Restore conversation".
+ *   2. Assert the sheet lists EVERY user message as typed, and that the cut
+ *      line opens at the end — nothing discarded, Rewind disabled.
+ *   3. Click message 2 → the line lands below it, message 3 reads as
+ *      discarded, and Rewind enables.
  *   4. Inject the `rewind_result` ack (the backend round-trip, simulated) and
- *      assert the transcript truncated locally (the picked turn dropped, the
- *      earlier turns kept) and the sheet dismissed.
+ *      assert the transcript truncated locally (the discarded turn dropped,
+ *      the kept turns kept) and the sheet dismissed.
  *
  * The code-restore dimension's real file revert is covered at the tugcode
  * layer (test-37 / test-39 probes); here the store-only harness verifies the
@@ -39,6 +40,7 @@ const SHEET = '[data-slot="tug-sheet"]';
 const USER_ROWS = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 const PICKER_ROWS = `${SHEET} [data-prompt-uuid]`;
 const REWIND_APPLY = `${SHEET} [data-testid="rewind-apply"]`;
+const CUT = `${SHEET} [data-testid="rewind-cut"]`;
 
 function deckShape() {
   return {
@@ -76,13 +78,22 @@ async function buildTurn(app: App, i: number): Promise<void> {
   await frame({ type: "turn_complete", msg_id: msgId, result: "success" });
 }
 
+/** Each listed message's side of the cut: kept / point (the rewind point) /
+ *  discarded. */
+async function rowStates(app: App): Promise<string[]> {
+  return app.evalJS<string[]>(
+    `Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
+       .map((el) => el.getAttribute("data-rewind-state"))`,
+  );
+}
+
 async function userRowCount(app: App): Promise<number> {
   return app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length`);
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — picker + conversation restore", () => {
+describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation restore", () => {
   test(
-    "open /rewind, pick a turn, restore conversation → transcript truncated locally",
+    "open /rewind, place the line, restore conversation → transcript truncated locally",
     async () => {
       const app = await launchTugApp({ testName: "at0097-rewind-sheet" });
       try {
@@ -115,17 +126,26 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — picker + conversation re
           { timeoutMs: 6000 },
         );
 
-        // The picker lists the two VALID targets (turns 2 + 3); the first turn
-        // is excluded (rewinding to it would empty the session).
+        // Every user message is listed, as typed — including the newest (no
+        // synthetic `(current)` row).
         const pickerUuids = await app.evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
              .map((el) => el.getAttribute("data-prompt-uuid"))`,
         );
-        expect(pickerUuids).toEqual(["uuid-2", "uuid-3"]);
+        expect(pickerUuids).toEqual(["uuid-1", "uuid-2", "uuid-3"]);
+        expect(await rowStates(app)).toEqual(["kept", "kept", "point"]);
 
-        // Pick the last turn — the Rewind button enables once a turn is
-        // selected (scope defaults to Conversation).
-        await app.nativeClickAtElement(`${SHEET} [data-prompt-uuid="uuid-3"]`);
+        // The line opens at the end: nothing discarded, so Rewind is inert.
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(REWIND_APPLY)}).disabled`,
+          ),
+        ).toBe(true);
+        expect(await app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(CUT)}).length`)).toBe(1);
+
+        // Place the line below message 2 — message 3 falls into the discarded
+        // set and Rewind enables (scope defaults to Conversation).
+        await app.nativeClickAtElement(`${SHEET} [data-prompt-uuid="uuid-2"]`);
         await app.waitForCondition<boolean>(
           `(function () {
              var b = document.querySelector(${JSON.stringify(REWIND_APPLY)});
@@ -133,6 +153,7 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — picker + conversation re
            })()`,
           { timeoutMs: 4000 },
         );
+        expect(await rowStates(app)).toEqual(["kept", "point", "discarded"]);
 
         // Rewind → the sheet sends `session_rewind` (conversation by default);
         // simulate the backend ack so the local L26-safe truncation runs.
@@ -149,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — picker + conversation re
           },
         });
 
-        // The picked turn (3) dropped; turns 1 + 2 kept; sheet dismissed.
+        // The discarded turn (3) dropped; turns 1 + 2 kept; sheet dismissed.
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 2`,
           { timeoutMs: 6000 },
