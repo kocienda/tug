@@ -83,6 +83,7 @@ import {
   type TooltipClaim,
 } from "@/lib/open-tooltip-registry";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
+import { composeRefs, refOfElement } from "@/components/tugways/compose-refs";
 
 /* ---------------------------------------------------------------------------
  * TugTooltipProvider
@@ -409,8 +410,15 @@ export function TugTooltip({
   // bubble from an unrelated one. The Radix asChild trigger merges the ref
   // with its own. Nothing else is added: the child keeps its own handlers
   // untouched. [L06]
+  //
+  // COMPOSED, never assigned: a `ref` in the clone's props replaces the
+  // child's own, and a trigger that has been given a tooltip must not lose the
+  // node it was already reporting. A choice segment's ref is what puts it in
+  // the array its group's movement cursor moves over, so an assignment here
+  // costs the whole group its keyboard cursor while everything still looks
+  // right on screen.
   const trigger = React.cloneElement(children, {
-    ref: triggerCallbackRef,
+    ref: composeRefs(refOfElement<Element>(children), triggerCallbackRef),
   } as Record<string, unknown>);
 
   return (

@@ -174,6 +174,7 @@ import { TugSheetStackingContext } from "./tug-sheet-stacking-context";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { suppressButtonFocusShift } from "./internal/safari-focus-shift";
 import { useFocusTrap } from "./use-focus-trap";
+import { composeRefs, refOfElement } from "./compose-refs";
 
 /* ---------------------------------------------------------------------------
  * TugPopoverHandle
@@ -505,7 +506,12 @@ export function TugPopoverTrigger({ asChild = true, children }: TugPopoverTrigge
     asChild && triggerElRef !== undefined && React.isValidElement(children)
       ? React.cloneElement(
           children,
-          { ref: captureTrigger } as React.Attributes,
+          {
+            // Composed, not assigned: a `ref` in the clone's props replaces the
+            // child's own, and a trigger that has been given a popover must
+            // keep reporting its node to whatever was already listening.
+            ref: composeRefs(refOfElement<Element>(children), captureTrigger),
+          } as React.Attributes,
         )
       : children;
   return <Popover.Trigger asChild={asChild}>{child}</Popover.Trigger>;

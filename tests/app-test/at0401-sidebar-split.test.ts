@@ -55,7 +55,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -784,8 +784,20 @@ describe.skipIf(!SHOULD_RUN)(
             // that frees an imposed content card.
             {
               const standing = await railRects(app);
-              const paneId = Object.keys(standing)[0];
+              // Case 6 just re-stacked the rail, and a stack is two frames the
+              // browser cannot tell apart — same rect, to the pixel. A pointer
+              // put down on that rect therefore grabs whichever member is in
+              // FRONT, whatever order the DOM happens to list them in. So the
+              // gesture's subject is read off the z-order, whose winner the
+              // preceding raises decide: naming the other one would drive the
+              // pointer at a pane it cannot reach and then ask why that pane
+              // did not move.
+              const zOrder = await railZIndexes(app);
+              const paneId = Object.keys(standing).sort(
+                (a, b) => (zOrder[b] ?? 0) - (zOrder[a] ?? 0),
+              )[0];
               const rect = standing[paneId];
+              note(`⌘ way out: dragging ${paneId}, the front of the stack`);
               // Deep into the content band, which under the corridor's rule was
               // as far outside as a pointer could get.
               const away = { x: 200, y: Math.round(rect.top + 200) };
