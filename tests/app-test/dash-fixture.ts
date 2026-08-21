@@ -395,6 +395,19 @@ export interface DashFixtureOpts {
    * root the app under test reads.
    */
   env?: Record<string, string>;
+  /**
+   * How many ledger rows the generated plan holds. Only
+   * {@link recordStampedPlan} reads it.
+   * @default 1
+   */
+  rows?: number;
+  /**
+   * The final step of the run's declared selection — `--through <m>`. Below
+   * `rows`, the run covers only part of the plan, which is what makes the
+   * numerals and the ring's band say different things.
+   * @default rows
+   */
+  through?: number;
 }
 
 /**
@@ -503,7 +516,46 @@ export function markDashBuilt(
  * of the dash's recorded plan path, and it refuses unless the document parses
  * and carries a `#step-1` ledger row.
  */
-const FIXTURE_PLAN = `## A Fixture Plan {#fixture-plan}
+function fixturePlan(rows: number): string {
+  const ledger = Array.from(
+    { length: rows },
+    (_, i) => `| #step-${i + 1} | ${STEP_TITLES[i]} | pending | — |`,
+  ).join("\n");
+  const steps = Array.from(
+    { length: rows },
+    (_, i) => `#### Step ${i + 1}: ${STEP_TITLES[i]} {#step-${i + 1}}
+
+**Commit:** \`fixture(scope): do it\`
+
+**References:** [P01] the decision, (#phase-overview)
+
+**Tasks:**
+- [ ] Do the thing.
+
+**Tests:**
+- [ ] Unit: the thing works.
+
+**Checkpoint:**
+- [ ] \`cargo nextest run\`
+`,
+  ).join("\n");
+  return FIXTURE_PLAN_TEMPLATE.replace("__LEDGER__", ledger).replace(
+    "__STEPS__",
+    steps,
+  );
+}
+
+/** Titles for a generated plan's rows. A run's step title reaches the Lens and
+ *  the shade as the metadata line's note, so they have to differ to be worth
+ *  asserting on. Long enough for any row count a fixture asks for. */
+const STEP_TITLES = [
+  "The only step",
+  "The second step",
+  "The third step",
+  "The fourth step",
+];
+
+const FIXTURE_PLAN_TEMPLATE = `## A Fixture Plan {#fixture-plan}
 
 ### Plan Metadata {#plan-metadata}
 
@@ -525,23 +577,9 @@ The fixture's context.
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The only step | pending | — |
+__LEDGER__
 
-#### Step 1: The only step {#step-1}
-
-**Commit:** \`fixture(scope): do it\`
-
-**References:** [P01] the decision, (#phase-overview)
-
-**Tasks:**
-- [ ] Do the thing.
-
-**Tests:**
-- [ ] Unit: the thing works.
-
-**Checkpoint:**
-- [ ] \`cargo nextest run\`
-
+__STEPS__
 ### Deliverables and Checkpoints {#deliverables}
 
 **Deliverable:** the thing.
@@ -563,16 +601,33 @@ export function recordStampedPlan(
   worktree: string,
   opts: DashFixtureOpts = {},
 ): string {
+  const rows = opts.rows ?? 1;
+  const through = opts.through ?? rows;
   const planPath = join(worktree, "plan.md");
-  writeFileSync(planPath, FIXTURE_PLAN);
-  // `--through 1` because the fixture plan has exactly one step, so this run's
-  // selection ends where it begins. The flag is required: a run that does not
-  // say where it ends cannot be told from one that stopped early ([D147]).
-  tugutil(["dash", "step", name, "start", "1", "--through", "1", "--plan", "plan.md"], {
-    cwd: projectDir,
-    binaryRoot: opts.binaryRoot,
-    env: opts.env,
-  });
+  writeFileSync(planPath, fixturePlan(rows));
+  // The run's selection must be declared: a run that does not say where it
+  // ends cannot be told from one that stopped early ([D147]). By default it
+  // spans the whole plan — one row, `--through 1` — which is the shape where
+  // the run's counters and the plan's agree. Pass `through` below `rows` for
+  // the case they diverge: a partial selection out of a longer document.
+  tugutil(
+    [
+      "dash",
+      "step",
+      name,
+      "start",
+      "1",
+      "--through",
+      String(through),
+      "--plan",
+      "plan.md",
+    ],
+    {
+      cwd: projectDir,
+      binaryRoot: opts.binaryRoot,
+      env: opts.env,
+    },
+  );
   tugutil(["plan", "stamp", planPath], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,
@@ -666,7 +721,7 @@ export function recordAdoptedPlan(
   opts: DashFixtureOpts = {},
 ): string {
   const planPath = join(worktree, "plan.md");
-  writeFileSync(planPath, FIXTURE_PLAN);
+  writeFileSync(planPath, fixturePlan(opts.rows ?? 1));
   tugutil(["dash", "adopt-plan", name, "--plan", "plan.md", "--json"], {
     cwd: projectDir,
     binaryRoot: opts.binaryRoot,

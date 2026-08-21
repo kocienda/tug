@@ -79,7 +79,13 @@ beforeAll(() => {
   scratch = makeDashScratchRepo({ prefix: "at0407", checkout: CHECKOUT });
   createDash(projectDir(), DASH_NAME, "at0407 fixture", scratch.cli);
   const planned = createDash(projectDir(), PLAN_DASH, "at0407 plan fixture", scratch.cli);
-  recordStampedPlan(projectDir(), PLAN_DASH, planned.worktree, scratch.cli);
+  // A three-row plan whose declared run covers only the first two, so the
+  // Dashes row's numerals and its ring answer different questions.
+  recordStampedPlan(projectDir(), PLAN_DASH, planned.worktree, {
+    ...scratch.cli,
+    rows: 3,
+    through: 2,
+  });
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -230,6 +236,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
           fraction: string;
           rings: number;
           ringLabel: string | null;
+          segments: number;
+          outside: number;
+          inBand: number;
           noteText: string;
         }>(
           `(() => {
@@ -238,12 +247,17 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
              const fraction = row.querySelector('[data-slot="tug-step-fraction"]');
              const ring = row.querySelector('[data-slot="tug-step-ring"]');
              const note = row.querySelector(".tug-dash-meta-note");
+             const segs = ring ? Array.from(ring.querySelectorAll(".tug-step-ring-seg")) : [];
+             const state = (s) => segs.filter((el) => el.getAttribute("data-state") === s).length;
              return {
                stage: mark?.getAttribute("data-stage") ?? null,
                stageWord: mark?.getAttribute("aria-label") ?? null,
                fraction: (fraction?.textContent ?? "").trim(),
                rings: row.querySelectorAll('[data-slot="tug-step-ring"]').length,
                ringLabel: ring?.getAttribute("aria-label") ?? null,
+               segments: segs.length,
+               outside: state("outside"),
+               inBand: state("done") + state("current") + state("todo"),
                noteText: (note?.textContent ?? "").trim(),
              };
            })()`,
@@ -253,10 +267,18 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         // glyph carries the word on hover rather than spending line width.
         expect(meta.stage).toBe("implementing");
         expect(meta.stageWord).toBe("implementing");
-        // The fixture plan holds exactly one step, started.
-        expect(meta.fraction).toBe("1/1");
+        // The numerals count the declared run — two steps were asked for out
+        // of a three-row plan, and this is the first of them.
+        expect(meta.fraction).toBe("1/2");
         expect(meta.rings).toBe(1);
-        expect(meta.ringLabel).toBe("step 1 of 1");
+        // The ring carries the part the numerals leave out: three segments for
+        // the plan's three rows, two of them the run's band and one outside it.
+        expect(meta.segments).toBe(3);
+        expect(meta.inBand).toBe(2);
+        expect(meta.outside).toBe(1);
+        expect(meta.ringLabel).toBe(
+          "step 1 of 2 in this run, steps 1–2 of 3 in the plan",
+        );
         // The note is the current step's title, straight off the declaration.
         expect(meta.noteText).toBe("The only step");
         note("at0407 meta line", await app.screenshot().then((s) => s.path));

@@ -49,6 +49,9 @@ export interface SessionStepRingProps {
   drift?: boolean;
   /** The miniature's box, forwarded to {@link TugStepRing}. Ignored with `dot`. */
   size?: number;
+  /** The declared run's span within the plan, forwarded to {@link TugStepRing}
+   *  — what lights the run's band across the plan's segments. */
+  scope?: { from: number; through: number };
 }
 
 export function SessionStepRing({
@@ -59,6 +62,7 @@ export function SessionStepRing({
   dot = false,
   drift = false,
   size,
+  scope,
 }: SessionStepRingProps): React.ReactElement {
   const phase = useSessionPhase(sessionId);
   const role = sessionSessionPhaseVisual(phase).role ?? "inherit";
@@ -69,6 +73,7 @@ export function SessionStepRing({
       complete={complete}
       role={role}
       {...(size !== undefined ? { size } : {})}
+      {...(scope !== undefined ? { scope } : {})}
       dot={
         dot ? (
           <SessionPhaseDot

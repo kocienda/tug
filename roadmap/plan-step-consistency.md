@@ -332,12 +332,12 @@ No new stores, no new subscriptions, no structural state. `TugStepRing`/`TugStep
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The run span: fold + `run_fraction` in tugdash-core | pending | — |
-| #step-2 | The pair reaches the wire: DashDetail, DashStatus, feed | pending | — |
-| #step-3 | Client truth: wire mirror, session index, `dashGlanceFraction` | pending | — |
-| #step-4 | The ring takes the plan's shape; the numerals take the run | pending | — |
-| #step-5 | App-test pins: the multi-step declared run | pending | — |
-| #step-6 | Doc sync + integration checkpoint | pending | — |
+| #step-1 | The run span: fold + `run_fraction` in tugdash-core | done | `4e2d82c9f` |
+| #step-2 | The pair reaches the wire: DashDetail, DashStatus, feed | done | `9055cb5c2` |
+| #step-3 | Client truth: wire mirror, session index, `dashGlanceFraction` | done | `b944f4c3c` |
+| #step-4 | The ring takes the plan's shape; the numerals take the run | done | `bb22dd25a` |
+| #step-5 | App-test pins: the multi-step declared run | done | `f1b706d4f` |
+| #step-6 | Doc sync + integration checkpoint | done | `ea4c49ca2` |
 
 #### Step 1: The run span: fold + `run_fraction` in tugdash-core {#step-1}
 

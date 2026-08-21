@@ -315,6 +315,19 @@ pub struct DashDeclarations {
     /// step verb refuses to start without ([P01]). `None` for a generation that
     /// declared no run, which includes every dash whose log predates the flag.
     pub run_through: Option<u32>,
+    /// The first step of the run's declared selection, latched from the first
+    /// step declaration to follow the `run-through` line that opened the run.
+    ///
+    /// Derived rather than written, because the writer records only the run's
+    /// *end*. The ordering that makes it correct is the writer's: `step_in`
+    /// appends `run-through` before the run's opening `step-start`, and only
+    /// when the declared value differs from the generation's current one. So a
+    /// `run-through` line means "a new selection begins with the next step
+    /// declaration", and everything between two of them belongs to one run.
+    ///
+    /// `None` for a generation that declared no run, and for the window
+    /// between a `run-through` line and the step declaration that follows it.
+    pub run_first: Option<u32>,
     /// The latest step declaration is a `step-start`: a step is open and its
     /// work is unfinished.
     pub step_in_flight: bool,
@@ -429,6 +442,15 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
                 if let Some((current, total)) = read_step_fields(note) {
                     found.latest = Some(DashDeclaration::Step { current, total });
                     found.step = Some((current, total));
+                    // The run's opening step, latched once per selection: the
+                    // `run-through` line that began this run cleared it, so
+                    // the first declaration after that line is where the run
+                    // starts and every later one leaves it alone. Only under a
+                    // declared run — a generation that never declared one has
+                    // no selection for a first step to be the first *of*.
+                    if found.run_through.is_some() {
+                        found.run_first.get_or_insert(current);
+                    }
                     // A done note's tail is the round's sha, not a title — the
                     // start's title stays current until the next start.
                     if marker == "step-start" {
@@ -444,7 +466,12 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
             "built" => found.latest = Some(DashDeclaration::Built),
             "audited" => found.latest = Some(DashDeclaration::Audited),
             "replayed" => found.last_replay = Some(note.to_owned()),
-            "run-through" => found.run_through = note.trim().parse().ok(),
+            "run-through" => {
+                found.run_through = note.trim().parse().ok();
+                // A new selection is being declared: whatever step opened the
+                // *previous* run is no longer this run's first.
+                found.run_first = None;
+            }
             _ => {}
         }
     }
@@ -506,6 +533,41 @@ pub fn join_ready(
             Some(DashDeclaration::Built) | Some(DashDeclaration::Audited)
         )
         || decls.step.is_none()
+}
+
+/// How far through the *declared run* a stepped dash has got: `(position,
+/// length)`, both 1-based, position within the selection rather than within
+/// the plan.
+///
+/// This is the number every glanceable counter shows. A run of steps 5–7 with
+/// step 6 open answers `(2, 3)` — the unit the user asked for — while the
+/// plan-absolute `6/10` stays available in [`DashDeclarations::step`] for the
+/// ring, which draws the whole plan and lights this span across it.
+///
+/// `None` whenever the arithmetic cannot be trusted, and a display then falls
+/// back to the plan's own counters: no declared run (every generation whose
+/// log predates `--through`), no step declared yet, or a log whose shape
+/// defeats the span — a `through` before the run's first step, which a
+/// hand-edited log can produce and which must degrade rather than panic.
+///
+/// A finished selection pins position to length: the run's last `step-done`
+/// leaves `step_current` at `through` already, so the clamp is belt rather
+/// than braces, but it means a completed run reads `3/3` under every log shape
+/// instead of drifting on an odd one.
+pub fn run_fraction(decls: &DashDeclarations) -> Option<(u32, u32)> {
+    let through = decls.run_through?;
+    let first = decls.run_first?;
+    let (current, _) = decls.step?;
+    if through < first {
+        return None;
+    }
+    let length = through - first + 1;
+    let position = if decls.run_complete {
+        length
+    } else {
+        current.saturating_sub(first).saturating_add(1).clamp(1, length)
+    };
+    Some((position, length))
 }
 
 /// Append the run's declared selection — the `--through <m>` of [P01], Spec S01.
@@ -748,6 +810,149 @@ mod tests {
         assert!(!found.run_complete);
     }
 
+    /// The run's first step is latched from the declaration that opens it, and
+    /// re-latched by the next `run-through` — so a second selection on one dash
+    /// reports its own span rather than the first one's.
+    #[test]
+    #[serial]
+    fn the_run_latches_the_step_that_opened_it() {
+        let first_run = format!(
+            "{}{}{}",
+            log_line("d", "run-through", "3"),
+            log_line("d", "step-start", "1/10 Step 1: First"),
+            log_line("d", "step-done", "1/10 a4477d5"),
+        );
+        let fixture = log_repo(&first_run);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_first, Some(1));
+        assert_eq!(found.run_through, Some(3));
+
+        // Later steps of the same run leave the latch alone.
+        let first_run = format!(
+            "{}{}",
+            first_run,
+            log_line("d", "step-start", "2/10 Step 2: Second"),
+        );
+        let fixture = log_repo(&first_run);
+        assert_eq!(read_declarations(fixture.root(), "d").run_first, Some(1));
+
+        // A second selection re-declares, and the latch moves to its opener.
+        let second_run = format!(
+            "{}{}{}{}",
+            first_run,
+            log_line("d", "step-done", "2/10 b5588e6"),
+            log_line("d", "run-through", "7"),
+            log_line("d", "step-start", "5/10 Step 5: Fifth"),
+        );
+        let fixture = log_repo(&second_run);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_first, Some(5));
+        assert_eq!(found.run_through, Some(7));
+
+        // A generation that declared no run has nothing to latch onto.
+        let fixture = log_repo(&log_line("d", "step-start", "1/2 Step 1: First"));
+        assert_eq!(read_declarations(fixture.root(), "d").run_first, None);
+
+        // Nor does the window between a run's declaration and its first step.
+        let fixture = log_repo(&log_line("d", "run-through", "3"));
+        assert_eq!(read_declarations(fixture.root(), "d").run_first, None);
+    }
+
+    /// The number every glanceable counter shows: position within the declared
+    /// selection, not within the plan.
+    #[test]
+    #[serial]
+    fn the_run_fraction_counts_the_selection_not_the_plan() {
+        // The case that opened this work: `Steps 1-3` of a ten-step plan.
+        let log = format!(
+            "{}{}",
+            log_line("d", "run-through", "3"),
+            log_line("d", "step-start", "1/10 Step 1: First"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.step, Some((1, 10)), "the plan pair is still recorded");
+        assert_eq!(run_fraction(&found), Some((1, 3)), "but the run counts 1/3");
+
+        // A mid-plan run is run-relative: steps 5-7 with step 6 open is 2 of 3.
+        let log = format!(
+            "{}{}{}{}",
+            log_line("d", "run-through", "7"),
+            log_line("d", "step-start", "5/10 Step 5: Fifth"),
+            log_line("d", "step-done", "5/10 a4477d5"),
+            log_line("d", "step-start", "6/10 Step 6: Sixth"),
+        );
+        let fixture = log_repo(&log);
+        assert_eq!(run_fraction(&read_declarations(fixture.root(), "d")), Some((2, 3)));
+
+        // A finished selection holds its full fraction.
+        let log = format!(
+            "{}{}{}{}",
+            log,
+            log_line("d", "step-done", "6/10 b5588e6"),
+            log_line("d", "step-start", "7/10 Step 7: Seventh"),
+            log_line("d", "step-done", "7/10 c6699f7"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert!(found.run_complete);
+        assert_eq!(run_fraction(&found), Some((3, 3)));
+
+        // A one-step run — every dash fixture in the app-tests — is 1 of 1,
+        // which is also the shape where run and plan agree.
+        let log = format!(
+            "{}{}",
+            log_line("d", "run-through", "1"),
+            log_line("d", "step-start", "1/1 Step 1: Only"),
+        );
+        let fixture = log_repo(&log);
+        assert_eq!(run_fraction(&read_declarations(fixture.root(), "d")), Some((1, 1)));
+    }
+
+    /// Every shape the arithmetic cannot be trusted on degrades to `None`, so
+    /// the display falls back to the plan's own counters ([P05]).
+    #[test]
+    #[serial]
+    fn an_untrustworthy_span_yields_no_run_fraction() {
+        // No declared run at all — every log written before `--through`.
+        let log = format!(
+            "{}{}",
+            log_line("d", "step-start", "1/2 Step 1: First"),
+            log_line("d", "step-done", "1/2 a4477d5"),
+        );
+        let fixture = log_repo(&log);
+        assert_eq!(run_fraction(&read_declarations(fixture.root(), "d")), None);
+
+        // A run declared but not yet opened has no first step to measure from.
+        let fixture = log_repo(&log_line("d", "run-through", "3"));
+        assert_eq!(run_fraction(&read_declarations(fixture.root(), "d")), None);
+
+        // A hand-edited log whose declaration order is reversed latches the
+        // step before the run that should have cleared it, leaving `through`
+        // behind `first`. Degrade, never panic.
+        let log = format!(
+            "{}{}",
+            log_line("d", "step-start", "9/10 Step 9: Ninth"),
+            log_line("d", "run-through", "3"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_first, None, "the declaration cleared the latch");
+        assert_eq!(run_fraction(&found), None);
+
+        // And the same collision with the latch intact: `through` < `first`.
+        let log = format!(
+            "{}{}{}",
+            log_line("d", "run-through", "3"),
+            log_line("d", "step-start", "9/10 Step 9: Ninth"),
+            log_line("d", "step-done", "9/10 a4477d5"),
+        );
+        let fixture = log_repo(&log);
+        let found = read_declarations(fixture.root(), "d");
+        assert_eq!(found.run_first, Some(9));
+        assert_eq!(run_fraction(&found), None, "through 3 is before first 9");
+    }
+
     #[test]
     #[serial]
     fn a_terminal_line_resets_the_run_facts() {
@@ -761,8 +966,10 @@ mod tests {
         let fixture = log_repo(&log);
         let found = read_declarations(fixture.root(), "d");
         assert_eq!(found.run_through, None);
+        assert_eq!(found.run_first, None);
         assert!(!found.run_complete);
         assert!(!found.step_in_flight);
+        assert_eq!(run_fraction(&found), None);
     }
 
     #[test]

@@ -99,7 +99,13 @@ beforeAll(() => {
   const dash = createDash(projectDir(), DASH_NAME, "at0424 fixture", scratch.cli);
   // A plan adopted and no step started — the cluster shows the stage glyph
   // alone, and the counters replace nothing until a step opens.
-  recordAdoptedPlan(projectDir(), DASH_NAME, dash.worktree, scratch.cli);
+  // Three rows, so the run this test declares below can cover only part of
+  // the document — which is the shape where the numerals and the ring's band
+  // answer different questions.
+  recordAdoptedPlan(projectDir(), DASH_NAME, dash.worktree, {
+    ...scratch.cli,
+    rows: 3,
+  });
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -231,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         // ── The step opens: the fraction and the ring arrive ──────────────
         await shellAndSettle(
           app,
-          `${tugutilPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --through 1 --plan plan.md`,
+          `${tugutilPath(CHECKOUT)} dash step ${DASH_NAME} start 1 --through 2 --plan plan.md`,
           1,
         );
         await app.waitForCondition<boolean>(
@@ -243,16 +249,22 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           fraction: string;
           ringLabel: string | null;
           segments: number;
+          outside: number;
+          inBand: number;
           ringWrapsDot: boolean;
           monitorDots: number;
         }>(
           `(() => {
              const fraction = document.querySelector(${JSON.stringify(FRACTION)});
              const ring = document.querySelector(${JSON.stringify(RING)});
+             const segs = ring ? Array.from(ring.querySelectorAll(".tug-step-ring-seg")) : [];
+             const state = (s) => segs.filter((el) => el.getAttribute("data-state") === s).length;
              return {
                fraction: (fraction?.textContent ?? "").trim(),
                ringLabel: ring?.getAttribute("aria-label") ?? null,
-               segments: ring?.querySelectorAll(".tug-step-ring-seg").length ?? 0,
+               segments: segs.length,
+               outside: state("outside"),
+               inBand: state("done") + state("current") + state("todo"),
                // ONE geometry: the ring wraps a live phase dot, so the bound
                // row traded its bare monitor dot for the ring form.
                ringWrapsDot:
@@ -264,11 +276,20 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
            })()`,
         );
         note("at0424 with the step", JSON.stringify(stepped));
-        // The fixture plan holds exactly one step; the numerals are real,
-        // selectable text.
-        expect(stepped.fraction).toBe("1/1");
-        expect(stepped.ringLabel).toBe("step 1 of 1");
-        expect(stepped.segments).toBe(1);
+        // The numerals count the RUN — steps 1–2 were asked for, so the first
+        // of them is `1/2`. They are real, selectable text, and they say
+        // nothing about the ten- (here three-) row document behind them.
+        expect(stepped.fraction).toBe("1/2");
+        // The ring says what the numerals cannot: the plan holds three steps,
+        // this run covers two of them, and the third is outside it. That is
+        // the whole plan's shape and the run's place in it, wordlessly.
+        expect(stepped.segments).toBe(3);
+        expect(stepped.inBand).toBe(2);
+        expect(stepped.outside).toBe(1);
+        // Words are free only in the label, so the label carries both facts.
+        expect(stepped.ringLabel).toBe(
+          "step 1 of 2 in this run, steps 1–2 of 3 in the plan",
+        );
         expect(stepped.ringWrapsDot).toBe(true);
         // One dot on the row — the one inside the ring.
         expect(stepped.monitorDots).toBe(1);

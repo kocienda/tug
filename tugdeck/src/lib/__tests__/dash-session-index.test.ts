@@ -120,6 +120,38 @@ describe("buildDashSessionIndex", () => {
     expect(bothFact.stepTotal).toBe(5);
   });
 
+  test("the run's counters ride beside the plan's, without replacing them", () => {
+    // Step 6 of a ten-row plan, second of a three-step selection. Both pairs
+    // reach the fact: the numerals will count the run, the ring the plan.
+    const stepped: DashChangesetEntry = {
+      ...GOLDEN_DASH,
+      bound_sessions: ["sess-a"],
+      step_current: 6,
+      step_total: 10,
+      run_position: 2,
+      run_length: 3,
+    };
+    const fact = buildDashSessionIndex({
+      projects: [projectWith([stepped])],
+    }).get("sess-a")!;
+    expect(fact.stepCurrent).toBe(6);
+    expect(fact.stepTotal).toBe(10);
+    expect(fact.runPosition).toBe(2);
+    expect(fact.runLength).toBe(3);
+
+    // A sender that declared no run leaves the run half null rather than
+    // guessing it from the plan's.
+    const undeclared: DashChangesetEntry = { ...stepped };
+    delete undeclared.run_position;
+    delete undeclared.run_length;
+    const plain = buildDashSessionIndex({
+      projects: [projectWith([undeclared])],
+    }).get("sess-a")!;
+    expect(plain.runPosition).toBeNull();
+    expect(plain.runLength).toBeNull();
+    expect(plain.stepCurrent).toBe(6);
+  });
+
   test("plan presence rides the fact — it is what makes a missing step loud", () => {
     const planless: DashChangesetEntry = {
       ...GOLDEN_DASH,

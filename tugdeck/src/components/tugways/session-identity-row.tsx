@@ -90,7 +90,11 @@ import React, {
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { DashStageMark } from "@/components/tugways/dash-stage-mark";
-import { dashWalkComplete } from "@/components/tugways/dash-meta-line";
+import {
+  dashGlanceFraction,
+  dashRunScope,
+  dashWalkComplete,
+} from "@/components/tugways/dash-meta-line";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
@@ -578,9 +582,32 @@ export function SessionIdentityRow({
     dashFact !== null &&
     dashFact.stepCurrent !== null &&
     dashFact.stepTotal !== null;
+  // The two marks answer two questions and take two pairs. The numerals count
+  // the declared run — the selection somebody asked for, which is what the
+  // task list mirrors and the invocation named. The ring keeps the plan's
+  // pair, drawing a segment per plan step, and lights the run's span across
+  // them. Completion is read against the pair actually shown.
+  const dashGlance =
+    dashFact !== null
+      ? dashGlanceFraction(
+          dashFact.runPosition,
+          dashFact.runLength,
+          dashFact.stepCurrent,
+          dashFact.stepTotal,
+        )
+      : null;
+  const dashScope =
+    dashFact !== null
+      ? dashRunScope(
+          dashFact.runPosition,
+          dashFact.runLength,
+          dashFact.stepCurrent,
+          dashFact.stepTotal,
+        )
+      : undefined;
   const dashComplete =
     dashFact !== null &&
-    dashWalkComplete(dashFact.stage, dashFact.stepCurrent, dashFact.stepTotal);
+    dashWalkComplete(dashFact.stage, dashGlance?.current, dashGlance?.total);
 
   // When the session was made. Two sources, resolved once and shared, so a
   // masthead and a Lens row cannot date the same session differently. The row
@@ -721,10 +748,10 @@ export function SessionIdentityRow({
         data-slot="session-identity-row-progress"
       >
         <DashStageMark stage={dashFact.stage} />
-        {dashCounted ? (
+        {dashGlance !== null ? (
           <TugStepFraction
-            current={dashFact.stepCurrent!}
-            total={dashFact.stepTotal!}
+            current={dashGlance.current}
+            total={dashGlance.total}
           />
         ) : null}
       </span>
@@ -765,6 +792,7 @@ export function SessionIdentityRow({
             current={dashFact.stepCurrent!}
             total={dashFact.stepTotal!}
             complete={dashComplete}
+            {...(dashScope !== undefined ? { scope: dashScope } : {})}
             dot
             drift={drift}
           />

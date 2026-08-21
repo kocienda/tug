@@ -84,6 +84,13 @@ describe("changeset wire contract", () => {
     expect(isChangesetEntry({ ...base, bound_sessions: "sess-1" })).toBe(false);
     expect(isChangesetEntry({ ...base, bound_sessions: [1] })).toBe(false);
     expect(isChangesetEntry({ ...base, step_total: "3" })).toBe(false);
+    // The run's counters are optional both ways: absent from every dash-log
+    // written before runs were declared, a number once one is.
+    expect(isChangesetEntry({ ...base, run_position: 2, run_length: 3 })).toBe(
+      true,
+    );
+    expect(isChangesetEntry({ ...base, run_position: "2" })).toBe(false);
+    expect(isChangesetEntry({ ...base, run_length: null })).toBe(false);
     // `plan_path` is optional both ways: absent on every dash no run has
     // stepped, a worktree-relative string once one has.
     expect(isChangesetEntry({ ...base, plan_path: "roadmap/plan.md" })).toBe(true);

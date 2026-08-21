@@ -1081,6 +1081,16 @@ pub struct DashDetail {
     pub run_through: Option<u32>,
     /// Whether that declared selection finished.
     pub run_complete: bool,
+    /// How far through the *declared run* this dash has got, from
+    /// [`crate::dash::run_fraction`] — position within the selection somebody
+    /// asked for, which is what every glanceable counter shows.
+    ///
+    /// Distinct from [`Self::step_current`]/[`Self::step_total`], which stay
+    /// plan-absolute: a run of steps 5–7 reports `run_position` 2 while
+    /// `step_current` is 6. The ring draws the plan from the latter and lights
+    /// this span across it. Both `None` for a generation that declared no run.
+    pub run_position: Option<u32>,
+    pub run_length: Option<u32>,
     /// The note of the dash-log's most recent `replayed` line — the settled
     /// mark's text. `None` when this dash has never been replayed.
     pub last_replay: Option<String>,
@@ -1233,6 +1243,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         // append-only, and parsed line by line. No plan markdown is read here
         // ([P01]): the declarations are the record this path derives from.
         let declarations = read_declarations(repo_root, name);
+        let run_span = crate::dash::run_fraction(&declarations);
         let joining = read_join_journal(repo_root, name).is_some();
         let plan_path = dash_plan_path(repo_root, name);
         // Every input is already in hand from this dash's own composition, so
@@ -1260,6 +1271,8 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             join_ready,
             run_through: declarations.run_through,
             run_complete: declarations.run_complete,
+            run_position: run_span.map(|(position, _)| position),
+            run_length: run_span.map(|(_, length)| length),
             step_current: declarations.step.map(|(current, _)| current),
             step_total: declarations.step.map(|(_, total)| total),
             step_title: declarations.step_title.clone(),
@@ -1320,6 +1333,11 @@ pub struct DashStatus {
     /// How far a stepped run has got, from the latest step declaration.
     pub step_current: Option<i64>,
     pub step_total: Option<i64>,
+    /// How far through the *declared run* — position within the selection,
+    /// where `step_current` is position within the plan. Both `None` for a
+    /// generation that declared no run.
+    pub run_position: Option<i64>,
+    pub run_length: Option<i64>,
     /// What `step_current` *is* — the latest `step-start` declaration's title.
     pub step_title: Option<String>,
     /// The plan this dash is driving, relative to its worktree ([P08]).
@@ -1454,6 +1472,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         read_join_journal(repo_root, name).map(|journal| format!("{:?}", journal.phase));
     let bound_sessions = bound_sessions_for(&id);
     let declarations = read_declarations(repo_root, name);
+    let run_span = crate::dash::run_fraction(&declarations);
     let join_ready = crate::dash::join_ready(
         rounds.max(0) as u32,
         crate::dash::unfinished_tracked_dirt(&worktree_dirt_tracked, plan_path.as_deref()),
@@ -1483,6 +1502,8 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         bound_sessions,
         step_current: declarations.step.map(|(current, _)| current as i64),
         step_total: declarations.step.map(|(_, total)| total as i64),
+        run_position: run_span.map(|(position, _)| position as i64),
+        run_length: run_span.map(|(_, length)| length as i64),
         step_title: declarations.step_title.clone(),
         plan_path,
         last_activity: declarations.last_activity.clone(),
@@ -4222,6 +4243,63 @@ Some context.
         let detail = dash_detail_entry_in(&root, "ready-dash").unwrap();
         assert!(!detail.join_ready);
         assert_eq!(status_in(&root, "ready-dash").unwrap().stage, "implementing");
+    }
+
+    /// The two pairs answer different questions and both reach the callers:
+    /// the run's counts the selection, the plan's counts the document.
+    #[serial]
+    #[test]
+    fn the_run_pair_counts_the_selection_and_the_plan_pair_the_document() {
+        let (_temp, root) = stepped_dash("span-dash");
+        let worktree = worktree_path(&root, "span-dash");
+
+        // A run of just step 1 against a two-row plan: the numbers diverge.
+        step_start("span-dash", 1, Some("roadmap/plan.md"), 1).unwrap();
+        let detail = dash_detail_entry_in(&root, "span-dash").unwrap();
+        assert_eq!(
+            (detail.step_current, detail.step_total),
+            (Some(1), Some(2)),
+            "the plan pair still counts the whole document"
+        );
+        assert_eq!(
+            (detail.run_position, detail.run_length),
+            (Some(1), Some(1)),
+            "the run pair counts only what was asked for"
+        );
+        // The CLI's composition agrees with the feed's.
+        let status = status_in(&root, "span-dash").unwrap();
+        assert_eq!((status.run_position, status.run_length), (Some(1), Some(1)));
+
+        // Finishing that selection holds the full fraction.
+        fs::write(worktree.join("one.txt"), "first\n").unwrap();
+        commit("span-dash", "r1", None).unwrap();
+        step_done("span-dash", 1, None).unwrap();
+        let detail = dash_detail_entry_in(&root, "span-dash").unwrap();
+        assert!(detail.run_complete);
+        assert_eq!((detail.run_position, detail.run_length), (Some(1), Some(1)));
+
+        // A second selection re-declares, and the run pair follows it rather
+        // than the plan — step 2 of the document is step 1 of this run.
+        step_start("span-dash", 2, None, 2).unwrap();
+        let detail = dash_detail_entry_in(&root, "span-dash").unwrap();
+        assert_eq!((detail.step_current, detail.step_total), (Some(2), Some(2)));
+        assert_eq!((detail.run_position, detail.run_length), (Some(1), Some(1)));
+    }
+
+    /// A dash that declared no run reports no run pair, so its displays fall
+    /// back to the plan's counters exactly as they did before ([P05]).
+    #[serial]
+    #[test]
+    fn an_undeclared_run_reports_no_run_pair() {
+        let (_temp, root) = stepped_dash("plain-dash");
+        let worktree = worktree_path(&root, "plain-dash");
+        fs::write(worktree.join("one.txt"), "first\n").unwrap();
+        commit("plain-dash", "r1", None).unwrap();
+
+        let detail = dash_detail_entry_in(&root, "plain-dash").unwrap();
+        assert_eq!((detail.run_position, detail.run_length), (None, None));
+        let status = status_in(&root, "plain-dash").unwrap();
+        assert_eq!((status.run_position, status.run_length), (None, None));
     }
 
     #[serial]

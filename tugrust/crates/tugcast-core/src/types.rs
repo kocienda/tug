@@ -498,10 +498,22 @@ pub enum ChangesetEntry {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         bound_sessions: Vec<String>,
         /// Declared step counters, from the latest step declaration ([P06]).
+        /// Plan-absolute: the step's number in the plan, and how many rows the
+        /// plan holds. The ring draws its segments from this pair.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         step_current: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         step_total: Option<u32>,
+        /// How far through the *declared run* — position within the selection
+        /// somebody asked for, and that selection's length. This is the pair
+        /// the numerals show; a run of steps 5–7 reads `2/3` here while
+        /// `step_current`/`step_total` read `6/10`. Both absent for a
+        /// generation that declared no run, where the numerals fall back to
+        /// the plan pair.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run_position: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run_length: Option<u32>,
         /// What `step_current` *is* — the latest `step-start` declaration's
         /// title, so a display can say more than a counter.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1689,6 +1701,8 @@ mod tests {
             bound_sessions: vec!["sess-1".to_string()],
             step_current: None,
             step_total: None,
+            run_position: None,
+            run_length: None,
             step_title: None,
             last_activity: None,
             plan_path: None,
@@ -1726,8 +1740,11 @@ mod tests {
         assert!(json.contains(r#""branch":"tugdash/x""#));
         assert!(json.contains(r#""stage":"working""#));
         assert!(json.contains(r#""bound_sessions":["sess-1"]"#));
-        // Phase 3's slots stay off the wire while they are empty.
+        // Phase 3's slots stay off the wire while they are empty — the run's
+        // counters with them, so an undeclared run costs nothing to say.
         assert!(!json.contains("step_current"));
+        assert!(!json.contains("run_position"));
+        assert!(!json.contains("run_length"));
         // …and so do the plan path and its review state, which most dashes
         // never record. Absence is "nothing to say" on both.
         assert!(!json.contains("plan_path"));

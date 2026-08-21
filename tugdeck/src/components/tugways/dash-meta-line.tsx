@@ -158,9 +158,95 @@ export function dashWalkComplete(
   return current >= total && stage != null && STAGES_PAST_THE_WALK.has(stage);
 }
 
-/** {@link dashWalkComplete} over a wire entry. */
+/**
+ * The pair the numerals render: the declared run's when the sender has one,
+ * else the plan's.
+ *
+ * Two questions share one row, and this decides which the six characters
+ * answer. A run of steps 5–7 was *asked for* as three steps, so it counts
+ * `2/3`; the plan's own `6/10` is not lost — it is what the ring draws its
+ * segments from, with this span lit across it. A generation that declared no
+ * run (every dash-log written before runs were declared) has only the plan
+ * pair, and falls back to exactly what it showed before.
+ *
+ * Takes bare values rather than an entry because two spellings arrive: the
+ * wire's `run_position` and the session index's `runPosition`. Null when
+ * neither pair is declared, which is how a counter renders nothing at all.
+ */
+export function dashGlanceFraction(
+  runPosition: number | null | undefined,
+  runLength: number | null | undefined,
+  stepCurrent: number | null | undefined,
+  stepTotal: number | null | undefined,
+): { current: number; total: number } | null {
+  if (
+    runPosition !== undefined &&
+    runPosition !== null &&
+    runLength !== undefined &&
+    runLength !== null
+  ) {
+    return { current: runPosition, total: runLength };
+  }
+  if (
+    stepCurrent !== undefined &&
+    stepCurrent !== null &&
+    stepTotal !== undefined &&
+    stepTotal !== null
+  ) {
+    return { current: stepCurrent, total: stepTotal };
+  }
+  return null;
+}
+
+/** {@link dashGlanceFraction} over a wire entry. */
+export function dashEntryGlanceFraction(
+  entry: DashChangesetEntry,
+): { current: number; total: number } | null {
+  return dashGlanceFraction(
+    entry.run_position,
+    entry.run_length,
+    entry.step_current,
+    entry.step_total,
+  );
+}
+
+/**
+ * The run's span within the plan, for the ring's scope band — `undefined` when
+ * no run is declared, which is what leaves the ring rendering as it always has.
+ *
+ * Derived rather than sent: the wire carries the run's position and length and
+ * the plan's current step, and the run's first step is the one arithmetic that
+ * follows from them. Sending a fourth number to say the same thing would give
+ * the two a way to disagree.
+ */
+export function dashRunScope(
+  runPosition: number | null | undefined,
+  runLength: number | null | undefined,
+  stepCurrent: number | null | undefined,
+  stepTotal: number | null | undefined,
+): { from: number; through: number } | undefined {
+  if (
+    runPosition === undefined ||
+    runPosition === null ||
+    runLength === undefined ||
+    runLength === null ||
+    stepCurrent === undefined ||
+    stepCurrent === null ||
+    stepTotal === undefined ||
+    stepTotal === null
+  ) {
+    return undefined;
+  }
+  const from = stepCurrent - runPosition + 1;
+  const through = from + runLength - 1;
+  if (from < 1 || through > stepTotal) return undefined;
+  return { from, through };
+}
+
+/** {@link dashWalkComplete} over a wire entry, against the pair it shows. */
 export function dashStepsComplete(entry: DashChangesetEntry): boolean {
-  return dashWalkComplete(entry.stage, entry.step_current, entry.step_total);
+  const glance = dashEntryGlanceFraction(entry);
+  return dashWalkComplete(entry.stage, glance?.current, glance?.total);
 }
 
 /** The note's lead: the current step's title, else the join draft's subject.
@@ -194,6 +280,15 @@ export function DashMetaLine({
   const read = size === "sm";
   const counted =
     entry.step_current !== undefined && entry.step_total !== undefined;
+  // The numerals count the declared run; the ring keeps the plan's pair and
+  // lights the run's span across it.
+  const glance = dashEntryGlanceFraction(entry);
+  const scope = dashRunScope(
+    entry.run_position,
+    entry.run_length,
+    entry.step_current,
+    entry.step_total,
+  );
   const complete = dashStepsComplete(entry);
   const worker = (entry.bound_sessions ?? [])[0] ?? null;
   const note = dashMetaNote(entry);
@@ -214,6 +309,7 @@ export function DashMetaLine({
             current={entry.step_current!}
             total={entry.step_total!}
             complete={complete}
+            {...(scope !== undefined ? { scope } : {})}
             {...(read ? { size: READ_RING_BOX } : {})}
           />
         ) : (
@@ -221,6 +317,7 @@ export function DashMetaLine({
             current={entry.step_current!}
             total={entry.step_total!}
             complete={complete}
+            {...(scope !== undefined ? { scope } : {})}
             {...(read ? { size: READ_RING_BOX } : {})}
           />
         )
@@ -231,11 +328,8 @@ export function DashMetaLine({
           {...(read ? { size: READ_STAGE_SIZE } : {})}
         />
       ) : null}
-      {counted ? (
-        <TugStepFraction
-          current={entry.step_current!}
-          total={entry.step_total!}
-        />
+      {glance !== null ? (
+        <TugStepFraction current={glance.current} total={glance.total} />
       ) : null}
       {note !== null ? (
         <span className="tug-dash-meta-note">{note}</span>

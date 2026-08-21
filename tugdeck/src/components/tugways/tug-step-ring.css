@@ -47,6 +47,14 @@
   opacity: 0.35;
 }
 
+/* Steps the declared run does not cover: present, so the plan's whole shape
+   and the run's place in it are readable, but a clear step quieter than the
+   todo whisper — the band has to read as the subject and these as its
+   surroundings. */
+.tug-step-ring-seg[data-state="outside"] {
+  opacity: 0.12;
+}
+
 .tug-step-ring-seg[data-state="done"] {
   stroke: var(--tugx-step-ring-tone);
   opacity: 1;

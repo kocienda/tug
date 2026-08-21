@@ -8,6 +8,12 @@
  * steps are a toned-back whisper the fill contrasts against — the count is
  * read off that contrast.
  *
+ * Given a `scope`, the ring draws the whole PLAN and lights the declared run
+ * across it — the run's steps in the ring's tone, everything else a whisper.
+ * That is how the plan's shape reaches a row that has no words to spare: the
+ * numerals beside it count the run, and the band says which slice of the
+ * document that run is. It costs one segment state and no height.
+ *
  * The tone is a semantic ROLE, never a theme accent: the caller passes the
  * same role its dot resolved from the phase mapping, so one glyph answers
  * "what is this session doing" and "how far through its plan" in one tint.
@@ -94,6 +100,19 @@ export interface TugStepRingProps {
    * @default 14
    */
   size?: number;
+  /**
+   * The declared run's span within the plan, 1-based and inclusive — the
+   * steps somebody actually asked for out of the `total` the plan holds.
+   *
+   * Given one, the ring draws the whole plan and lights this span across it:
+   * steps outside it fall to the `outside` state, a whisper below `todo`. One
+   * glyph then says how big the plan is, which slice was asked for, and where
+   * that slice sits in the document — a run of steps 5–7 shows its band
+   * two-thirds of the way around, which no counter conveys.
+   *
+   * Omitted, the ring renders exactly as it always has.
+   */
+  scope?: { from: number; through: number };
 }
 
 export function TugStepRing({
@@ -103,6 +122,7 @@ export function TugStepRing({
   role = "inherit",
   dot,
   size = RING_MINI_BOX,
+  scope,
 }: TugStepRingProps): React.ReactElement {
   const stroke = 2;
   const box =
@@ -116,9 +136,23 @@ export function TugStepRing({
   const span = (Math.PI * 2) / total;
   const top = -Math.PI / 2;
   const shown = complete ? total + 1 : current;
+  // A scope covering the whole plan says nothing a plain ring does not, so it
+  // is treated as no scope at all: the segments and the label both keep their
+  // unscoped form, and a one-step run on a one-step plan reads as it always
+  // did.
+  const banded =
+    scope !== undefined && (scope.from > 1 || scope.through < total);
+  const runLength = scope !== undefined ? scope.through - scope.from + 1 : 0;
+  const runPosition = scope !== undefined ? current - scope.from + 1 : 0;
+  // Words are free here and nowhere else on the row, so the label carries the
+  // whole truth the band shows graphically.
   const label = complete
-    ? `all ${total} steps done`
-    : `step ${current} of ${total}`;
+    ? banded
+      ? `all ${runLength} steps of this run done, steps ${scope!.from}–${scope!.through} of ${total} in the plan`
+      : `all ${total} steps done`
+    : banded
+      ? `step ${runPosition} of ${runLength} in this run, steps ${scope!.from}–${scope!.through} of ${total} in the plan`
+      : `step ${current} of ${total}`;
   return (
     <span
       className="tug-step-ring"
@@ -140,7 +174,13 @@ export function TugStepRing({
           const a0 = top + i * span + gap / 2;
           const a1 = top + (i + 1) * span - gap / 2;
           const state =
-            step < shown ? "done" : step === shown ? "current" : "todo";
+            banded && (step < scope!.from || step > scope!.through)
+              ? "outside"
+              : step < shown
+                ? "done"
+                : step === shown
+                  ? "current"
+                  : "todo";
           return (
             <path
               key={step}

@@ -142,9 +142,18 @@ export interface DashChangesetEntry {
   stage?: string;
   /** Live sessions mated to this dash. Empty is how *unbound* reads. */
   bound_sessions?: string[];
-  /** Declared step counters, from the latest step declaration. */
+  /** Declared step counters, from the latest step declaration. Plan-absolute:
+   *  the step's number in the plan, and how many rows the plan holds. The ring
+   *  draws its segments from this pair. */
   step_current?: number;
   step_total?: number;
+  /** How far through the *declared run* — position within the selection
+   *  somebody asked for, and that selection's length. This is the pair the
+   *  numerals show: a run of steps 5–7 reads `2/3` here while `step_current`
+   *  reads 6. Absent for a generation that declared no run, where the numerals
+   *  fall back to the plan pair. */
+  run_position?: number;
+  run_length?: number;
   /** What `step_current` *is* — the latest `step-start` declaration's title. */
   step_title?: string;
   /** When the dash was last touched — the newest dash-log line's timestamp for
@@ -655,6 +664,9 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       isOptionalStringArray(value.bound_sessions) &&
       (value.step_current === undefined || typeof value.step_current === "number") &&
       (value.step_total === undefined || typeof value.step_total === "number") &&
+      (value.run_position === undefined ||
+        typeof value.run_position === "number") &&
+      (value.run_length === undefined || typeof value.run_length === "number") &&
       (value.step_title === undefined || typeof value.step_title === "string") &&
       (value.last_activity === undefined || typeof value.last_activity === "string") &&
       (value.plan_path === undefined || typeof value.plan_path === "string") &&

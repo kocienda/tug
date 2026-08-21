@@ -32,10 +32,16 @@ export interface DashSessionFact {
   readonly review: string | null;
   /** The owning project's directory (`project_dir` from the snapshot). */
   readonly projectDir: string;
-  /** The step being worked, or null when the sender declared no counters. */
+  /** The step being worked, or null when the sender declared no counters.
+   *  Plan-absolute — what the ring draws its segments from. */
   readonly stepCurrent: number | null;
   /** How many steps the plan holds, or null when none was declared. */
   readonly stepTotal: number | null;
+  /** Position within the *declared run* — the selection somebody asked for,
+   *  which is what the numerals count. Null when no run was declared. */
+  readonly runPosition: number | null;
+  /** That selection's length, or null when no run was declared. */
+  readonly runLength: number | null;
   /** What the current step *is* — the latest declaration's title, or null. */
   readonly stepTitle: string | null;
   /** Whether the dash drives a plan at all — what makes a missing step loud. */
@@ -67,6 +73,8 @@ export function buildDashSessionIndex(
         projectDir: project.project_dir,
         stepCurrent: entry.step_current ?? null,
         stepTotal: entry.step_total ?? null,
+        runPosition: entry.run_position ?? null,
+        runLength: entry.run_length ?? null,
         stepTitle: entry.step_title ?? null,
         hasPlan: entry.plan_path !== undefined,
       };
