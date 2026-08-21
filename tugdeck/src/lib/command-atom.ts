@@ -53,9 +53,13 @@ export function commandWireText(value: string, args?: string): string {
  * The label a chip displays. A slash command shows its leading slash
  * (`/tugplug:commit`) — the slash *is* the command, and is the marker that
  * sets it apart in the shared atom-chip family (a command leads with `/`, a
- * file leads with its icon). Every other atom type shows its stored `label` —
- * a session's is the full `<project>/<callsign>` run, the title grammar's own
- * spelling.
+ * file leads with its icon). Every other atom type shows its stored `label`.
+ *
+ * The session atom does not reach here at all, and the exception is stated so
+ * nobody adds a session branch to this function: a session chip draws the
+ * identity's display title ([D141]), which needs a store read this leaf is
+ * deliberately without. `tug-atom-img.ts` resolves it beside the phase dot,
+ * which is the other fact about a session chip that is not in its segment.
  */
 export function chipDisplayLabel(
   type: string,

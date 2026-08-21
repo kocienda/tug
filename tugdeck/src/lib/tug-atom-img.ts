@@ -37,7 +37,15 @@ import type { ChipVariant } from "./command-atom";
 import { progressRoleFillToken } from "@/components/tugways/tug-progress-indicator";
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
 import { sessionPhaseNow } from "@/lib/code-session-store/use-session-phase";
-import { isSessionAtomType, sessionAtomCallsign } from "@/lib/session-atom-shape";
+import {
+  isSessionAtomType,
+  sessionAtomCallsign,
+  sessionAtomProject,
+} from "@/lib/session-atom-shape";
+import {
+  resolveSessionIdentity,
+  sessionDisplayTitle,
+} from "@/lib/session-identity";
 import { sessionTagStore } from "@/lib/session-tag-store";
 
 /**
@@ -534,6 +542,40 @@ function paintRecessShade(
  * `null` means the phase paints in the chip's own ink (the `inherit` role) —
  * the quiet mark for a session with no turn in flight.
  */
+/**
+ * The text a session chip draws — the identity's display title ([D141]), not
+ * the reference the atom stores.
+ *
+ * The atom's `label` and `value` are both `<project>/<callsign>` and both stay
+ * that: the value is the wire marker and the clipboard sidecar, and the label
+ * is what an unresolvable chip falls back to. What a *reader* sees is the same
+ * thing the masthead and the Lens show them — a session they have named reads
+ * as that name here too, and the callsign returns only under a collision.
+ *
+ * A **snapshot**, and the only honest one available here, exactly as
+ * {@link sessionDotToken} is: the chip is a Canvas bake inside an `<img>`,
+ * which can neither subscribe nor cascade ([P14]). A `/rename` therefore
+ * reaches an already-baked chip through the widget regeneration in
+ * `atom-decoration.ts`, the same door a theme switch comes through.
+ *
+ * This is one of the sanctioned non-React callers of `resolveSessionIdentity`
+ * — there is no render to subscribe from, which is the whole point of the
+ * regeneration path above.
+ *
+ * A session this run's tag index has never heard of keeps the stored label. An
+ * unresolvable reference showing what it recorded is the honest rendering, and
+ * it is what the transcript's live chip does with the same fact.
+ */
+function sessionChipLabel(label: string, value: string): string {
+  const sessionId = sessionTagStore.resolveTag(sessionAtomCallsign(value));
+  if (sessionId === null) return label;
+  return sessionDisplayTitle(
+    resolveSessionIdentity(sessionId, {
+      recordedProject: sessionAtomProject(value),
+    }),
+  );
+}
+
 function sessionDotToken(value: string): string | null {
   const sessionId = sessionTagStore.resolveTag(sessionAtomCallsign(value));
   if (sessionId === null) return null;
@@ -680,7 +722,15 @@ export function bakeAtomChipDataUri(
   // A slash command displays its leading slash (`/tugplug:commit`); every
   // other type shows its stored label. Both renderers route through
   // `chipDisplayLabel` so the text is identical across editor and transcript.
-  const displayLabel = chipDisplayLabel(type, label, value);
+  //
+  // The session atom is the exception, and only here: the transcript renders
+  // one as the live `TugSessionCitation` rather than as a chip, so this bake
+  // is the only session chip there is and it resolves its own text. The
+  // substitution happens BEFORE the geometry, because the string it returns is
+  // what the chip has to be wide enough to hold.
+  const displayLabel = isSessionAtomType(type)
+    ? sessionChipLabel(label, value)
+    : chipDisplayLabel(type, label, value);
   const g = computeAtomChipGeometry(type, displayLabel, {
     ...options,
     lineHeight: options?.lineHeight ?? EDITOR_LINE_HEIGHT,

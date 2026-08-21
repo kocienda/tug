@@ -110,6 +110,7 @@ import { quoteMarkdown, stripMarkdown } from "@/lib/paste-transforms";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { loadMarkdownTextStyling } from "./tug-text-editor/markdown-text-styling";
+import { sessionNameStore } from "@/lib/session-name-store";
 import { subscribeThemeChange, unsubscribeThemeChange } from "@/theme-tokens";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import type { AtomBytesStore } from "@/lib/atom-bytes-store";
@@ -2700,6 +2701,22 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       };
       subscribeThemeChange(onThemeChange);
 
+      // A session chip draws the session's DISPLAY title ([D141]), which is the
+      // user's own name once they have set one — and a bake cannot subscribe to
+      // the store that holds it ([P14]). So a `/rename` comes in the same door
+      // a theme switch does: regenerate, and every chip re-bakes against the
+      // name the store now holds. Without this an editor holding a session atom
+      // would sit showing the callsign of a session that has since been named,
+      // which is a resting lie about what the session is called.
+      //
+      // The name store only. A callsign is minted before any atom of it can
+      // exist, so the tag store cannot change a chip's text out from under it —
+      // and subscribing to it would regenerate every chip in every editor on
+      // every session spawn.
+      const unsubscribeNames = sessionNameStore.subscribe(() => {
+        view.dispatch({ effects: regenerateAtomsEffect.of(null) });
+      });
+
       // Typeahead popup wiring lives in <CompletionOverlay /> below.
       // The overlay subscribes to subscribeCompletionState(view, ...)
       // in its own useLayoutEffect once `view` (this state) becomes
@@ -2816,6 +2833,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           selectionGuard.updateCardDomSelection(id, null);
         }
         unsubscribeThemeChange(onThemeChange);
+        unsubscribeNames();
         view.destroy();
         viewRef.current = null;
         // Clear the React state so <CompletionOverlay /> unmounts

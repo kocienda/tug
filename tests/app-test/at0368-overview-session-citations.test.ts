@@ -40,6 +40,13 @@
  * gives way in a declared order (the minted handle first, the user's own words
  * last) but it always gives way, and it never hangs out of the rail.
  *
+ * A named session carries a handle to give way with only under a NAME
+ * COLLISION ([D141]) — a custom name removes the callsign outright, and it
+ * returns as the final disambiguation when two sessions share one name. So the
+ * fixture resolves a twin that shares the short name and is posted about by
+ * nothing: it exists to make the three-run grammar real, which is the same
+ * device and the same reason as `at0439`.
+ *
  * The strip is where it lives BECAUSE of the other half of the claim. The atom
  * used to ride the header's trailing edge, sharing one flex line with the
  * author and the clock — and whatever an over-wide atom would not give up, the
@@ -56,6 +63,7 @@
  * @covers tugdeck/src/components/tugways/session-citation-portals.tsx
  * @covers tugdeck/src/components/tugways/tug-markdown-block.tsx
  * @covers tugdeck/src/components/tugways/tug-session-identity.css
+ * @covers tugdeck/src/lib/session-identity.ts
  * @covers tugdeck/src/components/tugways/tug-transcript-entry.css
  */
 
@@ -151,6 +159,20 @@ interface Runs {
 
 const NAMED_SHORT = "c4d5e6f7-1a2b-4c3d-8e4f-5a6b7c8d9e03";
 const NAMED_LONG = "d5e6f7a8-1a2b-4c3d-8e4f-5a6b7c8d9e04";
+/**
+ * A session nothing posts about, resolved only so that it SHARES
+ * {@link SHORT_NAME} with {@link NAMED_SHORT}.
+ *
+ * Under [D141] a custom name removes the callsign from a title outright, and
+ * it returns only when two sessions share one name. So the three-run grammar
+ * whose elision order this claim measures does not otherwise exist on a named
+ * session — there would be no handle to give way first. The twin is what makes
+ * the run real, the same device `at0439` uses for the same reason.
+ *
+ * `resolve_sessions_ok` seeds the name store (`session-citation-store.ts`), so
+ * a row in that frame is enough to create the collision; it needs no post.
+ */
+const NAMED_TWIN = "e6f7a8b9-1a2b-4c3d-8e4f-5a6b7c8d9e05";
 
 /** A name the rail holds whole with room to spare — the screenshot's own. */
 const SHORT_NAME = "dash-integration-1";
@@ -166,6 +188,8 @@ const LONG_NAME =
 const SHORT_TAG =
   "violet-mesa-plateau-of-considerable-length-with-an-escarpment-and-a-long-ridge-beyond";
 const LONG_TAG = "amber-thicket-escarpment-of-similar-length";
+/** The twin's own handle — distinct, so only the NAME is what collides. */
+const TWIN_TAG = "cobalt-spur-ridgeline-of-no-particular-consequence";
 
 /** One resolvable row, as the ledger's answer carries it. */
 function namedRow(sessionId: string, name: string, tag: string): unknown {
@@ -196,6 +220,7 @@ function resolveNamedSessions(): string {
       sessions: [
         namedRow(NAMED_SHORT, SHORT_NAME, SHORT_TAG),
         namedRow(NAMED_LONG, LONG_NAME, LONG_TAG),
+        namedRow(NAMED_TWIN, SHORT_NAME, TWIN_TAG),
       ],
       unknown: [],
     },
@@ -431,6 +456,10 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
         // The order the two runs give way in, read off the two rows. Short
         // name: the minted handle is the run that elides, and the user's own
         // words are whole. This is the shipped rule for the citation register.
+        //
+        // This row has a handle at all because its name collides with the
+        // twin's ([D141]); the long-named row below is unique and therefore
+        // shows no handle, which is why only its NAME is measured.
         expect(
           posts[0]!.callsignElided,
           "the minted handle gives way first",

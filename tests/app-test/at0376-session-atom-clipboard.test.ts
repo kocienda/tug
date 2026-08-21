@@ -45,6 +45,14 @@
  *      pixels: no ground where the shared atom family paints an opaque surface,
  *      and a filled dot where the family strokes a glyph (Spec S05).
  *
+ *   F. **The chip draws the session's NAME, and a rename repaints it.** The
+ *      composer's bake is the only session chip in the app — the transcript
+ *      renders a reference as the live citation component — so it is the one
+ *      display surface that had to learn the identity rule ([D141]) on its
+ *      own. It cannot subscribe ([P14]), so a rename reaches it through the
+ *      editor's widget regeneration; the chip's WIDTH is the witness, and the
+ *      atom's value and label must not move while its face does.
+ *
  * `pbpaste` cannot see a private pasteboard type, which is why B goes through
  * the app rather than the shell. The KEYSTROKE half is still not driven here:
  * ⌘V does not reach the web layer in this harness at all. D covers the branch
@@ -58,6 +66,8 @@
  * @covers tugdeck/src/lib/session-atom-shape.ts
  * @covers tugdeck/src/lib/command-atom.ts
  * @covers tugdeck/src/lib/tug-atom-img.ts
+ * @covers tugdeck/src/lib/session-identity.ts
+ * @covers tugdeck/src/components/tugways/tug-text-editor.tsx
  * @covers tugdeck/src/components/tugways/use-copyable-text.tsx
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
  * @covers tugdeck/src/components/tugways/tug-text-editor/clipboard-filters.ts
@@ -73,6 +83,8 @@ const TEST_TIMEOUT_MS = 120_000;
 const SESSION_ID = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
 const TAG = "stocky-pixie";
 const CITATION = "tugtool/stocky-pixie (f6e43925)";
+/** Deliberately shorter than `tugtool/stocky-pixie`, so the bake narrows. */
+const NAME = "Parser fix";
 const SENTINEL = "at0376-sentinel-nothing-copied";
 
 const SPIKE_CARD = '[data-card-id="G"]';
@@ -404,6 +416,83 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         expect(face.groundAlpha).toBeLessThan(16);
         // The dot is painted, and it is solid.
         expect(face.markAlpha).toBeGreaterThan(200);
+
+        // ---- F. The chip DRAWS the name, and a rename repaints it. --------
+        //
+        // The composer chip is the last display surface that showed a callsign
+        // under a custom name ([D141]). The transcript renders a session
+        // reference as the live `TugSessionCitation`, so this bake is the only
+        // session chip there is, and it resolves its own text.
+        //
+        // A bake can neither subscribe nor cascade ([P14]), so a rename has to
+        // arrive through the editor's widget regeneration — the same door a
+        // theme switch comes through. That is the half no store-level test can
+        // reach, and the half that fails silently: the composer would sit
+        // showing the callsign of a session the user had already named.
+        //
+        // The witness is the chip's WIDTH, because the drawn text is pixels. A
+        // bake is sized to the string it draws, so a name shorter than
+        // `tugtool/stocky-pixie` makes a narrower chip — and the reference the
+        // atom carries must not move while its face does, which is the whole
+        // rule in one assertion pair.
+        const chipBefore = await app.evalJS<{
+          width: number;
+          value: string;
+          title: string;
+        }>(
+          `(function(){
+            var img = document.querySelector(
+              ${JSON.stringify(COMPOSER + ' img[data-atom-type="session"]')});
+            return {
+              width: img.width,
+              value: img.dataset.atomValue || "",
+              title: img.title || "",
+            };
+          })()`,
+        );
+        note("at0376 chip before rename", JSON.stringify(chipBefore));
+
+        await app.evalJS<boolean>(
+          `window.__tug.publishSessionUpdated(${JSON.stringify(
+            JSON.stringify({
+              session_id: SESSION_ID,
+              fields: { name: NAME, name_user_set: true },
+            }),
+          )})`,
+        );
+        await app.waitForCondition<boolean>(
+          `(function(){
+            var img = document.querySelector(
+              ${JSON.stringify(COMPOSER + ' img[data-atom-type="session"]')});
+            return img !== null && img.width !== ${chipBefore.width};
+          })()`,
+          { timeoutMs: 8_000 },
+        );
+        const chipAfter = await app.evalJS<{
+          width: number;
+          value: string;
+          title: string;
+          label: string;
+        }>(
+          `(function(){
+            var img = document.querySelector(
+              ${JSON.stringify(COMPOSER + ' img[data-atom-type="session"]')});
+            return {
+              width: img.width,
+              value: img.dataset.atomValue || "",
+              title: img.title || "",
+              label: img.dataset.atomLabel || "",
+            };
+          })()`,
+        );
+        note("at0376 chip after rename", JSON.stringify(chipAfter));
+        // The face moved, and in the direction the shorter string demands.
+        expect(chipAfter.width).toBeLessThan(chipBefore.width);
+        // And the REFERENCE did not: the callsign is carried everywhere, and
+        // shown only where it is the name.
+        expect(chipAfter.value).toBe(`tugtool/${TAG}`);
+        expect(chipAfter.label).toBe(`tugtool/${TAG}`);
+        expect(chipAfter.title).toBe(chipBefore.title);
       } finally {
         await app.close();
       }

@@ -17,7 +17,7 @@
  * applies is never a judgment call.
  *
  * **The label is a name, not the value.** A file atom shows its basename; a
- * commit atom shows `Commit 227a8eb9`. An atom stands with no sentence
+ * commit atom shows `commit:227a8eb9`. An atom stands with no sentence
  * around it, so the word a sentence would have supplied belongs in the
  * label — eight bare hex characters name nothing a reader can act on, and a
  * small glyph does not rescue them. A mention needs no such word, because
@@ -118,7 +118,7 @@ export type TugAtomRefEntity =
 export interface TugAtomRefProps {
   entity: TugAtomRefEntity;
   /**
-   * Override the default label (the basename, or `Commit <8>`). What is
+   * Override the default label (the basename, or `commit:<8>`). What is
    * rendered MUST read as the same characters — this is for decorating
    * them, as a filter match decorates a sha with `<mark>`s, never for
    * substituting different ones.
@@ -142,7 +142,7 @@ export function fileRefBasename(path: string): string {
 
 /** The label a commit atom carries when nothing overrides it. */
 export function commitAtomLabel(sha: string): string {
-  return `Commit ${sha.slice(0, COMMIT_LABEL_LENGTH)}`;
+  return `commit:${sha.slice(0, COMMIT_LABEL_LENGTH)}`;
 }
 
 /**
@@ -209,6 +209,9 @@ export function TugAtomRef({
     <span
       className={cn("tug-atom-ref", stamps && ANNOTATION_CLASS, className)}
       data-slot={dataSlot}
+      // Which kind this is, so the sheet can size a commit label smaller than
+      // the prose it sits in without the consumer threading a prop.
+      data-tugx-atom-kind={entity.kind}
       {...marks}
     >
       <span className="tug-atom-ref-icon" aria-hidden="true">

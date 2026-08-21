@@ -23,9 +23,11 @@ export function isSessionAtomType(type: string): boolean {
  *
  * The callsign is what the atom **resolves through**: the ledger answers a
  * callsign on `resolve_sessions`, which is how a chip holding no id reaches one
- * and so shows a live dot. Display keeps the whole `<project>/<callsign>` run —
- * the title grammar wears the project prefix — so this helper is a resolution
- * key, never a display form.
+ * and so shows a live dot. It is a resolution key and never a display form:
+ * what a chip SHOWS is the identity's display title ([D141]), which the
+ * resolved session supplies and which is the user's own name whenever they
+ * have set one. An unresolvable atom falls back to its stored label, and that
+ * label is the whole `<project>/<callsign>` run rather than this half of it.
  *
  * Pure. A value with no `/` is already a callsign and returns unchanged.
  */

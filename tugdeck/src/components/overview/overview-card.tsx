@@ -39,7 +39,7 @@
  * skin, glyph plus a name — resolved through {@link resolveOverviewRef} and
  * wrapped in the full annotation payload so the registry's click and context
  * menu are its gesture; an unconfirmed ref is inert with the reason on its
- * tooltip. A commit ref names itself — `Commit <8ch>` — because unlike an
+ * tooltip. A commit ref names itself — `commit:<8ch>` — because unlike an
  * inline mention it has no sentence around it, and its hover carries the
  * commit's subject, author and files.
  *
@@ -346,7 +346,7 @@ function RefAtom({
   const isDir =
     resolution.state === "actionable" &&
     resolution.payload.kind === "directory";
-  // The label is the skin's own: a basename for a file, `Commit <8>` for a
+  // The label is the skin's own: a basename for a file, `commit:<8>` for a
   // commit. An atom stands with no sentence around it, so a bare hash names
   // nothing a reader can use and the word belongs in the label — which is
   // also the spelling copy already uses, so selection and menu agree.
@@ -774,7 +774,7 @@ function OverviewPostRow({
   // fixed width: whatever the atom could not give up, the clock paid for by
   // breaking "7:10:22 PM" across two lines. Truncating the atom harder only
   // moved the loss around. Here the row is the atom's own and wraps, so the
-  // name and the callsign both fit, and the header holds nothing that varies.
+  // atom fits whatever it says, and the header holds nothing that varies.
   const chipRefs = useMemo(() => {
     const rest = unmentionedRefs(post.body, post.refs).filter(
       (r) => !(r.kind === "session" && r.target === post.sessionId),

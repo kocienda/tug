@@ -65,7 +65,6 @@ import {
   sessionDisplayTitleForBinding,
   sessionIdentityLineForBinding,
 } from "@/lib/session-identity";
-import { sessionNameStore } from "@/lib/session-name-store";
 import {
   getOpenTextCard,
   getOpenTextCardsVersion,
@@ -342,20 +341,20 @@ export interface LensCardsInputs {
   readonly registryVersion: number;
   readonly bindings: ReadonlyMap<string, CardSessionBinding>;
   /**
-   * Version token for the tag store. A session label is the identity's Line
-   * tier — `<project>/<callsign>` — so the callsign is the one identity fact
-   * it reads, and it is read at recompute time: a tag arriving late (or a
-   * ledger reroll replacing the optimistic one) must re-run the projection.
-   * This is how the section says "it changed". The synopsis does not appear in
-   * the Line string and is deliberately not an input here.
+   * Version token for the tag store. A session row still reads the callsign —
+   * as its Line for the filter to match on, and as its title whenever the user
+   * has set no name — so a tag arriving late (or a ledger reroll replacing the
+   * optimistic one) must re-run the projection. This is how the section says
+   * "it changed". The synopsis appears in neither string and is deliberately
+   * not an input here.
    */
   readonly tagVersion: unknown;
   /**
-   * Version token for the name store. The user's name is not in the Line
-   * string, but it IS on the row and it is what the filter matches
-   * ({@link CardIdentity.displayName}) — so a `/rename` has to re-run the
-   * projection, or the session stays findable only under the name it had
-   * before the user changed it.
+   * Version token for the name store. The user's name IS the row's title
+   * ({@link CardIdentity.title}) under [D141], so a `/rename` that did not
+   * re-run the projection would leave the row printing the callsign of a
+   * session the user has already named — and findable only under the name it
+   * had before they changed it.
    */
   readonly nameVersion: unknown;
   /**
