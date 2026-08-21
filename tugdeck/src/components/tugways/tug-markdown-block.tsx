@@ -266,9 +266,23 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
     const el = containerRef.current;
     if (el === null) return;
 
+    // Every render is an annotation pass — `renderIncremental*` marks the
+    // DOM it builds — so every render has to ANNOUNCE itself. The late-arrival
+    // effect below cannot cover this: its verdict-batch re-mark is gated on
+    // the container still carrying `data-tugx-awaiting`, and a delta that
+    // re-renders after a verdict settles clears that stamp on its way past.
+    // The run is then marked with nothing listening, which is exactly the
+    // state a confirmed commit sha was found in — wrapped and underlined in
+    // the transcript, but never replaced by its `commit:<8ch>` label, because
+    // the tip portal was never told the host existed.
+    const announce = (): void => {
+      onAnnotatedRef.current?.(el);
+    };
+
     const reconcile = (text: string): void => {
       if (text === "") {
         renderIncremental(el, "");
+        announce();
         return;
       }
       // Render-once cache, scoped to the session's streaming store and
@@ -289,6 +303,7 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
       // duplicate-append.
       const blocks = ensureParsed(streamingStore, streamingPath, text);
       renderIncrementalFromBlocks(el, blocks, annotationRef.current);
+      announce();
     };
 
     // G1 — render the store's current value before paint. The
