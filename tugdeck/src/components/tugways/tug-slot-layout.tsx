@@ -16,6 +16,24 @@
  * `"rest"`. A layout with no `states` at all is therefore an empty
  * arrangement — the right picture for a chooser option.
  *
+ * **Two write paths reach a slot's resting look, and they are ordered.** The
+ * `states` prop is the committed truth: every commit re-renders the arrangement
+ * from it. `setStates`, on the handle, is the LIVE truth between commits — for a
+ * consumer whose looks change per frame under a gesture, which [L06] forbids
+ * putting through React state. A commit always supersedes a live write, because
+ * the two derive from the same quantity and the commit is the later reading of
+ * it. So a caller of `setStates` never has to clear what it wrote: the next
+ * render supplies it. Call it from a gesture or a subscription, never from
+ * render.
+ *
+ * The projection writes what each form actually paints through. A slot's
+ * `data-state` is the fact, and both forms carry it. Its look is one class, and
+ * which class depends on the form: the exemplar span carries
+ * `tug-slot-exemplar-<state>`, `TugSlot`'s own vocabulary; the control form is a
+ * `TugButton` and carries the compound emphasis × role class that button
+ * composes, taken from `tugButtonEmphasisClass` rather than restated here
+ * ([L20] — the grammar has one definition, in `tug-button.tsx`).
+ *
  * Laws: [L06] appearance via CSS and DOM attributes, never React state;
  *       [L11] the control form emits through `onSelectSlot`; [L16] pairings
  *       declared; [L19] component authoring guide; [L20] token sovereignty —
@@ -30,7 +48,7 @@ import "./tug-slot-layout.css";
 import React from "react";
 
 import { cn } from "@/lib/utils";
-import { TugSlot } from "./tug-slot";
+import { TugSlot, tugSlotLookClass } from "./tug-slot";
 import type { TugSlotSize, TugSlotState } from "./tug-slot";
 
 /* ---------------------------------------------------------------------------
@@ -82,10 +100,34 @@ export interface TugSlotLayoutProps
 }
 
 /* ---------------------------------------------------------------------------
+ * TugSlotLayoutHandle
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * What a ref to a layout holds.
+ *
+ * `element` is the layout's own span — the component forwarded that element
+ * before it had a handle, and a handle that dropped it would narrow a shipped
+ * ref contract for the consumers that come later.
+ *
+ * `setStates` is the live write path documented at the top of this file.
+ */
+export interface TugSlotLayoutHandle {
+  /** The layout's root span, or `null` before mount / after unmount. */
+  element: HTMLSpanElement | null;
+  /**
+   * Write the arrangement's resting looks straight onto the rendered slots,
+   * without a render. Indexed by slot; anything the array does not cover reads
+   * as `"rest"`, exactly as the `states` prop does.
+   */
+  setStates(states: readonly TugSlotState[]): void;
+}
+
+/* ---------------------------------------------------------------------------
  * TugSlotLayout
  * ---------------------------------------------------------------------------*/
 
-export const TugSlotLayout = React.forwardRef<HTMLSpanElement, TugSlotLayoutProps>(
+export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayoutProps>(
   function TugSlotLayout(
     {
       count,
@@ -100,9 +142,37 @@ export const TugSlotLayout = React.forwardRef<HTMLSpanElement, TugSlotLayoutProp
     },
     ref,
   ) {
+    const rootRef = React.useRef<HTMLSpanElement | null>(null);
+
+    React.useImperativeHandle<TugSlotLayoutHandle, TugSlotLayoutHandle>(
+      ref,
+      () => ({
+        get element() {
+          return rootRef.current;
+        },
+        setStates(next) {
+          const root = rootRef.current;
+          if (root === null) return;
+          const slots = root.querySelectorAll<HTMLElement>('[data-slot="tug-slot"]');
+          slots.forEach((slot, index) => {
+            const want = next[index] ?? "rest";
+            const held = slot.dataset.state as TugSlotState | undefined;
+            if (held === want) return;
+            const form = slot.dataset.exemplar === "true" ? "exemplar" : "control";
+            if (held !== undefined) {
+              slot.classList.remove(tugSlotLookClass(held, form));
+            }
+            slot.classList.add(tugSlotLookClass(want, form));
+            slot.dataset.state = want;
+          });
+        },
+      }),
+      [],
+    );
+
     return (
       <span
-        ref={ref}
+        ref={rootRef}
         data-slot="tug-slot-layout"
         data-count={count}
         data-disabled={disabled ? "true" : undefined}

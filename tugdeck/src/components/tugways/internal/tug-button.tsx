@@ -76,6 +76,22 @@ export type TugButtonEmphasis = "filled" | "outlined" | "ghost" | "tinted" | "pr
 export type TugButtonRole = "accent" | "action" | "agent" | "data" | "danger" | "option";
 
 /**
+ * The compound emphasis × role class a button paints its look through [D02].
+ *
+ * Exported because it is the only definition of that grammar. A caller that
+ * swaps a rendered button's look outside React — a per-frame DOM projection
+ * over children it owns — would otherwise have to restate the template, which
+ * is the token restatement [L20] exists to prevent. `TugButton` itself calls
+ * this, so there is one composition and no second spelling to drift from.
+ */
+export function tugButtonEmphasisClass(
+  emphasis: TugButtonEmphasis,
+  role: TugButtonRole,
+): string {
+  return `tug-button-${emphasis}-${role}`;
+}
+
+/**
  * Set of recognized semantic role values. Used at runtime to disambiguate
  * TugButton's semantic `role` prop from an ARIA role attribute that
  * arrives via Radix `asChild` composition (e.g. `RadioGroupPrimitive.Item`
@@ -1036,7 +1052,7 @@ export const TugButton = React.forwardRef<HTMLButtonElement, TugButtonProps>(fun
   const ariaDisabled = isChainDisabled ? "true" : undefined;
 
   // CSS class composition — compound emphasis-role class [D02]
-  const emphasisRoleClass = `tug-button-${emphasis}-${role}`;
+  const emphasisRoleClass = tugButtonEmphasisClass(emphasis, role);
   const sizeClass = `tug-button-size-${size}`;
   const twoLine = layout !== "single";
   const buttonClassName = cn(

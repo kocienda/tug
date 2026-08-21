@@ -19,6 +19,8 @@
 
 **Round 1 — 2026-08-21, opus.** Reviewed `plan:c760f3af5db5545b`. Lint: 0 errors, 1 warning (fixed — this section). Oriented on: the plan as first written, read against `layout-imposer.ts`'s allocator, `imposer-gauges.ts`, `tug-slot*.tsx`, `masthead-frame.css`, and the app-test harness. Applied: **test-plan sanity** — two steps proposed a "render counter" that does not exist; the harness's real mechanism is the motion census (`notifies`) in `tests/app-test/_harness/index.ts`, and both steps now assert `notifies === 0` during a gesture and exactly one at commit, which is stronger as well as real; a third step mis-described `at0450-imposer-cut-census.test.ts` as a store-write census when it is a *visual cut* detector, corrected to the at0458 pattern (read the committed value mid-gesture). **Holes** — the scrub previews by discrete reveal jumps with no animation in the preview path, which the plan asserted as fine without examining it; now [P07] states the choice, Risk R03 names the failure mode, and Step 6 carries a hand evaluation with the continuous-mapping fallback written down. **Plan quality** — Steps 5 and 6 each independently derived "which slots are in the band"; hoisted to one pure `slotsInBand` beside `firstVisibleFlowSlot`, so the committed render and the live projection cannot disagree. **Coherence** — Step 1's checkpoint contained a test asserting "the larger value", which is not falsifiable; replaced with the arithmetic. **Laws** — [L02] honored (every structural read is `useSyncExternalStore`; the badge and the dots both take the deck snapshot); [L03] honored (gauge element *and* listener registrations are layout effects with paired teardown); [L06]/[L22] honored and load-bearing (per-frame chip looks are a DOM projection, never state — this is the plan's central mechanism); [L07] honored (scrub state in refs); [L20] is the one law the design nearly broke, and [P06]/Risk R02 exist because of it — a consumer stamping over `TugSlot`'s `TugButton` emphasis would have had to restate tokens the primitive owns, so the projection was moved inside `TugSlotLayout`; [L13] is the law behind Risk R03, since a preview path has no animator in it. Deferred: [Q01], the slot affordance for cards with no masthead — a placement question with no correct answer until the masthead form has been lived on.
 
+**Round 2 — 2026-08-21, opus.** Reviewed `plan:51fe39b439b81670`. Lint: 0 errors, 0 warnings on entry and on exit. Oriented on: the git diff since round 1 — the plan is tracked and committed, so the diff is `cc048e2ca..HEAD` over the plan plus the two code commits that landed against it — read against `layout-imposer.ts` (the landed `hairlineOf` / `SLIVER_PX` / `flowSeedTotals` / `FLOW_CLIP_SLACK_PX`), `imposer-gauges.ts`'s `publish` and `publishFlowOffset`, `tug-slot.tsx` / `tug-slot-layout.tsx` / `tug-button.tsx`, `deck-canvas.tsx`'s gauge effect and `FlowRail` mount, and the app-test corpus's numbering. Steps 1–3 are `done` and were read but not touched. Applied: **a hole the tree opened after round 1** — M01 landed and the reported sliver survived it, because nothing clipped the flow strip to the band; the clip landed separately as `739415490`, and the plan still named the allocator as the whole cause. Context now carries both causes and says plainly that M01 was right and incomplete, Dependencies names the clip as landed prerequisite, and Step 7's doctrine bullet now records the clip beside the band rule — `tuglaws/pane-model.md` asserts a few paragraphs above that a card clipped at the band edge IS the affordance, which was arithmetic and not pixels until the clip. **Numbering** — the plan claimed `at0460`/`at0461` for its two new tests, but `at0460-text-card-join-replace.test.ts` landed on `main` after the draft and is the corpus's high-water mark; the plan would have manufactured a fresh `at####` collision in the same step that clears an old one. Renumbered throughout to `at0461-flow-dots`, `at0462-card-slot-badge`, `at0463-miniature-live`, with the reason recorded at [P05]. **Round 1's own fixup, half-applied** — two "render counter" verifications survived in Success Criteria and Exit Criteria after round 1 replaced them everywhere else; both are now the harness motion census. **Coherence with the amendment** — two criteria still demanded `stripPicture` be *minimal*, which [P02] as amended explicitly refuses; both restated as the graded rule, and the worked example extended to show the third clean answer grading admits. **A hole in Spec S03** — the spec said `setStates` rewrites a look "in the component's own vocabulary", which is not true of the control form: `TugSlot` paints through `TugButton`'s compound `tug-button-<emphasis>-<role>` class, so a projection inlining that template is Risk R02 moved one level in rather than removed. S03 now states both forms's paint paths and requires the grammar be exported from `tug-button.tsx` as `tugButtonEmphasisClass`; Step 4, Risk R02 and the Symbol Inventory carry it, with a pinned unit test so the extraction cannot drift a class name. Also caught that `TugSlotLayoutHandle` as specified would have silently replaced the shipped `forwardRef<HTMLSpanElement>` contract — the handle now carries `element`. **Cold reader** — Spec S04 now names the payload the listener receives (the property map, key `--gauge-flow-offset`, a fraction of the band at four places) so Step 6's "turn the fraction back into an offset" is a lookup; Step 5 names the control form explicitly, since which `TugSlot` form the dots use decides which paint path Step 4's projection must write. Laws re-checked and unchanged from round 1: [L02], [L03], [L06]/[L22], [L07], [L13], [L20]. Deferred: nothing new; [Q01] stands.
+
 ---
 
 ### Phase Overview {#phase-overview}
@@ -27,7 +29,11 @@
 
 Flow mode shipped in `roadmap/layout-imposer-polish.md` (milestone M04, landed as `093bd879a`). It works, and three things about it read badly on a live deck.
 
-**The band ends in the middle of a card, by a few pixels.** In a four-up slim flow deck with the Lens on the right and Jots/Overview on the left, a hairline of the fourth card peeks out from under the Lens — not a readable slice of a card, a three-pixel stripe. The cause is precise and is in `allocateSidebarWidths` (`tugdeck/src/lib/layout-imposer.ts`, the space-allocator section): **the allocator short-circuits in flow and returns `Σ preferredWidth` without scanning at all.** Its own comment reasons the case out and reaches the wrong conclusion — every seam *between* cards is exactly `IMPOSITION_GAP_PX` in flow by construction, so `worstOverlap`, `worstShortfall` and `worstError` are all structurally zero, and the objective collapses. All of that is true. What it misses is that none of those three terms measures how the strip meets **the band's far edge**, which is the one thing that can go wrong in flow and cannot go wrong in fit (in fit the travel fractions pin every card inside the band). The allocator is not failing at its job; it was never given this one.
+**The band ends in the middle of a card, by a few pixels.** In a four-up slim flow deck with the Lens on the right and Jots/Overview on the left, a hairline of the fourth card peeks out from under the Lens — not a readable slice of a card, a three-pixel stripe. One cause is precise and is in `allocateSidebarWidths` (`tugdeck/src/lib/layout-imposer.ts`, the space-allocator section): **the allocator short-circuits in flow and returns `Σ preferredWidth` without scanning at all.** Its own comment reasons the case out and reaches the wrong conclusion — every seam *between* cards is exactly `IMPOSITION_GAP_PX` in flow by construction, so `worstOverlap`, `worstShortfall` and `worstError` are all structurally zero, and the objective collapses. All of that is true. What it misses is that none of those three terms measures how the strip meets **the band's far edge**, which is the one thing that can go wrong in flow and cannot go wrong in fit (in fit the travel fractions pin every card inside the band). The allocator is not failing at its job; it was never given this one.
+
+**The other cause was found after M01 landed, and is already fixed on `main`.** M01 shipped, the deck was rebuilt, and the sliver did not go away — which is a fact about this plan a cold reader must have, because the plan as first written named the allocator as the whole story. Measurement on the live deck said why: **nothing clipped the flow strip to the band.** The frames container in `deck-canvas.tsx` is `position: absolute; inset: 0` with no `overflow` and no `clip-path`, and flow panes are absolutely-positioned children of it — so a card straddling the band's far edge painted straight past that edge, on under the rail, and out the far side into the 5px margin the rail stands off the window edge. That margin is precisely the region no rail width can ever cover, since the rail's own position reserves it; widening the Lens could not close it, and M01's boundary alignment was invisible because the band's far edge was a number the compositor never enforced. The fix landed as `739415490`: `imposeStyle`'s flow branch now carries a `clip-path: inset(…)` built from the same live `var()` algebra as the offset clamp, with `FLOW_CLIP_SLACK_PX = 32` holding the clip off an uncut card so pane shadows survive, and `at0454-flow-mode.test.ts`'s fifth pinned thing asserts the margin answers background while the straddling card still paints inside the band.
+
+**M01 was right and stays right** — it is what keeps the band from ending on a hairline at all, and the clip is what makes where it ends visible. M02 leans on the clip in one concrete way: the dots' whole claim is which slots the band is showing, and only with the clip in force does what they claim match what paints.
 
 **The flow rail is parked in a corner and states the wrong thing.** `FlowRail` (`tugdeck/src/components/chrome/flow-rail.tsx`) anchors to the band's right end at `min(45% of canvas, 420px)`, hard-stopped short of the bottom-left corner by `STAMP_CLEARANCE_PX = 420` — a number that was *stated* rather than measured, to clear the host's maker-mode build stamps (`tugapp/Sources/MainWindow.swift`'s `setDevInfo`). It draws each occupied slot at its true fraction of the strip, which with four cards at one width preset is four near-identical boxes carrying no information anyone would act on, and a 1px accent-outlined thumb over them. It is a scrollbar for something nobody wants to scroll, in the one place on the canvas the eye never goes.
 
@@ -50,7 +56,7 @@ There is also a positive discovery that shapes two of the three milestones: **th
 - On a deck that already reads well, the rails do not move at all. Verification: the reference sweep — across 2001 canvas widths of that configuration, the rails move at exactly the widths that carried a hairline and nowhere else.
 - The fit allocator's answers are byte-identical to today's for every configuration in the existing golden tables. Verification: `layout-imposer-solutions.test.ts` golden table unchanged (no `IMPOSER_GOLDEN_UPDATE` regeneration on the fit rows).
 - The flow dots stand centered in the canvas's bottom band, draw exactly `slotCount(kind)` chips, and never overlap the host's bottom-left build stamps at any canvas width ≥ the deck's minimum. Verification: app-test measuring the dots' box against the canvas box.
-- Scrolling the strip by wheel repaints which chips read as on-screen with **zero** React renders of the dots component. Verification: app-test render counter across a wheel gesture, the same shape the miniature's liveness is pinned with.
+- Scrolling the strip by wheel repaints which chips read as on-screen with **zero** React renders of the dots component. Verification: the harness motion census (`notifies`) across a wheel gesture reads 0 while the chips' `data-state` changes — the same mechanism `at0458-miniature-live.test.ts` pins its own liveness with. There is no render counter in the harness; a notify is what a render would have to come from.
 - A masthead-wearing card in a multi-slot imposition shows a badge whose digit equals its pane's `slot + 1`, and clicking a chip in the badge's popup moves the card to that slot and raises it. Verification: app-test driving the popup and reading `deckState.panes`.
 - The badge is absent under one-up and on sidebar/Lens panes. Verification: app-test assertion on both.
 
@@ -79,6 +85,7 @@ There is also a positive discovery that shapes two of the three milestones: **th
 - `TugPopover` / `TugPopoverTrigger` / `TugPopoverContent` — present. `TugPopoverTrigger` composes the child's ref through `composeRefs` (`tugdeck/src/components/tugways/compose-refs.ts`) as of the fix landed on `main`; a trigger that overwrote the child's ref would silently cost the popup's chips their keyboard cursor.
 - The `assign-slot` action, registered in `tugdeck/src/action-dispatch.ts` and routed through `command-registry.ts`, backed by `DeckManager.assignCardToSlot`.
 - `firstVisibleFlowSlot` in `layout-imposer.ts`, landed on `main`.
+- **The flow clip** — `FLOW_CLIP_SLACK_PX` and the `clip-path` in `imposeStyle`'s flow branch (`layout-imposer.ts`), landed on `main` as `739415490`. M02 states which slots the band is showing; without the clip, a straddling card paints outside the band and the statement is false in pixels. Not re-opened here (#context).
 
 #### Constraints {#constraints}
 
@@ -138,7 +145,8 @@ There is also a positive discovery that shapes two of the three milestones: **th
 
 - **Risk:** `TugSlot`'s resting look is a `TugButton` emphasis className. A consumer writing its own live attribute over that would either fail to repaint or repaint by restating tokens the primitive owns — an [L20] violation.
 - **Mitigation:**
-  - The projection is the primitive's, not the consumer's: `TugSlotLayout` exposes an imperative `setStates` handle that rewrites its own children's resting look in its own vocabulary ([P06]). The consumer calls it; it never touches a class or a token.
+  - The projection is the primitive's, not the consumer's: `TugSlotLayout` exposes an imperative `setStates` handle that rewrites its own children's resting look ([P06]). The consumer calls it; it never touches a class or a token.
+  - The one class it does write that is not its own — the control form's `tug-button-<emphasis>-<role>` — is produced by `tugButtonEmphasisClass`, exported from `tug-button.tsx` for this purpose (Spec S03). Restating that template inside `TugSlotLayout` would be this same risk one level in, which is why the plan names the export rather than leaving the implementer to inline it.
   - The committed render remains the fallback truth, so a dropped frame degrades to the committed picture rather than to a stuck one.
 - **Residual risk:** An imperative handle is a second write path into the same nodes as React's render; the ordering rule in Spec S03 is what keeps them from disagreeing.
 
@@ -229,7 +237,7 @@ Measured over the reference configuration (four-up slim, rails both edges) acros
 **Implications:**
 - `rest` and `outlined` mean *visibility* here and *stacking* in the Lens. They are appearance names mapped to `TugButton` emphases; each surface states what they mean for it, and the plan says so rather than pretending one meaning covers both.
 - `flow-rail.tsx` / `flow-rail.css` are deleted, and the `Files` rows for them in `tuglaws/pane-model.md` are replaced.
-- `at0459-flow-rail.test.ts` is rewritten as `at0460-flow-dots.test.ts`, which also clears one of the two `at####` collisions the previous dash introduced.
+- `at0459-flow-rail.test.ts` is rewritten as `at0461-flow-dots.test.ts`, which also clears one of the two `at####` collisions the previous dash introduced. **The numbers are 0461/0462/0463, not 0460 onward:** `at0460-text-card-join-replace.test.ts` landed on `main` after this plan was drafted, and `at0460` is the corpus's current high-water mark — so the first free number is `at0461`. A plan that manufactured a fresh collision while clearing an old one would be worse than leaving both.
 
 #### [P06] Per-frame resting looks are projected by `TugSlotLayout`, driven by a gauge listener (DECIDED) {#p06-live-projection}
 
@@ -295,6 +303,8 @@ Four-up, slim preset (`CONTENT_WIDTH_SLIM_PX = 675`), `IMPOSITION_GAP_PX = 5`, r
 
 That last line is the whole reason the key is lexicographic rather than a single score: among the totals that tile, the one closest to what the user asked for is the answer.
 
+Under [P02] as amended the example still holds, and gains a third clean answer worth seeing: the 3px cut is a hairline (`3 < SLIVER_PX`), so it scores as a defect; `B = 2040` is a boundary and scores 0; and so does *narrowing* to `B = 2072`, which cuts slot 3 into an honest 32px slice. All three of those are reachable, two score 0, and `|T − Σ preferred|` picks between them — 3px of movement beats 29px, so the boundary still wins here. The grading did not change this answer; it changed which answers are allowed to be answers.
+
 #### What the dots say, precisely {#what-the-dots-say}
 
 For a four-up deck with slots 0, 1 and 3 occupied and the band standing over slots 1 and 3:
@@ -353,6 +363,11 @@ Exported for the same reason `seamPicture` is: the objective must be inspectable
 2. `setStates` is the **live** truth and is only called between commits, from a gauge listener.
 3. A commit therefore always overwrites the last live write with an equal or newer answer, because the publisher's final frame and the commit derive from the same offset.
 4. `FlowDots` calls `setStates` on every listener callback and never on render. It does not need to "clear" a live state: the next render supplies it.
+5. **The handle keeps the element ref.** `TugSlotLayout` is `React.forwardRef<HTMLSpanElement, …>` today. A handle that replaced that would silently narrow a shipped primitive's ref contract, so `TugSlotLayoutHandle` carries `element: HTMLSpanElement | null` alongside `setStates`. No consumer passes a ref today (`slot-picker.tsx` and the two spikes do not), so this costs nothing now and keeps the affordance for later.
+
+**How the projection actually writes a look.** `TugSlot` has two forms and they paint differently. Without `onSelect` it is a `<span>` carrying `tug-slot-exemplar-<state>`. With `onSelect` — the form `FlowDots` uses, since a chip is clickable — it is a `TugButton` whose look is the compound class `tug-button-<emphasis>-<role>`, `emphasis` coming from `TugSlot`'s own `STATE_EMPHASIS` map and `role` fixed at `"action"`. Both forms stamp `data-state`. So `setStates` writes two things per chip: `data-state`, which is what the app-tests read, and the one look class that chip's form carries, swapped from the old state's to the new one's.
+
+**The class grammar stays where it lives.** `tug-button-<emphasis>-<role>` is composed inline in `tug-button.tsx` (`emphasisRoleClass`). `TugSlotLayout` must not restate that template: that is the same [L20] restatement Risk R02 exists to prevent, moved one level in rather than removed. Export the composition from `tug-button.tsx` as `tugButtonEmphasisClass(emphasis, role)`, use it at the existing render site so there is one definition, and call it from the projection. The exemplar form's `tug-slot-exemplar-<state>` is `TugSlot`'s own vocabulary and needs no export.
 
 **Spec S04: `registerGaugeListener`** {#s04-gauge-listener}
 
@@ -367,7 +382,8 @@ export function registerGaugeListener(
 - Primed on registration with `latest.get(signal)` when present, exactly as an element registration is — an instrument mounted mid-gesture draws the gesture.
 - `publish` calls every listener for the signal **after** writing the registered elements, with the same value it wrote (`null` retires the signal).
 - The returned teardown removes the listener. It publishes nothing on removal; a listener that stopped listening leaves whatever it last wrote for its own component's next render to correct.
-- The existing `Set.size` fast path in `publish` must now consider listeners too, or a signal with listeners and no elements would never fire.
+- The existing `Set.size` fast path in `publish` must now consider listeners too, or a signal with listeners and no elements would never fire. (`latest.set(signal, values)` already happens before that early return, so priming stays correct either way.)
+- The listener is handed the **same property map the elements are written from**, not a number: for `flow-offset` that is `new Map([["--gauge-flow-offset", "0.1234"]])`, published by `publishFlowOffset` as `flowOffset / flowBand` and fixed to four places. A consumer reads `values.get("--gauge-flow-offset")` and `Number()`s it, then multiplies by the band it holds. Naming this here so Step 6's "turn the published fraction back into an offset" is a lookup rather than a re-derivation.
 
 **Spec S05: `slotsInBand`** {#s05-slots-in-band}
 
@@ -405,8 +421,8 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 | `tugdeck/src/components/chrome/flow-dots.tsx` | `FlowDots` — the centered numbered readout of where the band stands, and the chip click / scrub that move it |
 | `tugdeck/src/components/chrome/flow-dots.css` | The dots' seating in the bottom band and its drag gate |
 | `tugdeck/src/components/tugways/card-slot-badge.tsx` | `CardSlotBadge` — the masthead's slot readout and its slot popup |
-| `tests/app-test/at0460-flow-dots.test.ts` | The dots: seating, registers, liveness, gestures |
-| `tests/app-test/at0461-card-slot-badge.test.ts` | The badge: presence rules, digit, popup assignment |
+| `tests/app-test/at0461-flow-dots.test.ts` | The dots: seating, registers, liveness, gestures |
+| `tests/app-test/at0462-card-slot-badge.test.ts` | The badge: presence rules, digit, popup assignment |
 
 #### Files removed {#removed-files}
 
@@ -414,7 +430,7 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 |------|-------------|
 | `tugdeck/src/components/chrome/flow-rail.tsx` | `flow-dots.tsx` |
 | `tugdeck/src/components/chrome/flow-rail.css` | `flow-dots.css` |
-| `tests/app-test/at0459-flow-rail.test.ts` | `at0460-flow-dots.test.ts` |
+| `tests/app-test/at0459-flow-rail.test.ts` | `at0461-flow-dots.test.ts` |
 
 #### Symbols to add / modify {#symbols}
 
@@ -427,7 +443,8 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 | `allocateSidebarWidths` | fn | `tugdeck/src/lib/layout-imposer.ts` | Flow removed from the short-circuit condition |
 | `registerGaugeListener` | fn | `tugdeck/src/lib/imposer-gauges.ts` | Spec S04 |
 | `publish` | fn | `tugdeck/src/lib/imposer-gauges.ts` | Fires listeners; fast path considers them |
-| `TugSlotLayoutHandle` | interface | `tugdeck/src/components/tugways/tug-slot-layout.tsx` | `{ setStates(states: readonly TugSlotState[]): void }` |
+| `TugSlotLayoutHandle` | interface | `tugdeck/src/components/tugways/tug-slot-layout.tsx` | `{ element: HTMLSpanElement \| null; setStates(states: readonly TugSlotState[]): void }` — the element is kept because the component forwards `HTMLSpanElement` today (Spec S03) |
+| `tugButtonEmphasisClass` | fn | `tugdeck/src/components/tugways/internal/tug-button.tsx` | Exports the existing inline `tug-button-${emphasis}-${role}` composition so the projection can swap a look without restating it ([L20], Spec S03) |
 | `TugSlotLayout` | component | `tugdeck/src/components/tugways/tug-slot-layout.tsx` | `forwardRef` to the handle; projects its own children's looks |
 | `FlowDots` | component | `tugdeck/src/components/chrome/flow-dots.tsx` | [P05], [P06], [P07] |
 | `CardSlotBadge` | component | `tugdeck/src/components/tugways/card-slot-badge.tsx` | [P08] |
@@ -439,7 +456,7 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 
 - [ ] `tuglaws/pane-model.md` — rewrite the "In flow the deck says where it stands" paragraph for the dots (centered, all `count` chips, two registers, no accent, `TugSlotLayout`-composed).
 - [ ] `tuglaws/pane-model.md` — edit the "Three gestures move the strip" paragraph: the thumb clause becomes the scrub clause; chip click and wheel unchanged.
-- [ ] `tuglaws/pane-model.md` — add a paragraph stating the band rule: in flow the rails absorb the residual so the band ends on a card boundary, and the allocator scores that rather than the seams.
+- [ ] `tuglaws/pane-model.md` — add a paragraph stating the band rule, which has two halves and currently records neither: the rails absorb the residual so the band never ends on a hairline of a card (graded, not minimised — an honest slice is a clean answer, [P02] as amended), **and the band clips** — a flow pane's ink stops at the band edges through `imposeStyle`'s `clip-path`, which is what makes "the half-visible card IS the affordance" (already asserted a few paragraphs up, for columns) true in pixels rather than only in arithmetic.
 - [ ] `tuglaws/pane-model.md` — replace the two `flow-rail.*` Files rows with `flow-dots.*`, and add `card-slot-badge.tsx`.
 - [ ] `tuglaws/pane-model.md` — extend the gauge-channel paragraph with the listener registration and what it is for.
 
@@ -454,12 +471,12 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 | **Unit** | `stripPicture`'s arithmetic, the flow key, the flow tier, `registerGaugeListener`'s lifecycle | `tugdeck/src/lib/__tests__/` |
 | **Exhaustive sweep** | The flow scan finds what a 1px search finds; the invariant order still holds | `layout-imposer-solutions.test.ts` |
 | **Golden / drift** | Fit answers byte-unchanged; flow answers snapshotted so a retune reads as a diff | `layout-imposer-solutions.test.ts`, `layout-imposer-flow.test.ts` |
-| **App-test** | The picture on a real deck: seating, registers, liveness, gestures, badge behavior | `tests/app-test/at0460`, `at0461` |
+| **App-test** | The picture on a real deck: seating, registers, liveness, gestures, badge behavior | `tests/app-test/at0461`, `at0462` |
 
 #### What stays out of tests {#test-non-goals}
 
 - No jsdom render tests of `FlowDots` or `CardSlotBadge`. Both are geometry-and-appearance components; a fake DOM would assert the props rather than the picture, which is the banned shape.
-- No assertion on the exact rail widths the flow scan chooses for a given canvas width outside the golden table. The property (`worstSliver` minimal, `Σ preferred` breaking ties) is what is asserted; the number is drift-netted, not specified.
+- No assertion on the exact rail widths the flow scan chooses for a given canvas width outside the golden table. The property (`hairlineOf(worstSliver) === 0` where reachable, `Σ preferred` breaking ties) is what is asserted; the number is drift-netted, not specified.
 - No mid-transition style reads on the dots. A settle animates the strip's crossing after a chip click; assertions read the committed offset and the projected states, never an interpolated paint.
 
 ---
@@ -473,10 +490,10 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 | #step-1 | M01 — the flow picture, pure | done | `0e8187fbc` |
 | #step-2 | M01 — the allocator scans in flow | done | `ecc71755c` |
 | #step-3 | M01 — integration checkpoint | done | `481416b77` |
-| #step-4 | M02 — the gauge listener and the layout's own projection | pending | — |
-| #step-5 | M02 — flow dots replace the rail | pending | — |
-| #step-6 | M02 — the dots go live and take the gestures | pending | — |
-| #step-7 | M02 — integration checkpoint | pending | — |
+| #step-4 | M02 — the gauge listener and the layout's own projection | done | `7202547ed` |
+| #step-5 | M02 — flow dots replace the rail | done | `4e5e85e3f` |
+| #step-6 | M02 — the dots go live and take the gestures | done | `0cd0953fe` |
+| #step-7 | M02 — integration checkpoint | done | `62b0f40c2` |
 | #step-8 | M03 — the slot badge in the masthead frame | pending | — |
 | #step-9 | M03 — the badge's slot popup | pending | — |
 | #step-10 | M03 — integration checkpoint | pending | — |
@@ -580,12 +597,15 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 **Tasks:**
 - [ ] Implement Spec S04. Prime a late listener from `latest`; fire listeners after the element writes; make `publish`'s fast path consider listeners as well as elements, or a listener-only signal never fires.
 - [ ] Document the listener in the module doc beside the element registration, stating what it is for: a consumer whose live state is a *threshold* over the published fraction, which CSS cannot express.
-- [ ] Implement `TugSlotLayoutHandle.setStates` inside `TugSlotLayout` — it rewrites its own children's resting look in the component's own vocabulary, never through a consumer-supplied class or token ([L20], Risk R02).
+- [ ] Export `tugButtonEmphasisClass(emphasis, role)` from `tug-button.tsx` and use it at the existing `emphasisRoleClass` site, so the compound-class grammar has exactly one definition ([L20], Spec S03).
+- [ ] Implement `TugSlotLayoutHandle` — `{ element, setStates }` — inside `TugSlotLayout`, forwarding through `useImperativeHandle` over the span ref it already holds. Keep `element` (Spec S03, point 5).
+- [ ] `setStates` writes each chip's `data-state` and swaps the one look class its form carries: `tug-slot-exemplar-<state>` on the exemplar span, `tugButtonEmphasisClass(STATE_EMPHASIS[state], "action")` on the control form's button. It never restates a token and never takes a class from a consumer ([L20], Risk R02).
 - [ ] State Spec S03's ordering rule in `tug-slot-layout.tsx`'s module doc: render is committed truth, the handle is live truth between commits, and a commit always supersedes.
 
 **Tests:**
 - [ ] Unit: a listener registered before a publish receives it; one registered mid-gesture is primed with `latest`; teardown stops delivery; a `null` publish reaches listeners; a signal with listeners and no elements still fires.
 - [ ] Unit: `gaugeSubscriberCount` semantics unchanged for elements.
+- [ ] Unit: `tugButtonEmphasisClass` returns exactly the string the render site composed before the export, pinned over the emphasis × role matrix, so the extraction cannot drift a class name.
 - [ ] App-test case in the existing gauge coverage asserting `setStates` changes a chip's `data-state` while the harness motion census reports `notifies === 0` across the call — the mechanism `at0458-miniature-live.test.ts` already uses for exactly this claim (`tests/app-test/_harness/index.ts`). There is no render counter in the harness; a notify is what a render would have to come from, so this is the assertion that means it.
 
 **Checkpoint:**
@@ -606,25 +626,25 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 - `slotsInBand` in `layout-imposer.ts`, beside `firstVisibleFlowSlot`.
 - `flow-dots.tsx` / `flow-dots.css`; `flow-rail.tsx` / `flow-rail.css` deleted.
 - `deck-canvas.tsx` mounting `FlowDots`.
-- `at0459-flow-rail.test.ts` rewritten as `at0460-flow-dots.test.ts`.
+- `at0459-flow-rail.test.ts` rewritten as `at0461-flow-dots.test.ts`.
 
 **Tasks:**
 - [ ] Implement Spec S05's `slotsInBand`, reusing `FlowVisibleInput`. Both this step's render and Step 6's listener read it — do not derive the in-band test twice.
-- [ ] Author `FlowDots`: a `TugSlotLayout` of `slotCount(kind)` chips, resting looks from `slotsInBand` over the committed `flowOffset`, centered in the canvas's bottom band at the rail's existing 8px inset.
+- [ ] Author `FlowDots`: a `TugSlotLayout` of `slotCount(kind)` chips in its **control form** — it passes `onSelectSlot`, because a chip is clickable ([P07]) — with resting looks from `slotsInBand` over the committed `flowOffset`, centered in the canvas's bottom band at the rail's existing 8px inset. The form matters beyond the click: a control-form chip is a `TugButton` and paints through the emphasis class, which is the path Step 4's projection writes (Spec S03).
 - [ ] Keep the rail's mount condition in `deck-canvas.tsx`: the dots stand only when there is a flow strip and a band (`flowStrip !== null && flowBandPx !== null && flowBandPx > 0`). Flow is a mode bit, and a fit deck has no strip to report.
 - [ ] Register the root as a gauge element for `flow-offset` in a layout effect ([L03]) — this is what inherits the `data-gauge-drag` gate; keep the rail's `pointer-events: none` rule under it.
 - [ ] Delete `STAMP_CLEARANCE_PX`, `RAIL_BAND_SHARE`, `RAIL_MAX_WIDTH_PX`, the proportional position/width math, and the thumb along with `flow-rail.*`.
 - [ ] Swap the mount in `deck-canvas.tsx`; leave `previewFlowOffset`, `commitFlowOffset` and the wheel effect untouched.
-- [ ] Renumber the previous dash's other colliding test: `at0458-miniature-live.test.ts` → `at0462-miniature-live.test.ts`, keeping its `@covers` header intact.
+- [ ] Renumber the previous dash's other colliding test: `at0458-miniature-live.test.ts` → `at0463-miniature-live.test.ts`, keeping its `@covers` header intact.
 
 **Tests:**
-- [ ] `at0460-flow-dots.test.ts` with a `@covers` header naming `flow-dots.tsx`: the dots stand centered (their box's center within a pixel of the canvas's), sit 8px off the canvas bottom, draw exactly `slotCount(kind)` chips, and clear the canvas's bottom-left corner by the width of the stamps at the deck's minimum width.
+- [ ] `at0461-flow-dots.test.ts` with a `@covers` header naming `flow-dots.tsx`: the dots stand centered (their box's center within a pixel of the canvas's), sit 8px off the canvas bottom, draw exactly `slotCount(kind)` chips, and clear the canvas's bottom-left corner by the width of the stamps at the deck's minimum width.
 - [ ] Unit: `slotsInBand` over a known strip — a slot wholly inside, one clipped at each edge, one wholly outside, an unoccupied slot, an empty strip, a zero band.
 - [ ] A case asserting the resting looks for a known strip and offset match [P05]'s rule (occupied-and-in-band → `outlined`, everything else → `rest`).
 - [ ] `just app-test-covers-check`.
 
 **Checkpoint:**
-- [ ] `just app-test at0460-flow-dots.test.ts` green.
+- [ ] `just app-test at0461-flow-dots.test.ts` green.
 - [ ] `bunx vite build` clean; no reference to `flow-rail` remains (`grep -r flow-rail tugdeck tests` empty).
 
 ---
@@ -648,13 +668,13 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 - [ ] Confirm the wheel gesture in `deck-canvas.tsx` still repaints the dots — it publishes `flow-offset`, so the listener carries it with no further wiring.
 
 **Tests:**
-- [ ] `at0460-flow-dots.test.ts`: mid-wheel-gesture, the chips' `data-state` has changed while the committed `flowOffset` read off `window.tugdeck.diag.getDeckState()` is unchanged and the harness motion census reports `notifies === 0` — the at0458 pattern, which is the claim "the picture moved without one store notify".
+- [ ] `at0461-flow-dots.test.ts`: mid-wheel-gesture, the chips' `data-state` has changed while the committed `flowOffset` read off `window.tugdeck.diag.getDeckState()` is unchanged and the harness motion census reports `notifies === 0` — the at0458 pattern, which is the claim "the picture moved without one store notify".
 - [ ] A chip click commits exactly the `flowRevealOffset` answer, and a chip already fully in the band commits nothing.
 - [ ] A scrub across chips: `notifies === 0` while the hand is down, exactly one after release, and the committed offset equals the last previewed one.
 - [ ] A case asserting the dots take no pointer events while `data-gauge-drag` is stamped.
 
 **Checkpoint:**
-- [ ] `just app-test at0460-flow-dots.test.ts at0450-imposer-cut-census.test.ts` green.
+- [ ] `just app-test at0461-flow-dots.test.ts at0450-imposer-cut-census.test.ts` green.
 - [ ] `cd tugdeck && bun test` green; `bunx vite build` clean.
 - [ ] **Hand evaluation of the scrub on a debug build (Risk R03).** Scrub slowly and fast across the chips and judge whether the slot-sized jumps read as paging or as stutter. Record the verdict. If it reads as stutter, adopt the named fallback — map the pointer's travel across the dots row continuously onto the strip offset and snap to a slot only at release — which is a change confined to `FlowDots`.
 
@@ -704,11 +724,11 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 - [ ] Record in the component doc why absence is right here and why it does not contradict the previous plan's register-not-component rule ([P08]).
 
 **Tests:**
-- [ ] `at0461-card-slot-badge.test.ts` with a `@covers` header: the badge's digit equals the pane's `slot + 1` under a multi-slot imposition; it is absent under one-up; it is absent on the Lens pane; it sits inside the masthead frame's leading column and below the phase dot (box comparison).
+- [ ] `at0462-card-slot-badge.test.ts` with a `@covers` header: the badge's digit equals the pane's `slot + 1` under a multi-slot imposition; it is absent under one-up; it is absent on the Lens pane; it sits inside the masthead frame's leading column and below the phase dot (box comparison).
 - [ ] `just app-test-covers-check`.
 
 **Checkpoint:**
-- [ ] `just app-test at0461-card-slot-badge.test.ts` green.
+- [ ] `just app-test at0462-card-slot-badge.test.ts` green.
 - [ ] `bunx tsc --noEmit` clean; `bunx vite build` clean.
 
 ---
@@ -730,11 +750,11 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 - [ ] Confirm the trigger composes the child's ref rather than replacing it. `TugPopoverTrigger` uses `composeRefs`; a regression there costs the chips their movement cursor silently, which is the failure `compose-refs.ts`'s doc records.
 
 **Tests:**
-- [ ] `at0461-card-slot-badge.test.ts`: clicking the badge opens the popup; clicking chip N moves the pane to slot N−1 and raises it (assert `deckState.panes`); the badge's digit updates to N.
+- [ ] `at0462-card-slot-badge.test.ts`: clicking the badge opens the popup; clicking chip N moves the pane to slot N−1 and raises it (assert `deckState.panes`); the badge's digit updates to N.
 - [ ] A keyboard case: the popup's chips carry `data-key-cursor` when the group holds the key view — the direct regression guard for the ref-composition failure.
 
 **Checkpoint:**
-- [ ] `just app-test at0461-card-slot-badge.test.ts` green.
+- [ ] `just app-test at0462-card-slot-badge.test.ts` green.
 - [ ] `cd tugdeck && bun test` green; `bunx vite build` clean.
 
 ---
@@ -770,19 +790,19 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 
 #### Phase Exit Criteria ("Done means…") {#exit-criteria}
 
-- [ ] `stripPicture` is minimal at the chosen rail total, and the fit golden table is byte-unchanged (verification: `layout-imposer-solutions.test.ts`).
+- [ ] `hairlineOf(stripPicture(...).worstSliver)` is 0 at the chosen rail total whenever the rails' range can reach 0, and the fit golden table is byte-unchanged (verification: `layout-imposer-solutions.test.ts`). **Not "minimal":** [P02] as amended grades the sliver rather than minimising it, so a total that cuts an honest slice is a passing answer and a total that shaves a slice thinner is not a better one.
 - [ ] The reference four-up slim flow deck shows no clipped hairline under the Lens (verification: hand pass, recorded measurement).
 - [ ] Rail widths are constant across a wheel gesture (verification: hand pass).
-- [ ] The dots stand centered, draw `slotCount(kind)` chips, and clear the host's stamp corner (verification: at0460).
-- [ ] A wheel gesture repaints the dots with zero renders (verification: at0460 render counter).
-- [ ] Chip click, scrub, and wheel each write the store exactly once per gesture (verification: at0460 + at0450 census).
-- [ ] The badge names the right slot, is absent where there is no slot, and assigns through its popup (verification: at0461).
+- [ ] The dots stand centered, draw `slotCount(kind)` chips, and clear the host's stamp corner (verification: at0461).
+- [ ] A wheel gesture repaints the dots with zero renders (verification: at0461, motion census `notifies === 0`).
+- [ ] Chip click, scrub, and wheel each write the store exactly once per gesture (verification: at0461 + at0450 census).
+- [ ] The badge names the right slot, is absent where there is no slot, and assigns through its popup (verification: at0462).
 - [ ] `tuglaws/pane-model.md` describes the dots, the scrub, the band rule, and the gauge listener; nothing in it still describes the rail.
 
 **Acceptance tests:**
 - [ ] `cd tugdeck && bun test` — green.
 - [ ] `bunx tsc --noEmit` and `bunx vite build` — clean.
-- [ ] `just app-test at0460-flow-dots.test.ts at0461-card-slot-badge.test.ts at0450-imposer-cut-census.test.ts` — green.
+- [ ] `just app-test at0461-flow-dots.test.ts at0462-card-slot-badge.test.ts at0450-imposer-cut-census.test.ts` — green.
 - [ ] `just app-test-changed` over the final diff — green.
 
 #### Roadmap / Follow-ons (Explicitly Not Required for Phase Close) {#roadmap}
@@ -795,5 +815,5 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 | Checkpoint | Verification |
 |------------|--------------|
 | M01 band stops slivering | solutions sweep + golden tables + hand pass |
-| M02 flow dots | at0460 + at0450 census + hand pass |
-| M03 masthead slot badge | at0461 + hand pass |
+| M02 flow dots | at0461 + at0450 census + hand pass |
+| M03 masthead slot badge | at0462 + hand pass |

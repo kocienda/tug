@@ -1,5 +1,5 @@
 /**
- * at0458-miniature-live.test.ts — the Lens miniature is an instrument, not a
+ * at0463-miniature-live.test.ts — the Lens miniature is an instrument, not a
  * diagram.
  *
  * The committed drawing has always been able to show where the deck STOOD at
@@ -167,11 +167,11 @@ const describe_ = (box: Box | null): string =>
 const titleBar = (paneId: string): string =>
   `.tug-pane[data-pane-id="${paneId}"] .tug-pane-title-bar`;
 
-describe.skipIf(!SHOULD_RUN)("at0458 — the miniature is live", () => {
+describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live", () => {
   test(
     "a strip sliding under the hand slides the drawing, with nothing committed",
     async () => {
-      const app = await launchTugApp({ testName: "at0458-miniature-live" });
+      const app = await launchTugApp({ testName: "at0463-miniature-live" });
       try {
         await openDeck(app);
 
@@ -347,7 +347,7 @@ describe.skipIf(!SHOULD_RUN)("at0458 — the miniature is live", () => {
   test(
     "the drawing mirrors the drag itself, and retires it with the gesture",
     async () => {
-      const app = await launchTugApp({ testName: "at0458-miniature-live" });
+      const app = await launchTugApp({ testName: "at0463-miniature-live" });
       try {
         await openDeck(app);
 
@@ -506,7 +506,7 @@ describe.skipIf(!SHOULD_RUN)("at0458 — the miniature is live", () => {
   test(
     "the flow window reads the offset off the same channel",
     async () => {
-      const app = await launchTugApp({ testName: "at0458-miniature-live" });
+      const app = await launchTugApp({ testName: "at0463-miniature-live" });
       try {
         await openDeck(app, "flow");
         // Revealing the last card slides the strip — a committed move, which

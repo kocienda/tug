@@ -45,7 +45,7 @@ import { CardHost } from "./card-host";
 import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
-import { FlowRail } from "./flow-rail";
+import { FlowDots } from "./flow-dots";
 import { usePaneFocusController } from "./pane-focus-controller";
 import { usePaneOcclusionController } from "./pane-occlusion-controller";
 import {
@@ -3552,13 +3552,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           />
         );
       })}
-      {/* The flow rail: where the deck stands in its own strip, in the bottom
-          band the imposition already keeps clear ([P10]). Mounted whenever the
-          layout is flow — a strip that fits its band gets the quiet register,
-          not an absent rail — and never in fit, where there is no strip to
-          stand in. */}
-      {flowStrip !== null && flowBandPx !== null && flowBandPx > 0 ? (
-        <FlowRail
+      {/* The flow dots: which slots the deck has, and which of them the band is
+          showing, in the bottom band the imposition already keeps clear.
+          Mounted whenever there is a strip and a band to report on, and never
+          in fit, where there is no strip to stand in. */}
+      {flowStrip !== null &&
+      flowBandPx !== null &&
+      flowBandPx > 0 &&
+      impositionKind !== undefined ? (
+        <FlowDots
+          count={slotCount(impositionKind)}
           strip={flowStrip}
           band={flowBandPx}
           offset={flowOffset}

@@ -38,8 +38,8 @@ import "./tug-slot.css";
 import React from "react";
 
 import { cn } from "@/lib/utils";
-import { TugButton } from "./internal/tug-button";
-import type { TugButtonEmphasis } from "./internal/tug-button";
+import { TugButton, tugButtonEmphasisClass } from "./internal/tug-button";
+import type { TugButtonEmphasis, TugButtonRole } from "./internal/tug-button";
 
 /* ---------------------------------------------------------------------------
  * Types
@@ -58,6 +58,31 @@ const STATE_EMPHASIS: Record<TugSlotState, TugButtonEmphasis> = {
   outlined: "outlined",
   filled: "filled",
 };
+
+/** The color domain every slot composes. A slot is a place, not an accent. */
+const SLOT_ROLE: TugButtonRole = "action";
+
+/** Which of the two forms a rendered slot is — they paint through different
+ *  classes, so anything rewriting a look has to know which one it holds. */
+export type TugSlotForm = "exemplar" | "control";
+
+/**
+ * The one class a slot of `form` paints `state` through.
+ *
+ * A slot's `data-state` is the fact; this is the look. It lives here because
+ * which class carries a resting look is `TugSlot`'s own knowledge: the exemplar
+ * span wears this file's vocabulary, and the control form wears the compound
+ * emphasis × role class `TugButton` composes — taken from that component rather
+ * than restated, so the grammar keeps one definition ([L20]).
+ *
+ * `TugSlotLayout` calls this when it projects live looks onto children it
+ * rendered. Nothing outside the pair should need it.
+ */
+export function tugSlotLookClass(state: TugSlotState, form: TugSlotForm): string {
+  return form === "exemplar"
+    ? `tug-slot-exemplar-${state}`
+    : tugButtonEmphasisClass(STATE_EMPHASIS[state], SLOT_ROLE);
+}
 
 /* ---------------------------------------------------------------------------
  * TugSlotProps
@@ -146,7 +171,7 @@ export const TugSlot = React.forwardRef<HTMLElement, TugSlotProps>(
         ref={ref as React.Ref<HTMLButtonElement>}
         subtype="text"
         emphasis={STATE_EMPHASIS[state]}
-        role="action"
+        role={SLOT_ROLE}
         size="2xs"
         rounded="none"
         disabled={disabled}

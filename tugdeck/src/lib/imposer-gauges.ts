@@ -33,8 +33,16 @@
  * `var(--gauge-…, <committed fallback>)`: with no publisher ever having run,
  * the drawing stands at its committed truth and nothing has to prime it.
  *
- * Publishing is free when nobody is listening — every publisher takes the
- * `Set.size` fast path out before it formats a number. Registration is a
+ * Not every instrument can be served by a custom property. A consumer whose
+ * live state is a THRESHOLD over the published fraction — "is this slot inside
+ * the band right now?" — needs a comparison, and CSS has none that yields a
+ * value an emphasis system can read. `registerGaugeListener` is that consumer's
+ * door: it hands the published map to a callback, which derives the discrete
+ * state and projects it onto the DOM itself. Still no store, no state, no
+ * render — the same [L06] mechanism, one step further from CSS.
+ *
+ * Publishing is free when nobody is listening — `publish` takes a fast path out
+ * when neither an element nor a listener is registered for the signal. Registration is a
  * layout-effect concern ([L03]) and its teardown REMOVES the properties it
  * published, so a remounted gauge starts at rest rather than at whatever the
  * last drag left behind.
@@ -63,6 +71,13 @@ export type GaugeSignal =
   | "drag-frame"
   | "drag-zone";
 
+/**
+ * A consumer that takes a signal's value in JS rather than through CSS. It is
+ * handed the same property map the elements are written from, and `null` when
+ * the signal retires.
+ */
+export type GaugeListener = (values: ReadonlyMap<string, string> | null) => void;
+
 /** The signal a given slot's column offset publishes on. */
 export function columnOffsetSignal(slot: number): GaugeSignal {
   return `column-offset:${slot}`;
@@ -86,6 +101,13 @@ export function gaugeProperties(signal: GaugeSignal): readonly string[] {
 /** Registered elements, per signal. Module-level and deliberately not a store:
  *  a subscription list that renders nothing needs no notification machinery. */
 const subscribers = new Map<GaugeSignal, Set<HTMLElement>>();
+
+/** Registered listeners, per signal. An instrument whose live state is a
+ *  THRESHOLD over the published fraction cannot be served by a custom property:
+ *  CSS has no comparison that yields a boolean an emphasis system can read. Such
+ *  a consumer takes the value in JS, derives its discrete state, and projects it
+ *  onto the DOM itself. */
+const listeners = new Map<GaugeSignal, Set<GaugeListener>>();
 
 /** The last value published per signal, so a late registration draws the
  *  gesture already in progress rather than the rest state. */
@@ -134,6 +156,40 @@ export function gaugeSubscriberCount(signal: GaugeSignal): number {
   return subscribers.get(signal)?.size ?? 0;
 }
 
+/** How many listeners are registered for `signal`. */
+export function gaugeListenerCount(signal: GaugeSignal): number {
+  return listeners.get(signal)?.size ?? 0;
+}
+
+/**
+ * Register `fn` for `signal` and return the unregistration.
+ *
+ * The callback receives the same property map the registered elements are
+ * written from — for `flow-offset` a one-entry map keyed `--gauge-flow-offset`
+ * carrying a fraction of the band at four decimal places — or `null` when the
+ * signal retires.
+ *
+ * A late listener is primed from the standing value exactly as a late element
+ * is, so an instrument mounted mid-gesture derives the gesture rather than the
+ * rest state. The teardown publishes nothing: a listener that stopped listening
+ * leaves whatever it last wrote for its own component's next render to correct.
+ */
+export function registerGaugeListener(
+  signal: GaugeSignal,
+  fn: GaugeListener,
+): () => void {
+  const set = listeners.get(signal) ?? new Set<GaugeListener>();
+  set.add(fn);
+  listeners.set(signal, set);
+  const standing = latest.get(signal);
+  if (standing !== undefined) fn(standing);
+  return () => {
+    const live = listeners.get(signal);
+    live?.delete(fn);
+    if (live !== undefined && live.size === 0) listeners.delete(signal);
+  };
+}
+
 /** Write one signal's properties onto every element registered for it. `null`
  *  retires the signal: the properties come off and the fallbacks take over. */
 function publish(
@@ -141,16 +197,28 @@ function publish(
   values: ReadonlyMap<string, string> | null,
 ): void {
   const set = subscribers.get(signal);
+  const heard = listeners.get(signal);
   latest.set(signal, values);
-  if (set === undefined || set.size === 0) return;
-  for (const el of set) {
-    if (values === null) {
-      for (const property of gaugeProperties(signal)) {
-        el.style.removeProperty(property);
+  // The fast path has to count listeners as well as elements, or a signal
+  // nothing draws in CSS but something derives in JS would never fire.
+  if ((set === undefined || set.size === 0) && (heard === undefined || heard.size === 0)) {
+    return;
+  }
+  if (set !== undefined) {
+    for (const el of set) {
+      if (values === null) {
+        for (const property of gaugeProperties(signal)) {
+          el.style.removeProperty(property);
+        }
+        continue;
       }
-      continue;
+      for (const [property, value] of values) el.style.setProperty(property, value);
     }
-    for (const [property, value] of values) el.style.setProperty(property, value);
+  }
+  // Listeners run after the elements, so a listener that reads the DOM sees the
+  // frame the elements are already drawing.
+  if (heard !== undefined) {
+    for (const fn of heard) fn(values);
   }
 }
 
