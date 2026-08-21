@@ -1,10 +1,11 @@
 
-The join-arc at the end of the work to implement a dash still needs major work. 
+The join-arc at the end of the work to implement a dash still needs major work. My notes:
 
 - We are not communicating anywhere near the extent that we need to. We strand the user at the ned of the dash steps, while we freaking *build and test again*, when basically every dash ends with a build/integration/test step. WE MUST STOP THIS. It adds a multi-minute process to the end of a dash implementation that provides *utterly dubious value*. We just build and test again exactly what we just built and tested. And for sure, the app-tests are a F&*%^#$ ***boat anchor***. We must not gate dash joins on these test runs beyond what we do while implementing the dash plans themselves. WE MUST NOT tack on more app-tests as a gate to the join process.
 - When the join dialog presents itself, and if I choose join, we give *no indication* or either progress or success. The user is left *wondering* what happened, and whether the dash joined or not.
-- Sometimes the session doesn't present the join dialog at all, espcially when we've implemented a miletsone in a multi-milestone dash plan.
-- I saw this in a session just now... WTF does this even mean: "One thing to know: `tugutil dash step` warned each time that it **could not bind this session to the dash**, because this session works the base checkout.". This seems utterly confused. 
+- Sometimes the session doesn't present the join dialog at all, especially when we've implemented a miletsone in a multi-milestone dash plan. 
+- Other times, and the end of some dash implementation work, the model instead offers the `dash-join [foo]` chip instead of the dialog. 
+- I saw this in a session just now... WTF does this even mean: "One thing to know: `tugutil dash step` warned each time that it **could not bind this session to the dash**, because this session works the base checkout.". This seems utterly confused. The tools need to be more supple. And then.... this again: "**One thing I should flag.** `tugutil dash bind` refused with *“session … works /…/tugtool — it cannot bind a dash in /…/worktrees/step-consistency”* when I ran the step verb from inside the worktree. That’s the cross-project guard from the last arc doing something slightly wrong: it compares the session’s project against whatever root the verb resolved from, and running inside a worktree makes the worktree look like the project. Binding from the repo root worked. The dash was unbound for its first two steps because of it, which means the join arc wouldn’t have piloted it. It’s a real gap in the binding work, not this plan’s — worth its own fix."
 
 
 
