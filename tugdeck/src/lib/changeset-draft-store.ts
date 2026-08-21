@@ -30,6 +30,7 @@ import { useSyncExternalStore } from "react";
 import type { TugConnection } from "../connection";
 import type { ChangesetDraftSelection } from "./changeset-types";
 import { FeedId } from "../protocol";
+import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
 export type DraftOverlayPhase = "idle" | "drafting" | "ready" | "error";
 
@@ -58,6 +59,23 @@ const DRAFT_STALL_MS = 90_000;
  *  composer re-opens for typing and Auto-Message can be requested again. */
 const STALLED_DETAIL = "Auto-Message stalled — try again";
 
+/**
+ * Backoff between retries of a draft write that never reached an OPEN
+ * socket, capped at the last entry. A write is the user's typed message —
+ * the one thing this store must never drop — so retries continue at the cap
+ * (and flush immediately on reconnect) rather than giving up.
+ */
+const WRITE_RETRY_BACKOFF_MS = [250, 500, 1_000, 2_000, 4_000] as const;
+
+/** Attempts before the store warns that a write is still unsent. */
+const WRITE_WARN_ATTEMPTS = 6;
+
+/** One key's not-yet-sent `changeset_draft_set` body; latest write wins. */
+interface PendingDraftWrite {
+  body: Record<string, unknown>;
+  attempts: number;
+}
+
 function overlayKey(workspaceKey: string, ownerKind: string, ownerId: string): string {
   return `${workspaceKey}|${ownerKind}|${ownerId}`;
 }
@@ -73,6 +91,8 @@ export class ChangesetDraftStore {
   private readonly _listeners = new Set<() => void>();
   private _overlays = new Map<string, DraftOverlay>();
   private readonly _stallTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly _pendingWrites = new Map<string, PendingDraftWrite>();
+  private readonly _writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
@@ -90,7 +110,15 @@ export class ChangesetDraftStore {
     this._unsubscribeDisconnect =
       typeof connection.onDisconnectState === "function"
         ? connection.onDisconnectState((state) => {
-            if (state.disconnected) this._foldStaleDrafting();
+            if (state.disconnected) {
+              this._foldStaleDrafting();
+            } else {
+              // The wire is back: flush every write the closed socket
+              // refused, ahead of its backoff timer.
+              for (const key of [...this._pendingWrites.keys()]) {
+                this._flushDraftWrite(key);
+              }
+            }
           })
         : () => {};
   }
@@ -163,7 +191,7 @@ export class ChangesetDraftStore {
       clear?: boolean;
     },
   ): void {
-    this._connection.sendControlFrame("changeset_draft_set", {
+    const body: Record<string, unknown> = {
       workspace_key: workspaceKey,
       owner_kind: ownerKind,
       owner_id: ownerId,
@@ -171,7 +199,61 @@ export class ChangesetDraftStore {
       ...(fields.selection !== undefined ? { selection: fields.selection } : {}),
       edited: fields.edited === true,
       ...(fields.clear === true ? { clear: true } : {}),
-    });
+    };
+    // Latest write wins per key: a retry must never resend a superseded
+    // message over a newer one. Attempts carry across supersession so the
+    // unsent-write warning still fires on a wire that stays down.
+    const key = overlayKey(workspaceKey, ownerKind, ownerId);
+    const prior = this._pendingWrites.get(key);
+    this._pendingWrites.set(key, { body, attempts: prior?.attempts ?? 0 });
+    this._flushDraftWrite(key);
+  }
+
+  /**
+   * Send one key's pending `changeset_draft_set`, or arm the retry that
+   * follows a socket that was not OPEN. A durable write, not a shrug: the
+   * body is the user's message, so an unsent frame is kept and retried (and
+   * flushed on reconnect) until it goes out, warning past
+   * {@link WRITE_WARN_ATTEMPTS} so a wire that stays down is a fact in the
+   * Log tab rather than a silently thinner ledger.
+   */
+  private _flushDraftWrite(key: string): void {
+    const pending = this._pendingWrites.get(key);
+    if (pending === undefined) return;
+    this._clearWriteTimer(key);
+    const sent =
+      typeof this._connection.trySendControlFrame === "function"
+        ? this._connection.trySendControlFrame("changeset_draft_set", pending.body)
+        : (this._connection.sendControlFrame("changeset_draft_set", pending.body), true);
+    if (sent) {
+      this._pendingWrites.delete(key);
+      return;
+    }
+    pending.attempts += 1;
+    if (pending.attempts === WRITE_WARN_ATTEMPTS) {
+      tugDevLogStore.warn("changeset-draft", "draft write still unsent; retrying", {
+        key,
+        attempts: pending.attempts,
+      });
+    }
+    const delay =
+      WRITE_RETRY_BACKOFF_MS[
+        Math.min(pending.attempts - 1, WRITE_RETRY_BACKOFF_MS.length - 1)
+      ]!;
+    this._writeTimers.set(
+      key,
+      setTimeout(() => {
+        this._writeTimers.delete(key);
+        this._flushDraftWrite(key);
+      }, delay),
+    );
+  }
+
+  private _clearWriteTimer(key: string): void {
+    const timer = this._writeTimers.get(key);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this._writeTimers.delete(key);
   }
 
   private _onControl(payload: Uint8Array): void {
@@ -261,6 +343,9 @@ export class ChangesetDraftStore {
     this._unsubscribeDisconnect();
     for (const timer of this._stallTimers.values()) clearTimeout(timer);
     this._stallTimers.clear();
+    for (const timer of this._writeTimers.values()) clearTimeout(timer);
+    this._writeTimers.clear();
+    this._pendingWrites.clear();
     this._listeners.clear();
   }
 

@@ -565,9 +565,10 @@ pub(crate) async fn compose_snapshot(
     changesets.extend(dash_entries(&repo_root, ledger).await);
 
     // Attach maintained drafts (Spec S10) to eligible entries: a session
-    // entry with files, a dash with rounds or worktree dirt. The engine only
-    // persists drafts for eligible entries, but gating here keeps a stale
-    // draft off an entry that has since gone clean.
+    // entry with files, a dash with rounds or worktree dirt. The dash gate
+    // keeps a stale draft off an entry that has since gone clean; fileless
+    // live sessions are injected later by `apply_session_rows` and pick up
+    // their drafts in `attach_live_session_drafts`.
     if let Some(ledger) = ledger {
         // Spec S05 spelling contract: writers store `project_dir` canonical;
         // query the canonical spelling and union the raw one when it differs
@@ -727,6 +728,40 @@ pub(crate) fn apply_session_rows(snapshot: &mut ChangesetSnapshot, rows: &[Sessi
     snapshot
         .changesets
         .sort_by(|a, b| entry_sort_key(a).cmp(&entry_sort_key(b)));
+}
+
+/// Attach persisted session drafts to live entries still carrying none.
+///
+/// [`compose_snapshot`] attaches drafts only to entries that own files, and
+/// [`apply_session_rows`] injects fileless live sessions after that pass —
+/// so a live session whose changes are attributed elsewhere (a dash
+/// worktree run) or that has gone clean would read `draft: None` despite a
+/// persisted row. A live entry always reads its row back; rows are keyed by
+/// the workspace key, the same single-spelling lookup the unattributed
+/// bucket uses (Spec S05).
+pub(crate) fn attach_live_session_drafts(
+    snapshot: &mut ChangesetSnapshot,
+    ledger: &crate::session_ledger::SessionLedger,
+) {
+    let workspace_key = snapshot.workspace_key.clone();
+    for entry in &mut snapshot.changesets {
+        if let ChangesetEntry::Session {
+            owner_id,
+            live,
+            draft,
+            ..
+        } = entry
+            && *live
+            && draft.is_none()
+        {
+            *draft = ledger
+                .changeset_draft("session", owner_id, &workspace_key)
+                .ok()
+                .flatten()
+                .as_ref()
+                .map(draft_from_row);
+        }
+    }
 }
 
 /// Deterministic entry order: sessions (by id) before dashes (by ref).
@@ -2909,6 +2944,71 @@ Some context.
         };
         assert_eq!(display_name, "fix the parser bug");
         assert!(*live, "row state overrides the event-derived flag");
+    }
+
+    /// The relaunch case: a live session with a persisted draft but zero
+    /// attributed files (its changes ride a dash worktree, or it has gone
+    /// clean) still reads its draft back on the aggregate.
+    #[test]
+    fn attach_live_session_drafts_reaches_fileless_live_entries() {
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for (owner_id, message) in [
+            ("sess-live", "the typed commit message"),
+            ("sess-dead", "a dead session's leftovers"),
+        ] {
+            ledger
+                .upsert_changeset_draft(&crate::session_ledger::ChangesetDraftRow {
+                    owner_kind: "session".to_owned(),
+                    owner_id: owner_id.to_owned(),
+                    project_dir: "ws".to_owned(),
+                    fingerprint: String::new(),
+                    message: message.to_owned(),
+                    updated_at: 42,
+                    edited: true,
+                    selection: None,
+                })
+                .unwrap();
+        }
+
+        let mut snapshot = ChangesetSnapshot {
+            workspace_key: "ws".to_owned(),
+            branch: "main".to_owned(),
+            ahead: 0,
+            behind: 0,
+            head_sha: String::new(),
+            head_message: String::new(),
+            changesets: vec![
+                ChangesetEntry::Session {
+                    owner_id: "sess-live".to_owned(),
+                    display_name: "live".to_owned(),
+                    live: true,
+                    files: Vec::new(),
+                    draft: None,
+                },
+                ChangesetEntry::Session {
+                    owner_id: "sess-dead".to_owned(),
+                    display_name: "dead".to_owned(),
+                    live: false,
+                    files: Vec::new(),
+                    draft: None,
+                },
+            ],
+            unattributed: Vec::new(),
+            orphaned: Vec::new(),
+        };
+        attach_live_session_drafts(&mut snapshot, &ledger);
+
+        let ChangesetEntry::Session { draft, .. } = &snapshot.changesets[0] else {
+            panic!("expected session entry");
+        };
+        let draft = draft.as_ref().expect("live entry reads its row back");
+        assert_eq!(draft.message, "the typed commit message");
+        assert!(draft.edited);
+
+        let ChangesetEntry::Session { draft, .. } = &snapshot.changesets[1] else {
+            panic!("expected session entry");
+        };
+        assert!(draft.is_none(), "a dead fileless entry attaches nothing");
     }
 
     #[test]

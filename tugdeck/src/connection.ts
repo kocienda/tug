@@ -594,6 +594,16 @@ export class TugConnection {
   }
 
   /**
+   * Send a control frame, reporting whether it reached an OPEN socket. The
+   * {@link trySend} of {@link sendControlFrame} — for writes whose caller
+   * retries rather than shrugs.
+   */
+  trySendControlFrame(action: string, params?: Record<string, unknown>): boolean {
+    const frame = controlFrame(action, params);
+    return this.trySend(frame.feedId, frame.payload);
+  }
+
+  /**
    * Register a callback for disconnect state changes.
    * Called when the connection disconnects, the countdown ticks, or reconnection is attempted.
    * Returns a cleanup function to unregister.
