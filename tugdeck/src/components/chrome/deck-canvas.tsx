@@ -2440,6 +2440,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       const paneId = frame.getAttribute("data-pane-id");
       if (paneId === null) continue;
       survivors.add(paneId);
+      // A gesture-owned frame is never the settle's to carry, whatever the
+      // First pass knew about it. Checked before the entrance test because a
+      // zone drop is the case where the two collide: the arm skipped the
+      // frame (no First rect, exactly like an arrival), but it is not
+      // arriving — it is mid-landing under `zone-drop-landing`, and an
+      // entrance played here replaces that landing's transform, snapping the
+      // card to its tile and fading it in for no reason. The drag or the
+      // landing owns its geometry, and its own episode owns the scroll
+      // under it.
+      if (frame.hasAttribute("data-gesture")) {
+        endEpisode(paneId);
+        continue;
+      }
       const firstRect = firstRects.get(paneId);
       if (firstRect === undefined) {
         // A frame that was not on screen when this settle armed: it is
@@ -2498,12 +2511,6 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           clearFlipRef.current(paneId, frame, [entering]);
           endEpisode(paneId);
         });
-        continue;
-      }
-      // A frame the pointer took over since the settle armed: the drag owns
-      // its geometry now, and its own episode owns the scroll under it.
-      if (frame.hasAttribute("data-gesture")) {
-        endEpisode(paneId);
         continue;
       }
       const lastRect = frame.getBoundingClientRect();
