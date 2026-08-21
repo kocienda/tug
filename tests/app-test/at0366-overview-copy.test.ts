@@ -19,7 +19,7 @@
  *
  * A second test covers the other half of the same claim, on a **placed**
  * value rather than written prose: a commit in a post's `refs` array renders
- * as the read-only atom labelled `Commit <8>`, and plain copy — which reads
+ * as the read-only atom labelled `commit:<8>`, and plain copy — which reads
  * the DOM's text with no annotation awareness — has to yield that same one
  * spelling. Two spellings of one atom on the clipboard is the arbitrariness
  * this presentation work retires, resurfacing in paste.
@@ -249,9 +249,10 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
           `(document.querySelector(${JSON.stringify(REF)}).textContent || "").trim()`,
         );
         note("commit atom label", shown);
-        expect(shown).toBe(`Commit ${HEAD_SHA.slice(0, 8)}`);
-        // Not the old colon spelling — that is the drift this retires.
-        expect(shown).not.toContain("Commit:");
+        expect(shown).toBe(`commit:${HEAD_SHA.slice(0, 8)}`);
+        // The word runs lowercase and the colon takes no space after it —
+        // `Commit <8>`, the spelling this retires, must not survive anywhere.
+        expect(shown).not.toContain("Commit ");
 
         // What the CLIPBOARD gets, asserted at the range rather than through
         // the cell menu. `copy-as-plain-text` has no annotation awareness — it
@@ -269,8 +270,8 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
           })()`,
         );
         note("refs row selection text", selected);
-        expect(selected).toContain(`Commit ${HEAD_SHA.slice(0, 8)}`);
-        expect(selected).not.toContain("Commit:");
+        expect(selected).toContain(`commit:${HEAD_SHA.slice(0, 8)}`);
+        expect(selected).not.toContain("Commit ");
       } finally {
         await app.close();
       }

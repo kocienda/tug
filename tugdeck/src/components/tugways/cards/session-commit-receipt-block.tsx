@@ -168,7 +168,7 @@ function CommitReceipt({
   const subjectRef = useAnnotatedElement<HTMLElement>([subject]);
   const body = message.slice(subject.length).replace(/^\n+/, "").replace(/\s+$/, "");
   // The commit atom stands where a tool block's verb would: the commit names
-  // itself — `Commit <8>`, glyph and all — then a single space, then the
+  // itself — `commit:<8>`, glyph and all — then a single space, then the
   // subject. The same identity line the History shade's rows lead with, so a
   // commit reads identically wherever it appears. The atom's glyph and word
   // are what separate the two; a heavier delimiter only spent width.

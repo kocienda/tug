@@ -70,6 +70,19 @@
   text-underline-offset: 0.2em;
 }
 
+/* A confirmed commit mention wears the atom's small size. The run no longer
+   shows what the author typed — the tip portal replaced it with the mention
+   label `commit:<8ch>` — so it is machine output sitting in a sentence, and it
+   is sized like the label it now is rather than like the prose around it. The
+   sheet's no-font-change rule holds for the kinds that stay as written; this
+   one already re-lays out when the portal mounts. Same knob, same default, as
+   `tug-atom-ref.css`.
+
+   @tug-renders-on: the surrounding surface's own background */
+[data-tugx-wrapped][data-tug-annotation="commit-sha"] {
+  font-size: var(--tugx-atom-commit-size, 0.85em);
+}
+
 /* @tug-renders-on: the surrounding surface's own background */
 [data-tugx-wrapped][data-tug-annotation]:hover {
   color: var(--tugx-md-link-color-hover);

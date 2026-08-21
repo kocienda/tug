@@ -307,7 +307,7 @@ export function SpikeCommitSurfaces(): React.ReactElement {
           tighter leading than the first, so a two-line commit reads as one entry while the gap
           between entries stays what it is today. The trailing metadata is the reader's call —
           toggle author / date / time below. Copy writes the whole commit record; right-clicking
-          the sha copies <code>Commit a14a3efc</code>.
+          the sha copies <code>commit:a14a3efc</code>.
         </Caption>
         <div className="gallery-commit-surfaces-panel">
           <TugHistoryList

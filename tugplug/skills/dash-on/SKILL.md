@@ -36,12 +36,14 @@ Idempotent — returns the existing active dash if `<name>` already exists. **Ca
 Carry out the instruction yourself in the worktree. Run the checks the doctrine names, then commit the round:
 
 ```bash
-tugutil dash commit <name> --message "<conventional commit>" --json <<'EOF'
+tugutil dash commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
 {"instruction":"<the instruction>","summary":"<what you did + how verified>"}
 EOF
 ```
 
 One command: git commit + a line in the per-project dash-log (the verbatim instruction; `tug log` on the dash branch reads the commits back). A follow-up instruction for the same dash is just another round — do it and commit again.
+
+**Two spellings are house rules, not taste.** The round's subject is `tugdash(<name>): <imperative summary>` — the scope-colon form the engine's own dash commits carry, so `tug log` on the branch reads as one voice. And when you *name* a round's commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone. See `tuglaws/entity-presentation.md`.
 
 ### Build (when there's something to see)
 

@@ -479,7 +479,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         );
         note("inline commit mentions", JSON.stringify(inlineCommits));
         expect(inlineCommits.length, "the body cites the sha three times").toBe(3);
-        // The reader sees the mention label — `Commit <8ch>`, the worded,
+        // The reader sees the mention label — `commit:<8ch>`, the worded,
         // uniform form — while the payload keeps the sha as the prose spelled
         // it (12 characters here), which is what the resolver was asked about.
         // The first citation follows the word "Commit" in the sentence
@@ -489,7 +489,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // the sha inside — and the yield reaches across the code-element
         // boundary.
         expect(inlineCommits[0]?.text).toBe(HEAD_SHA.slice(0, 8));
-        expect(inlineCommits[1]?.text).toBe(`Commit ${HEAD_SHA.slice(0, 8)}`);
+        expect(inlineCommits[1]?.text).toBe(`commit:${HEAD_SHA.slice(0, 8)}`);
         expect(inlineCommits[2]?.text).toBe(HEAD_SHA.slice(0, 8));
         for (const mention of inlineCommits) {
           expect(mention.sha).toBe(HEAD_SHA.slice(0, 12));

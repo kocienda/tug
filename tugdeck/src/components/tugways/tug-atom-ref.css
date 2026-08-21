@@ -69,3 +69,14 @@
   width: 1em;
   height: 1em;
 }
+
+/* A commit label runs small. The label is machine output wearing a word —
+   `commit:227a8eb9` — and at the host's own size eight hex characters plus
+   the word take more of a sentence's width than the fact deserves. The
+   knob's default is the rule; a host that needs the label at its own size
+   sets `--tugx-atom-commit-size: inherit` (defaults live in the `var()`
+   fallback, never declared on the element). The size is relative so the
+   label stays proportional wherever the atom is placed. */
+.tug-atom-ref[data-tugx-atom-kind="commit"] {
+  font-size: var(--tugx-atom-commit-size, 0.85em);
+}

@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
            })()`,
         );
         note(`at0419 join receipt: ${JSON.stringify(joined)}`);
-        // The landing sha leads — as the `Commit <8>` atom every other commit
+        // The landing sha leads — as the `commit:<8>` atom every other commit
         // surface names a commit with — then the dash and the base.
         expect(joined.identity).toContain("01234567");
         expect(joined.identity).toContain("join-lane");

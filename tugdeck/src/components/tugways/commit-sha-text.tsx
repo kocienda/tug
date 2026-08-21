@@ -9,7 +9,7 @@
  * written in prose stays a mention and is the annotator's business, not this
  * component's. See `tuglaws/entity-presentation.md`.
  *
- * **The label carries the word.** `Commit 227a8eb9`, not `227a8eb9`: eight
+ * **The label carries the word.** `commit:227a8eb9`, not `227a8eb9`: eight
  * bare hex characters name nothing a reader can act on, and a small glyph was
  * never going to rescue them. An atom stands with no sentence around it, so
  * the work a sentence would have done moves into the label. That is also the
@@ -70,7 +70,7 @@ export function CommitShaText({
   const ref = useRef<HTMLElement | null>(null);
   const { composedRef, handleContextMenu, contextMenu } = useCopyableText({
     ref,
-    getText: () => `Commit ${sha.slice(0, SHA_DISPLAY_LEN)}`,
+    getText: () => `commit:${sha.slice(0, SHA_DISPLAY_LEN)}`,
     copyMenu: true,
     disabled: !menu,
   });
@@ -99,10 +99,10 @@ export function CommitShaText({
       >
         <TugAtomRef
           entity={{ kind: "commit", sha }}
-          // The default label is already `Commit <8>`; an override is needed
+          // The default label is already `commit:<8>`; an override is needed
           // only to let a decorated sha through, and it keeps the word.
           label={
-            content === undefined ? undefined : <>Commit {content}</>
+            content === undefined ? undefined : <>commit:{content}</>
           }
         />
       </span>

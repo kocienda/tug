@@ -12,7 +12,7 @@
  *
  * Portals bridge the two, exactly as {@link useSessionCitationPortals} does
  * for citation chips. The portal renders the commit's **mention label** —
- * `Commit <8ch>`, the same spelling every atom surface shows — wrapped in a
+ * `commit:<8ch>`, the same spelling every atom surface shows — wrapped in a
  * {@link TugTooltip} carrying {@link commitTip}. The spelling the prose used
  * is machine output, not authorship (git's short form lengthens with the
  * repository, so raw shas drift between 7 and 12 characters post to post);
@@ -63,7 +63,7 @@ interface CommitTipMount {
   text: string;
   /**
    * The prose immediately before the run already says "commit", so the
-   * label's word would double it: `Commit Commit 86af912c`. The sentence
+   * label's word would double it: `Commit commit:86af912c`. The sentence
    * supplied the word; the label yields it and shows the hash alone.
    */
   worded: boolean;
@@ -145,7 +145,7 @@ export function useCommitTipPortals(
     const verdict = resolveCommit?.(sha) ?? { state: "unknown" as const };
     const facts: CommitFacts | null =
       verdict.state === "confirmed" ? verdict.facts : null;
-    // The mention label, not the prose spelling: `Commit <8ch>`, the same
+    // The mention label, not the prose spelling: `commit:<8ch>`, the same
     // worded form every atom surface shows — unless the sentence already
     // said the word, in which case the hash alone completes it. The
     // as-written characters stay on the host attribute; what the reader
@@ -153,7 +153,7 @@ export function useCommitTipPortals(
     // A plain span, because the tooltip's trigger has to be an element and
     // the mark's own appearance is already on the host it portals into.
     const short = sha.slice(0, SHA_DISPLAY_LEN);
-    const run = <span>{worded ? short : `Commit ${short}`}</span>;
+    const run = <span>{worded ? short : `commit:${short}`}</span>;
     return createPortal(
       facts === null ? (
         run

@@ -75,7 +75,7 @@ Walk the resolved steps in dependency order. For each step:
 - Run **that step's checkpoint** before committing. The bar is in the doctrine; the step names the specific commands.
 - Commit the round:
   ```bash
-  tugutil dash commit <name> --message "<conventional commit>" --json <<'EOF'
+  tugutil dash commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
   {"instruction":"Step N: <title>","summary":"<what landed + how verified>"}
   EOF
   ```
@@ -84,6 +84,8 @@ Walk the resolved steps in dependency order. For each step:
   tugutil dash step <name> done <n> --commit <sha>
   ```
   This writes the ledger row's status *and* its commit cell and appends the paired log line. Omit `--commit` to record the dash branch's tip. Then mark the step's task complete — task, ledger, and commit move together, and the verb is what keeps them together.
+
+**Two spellings are house rules, not taste.** A round's commit subject is `tugdash(<name>): <imperative summary>` — the same scope-colon form the engine's own dash commits (`adopt plan`, `remap round ids`) carry, so `tug log` on the branch reads as one voice. And when you *name* a landed commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word itself: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone, which costs the reader the standard form. See `tuglaws/entity-presentation.md`.
 
 Pragmatics:
 

@@ -146,7 +146,7 @@ export function CommitMetaCell({
 }
 
 /**
- * `Commit <sha> <subject>` — the commit's identity line, the two parted by a
+ * `commit:<sha> <subject>` — the commit's identity line, the two parted by a
  * single space (the atom's glyph and its word are what separate them; a
  * heavier delimiter only spent width). The sha is a
  * {@link CommitShaText} (right-click → copy the full hash); a trailing
