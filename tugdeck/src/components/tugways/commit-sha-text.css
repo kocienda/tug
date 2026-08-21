@@ -20,3 +20,20 @@
 .commit-sha-text-menu {
   display: contents;
 }
+
+/* The rollover. The skin's own hover rule is keyed to the annotation
+   contract, and a commit atom carries none — every pointer gesture on a sha
+   stops here — so without this the chip is the one entity in a History row
+   that answers nothing when the pointer crosses it. The underline is the same
+   one an annotated atom and a confirmed mention wear on hover, so a sha reads
+   the same wherever it is met.
+
+   Underline only, and the cursor stays `default`: this is a copy target, not
+   a link. The mention's hover recolor is a link's promise, and a chip that
+   made it here would be promising a navigation that never comes.
+
+   @tug-renders-on: the host surface's own background */
+.commit-sha-text:hover .tug-atom-ref {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
