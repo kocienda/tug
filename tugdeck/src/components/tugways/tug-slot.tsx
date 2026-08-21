@@ -155,11 +155,18 @@ export const TugSlot = React.forwardRef<HTMLElement, TugSlotProps>(
         <span
           ref={ref as React.Ref<HTMLSpanElement>}
           data-slot="tug-slot"
-          data-state={state}
           data-exemplar="true"
           className={cn(classes, `tug-slot-exemplar-${state}`)}
           aria-hidden="true"
           {...rest}
+          /* AFTER the spread, and that is the point. `data-state` is the slot's
+             own fact — the one `TugSlotLayout` projects onto and every test
+             reads the arrangement from — and a wrapper composing BEHAVIOR onto
+             this element must not be able to overwrite it. Radix's
+             `Popover.Trigger` stamps its own `data-state="open"|"closed"` on
+             whatever it is given, which silently turned a slot's resting look
+             into the popup's open state on the one mount that wears both. */
+          data-state={state}
         >
           {number}
         </span>
@@ -179,9 +186,11 @@ export const TugSlot = React.forwardRef<HTMLElement, TugSlotProps>(
         focusOrder={focusOrder}
         onClick={(event) => onSelect(event)}
         data-slot="tug-slot"
-        data-state={state}
         className={classes}
         {...(rest as Record<string, unknown>)}
+        /* See the exemplar branch: the fact outranks anything a wrapper spreads
+           over it. */
+        data-state={state}
       >
         {number}
       </TugButton>

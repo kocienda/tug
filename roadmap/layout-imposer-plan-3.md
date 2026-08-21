@@ -494,9 +494,9 @@ Empty band, non-finite inputs, or an empty strip return an empty set.
 | #step-5 | M02 — flow dots replace the rail | done | `4e5e85e3f` |
 | #step-6 | M02 — the dots go live and take the gestures | done | `0cd0953fe` |
 | #step-7 | M02 — integration checkpoint | done | `62b0f40c2` |
-| #step-8 | M03 — the slot badge in the masthead frame | pending | — |
-| #step-9 | M03 — the badge's slot popup | pending | — |
-| #step-10 | M03 — integration checkpoint | pending | — |
+| #step-8 | M03 — the slot badge in the masthead frame | done | `2a62124fe` |
+| #step-9 | M03 — the badge's slot popup | done | `301776a9f` |
+| #step-10 | M03 — integration checkpoint | done | `a1c515012` |
 
 **Milestone M01: The band stops slivering** {#m01-band-stops-slivering} · **Milestone M02: Flow dots** {#m02-flow-dots} · **Milestone M03: The masthead slot badge** {#m03-masthead-slot-badge}
 

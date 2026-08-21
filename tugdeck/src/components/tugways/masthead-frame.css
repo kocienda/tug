@@ -53,6 +53,13 @@
   box-sizing: border-box;
   block-size: 100%;
   justify-content: flex-start;
+  /* The row's leading inset, hoisted from the row's own mount rule to the frame
+     so the badge can read it too. Custom properties inherit, so the row still
+     receives exactly what it received before. Chrome, not a rail: there is no
+     movement caret on this edge and no column of other rows to line up with, so
+     the tier seats the mark's ink a few pixels inside its own content edge and
+     the three lines hang off that. */
+  --tugx-session-row-leading-inset: 6px;
   padding-block-start: calc(
     (
         var(--tug-chrome-height) - var(--tug-font-size-sm) *
@@ -99,10 +106,6 @@
      bar accent-blue and let it fade. */
   --tugx-list-row-pressed-bg: transparent;
   --tugx-list-row-selected-pressed-bg: transparent;
-  /* Chrome, not a rail: there is no movement caret on this edge and no column
-     of other rows to line up with, so the tier seats the mark's ink a few
-     pixels inside its own content edge and the three lines hang off that. */
-  --tugx-session-row-leading-inset: 6px;
   /* The three-level stack's block padding stands its block off the RULES
      between rail rows. Chrome has no rules, and the tier's own top padding is
      what seats the block — 12px on top of it drops the title line clear of the
@@ -154,4 +157,38 @@
     var(--tugx-pane-title-fg-active) 65%,
     transparent
   );
+}
+
+/* ── The slot badge ──────────────────────────────────────────────────────
+   `CardSlotBadge` stands in the region the three-level stack leaves empty: the
+   frame's leading column, below the mark. `TugSessionRow` is mounted here with
+   `subAlign="title"`, so the description and third lines indent to the title's
+   vertical and nothing occupies the column beneath the dot — the badge is put
+   in space that was already there rather than taking room from a line.
+
+   Absolute against the frame, which is already `position: relative` and is
+   deliberately NOT clipped, so the chip cannot be bitten by an overflow rule.
+
+   Both offsets are one token each, and neither is a re-derivation. The block
+   start is the FIRST chrome band's end: the title line and the pane's controls
+   share that band, so where it ends is exactly where the dead column begins,
+   and the chip lands on the description line without having to reconstruct the
+   type ladder plus the dot's advance plus the identity's lead gap to find it.
+   The inline start is the same leading inset the row seats its mark ink on, so
+   the chip and the dot stand on one vertical. */
+.tug-masthead-frame-slot-badge {
+  position: absolute;
+  inset-block-start: var(--tug-chrome-height);
+  inset-block-end: 0;
+  inset-inline-start: var(--tugx-session-row-leading-inset);
+  display: flex;
+  align-items: center;
+  /* The BOX spans the tier's whole lower band so it can center the chip in it,
+     and the two lines of the stack are drawn under that span. The box takes no
+     events; the chip inside it takes its own. */
+  pointer-events: none;
+}
+
+.tug-masthead-frame-slot-badge > * {
+  pointer-events: auto;
 }

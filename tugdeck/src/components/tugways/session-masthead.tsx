@@ -103,6 +103,7 @@ import { writeSessionAtomToClipboard } from "@/lib/session-atom";
 import { openPathInOS } from "@/lib/os-open";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
+import { CardSlotBadge } from "@/components/tugways/card-slot-badge";
 import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
 import { cardServicesStore } from "@/lib/card-services-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
@@ -657,6 +658,8 @@ export function SessionMasthead({
         neither forwards what the other injects, so they cannot nest directly —
         the same composition every control beside this one uses.
       */}
+      <CardSlotBadge cardId={cardId} />
+
       {accessoryHost !== null && createPortal(
       <>
       {/*

@@ -416,6 +416,7 @@ Modal scope is the Pane stacking context, not the canvas-overlay tier — pickin
 | `tugdeck/src/components/chrome/flow-dots.tsx` | `FlowDots` — which slots the deck has and which the band is showing, and the click and scrub that move the strip |
 | `tugdeck/src/components/chrome/flow-dots.css` | The dots' seating in the bottom band, and the drag gate that takes them out of the pointer's way |
 | `tugdeck/src/components/lens/slot-picker.tsx` | `SlotPicker` — the numbered slot buttons on a Lens list row |
+| `tugdeck/src/components/tugways/card-slot-badge.tsx` | `CardSlotBadge` — the slot a card stands in, said on the card, and the picker that moves it there |
 | `tugdeck/src/components/tugways/action-vocabulary.ts` | `FOCUS_PANE`, `ADD_CARD_TO_ACTIVE_PANE`, `CLOSE`, ... |
 | `tugapp/Sources/AppDelegate.swift` | Swift menu definitions and IPC senders |
 | `tugdeck/src/components/tugways/tug-pane.css` | `--tugx-pane-*` token aliases + chrome CSS |

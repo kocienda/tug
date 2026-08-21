@@ -741,7 +741,7 @@ function CardTitleBar({
         // A document card's lines. No key: unlike a session there is no dwell
         // queue or open placard to carry across, so reconciling a new path
         // onto the same element is exactly right.
-        <CardMasthead payload={masthead} />
+        <CardMasthead payload={masthead} cardId={activeCardId} />
       ) : (
         // Keyed by session, so a payload naming a DIFFERENT session remounts
         // rather than reconciling. A new session is a new entity, which is
