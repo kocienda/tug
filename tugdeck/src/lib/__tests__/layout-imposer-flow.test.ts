@@ -40,6 +40,7 @@ import {
   allocateSidebarWidths,
   clampFlowOffset,
   firstVisibleFlowSlot,
+  FLOW_CLIP_SLACK_PX,
   flowRevealOffset,
   flowStripPositions,
   hairlineOf,
@@ -697,6 +698,45 @@ describe("the CSS expression", () => {
     expect(left).toContain(FLOW_OFFSET_PROPERTY);
     expect(left).toContain(FLOW_STRIP_PROPERTY);
     expect(left).toContain("100%");
+  });
+
+  test("flow clips the pane to the band, and fit does not clip at all", () => {
+    // The band's edge is real ink: a flow pane's clip-path carries both band
+    // edges as live var() expressions, phrased against the viewport because
+    // inset() percentages resolve against the pane's own box. Fit keeps no
+    // clip — its travel fractions hold every card inside the band already.
+    const flow = imposeStyle(
+      { slot: 1, count: 3, flow: { stripLeft: 805 } },
+      800,
+    );
+    const clip = String(flow.clipPath);
+    expect(clip.startsWith(`inset(${-FLOW_CLIP_SLACK_PX}px `)).toBe(true);
+    expect(clip).toContain(FLOW_OFFSET_PROPERTY);
+    expect(clip).toContain(FLOW_STRIP_PROPERTY);
+    expect(clip).toContain("100vw");
+    // The left clip is the clamped offset less the pane's strip position; the
+    // right clip is the pane's far edge less the band's. Both rest at the
+    // shadow slack rather than 0 so an uncut card keeps its shadow.
+    expect(clip).toContain(`max(${-FLOW_CLIP_SLACK_PX}px, calc(`);
+    expect(clip).toContain("- 805px)");
+    expect(clip).toContain("calc(1605px - ");
+
+    expect(imposeStyle({ slot: 1, count: 3 }, 800).clipPath).toBeUndefined();
+  });
+
+  test("a pinned card's clip is measured from its centred frame", () => {
+    // A size-locked card is narrower than its slot and centred inside it, so
+    // the clip's near edge is the slot's strip position plus the centring
+    // offset, and the far edge is that plus the frame's own width.
+    const clip = String(
+      imposeStyle(
+        { slot: 0, count: 2, flow: { stripLeft: 100 } },
+        800,
+        { width: 320 },
+      ).clipPath,
+    );
+    expect(clip).toContain("- 340px)");
+    expect(clip).toContain("calc(660px - ");
   });
 
   test("a size-locked card is still centred in its slot, in either mode", () => {

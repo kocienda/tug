@@ -7,7 +7,7 @@
  * longer than the band, and activating a card slides the viewport the minimum
  * that brings it in.
  *
- * Four things are pinned here, and each of them failed in an obvious way while
+ * Five things are pinned here, and each of them failed in an obvious way while
  * the mode was being built:
  *
  *  1. **Nothing overlaps.** Asserted pairwise over the occupied slots rather
@@ -24,10 +24,15 @@
  *     and the one gesture the mode exists to offer is the one that cuts.
  *  4. **The offset's clamp lives in CSS.** Fit answers a window resize entirely
  *     in the browser; flow has to as well, or it is the one mode that shows a
- *     stale viewport until the 200ms settled-resize retune fires. The last
+ *     stale viewport until the 200ms settled-resize retune fires. The clamp
  *     block writes an offset past the strip's end — which is exactly the state
  *     a widened window leaves behind before the retune — and requires the
  *     browser to hold the last card against the band's right edge anyway.
+ *  5. **The band's edge is real ink.** A straddling card's overhang paints on
+ *     under the rail and out into the margin between the rail and the window
+ *     edge, unless the flow clip stops it at the band. `elementFromPoint`
+ *     honors `clip-path`, so the margin answering background — while the same
+ *     card still answers inside the band — is the pin.
  *
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
@@ -362,6 +367,45 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           Math.abs(clamped.right - clamped.band),
           "an offset past the strip's end still lands the last card on the band's edge",
         ).toBeLessThanOrEqual(TOL);
+
+        // ── 5. The band's edge is real ink ──────────────────────────────────
+        // A card that straddles the band's far edge paints on under the rail
+        // and — without the flow clip — out the far side, into the margin the
+        // rail stands off the window edge, where it shows as a sliver no rail
+        // width can cover. `elementFromPoint` honors `clip-path`, so hitting
+        // background there is the whole assertion. The straddling card itself
+        // must still answer inside the band — the clip trims the overhang,
+        // never the card.
+        const ink = await app.evalJS<{ margin: string | null; inBand: string | null }>(
+          `(function () {
+            // At rest the strip runs 2120px into a ~1550px band, so a card is
+            // guaranteed to straddle the far edge — the reveal above parked
+            // the strip on a boundary, where the margin is clean with or
+            // without the clip and the assertion would prove nothing.
+            var host = document.querySelector("[data-deck-canvas-background]");
+            host.style.setProperty("--tug-imposer-flow-offset", "0px");
+            function paneAt(x, y) {
+              var el = document.elementFromPoint(x, y);
+              var pane = el && el.closest ? el.closest(".tug-pane") : null;
+              return pane === null ? null : pane.getAttribute("data-pane-id");
+            }
+            var lens = document
+              .querySelector('.tug-pane[data-pane-id="pLens"]')
+              .getBoundingClientRect();
+            return {
+              margin: paneAt(window.innerWidth - 2, 600),
+              inBand: paneAt(lens.left - 5 - 40, 600),
+            };
+          })()`,
+        );
+        expect(
+          ink.margin,
+          "the margin outside the rail shows no card ink",
+        ).toBeNull();
+        expect(
+          ink.inBand,
+          "the straddling card still paints inside the band",
+        ).not.toBeNull();
       } finally {
         await app.close();
       }

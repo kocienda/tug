@@ -966,6 +966,14 @@ export function sidebarWidthProperty(side: SidebarSide): string {
 
 /** The gaps as CSS lengths, for the calc expressions below. */
 const GAP = `${IMPOSITION_GAP_PX}px`;
+
+/**
+ * How far outside a flow pane's own box its clip rests while no band edge
+ * cuts it. Big enough to hold every pane shadow the themes draw (1px offset,
+ * 4px blur, plus the flash ring's outset), small enough that a card standing
+ * just inside a band edge does not paint meaningfully past it.
+ */
+export const FLOW_CLIP_SLACK_PX = 32;
 const GAP_BOTTOM = `${IMPOSITION_GAP_BOTTOM_PX}px`;
 
 /** The CSS custom properties carrying the rail insets (see `deck-canvas.tsx`).
@@ -1304,8 +1312,9 @@ export function imposeStyle(
   const band = `(100% - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;
   // The centring term is a plain number, not a percentage: both widths are
   // known here, so it never needs the browser to resolve it.
-  const centre =
-    frameWidth === slotWidth ? "" : ` + ${Math.max(0, (slotWidth - frameWidth) / 2)}px`;
+  const centreOffset =
+    frameWidth === slotWidth ? 0 : Math.max(0, (slotWidth - frameWidth) / 2);
+  const centre = frameWidth === slotWidth ? "" : ` + ${centreOffset}px`;
 
   if (placement.flow !== undefined) {
     // FLOW. The slot's place along the strip is a number the canvas resolved,
@@ -1324,6 +1333,39 @@ export function imposeStyle(
       `min(var(${FLOW_OFFSET_PROPERTY}, 0px), ` +
       `max(0px, var(${FLOW_STRIP_PROPERTY}, 0px) - ${band}))`;
     style.left = `calc(0% + ${INSET_LEFT} + ${GAP} + ${placement.flow.stripLeft}px - ${offset}${centre})`;
+
+    // THE BAND CLIPS. A flow pane's ink stops at the band's edges — without
+    // this, a card that straddles an edge paints on under the rail and out
+    // the far side into the margin between the rail and the window edge,
+    // where it shows as a sliver of card no rail width can cover (the rail's
+    // own outer margin is exactly the region a rail cannot stand in).
+    //
+    // Same discipline as the offset above: one expression the browser
+    // re-resolves on every reflow, so the clip answers a live resize without
+    // waiting for the settled-resize retune. `clip-path: inset()` measures
+    // percentages against the pane's own box, so the band cannot be phrased
+    // with `100%` here the way `left` phrases it — it is phrased with `100vw`
+    // instead, which equals the canvas width because the deck canvas spans
+    // the window. (If the canvas ever stops spanning the window, this term is
+    // the one to revisit.)
+    //
+    // The insets rest at −FLOW_CLIP_SLACK_PX rather than 0: `clip-path`
+    // clips box-shadow too, and a zero inset on a card standing wholly
+    // inside the band would shear its shadow off for no reason. The slack
+    // holds the clip edge off the card until the card actually crosses a
+    // band edge; only then does the max() choose the exact overhang.
+    const bandOfViewport = `(100vw - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;
+    const offsetOfViewport =
+      `min(var(${FLOW_OFFSET_PROPERTY}, 0px), ` +
+      `max(0px, var(${FLOW_STRIP_PROPERTY}, 0px) - ${bandOfViewport}))`;
+    const near = placement.flow.stripLeft + centreOffset;
+    const clipLeft =
+      `max(${-FLOW_CLIP_SLACK_PX}px, calc(${offsetOfViewport} - ${near}px))`;
+    const clipRight =
+      `max(${-FLOW_CLIP_SLACK_PX}px, ` +
+      `calc(${near + frameWidth}px - ${offsetOfViewport} - ${bandOfViewport}))`;
+    style.clipPath =
+      `inset(${-FLOW_CLIP_SLACK_PX}px ${clipRight} ${-FLOW_CLIP_SLACK_PX}px ${clipLeft})`;
     return style;
   }
 
