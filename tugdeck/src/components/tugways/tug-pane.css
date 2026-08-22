@@ -866,6 +866,15 @@ body {
   display: flex;
   align-items: center;
   flex: none;
+  /* Air between the verbs and the place pair — the two registers of the
+   * cluster, which want a seam rather than an even run of controls.
+   *
+   * On the WRAPPER, which is the only place it can go. The mark and the row
+   * are both anchored to this box's trailing edge, so a margin here moves the
+   * two of them together and the centre-on-centre swap survives. The same
+   * value written on the mark alone would shift the mark off the row's
+   * trailing member and reintroduce the hop. */
+  margin-inline-end: var(--tugx-pane-rollup-gap, var(--tug-space-sm));
 }
 
 /*
@@ -910,7 +919,13 @@ body {
   display: flex;
   align-items: center;
   flex: none;
-  padding-inline: var(--tug-space-2xs);
+  /* Leading padding only. The trailing side must be ZERO, and that is a
+   * geometry contract rather than a taste call: the row's last member is the
+   * bullseye target, whose box has to land on the mark's box so its centre dot
+   * lands on the ellipsis's middle dot. Two pixels of padding here moved the
+   * whole swap sideways by two pixels, and the eye reads that as a hop. */
+  padding-inline-start: var(--tug-space-2xs);
+  padding-inline-end: 0;
   border-radius: var(--tug-radius-sm);
   background-color: var(--tugx-pane-title-bar-bg-inactive);
   /* Above the bar's own text and above the mark it covers. */

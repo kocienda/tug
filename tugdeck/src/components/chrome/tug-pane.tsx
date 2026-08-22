@@ -916,51 +916,6 @@ function CardTitleBar({
               className="tug-pane-title-bar-accessory"
               data-slot="tug-pane-title-bar-accessory"
             />
-        {/* SECOND, immediately behind the stack badge, on every pane — rails
-            included. The badge says where this pane stands; the target says
-            "put it in front of me for a while", which is the other half of the
-            same sentence, so the two read as one pair and the target holds a
-            fixed offset whether or not the badge is there.
-
-            A rail gets it for the same reason it gets the badge: bullseye
-            writes no geometry, so a bullseyed rail keeps its width and its
-            side in the store and the band keeps the inset it was already
-            taking. The rail is standing somewhere else for a moment, not
-            hidden, and it drops back onto its edge on exit.
-
-            The button reports its own state rather than only acting: `data-on`
-            while the pane holds the posture, which is what makes a second
-            press read as an exit instead of a no-op. */}
-        {onToggleBullseye !== undefined && (
-          // `TugActionTooltip`, not a plain bubble: ⌃⌘B does exactly what this
-          // button does, and the chip is read from the keymap registry so a
-          // rebind reaches the tooltip rather than leaving an authored chord
-          // behind to go stale. The phrase turns with the posture for the same
-          // reason the `aria-label` does — a control that acts one way and
-          // reads the other is the resting lie the label already avoids.
-          <TugActionTooltip
-            action={TUG_ACTIONS.TOGGLE_BULLSEYE}
-            content={
-              bullseye
-                ? "Take this card out of bullseye"
-                : "Center this card in bullseye"
-            }
-          >
-            <TugButton
-              subtype="icon"
-              emphasis="ghost"
-              role="action"
-              size="sm"
-              icon={<CircleDot />}
-              className="tug-pane-title-bar-bullseye-button"
-              {...(bullseye ? { "data-on": "" } : {})}
-              aria-pressed={bullseye}
-              aria-label={bullseye ? "Leave bullseye" : "Bullseye"}
-              data-testid="tug-pane-title-bar-bullseye-button"
-              onClick={onToggleBullseye}
-            />
-          </TugActionTooltip>
-        )}
         {/* A card's standing verbs, each as its own ghost icon button in the
             rollup — the shape a verb the card offers every time it is open
             wants. The glyph is the card's (a lucide NAME, resolved here, the
@@ -1116,6 +1071,62 @@ function CardTitleBar({
               />
             </span>
           </TugTooltip>
+        )}
+        {/* LAST in the row, and the position is the design rather than an
+            ordering preference.
+
+            The `⋯` mark this row replaces is three dots on a baseline, and its
+            middle dot is the mark's centre. The row is anchored to the same
+            trailing edge the mark is, with no padding on that side, so this
+            button's box lands exactly on the mark's box — and the target's
+            own centre dot lands exactly on the ellipsis's middle dot. Reveal
+            and conceal therefore read as one glyph resolving into another in
+            place, with nothing hopping sideways. Any other control here would
+            put a hole, a bar, or a folder where the dot was.
+
+            It is also the control the mark REPORTS for: bullseye is the one
+            rolled-up verb carrying a posture, and it is the mark's `data-on`
+            that says so at rest. The thing the dot lights for is the thing the
+            dot becomes.
+
+            A rail gets it for the same reason it gets the badge: bullseye
+            writes no geometry, so a bullseyed rail keeps its width and its
+            side in the store and the band keeps the inset it was already
+            taking. The rail is standing somewhere else for a moment, not
+            hidden, and it drops back onto its edge on exit.
+
+            The button reports its own state rather than only acting: `data-on`
+            while the pane holds the posture, which is what makes a second
+            press read as an exit instead of a no-op. */}
+        {onToggleBullseye !== undefined && (
+          // `TugActionTooltip`, not a plain bubble: ⌃⌘B does exactly what this
+          // button does, and the chip is read from the keymap registry so a
+          // rebind reaches the tooltip rather than leaving an authored chord
+          // behind to go stale. The phrase turns with the posture for the same
+          // reason the `aria-label` does — a control that acts one way and
+          // reads the other is the resting lie the label already avoids.
+          <TugActionTooltip
+            action={TUG_ACTIONS.TOGGLE_BULLSEYE}
+            content={
+              bullseye
+                ? "Take this card out of bullseye"
+                : "Center this card in bullseye"
+            }
+          >
+            <TugButton
+              subtype="icon"
+              emphasis="ghost"
+              role="action"
+              size="sm"
+              icon={<CircleDot />}
+              className="tug-pane-title-bar-bullseye-button"
+              {...(bullseye ? { "data-on": "" } : {})}
+              aria-pressed={bullseye}
+              aria-label={bullseye ? "Leave bullseye" : "Bullseye"}
+              data-testid="tug-pane-title-bar-bullseye-button"
+              onClick={onToggleBullseye}
+            />
+          </TugActionTooltip>
         )}
           </div>
           {/* The rollup's MARK — the row's one visible trace at rest, standing

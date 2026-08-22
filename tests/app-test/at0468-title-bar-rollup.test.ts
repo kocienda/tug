@@ -220,21 +220,35 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
           markOpacity: string;
           markRight: number;
           rowRight: number;
+          markCentre: [number, number];
+          lastCentre: [number, number];
+          lastTestId: string | null;
         }>(
           `(function () {
             var pane = document.querySelector(${JSON.stringify(PANE_A)});
             var mark = pane.querySelector(${JSON.stringify(ROLLUP_MARK)});
             var row = pane.querySelector(${JSON.stringify(ROLLUP_ROW)});
+            var buttons = row.querySelectorAll(".tug-button");
+            var last = buttons[buttons.length - 1];
+            function centre(el) {
+              var r = el.getBoundingClientRect();
+              return [r.left + r.width / 2, r.top + r.height / 2];
+            }
             return {
               markOpacity: window.getComputedStyle(mark).opacity,
               markRight: mark.getBoundingClientRect().right,
-              rowRight: row.getBoundingClientRect().right
+              rowRight: row.getBoundingClientRect().right,
+              markCentre: centre(mark),
+              lastCentre: centre(last),
+              lastTestId: last.getAttribute("data-testid")
             };
           })()`,
         );
         note(
           `swap: mark opacity=${swap.markOpacity} mark right=${swap.markRight.toFixed(1)} ` +
-            `row right=${swap.rowRight.toFixed(1)}`,
+            `row right=${swap.rowRight.toFixed(1)} | mark centre ` +
+            `${swap.markCentre.map((n) => n.toFixed(1)).join(",")} vs last ` +
+            `${swap.lastCentre.map((n) => n.toFixed(1)).join(",")} (${swap.lastTestId})`,
         );
         expect(
           swap.markOpacity,
@@ -243,6 +257,30 @@ describe.skipIf(!SHOULD_RUN)("at0468 — the title bar's rollup", () => {
         expect(
           Math.abs(swap.rowRight - swap.markRight),
           "and the row ends where the mark ends: it took its place, it did not grow beside it",
+        ).toBeLessThanOrEqual(0.51);
+
+        // --- NO HOP. The centroids coincide. ------------------------------
+        // The mark is three dots on a baseline and its middle dot is the
+        // mark's centre; the row's last member is the bullseye target, whose
+        // glyph is a dot in a ring. Land those two boxes on the same centre
+        // and the swap reads as one glyph resolving into another in place.
+        // Miss by two pixels — which is exactly what a trailing padding on the
+        // row costs — and the eye reads a hop.
+        //
+        // The target must BE the last member for the claim to mean anything,
+        // so that is asserted rather than assumed: any other control here
+        // would put a hole, a bar or a folder where the dot was.
+        expect(
+          swap.lastTestId,
+          "the bullseye target is the row's trailing member — the dot the mark becomes",
+        ).toBe("tug-pane-title-bar-bullseye-button");
+        expect(
+          Math.abs(swap.lastCentre[0] - swap.markCentre[0]),
+          "and its centre sits on the mark's centre horizontally — no hop",
+        ).toBeLessThanOrEqual(0.51);
+        expect(
+          Math.abs(swap.lastCentre[1] - swap.markCentre[1]),
+          "and vertically",
         ).toBeLessThanOrEqual(0.51);
 
         // --- Two ellipses, two jobs. --------------------------------------
