@@ -10,7 +10,10 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { dashRowMenuLabel } from "@/components/tugways/cards/session-changes/dash-row-menu";
+import {
+  dashRowMenuLabel,
+  replayDisabledReason,
+} from "@/components/tugways/cards/session-changes/dash-row-menu";
 
 describe("the label carries its own refusal", () => {
   test("an available verb is the bare word", () => {
@@ -29,5 +32,64 @@ describe("the label carries its own refusal", () => {
     // an empty string has a blocked verb with nothing to say, and rendering it
     // as available would offer a press the gate refuses.
     expect(dashRowMenuLabel("Bind", "")).toBe("Bind — ");
+  });
+
+  test("the replay item composes its destination and its refusal", () => {
+    expect(dashRowMenuLabel("Replay onto main", null)).toBe("Replay onto main");
+    expect(dashRowMenuLabel("Replay onto main", "already current with main")).toBe(
+      "Replay onto main — already current with main",
+    );
+  });
+});
+
+/**
+ * Replay's reach, which is the part of this verb most likely to be got wrong.
+ *
+ * The first design gated it on boundness, on the theory that the machine tends
+ * a bound dash. It does not: the base-motion engine's gate never reads
+ * boundness, so a bound diverged dash in a repository with autoreplay off is
+ * exactly as stuck as an unbound one — and an unbound *dirty* one would have
+ * offered a button the server declines every time.
+ */
+describe("replay's reach", () => {
+  const dash = {
+    base: "main",
+    base_ahead: 0,
+    worktree_dirty: false,
+    replay_conflict_paths: [] as string[],
+  };
+
+  test("a diverged dash can replay", () => {
+    expect(replayDisabledReason({ ...dash, base_ahead: 3 })).toBeNull();
+  });
+
+  test("a dash whose last replay conflicted can replay again", () => {
+    expect(
+      replayDisabledReason({ ...dash, replay_conflict_paths: ["src/a.ts"] }),
+    ).toBeNull();
+  });
+
+  test("a current dash says so rather than offering a no-op", () => {
+    expect(replayDisabledReason(dash)).toBe("already current with main");
+  });
+
+  test("a dirty worktree is a readable refusal, not a dead press", () => {
+    expect(
+      replayDisabledReason({ ...dash, base_ahead: 2, worktree_dirty: true }),
+    ).toBe("its worktree has uncommitted changes");
+  });
+
+  test("boundness is not in the predicate — it takes no such field", () => {
+    // The regression guard: a diverged dash reads the same whoever holds it,
+    // because the entry a caller passes carries no holder at all.
+    const diverged = { ...dash, base_ahead: 1 };
+    expect(replayDisabledReason(diverged)).toBeNull();
+    expect(replayDisabledReason({ ...diverged, base: "trunk" })).toBeNull();
+  });
+
+  test("an older sender's absent fields read as current, never as diverged", () => {
+    expect(replayDisabledReason({ base: "main", worktree_dirty: false })).toBe(
+      "already current with main",
+    );
   });
 });

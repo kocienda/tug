@@ -536,6 +536,14 @@ export const TUG_ACTIONS = {
   OPEN_COMMAND_PICKER: "open-command-picker",
   INSERT_FILE:    "insert-file",
   TOGGLE_CHANGES_VIEW: "toggle-changes-view",
+  // REVEAL_CHANGES: payload — none. Open this card's Changes shade, sent by a
+  //                 surface that shows the card's dash after fronting the
+  //                 card. Not a toggle and not a chord: an explicit reveal
+  //                 from elsewhere, answered by the session card's
+  //                 card-content responder. It never closes the shade — the
+  //                 route asked to open a room, and a second click on a row
+  //                 must not slam the door.
+  REVEAL_CHANGES: "reveal-changes",
   TOGGLE_HISTORY_VIEW: "toggle-history-view",
   SHOW_SLASH_COMMAND_NOTICE: "show-slash-command-notice",
 
@@ -1038,9 +1046,16 @@ export const TUG_ACTIONS = {
   //                         REQUEST_TRASH_SESSION: the item arms the lane's
   //                         one confirm popover rather than discarding, and
   //                         the popover names what the discard destroys.
+  // REQUEST_REPLAY_DASH:    payload — none. Replay the dash's rounds onto its
+  //                         base branch's current tip. "Request" because the
+  //                         act is the server's: the item sends
+  //                         `changeset_replay` and the outcome comes back on
+  //                         the wire, including the common outcomes that move
+  //                         nothing and report on the pane bulletin.
   BIND_DASH:              "bind-dash",
   UNBIND_DASH:            "unbind-dash",
   REQUEST_DISCARD_DASH:   "request-discard-dash",
+  REQUEST_REPLAY_DASH:    "request-replay-dash",
 
   // ---- Meta ----
   //

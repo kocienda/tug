@@ -58,6 +58,7 @@ import {
   type DashLaneBinding,
   type DashLaneJoinFace,
   type DashLaneDiscard,
+  type DashLaneReplay,
 } from "./session-changes-dash-lane";
 import type { DashJoinActions } from "./session-changes-dash-join";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
@@ -70,6 +71,7 @@ import {
   useChangesetDisclaim,
   useChangesetJoin,
   useChangesetDiscard,
+  useChangesetReplay,
 } from "@/lib/changeset-verb-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
@@ -171,6 +173,7 @@ export function SessionChangesView({
   // the join above. That is why every row's Discard is held while one is in
   // flight: two rows sharing this slot would render each other's phase.
   const discardVerb = useChangesetDiscard(changesController.entryKey);
+  const replayVerb = useChangesetReplay(changesController.entryKey);
   // The resolution ladder's overlay, keyed by dash rather than by card. The
   // fronted dash is resolved from the same snapshot the lane orders by; an
   // unbound card watches the empty key, which is idle by construction.
@@ -444,6 +447,24 @@ export function SessionChangesView({
                 : null,
         };
 
+  // Replay, on every row on identical terms. The per-dash terms are the row's
+  // own facts ({@link replayDisabledReason}); what the lane folds in is only
+  // the in-flight gate, since `ReplayState` is one slot per card and a second
+  // press would render the first one's phase.
+  const laneReplay: DashLaneReplay | undefined =
+    project === null
+      ? undefined
+      : {
+          replay: (entry) =>
+            replayVerb.replay(
+              project.workspace_key,
+              entry.display_name,
+              changesController.tugSessionId,
+            ),
+          disabledReason:
+            replayVerb.phase === "pending" ? "A replay is in flight" : null,
+        };
+
   const laneJoinFace: DashLaneJoinFace | undefined =
     dashJoin !== undefined
       ? {
@@ -513,6 +534,7 @@ export function SessionChangesView({
         joinFace={laneJoinFace}
         binding={laneBinding}
         discard={laneDiscard}
+        replay={laneReplay}
       />
     </div>,
     headerActions,

@@ -12,28 +12,33 @@
  * Each dash is a two-line block in one grammar, the same grammar the Changes
  * shade's collapsed dash row wears:
  *
- *   [^dash-atom] ────────────────── [worker atom | Bind Discard]
+ *   [^dash-atom] ──────────────────────── [worker atom] ⋯
  *     ring · stage icon · count · note · age · divergence
  *
- * The EYEBROW holds the identities and nothing else: the dash atom at the
- * left, the hairline, and the "who" at the right — the bound worker as a mini
- * atom (no callsign, no dash run: the row already names both), or the Bind
- * and Discard verbs for a dash nobody holds. The dash pill wears no review
- * tint here: that yellow is the WAITING color, and a dash is not waiting for
- * anyone. Beneath it, `DashMetaLine` carries everything the dash is DOING.
+ * The EYEBROW holds the identities and one opener: the dash atom at the left,
+ * the hairline, the "who" at the right — the bound worker as a mini atom (no
+ * callsign, no dash run: the row already names both) — and the `⋯` that holds
+ * the row's rare verbs. The dash pill wears no review tint here: that yellow is
+ * the WAITING color, and a dash is not waiting for anyone. Beneath it,
+ * `DashMetaLine` carries everything the dash is DOING.
  *
  * The Lens is the account-global surface and `ChangesetAllStore` is the
  * account-global snapshot it already reads, so this section is a projection
  * and nothing more. Rows key on the dash's **owner key**, which makes two
  * incarnations of a reused name distinct for free.
  *
- * Bind mates an unbound dash to the Lens's followed card, or refuses with a
- * reachable reason ([L31]); Discard destroys it behind a confirm. Neither is
- * on row activation. Both verbs destroy the surface they are pressed on —
- * the success path, not an edge case — so Bind reports nothing locally (a
- * refusal arrives on the card-level bind-error surface, which outlives the
- * row) and the discard confirm anchors to the row element. A bound dash
- * carries neither: its worker's shade is where its verbs live.
+ * The verbs live behind the `⋯`, composed from the Changes shade's own
+ * {@link useDashRowMenu} so the two dash-row surfaces speak one grammar. Bind
+ * mates an unbound dash to the Lens's followed card, or carries its refusal in
+ * the item's own label ([L31]); Discard destroys it behind a confirm anchored
+ * to the row element; Replay moves the dash's rounds onto a base that has
+ * advanced, on the same terms for every row. None is on row activation ([D142]).
+ *
+ * Both destructive verbs destroy the surface they are pressed on — the success
+ * path, not an edge case — so Bind reports nothing locally: a refusal arrives on
+ * the card-level bind-error surface, which outlives the row, and a replay's
+ * outcome on its sibling. Unbind is not here at all: it stays the fronted shade
+ * row's verb, and a bound row's job is to route you to that shade.
  *
  * Rows are totally ordered: nearest-to-done first, then freshest first, then
  * by name. Stage leads because a `draft-ready` dash is one gesture from
@@ -62,7 +67,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { GitBranch } from "lucide-react";
+import { EllipsisVertical, GitBranch } from "lucide-react";
 
 import { LENS_LIST_PRESENTATION } from "@/components/lens/lens-list-presentation";
 import { setSectionContent } from "@/components/lens/lens-section-content";
@@ -83,12 +88,18 @@ import type {
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
-import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useLensFollowedCard } from "@/components/lens/lens-followed-card";
+import { useResponderChain } from "@/components/tugways/responder-chain-provider";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { dispatchCommand } from "@/command-dispatch";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { getConnection } from "@/lib/connection-singleton";
 import { useChangesetAll } from "@/lib/changeset-all-store";
-import { useChangesetDiscard } from "@/lib/changeset-verb-store";
+import { useChangesetDiscard, useChangesetReplay } from "@/lib/changeset-verb-store";
+import {
+  replayDisabledReason,
+  useDashRowMenu,
+} from "@/components/tugways/cards/session-changes/dash-row-menu";
 import { useSessionIdentity } from "@/lib/session-identity";
 import type {
   DashChangesetEntry,
@@ -288,6 +299,61 @@ export function resolveBindTarget(input: {
   return { tugSessionId: input.binding.tugSessionId, reason: null };
 }
 
+/**
+ * The open card working this dash, or null — the destination a row activation
+ * routes to.
+ *
+ * Pure, so its whole truth table is a unit test rather than a DOM one. First
+ * match wins: `bound_sessions` is live sessions mated to the dash, and a card
+ * bound to one of them is a card whose Changes shade shows this dash's lane. In
+ * the ordinary case there is exactly one; where there are several, any of them
+ * is a correct room to open, and picking the first keeps the answer stable
+ * across renders rather than depending on iteration luck.
+ *
+ * Null is the common case, not an error: the Lens lists every dash in every
+ * open project, so a dash nobody holds — or one whose worker's card is closed —
+ * simply has no room to open. That is what makes the row inert, and what the
+ * row's own affordance has to advertise.
+ */
+export function resolveWorkerCard(
+  boundSessions: readonly string[],
+  bindings: ReadonlyMap<string, { tugSessionId: string }>,
+): string | null {
+  if (boundSessions.length === 0) return null;
+  const held = new Set(boundSessions);
+  for (const [cardId, binding] of bindings) {
+    if (held.has(binding.tugSessionId)) return cardId;
+  }
+  return null;
+}
+
+/** {@link resolveWorkerCard} against the live binding snapshot. */
+function useWorkerCard(entry: DashChangesetEntry): string | null {
+  const bindings = useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    cardSessionBindingStore.getSnapshot,
+  );
+  return resolveWorkerCard(entry.bound_sessions ?? [], bindings);
+}
+
+/**
+ * The tug session of the card the Lens is following, or null.
+ *
+ * Where this section's answers go. Bind's target is narrower — it refuses a
+ * card in another project — but a replay's outcome has to reach a reader even
+ * when a bind from the same row would be refused, so the notice is aimed at the
+ * followed card itself rather than at Bind's resolved target.
+ */
+function useFollowedSessionId(): string | null {
+  const followedCardId = useLensFollowedCard();
+  const bindings = useSyncExternalStore(
+    cardSessionBindingStore.subscribe,
+    cardSessionBindingStore.getSnapshot,
+  );
+  if (followedCardId === null) return null;
+  return bindings.get(followedCardId)?.tugSessionId ?? null;
+}
+
 /** {@link resolveBindTarget} against the live followed card and its binding. */
 function useBindTarget(row: DashRow): BindTarget {
   const followedCardId = useLensFollowedCard();
@@ -308,33 +374,53 @@ function useBindTarget(row: DashRow): BindTarget {
 /** What a row may ask of the section around it. */
 interface DashVerbs {
   requestDiscard: (row: DashRow, anchor: HTMLElement | null) => void;
+  /** Send `changeset_replay`; the outcome speaks on the followed card. */
+  requestReplay: (row: DashRow, tugSessionId: string | null) => void;
+  /** Why every Replay in this section is unavailable right now, or null. */
+  replayDisabledReason: string | null;
 }
 
 const DashVerbsContext = React.createContext<DashVerbs | null>(null);
 
 /**
- * Take this dash on.
+ * The row's rare verbs, behind one opener — the same `⋯` grammar the Changes
+ * shade's dash lane wears, composed from the same hook ({@link useDashRowMenu}).
  *
- * The press reports **nothing locally**, and that is the point: on success the
- * worker's atom replaces the verbs, so a pending state on the button would be
- * reporting into a control that is about to leave. A server-side refusal
- * arrives on the card-level `dash-bind-error-store` surface, which outlives it.
+ * They used to stand here as Bind and Discard text buttons. Standing on the
+ * eyebrow they read as peers of the acts a reader performs constantly, which
+ * they are not: a dash is bound once, discarded almost never, and replayed only
+ * when the automatic engine's gates have skipped it. The eyebrow goes back to
+ * being read, and the two dash-row surfaces stop speaking two grammars.
+ *
+ * Bind's refusals arrive here as the item's own disabled reason, verbatim from
+ * {@link resolveBindTarget} ([L31]). Unbind is deliberately absent: it stays the
+ * fronted shade row's verb, and a Lens row routes you there.
+ *
+ * The press reports **nothing locally** for a bind: on success the worker's atom
+ * replaces the opener's neighbours, so a pending state would be reporting into a
+ * control that is about to leave. A server-side refusal arrives on the card-level
+ * `dash-bind-error-store` surface, which outlives it — and a replay's outcome on
+ * its sibling, for the same reason.
  */
-function BindControl({ row }: { row: DashRow }): React.ReactElement {
+function DashRowMenuControl({ row }: { row: DashRow }): React.ReactElement | null {
+  const verbs = React.useContext(DashVerbsContext);
   const target = useBindTarget(row);
-  const name = row.entry.display_name;
-  return (
-    // The tooltip wraps a SPAN, not the button: a disabled button takes no
-    // pointer events, so its own tooltip would never fire — and an unreachable
-    // reason is not a reason ([L31]).
-    <TugTooltip content={target.reason ?? `Bind ${name} to the focused session`}>
-      <span className="lens-dashes-bind">
-        <TugPushButton
-          size="2xs"
-          subtype="text"
-          disabled={target.reason !== null}
-          data-slot="lens-bind"
-          onClick={() => {
+  const followedSessionId = useFollowedSessionId();
+  const entry = row.entry;
+  const name = entry.display_name;
+  const bound = (entry.bound_sessions ?? []).length > 0;
+  const openerRef = React.useRef<HTMLButtonElement | null>(null);
+
+  const rowMenu = useDashRowMenu({
+    // Bind only, and only while nobody holds the dash: Unbind belongs to the
+    // shade, and a bound row's binding item would offer a verb this surface
+    // has decided not to carry.
+    binding: bound
+      ? null
+      : {
+          bound: false,
+          disabledReason: target.reason,
+          perform: () => {
             if (target.tugSessionId === null) return;
             // The same frame the Changes shade's lane sends, so there is one
             // binding path. `bind_dash_ok` stays the only mover of
@@ -345,42 +431,53 @@ function BindControl({ row }: { row: DashRow }): React.ReactElement {
               project_dir: row.projectDir,
               dash: name,
             });
-          }}
-        >
-          Bind
-        </TugPushButton>
-      </span>
-    </TugTooltip>
-  );
-}
+          },
+        },
+    discard:
+      verbs === null
+        ? null
+        : {
+            disabledReason: null,
+            // The anchor is the ROW cell, never the opener: the confirm
+            // outlives the press, and the menu unmounts on selection, so a
+            // popover anchored to the item would be destroyed as it opened.
+            perform: () =>
+              verbs.requestDiscard(
+                row,
+                openerRef.current?.closest(
+                  ".tug-list-view-cell",
+                ) as HTMLElement | null,
+              ),
+          },
+    replay:
+      verbs === null
+        ? null
+        : {
+            label: `Replay onto ${entry.base}`,
+            disabledReason:
+              verbs.replayDisabledReason ?? replayDisabledReason(entry),
+            // The outcome reports on the followed card — the same card a Bind
+            // from this row aims at, so the section's two verbs answer in one
+            // place rather than sending the reader hunting.
+            perform: () => verbs.requestReplay(row, followedSessionId),
+          },
+  });
 
-/** Let this dash go. Arms the section's one confirm, anchored to the row. */
-function DiscardControl({ row }: { row: DashRow }): React.ReactElement | null {
-  const verbs = React.useContext(DashVerbsContext);
-  if (verbs === null) return null;
+  if (rowMenu.menu === null) return null;
   return (
-    <TugTooltip content={`Discard ${row.entry.display_name} — its branch and worktree`}>
-      <span className="lens-dashes-discard">
-        <TugPushButton
-          size="2xs"
-          subtype="text"
-          role="danger"
-          data-slot="lens-discard"
-          onClick={(event) => {
-            // The anchor is the ROW element, never this button: the confirm
-            // outlives the press, and a control in a trailing cluster can
-            // unmount under its own popover.
-            const button = event?.currentTarget as HTMLElement | undefined;
-            verbs.requestDiscard(
-              row,
-              button?.closest(".tug-list-view-cell") as HTMLElement | null,
-            );
-          }}
-        >
-          Discard
-        </TugPushButton>
-      </span>
-    </TugTooltip>
+    <span className="lens-dashes-verbs" data-slot="lens-dashes-verbs">
+      <TugPushButton
+        ref={openerRef}
+        size="2xs"
+        subtype="icon"
+        emphasis="ghost"
+        aria-label={`Actions for dash ${name}`}
+        data-slot="lens-dashes-row-menu-open"
+        icon={<EllipsisVertical size={14} />}
+        onClick={() => rowMenu.openMenu(openerRef.current)}
+      />
+      {rowMenu.menu}
+    </span>
   );
 }
 
@@ -417,6 +514,13 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
   if (row === undefined) return null;
   const entry = row.entry;
   const workers = entry.bound_sessions ?? [];
+  // What a click on this row would do — and therefore what the row is allowed
+  // to look like. A row with no open worker card has no room to open, and a
+  // dead click on something that presented as live is the failure this
+  // attribute exists to prevent ([L06]: the pointer and hover treatment are
+  // CSS on this bit, never React state). An inert row never invited the press,
+  // so it owes no refusal.
+  const activatable = useWorkerCard(entry) !== null;
   return (
     <TugListRow
       className="lens-dashes-row"
@@ -425,6 +529,7 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
       data-slot="lens-dashes-row"
       data-dash={entry.display_name}
       data-bound={workers.length > 0 ? "true" : undefined}
+      data-activatable={activatable ? "true" : undefined}
     >
       <span className="lens-dashes-block">
         {/* The eyebrow holds the identities and nothing else: the dash atom,
@@ -439,16 +544,14 @@ const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
             atomSize="2xs"
           />
           <span className="lens-dashes-eyebrow-rule" />
-          {workers.length > 0 ? (
-            workers.map((sessionId) => (
-              <WorkerAtom key={sessionId} sessionId={sessionId} />
-            ))
-          ) : (
-            <span className="lens-dashes-verbs" data-slot="lens-dashes-verbs">
-              <BindControl row={row} />
-              <DiscardControl row={row} />
-            </span>
-          )}
+          {workers.map((sessionId) => (
+            <WorkerAtom key={sessionId} sessionId={sessionId} />
+          ))}
+          {/* Every row carries the opener, held or not: Replay reaches a bound
+              dash on the same terms as an unbound one, and a menu that came and
+              went with the binding would be the section's old wart in
+              miniature. */}
+          <DashRowMenuControl row={row} />
         </span>
         {/* Everything the dash is DOING, in the one shared metadata line. */}
         <span className="lens-dashes-meta-line">
@@ -502,18 +605,22 @@ function DashesCollapsedSummary(): React.ReactElement {
 }
 
 /**
- * The section's one discard round trip, keyed by the section rather than by
- * row: one discard at a time is the right number, and the state lives in a
- * module store that outlives this body.
+ * The section's verb round trips, keyed by the section rather than by row: one
+ * discard and one replay at a time is the right number, and the state lives in
+ * a module store that outlives this body.
  */
-const DASHES_DISCARD_KEY = "lens-unbound-dashes";
+const DASHES_VERB_KEY = "lens-unbound-dashes";
 
 function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElement {
   const rows = useDashRows();
   const dataSource = useMemo(() => new DashRowsDataSource(rows), [rows]);
   const populated = rows.length > 0;
 
-  const discardVerb = useChangesetDiscard(DASHES_DISCARD_KEY);
+  const discardVerb = useChangesetDiscard(DASHES_VERB_KEY);
+  // One replay round trip for the section, for the reason the discard has one:
+  // the state is a slot per key, and a second press would render the first's
+  // phase.
+  const replayVerb = useChangesetReplay(DASHES_VERB_KEY);
   // Which row's discard is armed, and the element the confirm hangs off. View
   // scope ([L24]): a half-armed confirm is not worth remembering, and closing
   // the Lens forgets it.
@@ -524,8 +631,20 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   const verbs = useMemo<DashVerbs>(
     () => ({
       requestDiscard: (row, anchor) => setPendingDiscard({ row, anchor }),
+      // No confirm: a replay destroys nothing, and its every refusal path
+      // leaves the repository exactly as it found it. What it needs instead is
+      // a voice, which is the session id — the outcome posts on that card's
+      // pane bulletin, and the common outcomes move nothing else.
+      requestReplay: (row, tugSessionId) =>
+        replayVerb.replay(
+          row.workspaceKey,
+          row.entry.display_name,
+          tugSessionId ?? undefined,
+        ),
+      replayDisabledReason:
+        replayVerb.phase === "pending" ? "A replay is in flight" : null,
     }),
-    [],
+    [replayVerb],
   );
 
   // The band's arrow walk needs to know whether there is anything in here to
@@ -540,9 +659,42 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
       setSectionContent(host.focusGroup, { navigable: false, populated: false });
   }, [host.focusGroup, populated]);
 
-  // Activation moves the cursor and nothing else; the row's verbs are named
-  // controls on the eyebrow ([L31]).
-  const delegate = useMemo<TugListViewDelegate>(() => ({}), []);
+  // Activation opens the dash's ROOM: it fronts the card working the dash and
+  // reveals that card's Changes shade, which is where every decision about a
+  // dash already lives ([D152]). Navigation, never a verb — the mutating acts
+  // stay behind the `⋯`, because status is not a control ([D142]).
+  //
+  // Click and Enter are the same act here, unlike the Cards section's split:
+  // there, a click both selects and fronts, so the two doors differ. A dash row
+  // has one destination and no second meaning to give the keyboard.
+  //
+  // A row with no open worker card does nothing — and says so before the press
+  // rather than after, through the row's own activatable attribute.
+  const chain = useResponderChain();
+  const delegate = useMemo<TugListViewDelegate>(() => {
+    const activate = (index: number): void => {
+      const row = dataSource.rows[index];
+      if (row === undefined) return;
+      const cardId = resolveWorkerCard(
+        row.entry.bound_sessions ?? [],
+        cardSessionBindingStore.getSnapshot(),
+      );
+      if (cardId === null) return;
+      // The card-content scope, not the bare card id: `sendToTarget` walks
+      // upward from its target, the bare id is `card-host`'s, and the session
+      // card's handlers live one scope beneath it — a miss there fails
+      // silently. The guard doubles as the liveness check, since only a
+      // mounted session card registers this responder.
+      const target = `${cardId}-card-content`;
+      if (chain === null || !chain.hasResponder(target)) return;
+      dispatchCommand("focus-session-card", { cardId });
+      chain.sendToTarget(target, {
+        action: TUG_ACTIONS.REVEAL_CHANGES,
+        phase: "discrete",
+      });
+    };
+    return { onSelect: activate, onActivate: activate };
+  }, [chain, dataSource]);
 
   // The empty state keeps the band, at the shared empty label's height and
   // tone — but it names the way in rather than saying "None".

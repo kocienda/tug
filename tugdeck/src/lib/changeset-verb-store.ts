@@ -29,6 +29,15 @@
  * (`_ok {disclaimed}`) or a guard's refusal (`_err {detail}`), and is tracked
  * and keyed exactly as claim is.
  *
+ * `changeset_replay { project_dir, dash, session_id? }` replays a dash's rounds
+ * onto its base branch's current tip. Its reply carries the server's own
+ * outcome word plus that outcome's fields (`_ok {outcome, …}`) or a guard's
+ * refusal (`_err {detail}`). Three of the five outcomes — `current`,
+ * `deferred`, `conflicted` — move nothing a dash row can show, so the outcome
+ * is also reported to {@link dashReplayOutcomeStore}, which the card's notice
+ * controller turns into a pane bulletin. Without that a press whose answer was
+ * "I declined, and here is why" would be indistinguishable from a dead button.
+ *
  * Git-init state is keyed by `project_dir` (several non-repo projects can be
  * open at once). Consumed via {@link useChangesetGitInit} /
  * {@link useChangesetCommit} / {@link useChangesetClaim} /
@@ -44,6 +53,10 @@ import { useSyncExternalStore } from "react";
 
 import type { TugConnection } from "../connection";
 import { FeedId } from "../protocol";
+import {
+  dashReplayOutcomeStore,
+  type DashReplayOutcomeWord,
+} from "./dash-replay-outcome-store";
 import { gitLogStore } from "./git-log-store";
 
 export type GitInitPhase = "idle" | "pending" | "error";
@@ -207,6 +220,32 @@ const DISCARD_IDLE: DiscardState = Object.freeze({
 });
 
 /**
+ * One dash-replay round trip's state, keyed by the initiating card entry.
+ *
+ * `outcome` is the server's own word — `current`, `replayed`, `recorded`,
+ * `deferred`, `conflicted` — and `detail` the text that goes with a `deferred`.
+ * Three of those five move nothing the row can show, which is why the outcome
+ * also reports to {@link dashReplayOutcomeStore} for the pane bulletin.
+ */
+export type ReplayPhase = "idle" | "pending" | "error" | "done";
+
+export interface ReplayState {
+  phase: ReplayPhase;
+  /** The server's outcome word when `phase === "done"`. */
+  outcome: string | null;
+  /** A `deferred` outcome's detail. */
+  detail: string | null;
+  error: string | null;
+}
+
+const REPLAY_IDLE: ReplayState = Object.freeze({
+  phase: "idle",
+  outcome: null,
+  detail: null,
+  error: null,
+});
+
+/**
  * Correlation key for a join/discard reply.
  *
  * The workspace's canonical key ([L29]), never a raw binding path — the server
@@ -282,6 +321,10 @@ export class ChangesetVerbStore {
   private _discards = new Map<string, DiscardState>();
   /** `verbKey(project_dir, dash)` → the entry key whose discard is in flight. */
   private _discardInflight = new Map<string, string>();
+  /** entry key → replay round-trip state. Absent ⇒ idle. */
+  private _replays = new Map<string, ReplayState>();
+  /** `verbKey(project_dir, dash)` → the entry key whose replay is in flight. */
+  private _replayInflight = new Map<string, string>();
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
@@ -468,6 +511,47 @@ export class ChangesetVerbStore {
       this._discardInflight.delete(key);
       const detail = typeof body.detail === "string" ? body.detail : "discard failed";
       this._setDiscard(entryKey, { phase: "error", error: detail, summary: null, receiptId: null });
+    } else if (body.action === "changeset_replay_ok") {
+      const dash = typeof body.dash === "string" ? body.dash : null;
+      if (dash === null) return;
+      const key = verbKey(sentDir, dash);
+      const entryKey = this._replayInflight.get(key);
+      if (entryKey === undefined) return;
+      this._replayInflight.delete(key);
+      const outcome = typeof body.outcome === "string" ? body.outcome : null;
+      const detail = typeof body.detail === "string" ? body.detail : null;
+      this._setReplay(entryKey, { phase: "done", outcome, detail, error: null });
+      // The outcomes that move nothing have no other voice ([P06]).
+      const sessionId = typeof body.session_id === "string" ? body.session_id : null;
+      if (sessionId !== null && outcome !== null) {
+        dashReplayOutcomeStore.report(sessionId, {
+          dash,
+          outcome: outcome as DashReplayOutcomeWord,
+          detail,
+          roundSubject:
+            typeof body.round_subject === "string" ? body.round_subject : null,
+          paths: readStringArray(body.paths),
+        });
+      }
+    } else if (body.action === "changeset_replay_err") {
+      const dash = typeof body.dash === "string" ? body.dash : null;
+      if (dash === null) return;
+      const key = verbKey(sentDir, dash);
+      const entryKey = this._replayInflight.get(key);
+      if (entryKey === undefined) return;
+      this._replayInflight.delete(key);
+      const detail = typeof body.detail === "string" ? body.detail : "replay failed";
+      this._setReplay(entryKey, { phase: "error", outcome: null, detail: null, error: detail });
+      const sessionId = typeof body.session_id === "string" ? body.session_id : null;
+      if (sessionId !== null) {
+        dashReplayOutcomeStore.report(sessionId, {
+          dash,
+          outcome: "error",
+          detail,
+          roundSubject: null,
+          paths: [],
+        });
+      }
     }
   }
 
@@ -758,6 +842,38 @@ export class ChangesetVerbStore {
     this._setDiscard(entryKey, DISCARD_IDLE);
   }
 
+  private _setReplay(entryKey: string, state: ReplayState): void {
+    if (state.phase === "idle") {
+      this._replays.delete(entryKey);
+    } else {
+      this._replays.set(entryKey, state);
+    }
+    for (const listener of [...this._listeners]) listener();
+  }
+
+  /**
+   * Send `changeset_replay` for `(workspaceKey, dash)`; mark `entryKey`
+   * in-flight. `sessionId` names the card whose pane bulletin reports the
+   * outcome ([P06]); absent, the replay still runs and simply says nothing.
+   */
+  replay(entryKey: string, workspaceKey: string, dash: string, sessionId?: string): void {
+    this._replayInflight.set(verbKey(workspaceKey, dash), entryKey);
+    this._setReplay(entryKey, { phase: "pending", outcome: null, detail: null, error: null });
+    this._connection.sendControlFrame("changeset_replay", {
+      project_dir: workspaceKey,
+      dash,
+      ...(sessionId !== undefined ? { session_id: sessionId } : {}),
+    });
+  }
+
+  replayState(entryKey: string): ReplayState {
+    return this._replays.get(entryKey) ?? REPLAY_IDLE;
+  }
+
+  clearReplay(entryKey: string): void {
+    this._setReplay(entryKey, REPLAY_IDLE);
+  }
+
   dispose(): void {
     this._unsubscribe();
     this._listeners.clear();
@@ -932,4 +1048,30 @@ export function useChangesetDiscard(entryKey: string): DiscardState & {
     _activeStore?.clearDiscard(entryKey);
   };
   return { ...state, discard, clear };
+}
+
+/**
+ * React hook: the dash-replay round-trip state for one dash entry plus its
+ * triggers. Returns idle + no-op triggers when no store is attached.
+ */
+export function useChangesetReplay(entryKey: string): ReplayState & {
+  replay: (workspaceKey: string, dash: string, sessionId?: string) => void;
+  clear: () => void;
+} {
+  const state = useSyncExternalStore(
+    (listener) => {
+      const store = _activeStore;
+      if (store === null) return () => {};
+      return store.subscribe(listener);
+    },
+    () => _activeStore?.replayState(entryKey) ?? REPLAY_IDLE,
+    () => REPLAY_IDLE,
+  );
+  const replay = (workspaceKey: string, dash: string, sessionId?: string): void => {
+    _activeStore?.replay(entryKey, workspaceKey, dash, sessionId);
+  };
+  const clear = (): void => {
+    _activeStore?.clearReplay(entryKey);
+  };
+  return { ...state, replay, clear };
 }

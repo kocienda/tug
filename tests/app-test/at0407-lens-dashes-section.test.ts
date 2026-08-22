@@ -149,8 +149,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
           atomText: string;
           reviewTinted: boolean;
           reviewGlyphs: number;
-          binds: number;
-          discards: number;
+          menus: number;
           workers: number;
           dots: number;
           bound: string | null;
@@ -169,8 +168,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
                // means WAITING, and a dash is not waiting for anyone.
                reviewTinted: atom?.hasAttribute("data-review") === true,
                reviewGlyphs: row.querySelectorAll('[data-slot="lens-dashes-review"]').length,
-               binds: row.querySelectorAll('[data-slot="lens-bind"]').length,
-               discards: row.querySelectorAll('[data-slot="lens-discard"]').length,
+               menus: row.querySelectorAll('[data-slot="lens-dashes-row-menu-open"]').length,
                workers: row.querySelectorAll('[data-slot="lens-dashes-worker"]').length,
                dots: row.querySelectorAll('[data-slot="tug-progress-indicator"]').length,
                bound: row.getAttribute("data-bound"),
@@ -184,9 +182,9 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         expect(unbound.atomText).toBe(`^${DASH_NAME}`);
         expect(unbound.reviewTinted).toBe(false);
         expect(unbound.reviewGlyphs).toBe(0);
-        // Nobody holds it, so the eyebrow's right side is the verbs.
-        expect(unbound.binds).toBe(1);
-        expect(unbound.discards).toBe(1);
+        // The row's verbs live behind one opener, on every row — the standing
+        // Bind and Discard buttons are gone, and the shade's grammar is here.
+        expect(unbound.menus).toBe(1);
         expect(unbound.workers).toBe(0);
         // No phase dot on a row nobody works: a dash with a phase to report
         // has a session bound to it, and that session's atom carries the dot.

@@ -320,10 +320,11 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
           env: { ...(cli.env ?? {}), TUG_SESSION_ID: SID },
         });
         // Read from the Lens rather than from the verb's own exit: the row
-        // drops its Bind verb for the bound worker's atom, which is the deck
-        // seeing the ledger row the pilot will read.
+        // grows the bound worker's atom, which is the deck seeing the ledger
+        // row the pilot will read. The atom is the positive signal — an absent
+        // Bind would also be true of a row that never rendered.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${lensRow(DASH)} [data-slot="lens-bind"]') === null`,
+          `document.querySelector('${lensRow(DASH)} [data-slot="lens-dashes-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
         note("at0445 bound: the ledger row landed and the Lens row saw it");

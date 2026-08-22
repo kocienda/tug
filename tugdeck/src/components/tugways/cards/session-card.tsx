@@ -169,6 +169,7 @@ import { createStagedLanding, type StagedLanding } from "./staged-landing";
 import { LandingNoticeController } from "./landing-notice-controller";
 import { DiscardErrorNoticeController } from "./discard-error-notice-controller";
 import { DashBindErrorNoticeController } from "./dash-bind-error-notice-controller";
+import { DashReplayNoticeController } from "./dash-replay-notice-controller";
 import { deriveColdRestoreActive } from "./session-card-restore-gate";
 import { REPLAY_SOFT_BUDGET_MS } from "@/lib/code-session-store";
 import { PromptHistoryStore } from "@/lib/prompt-history-store";
@@ -3515,6 +3516,22 @@ export function SessionCardBody({
     shadeViewController,
   ]);
 
+  // The same reveal, asked for out loud — a Lens dash row activating routes
+  // here through the card-content responder, and this is [D152]'s one reveal
+  // path rather than a second one. Defined beside the effect above so both
+  // share the controller and the memory: whichever fires first spends the
+  // standing offer's head, so the passive reveal never re-opens the room for
+  // work the reader has just been shown.
+  //
+  // The quiet-moment gate is deliberately not consulted. It exists to keep an
+  // *unbidden* reveal from covering what somebody is reading; an explicit
+  // click is its own license, exactly as the Z4A Changes segment is.
+  const revealChanges = useCallback((): void => {
+    const dashHead = joinOffer?.dash_head;
+    if (dashHead !== undefined) revealedOffersRef.current.add(dashHead);
+    shadeViewController.show("changes");
+  }, [joinOffer, shadeViewController]);
+
   // `/resume` focused sessions overlay ([#step-8]), card-scoped per [D15].
   // Reads the bound project from the binding store and lists its sessions;
   // picking one rebinds this card to that conversation. Distinct from the
@@ -4423,6 +4440,17 @@ export function SessionCardBody({
       [TUG_ACTIONS.FOCUS_PROMPT]: (_event: ActionEvent) => {
         entryDelegateRef.current?.focus();
       },
+      // Open this card's Changes shade. Sent by a surface that shows this
+      // card's dash — the Lens's Dashes row — after fronting the card.
+      //
+      // It has to live on THIS responder rather than on the bare `cardId`:
+      // `sendToTarget` walks `parentId` upward from its target, the bare id
+      // belongs to `card-host`, and this scope is beneath it. A dispatch that
+      // finds no handler fails silently, so the target spelling is pinned by
+      // an app-test rather than by inspection.
+      [TUG_ACTIONS.REVEAL_CHANGES]: (_event: ActionEvent) => {
+        revealChanges();
+      },
       // ⌘F / Edit ▸ Find… — toggle the transcript find bar. Registering this
       // handler is also what ENABLES the menu item: `host-menu-state` derives
       // Edit ▸ Find…'s enablement from `chain.validateAction(FIND)`, so
@@ -4973,6 +5001,9 @@ export function SessionCardBody({
             <ClaimErrorNoticeController entryKey={changesController.entryKey} />
             {boundSessionId !== null ? (
               <DashBindErrorNoticeController tugSessionId={boundSessionId} />
+            ) : null}
+            {boundSessionId !== null ? (
+              <DashReplayNoticeController tugSessionId={boundSessionId} />
             ) : null}
             <TugPaneBulletinProvider
               placement="bottom"

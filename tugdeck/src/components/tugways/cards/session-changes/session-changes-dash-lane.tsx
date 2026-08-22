@@ -60,7 +60,7 @@ import { EllipsisVertical } from "lucide-react";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugStatusMark } from "@/components/tugways/tug-status-mark";
-import { useDashRowMenu } from "./dash-row-menu";
+import { replayDisabledReason, useDashRowMenu } from "./dash-row-menu";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
@@ -173,6 +173,15 @@ export interface DashLaneDiscard {
   disabledReason: string | null;
 }
 
+export interface DashLaneReplay {
+  /** Send `changeset_replay` for this row's dash. */
+  replay: (entry: DashChangesetEntry) => void;
+  /** Why every Replay on this lane is unavailable right now, or null. Folds
+   *  only the in-flight gate; the per-dash terms are
+   *  {@link replayDisabledReason}'s, computed from the row's own facts. */
+  disabledReason: string | null;
+}
+
 export interface DashLaneBinding {
   /** Send `bind_dash` for this row's dash. */
   bind: (entry: DashChangesetEntry) => void;
@@ -280,6 +289,7 @@ function DashRow({
   joinFace,
   binding,
   discard,
+  replay,
   onRequestDiscard,
 }: {
   entry: DashChangesetEntry;
@@ -297,6 +307,9 @@ function DashRow({
   /** Discard, for every row the reach rule allows; omitted leaves the lane
    *  read-only. */
   discard: DashLaneDiscard | null;
+  /** Replay, on the same terms for every row; omitted leaves the lane
+   *  read-only. */
+  replay: DashLaneReplay | null;
   /** Arm the lane's discard confirm against this row's element. The row is the
    *  anchor, never the button: a button inside a hover-revealed cluster can
    *  unmount under its own popover, which is the shape `TugConfirmPopover`'s
@@ -365,6 +378,17 @@ function DashRow({
           // shape `TugConfirmPopover`'s docblock warns about.
           perform: () => onRequestDiscard(entry, rowRef.current),
         },
+    // Offered on every row on identical terms, bound or not: the automatic
+    // engine's gate never reads boundness either, so a bound diverged dash is
+    // exactly as stuck as an unbound one ({@link replayDisabledReason}).
+    replay:
+      replay === null
+        ? null
+        : {
+            label: `Replay onto ${entry.base}`,
+            disabledReason: replay.disabledReason ?? replayDisabledReason(entry),
+            perform: () => replay.replay(entry),
+          },
   });
 
   return (
@@ -601,6 +625,9 @@ export interface SessionChangesDashLaneProps {
   /** Discard, for every row the reach rule allows; omitted leaves the lane
    *  read-only. */
   discard?: DashLaneDiscard;
+  /** Replay, on the same terms for every row; omitted leaves the lane
+   *  read-only. */
+  replay?: DashLaneReplay;
 }
 
 export function SessionChangesDashLane({
@@ -612,6 +639,7 @@ export function SessionChangesDashLane({
   joinFace,
   binding,
   discard,
+  replay,
 }: SessionChangesDashLaneProps): React.ReactElement | null {
   // Per-dash expansion overrides. The default is "expanded exactly when this
   // is the card's own dash", so a bind that arrives while the shade is open
@@ -671,6 +699,7 @@ export function SessionChangesDashLane({
             joinFace={joinFace ?? null}
             binding={binding ?? null}
             discard={discard ?? null}
+            replay={replay ?? null}
             onRequestDiscard={requestDiscard}
           />
         </>
@@ -696,6 +725,7 @@ export function SessionChangesDashLane({
               // population is exactly the rows the join face skips.
               binding={binding ?? null}
               discard={discard ?? null}
+              replay={replay ?? null}
               onRequestDiscard={requestDiscard}
             />
           ))}

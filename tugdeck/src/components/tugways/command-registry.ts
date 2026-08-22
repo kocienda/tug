@@ -2569,6 +2569,11 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.BIND_DASH,
   TUG_ACTIONS.UNBIND_DASH,
   TUG_ACTIONS.REQUEST_DISCARD_DASH,
+  TUG_ACTIONS.REQUEST_REPLAY_DASH,
+  // Sent card-to-card by a surface showing that card's dash, never typed:
+  // the reader already has ⌃⌘C for their own card's shade, and a chord that
+  // meant "reveal somebody else's" would have no way to name whose.
+  TUG_ACTIONS.REVEAL_CHANGES,
   TUG_ACTIONS.INSERT_INTO_PROMPT,
   TUG_ACTIONS.REVEAL_IN_FINDER,
   TUG_ACTIONS.OPEN_IMAGE_PREVIEW,

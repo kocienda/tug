@@ -22,6 +22,7 @@ import {
   dashRowsFromSnapshot,
   dashesCollapsedSummary,
   resolveBindTarget,
+  resolveWorkerCard,
   type DashRow,
 } from "../dashes-section";
 
@@ -282,6 +283,48 @@ describe("resolveBindTarget", () => {
       const target = resolveBindTarget({ ...HOME, ...input });
       expect((target.tugSessionId === null) !== (target.reason === null)).toBe(true);
     }
+  });
+});
+
+/**
+ * Where activating a row goes — and, just as load-bearing, when it goes
+ * nowhere. Null is the ordinary answer in a list of every dash in every open
+ * project, and it is what makes the row inert *and* what stops it presenting
+ * as clickable, since both read this one value.
+ */
+describe("resolveWorkerCard", () => {
+  const bindings = (
+    entries: Array<[string, string]>,
+  ): ReadonlyMap<string, { tugSessionId: string }> =>
+    new Map(entries.map(([cardId, tugSessionId]) => [cardId, { tugSessionId }]));
+
+  test("a dash nobody holds has no room to open", () => {
+    expect(resolveWorkerCard([], bindings([["A", "sess-1"]]))).toBeNull();
+  });
+
+  test("a held dash whose worker has no card open here is inert too", () => {
+    // The session is live on the server; this instance simply has no card on
+    // it. The row is still worth showing — it is just not a door.
+    expect(resolveWorkerCard(["sess-9"], bindings([["A", "sess-1"]]))).toBeNull();
+  });
+
+  test("the card bound to the holding session is the destination", () => {
+    expect(
+      resolveWorkerCard(["sess-2"], bindings([["A", "sess-1"], ["B", "sess-2"]])),
+    ).toBe("B");
+  });
+
+  test("with several holders, the first match is the answer and stays the answer", () => {
+    // Any of them is a correct room; what matters is that two renders of the
+    // same snapshot agree, so activation does not front a different card each
+    // time.
+    const map = bindings([["A", "sess-1"], ["B", "sess-2"]]);
+    expect(resolveWorkerCard(["sess-1", "sess-2"], map)).toBe("A");
+    expect(resolveWorkerCard(["sess-2", "sess-1"], map)).toBe("A");
+  });
+
+  test("no bindings at all is null, not a throw", () => {
+    expect(resolveWorkerCard(["sess-1"], bindings([]))).toBeNull();
   });
 });
 

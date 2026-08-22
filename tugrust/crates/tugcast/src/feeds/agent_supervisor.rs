@@ -2070,6 +2070,39 @@ fn parse_changeset_discard_payload(
     })
 }
 
+/// Parsed `changeset_replay` request: the project checkout and the dash name.
+struct ChangesetReplayPayload {
+    project_dir: String,
+    dash: String,
+    /// The calling card's tug session id, for the outcome's notice.
+    session_id: Option<String>,
+}
+
+fn parse_changeset_replay_payload(payload: &[u8]) -> Result<ChangesetReplayPayload, ControlError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
+    let project_dir = value
+        .get("project_dir")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::InvalidProjectDir {
+            reason: "missing_project_dir",
+        })?
+        .to_string();
+    let dash = value
+        .get("dash")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or(ControlError::Malformed)?
+        .to_string();
+    let session_id = parse_optional_session_id(&value);
+    Ok(ChangesetReplayPayload {
+        project_dir,
+        dash,
+        session_id,
+    })
+}
+
 /// One land press, as the deck reported it, ready to be written down.
 ///
 /// The deck's own log dies with a reload, and the 2026-08-17 incident contained
@@ -3006,6 +3039,13 @@ impl AgentSupervisor {
             "changeset_discard" => match parse_changeset_discard_payload(payload) {
                 Ok(parsed) => {
                     self.do_changeset_discard(&parsed).await;
+                    Ok(())
+                }
+                Err(e) => return ControlOutcome::Error(e),
+            },
+            "changeset_replay" => match parse_changeset_replay_payload(payload) {
+                Ok(parsed) => {
+                    self.do_changeset_replay(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -5845,6 +5885,123 @@ impl AgentSupervisor {
         ));
     }
 
+    /// Handle a `changeset_replay` CONTROL request: replay a dash's rounds onto
+    /// its base branch's current tip, via `tugdash-core`. Same two guards as the
+    /// discard verb; fires the aggregate bump so the row's divergence facts
+    /// recompute. Broadcasts `changeset_replay_ok {…}` / `changeset_replay_err`.
+    ///
+    /// Nothing is written to the ledger and no draft or binding is cleared: a
+    /// replay destroys nothing and owns no draft, so the discard's cleanup has
+    /// no analogue here. `replay_onto` is a compare-and-swap over the worktree's
+    /// cleanliness and HEAD, so a press that races the base-motion engine
+    /// touches nothing and reports `deferred` or `current`.
+    ///
+    /// A `conflicted` outcome is still an `_ok`: the replay ran and reported,
+    /// and the conflict is the dash's state rather than the verb's failure.
+    /// `_err` carries the two guards and an `Err` from the op, which
+    /// `replay_onto` returns only for a dash that does not exist.
+    async fn do_changeset_replay(&self, request: &ChangesetReplayPayload) {
+        let project_dir = request.project_dir.as_str();
+        let dir = std::path::Path::new(project_dir);
+
+        if self.registry.find_entry_by_path(dir).is_none() {
+            Self::send_changeset_replay_err(
+                &self.control_tx,
+                project_dir,
+                &request.dash,
+                request.session_id.as_deref(),
+                "not an open project",
+            );
+            return;
+        }
+        if !crate::feeds::git::is_within_git_worktree(dir).await {
+            Self::send_changeset_replay_err(
+                &self.control_tx,
+                project_dir,
+                &request.dash,
+                request.session_id.as_deref(),
+                "not a git repository",
+            );
+            return;
+        }
+
+        let dir_owned = dir.to_path_buf();
+        let dash = request.dash.clone();
+        let result =
+            tokio::task::spawn_blocking(move || tugdash_core::replay_onto(&dir_owned, &dash)).await;
+
+        match result {
+            Ok(Ok(outcome)) => {
+                self.registry.changeset_all_bump().notify_one();
+                let mut body = serde_json::json!({
+                    "action": "changeset_replay_ok",
+                    "project_dir": project_dir,
+                    "dash": request.dash,
+                    "session_id": request.session_id,
+                });
+                // The outcome serializes itself — its own `#[serde(tag =
+                // "outcome")]` supplies the word, and the variant's fields carry
+                // the only text a refusal can be read from.
+                let serialized =
+                    serde_json::to_value(&outcome).expect("replay outcome serializes");
+                if let (Some(target), Some(fields)) =
+                    (body.as_object_mut(), serialized.as_object())
+                {
+                    for (key, value) in fields {
+                        target.insert(key.clone(), value.clone());
+                    }
+                }
+                tracing::info!(
+                    dash = %request.dash,
+                    outcome = %serialized.get("outcome").and_then(|v| v.as_str()).unwrap_or("-"),
+                    "dash-replay: completed"
+                );
+                let _ = self.control_tx.send(Frame::new(
+                    FeedId::CONTROL,
+                    serde_json::to_vec(&body).expect("changeset_replay_ok serializes"),
+                ));
+            }
+            Ok(Err(detail)) => {
+                Self::send_changeset_replay_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.dash,
+                    request.session_id.as_deref(),
+                    &detail,
+                );
+            }
+            Err(join_err) => {
+                Self::send_changeset_replay_err(
+                    &self.control_tx,
+                    project_dir,
+                    &request.dash,
+                    request.session_id.as_deref(),
+                    &format!("replay task failed: {join_err}"),
+                );
+            }
+        }
+    }
+
+    fn send_changeset_replay_err(
+        control_tx: &broadcast::Sender<Frame>,
+        project_dir: &str,
+        dash: &str,
+        session_id: Option<&str>,
+        detail: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "changeset_replay_err",
+            "project_dir": project_dir,
+            "dash": dash,
+            "session_id": session_id,
+            "detail": detail,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_replay_err serializes"),
+        ));
+    }
+
     fn send_changeset_git_init_ok(control_tx: &broadcast::Sender<Frame>, project_dir: &str) {
         let body = serde_json::json!({
             "action": "changeset_git_init_ok",
@@ -8379,6 +8536,78 @@ mod tests {
         );
     }
 
+    #[test]
+    fn changeset_replay_payload_parses_like_the_discard_s() {
+        let bare = br#"{"project_dir":"/p","dash":"d"}"#;
+        let parsed = parse_changeset_replay_payload(bare).expect("parse");
+        assert_eq!(parsed.project_dir, "/p");
+        assert_eq!(parsed.dash, "d");
+        assert_eq!(parsed.session_id, None);
+
+        let tagged = br#"{"project_dir":"/p","dash":"d","session_id":"sess-1"}"#;
+        assert_eq!(
+            parse_changeset_replay_payload(tagged)
+                .expect("parse")
+                .session_id
+                .as_deref(),
+            Some("sess-1")
+        );
+
+        assert!(parse_changeset_replay_payload(br#"{"dash":"d"}"#).is_err());
+        assert!(parse_changeset_replay_payload(br#"{"project_dir":"/p"}"#).is_err());
+        assert!(parse_changeset_replay_payload(b"not json").is_err());
+    }
+
+    /// The wire word comes from `ReplayOutcome`'s own serde tag, and the
+    /// variant's fields ride with it — those fields are the only text a
+    /// non-moving outcome can be read from, so a bare word would leave the
+    /// press silent.
+    #[test]
+    fn every_replay_outcome_serializes_its_word_and_its_fields() {
+        use tugdash_core::ReplayOutcome;
+
+        let current = serde_json::to_value(ReplayOutcome::Current).unwrap();
+        assert_eq!(current["outcome"], "current");
+
+        let deferred = serde_json::to_value(ReplayOutcome::Deferred {
+            reason: "dirty-worktree".to_string(),
+            detail: "dash 'demo' has uncommitted changes".to_string(),
+        })
+        .unwrap();
+        assert_eq!(deferred["outcome"], "deferred");
+        assert_eq!(deferred["reason"], "dirty-worktree");
+        assert_eq!(deferred["detail"], "dash 'demo' has uncommitted changes");
+
+        let conflicted = serde_json::to_value(ReplayOutcome::Conflicted {
+            base_head: "abc123".to_string(),
+            round: "def456".to_string(),
+            round_subject: "teach the row to speak".to_string(),
+            paths: vec!["src/a.rs".to_string(), "src/b.rs".to_string()],
+        })
+        .unwrap();
+        assert_eq!(conflicted["outcome"], "conflicted");
+        assert_eq!(conflicted["round_subject"], "teach the row to speak");
+        assert_eq!(conflicted["paths"][1], "src/b.rs");
+
+        let replayed = serde_json::to_value(ReplayOutcome::Replayed {
+            base_head: "abc123".to_string(),
+            mapping: vec![("old".to_string(), "new".to_string())],
+            bookkeeping_commit: None,
+        })
+        .unwrap();
+        assert_eq!(replayed["outcome"], "replayed");
+        assert_eq!(replayed["mapping"][0][1], "new");
+
+        let recorded = serde_json::to_value(ReplayOutcome::Recorded {
+            base_head: "abc123".to_string(),
+            remapped: vec!["r1".to_string()],
+            unmapped: vec![],
+        })
+        .unwrap();
+        assert_eq!(recorded["outcome"], "recorded");
+        assert_eq!(recorded["remapped"][0], "r1");
+    }
+
     /// The `blockers` key is additive: absent, not `[]`, when nothing blocks
     /// (Spec S03), so every shipped `changeset_join_ok` consumer is unaffected.
     #[test]
@@ -9213,6 +9442,114 @@ mod tests {
             "dash branch discarded"
         );
         assert!(!wt.exists(), "dash worktree discarded");
+
+        cancel.cancel();
+    }
+
+    /// The replay verb's two guards refuse before any git runs, and each
+    /// refusal arrives as an `_err` frame rather than as silence.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn changeset_replay_guards_refuse_with_err() {
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+
+        async fn next_control(rx: &mut broadcast::Receiver<Frame>) -> serde_json::Value {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+                .await
+                .expect("control response within timeout")
+                .expect("sender alive");
+            serde_json::from_slice(&frame.payload).expect("control body is JSON")
+        }
+
+        // Guard one: a project the registry has never opened.
+        let stranger = tempfile::tempdir().unwrap();
+        let stranger_str = stranger.path().to_string_lossy().to_string();
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_replay",
+            "project_dir": stranger_str,
+            "dash": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_replay", &payload, 1).await;
+        let refused = next_control(&mut control_rx).await;
+        assert_eq!(refused["action"], "changeset_replay_err");
+        assert_eq!(refused["detail"], "not an open project");
+
+        // Guard two: an open project that is not a git checkout.
+        let plain = tempfile::tempdir().unwrap();
+        let root = plain.path().canonicalize().unwrap();
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_replay",
+            "project_dir": root.to_string_lossy(),
+            "dash": "demo",
+            "session_id": "sess-1",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_replay", &payload, 1).await;
+        let refused = next_control(&mut control_rx).await;
+        assert_eq!(refused["action"], "changeset_replay_err");
+        assert_eq!(refused["detail"], "not a git repository");
+        // The session id rides back so the notice knows whose bulletin to post on.
+        assert_eq!(refused["session_id"], "sess-1");
+
+        cancel.cancel();
+    }
+
+    /// A replay of a dash whose base has not moved reports `current` on the
+    /// wire — the common non-moving outcome, and the one that would read as a
+    /// dead button if the frame carried no word.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn changeset_replay_reports_current_when_the_base_has_not_moved() {
+        use std::process::Command;
+
+        fn git(dir: &std::path::Path, args: &[&str]) {
+            let status = Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "t"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        std::fs::write(root.join("keep.txt"), "base\n").unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        let wt = root.join(".tug/worktrees/demo");
+        git(
+            &root,
+            &["worktree", "add", wt.to_str().unwrap(), "tugdash/demo"],
+        );
+
+        let cancel = CancellationToken::new();
+        let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_replay",
+            "project_dir": root.to_string_lossy(),
+            "dash": "demo",
+        }))
+        .unwrap();
+        sup.handle_control("changeset_replay", &payload, 1).await;
+
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+            .await
+            .expect("control response within timeout")
+            .expect("sender alive");
+        let body: serde_json::Value =
+            serde_json::from_slice(&frame.payload).expect("control body is JSON");
+        assert_eq!(body["action"], "changeset_replay_ok");
+        assert_eq!(body["dash"], "demo");
+        assert_eq!(body["outcome"], "current");
 
         cancel.cancel();
     }

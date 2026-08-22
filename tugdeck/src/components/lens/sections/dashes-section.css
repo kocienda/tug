@@ -16,6 +16,27 @@
   min-width: 0;
 }
 
+/* A row that opens nothing must not look as though it opens something.
+
+   Activation fronts the card working this dash and reveals its Changes shade,
+   so it only means anything for a dash whose worker has a card open here — and
+   the common case in a list of every dash in every project is a row with
+   nowhere to go. The flush row's own hover wash is the promise; the pointer
+   cursor is the invitation. An activatable row keeps both (they are
+   `tug-list-row.css`'s, not restated here); an inert row is quiet, because a
+   dead click on something that looked live is the failure this rule prevents.
+   A row that never invited the press owes no refusal ([L06]). */
+/* The `data-slot` is carried for the specificity, not for the match: the rule
+   it overrides is `tug-list-row.css`'s own flush hover, and equal specificity
+   would leave the winner to import order. */
+.lens-dashes-row[data-slot="lens-dashes-row"]:not([data-activatable="true"]):hover:not([data-disabled="true"]) {
+  background-color: transparent;
+}
+
+.lens-dashes-row[data-activatable="true"] {
+  cursor: pointer;
+}
+
 .lens-dashes-block {
   display: flex;
   flex-direction: column;
@@ -90,13 +111,6 @@
   display: inline-flex;
   align-items: center;
   gap: var(--tug-space-2xs);
-}
-
-/* The tooltip anchors, which have to be real boxes: a disabled button takes no
-   pointer events, so the span around it is what the hover lands on. */
-.lens-dashes-bind,
-.lens-dashes-discard {
-  display: inline-flex;
 }
 
 /* The empty state: the band stays, at the shared `.lens-section-empty`'s

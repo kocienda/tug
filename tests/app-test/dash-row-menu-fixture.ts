@@ -21,9 +21,23 @@ import { expect } from "bun:test";
 
 import type { App } from "./_harness";
 
-/** The `⋯` opener on a row. `row` is the row's own selector. */
+/** One of the verbs the row menu can dispatch. */
+export type DashRowMenuAction =
+  | "bind-dash"
+  | "unbind-dash"
+  | "request-discard-dash"
+  | "request-replay-dash";
+
+/**
+ * The `⋯` opener on a row. `row` is the row's own selector.
+ *
+ * A selector list rather than one slot, because the two dash-row surfaces name
+ * their opener differently — the shade's row and the Lens's row are distinct
+ * test hooks and must stay distinguishable when both are on screen. What the
+ * two share is this menu, so the way to drive it is shared too.
+ */
 export const dashRowMenuOpener = (row: string): string =>
-  `${row} [data-slot="session-changes-dash-row-menu-open"]`;
+  `${row} [data-slot="session-changes-dash-row-menu-open"], ${row} [data-slot="lens-dashes-row-menu-open"]`;
 
 /** The open menu itself, wherever the portal put it. */
 export const DASH_ROW_MENU = '[data-slot="tug-editor-context-menu"]';
@@ -37,7 +51,7 @@ export const DASH_ROW_MENU = '[data-slot="tug-editor-context-menu"]';
  * that is free to change.
  */
 export const dashRowMenuItem = (
-  action: "bind-dash" | "unbind-dash" | "request-discard-dash",
+  action: DashRowMenuAction,
 ): string => `${DASH_ROW_MENU} [data-item-action="${action}"]`;
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
@@ -116,14 +130,15 @@ export interface DashRowMenuState {
   bind: DashRowMenuVerbState;
   unbind: DashRowMenuVerbState;
   discard: DashRowMenuVerbState;
+  replay: DashRowMenuVerbState;
 }
 
 /**
- * Open the row's menu, read all three verbs, and close it again.
+ * Open the row's menu, read every verb, and close it again.
  *
- * One opening for all three: the state of the menu is a fact about one moment,
- * and reading the verbs across three separate openings would let the aggregate
- * recompose between them — which is precisely how a test comes to assert a
+ * One opening for all of them: the state of the menu is a fact about one
+ * moment, and reading the verbs across separate openings would let the
+ * aggregate recompose between them — which is precisely how a test comes to assert a
  * bind and a discard that were never on screen together.
  */
 export async function readDashRowMenu(app: App, row: string): Promise<DashRowMenuState> {
@@ -142,6 +157,7 @@ export async function readDashRowMenu(app: App, row: string): Promise<DashRowMen
          bind: read(${JSON.stringify(dashRowMenuItem("bind-dash"))}),
          unbind: read(${JSON.stringify(dashRowMenuItem("unbind-dash"))}),
          discard: read(${JSON.stringify(dashRowMenuItem("request-discard-dash"))}),
+         replay: read(${JSON.stringify(dashRowMenuItem("request-replay-dash"))}),
        };
      })()`,
   );
@@ -158,7 +174,7 @@ export async function readDashRowMenu(app: App, row: string): Promise<DashRowMen
 export async function pressDashRowMenuItem(
   app: App,
   row: string,
-  action: "bind-dash" | "unbind-dash" | "request-discard-dash",
+  action: DashRowMenuAction,
 ): Promise<void> {
   await openDashRowMenu(app, row);
   const item = dashRowMenuItem(action);

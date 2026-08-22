@@ -9,13 +9,16 @@
  * bind changes is the row's EYEBROW: the Bind and Discard verbs give way to
  * the worker's mini atom (the session's display name behind its live dot —
  * no callsign, no dash run, because the row already names the dash), and an
- * unbind brings the verbs back.
+ * unbind takes it away again. The verbs themselves live behind the row's `⋯`,
+ * in the Changes shade's own menu grammar, so what a bind changes in the menu
+ * is whether Bind is offered at all.
  *
  * That is what this drives, as one round trip against the real app: bind, and
  * the row STAYS — band, row, and all — wearing the worker's atom, while the
- * session's own Cards row grows its title cluster; unbind, and the verbs
- * return. Then Bind is pressed for real: it sends the same `bind_dash` frame
- * the Changes shade sends, and the register flips because `bound_sessions`
+ * session's own Cards row grows its title cluster; unbind, and the atom
+ * leaves. Then Bind is pressed for real, out of the menu: it sends the same
+ * `bind_dash` frame the Changes shade sends, and the register flips because
+ * `bound_sessions`
  * moved in the account-global aggregate, not because the click did anything
  * local.
  *
@@ -33,6 +36,7 @@
  * @covers tugdeck/src/components/tugways/dash-sigil.tsx
  * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
  * @covers tugdeck/src/lib/dash-age.ts
+ * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -45,6 +49,10 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
+import {
+  pressDashRowMenuItem,
+  readDashRowMenu,
+} from "./dash-row-menu-fixture";
 import {
   createDash,
   makeDashScratchRepo,
@@ -67,7 +75,8 @@ const DASH_NAME = "at0438-unbound";
 const SECTION = '.lens-section[data-lens-section="dashes"]';
 const ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH_NAME}"]`;
 const ROW_ATOM = `${ROW} [data-slot="lens-dashes-name"]`;
-const BIND = `${ROW} [data-slot="lens-bind"]`;
+/** The row's `⋯` opener — the Lens row's verbs live behind it now. */
+const MENU_OPEN = `${ROW} [data-slot="lens-dashes-row-menu-open"]`;
 const WORKER = `${ROW} [data-slot="lens-dashes-worker"]`;
 
 const CARDS = '.lens-section[data-lens-section="cards"]';
@@ -121,43 +130,29 @@ const count = (app: App, selector: string): Promise<number> =>
   );
 
 /**
- * Click `target` until `expected` reaches `want`, scrolling it into view each
- * time — the shape at0405 uses, for the same reason. The Lens list recomposes
- * on the aggregate's own schedule, so a click's coordinates can go stale
- * between the aim and the press. A missed click changes nothing, so re-aiming
- * is safe.
+ * Press the row's Bind item until `expected` appears — the shape at0405 uses,
+ * for the same reason. The Lens list recomposes on the aggregate's own
+ * schedule, so a click's coordinates can go stale between the aim and the
+ * press. A missed press changes nothing, so re-aiming is safe.
  */
-async function clickUntil(
+async function pressUntil(
   app: App,
-  target: string,
+  row: string,
   expected: string,
-  want: "present" | "absent" = "present",
   attempts = 4,
 ): Promise<void> {
-  const predicate =
-    want === "present"
-      ? `document.querySelector(${JSON.stringify(expected)}) !== null`
-      : `document.querySelector(${JSON.stringify(expected)}) === null`;
+  const predicate = `document.querySelector(${JSON.stringify(expected)}) !== null`;
   for (let i = 0; i < attempts; i += 1) {
-    await app.evalJS<null>(
-      `(() => {
-         const el = document.querySelector(${JSON.stringify(target)});
-         if (el !== null) el.scrollIntoView({ block: "center" });
-         return null;
-       })()`,
-    );
     await settle();
-    await app.nativeClickAtElement(target);
+    await pressDashRowMenuItem(app, row, "bind-dash");
     try {
       await app.waitForCondition<boolean>(predicate, { timeoutMs: 3000 });
       return;
     } catch {
-      note(`at0438 click on ${target} did not land (attempt ${i + 1})`);
+      note(`at0438 bind press did not land (attempt ${i + 1})`);
     }
   }
-  throw new Error(
-    `at0438: ${expected} never went ${want} after clicking ${target}`,
-  );
+  throw new Error(`at0438: ${expected} never appeared after pressing Bind`);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
@@ -194,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         );
         const unbound = await app.evalJS<{
           atom: string;
-          binds: number;
+          openers: number;
           workers: number;
           bound: string | null;
         }>(
@@ -203,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              return {
                atom: (atom?.textContent ?? "").trim(),
-               binds: document.querySelectorAll(${JSON.stringify(BIND)}).length,
+               openers: document.querySelectorAll(${JSON.stringify(MENU_OPEN)}).length,
                workers: document.querySelectorAll(${JSON.stringify(WORKER)}).length,
                bound: row?.getAttribute("data-bound") ?? null,
              };
@@ -213,9 +208,25 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         // The name wears its sigil here too — a dash is named one way
         // everywhere.
         expect(unbound.atom).toBe(`^${DASH_NAME}`);
-        expect(unbound.binds).toBe(1);
+        expect(unbound.openers).toBe(1);
         expect(unbound.workers).toBe(0);
         expect(unbound.bound).toBeNull();
+        // Bind is behind the `⋯`, in the shade's own grammar. Whether it is
+        // available depends on the Lens having a followed card, which is a
+        // fact about focus rather than about this row — so what is asserted
+        // here is that the verb is offered and that a blocked one says why
+        // ([L31]), never a bare disabled word.
+        const unboundMenu = await readDashRowMenu(app, ROW);
+        note("at0438 unbound menu", JSON.stringify(unboundMenu));
+        expect(unboundMenu.bind.present).toBe(true);
+        if (unboundMenu.bind.disabled) {
+          expect(unboundMenu.bind.label).toContain("—");
+        }
+        expect(unboundMenu.discard.present).toBe(true);
+        // And Replay is here on an unbound row, disabled with its reason: a
+        // freshly created dash is current with its base.
+        expect(unboundMenu.replay.present).toBe(true);
+        expect(unboundMenu.replay.label).toContain("already current with");
         // And the session is NOT working it, so no title cluster on its row.
         expect(await count(app, PROGRESS)).toBe(0);
         note("at0438 lens, unbound register", (await app.screenshot()).path);
@@ -228,7 +239,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         );
         const bound = await app.evalJS<{
           rows: number;
-          binds: number;
+          openers: number;
           boundFlag: string | null;
           workerDots: number;
           workerDashRuns: number;
@@ -238,7 +249,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              return {
                rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
-               binds: document.querySelectorAll(${JSON.stringify(BIND)}).length,
+               openers: document.querySelectorAll(${JSON.stringify(MENU_OPEN)}).length,
                boundFlag: row?.getAttribute("data-bound") ?? null,
                workerDots: worker?.querySelectorAll('[data-slot="tug-progress-indicator"]').length ?? 0,
                // The worker atom carries NO dash run: the eyebrow's leading
@@ -250,7 +261,14 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         );
         note("at0438 bound row", JSON.stringify(bound));
         expect(bound.rows).toBe(1);
-        expect(bound.binds).toBe(0);
+        // The opener stays — every row carries it, held or not — but the dash
+        // is held now, so its menu offers no Bind. Unbind is deliberately not
+        // here either: it belongs to the worker's own shade.
+        expect(bound.openers).toBe(1);
+        const boundMenu = await readDashRowMenu(app, ROW);
+        note("at0438 bound menu", JSON.stringify(boundMenu));
+        expect(boundMenu.bind.present).toBe(false);
+        expect(boundMenu.unbind.present).toBe(false);
         expect(bound.boundFlag).toBe("true");
         expect(bound.workerDots).toBe(1);
         expect(bound.workerDashRuns).toBe(0);
@@ -263,24 +281,23 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Dashes section", () => {
         );
         note("at0438 lens, bound register", (await app.screenshot()).path);
 
-        // ── Unbind: the verbs come back ───────────────────────────────────
+        // ── Unbind: the worker's atom leaves the eyebrow ──────────────────
         await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash unbind`, 1);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BIND)}) !== null`,
+          `document.querySelector(${JSON.stringify(WORKER)}) === null`,
           { timeoutMs: 30000 },
         );
-        expect(await count(app, WORKER)).toBe(0);
         expect(await count(app, PROGRESS)).toBe(0);
         expect(await count(app, ROW)).toBe(1);
 
-        // ── Bind again, through the row's own control ─────────────────────
+        // ── Bind again, through the row's own menu ────────────────────────
         // The press sends `bind_dash`; the register flips because
         // `bound_sessions` moved in the aggregate, not because the click did
         // anything local.
-        await clickUntil(app, BIND, WORKER);
+        await pressUntil(app, ROW, WORKER);
         expect(await count(app, SECTION)).toBe(1);
         expect(await count(app, ROW)).toBe(1);
-        expect(await count(app, BIND)).toBe(0);
+        expect(await count(app, WORKER)).toBe(1);
 
         // The verbs unmounted under the pointer. Focus must not be stranded
         // on a detached node: an element removed from the document still
