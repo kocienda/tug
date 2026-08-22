@@ -660,21 +660,35 @@ body {
   align-items: center;
 }
 
+/* ── The cluster's palette ────────────────────────────────────────────────
+   Every control in this row is a ghost icon `TugButton`, and the row addresses
+   them together so a hand-rolled one cannot arrive wearing a flat global muted
+   token beside full-strength neighbours.
+
+   `:not(.tug-slot)` is the one exception, and it is a real one. The slot badge
+   at the head of the row composes `TugButton` too, but it is not an icon
+   button: it is a numbered chip that brings the slot vocabulary's own paint —
+   the same rectangle the Lens picker and the flow strip draw — and a reader
+   should meet one chip, not two spellings of it. These selectors carry three
+   classes to the slot's one, so without the exclusion the cluster would win and
+   the chip would lose its outline to a ghost button's transparent border,
+   leaving a bare number where a slot should be. [L20] */
+
 /* Pane title bar control buttons — focused pane (plain role) */
 /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button {
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:not(.tug-slot) {
   color: var(--tugx-pane-control-on-fg-rest);
   background-color: var(--tugx-pane-control-on-bg-rest);
   border-color: var(--tugx-pane-control-on-border-rest);
 }
 
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) {
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:not(.tug-slot):hover:not(:disabled) {
   color: var(--tugx-pane-control-on-fg-hover);
   background-color: var(--tugx-pane-control-on-bg-hover);
   border-color: var(--tugx-pane-control-on-border-hover);
 }
 
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:active:not(:disabled) {
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:not(.tug-slot):active:not(:disabled) {
   color: var(--tugx-pane-control-on-fg-active);
   background-color: var(--tugx-pane-control-on-bg-active);
   border-color: var(--tugx-pane-control-on-border-active);
@@ -682,25 +696,25 @@ body {
 
 /* Pane title bar control buttons — unfocused pane (muted role) */
 /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button {
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:not(.tug-slot) {
   color: var(--tugx-pane-control-off-fg-rest);
   background-color: var(--tugx-pane-control-off-bg-rest);
   border-color: var(--tugx-pane-control-off-border-rest);
 }
 
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) {
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:not(.tug-slot):hover:not(:disabled) {
   color: var(--tugx-pane-control-off-fg-hover);
   background-color: var(--tugx-pane-control-off-bg-hover);
   border-color: var(--tugx-pane-control-off-border-hover);
 }
 
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:active:not(:disabled) {
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:not(.tug-slot):active:not(:disabled) {
   color: var(--tugx-pane-control-off-fg-active);
   background-color: var(--tugx-pane-control-off-bg-active);
   border-color: var(--tugx-pane-control-off-border-active);
 }
 
-.tug-pane-title-bar-controls .tug-button svg {
+.tug-pane-title-bar-controls .tug-button:not(.tug-slot) svg {
   color: inherit;
 }
 
