@@ -149,7 +149,12 @@ impl ShellLedger {
 
     /// Record a settled exchange, assigning the next per-session `seq`, then
     /// evict the oldest rows past the per-session cap (logged).
-    pub fn record_exchange(&self, ex: &NewShellExchange) -> Result<(), ShellLedgerError> {
+    ///
+    /// Returns the new row's `id` — the identity a restore replays it under.
+    /// A landing receipt's live append rides that id back to the deck so the
+    /// live copy and the restored copy of one landing are one transcript turn
+    /// rather than two.
+    pub fn record_exchange(&self, ex: &NewShellExchange) -> Result<i64, ShellLedgerError> {
         let conn = self.db.lock().expect("shell ledger mutex");
         let seq: i64 = conn.query_row(
             "SELECT COALESCE(MAX(seq), 0) + 1 FROM shell_exchanges WHERE tug_session_id = ?1",
@@ -172,6 +177,7 @@ impl ShellLedger {
                 ex.settled_at_ms,
             ],
         )?;
+        let id = conn.last_insert_rowid();
         // Cap eviction: delete the oldest rows beyond the cap for this session.
         let evicted = conn.execute(
             "DELETE FROM shell_exchanges
@@ -191,7 +197,7 @@ impl ShellLedger {
                 "shell ledger: evicted oldest exchanges past the per-session cap",
             );
         }
-        Ok(())
+        Ok(id)
     }
 
     /// Distinct session ids that currently own at least one exchange.

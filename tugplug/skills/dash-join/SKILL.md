@@ -51,9 +51,9 @@ tugutil draft show --owner dash:<name>
 - **A draft exists** → that is the message. Show it in your report before joining.
 - **No draft** → **stop.** Report that the dash has no join draft, and print the command that writes one, on its own line and inside backticks so the Session card renders it as a clickable chip:
 
-  `` `tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"` ``
+  `` `tugutil draft set --owner dash:<name> --message "<subject + durable body>"` ``
 
-  The subject that command writes is **bare** — no `tugdash(<name>): ` prefix. The join adds the scope itself, and a scope naming a different dash is stripped there rather than preserved.
+  What that command writes is a **commit message**, held to the same standard as every other commit on the base: an imperative subject, then a body describing the change the base is about to receive — never a narration of the run, no round-by-round digest, no step numbers. The subject is **bare** — no `tugdash(<name>): ` prefix. The join adds the scope itself, and a scope naming a different dash is stripped there rather than preserved.
 
   Do **not** compose the message yourself, and do not let the join fall through to the bare dash description. Message authorship needs the working context — what the rounds did and why — which the working skill has and this gesture does not; a message invented from log lines is exactly the durable lie the draft machinery exists to prevent. Whoever worked the dash writes the draft; this gesture joins it.
 

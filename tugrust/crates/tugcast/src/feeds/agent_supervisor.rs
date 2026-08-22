@@ -4763,26 +4763,13 @@ impl AgentSupervisor {
                 // fails the commit (R02). No live SHELL frame is emitted — the
                 // initiating client paints the live row from `summary` on the
                 // `_ok`; other decks converge on their next restore.
-                if let (Some(session_id), Some(ledger)) =
-                    (request.session_id.as_deref(), self.shell_ledger.as_ref())
-                {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as i64)
-                        .unwrap_or(0);
-                    if let Err(e) = ledger.record_exchange(&crate::shell_ledger::NewShellExchange {
-                        tug_session_id: session_id.to_string(),
-                        command: "/commit".to_string(),
-                        output: summary.clone(),
-                        exit_code: Some(0),
-                        cwd: project_dir.to_string(),
-                        cwd_after: None,
-                        started_at_ms: now,
-                        settled_at_ms: now,
-                    }) {
-                        warn!(error = %e, "failed to persist /commit to the shell ledger");
-                    }
-                }
+                let receipt_id = Self::record_landing_receipt(
+                    self.shell_ledger.as_ref(),
+                    request.session_id.as_deref(),
+                    "/commit",
+                    &summary,
+                    project_dir,
+                );
                 // The commit as a fact ([P08]). This is the one durable moment
                 // that knows the sha, the message, and the file list together
                 // without re-running git — today the receipt is built here and
@@ -4807,6 +4794,7 @@ impl AgentSupervisor {
                     "sha": receipt.sha,
                     "receipt": receipt.numstat,
                     "summary": summary,
+                    "receipt_id": receipt_id,
                 });
                 let _ = self.control_tx.send(Frame::new(
                     FeedId::CONTROL,
@@ -5194,6 +5182,7 @@ impl AgentSupervisor {
                 }
                 // The landing's receipt (Spec S01) — server-formatted, so the
                 // durable row and the live one are the same bytes.
+                let mut receipt_id: Option<i64> = None;
                 let summary = match (&outcome.commit_hash, outcome.previewed) {
                     (Some(sha), false) => {
                         let summary = crate::feeds::changeset::format_join_summary(
@@ -5203,7 +5192,7 @@ impl AgentSupervisor {
                             rounds,
                             outcome.message.as_deref().unwrap_or(""),
                         );
-                        Self::record_landing_receipt(
+                        receipt_id = Self::record_landing_receipt(
                             self.shell_ledger.as_ref(),
                             request.session_id.as_deref(),
                             "/dash-join",
@@ -5225,6 +5214,11 @@ impl AgentSupervisor {
                     "conflicts": outcome.conflicts,
                     "previewed": outcome.previewed,
                     "summary": summary,
+                    // The ledger row the summary was persisted as ([P06]) —
+                    // the identity the initiating deck paints its live receipt
+                    // under, so a later restore settles that row instead of
+                    // seating a second copy of the same landing.
+                    "receipt_id": receipt_id,
                     "warnings": outcome.warnings,
                 });
                 // Additive, exactly as `JoinOutcome` serializes it: the key is
@@ -5274,22 +5268,29 @@ impl AgentSupervisor {
     /// survive Maker ▸ Reload and cold boot. A missing `session_id` or a
     /// missing ledger skips it — the receipt records the verb, it never gates
     /// it — and a ledger error warns rather than failing the landing.
+    ///
+    /// Returns the ledger row's `id` when one was written. It rides the `_ok`
+    /// frame back to the initiating deck, which paints its live copy of the
+    /// receipt under that identity — so the live row and the row a later
+    /// restore replays are the same transcript turn, not two copies of one
+    /// landing. `None` means nothing was persisted and the deck falls back to
+    /// a local identity.
     fn record_landing_receipt(
         ledger: Option<&Arc<crate::shell_ledger::ShellLedger>>,
         session_id: Option<&str>,
         command: &str,
         summary: &str,
         cwd: &str,
-    ) {
+    ) -> Option<i64> {
         let (Some(session_id), Some(ledger)) = (session_id.filter(|s| !s.is_empty()), ledger)
         else {
-            return;
+            return None;
         };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
-        if let Err(e) = ledger.record_exchange(&crate::shell_ledger::NewShellExchange {
+        match ledger.record_exchange(&crate::shell_ledger::NewShellExchange {
             tug_session_id: session_id.to_string(),
             command: command.to_string(),
             output: summary.to_string(),
@@ -5299,7 +5300,11 @@ impl AgentSupervisor {
             started_at_ms: now,
             settled_at_ms: now,
         }) {
-            warn!(error = %e, command, "failed to persist a landing to the shell ledger");
+            Ok(id) => Some(id),
+            Err(e) => {
+                warn!(error = %e, command, "failed to persist a landing to the shell ledger");
+                None
+            }
         }
     }
 
@@ -5782,7 +5787,7 @@ impl AgentSupervisor {
                     &round_subjects,
                     outcome.plan_restored.as_deref(),
                 );
-                Self::record_landing_receipt(
+                let receipt_id = Self::record_landing_receipt(
                     self.shell_ledger.as_ref(),
                     request.session_id.as_deref(),
                     "/dash-discard",
@@ -5795,6 +5800,7 @@ impl AgentSupervisor {
                     "dash": request.dash,
                     "name": outcome.name,
                     "summary": summary,
+                    "receipt_id": receipt_id,
                     "warnings": outcome.warnings,
                 });
                 let _ = self.control_tx.send(Frame::new(

@@ -36,6 +36,28 @@ import {
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { CodeSessionStore } from "@/lib/code-session-store";
 
+/**
+ * The exchange id a landing's live row is painted under — the whole of the
+ * one-landing-one-turn decision, in one place so it can be proven.
+ *
+ * With a `receiptId` it is the shell ledger's own row identity, spelled the
+ * way `applyRestoredShellExchanges` spells it. `buildShellTurnEntry` derives a
+ * turn's `turnKey` from the exchange id, so the live copy of a landing and the
+ * copy a later restore replays are the same turn: `upsertInkTurn` settles it
+ * in place instead of seating a second receipt for one landing. Restored rows
+ * keep the identity they have always had — the live append moved onto theirs,
+ * so nothing already in a transcript re-keys ([L26]).
+ *
+ * Without one — no session id, no ledger, a ledger error, an older tugcast —
+ * the server persisted nothing, so there is no ledger row for the id to name
+ * and no restore that could ever collide. The row falls back to a local
+ * identity, unique per call so two such landings stay two rows.
+ */
+export function landingExchangeId(receiptId: number | null): string {
+  if (receiptId !== null) return `restored-${receiptId}`;
+  return `landing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function useLandingReceipts(
   codeSessionStore: CodeSessionStore,
   changesController: ChangesRouteController,
@@ -48,12 +70,16 @@ export function useLandingReceipts(
     let prevJoin: JoinPhase = verbStore.joinState(commitKey).phase;
     let prevDiscard: DiscardPhase = verbStore.discardState(commitKey).phase;
 
-    /** Append one landing's summary as a shell-exchange row ([D111]). */
-    const append = (command: string, output: string): void => {
+    /**
+     * Append one landing's summary as a shell-exchange row ([D111]), under the
+     * identity {@link landingExchangeId} derives — which is what keeps one
+     * landing to one transcript turn across the live and restore paths.
+     */
+    const append = (command: string, output: string, receiptId: number | null): void => {
       const now = Date.now();
       codeSessionStore.ingestShellExchange({
         phase: "complete",
-        exchangeId: `landing-${now}-${Math.random().toString(36).slice(2, 8)}`,
+        exchangeId: landingExchangeId(receiptId),
         command,
         output,
         exitCode: 0,
@@ -69,7 +95,7 @@ export function useLandingReceipts(
       // if the server sent no summary, nothing is appended.
       const commit = verbStore.commitState(commitKey);
       if (commit.phase === "done" && prevCommit !== "done" && commit.summary !== null) {
-        append("/commit", commit.summary);
+        append("/commit", commit.summary, commit.receiptId);
       }
       prevCommit = commit.phase;
 
@@ -77,7 +103,7 @@ export function useLandingReceipts(
       // `preview` and never here, so only a real land leaves ink.
       const joined = verbStore.joinState(commitKey);
       if (joined.phase === "done" && prevJoin !== "done" && joined.summary !== null) {
-        append("/dash-join", joined.summary);
+        append("/dash-join", joined.summary, joined.receiptId);
       }
       prevJoin = joined.phase;
 
@@ -85,7 +111,7 @@ export function useLandingReceipts(
       // existing, and the receipt is the only record of what it took.
       const discarded = verbStore.discardState(commitKey);
       if (discarded.phase === "done" && prevDiscard !== "done" && discarded.summary !== null) {
-        append("/dash-discard", discarded.summary);
+        append("/dash-discard", discarded.summary, discarded.receiptId);
       }
       prevDiscard = discarded.phase;
     };

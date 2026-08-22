@@ -85,9 +85,9 @@ Walk the resolved steps in dependency order. For each step:
   {"instruction":"Step N: <title>","summary":"<what landed + how verified>"}
   EOF
   ```
-- **On the final declared step — and only there — write the join draft before closing it.** Closing step `m` is the arming event: the instant its `done` lands, the server may raise the join offer, and whatever draft exists at that moment is the squash message the user lands with. A draft written afterwards is a draft racing the user's finger. Compose it from the run's rounds per phase 3's rules (bare subject, rounds digest) and write it now:
+- **On the final declared step — and only there — write the join draft before closing it.** Closing step `m` is the arming event: the instant its `done` lands, the server may raise the join offer, and whatever draft exists at that moment is the squash message the user lands with. A draft written afterwards is a draft racing the user's finger. Compose it per phase 3's rules — a durable commit message describing the change, never a narration of the run — and write it now:
   ```bash
-  tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
+  tugutil draft set --owner dash:<name> --message "<subject + durable body>"
   ```
 - **Close the step** with the commit the round produced:
   ```bash
@@ -124,13 +124,17 @@ tugutil dash replay <name>
 
 Do not re-run the sweep. A checkpoint that passed is spent; the ending's job is the fit, not a second reading of the steps.
 
-**Then check the dash's join draft still tells the truth.** You wrote it before closing the final step — that ordering is what made the words current at the instant the arc armed. Two cases reopen it: the ending added rounds (a `Conflicted` replay resolved as new work the digest doesn't mention), or the run stopped before its final declared step and no draft was ever written. In either case compose it from the run's rounds — a subject line naming the plan's deliverable, then a terse digest of what the rounds landed — and write it:
+**Then check the dash's join draft still tells the truth.** You wrote it before closing the final step — that ordering is what made the words current at the instant the arc armed. Two cases reopen it: the ending added rounds the draft does not account for (a `Conflicted` replay resolved as new work), or the run stopped before its final declared step and no draft was ever written. In either case write it:
 
 ```bash
-tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
+tugutil draft set --owner dash:<name> --message "<subject + durable body>"
 ```
 
+**The draft is a commit message, held to the same standard as every other commit on the base.** A join squashes to one commit and this draft is its message, so it is the only durable prose the base will ever carry about this dash. Write an **imperative subject** in the repository's recent-commit style, then a body describing the change the base is about to receive — what it does, and the argument the work rests on — for a reader who never saw the run. Never a narration of the run: no round-by-round digest, no step numbers, no "the run did X and then Y", and no archaeology about defects the run found and fixed along the way. The round count is the receipt's fact rather than the message's — the join receipt shows it and the `Tug-Dash:` trailer names the branch and base. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. Every line runs unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
+
 **Write the subject bare — no `tugdash(<name>): ` prefix.** The join adds the scope itself, so one written here is redundant; a scope naming a *different* dash is stripped at the join rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
+
+Read a good one before writing yours. In this repository `a18557090` is the exemplar: a dash join whose message says what a project can now declare, what routes through it, which boundary was held, and how it was proven — with no round list and nothing that requires having watched the run.
 
 Write it even on a run that stops mid-plan: the draft is what the shade shows the user, and a dash with no draft offers to land its branch description — or, with neither, the words `Dash work`. The fold says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
 

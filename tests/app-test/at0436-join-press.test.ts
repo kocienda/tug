@@ -41,6 +41,12 @@
  * @covers tugdeck/src/components/tugways/cards/staged-landing.ts
  * @covers tugdeck/src/components/tugways/cards/landing-notice-controller.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
+ * @covers tugdeck/src/components/tugways/cards/use-landing-receipts.ts
+ * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
+ * @covers tugdeck/src/lib/changeset-verb-store.ts
+ * @covers tugdeck/src/lib/shell-session-store.ts
+ * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor.rs
+ * @covers tugrust/crates/tugcast/src/shell_ledger.rs
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -74,6 +80,9 @@ const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-s
 const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-toolbar .tug-prompt-entry-route-group`;
 const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
+// The bespoke `/dash-join` receipt block — the generic shell fallback carries a
+// different slot, so this selector is also the assertion that it parsed.
+const JOIN_RECEIPT = `${CARD} [data-slot="join-receipt-block"]`;
 
 /** The checkout whose built binaries the fixture drives — never the project. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -342,6 +351,53 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
           `document.querySelector(${JSON.stringify(row(DASH))}) === null`,
           { timeoutMs: 60000 },
         );
+
+        // The landing leaves ONE receipt row, and it survives a restore.
+        //
+        // A landing's receipt is delivered twice — the live row this deck
+        // painted off the join's terminal edge, and the shell-ledger row a
+        // restore replays whenever the window widens. Both arrive as shell
+        // exchanges keyed by exchange id, so if the two paths spell that id
+        // differently the transcript grows a second copy of one landing. The
+        // refresh below is the only gesture that brings the ledger's copy into
+        // a transcript that already holds the live one, which is what makes
+        // this a proof rather than a coincidence.
+        //
+        // Nothing here observes the row's first FRAME. A background app-test
+        // window runs no rAF, so a one-or-two-frame presentation is not
+        // reliably observable; what is durable — that the row is the bespoke
+        // receipt and that there is exactly one of it — is what is asserted.
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 1`,
+          { timeoutMs: 30000 },
+        );
+        const receiptText = await app.evalJS<string>(
+          `document.querySelector(${JSON.stringify(JOIN_RECEIPT)})?.textContent ?? ""`,
+        );
+        expect(receiptText, "the receipt names the dash it landed").toContain(DASH);
+        expect(receiptText, "and the message the user pressed with").toContain(
+          "land this dash",
+        );
+
+        await app.evalJS<null>(`(window.__tug.refreshInkRestore("A"), null)`);
+        // The ledger answer is a round trip; give it room to arrive and then
+        // assert the count did not move. Waiting for a NON-event needs a real
+        // wait, so this dwells rather than polling for a condition.
+        await settle(4000);
+        const facts = await app.evalJS<{ shellTurns: number; commands: string[] }>(
+          `window.__tug.inkRestoreFacts("A")`,
+        );
+        note(`at0436 ink after restore refresh: ${JSON.stringify(facts)}`);
+        expect(
+          facts.commands.filter((c) => c === "/dash-join").length,
+          "one landing, one ink turn — the live row and the restored row are the same turn",
+        ).toBe(1);
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length`,
+          ),
+          "and still exactly one receipt row on screen",
+        ).toBe(1);
       } finally {
         await app.close();
       }

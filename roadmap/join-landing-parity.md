@@ -292,9 +292,9 @@ Also part of the contract: `dash-implement`'s two draft moments (before closing 
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The landing message becomes durable prose | pending | — |
-| #step-2 | One landing, one settled receipt row | pending | — |
-| #step-3 | Integration Checkpoint | pending | — |
+| #step-1 | The landing message becomes durable prose | done | `587c5d745` |
+| #step-2 | One landing, one settled receipt row | done | `c0bc8767e` |
+| #step-3 | Integration Checkpoint | done | `ffd49a43b` |
 
 #### Step 1: The landing message becomes durable prose {#step-1}
 
@@ -391,7 +391,7 @@ Also part of the contract: `dash-implement`'s two draft moments (before closing 
 
 #### Roadmap / Follow-ons (Explicitly Not Required for Phase Close) {#roadmap}
 
-- [ ] The annotator's two-phase paint, if Step 2 finds it is the flash's cause — a transcript-wide first-paint question ([P05] hands it here rather than absorbing it).
+- [ ] The annotator's two-phase paint — **handed on by Step 2 under [P05]**, which found the mechanism and found it shared. The discriminator was answered by construction rather than by watching frames, which is the stronger reading: `session-commit-receipt-block.tsx` renders its body through the identical `CommitMessage` → `TugMarkdownText` → `useAnnotatedElement` path, `TugMarkdownText`'s own styling is a synchronous filter (its docstring: "the first paint is the styled paint"), the command-block registry is a static import so no lazy resolve can swap a renderer, and the transcript's annotation context defines the `VerdictBatcher` subscription that drives the `data-tugx-awaiting` re-mark. So a verdict-dependent token in **any** receipt body paints plain and re-marks about a batch later, and a `/commit` receipt with a path in it does exactly what the join receipt did. Nothing was changed there; the flash survives this plan, which is [P05]'s accepted outcome. A fix is a transcript-wide first-paint question and needs a plan of its own.
 - [ ] Entry points into dash workflows (`roadmap/dash-entry-points.md`, next in the queue).
 - [ ] The dash/join closure sweep (`roadmap/dash-join-tail.md`).
 

@@ -68,6 +68,15 @@ export interface CommitState {
   receipt: string | null;
   /** Server-formatted standard commit summary (S02) when `phase === "done"`. */
   summary: string | null;
+  /**
+   * The shell-ledger row the server persisted this landing's receipt as, when
+   * it persisted one. The live transcript row is painted under that identity,
+   * so a later restore of the same ledger row settles it in place instead of
+   * seating a second copy of one landing. `null` when nothing was persisted
+   * (no session id, no ledger, a ledger error) — the row then takes a local
+   * identity and the pre-existing duplication risk stands for that case alone.
+   */
+  receiptId: number | null;
 }
 
 const COMMIT_IDLE: CommitState = Object.freeze({
@@ -76,6 +85,7 @@ const COMMIT_IDLE: CommitState = Object.freeze({
   sha: null,
   receipt: null,
   summary: null,
+  receiptId: null,
 });
 
 /**
@@ -102,6 +112,8 @@ export interface JoinState {
   commitHash: string | null;
   /** The server-formatted landing summary (Spec S01) when `phase === "done"`. */
   summary: string | null;
+  /** The persisted receipt's ledger row id — see {@link CommitState.receiptId}. */
+  receiptId: number | null;
 }
 
 const JOIN_IDLE: JoinState = Object.freeze({
@@ -110,6 +122,7 @@ const JOIN_IDLE: JoinState = Object.freeze({
   conflicts: Object.freeze([]) as readonly string[],
   commitHash: null,
   summary: null,
+  receiptId: null,
 });
 
 export type ClaimPhase = "idle" | "pending" | "error" | "done";
@@ -182,12 +195,15 @@ export interface DiscardState {
   error: string | null;
   /** The server-formatted discard summary (Spec S02) when `phase === "done"`. */
   summary: string | null;
+  /** The persisted receipt's ledger row id — see {@link CommitState.receiptId}. */
+  receiptId: number | null;
 }
 
 const DISCARD_IDLE: DiscardState = Object.freeze({
   phase: "idle",
   error: null,
   summary: null,
+  receiptId: null,
 });
 
 /**
@@ -199,6 +215,15 @@ const DISCARD_IDLE: DiscardState = Object.freeze({
  */
 function verbKey(workspaceKey: string, dash: string): string {
   return `${workspaceKey}\x00${dash}`;
+}
+
+/**
+ * The `receipt_id` a landing's `_ok` frame carries — the shell-ledger row the
+ * server persisted the receipt as. Absent (an older tugcast) or non-numeric
+ * reads as `null`, which is the same answer as "nothing was persisted".
+ */
+function receiptIdOf(body: Record<string, unknown>): number | null {
+  return typeof body.receipt_id === "number" ? body.receipt_id : null;
 }
 
 export interface JoinArgs {
@@ -303,6 +328,7 @@ export class ChangesetVerbStore {
         sha: typeof body.sha === "string" ? body.sha : null,
         receipt: typeof body.receipt === "string" ? body.receipt : null,
         summary: typeof body.summary === "string" ? body.summary : null,
+        receiptId: receiptIdOf(body),
       });
     } else if (body.action === "changeset_commit_err") {
       const entryKey = this._commitInflight.get(sentDir);
@@ -315,6 +341,7 @@ export class ChangesetVerbStore {
         sha: null,
         receipt: null,
         summary: null,
+        receiptId: null,
       });
     } else if (body.action === "changeset_claim_ok") {
       const entryKey = this._claimInflight.get(sentDir);
@@ -384,8 +411,10 @@ export class ChangesetVerbStore {
           conflicts: [],
           commitHash,
           // The landing's receipt, formatted by the server so the durable row
-          // and the live one cannot drift (Spec S01).
+          // and the live one cannot drift (Spec S01) — and keyed by the server
+          // so they are one transcript turn rather than two.
           summary: typeof body.summary === "string" ? body.summary : null,
+          receiptId: receiptIdOf(body),
         });
       } else {
         // A real join that cleanly aborted on conflicts.
@@ -395,6 +424,7 @@ export class ChangesetVerbStore {
           conflicts,
           commitHash: null,
           summary: null,
+          receiptId: null,
         });
       }
     } else if (body.action === "changeset_join_err") {
@@ -411,6 +441,7 @@ export class ChangesetVerbStore {
         conflicts: [],
         commitHash: null,
         summary: null,
+        receiptId: null,
       });
     } else if (body.action === "changeset_discard_ok") {
       const dash = typeof body.dash === "string" ? body.dash : null;
@@ -426,6 +457,7 @@ export class ChangesetVerbStore {
         phase: "done",
         error: null,
         summary: typeof body.summary === "string" ? body.summary : null,
+        receiptId: receiptIdOf(body),
       });
     } else if (body.action === "changeset_discard_err") {
       const dash = typeof body.dash === "string" ? body.dash : null;
@@ -435,7 +467,7 @@ export class ChangesetVerbStore {
       if (entryKey === undefined) return;
       this._discardInflight.delete(key);
       const detail = typeof body.detail === "string" ? body.detail : "discard failed";
-      this._setDiscard(entryKey, { phase: "error", error: detail, summary: null });
+      this._setDiscard(entryKey, { phase: "error", error: detail, summary: null, receiptId: null });
     }
   }
 
@@ -595,6 +627,7 @@ export class ChangesetVerbStore {
       sha: null,
       receipt: null,
       summary: null,
+      receiptId: null,
     });
     // Optional `Tug-Session:` trailer fields (Spec S01) — appended server-side
     // by `do_changeset_commit`; omitted here keeps today's behavior byte-for-byte.
@@ -647,6 +680,7 @@ export class ChangesetVerbStore {
       conflicts: [],
       commitHash: null,
       summary: null,
+      receiptId: null,
     });
     this._connection.sendControlFrame("changeset_join", {
       project_dir: workspaceKey,
@@ -679,6 +713,7 @@ export class ChangesetVerbStore {
       conflicts: [],
       commitHash: null,
       summary: null,
+      receiptId: null,
     });
   }
 
@@ -707,7 +742,7 @@ export class ChangesetVerbStore {
    */
   discard(entryKey: string, workspaceKey: string, dash: string, sessionId?: string): void {
     this._discardInflight.set(verbKey(workspaceKey, dash), entryKey);
-    this._setDiscard(entryKey, { phase: "pending", error: null, summary: null });
+    this._setDiscard(entryKey, { phase: "pending", error: null, summary: null, receiptId: null });
     this._connection.sendControlFrame("changeset_discard", {
       project_dir: workspaceKey,
       dash,

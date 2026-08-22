@@ -1259,6 +1259,12 @@ export interface TugTestSurface {
       answered: boolean;
     };
   };
+  /**
+   * Re-ask the shell ledger for one card's ink rows — the refresh a
+   * "load previous" page performs, and the only way a restored copy of a
+   * landing reaches a transcript that already holds the live one.
+   */
+  refreshInkRestore(cardId: string): void;
   driveSession(cardId: string, action: SessionDriveAction): void;
 
   /**
@@ -2467,6 +2473,23 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         }),
         restore: services.shellSessionStore.getSnapshot().restore,
       };
+    },
+
+    /**
+     * Re-ask the shell ledger for this card's ink rows — the same refresh a
+     * "load previous" page or the load bar's Retry performs.
+     *
+     * A landing's receipt exists twice: the live row the initiating deck
+     * painted, and the ledger row a restore replays. Only a refresh brings the
+     * second one into a transcript that already holds the first, so this is
+     * the one gesture that can prove they are one turn rather than two.
+     */
+    refreshInkRestore(cardId: string): void {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(`refreshInkRestore: card "${cardId}" has no bound session`);
+      }
+      services.shellSessionStore.refreshRestore();
     },
 
     driveSession(cardId: string, action: SessionDriveAction): void {

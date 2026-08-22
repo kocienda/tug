@@ -40,10 +40,10 @@ Idempotent — returns the existing active dash if `<name>` already exists. **Ca
 Carry out the instruction yourself in the worktree. Run the checks the doctrine names. **Before the commit, write the dash's join draft** — committing the round is the arming event, so the prompt can raise and the user can join the moment the commit lands, and whatever draft exists at that instant is the message they land with:
 
 ```bash
-tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
+tugutil draft set --owner dash:<name> --message "<subject + durable body>"
 ```
 
-Compose it from what the rounds (including this one) will have done, per the rules under "Stop" below; on a follow-up round, refresh it the same way. Then commit:
+Compose it per the rules under "Stop" below — a durable commit message describing the change, never a narration of the rounds; on a follow-up round, refresh it the same way. Then commit:
 
 ```bash
 tugutil dash commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
@@ -76,10 +76,12 @@ On **`Replayed`** / **`Recorded`** the tree moved — verify it with the project
 Then check the dash's **join draft** — the squash message their join will land — still tells the truth. You wrote it before each round's commit; if the ending added a round (a `Conflicted` replay resolved as new work), refresh it now:
 
 ```bash
-tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
+tugutil draft set --owner dash:<name> --message "<subject + durable body>"
 ```
 
-Compose it from what the rounds actually did: an imperative subject under 50 chars naming the deliverable, then a terse factual digest. **The subject is bare — no `tugdash(<name>): ` prefix**, because the join adds the scope itself and a scope naming a different dash is stripped there rather than preserved. Every line unbroken to its end (**no hard wrapping**), no AI or agent attribution, ever. The join gesture lands this message and does not compose one — a dash that reaches it draftless stops there.
+**The draft is a commit message, held to the same standard as every other commit on the base.** A join squashes to one commit and this draft is its message, so it is the only durable prose the base will ever carry about this dash. Write an **imperative subject** in the repository's recent-commit style, then a body describing the change the base is about to receive — what it does, and the argument the work rests on — for a reader who never saw the run. Never a narration of the run: no round-by-round digest, no step numbers, no "the run did X and then Y", and no archaeology about defects the run found and fixed along the way. The round count is the receipt's fact rather than the message's — the join receipt shows it and the `Tug-Dash:` trailer names the branch and base. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. **The subject is bare — no `tugdash(<name>): ` prefix**, because the join adds the scope itself and a scope naming a different dash is stripped there rather than preserved. Every line unbroken to its end (**no hard wrapping**), no AI or agent attribution, ever. The join gesture lands this message and does not compose one — a dash that reaches it draftless stops there.
+
+Read a good one before writing yours. In this repository `a18557090` is the exemplar: a dash join whose message says what a project can now declare, what routes through it, which boundary was held, and how it was proven — with no round list and nothing that requires having watched the run.
 
 Write the draft whether or not you built anything: the Changes shade shows it, and a draftless dash offers to land its branch description — or, with neither, the words `Dash work`.
 
