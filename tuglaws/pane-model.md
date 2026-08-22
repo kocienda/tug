@@ -332,6 +332,21 @@ Imposed Panes get the rule twice over, as they should — Tug places them itself
 
 ---
 
+## A card's place is said in three vocabularies
+
+**A card on the imposed deck stands at three coordinates, and each has one badge and one vocabulary that never crosses into another's.** The slot it holds is a **number in a box**. The stack it shares is a **count over three slices**, the top one lit. The band it occupies in a split is a **letter over three rungs** — A the topmost — with the rung at its end of the run lit. All three draw in the same footprint, so a slot chip and a column badge beside it read left to right as one address: `1A`, `2C`.
+
+The number/letter split is not decoration, and it is the part worth stating, because the obvious symmetry — a position in both — is wrong. **The badge's job is to say the fact the eye cannot get.** A badge stands on a card you can see, and a visible card in a stack is by definition the one on top, so a position there would read A on every card that ever showed it. What is hidden is the quantity behind, so a stack says the quantity. A split hides nothing — every band is on screen at once — so there the badge's job is not revealing but *naming*: the letter is an address, matched against the same letter on the card's Lens row. Letters therefore mean *split* wherever they appear, on every surface.
+
+Two consequences follow, and both are intended:
+
+- **The glyph names a region; the character names the position.** Three rungs say top, middle, or bottom however deep the split runs, so every interior band of a column of five lights the same middle rung while its letter stays exact. Drawing one rung per member was tried and does not survive the badge's size.
+- **Nothing subdivides the box.** The slot badge works because it is one character in one rectangle; every design that drew the arrangement *inside* the badge died at that size. So the glyph goes *behind* the character as quiet scenery — reduced opacity, muted strokes, the lit element an accent outline rather than a fill, and the character knocked clear of the strokes by a canvas-coloured shadow.
+
+`TugColumnBadge` (`components/tugways/tug-column-badge.tsx`) is the one drawing of the second and third coordinates; `CardSlotBadge` is the first. A rail and a column are the same kind of place, so a split rail's members wear the same letters a split column's do. Pinned by `at0401`, `at0455`, and `at0467`.
+
+---
+
 ## The imposer's motion is designed, not assembled
 
 **Every way the imposer moves a card is one of a small set of named operations, each with a stated physics, and no call site picks a curve of its own.** The set lives in `tugdeck/src/lib/imposer-motion.ts`; the table below is what it says.

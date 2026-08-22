@@ -2715,6 +2715,15 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-segment-text-normal-plain-disabled", surface: "--tug7-surface-segment-primary-normal-plain-rest", role: "informational" },
   { element: "--tug7-element-segment-border-normal-plain-rest", surface: "--tug7-surface-segment-primary-normal-plain-rest", role: "informational" },
 
+  // ---- tug-column-badge.css ----
+  { element: "--tug7-element-control-text-tinted-action-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "control" },
+  // The lit stroke is a decorative accent, and deliberately: the glyph is
+  // scenery drawn at 0.55 opacity behind the character, and the lit element's
+  // job is to be distinguishable from the two UNLIT elements beside it, not
+  // from the ground. The fact it marks is also carried by the character, which
+  // is the control-role pairing above.
+  { element: "--tug7-surface-control-primary-filled-action-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "decorative" },
+
   // ---- tug-completion-menu.css ----
   { element: "--tugx-completion-fg", surface: "--tugx-completion-bg", role: "content" },
   { element: "--tugx-completion-border", surface: "--tugx-completion-bg", role: "informational" },

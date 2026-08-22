@@ -386,6 +386,51 @@ export function deckColumnsOf(state: DeckState): readonly DeckColumn[] {
   return columns;
 }
 
+/** What a column badge draws for one card: which kind of place it stands in,
+ *  how many panes share that place, and — for a split — which band it is. */
+export interface ColumnBadgeFacts {
+  kind: "stack" | "split";
+  count: number;
+  /** 0-based, topmost first. Always 0 for a stack, which has no band. */
+  index: number;
+}
+
+/**
+ * `columnBadgeFactsOf(state, cardId)` — what the card's place is, for the badge
+ * that says so. `null` when there is nothing to say: no host pane, no
+ * imposition, or a card standing alone in its slot.
+ *
+ * Read over {@link deckColumnsOf} and nothing else, which is the deck's one
+ * reading of its columns — so a Lens row and the pane's own cluster cannot
+ * disagree about which member is at which index.
+ *
+ * **Rails are deliberately out of reach here, and do not need to be in it.**
+ * `DeckManager.assignCardsToSlots` and `movePaneToSlot` both refuse a
+ * sidebar-hosted pane, so a rail pane carries no `slot` and can never appear in
+ * a column; the rails' own membership lives behind `sidebarRailsOf`, which is
+ * module-private to `components/chrome/deck-canvas.tsx` and reads the boot-time
+ * card registry rather than deck state — not something a pure `(state, cardId)`
+ * selector can call without dragging the registry into this layer. It would buy
+ * nothing either way: the only sidebar-hosted cards are the Lens, Jots, and
+ * Overview, none of which is a Session row, and a rail member's badge is
+ * already drawn on its own pane from `sidebarStack`.
+ */
+export function columnBadgeFactsOf(
+  state: DeckState,
+  cardId: string,
+): ColumnBadgeFacts | null {
+  const host = state.panes.find((pane) => pane.cardIds.includes(cardId));
+  if (host === undefined) return null;
+  const column = deckColumnsOf(state).find((c) => c.members.includes(host.id));
+  if (column === undefined) return null;
+  const count = column.members.length;
+  // A card alone in its slot has no place to describe — the slot chip beside
+  // this badge already says everything there is to say.
+  if (count < 2) return null;
+  if (column.mode !== "split") return { kind: "stack", count, index: 0 };
+  return { kind: "split", count, index: column.members.indexOf(host.id) };
+}
+
 /**
  * `columnMoveOrder(state, paneId)` — the sequence a move-in-column verb walks
  * for the pane, or empty when the pane stands in no column.

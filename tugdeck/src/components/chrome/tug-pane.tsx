@@ -34,11 +34,8 @@ import React, {
 } from "react";
 import {
   CircleDot,
-  Layers,
   MoreHorizontal,
   MoveHorizontal,
-  Rows2,
-  Rows3,
   X,
   icons,
 } from "lucide-react";
@@ -103,6 +100,10 @@ import {
 import { SessionMasthead } from "@/components/tugways/session-masthead";
 import { CardMasthead } from "@/components/tugways/card-masthead";
 import { CardSlotBadge } from "@/components/tugways/card-slot-badge";
+import {
+  TugColumnBadge,
+  columnBadgeCharacter,
+} from "@/components/tugways/tug-column-badge";
 import { beginResizeEpisode } from "@/lib/resize-episode";
 import { composePaneTitleBarText } from "@/lib/pane-title";
 import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
@@ -298,7 +299,15 @@ export interface CardTitleBarProps {
    * The bar does not know or care which kind of place it is; `TugPane` resolves
    * the verb to the right command.
    */
-  placeArrangement?: { mode: RailMode; kind: "rail" | "column" };
+  placeArrangement?: {
+    mode: RailMode;
+    kind: "rail" | "column";
+    /** This pane's place in the run, topmost first — the band letter the badge
+     *  draws when the place is split. */
+    index: number;
+    /** How many panes share the place. */
+    count: number;
+  };
   /**
    * Arrange the place this pane stands in. `"split"` / `"stack"` set the mode;
    * `"equalize"` divides the run evenly again. Wired by `TugPane` to the
@@ -377,6 +386,14 @@ function CardTitleBar({
   // stack of any kind — the one fact the badge's glyph, its label, and its
   // verbs all read.
   const placeSplit = placeArrangement?.mode === "split";
+  // What the column badge draws. It is deliberately NOT gated on
+  // `placeArrangement`: the badge renders under `slotStack.length > 1` alone,
+  // and a pane can share a place while reaching the bar without an arrangement
+  // record. Missing, it reads as the stack the same pane's glyph read as
+  // before — the depth the title bar can always see for itself.
+  const badgeKind = placeSplit ? "split" : "stack";
+  const badgeCount = placeArrangement?.count ?? slotStack.length;
+  const badgeIndex = placeArrangement?.index ?? 0;
   // Generic title-bar contributions: the active card may publish items via
   // `paneTitleBarItemsStore`. The pane renders them without knowing what
   // card published them (the `cardTitleStore` precedent) — no lens import.
@@ -839,27 +856,32 @@ function CardTitleBar({
               <TugPopupMenu
                 trigger={
                   <TugButton
-                    subtype="icon-text"
+                    subtype="icon"
                     emphasis="ghost"
                     role="action"
                     size="sm"
+                    /* One badge in the slot chip's footprint, rather than a
+                       lucide glyph beside a numeral. A stack draws how many
+                       cards are behind this one — the fact the eye cannot get,
+                       since a visible stacked card is the top one by
+                       construction. A split draws this member's band letter,
+                       because every band of a split is visible and the badge's
+                       job there is naming rather than revealing. */
                     icon={
-                      placeSplit ? (
-                        slotStack.length > 2 ? (
-                          <Rows3 />
-                        ) : (
-                          <Rows2 />
-                        )
-                      ) : (
-                        <Layers />
-                      )
+                      <TugColumnBadge
+                        kind={badgeKind}
+                        count={badgeCount}
+                        index={badgeIndex}
+                      />
                     }
                     className="tug-pane-title-bar-stack-badge"
-                    aria-label={`${placeSplit ? "Split" : "Stack"} of ${slotStack.length} cards`}
+                    aria-label={
+                      placeSplit
+                        ? `Split of ${badgeCount} cards, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}`
+                        : `Stack of ${badgeCount} cards`
+                    }
                     data-testid="tug-pane-title-bar-stack-badge"
-                  >
-                    {slotStack.length}
-                  </TugButton>
+                  />
                 }
                 align="end"
                 open={stackMenuOpen}
@@ -4040,6 +4062,8 @@ export function TugPane({
                   placeArrangement: {
                     mode: sidebarStack.mode,
                     kind: "rail" as const,
+                    index: sidebarStack.memberIndex,
+                    count: sidebarStack.count,
                   },
                   onArrangePlace: handleArrangePlace,
                 }
@@ -4055,6 +4079,11 @@ export function TugPane({
                         ? "split"
                         : "stack") as RailMode,
                       kind: "column" as const,
+                      // A stacked column has no member record and needs none:
+                      // the badge draws the depth, and every pane in the stack
+                      // draws the same one.
+                      index: columnMember?.index ?? 0,
+                      count: columnMember?.count ?? slotStack.length,
                     },
                     onArrangePlace: handleArrangePlace,
                   }

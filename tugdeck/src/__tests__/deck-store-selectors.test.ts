@@ -12,6 +12,7 @@ import { describe, test, expect } from "bun:test";
 import type { CardState, DeckState, TugPaneState } from "../layout-tree";
 import {
   bullseyePaneIdOf,
+  columnBadgeFactsOf,
   deckColumnsOf,
   deckFlowStrip,
   isFocusDestination,
@@ -395,5 +396,94 @@ describe("a split column in flow", () => {
     expect([...(strip?.positions.keys() ?? [])].sort()).toEqual([0, 1, 2]);
     expect(strip?.positions.get(1)).toBe(605);
     expect(strip?.positions.get(2)).toBe(605 + 600 + 5);
+  });
+});
+
+describe("columnBadgeFactsOf", () => {
+  /** A three-up deck: `slots` maps pane id → slot, one card per pane, with the
+   *  column arrangement handed in whole. */
+  function state(
+    slots: Record<string, number>,
+    columns: DeckState["imposition"]["columns"] = undefined,
+  ): DeckState {
+    const ids = Object.keys(slots);
+    return {
+      cards: ids.map((id) => makeCard(`card-${id}`)),
+      panes: ids.map((id) => ({
+        ...makePane(id, [`card-${id}`], `card-${id}`),
+        slot: slots[id],
+      })),
+      imposition: {
+        kind: "three-up",
+        sidebars: { lens: { side: "right" } },
+        ...(columns === undefined ? {} : { columns }),
+      },
+      hasFocus: true,
+    };
+  }
+
+  test("a card alone in its slot has no place to describe", () => {
+    // The slot chip beside the badge already says everything there is to say.
+    expect(
+      columnBadgeFactsOf(state({ "pane-a": 0, "pane-b": 1 }), "card-pane-a"),
+    ).toBeNull();
+  });
+
+  test("a stacked slot says how many cards share it", () => {
+    expect(
+      columnBadgeFactsOf(
+        state({ "pane-a": 0, "pane-b": 0, "pane-c": 0 }),
+        "card-pane-b",
+      ),
+    ).toEqual({ kind: "stack", count: 3, index: 0 });
+  });
+
+  test("every member of a stack answers the same, because they draw the same rect", () => {
+    const deck = state({ "pane-a": 0, "pane-b": 0 });
+    expect(columnBadgeFactsOf(deck, "card-pane-a")).toEqual(
+      columnBadgeFactsOf(deck, "card-pane-b")!,
+    );
+  });
+
+  test("a split slot says which band, top to bottom", () => {
+    const deck = state({ "pane-a": 0, "pane-b": 0 }, { 0: { mode: "split" } });
+    // The fallback member order is the panes sorted by id, so pane-a is the
+    // topmost band and pane-b the one below it.
+    expect(columnBadgeFactsOf(deck, "card-pane-a")).toEqual({
+      kind: "split",
+      count: 2,
+      index: 0,
+    });
+    expect(columnBadgeFactsOf(deck, "card-pane-b")).toEqual({
+      kind: "split",
+      count: 2,
+      index: 1,
+    });
+  });
+
+  test("a split of three reads its stored order, not the pane array", () => {
+    const deck = state(
+      { "pane-a": 0, "pane-b": 0, "pane-c": 0 },
+      { 0: { mode: "split", order: ["pane-c", "pane-a", "pane-b"] } },
+    );
+    expect(columnBadgeFactsOf(deck, "card-pane-c")?.index).toBe(0);
+    expect(columnBadgeFactsOf(deck, "card-pane-a")?.index).toBe(1);
+    expect(columnBadgeFactsOf(deck, "card-pane-b")?.index).toBe(2);
+  });
+
+  test("no imposition, no place", () => {
+    const deck = state({ "pane-a": 0, "pane-b": 0 });
+    expect(
+      columnBadgeFactsOf(
+        { ...deck, imposition: { sidebars: {} } },
+        "card-pane-a",
+      ),
+    ).toBeNull();
+  });
+
+  test("a card with no host pane answers nothing", () => {
+    expect(
+      columnBadgeFactsOf(state({ "pane-a": 0, "pane-b": 0 }), "card-nowhere"),
+    ).toBeNull();
   });
 });

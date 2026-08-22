@@ -50,6 +50,7 @@
  * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
+ * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
  * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
  */
 
@@ -884,6 +885,43 @@ describe.skipIf(!SHOULD_RUN)(
               ),
               "both members show a badge in a split",
             ).toBe(2);
+
+            // And each says WHICH band it is. A split's members are all
+            // visible, so the badge's job there is naming rather than
+            // revealing: the topmost band reads A, the one below it B. Before
+            // the column badge both members read "2" — the same true fact,
+            // twice, which told a reader nothing about which one they were
+            // looking at. Read in rail order so the claim is about the
+            // arrangement rather than about the DOM's order.
+            expect(
+              await app.evalJS<string[]>(
+                `Array.from(document.querySelectorAll('.tug-pane[data-rail-split]'))
+                  .sort(function (a, b) {
+                    return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+                  })
+                  .map(function (el) {
+                    var badge = el.querySelector(${JSON.stringify(BADGE)});
+                    return badge === null ? "" : badge.textContent.trim();
+                  })`,
+              ),
+              "the split's bands read A then B, top to bottom",
+            ).toEqual(["A", "B"]);
+
+            // The letter is the band; the glyph is the region. The topmost
+            // member lights the top rung and the last lights the bottom.
+            expect(
+              await app.evalJS<string[]>(
+                `Array.from(document.querySelectorAll('.tug-pane[data-rail-split]'))
+                  .sort(function (a, b) {
+                    return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+                  })
+                  .map(function (el) {
+                    var badge = el.querySelector(${JSON.stringify(BADGE)} + ' [data-slot="tug-column-badge"]');
+                    return badge === null ? "" : badge.getAttribute("data-kind") + ":" + badge.getAttribute("data-lit");
+                  })`,
+              ),
+              "the ladder lights the end of the run each band sits at",
+            ).toEqual(["split:top", "split:bottom"]);
 
             // The check follows FOCUS, not depth — and saying so takes the door
             // that does not move focus. Clicking a badge activates its own pane

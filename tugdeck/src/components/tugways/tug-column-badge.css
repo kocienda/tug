@@ -1,0 +1,154 @@
+/* @tug-pairings {
+ *   --tug7-element-control-text-tinted-action-rest   | --tug7-surface-global-primary-normal-default-rest | control       | .tug-column-badge-character (color)
+ *   --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .tug-column-badge-slice, .tug-column-badge-rung (stroke)
+ *   --tug7-surface-control-primary-filled-action-rest | --tug7-surface-global-primary-normal-default-rest | decorative   | .tug-column-badge-slice[data-lit], .tug-column-badge-rung[data-lit] (stroke)
+ * } */
+
+/**
+ * @tug-pairings
+ * | Element                                           | Surface                                           | Role          | Context                                            |
+ * |---------------------------------------------------|---------------------------------------------------|---------------|----------------------------------------------------|
+ * | --tug7-element-control-text-tinted-action-rest     | --tug7-surface-global-primary-normal-default-rest | control       | .tug-column-badge-character (color)                |
+ * | --tug7-element-global-text-normal-muted-rest       | --tug7-surface-global-primary-normal-default-rest | informational | .tug-column-badge-slice / -rung / -rail (stroke)   |
+ * | --tug7-surface-control-primary-filled-action-rest  | --tug7-surface-global-primary-normal-default-rest | decorative    | .tug-column-badge-slice[data-lit] / -rung[data-lit] (stroke) |
+ *
+ * The lit stroke is classified decorative, and deliberately: the glyph is
+ * scenery drawn at reduced opacity behind the character, and the lit element's
+ * job is to be distinguishable from the two UNLIT elements beside it rather
+ * than from the ground. The fact it marks is carried by the character, which is
+ * the control-role pairing above and is what the contrast bar governs.
+ *
+ * Those are the DEFAULTS, and every one of them is knobbed. The badge stands in
+ * two places that are not the canvas — the pane's title bar and a Lens list row
+ * — so a consumer re-pairs the character ink and the knockout to the ground it
+ * actually renders on ([L20]), the same way `card-slot-badge.css` re-pairs
+ * `TugSlot`'s. Defaults live in the `var()` fallback at point of use and are
+ * never declared on the badge itself, so a knob nobody sets resolves to exactly
+ * the token named above.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Shape
+ *
+ * The slot badge's exact footprint, so a slot chip and a column badge side by
+ * side read as one coordinate — 1A, 2C. The character is set exactly as
+ * `tug-slot.css` sets its number; the glyph is absolutely positioned behind it
+ * so neither one pushes the other around.
+ * ---------------------------------------------------------------------------*/
+
+.tug-column-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  inline-size: var(--tugx-column-badge-width, 18px);
+  block-size: var(--tugx-column-badge-height, 22px);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * The character
+ *
+ * It owns the foreground, and the knockout is what buys it that: enough stacked
+ * shadow layers in the GROUND's colour that the glyph's strokes are punched out
+ * of a clear zone around the character rather than crossing it. A halo would
+ * outline the character; this erases what runs under it.
+ * ---------------------------------------------------------------------------*/
+
+.tug-column-badge-character {
+  position: relative;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tugx-column-badge-font-size, 11px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(
+    --tugx-column-badge-fg,
+    var(--tug7-element-control-text-tinted-action-rest)
+  );
+  text-shadow:
+    0 0 1px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
+    0 0 2px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
+    0 0 2px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
+    0 0 3px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
+    0 0 3px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
+    0 0 4px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
+    0 0 5px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
+    0 0 6px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest));
+  user-select: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * The glyphs
+ *
+ * Scenery: centered behind the character at reduced opacity, sized off the same
+ * knobs the footprint takes so a consumer's size override carries the drawing
+ * with it. The rules are written descendant-of-the-badge rather than on the
+ * glyph class alone, because a mount inside a `TugButton` meets
+ * `.tug-button svg { width: 1rem; height: 1rem }` — one specificity step above
+ * a bare class, and enough to flatten the drawing. The stack glyph is inset two pixels from the badge's height, which
+ * is what keeps three slices from touching the box's ends; the ladder runs the
+ * full height on purpose, so its lit end rungs sit at the badge's own ends.
+ * ---------------------------------------------------------------------------*/
+
+.tug-column-badge .tug-column-badge-glyph {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  inline-size: var(--tugx-column-badge-width, 18px);
+  block-size: calc(var(--tugx-column-badge-height, 22px) - 2px);
+  opacity: var(--tugx-column-badge-glyph-opacity, 0.55);
+}
+
+.tug-column-badge .tug-column-badge-glyph-ladder {
+  block-size: var(--tugx-column-badge-height, 22px);
+}
+
+/* The slice fills are the badge's ground, and they are there only so nearer
+   slices occlude the ones behind them the way real layers do. Selection is
+   never a fill — the lit element is an outline, so the accent cannot compete
+   with the character for the foreground. */
+.tug-column-badge-slice {
+  fill: var(
+    --tugx-column-badge-knockout,
+    var(--tug7-surface-global-primary-normal-default-rest)
+  );
+  stroke: var(
+    --tugx-column-badge-stroke,
+    var(--tug7-element-global-text-normal-muted-rest)
+  );
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+}
+
+.tug-column-badge-slice[data-lit="true"] {
+  stroke: var(
+    --tugx-column-badge-accent,
+    var(--tug7-surface-control-primary-filled-action-rest)
+  );
+  stroke-width: 1.75;
+}
+
+.tug-column-badge-rail,
+.tug-column-badge-rung {
+  stroke: var(
+    --tugx-column-badge-stroke,
+    var(--tug7-element-global-text-normal-muted-rest)
+  );
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.tug-column-badge-rung[data-lit="true"] {
+  stroke: var(
+    --tugx-column-badge-accent,
+    var(--tug7-surface-control-primary-filled-action-rest)
+  );
+  stroke-width: 2;
+}

@@ -41,6 +41,17 @@
   align-items: center;
   margin-inline-end: var(--tug-space-xs);
 
+  /* The cluster's cut, which is the picker's cut and the Lens run's cut — one
+     step up from the primitive's `sm` readout default. The chip no longer
+     stands alone: the column badge beside it is drawn at this size, and the
+     pair has to be read as one coordinate (1A, 2C), which is a legibility
+     requirement rather than a preference. At the smaller default the glyph
+     behind the badge's character loses its middle slice and middle rung
+     first, which are exactly the elements that carry the reading. */
+  --tugx-slot-width-sm: 18px;
+  --tugx-slot-height-sm: 22px;
+  --tugx-slot-font-size-sm: 11px;
+
   /* ── The chip's ink ───────────────────────────────────────────────────────
      At rest the badge is a READOUT standing in a row of icon buttons, so it
      takes the row's own ink — literally the row's: the same

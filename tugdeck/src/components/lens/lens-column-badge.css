@@ -1,0 +1,10 @@
+/* @tug-pairings: none — the column badge on a Lens row. Every colour belongs to
+   the composed `TugColumnBadge` ([L20]); this file only sets the badge's
+   standoff from the slot run it follows. */
+
+.lens-column-badge {
+  /* The run and the badge are one coordinate read left to right, so they stand
+     closer to each other than either stands to the title — the same gap the
+     picker's own chips take between them. */
+  margin-inline-start: var(--tug-space-2xs);
+}

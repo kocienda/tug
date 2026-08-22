@@ -43,6 +43,7 @@
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
+ * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -498,6 +499,52 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           cuts.map((c) => `${c.paneId}:${c.kind}`).join("; "),
           "stack→split→stack on a column produces no cut records",
         ).toBe("");
+
+        // ── The pair is one coordinate, so it is one footprint. ──
+        // The cluster reads outward-in — the deck's slot, then this pane's own
+        // place — and that reading only works if the two chips are the same
+        // box. Compared rect to rect rather than against pixel constants: the
+        // claim is that they AGREE, which stays true through a future retune of
+        // what the size is.
+        const chipBoxes = await app.evalJS<{
+          slot: { width: number; height: number } | null;
+          column: { width: number; height: number } | null;
+        }>(
+          `(function () {
+            var pane = document.querySelector(${JSON.stringify(frame("p3"))});
+            function box(sel) {
+              var el = pane === null ? null : pane.querySelector(sel);
+              if (el === null) return null;
+              var r = el.getBoundingClientRect();
+              return { width: r.width, height: r.height };
+            }
+            return {
+              slot: box('.card-slot-badge [data-slot="tug-slot"]'),
+              column: box('[data-slot="tug-column-badge"]'),
+            };
+          })()`,
+        );
+        expect(chipBoxes.slot, "the slot chip is on the cluster").not.toBeNull();
+        expect(
+          chipBoxes.column,
+          "the column badge is on the cluster",
+        ).not.toBeNull();
+        expect(
+          chipBoxes.column,
+          "the column badge draws in the slot chip's exact footprint",
+        ).toEqual(chipBoxes.slot);
+
+        // A stacked column says how many cards share the slot — the fact the
+        // eye cannot get, since the pane you are looking at is the top one.
+        expect(
+          await app.evalJS<string | null>(
+            `(function () {
+              var el = document.querySelector(${JSON.stringify(frame("p3"))} + ' [data-slot="tug-column-badge"]');
+              return el === null ? null : el.getAttribute("data-kind") + ":" + el.textContent.trim();
+            })()`,
+          ),
+          "a stacked column's badge is the member count over the stack glyph",
+        ).toBe("stack:2");
 
         // ── The badge menu is the other door, and it names the place. ──
         const badge = `${frame("p3")} [data-testid="tug-pane-title-bar-stack-badge"]`;

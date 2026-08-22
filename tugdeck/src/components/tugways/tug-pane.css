@@ -764,6 +764,20 @@ body {
   );
   justify-content: center;
   font-variant-numeric: tabular-nums;
+
+  /* The badge inside it is re-paired to this row, exactly as the slot chip
+     beside it is: the character takes the cluster's own resting ink so the two
+     chips read as one coordinate rather than as a readout with a mark laid over
+     it, and the knockout takes the title bar's fill, because a knockout that is
+     not the colour of the ground it stands on is a halo. Both come in pairs —
+     the focused pane's chrome is brighter and the badge goes with it. */
+  --tugx-column-badge-fg: var(--tugx-pane-control-off-fg-rest);
+  --tugx-column-badge-knockout: var(--tugx-pane-title-bar-bg-inactive);
+}
+
+.tug-pane[data-focused="true"] .tug-button.tug-pane-title-bar-stack-badge {
+  --tugx-column-badge-fg: var(--tugx-pane-control-on-fg-rest);
+  --tugx-column-badge-knockout: var(--tugx-pane-title-bar-bg-active);
 }
 
 /*

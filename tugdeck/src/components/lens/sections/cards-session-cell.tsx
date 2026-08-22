@@ -40,6 +40,7 @@
 import React from "react";
 
 import { SlotPicker } from "@/components/lens/slot-picker";
+import { LensColumnBadge } from "@/components/lens/lens-column-badge";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TUG_SESSION_ROW_INDICATOR_SIZE } from "@/components/tugways/tug-session-row";
 
@@ -96,7 +97,16 @@ export function CardsSessionRow({
       // description it holds.
       identityMenu
       highlight={filterQuery}
-      slots={<SlotPicker cardId={cardId} />}
+      // The slot the card holds, then where it stands inside that slot — the
+      // same outward-in reading the pane's own control cluster has. Both
+      // resolve their own facts from the deck store, so the row keeps taking
+      // everything as props.
+      slots={
+        <>
+          <SlotPicker cardId={cardId} />
+          <LensColumnBadge cardId={cardId} />
+        </>
+      }
       // The row is its own reorder handle — a vertical drag from anywhere on
       // it that is not the slot picker carries it.
       onPointerDown={(e) => onRowPointerDown(orderKey, e)}
