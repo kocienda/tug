@@ -73,6 +73,48 @@
   --tugx-slot-radius: 3px;
 }
 
+/*
+ * ── At rest, the badge is not there ──────────────────────────────────────
+ *
+ * The tile stays; the badge goes. Those are two different jobs and only the
+ * first one is unconditional: the box is the drop-zone engine's measurement of
+ * what a card landing here would take, and it has to exist on every frame
+ * whether or not anybody is looking at it. The drawing inside it is the
+ * reader's, and the reader does not want it most of the time.
+ *
+ * A permanent numbered chip standing in an empty room reads as a CONTROL — it
+ * has a border, a fill and a numeral, which is exactly what every other chip
+ * in this vocabulary is — so the eye keeps arriving at it expecting something
+ * to press, and there is nothing. Worse, it is the loudest thing on an empty
+ * canvas, which spends the reader's attention on the one part of the deck
+ * where nothing is happening.
+ *
+ * So it appears only when a place is the subject of something: a card in the
+ * air, or the deck answering a gesture that named this place. Both are moments
+ * where "which slot is this?" is the live question, and neither lasts.
+ *
+ * Hidden by `opacity`, never by `display`: the flash animates the badge's own
+ * box shadow, so the badge has to be laid out and measurable before the flash
+ * class arrives — mounting it in the same frame the animation starts would
+ * drop the first keyframe.
+ */
+.tug-slot-vacancy .tug-slot {
+  opacity: 0;
+}
+
+/* A card is in the air. `data-carrying` is written on the canvas by
+   `gaugeDragFrame`, the drag's own lifecycle verb — set when a frame starts
+   travelling, cleared by every path that retires the gesture. Every held-open
+   place shows itself for the duration, which is when a reader is deciding
+   where to let go and the numbers are the answer to that. */
+[data-carrying] .tug-slot-vacancy .tug-slot,
+/* Or the deck is saying *here* about this place in particular. The flash class
+   already hangs on the tile for the ring; it doubles as the reveal, so the
+   badge is on screen for exactly as long as the ring it wears. */
+.tug-slot-vacancy-flash .tug-slot {
+  opacity: 1;
+}
+
 /* ── The "here it is" flash, for a place with nothing in it ───────────────
    A gesture that names a place must answer, and when the place is empty there
    is no pane to ring — so the badge is rung instead. Same accent and the same

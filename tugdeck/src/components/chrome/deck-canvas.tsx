@@ -3195,6 +3195,19 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             ? null
             : canvasFractionOf(canvasRectOf(frame.getBoundingClientRect())),
         );
+        // The canvas says a card is in the air, which is what the held-open
+        // places read to show themselves. A DOM write, never React state
+        // ([L06]): it turns on the frames of a drag, and re-rendering the deck
+        // to change the appearance of an empty slot is a re-render for nothing.
+        //
+        // This verb is the right hook because it is already the drag's
+        // lifecycle — it is called with a frame when one starts travelling and
+        // with null when the gesture retires, by every path that ends one.
+        const canvas = containerRef.current;
+        if (canvas !== null) {
+          if (frame === null) canvas.removeAttribute("data-carrying");
+          else canvas.setAttribute("data-carrying", "");
+        }
       },
 
       commit(zone, draggedPaneId) {

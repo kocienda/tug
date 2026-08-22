@@ -359,6 +359,36 @@ export interface CardTitleBarProps {
  */
 const PLACE_VERB_SPLIT = "place:split";
 const PLACE_VERB_STACK = "place:stack";
+
+/**
+ * Verbs more than one kind of card offers, ordered as they stand in the
+ * rollup, and pinned to its trailing end.
+ *
+ * The row reads right to left as a fixed spine — bullseye, then card width,
+ * then Reveal in Finder — and only the LEFTMOST positions belong to whatever a
+ * particular card happens to add. A Text card contributes Card Settings and a
+ * Session card contributes its summary; those are different glyphs meaning
+ * different things, so they are the ones that should move between card kinds.
+ * Reveal is the same act on both and had been landing at a different offset on
+ * each, which is the cost the hand pays for an ordering nobody stated.
+ *
+ * Bullseye and width are the pane's own and are authored in place at the end
+ * of the row. This table is for the verbs a CARD publishes, which arrive in
+ * whatever order the card wrote them and cannot be trusted to agree with the
+ * next card's.
+ *
+ * A verb not in the table ranks ahead of every verb that is, so an unshared
+ * one falls to the left without needing an entry. Add a command here only when
+ * a second card kind starts publishing it — a table of one-card verbs would be
+ * an ordering with nothing to order against.
+ */
+const SHARED_VERB_RANK: Readonly<Record<string, number>> = {
+  [TUG_ACTIONS.REVEAL_CARD_FILE]: 0,
+};
+
+function sharedVerbRank(commandId: string): number {
+  return SHARED_VERB_RANK[commandId] ?? -1;
+}
 const PLACE_VERB_EQUALIZE = "place:equalize";
 
 export const CardTitleBar = React.forwardRef<CardTitleBarHandle, CardTitleBarProps>(
@@ -418,8 +448,21 @@ function CardTitleBar({
     paneTitleBarItemsStore.subscribe,
     () => paneTitleBarItemsStore.get(activeCardId ?? null),
   );
+  // Sorted so the SHARED verbs anchor the trailing end of the card's own run,
+  // in one order on every kind of card. See `SHARED_VERB_RANK`.
   const titleBarButtonItems = useMemo(
-    () => (titleBarItems ?? []).filter((item) => item.presentation === "button"),
+    () =>
+      (titleBarItems ?? [])
+        .filter((item) => item.presentation === "button")
+        .map((item, index) => ({ item, index }))
+        .sort(
+          (a, b) =>
+            sharedVerbRank(a.item.commandId) - sharedVerbRank(b.item.commandId) ||
+            // Stable within a rank: a card's own order among its unshared
+            // verbs is the card's business, and nothing here has an opinion.
+            a.index - b.index,
+        )
+        .map((entry) => entry.item),
     [titleBarItems],
   );
   const titleBarMenuItems = useMemo(
@@ -902,12 +945,66 @@ function CardTitleBar({
             className="tug-pane-title-bar-rollup-row"
             data-testid="tug-pane-title-bar-rollup-row"
           >
+            {/* THE ROW READS RIGHT TO LEFT AS A FIXED SPINE, and everything
+                below is that ordering.
+
+                Trailing end first, because it is the end that holds still:
+                bullseye, card width, then Reveal in Finder — the three verbs
+                more than one kind of card offers. A reader who learns where
+                Reveal is on a Text card finds it at the same offset on a
+                Session card. Ahead of them, filling leftward, whatever this
+                particular card adds: Card Settings on a Text card, the session
+                summary on a Session card, the `⋮` overflow on any card with
+                one. Those are different glyphs meaning different things, so
+                those are the ones that should move between card kinds.
+
+                Two mechanisms enforce it, because card verbs arrive by two
+                routes. `SHARED_VERB_RANK` sorts the items a card publishes
+                through the items store; the masthead orders its own portal by
+                hand, with the argument written at the site. */}
+            {/* The `⋮` overflow leads: it is the least shared thing in the
+                row — most cards publish no menu rows at all — and its own
+                contents are already a list, so it has the least claim on a
+                fixed offset. */}
+            {titleBarMenuItems.length > 0 && (
+              // Same span anchor as the stack badge, for the same reason. The
+              // phrase names what the menu HOLDS — the commands for the card
+              // the title bar belongs to — rather than describing the press.
+              //
+              // VERTICAL ellipsis, and it must stay vertical: the rollup's own
+              // mark is a horizontal `⋯`, and two identical glyphs in one row
+              // meaning different things is the one thing this cluster cannot
+              // afford. The convention does the teaching — `⋯` reads as "more
+              // of this row", `⋮` as "this thing's own menu" — so the pair is
+              // learnable rather than merely distinct.
+              <TugTooltip content="Assorted commands">
+                <span className="tug-pane-title-bar-tooltip-anchor">
+                  <TugPopupMenu
+                    trigger={
+                      <TugButton
+                        subtype="icon"
+                        emphasis="ghost"
+                        role="action"
+                        size="sm"
+                        icon={<MoreVertical />}
+                        aria-label="Card menu"
+                        data-testid="tug-pane-title-bar-menu-button"
+                      />
+                    }
+                    align="end"
+                    open={titleBarMenuOpen}
+                    onOpenChange={setTitleBarMenuOpen}
+                    items={titleBarMenuRows}
+                    onSelect={setPendingCommandId}
+                  />
+                </span>
+              </TugTooltip>
+            )}
             {/* The masthead's own chrome affordances — on a Session card, the
-                Reveal-in-Finder button and the summary popover's trigger —
-                mount HERE, portaled in by the masthead that owns them. They
-                are verbs the card publishes about itself, so they belong in
-                the rollup with every other verb, and they lead it because
-                they are the card's own rather than the pane's.
+                summary popover's trigger and then Reveal in Finder — mount
+                HERE, portaled in by the masthead that owns them. They are
+                verbs the card publishes about itself, so they belong in the
+                rollup with every other verb.
 
                 `display: contents` — an empty host contributes no box, so a
                 pane with no masthead accessory lays out exactly as before. */}
@@ -971,40 +1068,6 @@ function CardTitleBar({
             </TugTooltip>
           );
         })}
-        {titleBarMenuItems.length > 0 && (
-          // Same span anchor as the stack badge, for the same reason. The
-          // phrase names what the menu HOLDS — the commands for the card the
-          // title bar belongs to — rather than describing the press.
-          //
-          // VERTICAL ellipsis, and it must stay vertical: the rollup's own
-          // handle is a horizontal `⋯`, and two identical glyphs in one row
-          // meaning different things is the one thing this cluster cannot
-          // afford. The convention does the teaching — `⋯` reads as "more of
-          // this row", `⋮` as "this thing's own menu" — so the pair is
-          // learnable rather than merely distinct.
-          <TugTooltip content="Assorted commands">
-            <span className="tug-pane-title-bar-tooltip-anchor">
-              <TugPopupMenu
-                trigger={
-                  <TugButton
-                    subtype="icon"
-                    emphasis="ghost"
-                    role="action"
-                    size="sm"
-                    icon={<MoreVertical />}
-                    aria-label="Card menu"
-                    data-testid="tug-pane-title-bar-menu-button"
-                  />
-                }
-                align="end"
-                open={titleBarMenuOpen}
-                onOpenChange={setTitleBarMenuOpen}
-                items={titleBarMenuRows}
-                onSelect={setPendingCommandId}
-              />
-            </span>
-          </TugTooltip>
-        )}
         {/* Card width. A dedicated, persistent trigger rather than a row in
             the `…` overflow above: width is reached often and carries state,
             and a control whose current value is invisible until you open it

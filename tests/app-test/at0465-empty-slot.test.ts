@@ -310,16 +310,82 @@ describe.skipIf(!SHOULD_RUN)("at0465 — the held-open slot", () => {
           ).toBeLessThanOrEqual(1.5);
         }
 
+        // ── 1b. At rest the badge is not painted. ──
+        // The tile stays and the badge goes, which are two different jobs: the
+        // box is the drop-zone engine's measurement of what a card landing
+        // here would take and has to exist on every frame, while the drawing
+        // inside it is the reader's and the reader does not want it most of
+        // the time. A permanent numbered chip standing in an empty room reads
+        // as a CONTROL — border, fill and a numeral, exactly what every other
+        // chip in this vocabulary is — so the eye kept arriving at it
+        // expecting something to press, on the one part of the deck where
+        // nothing is happening.
+        //
+        // Hidden by `opacity`, never by `display`: the flash animates the
+        // badge's own box shadow, so it has to be laid out and measurable
+        // before the flash class arrives. The assertions above measured that
+        // box while it was transparent, which is the proof it is still there.
+        expect(
+          await app.evalJS<string>(
+            `window.getComputedStyle(
+               document.querySelector('.tug-slot-vacancy[data-vacant-slot="0"]')
+                 .querySelector('[data-slot="tug-slot"]')
+             ).opacity`,
+          ),
+          "with nothing in the air and nothing being pointed at, the badge is not painted",
+        ).toBe("0");
+
         // ── 2. A card dragged onto the tile lands in that slot. ──
         {
           // The tile's near quarter: far enough from the card's own frame that
           // the pointer is inside exactly one zone, so the indication is a
           // containment answer rather than a distance tie-break.
-          await app.nativeDragElement(titleBar("p1"), {
+          const target = {
             x: Math.round(tile.left + tile.width * 0.25),
             y: Math.round(tile.top + 120),
-          });
+          };
+          await app.nativeDragElementWithoutRelease(titleBar("p1"), target);
+
+          // ── 2a. A card in the air is what brings the badges out. ──
+          // Mid-flight, because that is the whole moment they exist for: the
+          // reader is deciding where to let go and the numbers are the answer
+          // to that question. `data-carrying` is written on the canvas by
+          // `gaugeDragFrame`, the drag's own lifecycle verb, so the reveal is
+          // tied to the gesture rather than to a hover or a store flag.
+          const carrying = await app.evalJS<{ marked: boolean; opacity: string }>(
+            `(function () {
+              var tile = document.querySelector(
+                '.tug-slot-vacancy[data-vacant-slot="0"]');
+              var badge = tile.querySelector('[data-slot="tug-slot"]');
+              return {
+                marked: tile.closest("[data-carrying]") !== null,
+                opacity: window.getComputedStyle(badge).opacity
+              };
+            })()`,
+          );
+          note(
+            `mid-drag: canvas carrying=${carrying.marked} badge opacity=${carrying.opacity}`,
+          );
+          expect(
+            carrying.marked,
+            "the canvas says a card is in the air",
+          ).toBe(true);
+          expect(
+            carrying.opacity,
+            "so every held-open place shows its number",
+          ).toBe("1");
+
+          await app.nativeMouseUp(target);
           await wait(AFTER_LAND_MS);
+
+          // And the reveal retires with the gesture — every path that ends a
+          // drag calls the same verb with null.
+          expect(
+            await app.evalJS<boolean>(
+              `document.querySelector("[data-carrying]") !== null`,
+            ),
+            "the drag is over, so nothing is carrying",
+          ).toBe(false);
           const landed = await slotOf(app, "p1");
           const tiles = await vacancies(app);
           note(

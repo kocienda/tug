@@ -398,6 +398,35 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe("Close this card");
           expect(await chipText(app, CLOSE_BUTTON), "with ⌘W beside it").toBe("⌘W");
 
+          // --- The row's spine, right to left. ----------------------------
+          // Bullseye, card width, Reveal in Finder — the three verbs more than
+          // one kind of card offers, at the end that holds still. Only the
+          // leftmost positions belong to what a particular card adds, which
+          // here is Card Settings.
+          //
+          // The failure this catches is the one it was written for: a Text
+          // card published Reveal then Settings and the Session masthead
+          // portalled Reveal then its summary, so the same act sat at a
+          // different offset on each kind and the hand had to learn two rows.
+          // Ordering is enforced now — `SHARED_VERB_RANK` for the items store,
+          // by hand in the masthead for its portal — and this is the assertion
+          // that the two agree.
+          expect(
+            await app.evalJS<string[]>(
+              `Array.from(
+                 document.querySelectorAll(
+                   ${JSON.stringify(PANE)} + " .tug-pane-title-bar-rollup-row .tug-button"
+                 )
+               ).map(function (el) { return el.getAttribute("aria-label"); })`,
+            ),
+            "the card's own verb leads, then the shared spine",
+          ).toEqual([
+            "Card Settings…",
+            "Reveal in Finder",
+            "Card width",
+            "Bullseye",
+          ]);
+
           // --- The chips are READ, not authored. --------------------------
           // Rebind bullseye through the defaults path — the same route any
           // other process takes — and the bubble says the new chord on its

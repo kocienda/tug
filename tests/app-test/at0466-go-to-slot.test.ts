@@ -363,6 +363,21 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
           rungEmpty.panes,
           "and no card is rung for a place no card stands in",
         ).toEqual([]);
+        // The ring is also the badge's only other way onto the screen. At rest
+        // a held-open place draws nothing — a permanent numbered chip in an
+        // empty room reads as a control nobody can press — so it appears for a
+        // card in the air, or for exactly this: the deck answering a gesture
+        // that named this place. The flash class does both jobs, which is why
+        // the badge is on screen for precisely as long as the ring it wears.
+        expect(
+          await app.evalJS<string>(
+            `window.getComputedStyle(
+               document.querySelector(".tug-slot-vacancy-flash")
+                 .querySelector('[data-slot="tug-slot"]')
+             ).opacity`,
+          ),
+          "and the badge it rings is painted while it rings",
+        ).toBe("1");
       } finally {
         await app.close();
       }

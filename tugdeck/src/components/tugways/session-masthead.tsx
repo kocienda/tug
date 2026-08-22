@@ -666,29 +666,14 @@ export function SessionMasthead({
       */}
       {accessoryHost !== null && createPortal(
       <>
-      {/*
-        Open the session's project directory in the Finder. The gesture used to
-        live on the Z4B project chip; the title-bar rework took that row away,
-        and this is where it returns — beside the summary, in the same control
-        cluster, wearing the same ghost icon button. Rendered only when the card
-        is bound to a project, since there is nothing to open otherwise.
-      */}
-      {projectDir.length > 0 && (
-        <TugTooltip content={`Reveal in Finder: ${projectDir}`}>
-          <TugButton
-            subtype="icon"
-            emphasis="ghost"
-            role="action"
-            size="sm"
-            icon={<FolderOpenDot />}
-            data-slot="session-masthead-reveal"
-            tabIndex={-1}
-            data-no-activate=""
-            aria-label="Reveal project folder in Finder"
-            onClick={() => openPathInOS(projectDir, "folder")}
-          />
-        </TugTooltip>
-      )}
+      {/* The SUMMARY leads and Reveal follows, which is the cluster's rule and
+          not this card's preference: the rollup reads right to left as a fixed
+          spine — bullseye, card width, Reveal in Finder — and only the
+          leftmost positions belong to whatever a particular card adds. Reveal
+          is the same act on a Text card, so it lands at the same offset on
+          both; the summary is this card's own and is what moves. See
+          `SHARED_VERB_RANK` in `chrome/tug-pane.tsx`, which enforces the same
+          order for the verbs a card publishes through the items store. */}
       <TugTooltip content="Show this session's summary">
       <span className="tug-pane-title-bar-tooltip-anchor">
       <TugPopover dismissOnChainActivity={false}>
@@ -797,6 +782,32 @@ export function SessionMasthead({
       </TugPopover>
       </span>
       </TugTooltip>
+      {/*
+        Open the session's project directory in the Finder. The gesture used to
+        live on the Z4B project chip; the title-bar rework took that row away,
+        and this is where it returns — beside the summary, in the same control
+        cluster, wearing the same ghost icon button. Rendered only when the card
+        is bound to a project, since there is nothing to open otherwise.
+
+        LAST in the card's own run, so it sits directly beside the pane's width
+        control on this card exactly as it does on a Text card.
+      */}
+      {projectDir.length > 0 && (
+        <TugTooltip content={`Reveal in Finder: ${projectDir}`}>
+          <TugButton
+            subtype="icon"
+            emphasis="ghost"
+            role="action"
+            size="sm"
+            icon={<FolderOpenDot />}
+            data-slot="session-masthead-reveal"
+            tabIndex={-1}
+            data-no-activate=""
+            aria-label="Reveal project folder in Finder"
+            onClick={() => openPathInOS(projectDir, "folder")}
+          />
+        </TugTooltip>
+      )}
       </>,
       accessoryHost,
       )}

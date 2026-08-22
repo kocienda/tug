@@ -53,7 +53,11 @@ const SID = "a7c0d1ea-0000-4000-8000-000000000423";
 const CARD = '[data-card-id="A"]';
 const PROMPT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
-/** The telemetry widget lives in the pane's control cluster, not in the card. */
+/**
+ * The telemetry widget lives in the pane's control cluster, not in the card —
+ * inside its rollup, which rests hidden and reveals when the pointer enters
+ * the title bar. Every press of it here goes through {@link openWidget}.
+ */
 const WIDGET = '[data-slot="session-masthead-widget"]';
 const PANEL = '[data-slot="session-masthead-telemetry"]';
 /** The panel's chip-tier atom, and the flat citation two rows below it. */
@@ -100,11 +104,23 @@ function deckShape() {
   };
 }
 
+/**
+ * Press the telemetry widget, revealing the rollup it stands in first.
+ *
+ * The pane's verbs rest hidden behind a `⋯` and come out when the pointer
+ * enters the title bar; a press aimed at one without that goes through a
+ * `pointer-events: none` overlay and lands a drag on the bar instead.
+ */
+async function openWidget(app: App): Promise<void> {
+  await app.revealPaneControls();
+  await app.nativeClickAtElement(WIDGET);
+}
+
 /** Open the telemetry panel and read the atom's text and the citation row's. */
 async function readPanel(
   app: App,
 ): Promise<{ atom: string; citation: string; marks: number }> {
-  await app.nativeClickAtElement(WIDGET);
+  await openWidget(app);
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PANEL)}) !== null`,
     { timeoutMs: 10_000 },
@@ -172,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's dash mark", () => {
           { timeoutMs: 15000 },
         );
 
-        await app.nativeClickAtElement(WIDGET);
+        await openWidget(app);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ATOM_DASH)}) !== null`,
           { timeoutMs: 10_000 },
