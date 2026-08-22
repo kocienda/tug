@@ -381,10 +381,10 @@ function OneLineRow({
             read. Both halves resolve their own facts from the deck store, so
             the row keeps taking everything else as props. */}
         {showSlots ? (
-          <>
+          <span className="lens-cards-row-slots">
             <SlotPicker cardId={identity.cardId} />
             <LensColumnBadge cardId={identity.cardId} />
-          </>
+          </span>
         ) : null}
       </RowHeadlineHover>
     </TugListRow>

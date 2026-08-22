@@ -123,6 +123,39 @@
   min-inline-size: 0;
 }
 
+/* The run and the badge are ONE member of the headline, not two.
+   `.lens-cards-row-headline` is a flex row with an 8px gap, and a gap applies
+   to every pair alike — so a picker and a badge standing as separate children
+   were pushed 8px apart on top of the badge's own standoff, while the same
+   pair on a session row (which hands both into one `.tug-session-row-slots`
+   box) stood at the standoff alone. Two surfaces drawing one coordinate at two
+   different widths. Boxing them here is the same move the session row already
+   makes, which is why the two now match without either one naming a number the
+   other has to be kept in step with: the gap lives on the badge, once. */
+.lens-cards-row-slots {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* The box takes the line's slack, so the coordinate sits at the content
+     column's end on every row kind and the impositions read as one column down
+     the Lens. */
+  margin-inline-start: auto;
+  /* The trailing inset is the session row's own knob, spent here as a margin
+     so the two row kinds stay on ONE vertical: the session rows pay it as
+     padding on their content column, and a one-line row that did not pay it
+     would stand four pixels past every row above and below it. */
+  margin-inline-end: var(--tugx-session-row-trailing-inset);
+}
+
+/* A deck with no imposition renders neither the picker nor the badge, and an
+   empty box is still a flex child: it would take a share of the headline's
+   8px gap and hold dead air off the row's trailing edge. Two nulls in a
+   fragment cost nothing, which is what this box has to go on costing. The
+   session row carries the same rule for the same reason. */
+.lens-cards-row-slots:empty {
+  display: none;
+}
+
 /* The kind mark — a document, an image, a settings gear. It sits on the name
    line and never shrinks, so the names all start at the same offset whatever
    kind the row is. Muted: it answers "what is this" without competing with the
@@ -142,17 +175,13 @@
   min-inline-size: 0;
 }
 
-/* The picker takes the line's slack, so it sits at the content column's end on
-   every row kind and the impositions read as one column down the Lens.
-
-   The trailing inset is the session row's own knob, spent here as a margin so
-   the two row kinds' pickers stay on ONE vertical: the session rows pay it as
-   padding on their content column, and a one-line row that did not pay it
-   would put its slots four pixels past every slot above and below it. */
-.lens-cards-row-headline .slot-picker {
-  margin-inline-start: auto;
-  margin-inline-end: var(--tugx-session-row-trailing-inset);
-}
+/* Both margins used to sit on `.slot-picker`, which was right while the picker
+   was the trailing member of the headline and is wrong now that the badge is:
+   the start margin had no slack to spend from inside a shrink-to-fit box and
+   went to zero, and the end margin turned into four pixels of air BETWEEN the
+   run and its badge — the very gap the box exists to make match the session
+   rows'. They are the box's margins, and the box is what stands at the end of
+   the line. */
 
 /* Where this file is, shown only when its name alone would be ambiguous. Muted
    and a step down so it reads as an annotation on the filename, never as a

@@ -61,6 +61,7 @@ import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { getJotsStore } from "@/lib/jots-store";
 import {
   bullseyePaneIdOf,
+  columnDrawsSplit,
   deckColumnsOf,
   deckFlowStrip,
   deckVacancyExtent,
@@ -848,7 +849,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   const columnMemberByPaneId = useMemo(() => {
     const map = new Map<string, ColumnMemberPlacement>();
     for (const column of deckColumns) {
-      if (column.mode !== "split" || column.members.length < 2) continue;
+      if (!columnDrawsSplit(column)) continue;
       column.members.forEach((paneId, index) => {
         map.set(paneId, {
           slot: column.slot,

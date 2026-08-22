@@ -451,6 +451,21 @@ describe("columnBadgeFactsOf", () => {
     ).toEqual([2, 1, 0]);
   });
 
+  test("a stored split standing one card deep is not a split", () => {
+    // Membership churn never destroys the arrangement, so a slot that was
+    // split and lost a member keeps `mode: "split"` waiting for it to come
+    // back — and renders that one member across the whole undivided run
+    // meanwhile. Reading `mode` alone put a band letter on a card that was not
+    // in a band, and the card's own masthead (which gates on the same two
+    // members the geometry does) said `stack` about the same place.
+    const deck = state({ "pane-a": 0, "pane-b": 1 }, { 0: { mode: "split" } });
+    expect(columnBadgeFactsOf(deck, "card-pane-a")).toEqual({
+      kind: "stack",
+      count: 1,
+      index: 0,
+    });
+  });
+
   test("a split slot says which band, top to bottom", () => {
     const deck = state({ "pane-a": 0, "pane-b": 0 }, { 0: { mode: "split" } });
     // The fallback member order is the panes sorted by id, so pane-a is the

@@ -243,6 +243,70 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
           "the card the run says you are looking at is the front of the glyph",
         ).toEqual(["top"]);
 
+        // ── The two sections draw the coordinate at the same width. ──
+        // A Sessions cell and an ordinary Cards row are different components
+        // that compose the same pair, and they have drifted apart twice: once
+        // on the gap (the content row's headline gap applied between the run
+        // and the badge on top of the badge's own standoff) and once on the
+        // alignment (the push to the trailing edge lived on the picker, and
+        // survived only as long as the picker was a direct child of the
+        // headline). Both are measured here, in rects, because both were
+        // invisible to every claim this file made about what the rows SAY.
+        const geometry = await app.evalJS<{
+          gaps: number[];
+          trailingSlack: number[];
+        }>(
+          `(function () {
+             function measure(row) {
+               var chips = row.querySelectorAll(
+                 '[data-testid="lens-slot-picker"] [data-slot="tug-slot"]',
+               );
+               var last = chips[chips.length - 1].getBoundingClientRect();
+               var badge = row
+                 .querySelector('[data-testid="lens-column-badge"]')
+                 .getBoundingClientRect();
+               // How much room is left after the badge, out to the row's own
+               // content edge — the run is pushed to the trailing edge, so
+               // this is the row's inset and nothing more.
+               var content = row.getBoundingClientRect();
+               return {
+                 gap: Math.round(badge.left - last.right),
+                 slack: Math.round(content.right - badge.right),
+               };
+             }
+             var session = document.querySelector(
+               '.lens-cards-list .lens-cards-row[data-session-id]',
+             );
+             var content = Array.prototype.slice
+               .call(document.querySelectorAll('.lens-cards-list .lens-cards-oneline'))
+               .filter(function (el) {
+                 return el.textContent.indexOf(${JSON.stringify(TEXT_CARD_TITLE)}) >= 0;
+               })[0];
+             if (session === null || content === undefined) {
+               throw new Error("need one row of each kind on screen");
+             }
+             var a = measure(session);
+             var b = measure(content);
+             return { gaps: [a.gap, b.gap], trailingSlack: [a.slack, b.slack] };
+           })()`,
+        );
+        note(
+          `run→badge gap: session ${geometry.gaps[0]}px, content ${geometry.gaps[1]}px | ` +
+            `trailing slack: ${geometry.trailingSlack.join("px, ")}px`,
+        );
+        expect(
+          geometry.gaps[1],
+          "the run and the badge stand the same distance apart in both sections",
+        ).toBe(geometry.gaps[0]);
+        // And the coordinate ends on ONE vertical down the whole list, which
+        // is what the trailing inset is for. It also catches the run losing
+        // its push to the trailing edge altogether: a row is ~420px wide, so a
+        // run left hugging the title reads hundreds of pixels of slack here.
+        expect(
+          geometry.trailingSlack[1],
+          "both sections end the coordinate on one vertical",
+        ).toBe(geometry.trailingSlack[0]);
+
         // A content card's row is a different component from a Sessions cell,
         // and the badge has to be on both — a reader scanning the Cards
         // section reads one list, not two.

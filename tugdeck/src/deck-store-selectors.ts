@@ -386,6 +386,30 @@ export function deckColumnsOf(state: DeckState): readonly DeckColumn[] {
   return columns;
 }
 
+/**
+ * `columnDrawsSplit(column)` — whether the column is DRAWING as a split, which
+ * is not the same question as whether `mode` says split.
+ *
+ * A column of one renders its member across the whole undivided run, and it
+ * does so identically in either mode — membership churn never destroys the
+ * arrangement, so a slot that was split and lost a member keeps `mode:
+ * "split"` waiting for the member to come back. Nothing about that column is
+ * divided while it stands alone, and anything describing what is ON SCREEN has
+ * to say so.
+ *
+ * It exists as a function because two surfaces were each deciding it for
+ * themselves and drifted: `deck-canvas.tsx` gated the member placement on
+ * `mode === "split" && members.length >= 2`, which is what the pane's own
+ * cluster reads, while `columnBadgeFactsOf` asked only about `mode`. The same
+ * lone card then wore a stack badge on its masthead and a split band letter —
+ * `A`, an address matched against nothing — on its Lens row. Two surfaces
+ * contradicting each other about one card is not a bug either of them can be
+ * blamed for; it is a rule that was written down twice.
+ */
+export function columnDrawsSplit(column: DeckColumn): boolean {
+  return column.mode === "split" && column.members.length >= 2;
+}
+
 /** What a column badge draws for one card: which kind of place it stands in,
  *  how many panes share that place, and — for a split — which band it is. */
 export interface ColumnBadgeFacts {
@@ -445,7 +469,7 @@ export function columnBadgeFactsOf(
   // walks, so the marked end and the direction that verb travels agree by
   // construction rather than by two functions happening to match.
   const index = Math.max(columnMoveOrder(state, host.id).indexOf(host.id), 0);
-  if (column.mode !== "split") return { kind: "stack", count, index };
+  if (!columnDrawsSplit(column)) return { kind: "stack", count, index };
   return { kind: "split", count, index };
 }
 

@@ -34,9 +34,15 @@
 
 .lens-column-badge {
   /* The run and the badge are one coordinate read left to right, so they stand
-     closer to each other than either stands to the title — the same gap the
-     picker's own chips take between them. */
-  margin-inline-start: var(--tug-space-2xs);
+     closer to each other than either stands to the title. This is the ONLY
+     thing that sets that distance on any row — the containers either side of
+     it contribute nothing — so the two card sections cannot drift apart.
+
+     One step above the picker's own inter-chip gap: at that gap the badge read
+     as a fourth chip in the run rather than as the second half of the
+     coordinate, and a step further out it stopped reading as attached to the
+     run at all. */
+  margin-inline-start: var(--tug-space-xs);
 
   /* The run's own paint, token for token. These are exactly what `TugSlot`
      resolves for a chip at `rest` and at `filled` — an unlit element of the
