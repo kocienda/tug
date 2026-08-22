@@ -13,8 +13,9 @@
  *
  *   1. **It stands in flow and nowhere else.** Fit has no strip to report on.
  *      The moment the layout is flow the strip is there, one segment per slot
- *      the kind defines — occupied or not — centered on the canvas and standing
- *      on the same baseline the host's build stamps use.
+ *      the kind defines — occupied or not, and an empty one holding its room
+ *      rather than collapsing out of the drawing — centered on the canvas and
+ *      standing on the same baseline the host's build stamps use.
  *   2. **Centering is the clearance.** The drawing clears the bottom-left
  *      corner the host reserves for those stamps by construction rather than by
  *      a stated number: a share of the canvas, centered, under a ceiling.
@@ -385,7 +386,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
   );
 
   test(
-    "a slot with no card is rendered, and drawn nowhere",
+    "a slot with no card is rendered, and holds its room",
     async () => {
       const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
@@ -417,18 +418,25 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
           strip.segments,
           "every slot the kind defines is rendered — five, not two",
         ).toBe(5);
-        // Rendered and NOT DRAWN. A slot with no card in it has no place in the
-        // strip and no width, so there is nothing to draw — but it keeps its
-        // index, which is what lets every reading here stay addressed by slot
-        // rather than by how many slots happen to be occupied.
+        // Rendered AND drawn. A slot with no card in it is a PLACE, not an
+        // absence: it holds a card's width of strip open, so a card assigned to
+        // slot 5 stands at slot 5 rather than sliding up to where slot 3 would
+        // have been. The strip used to skip them, which drew a five-up deck
+        // with two cards as `1|2` and made a chord naming slot 5 move its card
+        // nowhere the eye could follow.
         expect(
-          drawn.slice(0, 2).every((width) => width > 0),
-          "the two occupied slots are drawn",
+          drawn.every((width) => width > 0),
+          "all five slots are drawn — the empty ones hold their room",
         ).toBe(true);
+        // And they hold the room the cards beside them take, not some other
+        // number: the reserved extent is the widest card in the chain
+        // (`vacancyExtent`), so on a deck of equal cards every segment is the
+        // same width and the map reads evenly.
+        const spread = Math.max(...drawn) - Math.min(...drawn);
         expect(
-          drawn.slice(2),
-          "and the three empty ones take no room at all",
-        ).toEqual([0, 0, 0]);
+          spread,
+          "an empty place is drawn the size of the cards it stands among",
+        ).toBeLessThanOrEqual(1);
       } finally {
         await app.close();
       }

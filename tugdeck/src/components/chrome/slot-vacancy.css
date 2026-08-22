@@ -1,0 +1,41 @@
+/**
+ * slot-vacancy.css — a place in the arrangement with no card in it.
+ *
+ * Flow used to treat an empty slot as an absence: it contributed nothing to
+ * the strip, not even a gap, so a deck holding cards in slots 1, 2 and 4 stood
+ * as a run of three and drew itself `1|2|4`. Every slot of the kind now holds
+ * its place, which is what fit has always done — a fit anchor is a travel
+ * fraction, and an empty one has always kept its share of the band. This is
+ * what stands in the room the empty one keeps.
+ *
+ * **It is a drawing and a measurement, and nothing else.** A drop lands here
+ * through the drop-zone engine, which reads the tile's box rather than its
+ * events, so the tile is inert to the pointer and carries no interactive role.
+ *
+ * Quiet on purpose. The tile has to say "a card would go here" without
+ * competing with the cards that are actually on the deck, so it is a hairline
+ * in the ordinary border ink over the canvas itself — no fill, no shadow, no
+ * accent. Accent marks a live selection, and an empty place is the opposite of
+ * one.
+ *
+ * @tug-pairings
+ *   --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-canvas-rest | global
+ */
+
+.tug-slot-vacancy {
+  /* @tug-renders-on: --tug7-surface-global-primary-normal-canvas-rest */
+  position: absolute;
+  /* The outline is drawn INSIDE the reserved width, so the tile measures
+     exactly the card that will land in it rather than that width plus two
+     border pixels. */
+  box-sizing: border-box;
+  /* Behind every pane. Panes carry their own stacking order from the store's
+     array position, and the lowest of those is 1. */
+  z-index: 0;
+  pointer-events: none;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  /* The same radius a pane wears, so the outline reads as the shape of the
+     thing that will land in it rather than as a rectangle drawn near it. */
+  border-radius: var(--tug-radius-md);
+  opacity: 0.5;
+}

@@ -62,6 +62,7 @@ import {
   bullseyePaneIdOf,
   deckColumnsOf,
   deckFlowStrip,
+  deckVacancyExtent,
   type DeckColumn,
   findLensPane,
   findSidebarPanes,
@@ -114,6 +115,7 @@ import {
 } from "@/lib/imposer-gauges";
 import type { Rect } from "@/snap";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
+import "./slot-vacancy.css";
 import {
   isSidebarPinned,
   sidebarSide,
@@ -2778,6 +2780,56 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     0,
   );
 
+  /**
+   * The slots of the arrangement no pane stands in, each with the frame style
+   * the card landing there would take.
+   *
+   * A held-open slot is a place, and a place with nothing in it still has to
+   * BE somewhere: the strip reserves its width and the frames leave its gap,
+   * so the deck already has a card-shaped hole at that anchor. This makes the
+   * hole a real box.
+   *
+   * Two things turn on it being an element rather than an arithmetic answer.
+   * It is what the reader sees — a place waiting for a card, rather than a gap
+   * that reads as a rendering fault. And it is what the drop engine MEASURES:
+   * `drop-zones.ts` has advertised an empty anchor as one of its four zone
+   * kinds since it shipped, and that branch has been unreachable the whole
+   * time because the measurement walks panes and an empty slot has none. The
+   * alternative was to re-solve the anchor in TypeScript from the kind, the
+   * rail widths and the band — a second derivation of geometry the CSS
+   * `calc()` chain owns, which is the one thing this module does not do.
+   *
+   * Width is `deckVacancyExtent` — the deck's one reading of what a held-open
+   * place reserves, which is the same number `deckFlowStrip` puts in the strip
+   * and the allocator scores against. Three derivations of it would agree only
+   * by luck, and the one that showed would be this one.
+   */
+  const vacantSlots = useMemo(() => {
+    if (impositionKind === undefined) return [];
+    const held = new Set(
+      deckState.panes
+        .filter((pane) => pane.slot !== undefined)
+        .map((pane) => clampSlot(impositionKind, pane.slot as number)),
+    );
+    const reserved = deckVacancyExtent(deckState);
+    const tiles: { slot: number; style: React.CSSProperties }[] = [];
+    for (let slot = 0; slot < slotCount(impositionKind); slot += 1) {
+      if (held.has(slot)) continue;
+      const placement = resolvePlacement(impositionKind, slot);
+      const stripLeft = flowStrip?.positions.get(slot);
+      tiles.push({
+        slot,
+        style: imposeStyle(
+          stripLeft === undefined
+            ? placement
+            : { ...placement, flow: { stripLeft } },
+          reserved,
+        ),
+      });
+    }
+    return tiles;
+  }, [impositionKind, deckState, flowStrip]);
+
   // The pane standing in bullseye, derived once per render and handed down as
   // a boolean per pane. Read here rather than in each pane because the answer
   // is deck state — which pane holds the first responder — and a pane cannot
@@ -3000,6 +3052,25 @@ export function DeckCanvas(_props: DeckCanvasProps) {
               width: Math.max(standing.width, rect.width),
               height: bottom - top,
             });
+          }
+          // The held-open places. A slot with no pane in it has nothing above
+          // to measure, and `drop-zones.ts` has advertised an empty anchor as
+          // one of its four zone kinds since it shipped — a branch that has
+          // been unreachable the whole time, because a missing rect makes the
+          // slot advertise nothing. The vacancy tile is what closes that: it
+          // stands at the anchor and the width a card landing there would
+          // take, so the tile IS the promise the indicator draws.
+          //
+          // Read off the DOM like everything else here, and for the same
+          // reason: the alternative is re-solving the anchor from the kind,
+          // the rail widths and the band, which is a second derivation of
+          // geometry the CSS `calc()` chain owns and can drift from.
+          for (const el of canvas.querySelectorAll<HTMLElement>(
+            ".tug-slot-vacancy[data-vacant-slot]",
+          )) {
+            const slot = Number(el.getAttribute("data-vacant-slot"));
+            if (!Number.isInteger(slot) || slots.has(slot)) continue;
+            slots.set(slot, toCanvas(el.getBoundingClientRect()));
           }
         }
         return enumerateDropZones(state, draggedPaneId, {
@@ -3369,6 +3440,21 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
         {...(bullseyePaneId !== null ? { "data-bullseye": "" } : {})}
       >
+      {/* The held-open places: one quiet tile per slot of the arrangement no
+          card stands in, at the anchor and the width a card landing there
+          would take. First in the container, so every pane paints over them.
+          Inert to the pointer — the tile is a drawing and a measurement, and
+          a drop lands on it through the drop-zone engine, which reads its box
+          rather than its events. */}
+      {vacantSlots.map((vacancy) => (
+        <div
+          key={`vacancy:${vacancy.slot}`}
+          className="tug-slot-vacancy"
+          data-vacant-slot={vacancy.slot}
+          aria-hidden="true"
+          style={vacancy.style}
+        />
+      ))}
       {/* TugPanes: one per pane in deckState.panes.
           Rendered in stable ID order (no DOM reordering on focus change).
           Z-index from store array position (first = lowest). Panes whose

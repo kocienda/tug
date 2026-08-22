@@ -694,9 +694,46 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
                return null;
              })()`,
           );
-          const home = await titleBarPoint(app, "p4");
-          const away = { x: home.x, y: Math.round(home.y + 260) };
-          await app.nativeDragElementWithoutRelease(titleBar("p4"), away);
+          // Whichever pane stands at the TOP of slot 1's run, resolved live
+          // rather than named. §8 left the column scrolled by however far the
+          // autoscroll got before the release, and where any particular member
+          // ends up is a function of that distance — a late member can sit
+          // below the window entirely, which makes a grab-and-travel from it
+          // an out-of-bounds gesture rather than a failed claim. The claim here
+          // is about the RELEASE, not about which card makes it, so the test
+          // takes the one member whose place is not in question.
+          const subject = await app.evalJS<string>(
+            `(function () {
+               var order = (window.tugdeck.diag.getDeckState()
+                 .imposition.columns || {})[1].order;
+               var best = null;
+               order.forEach(function (id) {
+                 var bar = document.querySelector(
+                   '.tug-pane[data-pane-id="' + id + '"] .tug-pane-title-bar',
+                 );
+                 if (bar === null) return;
+                 var r = bar.getBoundingClientRect();
+                 var mid = r.top + r.height / 2;
+                 if (mid < 300 || mid > window.innerHeight - 300) return;
+                 if (best === null) best = id;
+               });
+               return best;
+             })()`,
+          );
+          expect(
+            subject,
+            "some member of the scrolled column is on screen to grab",
+          ).not.toBeNull();
+          const home = await titleBarPoint(app, subject);
+          // Toward the middle of the window, so the travel cannot leave it
+          // whichever half of the band the subject happens to be standing in.
+          const viewport = await app.evalJS<number>(`window.innerHeight`);
+          const away = {
+            x: home.x,
+            y: Math.round(home.y + (home.y < viewport / 2 ? 260 : -260)),
+          };
+          note(`origin release: grabbed ${subject} at ${home.x},${home.y}`);
+          await app.nativeDragElementWithoutRelease(titleBar(subject), away);
           // Released back over where it started: the live zone is the origin,
           // so the commit is a no-op and nothing re-renders.
           const originMotion = await app.motionCensus(async () => {
@@ -707,17 +744,18 @@ describe.skipIf(!SHOULD_RUN)("at0457 — the drop-zone drag", () => {
             Array<{ pane: string; keyframes: string }>
           >(`window.__at0457Landings`);
           const mine = landings.filter(
-            (entry) => entry.pane === "p4" && entry.keyframes.includes("translate"),
+            (entry) =>
+              entry.pane === subject && entry.keyframes.includes("translate"),
           );
           note(
-            `origin release: ${landings.length} pane tween(s), ${mine.length} carrying p4 home`,
+            `origin release: ${landings.length} pane tween(s), ${mine.length} carrying ${subject} home`,
           );
           expect(
             mine.length,
             "a release onto the card's own position animates it home",
           ).toBeGreaterThan(0);
           const resting = await app.evalJS<string>(
-            `document.querySelector('.tug-pane[data-pane-id="p4"]').style.transform`,
+            `document.querySelector(${JSON.stringify(frame(subject))}).style.transform`,
           );
           expect(
             // "none" and "" both say the same thing: nothing of the drag

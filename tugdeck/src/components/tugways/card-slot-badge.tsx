@@ -15,9 +15,15 @@
  * reports everything else on. There it leads the stack badge, and the two of
  * them read outward-in — the deck's place, then this pane's own stack.
  *
- * It is a readout at rest, `outlined` rather than `filled`: a card sitting
- * where it belongs should not wear an accent. Accent is reserved for the
- * transient selection inside the popup the badge opens.
+ * **At rest it takes the row's own ink, and it colours only under the
+ * pointer.** Where a card is standing is the resting fact of the deck — true
+ * whether or not anybody is reaching for it — and accent marks a live thing,
+ * so a lit chip on every masthead spent the accent on nothing. So the chip is
+ * a readout in the pane title bar's icon colour until the hand arrives, and a
+ * control the moment it does. Accent is left to the two places something is
+ * actually live: the hovered chip, and the `filled` slot inside the popup.
+ * The paint is in `card-slot-badge.css`, written through the primitive's own
+ * knobs ([L20]).
  *
  * **Absent, not dimmed, when there is no slot to name.** A one-up imposition,
  * a pane with no `slot`, a sidebar, and the Lens all render nothing at all.
@@ -123,7 +129,7 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
               pressing the chip opens the popup. */}
           <TugSlot
             number={held + 1}
-            state="outlined"
+            state="rest"
             size="sm"
             aria-label={`In position ${held + 1} — move this card`}
             data-testid="card-slot-badge-trigger"

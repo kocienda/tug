@@ -128,6 +128,7 @@ import {
   withSidebarPinned,
   withSidebarSide,
   resolveContentWidthPx,
+  vacancyExtent,
   type ContentWidth,
   type DeckImposition,
   type ImpositionKind,
@@ -1867,6 +1868,19 @@ export class DeckManager implements IDeckManagerStore {
       kind,
       layout: imposition.layout,
       occupied,
+      // What an empty slot holds open, so the width the objective scores is
+      // the width the deck paints. Flow keeps every slot of the kind standing
+      // (`deckFlowStrip`); an allocator scoring the occupied run alone would
+      // be measuring a strip nobody sees. Derived from the chain in hand rather
+      // than from `this.deckState`, because this solve may be running against a
+      // pending set of panes.
+      emptyExtent: vacancyExtent(
+        occupied,
+        resolveContentWidthPx(
+          imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH,
+          0,
+        ),
+      ),
       rails,
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     });

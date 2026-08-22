@@ -1394,14 +1394,15 @@ export interface FlowSlotExtent {
   width: number;
 }
 
-/** Where the occupied slots stand along the strip, and how long the strip is. */
+/** Where the slots stand along the strip, and how long the strip is. */
 export interface FlowStrip {
-  /** Each occupied slot's left edge, measured from the strip's own origin —
-   *  which is the band's left edge at offset 0. */
+  /** Each standing slot's left edge, measured from the strip's own origin —
+   *  which is the band's left edge at offset 0. A held-open empty slot stands
+   *  here too; a slot absent from the map has no place at all. */
   positions: ReadonlyMap<number, number>;
   /**
-   * Each occupied slot's extent — the width its widest member paints at, after
-   * duplicates have folded.
+   * Each standing slot's extent — the width its widest member paints at, after
+   * duplicates have folded, or the reserved width of a held-open empty one.
    *
    * Carried out of the strip rather than left for a caller to re-derive from
    * the positions, for the reason the strip is resolved in one place at all: a
@@ -1415,18 +1416,71 @@ export interface FlowStrip {
 }
 
 /**
- * Lay the occupied slots out as a strip, ascending by slot index:
- * `stripLeft(k) = Σ_{j<k, occupied} (extent(j) + IMPOSITION_GAP_PX)`.
+ * What a held-open empty slot reserves: the widest extent standing in the
+ * chain, or `fallback` when nothing stands in it yet.
+ *
+ * **The cards on the deck, not the preset**, because the reserved room is
+ * drawn — it is a gap between frames and a segment in the strip — and a gap
+ * sized to a preset the user has overridden reads as wrong however defensible
+ * the number is. A place among cards should look like the cards it is among.
+ *
+ * The fallback is the deck's content width, which is what an empty arrangement
+ * has to answer with: with no card standing anywhere there is nothing to match,
+ * and the width the next card will open at is the honest guess.
+ *
+ * The widest rather than the mean or the nearest: a slot's extent already
+ * folds to its widest member ({@link FlowSlotExtent}), so this is the same rule
+ * one level up, and it is the only one that cannot leave a reserved place too
+ * small for the card the deck would put in it.
+ */
+export function vacancyExtent(
+  occupied: readonly { slot: number; width: number }[],
+  fallback: number,
+): number {
+  let widest = 0;
+  for (const entry of occupied) {
+    if (!Number.isFinite(entry.width)) continue;
+    widest = Math.max(widest, entry.width);
+  }
+  return widest > 0 ? widest : Math.max(0, fallback);
+}
+
+/** How an empty slot is held open, when it is. */
+export interface FlowVacancy {
+  /** How many slots the kind defines — every index below it takes a place. */
+  count: number;
+  /** The extent an unoccupied slot reserves — {@link vacancyExtent}. */
+  extent: number;
+}
+
+/**
+ * Lay the slots out as a strip, ascending by slot index:
+ * `stripLeft(k) = Σ_{j<k} (extent(j) + IMPOSITION_GAP_PX)`.
  *
  * This is the whole of what flow means. A slot's place is the running sum of
- * everything before it, so no two occupied slots can overlap by construction —
- * and, equally by construction, a card's place now depends on its neighbours'
+ * everything before it, so no two slots can overlap by construction — and,
+ * equally by construction, a card's place now depends on its neighbours'
  * widths, which is the property fit was built to avoid. Both are the trade the
  * mode exists to offer.
  *
- * Unoccupied slots contribute nothing, not even a gap: three cards in slots 0,
- * 2 and 5 of a six-up deck stand as a run of three, because the strip is a
- * sequence and an empty slot is not a member of it.
+ * **An empty slot is a place, not an absence** — given a {@link FlowVacancy}.
+ * Slot 3 standing empty holds a card's width of strip open between slots 2 and
+ * 4, so a card assigned to slot 4 stands at slot 4 rather than sliding up to
+ * where slot 3 would have been. Without that the arrangement collapses under
+ * its own numbering: the strip would draw 1|2|4 and a chord naming slot 4 would
+ * move the card nowhere the eye could follow, because its place was already the
+ * third position in the run.
+ *
+ * That also puts flow back in step with fit, where a slot's anchor is a travel
+ * fraction and an empty one has always held its share of the band. Flow was the
+ * outlier, and the two modes now number the same deck the same way.
+ *
+ * The reserved extent is {@link vacancyExtent} — the widest card standing in
+ * the chain — so the room a held-open slot keeps looks like the cards it is
+ * kept among, and is never too small for the card the deck would put in it.
+ *
+ * Omit the vacancy and the strip is the run of occupied slots alone, which is
+ * what a caller holding only an occupancy list can honestly ask for.
  *
  * Duplicate entries for one slot fold by taking the widest, matching
  * {@link AllocatorInput.occupied}; unreadable widths are dropped, and a
@@ -1434,6 +1488,7 @@ export interface FlowStrip {
  */
 export function flowStripPositions(
   occupied: readonly FlowSlotExtent[],
+  vacancy?: FlowVacancy,
 ): FlowStrip {
   const extents = new Map<number, number>();
   for (const entry of occupied) {
@@ -1442,6 +1497,14 @@ export function flowStripPositions(
     const standing = extents.get(entry.slot);
     if (standing === undefined || width > standing) {
       extents.set(entry.slot, width);
+    }
+  }
+  if (vacancy !== undefined && Number.isFinite(vacancy.count)) {
+    const reserved = Number.isFinite(vacancy.extent)
+      ? Math.max(0, vacancy.extent)
+      : 0;
+    for (let slot = 0; slot < vacancy.count; slot += 1) {
+      if (!extents.has(slot)) extents.set(slot, reserved);
     }
   }
   const slots = [...extents.keys()].sort((a, b) => a - b);
@@ -1681,6 +1744,17 @@ export interface AllocatorInput {
    * actually paints. Duplicates are folded by taking the widest.
    */
   occupied: readonly { slot: number; width: number }[];
+  /**
+   * What an unoccupied slot holds open in flow — the deck's content width.
+   *
+   * The flow objective measures where the band's far edge cuts the STRIP, so it
+   * has to read the same strip the deck draws, and the deck draws every slot of
+   * the kind ({@link flowStripPositions}). Absent, the reading falls back to the
+   * occupied run alone, which is a picture nobody sees on a deck with a gap in
+   * its numbering. Unread in fit, where a slot's anchor is a travel fraction and
+   * an empty one has always held its share of the band.
+   */
+  emptyExtent?: number;
   /** The rails standing on the deck's edges, at most one per side. */
   rails: { left?: RailPolicy; right?: RailPolicy };
   /**
@@ -2102,7 +2176,12 @@ function flowSeedTotals(
   sides: readonly SidebarSide[],
 ): readonly number[] {
   if (impositionLayout(input) !== "flow") return [];
-  const strip = flowStripPositions(chain);
+  const strip = flowStripPositions(
+    chain,
+    input.emptyExtent === undefined
+      ? undefined
+      : { count: slotCount(input.kind), extent: input.emptyExtent },
+  );
   const constant =
     input.canvasWidth - IMPOSITION_GAP_PX * (sides.length + 2);
   const totalFor = (band: number): number => constant - band;
@@ -2466,7 +2545,12 @@ function sliverOfChain(
     IMPOSITION_GAP_PX * 2;
   if (!Number.isFinite(band) || band <= 0) return { worstSliver: 0 };
 
-  const strip = flowStripPositions(chain);
+  const strip = flowStripPositions(
+    chain,
+    input.emptyExtent === undefined
+      ? undefined
+      : { count: slotCount(input.kind), extent: input.emptyExtent },
+  );
   // A strip inside its band has no far edge to cut anything with.
   if (strip.width <= band) return { worstSliver: 0 };
 

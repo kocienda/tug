@@ -18,6 +18,7 @@ import {
   slotStackOf,
 } from "../deck-store-selectors";
 
+
 function makeCard(id: string, componentId = "probe"): CardState {
   return { id, componentId, title: id, closable: true };
 }
@@ -360,6 +361,39 @@ describe("a split column in flow", () => {
     expect(strip?.positions.get(0)).toBe(0);
     // 900 (the widest member) + one gap, not 500 + 900 + gaps.
     expect(strip?.positions.get(1)).toBe(905);
-    expect(strip?.width).toBe(1305);
+    // And slot 2, which nothing stands in, holds a card's width open behind
+    // them: 905 + 400 + a gap. The strip is the arrangement, not the run.
+    expect(strip?.positions.get(2)).toBe(1310);
+    // The reserved extent is the widest card standing in the chain — 900, the
+    // split column's wider member — not the deck's content preset: a place among
+    // cards should look like the cards it is among.
+    expect(strip?.extents.get(2)).toBe(900);
+    expect(strip?.width).toBe(1310 + 900);
+  });
+
+  test("a card assigned past an empty slot stands where its number says", () => {
+    // The whole of what the hold-open rule is for. Slot 1 is empty; the card
+    // in slot 2 must stand at slot 2's place, not slide up into slot 1's.
+    // Before this, the strip drew `1|3` and a chord naming slot 3 moved the
+    // card nowhere the eye could follow, because its place was already the
+    // second position in the run.
+    const state: DeckState = {
+      cards: [makeCard("card-a"), makeCard("card-b")],
+      panes: [
+        { ...makePane("pane-a", ["card-a"], "card-a"), slot: 0, size: { width: 600, height: 300 } },
+        { ...makePane("pane-b", ["card-b"], "card-b"), slot: 2, size: { width: 600, height: 300 } },
+      ],
+      imposition: {
+        kind: "three-up",
+        layout: "flow",
+        sidebars: { lens: { side: "right" } },
+      },
+      hasFocus: true,
+    };
+    const strip = deckFlowStrip(state);
+    // Both cards are 600 wide, so the held-open slot 1 reserves 600 too.
+    expect([...(strip?.positions.keys() ?? [])].sort()).toEqual([0, 1, 2]);
+    expect(strip?.positions.get(1)).toBe(605);
+    expect(strip?.positions.get(2)).toBe(605 + 600 + 5);
   });
 });

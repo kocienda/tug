@@ -19,8 +19,11 @@
  * place by pressing its number, and a reader who learns the gesture in one
  * should meet the same target in the other.
  *
- * @tug-pairings: none — geometry only. Every colour in here belongs to the
- * composed `TugSlot`s ([L20]) and to the popover bubble around them.
+ * @tug-pairings: none of its own. The chip's ink is written through
+ * `TugSlot`'s knobs ([L20]) and every pair it names is already declared where
+ * it was authored — the pane title bar's icon ink in `tug-pane.css`, the
+ * control's outlined-action family in `tug-slot.css`. Re-declaring them here
+ * would give the audit two tables to keep in step for one fact.
  */
 
 /* ── The chip in the cluster ───────────────────────────────────────────────
@@ -37,6 +40,43 @@
   display: inline-flex;
   align-items: center;
   margin-inline-end: var(--tug-space-xs);
+
+  /* ── The chip's ink ───────────────────────────────────────────────────────
+     At rest the badge is a READOUT standing in a row of icon buttons, so it
+     takes the row's own ink — literally the row's: the same
+     `--tugx-pane-control-*-fg-rest` the cluster's ghost buttons take, for the
+     number and for the outline alike, so the chip reads as a member of the row
+     rather than as a mark laid over it. No fill — the title bar it stands on
+     is the fill.
+
+     Under the pointer it becomes what it always was underneath: a control.
+     THAT is where the accent goes, and only there. Accent marks a live thing,
+     and where a card is standing is not one — it is the resting fact of the
+     deck, true whether or not anybody is reaching for it. Spending the accent
+     to state it left every masthead on the deck carrying a lit chip that
+     nothing was doing.
+
+     Written through `TugSlot`'s own knobs ([L20]) rather than by restating the
+     primitive's selectors here — the same knobs the flow strip re-pairs
+     itself with, which is why they exist. */
+  --tugx-slot-rest-bg: transparent;
+  --tugx-slot-rest-fg: var(--tugx-pane-control-off-fg-rest);
+  --tugx-slot-rest-border: var(--tugx-pane-control-off-fg-rest);
+  --tugx-slot-rest-bg-hover: var(--tug7-surface-control-primary-outlined-action-rest);
+  --tugx-slot-rest-fg-hover: var(--tug7-element-control-text-outlined-action-rest);
+  --tugx-slot-rest-border-hover: var(--tug7-element-control-border-outlined-action-rest);
+  --tugx-slot-rest-bg-active: var(--tug7-surface-control-primary-outlined-action-active);
+  --tugx-slot-rest-fg-active: var(--tug7-element-control-text-outlined-action-active);
+  --tugx-slot-rest-border-active: var(--tug7-element-control-border-outlined-action-active);
+}
+
+/* The focused pane's chrome is brighter, and the chip goes with it — keyed on
+   the same attribute and taking the same `--tugx-pane-control-*` pair the row
+   itself takes, so the badge and the buttons beside it cannot disagree about
+   which pane is in front. */
+.tug-pane[data-focused="true"] .card-slot-badge {
+  --tugx-slot-rest-fg: var(--tugx-pane-control-on-fg-rest);
+  --tugx-slot-rest-border: var(--tugx-pane-control-on-fg-rest);
 }
 
 .card-slot-badge-picker {

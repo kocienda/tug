@@ -6,10 +6,13 @@
  * anchors at fractions of the band. Three things follow, and this file pins
  * each of them:
  *
- *  1. **The strip.** `flowStripPositions` is a running sum over the occupied
- *     slots, so no two of them can overlap however narrow the deck gets — the
- *     property the mode exists for. Unit-tested at its edges, and swept into a
- *     golden table so a retune shows up as a readable diff.
+ *  1. **The strip.** `flowStripPositions` is a running sum over the slots, so
+ *     no two of them can overlap however narrow the deck gets — the property
+ *     the mode exists for. Given a vacancy the sum runs over EVERY slot the
+ *     kind defines, so an empty one holds a card's width open and the
+ *     arrangement reads by its own numbering; without one it runs over the
+ *     occupied slots alone. Unit-tested at its edges, and swept into a golden
+ *     table so a retune shows up as a readable diff.
  *  2. **The reveal.** `flowRevealOffset` is `scrollRectToVisible` semantics: the
  *     MINIMAL move that brings the active card in, and no move at all when it
  *     is already there. The second half matters as much as the first — an
@@ -43,6 +46,7 @@ import {
   FLOW_CLIP_SLACK_PX,
   flowRevealOffset,
   flowStripPositions,
+  vacancyExtent,
   hairlineOf,
   imposeStyle,
   SLIVER_PX,
@@ -218,6 +222,85 @@ describe("the strip", () => {
         { slot: 2, left: GAP },
       ],
       width: GAP + 300,
+    });
+  });
+
+  describe("a vacancy holds its place", () => {
+    // The rule flow used to have was that an empty slot contributed nothing,
+    // not even a gap — so cards in slots 0, 1 and 3 stood as a run of three
+    // and the deck drew itself `1|2|4`. Given a vacancy every slot the kind
+    // defines takes a place, which is what fit has always done: a fit anchor
+    // is a travel fraction, and an empty one has always kept its share of the
+    // band.
+    const RESERVED = 800;
+
+    test("what a vacancy reserves is the widest card in the chain", () => {
+      // Not the deck's content preset: the reserved room is DRAWN — a gap
+      // between frames and a segment in the strip — and a gap sized to a preset
+      // the user has overridden reads as wrong however defensible the number
+      // is. A place among cards should look like the cards it is among.
+      expect(
+        vacancyExtent(
+          [
+            { slot: 0, width: 600 },
+            { slot: 2, width: 900 },
+          ],
+          RESERVED,
+        ),
+      ).toBe(900);
+    });
+
+    test("an empty chain has nothing to match, so it takes the fallback", () => {
+      expect(vacancyExtent([], RESERVED)).toBe(RESERVED);
+      expect(vacancyExtent([{ slot: 0, width: Number.NaN }], RESERVED)).toBe(
+        RESERVED,
+      );
+    });
+
+    test("an empty slot reserves a card's width between its neighbours", () => {
+      const { positions, extents, width } = flowStripPositions(
+        [
+          { slot: 0, width: 600 },
+          { slot: 2, width: 600 },
+        ],
+        { count: 3, extent: RESERVED },
+      );
+      expect([...positions.keys()].sort()).toEqual([0, 1, 2]);
+      expect(extents.get(1)).toBe(RESERVED);
+      expect(positions.get(1)).toBe(600 + GAP);
+      // And the card behind it stands past the reserved room, not on top of
+      // where it would have been.
+      expect(positions.get(2)).toBe(600 + GAP + RESERVED + GAP);
+      expect(width).toBe(600 + GAP + RESERVED + GAP + 600);
+    });
+
+    test("a trailing empty slot stands too — the kind is what says how many", () => {
+      const { positions, width } = flowStripPositions(
+        [{ slot: 0, width: 600 }],
+        { count: 3, extent: RESERVED },
+      );
+      expect([...positions.keys()].sort()).toEqual([0, 1, 2]);
+      expect(width).toBe(600 + GAP + RESERVED + GAP + RESERVED);
+    });
+
+    test("an occupied slot keeps its own extent, never the reserved one", () => {
+      const { extents } = flowStripPositions(
+        [{ slot: 1, width: 1234 }],
+        { count: 2, extent: RESERVED },
+      );
+      expect(extents.get(0)).toBe(RESERVED);
+      expect(extents.get(1)).toBe(1234);
+    });
+
+    test("without a vacancy the strip is the occupied run alone", () => {
+      // The form a caller holding only an occupancy list can honestly ask for,
+      // and the reading every existing caller of the bare signature gets.
+      const { positions } = flowStripPositions([
+        { slot: 0, width: 600 },
+        { slot: 2, width: 600 },
+      ]);
+      expect([...positions.keys()].sort()).toEqual([0, 2]);
+      expect(positions.get(2)).toBe(600 + GAP);
     });
   });
 
@@ -473,6 +556,28 @@ describe("the band's far edge", () => {
 
   test("a band that is not a measurement yet cuts nothing", () => {
     expect(sliver(0)).toBe(0);
+  });
+
+  test("the objective reads the held-open strip when it is told what it holds", () => {
+    // The objective scores where the band's far edge cuts the strip, so it has
+    // to be reading the strip the deck DRAWS. The deck holds every slot of the
+    // kind open (`deckFlowStrip`), and an allocator scoring the occupied run
+    // alone would be spending rail width on a picture nobody sees.
+    //
+    // Slots 0 and 2 hold slim cards and slot 1 stands empty at 800. Slot 2's
+    // near edge is therefore at 675 + 5 + 800 + 5 = 1485, not at 680 — so a
+    // band of 1488 cuts three pixels off it, and the same band read against
+    // the occupied run alone finds only a gap.
+    const held: AllocatorInput = {
+      ...forBand(1488, [
+        { slot: 0, width: CONTENT_WIDTH_SLIM_PX },
+        { slot: 2, width: CONTENT_WIDTH_SLIM_PX },
+      ]),
+      emptyExtent: 800,
+    };
+    expect(stripPicture(held, railWidths).worstSliver).toBe(3);
+    const { emptyExtent: _dropped, ...run } = held;
+    expect(stripPicture(run, railWidths).worstSliver).toBe(0);
   });
 });
 

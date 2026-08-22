@@ -344,6 +344,13 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         // browser's resolution of `imposeStyle`'s expression, not the store's
         // arithmetic. Without the CSS clamp the strip stays shoved left with
         // dead air at the right edge.
+        //
+        // What lands on the band's edge is the strip's LAST PLACE, and on this
+        // fixture that is not a card: five cards stand in a six-up, and every
+        // slot of the kind holds its place whether or not a card is in it, so
+        // slot 5 is a held-open vacancy at the strip's end. Measured as the
+        // rightmost edge of anything imposed, which is what "the strip's far
+        // end" means and what the clamp is actually pinning.
         const clamped = await app.evalJS<{ right: number; band: number }>(
           `(function () {
             var host = document.querySelector("[data-deck-canvas-background]");
@@ -351,21 +358,25 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
               getComputedStyle(host).getPropertyValue("--tug-imposer-flow-strip"),
             ) || 0;
             host.style.setProperty("--tug-imposer-flow-offset", (strip + 4000) + "px");
-            var box = document
-              .querySelector('.tug-pane[data-pane-id="p${SLOTS}"]')
-              .getBoundingClientRect();
+            var right = -Infinity;
+            document
+              .querySelectorAll('.tug-pane[data-imposed], .tug-slot-vacancy[data-vacant-slot]')
+              .forEach(function (el) {
+                if (el.getAttribute("data-pane-id") === "pLens") return;
+                right = Math.max(right, el.getBoundingClientRect().right);
+              });
             var lens = document
               .querySelector('.tug-pane[data-pane-id="pLens"]')
               .getBoundingClientRect();
-            return { right: box.right, band: lens.left - 5 };
+            return { right: right, band: lens.left - 5 };
           })()`,
         );
         note(
-          `clamped: last card right ${Math.round(clamped.right)}, band right ${Math.round(clamped.band)}`,
+          `clamped: strip's far end at ${Math.round(clamped.right)}, band right ${Math.round(clamped.band)}`,
         );
         expect(
           Math.abs(clamped.right - clamped.band),
-          "an offset past the strip's end still lands the last card on the band's edge",
+          "an offset past the strip's end still lands its last place on the band's edge",
         ).toBeLessThanOrEqual(TOL);
 
         // ── 5. The band's edge is real ink ──────────────────────────────────

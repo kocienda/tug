@@ -31,10 +31,14 @@ import { getStackSizePolicy, isSidebarCard } from "./card-registry";
 import {
   clampSlot,
   columnModeOf,
+  DEFAULT_CONTENT_WIDTH,
   effectiveColumnOrder,
   flowStripPositions,
   impositionLayout,
   railSeamFractions,
+  resolveContentWidthPx,
+  slotCount,
+  vacancyExtent,
   type ColumnMode,
   type FlowSlotExtent,
   type FlowStrip,
@@ -256,6 +260,12 @@ export function paneRenderWidthOf(
  *
  * A slot's extent is its WIDEST member's render width — panes sharing a slot
  * share its place, exactly as they do in fit.
+ *
+ * **Every slot the kind defines stands here, empty or not.** An unoccupied one
+ * reserves the width a card opening in it would take — the deck's content-width
+ * preset, which is the same number `_openingSlot`'s card will arrive at — so
+ * the arrangement reads by its own numbering and a card assigned to slot 4
+ * stands at slot 4 whether or not slot 3 holds anything.
  */
 export function deckFlowStrip(state: DeckState): FlowStrip | null {
   if (state.imposition.kind === undefined) return null;
@@ -272,7 +282,32 @@ export function deckFlowStrip(state: DeckState): FlowStrip | null {
       width: paneRenderWidthOf(state, pane),
     });
   }
-  return flowStripPositions(occupied);
+  return flowStripPositions(occupied, {
+    count: slotCount(state.imposition.kind),
+    extent: deckVacancyExtent(state),
+  });
+}
+
+/**
+ * `deckVacancyExtent(state)` — what a held-open empty slot reserves on this
+ * deck: the widest card standing in the chain, or the deck's content width when
+ * nothing stands in it. The rule is {@link vacancyExtent}'s; this is the deck's
+ * one reading of the inputs, so the strip, the allocator and the vacancy tile
+ * cannot reserve three different numbers.
+ */
+export function deckVacancyExtent(state: DeckState): number {
+  const occupied: { slot: number; width: number }[] = [];
+  for (const pane of state.panes) {
+    if (pane.slot === undefined) continue;
+    occupied.push({ slot: pane.slot, width: paneRenderWidthOf(state, pane) });
+  }
+  return vacancyExtent(
+    occupied,
+    resolveContentWidthPx(
+      state.imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH,
+      0,
+    ),
+  );
 }
 
 /**

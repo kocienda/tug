@@ -9,9 +9,14 @@
  *
  * What this file pins:
  *
- *   1. **The digit is the pane's place.** Under a three-up imposition each
- *      card's badge carries its own pane's `slot + 1`, and carries it
- *      `outlined` — a card at rest wears no accent.
+ *   1. **The digit is the pane's place, in the row's own ink.** Under a
+ *      three-up imposition each card's badge carries its own pane's
+ *      `slot + 1`, and carries it in the pane title bar's icon colour with no
+ *      fill — the ink of the glyphs it stands beside. Where a card is standing
+ *      is the resting fact of the deck, and accent marks a live thing, so an
+ *      accent here spent it on nothing and lit a chip on every masthead. The
+ *      accent is not gone, it has moved to the hover knob, which is the one
+ *      moment the chip is a control rather than a readout.
  *   2. **No slot, no chip.** One-up has one place and therefore no position to
  *      report, and the badge is ABSENT rather than dimmed: dimming would say
  *      there is a position here and it is unimportant, which is false.
@@ -157,7 +162,7 @@ async function openDeck(
 
 describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
   test(
-    "each card's badge carries its own pane's slot, outlined",
+    "each card's badge carries its own pane's slot, in the row's own ink",
     async () => {
       const app = await launchTugApp({ testName: "at0462-card-slot-badge" });
       try {
@@ -177,8 +182,73 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         ).toEqual(["p1:1", "p2:2", "p3:3"]);
         expect(
           badges.map((b) => b.state),
-          "a card at rest wears no accent — outlined, never filled",
-        ).toEqual(["outlined", "outlined", "outlined"]);
+          "a card at rest wears no accent at all — `rest`, never `outlined`",
+        ).toEqual(["rest", "rest", "rest"]);
+
+        // And `rest` here is not the primitive's default: the badge re-pairs
+        // it through `TugSlot`'s knobs so the chip takes the pane title bar's
+        // icon ink, which is what makes it read as a member of the row of
+        // glyphs beside it rather than as a mark laid over them. Resolved
+        // through the live document rather than compared to a literal, so the
+        // assertion follows the theme instead of pinning one theme's numbers.
+        const ink = await app.evalJS<{
+          chipFg: string;
+          chipBg: string;
+          rowFg: string;
+          accent: string;
+          hoverResolved: string;
+        }>(
+          `(function () {
+            var badge = document.querySelector(${JSON.stringify(BADGE)});
+            var chip = badge.querySelector('[data-slot="tug-slot"]');
+            var glyph = badge
+              .closest("[data-pane-id]")
+              .querySelector(".tug-pane-title-bar-controls .tug-button:not(.tug-slot)");
+            var probe = document.createElement("span");
+            probe.style.display = "none";
+            badge.appendChild(probe);
+            // The OUTLINED family's border, not its surface: an outlined
+            // control has no fill, so its surface token is transparent and
+            // comparing against it would compare nothing to nothing.
+            probe.style.color = "var(--tug7-element-control-border-outlined-action-rest)";
+            var accent = getComputedStyle(probe).color;
+            probe.style.color = "var(--tugx-slot-rest-border-hover)";
+            var hoverResolved = getComputedStyle(probe).color;
+            probe.remove();
+            return {
+              chipFg: getComputedStyle(chip).color,
+              chipBg: getComputedStyle(chip).backgroundColor,
+              rowFg: getComputedStyle(glyph).color,
+              accent: accent,
+              hoverResolved: hoverResolved,
+            };
+          })()`,
+        );
+        note(
+          `badge ink: chip fg=${ink.chipFg} bg=${ink.chipBg} | ` +
+            `row glyph fg=${ink.rowFg} | accent=${ink.accent} | ` +
+            `hover resolves to ${ink.hoverResolved}`,
+        );
+        expect(
+          ink.chipFg,
+          "the resting chip takes the ink of the glyphs it stands with",
+        ).toBe(ink.rowFg);
+        expect(
+          ink.chipBg,
+          "and no fill — the title bar it stands on is the fill",
+        ).toBe("rgba(0, 0, 0, 0)");
+        expect(
+          ink.chipFg,
+          "which is emphatically not the accent it used to wear at rest",
+        ).not.toBe(ink.accent);
+        // The accent has not been thrown away, it has been moved: the chip
+        // takes it under the pointer, which is the one moment it is a control
+        // rather than a readout. Asserted at the knob rather than by hovering,
+        // because a background app-test has no pointer to hover with.
+        expect(
+          ink.hoverResolved,
+          "and the hover knob is what carries the accent now",
+        ).toBe(ink.accent);
       } finally {
         await app.close();
       }
