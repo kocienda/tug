@@ -10,11 +10,12 @@
  *
  * What this file pins:
  *
- *   1. **A shared slot's rows carry the badge; a lone card's row does not.**
- *      Presence is the claim, because the badge's absence is a decision rather
- *      than an omission: a card alone in its slot has nothing the run does not
- *      already say, and a chip stating a fact that does not exist is worse than
- *      no chip.
+ *   1. **Every row in an imposed deck carries the badge, and a place one card
+ *      deep reads `1`.** The lone card is in the fixture as the case that used
+ *      to draw nothing: its own masthead said the card stood in a place while
+ *      its Lens row said it stood nowhere, which is two surfaces disagreeing
+ *      about the same card. It is also the row whose place can still be split,
+ *      and the badge is the hint that it can.
  *   2. **A stacked slot's rows show the member COUNT.** Every member answers
  *      the same, and deliberately: they all draw the same rect, and what a
  *      reader cannot see is how many are behind the one on top.
@@ -29,6 +30,7 @@
  *
  * @covers tugdeck/src/components/lens/lens-column-badge.tsx
  * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
+ * @covers tugdeck/src/components/lens/sections/cards-section.tsx
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
  */
@@ -44,6 +46,7 @@ const TEST_TIMEOUT_MS = 180_000;
 const AFTER_LAND_MS = 900;
 
 const SESSION_CARDS = ["A", "B", "C"] as const;
+const TEXT_CARD_TITLE = "Notes";
 const sessionIdOf = (cardId: string): string => `at0467-${cardId}`;
 
 const wait = (ms: number): Promise<void> =>
@@ -51,8 +54,10 @@ const wait = (ms: number): Promise<void> =>
 
 /**
  * Three session cards in a three-up: A and B share slot 0, C stands alone in
- * slot 1 — the negative case in the same fixture as the positive one. The Lens
- * holds the right rail so the rows are on screen.
+ * slot 1 — the one-deep place in the same fixture as the shared one. A text
+ * card holds slot 2, because the Sessions group and the rest of the Cards
+ * section are two different row components and the badge has to be on both.
+ * The Lens holds the right rail so the rows are on screen.
  */
 function deckShape(): Record<string, unknown> {
   const slots: Record<string, number> = { A: 0, B: 0, C: 1 };
@@ -64,6 +69,7 @@ function deckShape(): Record<string, unknown> {
         title: `Session ${id}`,
         closable: true,
       })),
+      { id: "T", componentId: "text", title: TEXT_CARD_TITLE, closable: true },
       { id: "L", componentId: "lens", title: "Lens", closable: true },
     ],
     panes: [
@@ -77,6 +83,16 @@ function deckShape(): Record<string, unknown> {
         acceptsFamilies: ["standard"],
         slot: slots[id],
       })),
+      {
+        id: "pText",
+        position: { x: 200, y: 40 },
+        size: { width: 675, height: 520 },
+        cardIds: ["T"],
+        activeCardId: "T",
+        title: "",
+        acceptsFamilies: ["standard"],
+        slot: 2,
+      },
       {
         id: "pLens",
         position: { x: 0, y: 0 },
@@ -123,9 +139,31 @@ async function rowBadges(app: App): Promise<RowBadge[]> {
   );
 }
 
+/**
+ * The badge on the Cards section's ordinary row — a different component from
+ * the Sessions cell, reached by its title because a content row carries no
+ * session id to find it by.
+ */
+async function contentRowBadge(app: App): Promise<string> {
+  return app.evalJS<string>(
+    `(function () {
+       var row = Array.prototype.slice
+         .call(document.querySelectorAll('.lens-cards-list .lens-cards-oneline'))
+         .filter(function (el) {
+           return el.textContent.indexOf(${JSON.stringify(TEXT_CARD_TITLE)}) >= 0;
+         })[0];
+       if (row === undefined) throw new Error("no content row for the text card");
+       var badge = row.querySelector('[data-testid="lens-column-badge"]');
+       return badge === null
+         ? "none"
+         : badge.getAttribute("data-kind") + ":" + badge.textContent.trim();
+     })()`,
+  );
+}
+
 describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
   test(
-    "a shared slot's rows say how the place is shared; a lone card's row says nothing",
+    "every row says where its card stands, one card deep or shared",
     async () => {
       const app = await launchTugApp({ testName: "at0467-lens-column-badge" });
       try {
@@ -144,7 +182,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ── Stacked: the two sharers count, the lone card says nothing. ──
+        // ── Stacked: the two sharers count, the lone card reads 1. ──
         const stacked = await rowBadges(app);
         note(
           `stacked: ${stacked
@@ -153,15 +191,25 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
         );
         expect(
           stacked.map((r) => `${r.sessionId}:${r.kind ?? "none"}:${r.character ?? ""}`),
-          "the sharers count their place; the card alone in slot 1 draws no badge",
+          "the sharers count their place, and the lone card names its own",
         ).toEqual([
           `${sessionIdOf("A")}:stack:2`,
           `${sessionIdOf("B")}:stack:2`,
-          `${sessionIdOf("C")}:none:`,
+          `${sessionIdOf("C")}:stack:1`,
         ]);
         // Every member of a stack lights the top slice — the badge stands on a
         // card you can see, and a visible stacked card is the top one.
         expect(stacked.slice(0, 2).map((r) => r.lit)).toEqual(["top", "top"]);
+
+        // A content card's row is a different component from a Sessions cell,
+        // and the badge has to be on both — a reader scanning the Cards
+        // section reads one list, not two.
+        const content = await contentRowBadge(app);
+        note(`content row: ${content}`);
+        expect(
+          content,
+          "the text card's row says where it stands too",
+        ).toBe("stack:1");
 
         // ── Split: the same two rows become an address. ──
         await app.evalJS<null>(
@@ -177,11 +225,11 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
         );
         expect(
           split.map((r) => `${r.sessionId}:${r.kind ?? "none"}:${r.character ?? ""}:${r.lit ?? ""}`),
-          "a split's bands read A then B, and each lights its own end of the run",
+          "a split's bands read A then B; the untouched place still reads 1",
         ).toEqual([
           `${sessionIdOf("A")}:split:A:top`,
           `${sessionIdOf("B")}:split:B:bottom`,
-          `${sessionIdOf("C")}:none::`,
+          `${sessionIdOf("C")}:stack:1:top`,
         ]);
       } finally {
         await app.close();

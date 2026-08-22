@@ -422,11 +422,13 @@ describe("columnBadgeFactsOf", () => {
     };
   }
 
-  test("a card alone in its slot has no place to describe", () => {
-    // The slot chip beside the badge already says everything there is to say.
+  test("a place one card deep is still a place, and it reads 1", () => {
+    // The pane's own cluster has said so since its badge became
+    // unconditional; a Lens row that answered null for the same card said the
+    // opposite about it.
     expect(
       columnBadgeFactsOf(state({ "pane-a": 0, "pane-b": 1 }), "card-pane-a"),
-    ).toBeNull();
+    ).toEqual({ kind: "stack", count: 1, index: 0 });
   });
 
   test("a stacked slot says how many cards share it", () => {

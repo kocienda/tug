@@ -397,8 +397,16 @@ export interface ColumnBadgeFacts {
 
 /**
  * `columnBadgeFactsOf(state, cardId)` — what the card's place is, for the badge
- * that says so. `null` when there is nothing to say: no host pane, no
- * imposition, or a card standing alone in its slot.
+ * that says so. `null` when there is nothing to say: no host pane, or no
+ * imposition to stand in.
+ *
+ * **A place one card deep is still a place**, and it reads `1`. The pane's own
+ * cluster has said so since the badge became unconditional there, and a Lens
+ * row that went blank for the same card said the opposite about it — one
+ * surface claiming the card stands somewhere and the other claiming it stands
+ * nowhere. The absence also cost the reader the one case where the badge is a
+ * door worth opening: a lone card is exactly the card whose place can still be
+ * split, and a row with no badge on it gives no hint that it can.
  *
  * Read over {@link deckColumnsOf} and nothing else, which is the deck's one
  * reading of its columns — so a Lens row and the pane's own cluster cannot
@@ -424,9 +432,6 @@ export function columnBadgeFactsOf(
   const column = deckColumnsOf(state).find((c) => c.members.includes(host.id));
   if (column === undefined) return null;
   const count = column.members.length;
-  // A card alone in its slot has no place to describe — the slot chip beside
-  // this badge already says everything there is to say.
-  if (count < 2) return null;
   if (column.mode !== "split") return { kind: "stack", count, index: 0 };
   return { kind: "split", count, index: column.members.indexOf(host.id) };
 }

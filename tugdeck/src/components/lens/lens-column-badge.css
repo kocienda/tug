@@ -1,10 +1,36 @@
-/* @tug-pairings: none — the column badge on a Lens row. Every colour belongs to
-   the composed `TugColumnBadge` ([L20]); this file only sets the badge's
-   standoff from the slot run it follows. */
+/**
+ * @tug-pairings
+ * | Element                                        | Surface                                           | Role    | Context            |
+ * |------------------------------------------------|---------------------------------------------------|---------|--------------------|
+ * | --tug7-element-control-text-tinted-action-rest  | --tug7-surface-global-primary-normal-default-rest | control | .lens-column-badge |
+ *
+ * The column badge on a Lens row: the standoff from the slot run it follows,
+ * and the one ink the run wears.
+ *
+ * The badge takes a single colour and derives its whole drawing from it
+ * ([L20]), so re-pairing it here is one declaration. What it takes is the slot
+ * run's own control ink — the same family the chips beside it are cut from —
+ * because the run and the badge are read together as one coordinate: slot 3,
+ * two cards deep. A badge in a different family read as a separate object that
+ * had drifted into the row.
+ *
+ * It takes the run's ink and not the HELD chip's fill, which is the other
+ * thing it could have done and would have been wrong: a filled chip means *the
+ * card is here and on top*, and the badge is a readout that claims nothing of
+ * the sort. One ink, no fill, no accent of its own.
+ *
+ * This is deliberately not the look the badge wears in a pane's title bar. The
+ * rule is the same in both places — wear what the slot chip beside you wears —
+ * and the chips differ: a Lens row's run is a control in the control family,
+ * while the masthead's chip is grey pane chrome. See `tug-column-badge.css`.
+ */
 
 .lens-column-badge {
   /* The run and the badge are one coordinate read left to right, so they stand
      closer to each other than either stands to the title — the same gap the
      picker's own chips take between them. */
   margin-inline-start: var(--tug-space-2xs);
+
+  --tugx-column-badge-fg: var(--tug7-element-control-text-tinted-action-rest);
+  /* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
 }

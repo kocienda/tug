@@ -367,17 +367,33 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
         // a held-open place draws nothing — a permanent numbered chip in an
         // empty room reads as a control nobody can press — so it appears for a
         // card in the air, or for exactly this: the deck answering a gesture
-        // that named this place. The flash class does both jobs, which is why
-        // the badge is on screen for precisely as long as the ring it wears.
-        expect(
-          await app.evalJS<string>(
-            `window.getComputedStyle(
+        // that named this place.
+        //
+        // The badge rides the ring's OWN keyframes rather than a class beside
+        // them, which is what makes the two one appearance and one departure:
+        // held apart, the ring would fade out softly and the badge would then
+        // snap off when the class dropped. So the claim is that the badge is
+        // running that animation and is painted while it runs — not that it
+        // stands at any particular opacity, which mid-fade is a number that
+        // depends on when the read landed.
+        const badge = await app.evalJS<{ animation: string; opacity: number }>(
+          `(function () {
+             var s = window.getComputedStyle(
                document.querySelector(".tug-slot-vacancy-flash")
-                 .querySelector('[data-slot="tug-slot"]')
-             ).opacity`,
-          ),
-          "and the badge it rings is painted while it rings",
-        ).toBe("1");
+                 .querySelector('[data-slot="tug-slot"]'),
+             );
+             return { animation: s.animationName, opacity: parseFloat(s.opacity) };
+           })()`,
+        );
+        note(`badge under the ring: ${badge.animation} @ ${badge.opacity}`);
+        expect(
+          badge.animation,
+          "the badge fades with the ring, on the ring's own keyframes",
+        ).toBe("tug-slot-vacancy-flash");
+        expect(
+          badge.opacity,
+          "and it is painted while the ring burns",
+        ).toBeGreaterThan(0);
       } finally {
         await app.close();
       }

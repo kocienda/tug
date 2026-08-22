@@ -766,17 +766,29 @@ body {
   font-variant-numeric: tabular-nums;
 
   /* The badge inside it is re-paired to this row, exactly as the slot chip
-     beside it is: the character takes the cluster's own resting ink so the two
-     chips read as one coordinate rather than as a readout with a mark laid over
-     it, and the knockout takes the title bar's fill, because a knockout that is
-     not the colour of the ground it stands on is a halo. Both come in pairs —
-     the focused pane's chrome is brighter and the badge goes with it. */
-  --tugx-column-badge-fg: var(--tugx-pane-control-off-fg-rest);
+     beside it is — and by the shortest possible route: `currentColor` is the
+     button's own ink, so the badge simply IS the cluster's ink and needs no
+     rule of its own for any of the states the cluster already has. Rest,
+     hover, pressed, menu-open, focused pane, background pane: the ghost
+     buttons' colour rules move the badge with them, and a badge that cannot
+     be told apart from its neighbours is precisely the point — the chip and
+     the badge are one coordinate, not a readout with a mark laid over it.
+
+     What that buys, beyond the state coverage, is that the accent leaves. The
+     badge used to light its top slice in the action colour, which said *live*
+     about the most inert fact the deck has: where a card is sitting. The slot
+     chip beside it settled the same argument the same way — accent under the
+     pointer, and nowhere at rest.
+
+     The knockout is the one thing `currentColor` cannot supply, because it is
+     the colour of the GROUND rather than of the ink: a knockout that is not
+     the colour of what it stands on is a halo. It comes in a pair, since the
+     focused pane's title bar is a different fill. */
+  --tugx-column-badge-fg: currentcolor;
   --tugx-column-badge-knockout: var(--tugx-pane-title-bar-bg-inactive);
 }
 
 .tug-pane[data-focused="true"] .tug-button.tug-pane-title-bar-stack-badge {
-  --tugx-column-badge-fg: var(--tugx-pane-control-on-fg-rest);
   --tugx-column-badge-knockout: var(--tugx-pane-title-bar-bg-active);
 }
 

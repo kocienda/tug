@@ -3,9 +3,10 @@
  *
  * The slot run beside it says which slot the card holds. This says the rest of
  * the coordinate: how many cards share that slot when it stacks, and which band
- * the card is when it splits. Nothing renders when there is nothing to say — a
- * card alone in its slot, a deck with no imposition, a row whose card has no
- * host pane — because the run already says everything in those cases.
+ * the card is when it splits. Nothing renders only when there is no place at
+ * all to describe — a deck with no imposition, or a row whose card has no host
+ * pane. A place one card deep is a place, and it reads `1` here exactly as it
+ * does on that card's own masthead.
  *
  * A readout, not a control: the badge on the pane's own cluster is the door to
  * the member picker, and a Lens row's door is the row itself.

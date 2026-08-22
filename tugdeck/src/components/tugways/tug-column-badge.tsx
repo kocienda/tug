@@ -27,12 +27,14 @@
  * That is the intended reading, and it is why the ladder is not drawn with one
  * rung per member — at this size a subdivided badge stops being legible at all.
  *
- * The badge is one character over quiet scenery: the character is set exactly
- * as `TugSlot` sets its number and the glyph sits behind it at reduced opacity,
- * with the lit element an accent **outline** rather than a fill and a stacked
- * canvas-colour `text-shadow` punching the character clear of the strokes. The
- * knockout colour is a knob, because it has to be whatever ground the badge
- * actually stands on.
+ * The badge is one character over quiet scenery, in ONE ink: the character is
+ * set exactly as `TugSlot` sets its number, the glyph sits behind it in the
+ * same colour with the unlit elements thinned, the lit element is an
+ * **outline** at full strength rather than a fill, and a stacked
+ * ground-coloured `text-shadow` punches the character clear of the strokes.
+ * Both the ink and the knockout colour are knobs, because both have to be
+ * whatever the surface the badge stands on is wearing — beside a slot chip,
+ * the badge wears what the chip wears.
  *
  * Presentational by construction: it renders a `<span>` and owns only the
  * drawing. The pane cluster's menu trigger and the Lens row compose it, and the

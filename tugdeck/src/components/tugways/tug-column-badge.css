@@ -1,30 +1,49 @@
 /* @tug-pairings {
- *   --tug7-element-control-text-tinted-action-rest   | --tug7-surface-global-primary-normal-default-rest | control       | .tug-column-badge-character (color)
- *   --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .tug-column-badge-slice, .tug-column-badge-rung (stroke)
- *   --tug7-surface-control-primary-filled-action-rest | --tug7-surface-global-primary-normal-default-rest | decorative   | .tug-column-badge-slice[data-lit], .tug-column-badge-rung[data-lit] (stroke)
+ *   --tug7-element-control-text-tinted-action-rest   | --tug7-surface-global-primary-normal-default-rest | control       | .tug-column-badge (color)
  * } */
 
 /**
  * @tug-pairings
  * | Element                                           | Surface                                           | Role          | Context                                            |
  * |---------------------------------------------------|---------------------------------------------------|---------------|----------------------------------------------------|
- * | --tug7-element-control-text-tinted-action-rest     | --tug7-surface-global-primary-normal-default-rest | control       | .tug-column-badge-character (color)                |
- * | --tug7-element-global-text-normal-muted-rest       | --tug7-surface-global-primary-normal-default-rest | informational | .tug-column-badge-slice / -rung / -rail (stroke)   |
- * | --tug7-surface-control-primary-filled-action-rest  | --tug7-surface-global-primary-normal-default-rest | decorative    | .tug-column-badge-slice[data-lit] / -rung[data-lit] (stroke) |
+ * | --tug7-element-control-text-tinted-action-rest     | --tug7-surface-global-primary-normal-default-rest | control       | .tug-column-badge (color)                          |
  *
- * The lit stroke is classified decorative, and deliberately: the glyph is
- * scenery drawn at reduced opacity behind the character, and the lit element's
- * job is to be distinguishable from the two UNLIT elements beside it rather
- * than from the ground. The fact it marks is carried by the character, which is
- * the control-role pairing above and is what the contrast bar governs.
+ * **One ink in, the whole badge out.** The badge takes a single colour and
+ * derives everything it draws from it: the character IS that colour, the lit
+ * element is that colour, and the unlit scenery is that colour thinned. There
+ * is exactly one knob to set, `--tugx-column-badge-fg`, and one pairing to
+ * declare — this table's row — because there is one colour on the badge.
  *
- * Those are the DEFAULTS, and every one of them is knobbed. The badge stands in
- * two places that are not the canvas — the pane's title bar and a Lens list row
- * — so a consumer re-pairs the character ink and the knockout to the ground it
- * actually renders on ([L20]), the same way `card-slot-badge.css` re-pairs
- * `TugSlot`'s. Defaults live in the `var()` fallback at point of use and are
- * never declared on the badge itself, so a knob nobody sets resolves to exactly
- * the token named above.
+ * It was three before, and the third one was a hue. The character took the
+ * control family's text ink, the scenery took the global muted ink and the lit
+ * element took the accent, which meant an 18×22 badge carrying two blues and a
+ * grey. Standing beside a slot chip that is one flat colour, it read as a
+ * different kind of object rather than as the second half of the same
+ * coordinate — and the accent said *live* about the most inert fact the deck
+ * has, which is where a card is sitting. The slot badge in the pane cluster
+ * settled that argument for the chip already; this is the same settlement.
+ *
+ * So lit-vs-unlit is carried by WEIGHT and VALUE inside one hue — the lit
+ * element at full strength and a heavier stroke, the unlit ones thinned by a
+ * `color-mix` against the same `currentColor`. That is why the derived strokes
+ * need no pairing rows of their own: they cannot name a colour the character's
+ * pairing has not already been audited for, since they are that colour with
+ * alpha removed.
+ *
+ * The token above is the DEFAULT — the badge's ink on the app's default
+ * surface. It stands in two other places, and each hands in its own ([L20]):
+ *
+ *  - **the pane's title bar**, where `tug-pane.css` hands in `currentColor` so
+ *    the badge simply is the cluster's ink, tracking rest / hover / pressed /
+ *    menu-open with the ghost buttons beside it, and dimming with the whole
+ *    cluster when the pane loses focus.
+ *  - **a Lens row**, where `lens-column-badge.css` hands in the slot run's own
+ *    control ink so the run and the badge read as one coordinate.
+ *
+ * Two looks, one rule: the badge wears whatever the slot chip beside it wears.
+ * Defaults live in the `var()` fallback at point of use and are never declared
+ * on the badge itself, so a knob nobody sets resolves to exactly the token
+ * named above.
  */
 
 /* ---------------------------------------------------------------------------
@@ -49,6 +68,15 @@
   padding: 0;
   border: none;
   background: none;
+
+  /* The one ink. Everything the badge draws is this colour or a thinning of
+     it, resolved through `currentColor` rather than by repeating the knob at
+     each element — which is what lets a consumer hand in `currentColor` itself
+     and have the badge follow whatever the surrounding control is doing. */
+  color: var(
+    --tugx-column-badge-fg,
+    var(--tug7-element-control-text-tinted-action-rest)
+  );
 }
 
 /* ---------------------------------------------------------------------------
@@ -67,10 +95,8 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  color: var(
-    --tugx-column-badge-fg,
-    var(--tug7-element-control-text-tinted-action-rest)
-  );
+  /* Inherited from the badge, which is where the one ink is declared. */
+  color: currentColor;
   text-shadow:
     0 0 1px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
     0 0 2px var(--tugx-column-badge-knockout, var(--tug7-surface-global-primary-normal-default-rest)),
@@ -86,9 +112,9 @@
 /* ---------------------------------------------------------------------------
  * The glyphs
  *
- * Scenery: centered behind the character at reduced opacity, sized off the same
- * knobs the footprint takes so a consumer's size override carries the drawing
- * with it. The rules are written descendant-of-the-badge rather than on the
+ * Scenery: centered behind the character, its unlit elements thinned against
+ * the badge's own ink, sized off the same knobs the footprint takes so a
+ * consumer's size override carries the drawing with it. The rules are written descendant-of-the-badge rather than on the
  * glyph class alone, because a mount inside a `TugButton` meets
  * `.tug-button svg { width: 1rem; height: 1rem }` — one specificity step above
  * a bare class, and enough to flatten the drawing. The stack glyph is inset two pixels from the badge's height, which
@@ -103,7 +129,10 @@
   translate: 0 -50%;
   inline-size: var(--tugx-column-badge-width, 18px);
   block-size: calc(var(--tugx-column-badge-height, 22px) - 2px);
-  opacity: var(--tugx-column-badge-glyph-opacity, 0.55);
+  /* Full strength, because the thinning now lives in the unlit strokes
+     themselves. A group opacity here would fade the lit element along with
+     them, and the whole point of the lit element is that it does not fade. */
+  opacity: var(--tugx-column-badge-glyph-opacity, 1);
 }
 
 .tug-column-badge .tug-column-badge-glyph-ladder {
@@ -121,17 +150,14 @@
   );
   stroke: var(
     --tugx-column-badge-stroke,
-    var(--tug7-element-global-text-normal-muted-rest)
+    color-mix(in oklab, currentcolor 45%, transparent)
   );
   stroke-width: 1.25;
   stroke-linejoin: round;
 }
 
 .tug-column-badge-slice[data-lit="true"] {
-  stroke: var(
-    --tugx-column-badge-accent,
-    var(--tug7-surface-control-primary-filled-action-rest)
-  );
+  stroke: var(--tugx-column-badge-accent, currentcolor);
   stroke-width: 1.75;
 }
 
@@ -139,16 +165,13 @@
 .tug-column-badge-rung {
   stroke: var(
     --tugx-column-badge-stroke,
-    var(--tug7-element-global-text-normal-muted-rest)
+    color-mix(in oklab, currentcolor 45%, transparent)
   );
   stroke-width: 1.5;
   stroke-linecap: round;
 }
 
 .tug-column-badge-rung[data-lit="true"] {
-  stroke: var(
-    --tugx-column-badge-accent,
-    var(--tug7-surface-control-primary-filled-action-rest)
-  );
+  stroke: var(--tugx-column-badge-accent, currentcolor);
   stroke-width: 2;
 }

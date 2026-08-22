@@ -2716,13 +2716,13 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   { element: "--tug7-element-segment-border-normal-plain-rest", surface: "--tug7-surface-segment-primary-normal-plain-rest", role: "informational" },
 
   // ---- tug-column-badge.css ----
+  // One row, because the badge draws in one ink: the character IS this colour,
+  // the lit element is this colour, and the unlit scenery is this colour with
+  // alpha taken out of it. Nothing on the badge can name a colour this pairing
+  // has not been audited for. The lit element used to be an accent — a third
+  // colour on an 18×22 chip, saying *live* about the most inert fact the deck
+  // has — and it went the same way the slot chip's accent did.
   { element: "--tug7-element-control-text-tinted-action-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "control" },
-  // The lit stroke is a decorative accent, and deliberately: the glyph is
-  // scenery drawn at 0.55 opacity behind the character, and the lit element's
-  // job is to be distinguishable from the two UNLIT elements beside it, not
-  // from the ground. The fact it marks is also carried by the character, which
-  // is the control-role pairing above.
-  { element: "--tug7-surface-control-primary-filled-action-rest", surface: "--tug7-surface-global-primary-normal-default-rest", role: "decorative" },
 
   // ---- tug-completion-menu.css ----
   { element: "--tugx-completion-fg", surface: "--tugx-completion-bg", role: "content" },

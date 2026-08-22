@@ -83,6 +83,7 @@ import {
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
 import { SlotPicker } from "@/components/lens/slot-picker";
+import { LensColumnBadge } from "@/components/lens/lens-column-badge";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
@@ -375,7 +376,16 @@ function OneLineRow({
           </span>
         ) : null}
         {trailing}
-        {showSlots ? <SlotPicker cardId={identity.cardId} /> : null}
+        {/* The slot the card holds, then where it stands inside it — the same
+            outward-in coordinate a Session row and the card's own masthead
+            read. Both halves resolve their own facts from the deck store, so
+            the row keeps taking everything else as props. */}
+        {showSlots ? (
+          <>
+            <SlotPicker cardId={identity.cardId} />
+            <LensColumnBadge cardId={identity.cardId} />
+          </>
+        ) : null}
       </RowHeadlineHover>
     </TugListRow>
   );
