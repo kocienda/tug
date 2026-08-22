@@ -13,6 +13,8 @@ disallowed-tools: Task
 
 **Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** It is the discipline every dash run works under — the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, the stop-before-join obligation, and no plan numbers in durable artifacts. This skill states the flow; the doctrine states the rules, and it is not repeated here.
 
+**When the project has no `tuglaws/`,** the doctrine document is absent and cannot be read. The rules that survive its absence are the ones this skill carries inline — one working root, verify before every commit, never commit red, rounds through `tugutil dash commit`, stop before the join — and they are the discipline for the run. Say so once, at the start, so the user knows which fidelity they are getting; do not invent the rest of the doctrine from memory.
+
 ## Input
 
 `/tugplug:dash-implement <plan-path> [step-selector]`
@@ -41,7 +43,7 @@ If no plan exists yet, author one first with `/tugplug:plan-devise`, or write it
 
    `--plan` is what puts the plan **inside the worktree**, and it is the only thing that may: the dash adopts the document ([D139]), committing its bytes on the branch and cleaning the base copy, so there is one live copy from second zero. **Never copy a plan file by hand.** A hand-copy leaves two live copies with no receipt and no divergence detection, which is the failure this verb exists to make impossible. The receipt names the adoption commit and what happened to the base copy; from here you drive the worktree copy only.
 
-   `create` also hydrates the fresh worktree itself (its `[tugtool.dash].post_create` hook runs `bun install`), so it arrives ready — no manual dependency install.
+   `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` — in Tugtool, `bun install` for the web surfaces — so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
 
    You do not bind the dash to this session, and there is nothing to remember here: `create` and `dash step start` each record the claim themselves, so both starting a plan and resuming one mid-way are covered. That matters because boundness is what the server reads to decide whether to work the join arc at all — an unbound dash is never reconciled, never checked, and never offered — and a rule that load-bearing does not belong in prose a run can skip.
 3. **Check that the plan's review covers the plan.** Against the **worktree** copy — the one you are about to drive:
@@ -60,7 +62,7 @@ If no plan exists yet, author one first with `/tugplug:plan-devise`, or write it
    The message names which verdict it is, and on `stale` quotes `data.last_round`'s date and model, so the user is deciding against a fact rather than a warning. Implementing a plan nobody reviewed is strictly worse than implementing one whose review predates an edit, so both raise the same gate.
 
    The gate reads the worktree copy and needs no comparison against a base one: adoption left exactly one live copy, and replaying ledger progress does not move a plan's content stamp, so a `reviewed` plan is still `reviewed` after the transplant.
-4. Establish a green baseline (`bun test`, and for Rust changes `cd tugrust && cargo nextest run`) so you know what "still green" means.
+4. Establish a green baseline with the project's own test commands — the ones the plan's step checkpoints name — so you know what "still green" means. In Tugtool that is `bun test`, plus `cd tugrust && cargo nextest run` for Rust changes. When the plan names none and the project has no test command to run, say the baseline is unestablished and proceed on that footing — never invent one.
 5. Make progress visible with one task per step. **This is not optional and not best-effort** — the task list is the user's live progress surface for the run, and it must mirror the resolved step list exactly: **every step selected this run gets a task, before you start walking.** `TaskCreate`/`TaskUpdate` are deferred tools — their schemas are not in the prompt until you load them, and listing them under `allowed-tools` does **not** load them. First call `ToolSearch` with query `select:TaskCreate,TaskUpdate`, then call `TaskCreate` **once per step** (it creates a single task — it has no `tasks`/`todos` batch parameter), passing top-level string `subject` (the step title) and `description` (what the step does).
 
 ### 2. Implement (walk the steps)
@@ -116,7 +118,7 @@ Pragmatics:
 tugutil dash replay <name>
 ```
 
-- **`Replayed`** / **`Recorded`** — the tree moved, so verify it, scoped to what the diff touches: `sh scripts/verify-fit.sh <base-sha> <head-sha>` in this repo, or the project's equivalent.
+- **`Replayed`** / **`Recorded`** — the tree moved, so verify it with the project's **declared verify command**. `tugutil dash config --json` reports it; substitute `{base}` and `{head}` with the replayed range and run it from the worktree root. In Tugtool that declaration is `sh scripts/verify-fit.sh {base} {head}`, which scopes the checks to what the diff touches. When `verify` comes back `null` the project declares none: verify with **the plan's own checkpoint commands** over what the replay moved — the commands the plan already names, never one you invent — and say so. A verify that comes back red is ordinary work: fix it in the warm worktree, commit the fix as a round, re-run.
 - **`Current`** — the base never moved. The last step's checkpoint already verified these exact bytes, so **run nothing** and say so. This is the common case and it costs seconds.
 - **`Conflicted`** — the replay names the round it stopped at. Resolve it in the worktree as ordinary work, commit the fix as a round, then verify as above.
 
@@ -134,15 +136,13 @@ Write it even on a run that stops mid-plan: the draft is what the prompt shows t
 
 **Then say what happened and stop.** The ending narration is three things: what was built, that the fit is verified (or that the replay reported `Current`, so it was already), and that the draft is written. At most add *"the join prompt will raise momentarily."* **Do not print a `/join <name>` chip.** The dash is bound and armed; the prompt raises itself on this card, and a chip alongside it teaches the user that nothing happens until they type — which is the belief this whole arc exists to retire ([D147]).
 
-**Offer a build when the work wants one.** A change the user will want to *see* — anything in tugdeck, tugapp, or a surface with a face — is worth building and vetting before the join:
+**Offer a build when the work wants one.** A change the user will want to *see* — a surface with a face — is worth building and vetting before the join. What to run is the project's to say: the `build` command `tugutil dash config` reports. Run it from the worktree root, read what it says, and relay that to the user rather than describing a build you did not watch.
 
-```bash
-just app-debug
-```
+When `build` is `null` the project declares none, so **no build is offered** — say so, and say the work is inspectable at the worktree path.
 
-This builds + signs + launches a separate `(debug, <branch>)` instance derived from the worktree's cwd, independent of the user's main instance. Confirm it's live (`just instances`) and report the instance id plus `just launch-debug` / `just logs-debug` / `just stop-debug`.
+In Tugtool the declaration is `just app-debug`, which builds + signs + launches a separate `(debug, <branch>)` instance derived from the worktree's cwd, independent of the user's main instance; confirm it's live with `just instances` and report the instance id plus `just launch-debug` / `just logs-debug` / `just stop-debug`.
 
-A purely internal change — a refactor, a doctrine edit, a Rust-only fix already covered by its checkpoint — does not need one, and a debug instance nobody looks at is cost with no reader. Offer, do not assume.
+A purely internal change — a refactor, a doctrine edit, a backend fix already covered by its checkpoint — does not need a build even where one is declared, and a debug instance nobody looks at is cost with no reader. Offer, do not assume.
 
 ```bash
 tugutil dash mark <name> built
@@ -154,10 +154,9 @@ Optional telemetry, and nothing gates on it. It stamps the stage word `built` on
 
 ### 4. Iterate (interactive)
 
-The user tests and reports issues. Fix them on the worktree, run the relevant checkpoint, and commit each fix as its own round. Track fixes the same way as steps: `TaskCreate` a task per reported issue, flip it in-progress while you work it, complete it when its fix commits. (Fix rounds are not plan steps — they get no `dash step` call.) Know your build surface:
+The user tests and reports issues. Fix them on the worktree, run the relevant checkpoint, and commit each fix as its own round. Track fixes the same way as steps: `TaskCreate` a task per reported issue, flip it in-progress while you work it, complete it when its fix commits. (Fix rounds are not plan steps — they get no `dash step` call.)
 
-- **tugdeck (frontend)** changes are live via Vite HMR — no rebuild; tell the user to hard-reload the card if Fast Refresh doesn't repaint a row.
-- **Rust / tugcode / Swift** changes need a rebuild — `just app-debug` again (tugcode is bun-compiled; it has no HMR).
+**Know your build surface.** The general rule is one line: re-run the declared build when the surface you changed needs it to be seen. Which surfaces hot-reload and which need the rebuild is knowledge that belongs to the project's own docs, not to this skill — in Tugtool it is in `CLAUDE.md`, where tugdeck changes are live via Vite HMR (hard-reload the card if Fast Refresh does not repaint a row) and Rust, tugcode, or Swift changes need `just app-debug` again. On a project whose docs say nothing, re-run the declared build when in doubt, and say that is why.
 
 Loop until the user is satisfied. A follow-up "now do Steps 6-8" is just another `dash-implement` run against the same plan and dash.
 

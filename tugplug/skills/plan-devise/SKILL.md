@@ -35,11 +35,13 @@ Read the relevant code before designing. Use Glob/Grep/Read to map the territory
 
 Ask clarifying questions **only when the answer changes the design** and you can't resolve it from the code or a sensible default. Use `AskUserQuestion` (≤4 options each). Don't interrogate — a couple of sharp questions beat a checklist. If the idea is already specific, skip straight to writing.
 
-The boundary on what is worth asking is in the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default.
+The boundary on what is worth asking is in the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default. On a project with no `tuglaws/`, that one sentence *is* the boundary — apply it as stated here and say so.
 
 ### 3. Write against the skeleton
 
 Author the plan at the output path you were given (or asked for) following the **devise skeleton**, [`tuglaws/devise-skeleton.md`](../../../tuglaws/devise-skeleton.md) — this is the mandatory format. Conform to it exactly:
+
+**When the project has no `tuglaws/devise-skeleton.md`,** the format contract is the summary carried below plus `tugutil plan lint`, which ships with the product and is project-agnostic — write against the summary, lint until it exits 0, and say so. Do not reconstruct the skeleton document from memory; the linter is what the format actually means.
 
 - The skeleton's section order: Purpose, Plan Metadata, Phase Overview (Context / Strategy / Success Criteria / Scope / Non-goals / Dependencies / Constraints / Assumptions), then Open Questions, Risks, Design Decisions, optional Deep Dives / Specification / Rollout / Symbol Inventory, Test Plan Concepts, **Execution Steps** (with a **Step Status Ledger**), Deliverables.
 - Explicit `{#anchor}` headings; kebab-case; no phase numbers in anchors.

@@ -68,6 +68,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         ),
         DashCommands::Replay { name } => return run_replay(&name, json, quiet),
         DashCommands::Discard { name } => run_discard(&name, json, quiet),
+        DashCommands::Config => run_config(json, quiet),
         DashCommands::List => run_list(json, quiet),
         DashCommands::Show { name } => run_show(&name, json, quiet),
         DashCommands::Status { name } => run_status(&name, json, quiet),
@@ -828,6 +829,54 @@ fn broadcast_dash_gone(project: &std::path::Path, dash_id: &str) {
 #[derive(Serialize)]
 struct ListPayload {
     dashes: Vec<tugdash_core::DashListItem>,
+}
+
+/// The project's `[tugtool.dash]` declarations, as one payload.
+///
+/// `verify` and `build` are `null` when undeclared rather than absent, so a
+/// consumer reads the same three fields whatever the project says.
+#[derive(Serialize)]
+struct ConfigPayload {
+    verify: Option<String>,
+    build: Option<String>,
+    post_create: Vec<String>,
+}
+
+/// Read the declarations the run's ending and the build offer consume.
+///
+/// The project root is the standard `.tugtool/` upward walk, so from a dash
+/// worktree this reads the worktree's own committed copy — the copy the run is
+/// about. A missing config file is the all-undeclared state, not an error.
+fn run_config(json: bool, quiet: bool) -> Result<(), String> {
+    let root = tugutil_core::config::find_project_root().map_err(|e| e.to_string())?;
+    let config =
+        tugutil_core::config::Config::load_from_project(&root).map_err(|e| e.to_string())?;
+    let dash = config.tugtool.dash;
+    let payload = ConfigPayload {
+        verify: dash.verify,
+        build: dash.build,
+        post_create: dash.post_create,
+    };
+
+    if json {
+        print_ok("dash config", &payload);
+    } else if !quiet {
+        let undeclared = "(not declared)";
+        println!(
+            "verify:       {}",
+            payload.verify.as_deref().unwrap_or(undeclared)
+        );
+        println!(
+            "build:        {}",
+            payload.build.as_deref().unwrap_or(undeclared)
+        );
+        if payload.post_create.is_empty() {
+            println!("post_create:  {}", undeclared);
+        } else {
+            println!("post_create:  {}", payload.post_create.join("; "));
+        }
+    }
+    Ok(())
 }
 
 fn run_list(json: bool, quiet: bool) -> Result<(), String> {

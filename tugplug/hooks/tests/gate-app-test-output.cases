@@ -50,3 +50,14 @@ allow	tugutil file edit --path a.ts --replace 'x' --with 'y' && just AT x.test.t
 deny	just AT x.test.ts | grep VERDICT > /tmp/out.txt
 deny	(just AT x.test.ts | tail -20)
 deny	V=$(just AT x.test.ts | tail -1) && echo $V
+
+# --- only its own subject --------------------------------------------------
+# The gate enforces one project's report contract. Pointed at a project with no
+# tests/app-test/, it has no opinion — even about a command it would rewrite at
+# home. `NOAPPTEST` in the fourth field expands to a temp dir that has none, and
+# a `-` holds the unused rewrite slot open.
+pass	just AT x.test.ts | tail -30	-	NOAPPTEST
+pass	just AT x.test.ts | grep VERDICT > /tmp/out.txt	-	NOAPPTEST
+# Named explicitly, the checkout is still its subject: the guard must not
+# disable the gate at home.
+allow	just AT x.test.ts | tail -30	just AT x.test.ts	CHECKOUT

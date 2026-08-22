@@ -15,6 +15,8 @@ disallowed-tools: Task
 
 **Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** It is the discipline every dash run works under — the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, the stop-before-join obligation, and no plan numbers in durable artifacts. This skill states the flow; the doctrine states the rules, and it is not repeated here.
 
+**When the project has no `tuglaws/`,** the doctrine document is absent and cannot be read. The rules that survive its absence are the ones this skill carries inline — one working root, verify before every commit, never commit red, rounds through `tugutil dash commit`, stop before the join — and they are the discipline for the run. Say so once, at the start; do not invent the rest of the doctrine from memory.
+
 ## Input grammar
 
 `/tugplug:dash-on <name> <instruction…>` — create the dash `<name>` if new (or continue it), then carry out `<instruction>`.
@@ -29,7 +31,7 @@ That is the whole grammar. `<name>` is alphanumeric + hyphens, 2+ chars, and eve
 tugutil dash create <name> --description "<first ~100 chars of the instruction>" --json
 ```
 
-Idempotent — returns the existing active dash if `<name>` already exists. **Capture the absolute `worktree` path** and `branch` from the response; that path is the working root for everything that follows. `create` hydrates the fresh worktree itself (its `[tugtool.dash].post_create` hook runs `bun install`), so it arrives ready.
+Idempotent — returns the existing active dash if `<name>` already exists. **Capture the absolute `worktree` path** and `branch` from the response; that path is the working root for everything that follows. `create` hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` — in Tugtool, `bun install` for the web surfaces — so it arrives ready.
 
 `create` records that this session is working the dash — every time, including the idempotent call that resumes one — so there is no bind to remember. Boundness is what the server reads to decide whether to work the join arc at all — an unbound dash is never reconciled, never checked, and never offered.
 
@@ -57,14 +59,9 @@ One command: git commit + a line in the per-project dash-log (the verbatim instr
 
 ### Build (when there's something to see)
 
-For a change the user should look at in the app, build + launch from the worktree:
+For a change the user should look at, run the project's **declared build command** from the worktree — the one `tugutil dash config` reports. Relay what it actually says rather than describing a build you did not watch. When `build` is `null` the project declares none, so no build is offered: say so, and say the work is inspectable at the worktree path.
 
-```bash
-just app-debug
-just instances
-```
-
-That brings up the `(debug, <branch>)` instance. `tugutil dash mark <name> built` is available and purely optional — it stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build, and gates nothing when you didn't.
+In Tugtool the declaration is `just app-debug`; pair it with `just instances` to confirm the `(debug, <branch>)` instance came up. `tugutil dash mark <name> built` is available and purely optional — it stamps the stage word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build, and gates nothing when you didn't.
 
 ### Stop, with the fit verified and a draft on file
 
@@ -74,7 +71,7 @@ That brings up the `(debug, <branch>)` instance. `tugutil dash mark <name> built
 tugutil dash replay <name>
 ```
 
-On **`Replayed`** / **`Recorded`** the tree moved — verify it, scoped to the diff (`sh scripts/verify-fit.sh <base-sha> <head-sha>`, or the project's equivalent). On **`Current`** the base never moved and the checks you already ran covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify. Do not re-run what already passed.
+On **`Replayed`** / **`Recorded`** the tree moved — verify it with the project's **declared verify command**, which `tugutil dash config --json` reports; substitute `{base}`/`{head}` with the replayed range and run it from the worktree root. In Tugtool that is `sh scripts/verify-fit.sh {base} {head}`. A `null` verify means the project declares none: check what the replay moved with the commands you already ran as you worked — never one you invent — and say so. On **`Current`** the base never moved and the checks you already ran covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify. Do not re-run what already passed.
 
 Then check the dash's **join draft** — the squash message their join will land — still tells the truth. You wrote it before each round's commit; if the ending added a round (a `Conflicted` replay resolved as new work), refresh it now:
 

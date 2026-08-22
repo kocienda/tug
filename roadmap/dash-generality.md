@@ -267,15 +267,15 @@ The canonical absences and what each skill says and does. "Says so" means the se
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The declaration seam in config | pending | |
-| #step-2 | The `tugutil dash config` verb | pending | |
-| #step-3 | Skeleton and doctrine route through the declaration | pending | |
-| #step-4 | The run skills speak the declaration | pending | |
-| #step-5 | The judgment skills degrade by name | pending | |
-| #step-6 | Hooks act only on their subject | pending | |
-| #step-7 | The scratch-project proof | pending | |
-| #step-8 | The design decision | pending | |
-| #step-9 | Integration Checkpoint | pending | |
+| #step-1 | The declaration seam in config | done | `48e927242` |
+| #step-2 | The `tugutil dash config` verb | done | `bcdb1563a` |
+| #step-3 | Skeleton and doctrine route through the declaration | done | `acb871d7c` |
+| #step-4 | The run skills speak the declaration | done | `8ca984f73` |
+| #step-5 | The judgment skills degrade by name | done | `8bbcc9505` |
+| #step-6 | Hooks act only on their subject | done | `4b08f584a` |
+| #step-7 | The scratch-project proof | done | `1e02a065f` |
+| #step-8 | The design decision | done | `cda0deb72` |
+| #step-9 | Integration Checkpoint | done | `af6cd361e` |
 
 #### Step 1: The declaration seam in config {#step-1}
 

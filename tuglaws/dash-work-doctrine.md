@@ -56,7 +56,7 @@ The engine is on by default, because the doctrine *is* the default and an opt-in
 
 **Warnings are errors.** The Rust workspace enforces `-D warnings`; treat a type error, a lint finding, or a failing test the same way.
 
-The bar before a round is committed:
+The portable rule is two-sided: **a step's checkpoint runs the commands the plan names for the work that step did; the run's ending runs the project's declared verify command.** The list below is what that first side comes to in this repository — read it as this project's instance of the rule, not as the rule.
 
 - `bunx tsc --noEmit` for TypeScript that moved.
 - Pure-logic tests for the scope that moved (`bun test <scope>`).
@@ -65,7 +65,7 @@ The bar before a round is committed:
 
 **Never commit red.** If a check fails, fix it and re-run; a round that lands broken makes every later round's verdict meaningless.
 
-**A checkpoint that passed is spent.** It ran against these bytes, inside the step that changed them; running it again at the end proves nothing new and costs minutes. So: **the run ends when the fit is verified — replay, verify only what the replay moved, report, and stop; never re-run a checkpoint that already passed.** The fit is the one thing the per-step checkpoints genuinely cannot have covered, because until the replay the dash's tree is the sandbox it forked from rather than the tree a join would land. The procedure is the devise skeleton's Integration Checkpoint pattern: `tugutil dash replay <name>`, then the scoped verification **only** on `Replayed`/`Recorded`; `Current` re-runs nothing; `Conflicted` is resolved in the worktree and then verified.
+**A checkpoint that passed is spent.** It ran against these bytes, inside the step that changed them; running it again at the end proves nothing new and costs minutes. So: **the run ends when the fit is verified — replay, verify only what the replay moved, report, and stop; never re-run a checkpoint that already passed.** The fit is the one thing the per-step checkpoints genuinely cannot have covered, because until the replay the dash's tree is the sandbox it forked from rather than the tree a join would land. The procedure is the devise skeleton's Integration Checkpoint pattern: `tugutil dash replay <name>`, then the scoped verification **only** on `Replayed`/`Recorded`; `Current` re-runs nothing; `Conflicted` is resolved in the worktree and then verified. What that verification *is* comes from the project: the `verify` command declared in `[tugtool.dash]` and reported by `tugutil dash config`, with `{base}`/`{head}` substituted from the replayed range. A project that declares none verifies with the plan's own checkpoint commands over what the replay moved — never an invented one — and says so.
 
 **Fix what you touch.** A pre-existing warning, type error, or dead branch in a file you are editing is yours to fix, not to report. Punting it as "pre-existing" leaves the next reader the same trap.
 
@@ -106,7 +106,9 @@ Git records the diff; the log records the instruction git cannot see. `tug log` 
 
 Do not merge, and do not run the join on the user's behalf. That is the whole of what "stop" means here; the rest of the ending is one obligation and two offers.
 
-**The build is an offer.** A change with a face is worth bringing up from the worktree (`just app-debug`) so the user can look at it before the join; a refactor, a doctrine edit, or a Rust fix its own checkpoint already covered is not, and a debug instance nobody opens is cost with no reader. Offer it, do not assume it.
+**The build is an offer.** A change with a face is worth bringing up from the worktree so the user can look at it before the join; a refactor, a doctrine edit, or a Rust fix its own checkpoint already covered is not, and a debug instance nobody opens is cost with no reader. Offer it, do not assume it.
+
+What to run is the project's to say: the `build` command declared in `[tugtool.dash]`, which `tugutil dash config` reports. In this repository that declaration is `just app-debug`. A project that declares none offers none — say so, and say the work is inspectable at the worktree.
 
 Before stopping, leave the **join draft** behind: compose the squash message from what the rounds actually did and write it with `tugutil draft set --owner dash:<name> --message "…"`. The join gesture lands that message; it does not compose one. A dash that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 

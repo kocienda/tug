@@ -26,6 +26,14 @@
 # Machine-readable output has its own channel: TUG_APPTEST_JSON=<path> writes a
 # document serialized from the same arrays the summary renders.
 #
+# The gate is about one report contract — the one `tests/app-test/` prints — and
+# not every project has it. tugplug ships in the app bundle and travels to
+# whatever project Tug is pointed at, where a `just app-test` recipe may mean
+# something else entirely and its output may be exactly what a filter is for. So
+# the gate first establishes that this command's project is one the contract
+# applies to, and stays out of the way when it is not: an inapplicable gate must
+# never fire, just as a broken gate must never block work.
+#
 # Anything unexpected — no jq — exits 0 and falls through to the normal
 # permission flow: a broken gate must never block work.
 
@@ -38,6 +46,16 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 [ -n "$CMD" ] || exit 0
+
+# Does the app-test report contract exist in the project this command runs in?
+# The payload carries the session's directory; fall back to $PWD when it does
+# not. Every failure to resolve exits 0.
+SUBJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // empty')
+[ -n "$SUBJECT_DIR" ] || SUBJECT_DIR=$PWD
+[ -d "$SUBJECT_DIR" ] || exit 0
+SUBJECT_ROOT=$(git -C "$SUBJECT_DIR" rev-parse --show-toplevel 2>/dev/null) || SUBJECT_ROOT=$SUBJECT_DIR
+[ -n "$SUBJECT_ROOT" ] || SUBJECT_ROOT=$SUBJECT_DIR
+[ -d "$SUBJECT_ROOT/tests/app-test" ] || exit 0
 
 # `tee` and `cat` pass the report through intact; a filter does not.
 FILTER='(/usr/bin/|/bin/)?(grep|egrep|fgrep|rg|ag|head|tail|sed|awk|cut|wc|sort|uniq|tr)'

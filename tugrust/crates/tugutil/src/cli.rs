@@ -506,6 +506,14 @@ pub enum DashCommands {
         /// Dash name.
         name: String,
     },
+    /// Report the project's `[tugtool.dash]` declarations.
+    ///
+    /// One reader for the seam a project uses to say how its own tree is
+    /// hydrated, checked, and built: `post_create`, `verify`, `build`. Takes no
+    /// dash name — the declaration belongs to the project, not to one dash. A
+    /// project that declares nothing (or has no config file at all) is not an
+    /// error: every key reports as undeclared and the verb exits 0.
+    Config,
     /// List every active dash, derived from git.
     List,
     /// Show one dash's metadata, rounds, and worktree dirt.

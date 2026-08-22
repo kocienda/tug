@@ -13,15 +13,37 @@ GATE=$HERE/../gate-app-test-output.sh
 CASES=$HERE/gate-app-test-output.cases
 RECIPE=app-$(printf 'test')
 
+# A project with no app-test harness, for the applicability cases. `NOAPPTEST`
+# in a case's cwd field expands to it.
+SCRATCH=$(mktemp -d)
+trap 'rm -rf "$SCRATCH"' EXIT
+
+# The checkout this runner lives in — the gate's subject at home. `CHECKOUT` in
+# a case's cwd field expands to it.
+CHECKOUT_ROOT=$(cd "$HERE/../../.." && pwd)
+
 pass=0
 fail=0
 
-while IFS=$'\t' read -r expected cmd want; do
+# A case may name the project the command runs in as a fourth field. Left off,
+# the payload carries no `cwd` and the gate falls back to $PWD — the checkout
+# this runner executes from, which is where every pre-existing case belongs.
+while IFS=$'\t' read -r expected cmd want cwd; do
     case ${expected:-} in '' | '#'*) continue ;; esac
     cmd=${cmd//AT/$RECIPE}
     want=${want//AT/$RECIPE}
+    # A `-` holds the rewrite slot open so a case can name a cwd without one.
+    [ "${want:-}" = "-" ] && want=""
+    cwd=${cwd:-}
+    cwd=${cwd//NOAPPTEST/$SCRATCH}
+    cwd=${cwd//CHECKOUT/$CHECKOUT_ROOT}
 
-    out=$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}' | bash "$GATE")
+    if [ -n "$cwd" ]; then
+        payload=$(jq -n --arg c "$cmd" --arg d "$cwd" '{tool_name:"Bash",cwd:$d,tool_input:{command:$c}}')
+    else
+        payload=$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}')
+    fi
+    out=$(printf '%s' "$payload" | bash "$GATE")
     if [ -z "$out" ]; then
         got=pass
         gotcmd=""

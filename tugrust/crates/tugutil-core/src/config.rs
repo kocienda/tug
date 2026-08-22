@@ -32,6 +32,19 @@ pub struct DashConfig {
     /// worktree+branch back and fails `create`.
     #[serde(default)]
     pub post_create: Vec<String>,
+
+    /// The run-ending's scoped fit check. `{base}`/`{head}` are substituted by
+    /// the consumer with the replayed range before running via `sh -c` from the
+    /// worktree root; a command carrying neither runs unscoped. Absent means
+    /// undeclared: the ending degrades to the plan's own checkpoint commands,
+    /// stated plainly. Read at the ending only — never at join time ([D149]).
+    #[serde(default)]
+    pub verify: Option<String>,
+
+    /// The command that produces an inspectable instance from the worktree.
+    /// Absent means no build is offered.
+    #[serde(default)]
+    pub build: Option<String>,
 }
 
 impl Config {
@@ -195,6 +208,31 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert!(config.tugtool.dash.post_create.is_empty());
+    }
+
+    #[test]
+    fn dash_declarations_parse() {
+        let toml = "[tugtool.dash]\npost_create = [\"bun install\"]\nverify = \"sh scripts/verify-fit.sh {base} {head}\"\nbuild = \"just app-debug\"\n";
+        let config: Config = toml::from_str(toml).expect("declaring config should parse");
+        assert_eq!(
+            config.tugtool.dash.verify.as_deref(),
+            Some("sh scripts/verify-fit.sh {base} {head}")
+        );
+        assert_eq!(config.tugtool.dash.build.as_deref(), Some("just app-debug"));
+    }
+
+    #[test]
+    fn dash_declarations_default_to_none() {
+        // A project that declares only hydration leaves the ending undeclared.
+        let toml = "[tugtool.dash]\npost_create = [\"echo hi\"]\n";
+        let config: Config = toml::from_str(toml).expect("partial config should parse");
+        assert!(config.tugtool.dash.verify.is_none());
+        assert!(config.tugtool.dash.build.is_none());
+
+        // So does a project with no dash table at all.
+        let empty: Config = toml::from_str("").expect("empty config should parse");
+        assert!(empty.tugtool.dash.verify.is_none());
+        assert!(empty.tugtool.dash.build.is_none());
     }
 
     #[test]

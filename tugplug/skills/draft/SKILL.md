@@ -30,11 +30,11 @@ tugutil preflight
 ```
 branch main  head abc1234  session <id>
 attributed (2):
-   M edit·exact   tugdeck/src/foo.ts
-   M edit·exact   tugrust/src/bar.rs  shared with <other session>
+   M edit·exact   src/foo.ts
+   M edit·exact   src/bar.rs  shared with <other session>
 unattributed (2):
-   M tugrust/src/baz.rs  likely this session's (bash bracket)
-   M tugrust/src/qux.rs
+   M src/baz.rs  likely this session's (bash bracket)
+   M src/qux.rs
 foreign (1) — other sessions' work, never in a default commit:
    M x/lib.rs  owner <other session>
 recent commits:

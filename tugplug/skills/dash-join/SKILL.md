@@ -79,7 +79,7 @@ Preflight refusals come back as errors from this same command — surface them v
 
   On *"Discard it"*, run `tugutil dash discard <name>` — the dialog **is** the user's gesture, which is the only thing that ever authorizes it. On *"Keep it"*, stop and say the dash is still there. (The second answer used to read *"Leave it"*, in the ordinary English sense of leaving it standing. It is *"Keep it"* now because **Unbind** is the button that used to say Leave, and an answer that reads as a verb from the same system while meaning something else entirely is a collision waiting to be misread.) **Never discard on your own initiative** — discard is the one irreversible act in the workflow, so it needs the user to have said so, in the answer, that turn.
 
-The other three above stay stops. They are correct refusals with one right answer, not unasked questions — the distinction is the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked).
+The other three above stay stops. They are correct refusals with one right answer, not unasked questions — the distinction is the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked). Where that document is absent, the distinction as drawn here is the whole rule, and say so.
 
 ## Beat 2 — join
 

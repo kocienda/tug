@@ -30,7 +30,7 @@ tugutil plan status <plan-path> --json
 tugutil plan lint <plan-path>
 ```
 
-`status` tells you what kind of round this is before you read a line. `rounds: 0` (or `review: "never-reviewed"` with no stamped round) is a first pass — review the whole document. Anything else is a **re-review**, and re-review has its own rules, held in [`tuglaws/plan-review-rubric.md`](../../../tuglaws/plan-review-rubric.md#re-review-what-a-second-round-may-touch): *edits are decisions* and *done rows are frozen*. Read that section before touching a plan that has been reviewed before; do not restate it here.
+`status` tells you what kind of round this is before you read a line. `rounds: 0` (or `review: "never-reviewed"` with no stamped round) is a first pass — review the whole document. Anything else is a **re-review**, and re-review has its own rules, held in [`tuglaws/plan-review-rubric.md`](../../../tuglaws/plan-review-rubric.md#re-review-what-a-second-round-may-touch): *edits are decisions* and *done rows are frozen*. Read that section before touching a plan that has been reviewed before; do not restate it here. When the rubric is absent, those two rules — *edits are decisions*, *`done` rows are frozen* — are the whole of re-review discipline; hold them as stated and say so.
 
 **Orient on what moved.** On a second or later round, read the git diff since the previous round when the plan is tracked and dirty; otherwise read the Review Record and orient on that. Name which one you used in the round's `Oriented on:` line — it tells the next reader how much of the document this round actually looked at.
 
@@ -66,7 +66,7 @@ What to fix versus what to raise:
 
 **A judgment call is a dialog first, an Open Question second.** You have the user; a question you could have asked and instead deferred costs them a round trip they never agreed to. Only a call the user *declines to settle* becomes `[Q##]` — with its rationale and its plan to resolve. That makes the notation mean something precise: **a `[Q##]` in a finished plan was asked and deferred, never never-asked.**
 
-Ask about the design, not the process. Never ask whether to apply a fixup, whether to keep going, or anything else with a conventional default — the never-ask boundary is in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked).
+Ask about the design, not the process. Never ask whether to apply a fixup, whether to keep going, or anything else with a conventional default — the never-ask boundary is in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked). Where that document is absent, the preceding sentence is the boundary, and say so.
 
 Keep the plan lint-clean as you go — re-run the linter after substantive edits.
 

@@ -60,6 +60,32 @@ fn test_init_creates_expected_files() {
     );
 }
 
+/// The front door onboards projects that are not Tugtool, so the config it
+/// writes declares nothing Tugtool-shaped: no hydration commands, and the
+/// ending's `verify`/`build` left undeclared as commented examples.
+#[test]
+fn test_init_default_config_is_project_neutral() {
+    let temp = setup_test_project();
+    let config_path = temp.path().join(".tugtool").join("config.toml");
+    let text = std::fs::read_to_string(&config_path).expect("config should be readable");
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        assert!(
+            !line.contains("bun") && !line.contains("tugdeck") && !line.contains("just "),
+            "fresh init wrote a Tugtool-specific command: {line}"
+        );
+    }
+
+    let config = tugutil_core::config::Config::load(&config_path).expect("default should parse");
+    assert!(config.tugtool.dash.post_create.is_empty());
+    assert!(config.tugtool.dash.verify.is_none());
+    assert!(config.tugtool.dash.build.is_none());
+}
+
 #[test]
 fn test_init_idempotent_on_existing_project() {
     let temp = setup_test_project();
@@ -241,6 +267,60 @@ fn test_init_check_json_initialized() {
     assert_eq!(json["status"], "ok");
     assert_eq!(json["data"]["initialized"], true);
     assert_eq!(json["data"]["path"], ".tugtool/");
+}
+
+/// The seam has one reader, and it reports what the project declared.
+#[test]
+fn test_dash_config_reports_declarations() {
+    let temp = setup_test_project();
+    std::fs::write(
+        temp.path().join(".tugtool").join("config.toml"),
+        "[tugtool.dash]\npost_create = [\"npm install\"]\nverify = \"sh check.sh {base} {head}\"\nbuild = \"make app\"\n",
+    )
+    .expect("failed to write config");
+
+    let output = Command::new(tug_binary())
+        .arg("dash")
+        .arg("config")
+        .arg("--json")
+        .current_dir(temp.path())
+        .output()
+        .expect("failed to run tugutil dash config");
+
+    assert!(output.status.success(), "dash config should succeed");
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(json["command"], "dash config");
+    assert_eq!(json["data"]["verify"], "sh check.sh {base} {head}");
+    assert_eq!(json["data"]["build"], "make app");
+    assert_eq!(json["data"]["post_create"][0], "npm install");
+}
+
+/// A project that never wrote a config is the all-undeclared state, not a
+/// failure — the ending degrades rather than refusing to run.
+#[test]
+fn test_dash_config_missing_file_is_undeclared_not_an_error() {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    std::fs::create_dir(temp.path().join(".tugtool")).expect("failed to create .tugtool");
+
+    let output = Command::new(tug_binary())
+        .arg("dash")
+        .arg("config")
+        .arg("--json")
+        .current_dir(temp.path())
+        .output()
+        .expect("failed to run tugutil dash config");
+
+    assert!(
+        output.status.success(),
+        "a missing config file must exit 0: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert!(json["data"]["verify"].is_null());
+    assert!(json["data"]["build"].is_null());
+    assert_eq!(json["data"]["post_create"].as_array().unwrap().len(), 0);
 }
 
 #[test]

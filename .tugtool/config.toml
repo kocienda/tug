@@ -3,3 +3,10 @@
 # A git worktree never inherits gitignored files, so these install what a
 # fresh checkout lacks. A non-zero exit rolls the worktree back.
 post_create = ["bun install --cwd tugdeck", "bun install --cwd tugcode"]
+
+# The run-ending's scoped fit check; {base}/{head} carry the replayed range.
+# Schema and placeholder contract: DashConfig in tugutil-core/src/config.rs.
+verify = "sh scripts/verify-fit.sh {base} {head}"
+
+# The build offered at the end of a run with a face.
+build = "just app-debug"

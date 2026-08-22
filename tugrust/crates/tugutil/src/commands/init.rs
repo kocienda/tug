@@ -11,7 +11,18 @@ const DEFAULT_CONFIG: &str = r#"[tugtool.dash]
 # Commands run from a new dash worktree to hydrate it (deps, etc.).
 # A git worktree never inherits gitignored files, so these install what a
 # fresh checkout lacks. A non-zero exit rolls the worktree back.
-post_create = ["bun install --cwd tugdeck"]
+post_create = []
+# post_create = ["npm install"]
+
+# The run-ending's fit check, run from the worktree root once the replay has
+# put the rounds on the live base. {base} and {head} are replaced with that
+# range; a command carrying neither runs unscoped. Declare none and the ending
+# falls back to the plan's own checkpoint commands.
+# verify = "sh scripts/check.sh {base} {head}"
+
+# The command that produces an inspectable instance from this worktree.
+# Declare none and no build is offered.
+# build = "make app"
 "#;
 
 /// Check if the project is initialized

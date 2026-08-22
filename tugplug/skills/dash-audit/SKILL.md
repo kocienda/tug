@@ -36,12 +36,14 @@ Give your honest assessment of:
 - **Technical choices** — did the implementation pick the right mechanisms? Did it drift from the plan's decisions, and if so, for better or worse?
 - **Implementation strategy** — is the work structured well, or are there seams, duplication, or leaks across layers that will cost later?
 - **Holes, pitfalls, weaknesses, limitations** — bugs, unhandled edge cases, race conditions, missing tests, stale comments, warnings (warnings are errors here).
-- **Test discipline (flag violations as findings):** the shapes banned in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) — any fake-DOM/RTL test (`happy-dom`, `jsdom` render tests, `@testing-library/react`) or mock-store assertion test — and any real-app behavior tested outside `tests/app-test/`. Call each one out for deletion or rewrite.
+- **Test discipline (flag violations as findings):** the shapes banned in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) — any fake-DOM/RTL test (`happy-dom`, `jsdom` render tests, `@testing-library/react`) or mock-store assertion test — and any real-app behavior tested outside the project's real-app harness (`tests/app-test/` here). Call each one out for deletion or rewrite. These bans are Tugtool doctrine, and they bind where that document exists. On a project that never signed them, audit the tests against the plan's own Test Plan instead, note that the project has no real-app harness so its real-app claims are verified only as far as its own tests reach, and say so — do not impose a doctrine the project never adopted.
 - **Plan numbers in durable artifacts** — any step identifier ("Step 4.5", "4i", "roadmap step X") written into code, comments, docstrings, test names, or commit messages. Flag each one; they should describe the behavior directly instead.
 
 Look holistically. Determine whether the changes are *actually good*, not just whether they match the plan in the abstract. A plan-faithful implementation can still be wrong.
 
 ### 3. Audit tuglaws adherence
+
+**When the project has no `tuglaws/tuglaws.md`,** there are no laws to audit against: audit on the axes this skill carries, name each criterion inline in the finding that uses it so the reader can see what it was judged by, and say so. Skip the rest of this section rather than inventing laws.
 
 Confirm the code adheres to the **tuglaws** as defined in [`tuglaws/tuglaws.md`](../../../tuglaws/tuglaws.md) — **with an actual audit**, not a glance. Cross-check [`design-decisions.md`](../../../tuglaws/design-decisions.md) where relevant. Walk the specific laws the change touches (`[L02]`, `[L06]`, `[L22]`, `[L23]`, `[L24]`, `[L26]`, …) and, for each, cite the concrete code that honors or violates it. For tugdeck/tugways work this is mandatory: verify state landed in the right zone (appearance via CSS/DOM, structure via stores/`useSyncExternalStore`, direct DOM updates via store observers, not React round-trips), and that mount identity and user-visible state are preserved across transitions.
 
