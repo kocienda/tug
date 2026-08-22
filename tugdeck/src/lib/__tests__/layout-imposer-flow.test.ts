@@ -936,6 +936,32 @@ describe("the CSS expression", () => {
     expect(imposeStyle({ slot: 1, count: 3 }, 800).clipPath).toBeUndefined();
   });
 
+  test("the band clip spends its slack all at once, or not at all", () => {
+    // The defect this pins was silent and permanent. `max(-SLACK, overhang)`
+    // reads as "hold the clip off the card until it crosses a band edge" and
+    // does not do it: it starts spending the slack as soon as the card comes
+    // within SLACK of the edge and has spent every pixel at FLUSH — which is
+    // where the first slot rests whenever the strip is home and where the
+    // last rests at the far end the clamp pins it to. Those two cards had
+    // their drop shadow and the whole of their flash ring sheared off on that
+    // side, and ⌃⌘1 lands on one of them.
+    //
+    // CSS has no conditional, so the crossing is a gain-and-clamp step. What
+    // is asserted is that the step is THERE on both edges — a rewrite back to
+    // the plain `max()` would keep every other assertion in the file passing.
+    const clip = String(
+      imposeStyle({ slot: 0, count: 3, flow: { stripLeft: 0 } }, 800).clipPath,
+    );
+    const steps = clip.match(/clamp\(0px, calc\(/g) ?? [];
+    expect(steps.length, "both band edges carry the step").toBe(2);
+    expect(clip, "and the step saturates at the slack").toContain(
+      `, ${FLOW_CLIP_SLACK_PX}px)`,
+    );
+    // The slack is subtracted before the step adds it back, which is what
+    // makes the inside-the-band answer exactly −SLACK rather than a partial.
+    expect(clip).toContain(`- ${FLOW_CLIP_SLACK_PX}px + clamp(`);
+  });
+
   test("a pinned card's clip is measured from its centred frame", () => {
     // A size-locked card is narrower than its slot and centred inside it, so
     // the clip's near edge is the slot's strip position plus the centring

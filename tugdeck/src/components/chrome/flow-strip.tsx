@@ -182,8 +182,10 @@ export interface FlowStripProps {
   /** Draw the strip at `offset` without committing it — the per-frame half of
    *  a scrub. */
   onPreview: (offset: number) => void;
-  /** Where the gesture left the strip. One store write, at the end. */
-  onCommit: (offset: number) => void;
+  /** Where the gesture left the strip, and which slot it NAMED getting there.
+   *  One store write, at the end. The slot is what the deck rings — a gesture
+   *  that points at a place gets the same answer the chord gets. */
+  onCommit: (offset: number, slot: number) => void;
 }
 
 export function FlowStrip({
@@ -363,7 +365,7 @@ export function FlowStrip({
     // is where the deck stands now — and the click the release is about to fire
     // must not commit a second answer on top of it.
     swallowClick.current = true;
-    onCommit(gesture.offset);
+    onCommit(gesture.offset, gesture.slot);
   };
 
   /** Clicking a segment centers its slot in the band — the same arithmetic the
@@ -376,7 +378,7 @@ export function FlowStrip({
     }
     const next = centerOffsetFor(slot);
     if (next === null) return;
-    onCommit(next);
+    onCommit(next, slot);
   };
 
   return (

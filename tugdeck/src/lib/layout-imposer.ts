@@ -974,6 +974,15 @@ const GAP = `${IMPOSITION_GAP_PX}px`;
  * just inside a band edge does not paint meaningfully past it.
  */
 export const FLOW_CLIP_SLACK_PX = 32;
+
+/**
+ * How steeply the band clip switches from "inside, keep the slack" to
+ * "crossing, clip exactly". A gain rather than a comparison because CSS has
+ * no conditional: multiplying the overhang by this and clamping it to the
+ * slack is a step function everywhere except a 1/gain-pixel window around
+ * zero, which is finer than the device pixel the clip lands on.
+ */
+const FLOW_CLIP_STEP_GAIN = 1000;
 const GAP_BOTTOM = `${IMPOSITION_GAP_BOTTOM_PX}px`;
 
 /** The CSS custom properties carrying the rail insets (see `deck-canvas.tsx`).
@@ -1353,17 +1362,38 @@ export function imposeStyle(
     // clips box-shadow too, and a zero inset on a card standing wholly
     // inside the band would shear its shadow off for no reason. The slack
     // holds the clip edge off the card until the card actually crosses a
-    // band edge; only then does the max() choose the exact overhang.
+    // band edge; only then is the exact overhang chosen.
+    //
+    // **The slack is all-or-nothing, and that is the whole of `bandClip`.**
+    // A plain `max(−SLACK, overhang)` reads as "hold the clip off until the
+    // card crosses" and does not do it: it starts spending the slack the
+    // moment the card comes within SLACK of the edge, and has spent every
+    // pixel of it at flush. Flush is not a corner case here — it is where the
+    // FIRST slot rests whenever the strip is home and where the LAST rests at
+    // the far end, which the clamp pins there. Both cards lost their drop
+    // shadow and the whole of their flash ring on that side, permanently, and
+    // the two chords most likely to be typed (⌃⌘1 and the last digit) are
+    // exactly the two that land on them.
+    //
+    // So the crossing is a STEP. `clamp(0px, overhang × steep, SLACK)` is 0
+    // while the overhang is zero or negative and SLACK once it is even a
+    // fraction of a pixel positive, which makes `overhang − SLACK + step`
+    // read −SLACK inside the band and the exact overhang outside it. Still
+    // one expression the browser re-resolves on every reflow, which is the
+    // property this whole block is built on — a JS conditional would answer a
+    // live scrub with the position the card had when it was last rendered.
     const bandOfViewport = `(100vw - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;
     const offsetOfViewport =
       `min(var(${FLOW_OFFSET_PROPERTY}, 0px), ` +
       `max(0px, var(${FLOW_STRIP_PROPERTY}, 0px) - ${bandOfViewport}))`;
     const near = placement.flow.stripLeft + centerOffset;
-    const clipLeft =
-      `max(${-FLOW_CLIP_SLACK_PX}px, calc(${offsetOfViewport} - ${near}px))`;
-    const clipRight =
-      `max(${-FLOW_CLIP_SLACK_PX}px, ` +
-      `calc(${near + frameWidth}px - ${offsetOfViewport} - ${bandOfViewport}))`;
+    const bandClip = (overhang: string): string =>
+      `max(${-FLOW_CLIP_SLACK_PX}px, calc(${overhang} - ${FLOW_CLIP_SLACK_PX}px + ` +
+      `clamp(0px, calc((${overhang}) * ${FLOW_CLIP_STEP_GAIN}), ${FLOW_CLIP_SLACK_PX}px)))`;
+    const clipLeft = bandClip(`calc(${offsetOfViewport} - ${near}px)`);
+    const clipRight = bandClip(
+      `calc(${near + frameWidth}px - ${offsetOfViewport} - ${bandOfViewport})`,
+    );
     style.clipPath =
       `inset(${-FLOW_CLIP_SLACK_PX}px ${clipRight} ${-FLOW_CLIP_SLACK_PX}px ${clipLeft})`;
     return style;

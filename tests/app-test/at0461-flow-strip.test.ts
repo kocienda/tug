@@ -38,7 +38,10 @@
  *      already travels too. That is the whole difference from the reveal an
  *      activation does: a reveal moves the least it can and would answer the
  *      same click differently depending on where the band happened to stand,
- *      while naming a place has to put the reader at it.
+ *      while naming a place has to put the reader at it. **And the arrival is
+ *      rung**, the same flash the chord's is: a click names a place, so it
+ *      owes the same answer, and the fact that the reader is looking at the
+ *      instrument is no reason to stay quiet about the deck.
  *   5. **The bracket is live between commits.** A held gesture moves the strip
  *      on the gauge channel and the bracket follows with ZERO store notifies —
  *      a projection rather than a render, and here not even a scripted one: its
@@ -74,6 +77,7 @@
  * @covers tugdeck/src/components/tugways/tug-slot-layout.tsx
  * @covers tugdeck/src/components/tugways/tug-slot-layout.css
  * @covers tugdeck/src/components/tugways/tug-slot.css
+ * @covers tugdeck/src/lib/flash-pane-border.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -582,11 +586,20 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
 
         // And a slot the band is not showing at all travels to the same place
         // by the same rule — one arithmetic, whatever the reader can see.
+        // The ring is read INSIDE the census block, first thing after the
+        // settle. The flash outlives the tween several times over but not
+        // forever, and every assertion below is a harness round trip — read
+        // last, this would be measuring how long the reads took.
+        let rung: string[] = [];
         const again = await app.motionCensus(async () => {
           await app.nativeClickAtElement(
             `${ROW} [aria-label="Go to slot 3"]`,
           );
           await wait(AFTER_LAND_MS);
+          rung = await app.evalJS<string[]>(
+            `Array.from(document.querySelectorAll(".tug-pane.tug-pane-flash"))
+               .map(function (el) { return el.getAttribute("data-pane-id"); })`,
+          );
         });
         const moved = await committedOffset(app);
         note(
@@ -598,6 +611,17 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
           moved,
           "clicking 3 puts the third slot in the middle of the band",
         ).toBeCloseTo(centered(2), 0);
+
+        // And the arrival is ANSWERED, exactly as the chord's is. A segment
+        // click names a place, so it owes the same "here it is" the keyboard
+        // owes; the reader looking at the strip while they click it is not a
+        // reason to stay silent, because what they need to find is on the
+        // deck, not on the instrument.
+        note(`the click rang: ${JSON.stringify(rung)}`);
+        expect(
+          rung,
+          "the card standing in the clicked segment's slot is rung, and only it",
+        ).toEqual(["p3"]);
       } finally {
         await app.close();
       }

@@ -3364,9 +3364,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // It changes no geometry — CSS was already drawing this number — except when
   // the caller is a segment click, which hands it a number the deck was NOT
   // showing and lets the settle animate the crossing.
+  //
+  // `named` is the slot the gesture NAMED, when it named one. A strip click
+  // and a scrub's release both point at a place, so both get the same answer
+  // the chord gets: the thing standing there is rung. The wheel names nothing —
+  // it is a continuous drag on the band rather than a choice of destination —
+  // so it passes no slot and rings nothing, which is why this is a parameter
+  // rather than something derived from where the offset landed.
   const commitFlowOffset = useCallback(
-    (offset: number): void => {
+    (offset: number, named?: number): void => {
       store.setFlowOffset(offset);
+      if (named !== undefined) flashSlot(store, named);
     },
     [store],
   );
