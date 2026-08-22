@@ -38,11 +38,10 @@ fn universe_root_for(start: &Path) -> Result<Option<PathBuf>, TugError> {
         _ => return Ok(None),
     };
 
-    let universe =
-        std::fs::canonicalize(&raw).map_err(|e| TugError::RepoUniverseInvalid {
-            value: raw.clone(),
-            reason: format!("cannot be resolved: {}", e),
-        })?;
+    let universe = std::fs::canonicalize(&raw).map_err(|e| TugError::RepoUniverseInvalid {
+        value: raw.clone(),
+        reason: format!("cannot be resolved: {}", e),
+    })?;
     if !universe.join(".git").exists() {
         return Err(TugError::RepoUniverseInvalid {
             value: raw,
@@ -217,7 +216,10 @@ mod tests {
         let _guard = UniverseGuard::set(None);
         let (_temp, base, worktree) = repo_with_linked_worktree();
 
-        assert!(worktree.join(".git").is_file(), "expected a linked worktree");
+        assert!(
+            worktree.join(".git").is_file(),
+            "expected a linked worktree"
+        );
         let resolved = find_repo_root_from(&worktree).expect("hop should resolve");
         assert_eq!(
             std::fs::canonicalize(resolved).unwrap(),

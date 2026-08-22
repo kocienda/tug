@@ -565,7 +565,10 @@ pub fn run_fraction(decls: &DashDeclarations) -> Option<(u32, u32)> {
     let position = if decls.run_complete {
         length
     } else {
-        current.saturating_sub(first).saturating_add(1).clamp(1, length)
+        current
+            .saturating_sub(first)
+            .saturating_add(1)
+            .clamp(1, length)
     };
     Some((position, length))
 }
@@ -883,7 +886,10 @@ mod tests {
             log_line("d", "step-start", "6/10 Step 6: Sixth"),
         );
         let fixture = log_repo(&log);
-        assert_eq!(run_fraction(&read_declarations(fixture.root(), "d")), Some((2, 3)));
+        assert_eq!(
+            run_fraction(&read_declarations(fixture.root(), "d")),
+            Some((2, 3))
+        );
 
         // A finished selection holds its full fraction.
         let log = format!(
@@ -906,7 +912,10 @@ mod tests {
             log_line("d", "step-start", "1/1 Step 1: Only"),
         );
         let fixture = log_repo(&log);
-        assert_eq!(run_fraction(&read_declarations(fixture.root(), "d")), Some((1, 1)));
+        assert_eq!(
+            run_fraction(&read_declarations(fixture.root(), "d")),
+            Some((1, 1))
+        );
     }
 
     /// Every shape the arithmetic cannot be trusted on degrades to `None`, so

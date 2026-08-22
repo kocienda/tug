@@ -27,9 +27,9 @@
  * background. Reading only the launch option missed that second class entirely.
  *
  * Usage:
- *   bun scripts/select-tests.ts                  # derive changed paths from git
+ *   bun scripts/select-tests.ts                  # derive changed paths from this session's changes
  *   bun scripts/select-tests.ts <path>...        # explicit changed paths
- *   bun scripts/select-tests.ts --print          # print the selection, run nothing
+ *   bun scripts/select-tests.ts --print          # print the selection and skip the budget refusal
  *   bun scripts/select-tests.ts --check          # lint: @covers present, resolving, and scoped
  *   bun scripts/select-tests.ts --core           # the core tier's file list
  *   bun scripts/select-tests.ts --foreground <f>...   # the @foreground subset of <f>...
@@ -52,8 +52,11 @@
  *
  * `--check` enforces the same ceiling ahead of time: no single source path may fan out to
  * more than MAX_SELECTED tests. Today's hub files already exceed it and are recorded in
- * ACCEPTED_FANOUT as known debt — the lint holds that line so the fan-out can shrink but
- * never grow, and a NEW hub fails the check on the commit that creates it.
+ * ACCEPTED_FANOUT as known debt, and the lint holds that line: it compares each entry
+ * against the same entry in the COMMITTED file and fails when a number went up, so the
+ * recorded debt can be paid down but never quietly refinanced. A NEW hub fails the check
+ * on the commit that creates it, and a new ACCEPTED_FANOUT key is the deliberate — and
+ * visible — way to accept one.
  */
 
 import { Glob } from "bun";
@@ -127,6 +130,34 @@ const MAX_SELECTED = 20;
 
 /** Exit code for a selection that exceeds {@link MAX_SELECTED}; distinct from a hard error. */
 const EXIT_OVER_BUDGET = 3;
+
+/**
+ * The most test files the corpus may hold. `--check` fails above it.
+ *
+ * A per-run budget bounds what one selection costs; it does nothing about the corpus,
+ * which only ever grew — 112 of the files present at the 2026-08-21 audit had been added
+ * in the preceding three weeks, and nothing anywhere said stop. The ceiling is where the
+ * suite is asked to stay a suite: past it, a new test DISPLACES one, and choosing which
+ * is the work.
+ *
+ * Set from the measured count after the 2026-08-21 diet pass (242 files, of which 230 are
+ * scenario tests) with room for a dozen more. **Exceeding it means retiring a test, not
+ * raising this number.** Raising it is available — it is one digit — which is exactly why
+ * the number needs an argument in its commit and not a reflex.
+ */
+const MAX_CORPUS = 254;
+
+/**
+ * Seconds one app-test file costs, used to price a selection in the refusal message.
+ *
+ * Measured 2026-08-21 over the core tier: 15 files ran in 97s, a mean of 6.5s. It is a
+ * MEAN, not a flat rate — the spread is 2s (at0003) to 18s (at0024), so a selection of
+ * long files costs materially more than this predicts and a selection of short ones less.
+ * What the figure is for is sizing a refusal, where the order of magnitude is the whole
+ * argument. The recipe now records each file's own duration in its summary and in
+ * `TUG_APPTEST_JSON`, so this can be re-measured rather than re-guessed.
+ */
+const SECONDS_PER_TEST_FILE = 7;
 
 /**
  * Source paths already fanning out past {@link MAX_SELECTED}, with the count observed when
@@ -254,6 +285,148 @@ function matches(pattern: string, path: string): boolean {
         return path === base || path.startsWith(`${base}/`);
     }
     return false;
+}
+
+/**
+ * The `tugutil` this checkout built, resolved by absolute path from `REPO_ROOT`.
+ *
+ * Never by bare name: `~/.local/bin/tugutil` symlinks into the main checkout, so a
+ * `PATH` lookup from a worktree silently answers about a different tree — which is
+ * exactly the mis-scoping this whole path exists to end.
+ */
+function tugutilPath(): string | null {
+    for (const profile of ["debug", "release"]) {
+        const p = join(REPO_ROOT, "tugrust", "target", profile, "tugutil");
+        if (existsSync(p)) return p;
+    }
+    return null;
+}
+
+/**
+ * The changed paths this run selects from.
+ *
+ * The session's own changes when the ledger can name them, and the whole working tree
+ * when it cannot. A whole-tree read is every concurrent session's work at once, so it
+ * selects tests that have nothing to do with this session — correct but wildly
+ * over-broad. The ledger's classification narrows it to what this session touched.
+ *
+ * The `foreign` bucket is never consulted: those files are another session's to test.
+ * The `unattributed` bucket contributes only entries carrying a this-session hint
+ * (`origin !== "none"`), because an unattributed file with no hint at all is as likely
+ * to be the user's own hand-save as anything this session did.
+ *
+ * Every fallback says which one it took and why — a selection that silently changed
+ * its own meaning is worse than no selection.
+ */
+function changedPaths(): string[] {
+    const session = process.env.TUG_SESSION_ID;
+    if (!session) {
+        process.stderr.write(
+            "[select-tests] no TUG_SESSION_ID — selecting from the whole working tree.\n",
+        );
+        return changedFromGit();
+    }
+
+    const bin = tugutilPath();
+    if (bin === null) {
+        process.stderr.write(
+            "[select-tests] tugutil unavailable (no built binary under tugrust/target) — " +
+                "selecting from the whole working tree.\n",
+        );
+        return changedFromGit();
+    }
+
+    // The RAW root, never a realpath: canonicalization belongs to tugutil's [L29]
+    // gateway, and a second spelling resolved here is how the two drift apart.
+    const proc = Bun.spawnSync([bin, "changes", "--json", "--project", REPO_ROOT], {
+        cwd: REPO_ROOT,
+    });
+
+    if (proc.exitCode === 2) {
+        process.stderr.write(
+            `[select-tests] session ${session} not resolvable — selecting from the whole working tree.\n`,
+        );
+        return changedFromGit();
+    }
+    if (proc.exitCode !== 0) {
+        const stderr = new TextDecoder().decode(proc.stderr).trim().split("\n")[0];
+        const reason = stderr.length > 0 ? stderr : `exit ${proc.exitCode}`;
+        process.stderr.write(
+            `[select-tests] tugutil unavailable (${reason}) — selecting from the whole working tree.\n`,
+        );
+        return changedFromGit();
+    }
+
+    let data: {
+        files?: { path: string }[];
+        unattributed?: { path: string; origin?: string }[];
+        foreign?: { path: string }[];
+    };
+    try {
+        data = JSON.parse(new TextDecoder().decode(proc.stdout)).data ?? {};
+    } catch {
+        process.stderr.write(
+            "[select-tests] tugutil unavailable (unreadable JSON) — selecting from the whole working tree.\n",
+        );
+        return changedFromGit();
+    }
+
+    const attributed = (data.files ?? []).map((f) => f.path);
+    const unattributed = data.unattributed ?? [];
+    const hinted = unattributed.filter((f) => f.origin !== "none").map((f) => f.path);
+    const foreignCount = (data.foreign ?? []).length;
+
+    process.stderr.write(
+        `[select-tests] session ${session}: ${attributed.length} attributed + ` +
+            `${hinted.length} unattributed-hinted (${foreignCount} foreign ignored)\n`,
+    );
+
+    // An empty classification over a dirty tree is not a clean tree — it is the
+    // signature of a --project the ledger spelled differently, which would otherwise
+    // read as "nothing to run" and select nothing, forever, silently.
+    if (attributed.length === 0 && unattributed.length === 0 && foreignCount === 0) {
+        const dirty = changedFromGit().length;
+        if (dirty > 0) {
+            process.stderr.write(
+                `[select-tests] the ledger classified nothing while ${dirty} file(s) are dirty.\n` +
+                    "               That is a --project spelling mismatch, not a clean tree.\n" +
+                    `               Asked about: ${REPO_ROOT}\n`,
+            );
+        }
+    }
+
+    return [...new Set([...attributed, ...hinted])];
+}
+
+/**
+ * {@link ACCEPTED_FANOUT} as the committed file spells it, or `null` when that file
+ * cannot be read — a detached or shallow checkout, or a `select-tests.ts` that is new
+ * and has no committed side yet.
+ *
+ * Null is not a failure. The ratchet compares against history, so a run with no history
+ * to compare against has nothing to say; it warns and stands down rather than failing a
+ * checkout for the shape it arrived in.
+ */
+function committedFanout(): Record<string, number> | null {
+    const proc = Bun.spawnSync(["git", "show", "HEAD:tests/app-test/scripts/select-tests.ts"], {
+        cwd: REPO_ROOT,
+    });
+    if (proc.exitCode !== 0) return null;
+    const src = new TextDecoder().decode(proc.stdout);
+    const start = src.indexOf("const ACCEPTED_FANOUT");
+    if (start < 0) return null;
+    const open = src.indexOf("{", start);
+    const close = src.indexOf("\n};", open);
+    if (open < 0 || close < 0) return null;
+    // Line comments carry prose about the numbers; strip them so only entries are read.
+    const body = src
+        .slice(open, close)
+        .split("\n")
+        .map((l) => l.replace(/\/\/.*$/, ""))
+        .join("\n");
+    const out: Record<string, number> = {};
+    for (const m of body.matchAll(/"([^"]+)"\s*:\s*(\d+)/g)) out[m[1]] = Number(m[2]);
+    return out;
 }
 
 /** Changed paths in the working tree: staged, unstaged, and untracked. */
@@ -436,6 +609,55 @@ if (checkOnly) {
         overBudget.push({ pattern, count, accepted });
     }
 
+    // The ratchet: an ACCEPTED_FANOUT number may fall, never rise. Raising one in place
+    // turns recorded debt into a rubber stamp, because the edit that widens a hub is the
+    // same edit that raises its ceiling and the widening never has to be argued.
+    const raised: { pattern: string; from: number; to: number }[] = [];
+    const committed = committedFanout();
+    if (committed === null) {
+        process.stderr.write(
+            "[select-tests] WARNING: the committed select-tests.ts is unreadable (detached, shallow,\n" +
+                "               or newly added) — the accepted-fan-out ratchet is not enforced this run.\n",
+        );
+    } else {
+        for (const [pattern, to] of Object.entries(ACCEPTED_FANOUT)) {
+            const from = committed[pattern];
+            if (from !== undefined && to > from) raised.push({ pattern, from, to });
+        }
+    }
+
+    // The corpus ceiling. The per-run budget above bounds one selection; this bounds the
+    // thing selections are drawn from, which otherwise only ever grew.
+    const overCorpus = coverage.length > MAX_CORPUS;
+    if (overCorpus) {
+        const worst = patterns
+            .map((p) => ({ p, n: fanOut(representativePath(p)) }))
+            .sort((a, b) => b.n - a.n)
+            .slice(0, 5);
+        process.stderr.write(
+            `[select-tests] the corpus holds ${coverage.length} test files, past the ${MAX_CORPUS}-file\n` +
+                "               ceiling. A new test displaces an old one; raising the ceiling is not the\n" +
+                "               remedy. The widest-fan-out paths, as retirement candidates:\n",
+        );
+        for (const w of worst) process.stderr.write(`  ${w.p}  →  ${w.n} tests\n`);
+    }
+
+    if (raised.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${raised.length} accepted fan-out number(s) went UP. Recorded debt may be\n` +
+                "               paid down, never refinanced in place:\n",
+        );
+        for (const r of raised) {
+            process.stderr.write(`  ${r.pattern}  →  ${r.from} raised to ${r.to}\n`);
+        }
+        process.stderr.write(
+            "               Narrow the @covers lines that name it, or split the module. If the wider\n" +
+                "               coupling is genuinely right, delete the entry and re-add it — a new key is\n" +
+                "               not subject to this rule, and the delete-then-re-add is what makes the\n" +
+                "               decision visible in the diff instead of hiding it in a changed digit.\n",
+        );
+    }
+
     if (overBudget.length > 0) {
         process.stderr.write(
             `[select-tests] ${overBudget.length} path(s) fan out past the ${MAX_SELECTED}-file selection\n` +
@@ -465,14 +687,20 @@ if (checkOnly) {
         );
         for (const d of dangling) process.stderr.write(`  ${d.file}  →  ${d.pattern}\n`);
     }
-    if (missing.length === 0 && dangling.length === 0 && overBudget.length === 0) {
+    if (
+        missing.length === 0 &&
+        dangling.length === 0 &&
+        overBudget.length === 0 &&
+        raised.length === 0 &&
+        !overCorpus
+    ) {
         const worst = patterns
             .map((p) => ({ p, n: fanOut(representativePath(p)) }))
             .sort((a, b) => b.n - a.n)
             .slice(0, 3);
         process.stderr.write(
-            `[select-tests] ${coverage.length} test files: @covers present, resolving, and within\n` +
-                `               the ${MAX_SELECTED}-file budget. Widest fan-out: ` +
+            `[select-tests] ${coverage.length}/${MAX_CORPUS} test files: @covers present, resolving, and\n` +
+                `               within the ${MAX_SELECTED}-file budget. Widest fan-out: ` +
                 `${worst.map((w) => `${w.p} (${w.n})`).join(", ")}\n`,
         );
         process.exit(0);
@@ -480,7 +708,7 @@ if (checkOnly) {
     process.exit(1);
 }
 
-const changed = explicit.length > 0 ? explicit : changedFromGit();
+const changed = explicit.length > 0 ? explicit : changedPaths();
 
 if (changed.length === 0) {
     process.stderr.write("[select-tests] no changed files — nothing to select.\n");
@@ -524,7 +752,7 @@ if (tripped.length > 0) {
 if (!printOnly && selected.length > MAX_SELECTED) {
     process.stderr.write(
         `\n[select-tests] REFUSED — ${selected.length} test files exceeds the ${MAX_SELECTED}-file\n` +
-            `               selection budget. That is ~${Math.round((selected.length * 15) / 60)} minutes of\n` +
+            `               selection budget. That is ~${Math.round((selected.length * SECONDS_PER_TEST_FILE) / 60)} minutes of\n` +
             `               serialized Tug.app launches, which is a sweep, not a scoped run.\n\n` +
             `               Narrow the diff, or name the few tests you actually want:\n` +
             `                 just app-test <file>...\n`,
@@ -532,6 +760,4 @@ if (!printOnly && selected.length > MAX_SELECTED) {
     process.exit(EXIT_OVER_BUDGET);
 }
 
-if (!printOnly) {
-    for (const s of selected) process.stdout.write(`${s.file}\n`);
-}
+for (const s of selected) process.stdout.write(`${s.file}\n`);

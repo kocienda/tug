@@ -32,7 +32,6 @@ pub struct DashConfig {
     /// worktree+branch back and fails `create`.
     #[serde(default)]
     pub post_create: Vec<String>,
-
 }
 
 impl Config {

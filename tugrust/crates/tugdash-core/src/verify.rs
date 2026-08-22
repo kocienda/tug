@@ -173,7 +173,10 @@ mod tests {
         assert!(read_pilot_mark(repo, "demo").is_none());
 
         write_pilot_mark(repo, "demo", "base1:head1").unwrap();
-        assert_eq!(read_pilot_mark(repo, "demo").as_deref(), Some("base1:head1"));
+        assert_eq!(
+            read_pilot_mark(repo, "demo").as_deref(),
+            Some("base1:head1")
+        );
 
         write_pilot_mark(repo, "demo", "base2:head1").unwrap();
         assert_eq!(
@@ -218,7 +221,10 @@ mod tests {
         let head = "d".repeat(40);
 
         write_prompt_mark(repo, "demo", "clean").unwrap();
-        assert_ne!(read_prompt_mark(repo, "demo").as_deref(), Some(head.as_str()));
+        assert_ne!(
+            read_prompt_mark(repo, "demo").as_deref(),
+            Some(head.as_str())
+        );
     }
 
     /// The two marks live on different keys and cannot shadow one another —

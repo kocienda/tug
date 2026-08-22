@@ -172,8 +172,14 @@ mod tests {
         let body = stat_paths(&[present_key.clone(), missing_key.clone()], StatKind::File);
 
         let metadata = std::fs::metadata(&present).unwrap();
-        assert_eq!(body["identity"][&present_key]["dev"].as_u64().unwrap(), metadata.dev());
-        assert_eq!(body["identity"][&present_key]["ino"].as_u64().unwrap(), metadata.ino());
+        assert_eq!(
+            body["identity"][&present_key]["dev"].as_u64().unwrap(),
+            metadata.dev()
+        );
+        assert_eq!(
+            body["identity"][&present_key]["ino"].as_u64().unwrap(),
+            metadata.ino()
+        );
         // Nothing to identify where there is no file.
         assert!(body["identity"].get(&missing_key).is_none());
     }

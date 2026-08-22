@@ -197,7 +197,12 @@ pub fn resolve_conflicts(
             clear_candidate_marks(repo, name);
             let _ = git_output(
                 repo,
-                &["config", "--replace-all", &join_source_config_key(name), &dash_head],
+                &[
+                    "config",
+                    "--replace-all",
+                    &join_source_config_key(name),
+                    &dash_head,
+                ],
             );
             for r in &outcome.resolved {
                 let value = format!("{}\t{}", r.path, r.resolved_by.as_str());
@@ -1368,7 +1373,12 @@ pub fn anchor_candidate(
     clear_candidate_marks(repo, name);
     let _ = git_output(
         repo,
-        &["config", "--replace-all", &join_source_config_key(name), dash_head],
+        &[
+            "config",
+            "--replace-all",
+            &join_source_config_key(name),
+            dash_head,
+        ],
     );
     Ok(())
 }
@@ -1479,7 +1489,12 @@ pub fn write_question(repo: &Path, name: &str, dash_head: &str, json: &str) {
     let value = format!("{}:{}", dash_head, blob);
     let _ = git_output(
         repo,
-        &["config", "--replace-all", &question_config_key(name), &value],
+        &[
+            "config",
+            "--replace-all",
+            &question_config_key(name),
+            &value,
+        ],
     );
 }
 

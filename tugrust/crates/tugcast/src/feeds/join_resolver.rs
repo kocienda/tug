@@ -1363,9 +1363,7 @@ mod tests {
 
         // A touched path that was already in the machine's set is not reported
         // twice, and the resolver's own resolutions are the ordinary case.
-        assert!(
-            validate_report(&report, &["a.txt".to_string()], &["a.txt".to_string()]).is_ok()
-        );
+        assert!(validate_report(&report, &["a.txt".to_string()], &["a.txt".to_string()]).is_ok());
     }
 
     #[tokio::test]
@@ -1631,7 +1629,10 @@ mod tests {
 
         git(repo, &["switch", "-q", "tugdash/demo"]);
         std::fs::write(repo.join("f.txt"), "M\n").unwrap();
-        git(repo, &["commit", "-am", "r1: the change the base also makes"]);
+        git(
+            repo,
+            &["commit", "-am", "r1: the change the base also makes"],
+        );
         std::fs::write(repo.join("f.txt"), "X\n").unwrap();
         git(repo, &["commit", "-am", "r2: move on from there"]);
         git(repo, &["switch", "-q", "main"]);
@@ -1846,7 +1847,9 @@ mod tests {
         assert!(workshop.exists(), "the workshop itself survives its warmth");
         assert!(
             !workshop.join(".git/MERGE_HEAD").exists()
-                && !workshop.join("../../.git/worktrees/demo/MERGE_HEAD").exists(),
+                && !workshop
+                    .join("../../.git/worktrees/demo/MERGE_HEAD")
+                    .exists(),
             "no merge is still in flight"
         );
         let contents = std::fs::read_to_string(workshop.join("f.txt")).unwrap();
@@ -2036,5 +2039,4 @@ mod tests {
             .expect_err("a silent resolver cannot finish the join");
         assert!(err.contains("went silent"), "{err}");
     }
-
 }

@@ -58,10 +58,15 @@ test: test-rust test-ts
 test-rust:
     cd tugrust && cargo nextest run --workspace --no-fail-fast
 
-# Run TypeScript tests (tugdeck frontend + tugcode bridge)
+# Run TypeScript tests (tugdeck frontend + tugcode bridge + app-test pure logic)
+#
+# The app-test line names two directories on purpose. `scripts/` and `_harness/`
+# hold pure-logic tests that spawn no `Tug.app`; the corpus itself lives at the
+# tests/app-test root and under harness-smoke/, and is not reached from here.
 test-ts:
     cd tugdeck && bun test
     cd tugcode && bun test
+    cd tests/app-test && bun test scripts/ _harness/
 
 # Regenerate every checked-in golden fixture from the code that produces it.
 #
@@ -1521,11 +1526,12 @@ app-test *FILES:
             resolve_foreground_decision
             if [ "$FG_DECISION" = "skip" ]; then
                 [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
-                RESULT_ROWS+=("SKIP:$f:0:0")
+                RESULT_ROWS+=("SKIP:$f:0:0:0")
                 [ -n "$PROGRESS" ] && printf '  %-6s %-56s (skipped — takes the screen)\n' "[SKIP]" "$f"
                 continue
             fi
         fi
+        file_start="$(date +%s)"
         if [ -n "$STREAM" ]; then
             echo "---- $f ----"
             # bun's stdout/stderr both stream to the user's terminal AND
@@ -1556,19 +1562,21 @@ app-test *FILES:
             [ -n "$ln" ] && NOTE_ROWS+=("$f$US${ln#TUG-NOTE: }")
         done < <(grep '^TUG-NOTE: ' "$TMPOUT" || true)
 
+        secs=$(( $(date +%s) - file_start ))
+
         if [ "$rc" -eq 0 ] && [ "$total" -eq 0 ]; then
             status=SKIP; passed=0; total=0
-            RESULT_ROWS+=("SKIP:$f:0:0")
+            RESULT_ROWS+=("SKIP:$f:0:0:$secs")
         elif [ "$rc" -eq 0 ]; then
             status=PASS
-            RESULT_ROWS+=("PASS:$f:$passed:$total")
+            RESULT_ROWS+=("PASS:$f:$passed:$total:$secs")
         else
             if [ "$total" -gt 0 ]; then
                 status=FAIL
-                RESULT_ROWS+=("FAIL:$f:$passed:$total")
+                RESULT_ROWS+=("FAIL:$f:$passed:$total:$secs")
             else
                 status=ERR; passed=0; total=0
-                RESULT_ROWS+=("ERR:$f:0:0")
+                RESULT_ROWS+=("ERR:$f:0:0:$secs")
             fi
             before=${#FAIL_DETAILS[@]}
             while IFS= read -r -d "$RS" rec; do
@@ -1612,7 +1620,7 @@ app-test *FILES:
     tests_passed_total=0
     tests_total=0
     for row in "${RESULT_ROWS[@]}"; do
-        IFS=':' read -r status _file rpassed rtotal <<< "$row"
+        IFS=':' read -r status _file rpassed rtotal _rsecs <<< "$row"
         case "$status" in
             PASS) files_passed=$((files_passed + 1)) ;;
             FAIL) files_failed=$((files_failed + 1)) ;;
@@ -1643,8 +1651,8 @@ app-test *FILES:
     echo
     echo "Per-file results:"
     for row in "${RESULT_ROWS[@]}"; do
-        IFS=':' read -r status file rpassed rtotal <<< "$row"
-        printf '  %-6s %-56s (%d/%d)\n' "[$status]" "$file" "$rpassed" "$rtotal"
+        IFS=':' read -r status file rpassed rtotal rsecs <<< "$row"
+        printf '  %-6s %-56s (%d/%d)  %4ds\n' "[$status]" "$file" "$rpassed" "$rtotal" "$rsecs"
     done
 
     if [ ${#NOTE_ROWS[@]} -gt 0 ]; then
@@ -1702,7 +1710,7 @@ app-test *FILES:
             fi
             {
                 for row in "${RESULT_ROWS[@]}"; do
-                    IFS=':' read -r status file rpassed rtotal <<< "$row"
+                    IFS=':' read -r status file rpassed rtotal rsecs <<< "$row"
                     fails="$(
                         for d in ${FAIL_DETAILS[@]+"${FAIL_DETAILS[@]}"}; do
                             dfile="${d%%$US*}"; rest="${d#*$US}"
@@ -1735,8 +1743,9 @@ app-test *FILES:
                     [ -n "$fails" ] || fails='[]'
                     jq -n --arg file "$file" --arg status "$status" \
                           --argjson passed "$rpassed" --argjson total "$rtotal" \
+                          --argjson seconds "$rsecs" \
                           --argjson failures "$fails" --argjson notes "$notes" \
-                          '{file:$file,status:$status,passed:$passed,total:$total,failures:$failures,notes:$notes}'
+                          '{file:$file,status:$status,passed:$passed,total:$total,seconds:$seconds,failures:$failures,notes:$notes}'
                 done
             } | jq -s \
                 --arg sweep "$SWEEP_LABEL" \
@@ -1759,13 +1768,20 @@ app-test *FILES:
     fi
 
     echo "$BANNER"
+    # The denominator is what RAN. `files_run` is the requested count and includes
+    # skipped files, so using it read as "5 files are not green" on a run where five
+    # files were never asked to be green. Skips are named in their own clause instead.
+    files_ran=$((files_run - files_skipped))
+    skip_clause=""
+    [ "$files_skipped" -gt 0 ] && skip_clause="; $files_skipped skipped"
     if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ]; then
-        printf 'VERDICT: PASS  (%d/%d files green; %d/%d tests passed)\n' \
-            "$files_passed" "$files_run" "$tests_passed_total" "$tests_total"
+        printf 'VERDICT: PASS  (%d/%d files green%s; %d/%d tests passed)\n' \
+            "$files_passed" "$files_ran" "$skip_clause" "$tests_passed_total" "$tests_total"
         exit 0
     else
-        printf 'VERDICT: FAIL  (%d/%d files green; %d file(s) failed; %d/%d tests passed)\n' \
-            "$files_passed" "$files_run" $((files_failed + files_errored)) "$tests_passed_total" "$tests_total"
+        printf 'VERDICT: FAIL  (%d/%d files green; %d file(s) failed%s; %d/%d tests passed)\n' \
+            "$files_passed" "$files_ran" $((files_failed + files_errored)) "$skip_clause" \
+            "$tests_passed_total" "$tests_total"
         exit 1
     fi
 
@@ -1907,7 +1923,7 @@ model-stats INSTANCE="debug-main":
 # live `app-debug` bundle.
 #
 #   just app-test-build                       # rebuild + the core tier
-#   just app-test-build at0000-smoke.test.ts  # rebuild + one file
+#   just app-test-build at0003-pane-activation.test.ts  # rebuild + one file
 #
 # Force a fresh app-test build, then run the given files (core tier if none).
 app-test-build *FILES:

@@ -3239,11 +3239,13 @@ pub fn join_in_with_progress(
         let journal = read_join_journal(&repo_root, name)
             .ok_or_else(|| format!("No interrupted join to continue for dash '{}'.", name))?;
         return finish_join_teardown(
-            &repo_root,
-            name,
-            &branch,
-            &worktree,
-            opts.origin.as_deref(),
+            TeardownTarget {
+                repo_root: &repo_root,
+                name,
+                branch: &branch,
+                worktree: &worktree,
+                origin: opts.origin.as_deref(),
+            },
             journal,
             warnings,
             &on_beat,
@@ -3401,8 +3403,10 @@ pub fn join_in_with_progress(
                 git_stdout(&repo_root, &["rev-parse", "HEAD"])?
             }
             JoinStrategy::Merge => {
-                let merge =
-                    git_output(&repo_root, &["merge", "--no-ff", "-m", &final_msg, &candidate])?;
+                let merge = git_output(
+                    &repo_root,
+                    &["merge", "--no-ff", "-m", &final_msg, &candidate],
+                )?;
                 if !merge.status.success() {
                     let _ = git_output(&repo_root, &["merge", "--abort"]);
                     return Err(format!(
@@ -3445,11 +3449,13 @@ pub fn join_in_with_progress(
         write_join_journal(&repo_root, &journal)?;
         on_beat("squash", "done");
         return finish_join_teardown(
-            &repo_root,
-            name,
-            &branch,
-            &worktree,
-            opts.origin.as_deref(),
+            TeardownTarget {
+                repo_root: &repo_root,
+                name,
+                branch: &branch,
+                worktree: &worktree,
+                origin: opts.origin.as_deref(),
+            },
             journal,
             warnings,
             &on_beat,
@@ -3539,15 +3545,29 @@ pub fn join_in_with_progress(
     on_beat("squash", "done");
 
     finish_join_teardown(
-        &repo_root,
-        name,
-        &branch,
-        &worktree,
-        opts.origin.as_deref(),
+        TeardownTarget {
+            repo_root: &repo_root,
+            name,
+            branch: &branch,
+            worktree: &worktree,
+            origin: opts.origin.as_deref(),
+        },
         journal,
         warnings,
         &on_beat,
     )
+}
+
+/// What a join's teardown acts on: the repo, the dash, and the git objects
+/// that name it. Every caller has these five in hand together, so carrying
+/// them together keeps the teardown's signature about what actually varies
+/// between calls — the journal, the warnings, and the beat sink.
+struct TeardownTarget<'a> {
+    repo_root: &'a Path,
+    name: &'a str,
+    branch: &'a str,
+    worktree: &'a Path,
+    origin: Option<&'a str>,
 }
 
 /// The resumable teardown half of a join ([P14]): remove the worktree, delete
@@ -3555,15 +3575,18 @@ pub fn join_in_with_progress(
 /// journal phase after each step so `--continue` resumes exactly where a crash
 /// left off. Idempotent per phase.
 fn finish_join_teardown(
-    repo_root: &Path,
-    name: &str,
-    branch: &str,
-    worktree: &Path,
-    origin: Option<&str>,
+    target: TeardownTarget<'_>,
     mut journal: JoinJournal,
     mut warnings: Vec<String>,
     on_beat: &dyn Fn(&str, &str),
 ) -> Result<JoinOutcome, String> {
+    let TeardownTarget {
+        repo_root,
+        name,
+        branch,
+        worktree,
+        origin,
+    } = target;
     if journal.phase == JoinPhase::Integrated {
         on_beat("teardown", "start");
         remove_dash_worktree(repo_root, branch, worktree, &mut warnings);
@@ -4164,7 +4187,10 @@ Some context.
         fs::write(worktree.join("one.txt"), "edited\n").unwrap();
         let detail = dash_detail_entry_in(&root, "ready-dash").unwrap();
         assert!(!detail.join_ready);
-        assert_eq!(status_in(&root, "ready-dash").unwrap().stage, "implementing");
+        assert_eq!(
+            status_in(&root, "ready-dash").unwrap().stage,
+            "implementing"
+        );
     }
 
     /// The two pairs answer different questions and both reach the callers:
@@ -6051,10 +6077,16 @@ Some context.
         assert_eq!(derive_stage(0, false, false, false, None, false), "created");
         assert_eq!(derive_stage(1, false, false, false, None, false), "working");
         assert_eq!(derive_stage(0, true, false, false, None, false), "working");
-        assert_eq!(derive_stage(2, true, true, false, None, false), "draft-ready");
+        assert_eq!(
+            derive_stage(2, true, true, false, None, false),
+            "draft-ready"
+        );
         // A draft with no work yet is still draft-ready — the draft is the
         // stronger signal.
-        assert_eq!(derive_stage(0, false, true, false, None, false), "draft-ready");
+        assert_eq!(
+            derive_stage(0, false, true, false, None, false),
+            "draft-ready"
+        );
         // A join in flight outranks everything below it.
         assert_eq!(derive_stage(3, true, true, true, None, false), "joining");
         assert_eq!(derive_stage(0, false, false, true, None, false), "joining");
@@ -6065,7 +6097,10 @@ Some context.
         });
         // Declarations outrank a draft — a planned run writes its draft before
         // the audit, so a draft that won would hide `built` and `audited`.
-        assert_eq!(derive_stage(2, true, true, false, stepping, false), "implementing");
+        assert_eq!(
+            derive_stage(2, true, true, false, stepping, false),
+            "implementing"
+        );
         assert_eq!(
             derive_stage(2, true, true, false, Some(DashDeclaration::Built), false),
             "built"
@@ -6075,12 +6110,18 @@ Some context.
             "audited"
         );
         // …and a join still outranks a declaration.
-        assert_eq!(derive_stage(2, true, true, true, stepping, false), "joining");
+        assert_eq!(
+            derive_stage(2, true, true, true, stepping, false),
+            "joining"
+        );
 
         // A finished run's latest declaration is still a step, so `ready` must
         // outrank `implementing` or a completed selection reads as step three
         // of nine forever ([P07]).
-        assert_eq!(derive_stage(2, false, false, false, stepping, true), "ready");
+        assert_eq!(
+            derive_stage(2, false, false, false, stepping, true),
+            "ready"
+        );
         // A dash somebody marked keeps its own word, ready or not.
         assert_eq!(
             derive_stage(2, false, false, false, Some(DashDeclaration::Built), true),
@@ -6099,15 +6140,14 @@ Some context.
     fn join_readiness_follows_the_arming_matrix() {
         use crate::dash::{DashDeclarations, join_ready};
 
-        let run = |through: Option<u32>, complete: bool, step: Option<(u32, u32)>| {
-            DashDeclarations {
+        let run =
+            |through: Option<u32>, complete: bool, step: Option<(u32, u32)>| DashDeclarations {
                 latest: step.map(|(current, total)| DashDeclaration::Step { current, total }),
                 step,
                 run_through: through,
                 run_complete: complete,
                 ..DashDeclarations::default()
-            }
-        };
+            };
         let marked = |stage: DashDeclaration| DashDeclarations {
             latest: Some(stage),
             step: Some((8, 15)),
@@ -6115,7 +6155,12 @@ Some context.
         };
 
         // A declared selection that finished.
-        assert!(join_ready(3, false, false, &run(Some(8), true, Some((8, 15)))));
+        assert!(join_ready(
+            3,
+            false,
+            false,
+            &run(Some(8), true, Some((8, 15)))
+        ));
         // …and one that stopped short of its declared end.
         assert!(!join_ready(
             3,
@@ -6132,13 +6177,23 @@ Some context.
         ));
         // A mark arms on its own — the manual and legacy path ([P03]).
         assert!(join_ready(3, false, false, &marked(DashDeclaration::Built)));
-        assert!(join_ready(3, false, false, &marked(DashDeclaration::Audited)));
+        assert!(join_ready(
+            3,
+            false,
+            false,
+            &marked(DashDeclaration::Audited)
+        ));
         // A plan-less generation arms on every round ([P02])…
         assert!(join_ready(1, false, false, &DashDeclarations::default()));
         // …but not while its tracked work is uncommitted.
         assert!(!join_ready(1, true, false, &DashDeclarations::default()));
         // A legacy plan dash — steps declared, no run — stays dark until marked.
-        assert!(!join_ready(3, false, false, &run(None, false, Some((8, 15)))));
+        assert!(!join_ready(
+            3,
+            false,
+            false,
+            &run(None, false, Some((8, 15)))
+        ));
         // A join in flight is landing, not ready; and nothing to join is not
         // ready either.
         assert!(!join_ready(1, false, true, &DashDeclarations::default()));
@@ -8061,8 +8116,8 @@ Some context.
         .unwrap();
         assert!(out.commit_hash.is_some());
 
-        let landed = git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")])
-            .unwrap();
+        let landed =
+            git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")]).unwrap();
         assert_eq!(landed, "1", "one commit on the base, never the chain");
 
         let subject = git_stdout(&repo, &["log", "-1", "--format=%s"]).unwrap();
@@ -8098,8 +8153,8 @@ Some context.
         )
         .unwrap();
 
-        let landed = git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")])
-            .unwrap();
+        let landed =
+            git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")]).unwrap();
         assert_eq!(landed, "2", "the rounds stand");
         let subject = git_stdout(&repo, &["log", "-1", "--format=%s"]).unwrap();
         assert_eq!(subject, "candrb-round-2", "and keep their own messages");

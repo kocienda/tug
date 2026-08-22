@@ -1166,8 +1166,8 @@ fn dash_review_state(worktree_abs: &Path, plan_path: &str) -> Option<String> {
 /// entries are untouched — the changes-attribution tests really do compose
 /// the checkout's dirt.
 fn dashes_hidden_for(repo_root: &Path) -> bool {
-    let is_apptest = tugcore::instance::instance_id()
-        .is_some_and(|id| tugcore::ports::is_apptest_id(&id));
+    let is_apptest =
+        tugcore::instance::instance_id().is_some_and(|id| tugcore::ports::is_apptest_id(&id));
     if !is_apptest {
         return false;
     }
@@ -1249,8 +1249,7 @@ async fn dash_entries(
         let bound = bound_by_dash
             .get(&detail.owner_key)
             .is_some_and(|sessions| !sessions.is_empty());
-        if let Some(action) =
-            crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)
+        if let Some(action) = crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)
         {
             crate::feeds::join_pilot::dispatch(repo_root, &detail.name, action);
         }
@@ -2468,7 +2467,10 @@ Some context.
         git(&root, &["branch", "tugdash/pending"]);
         git(&root, &["config", "branch.tugdash/pending.tugbase", "main"]);
         git(&root, &["branch", "tugdash/finished"]);
-        git(&root, &["config", "branch.tugdash/finished.tugbase", "main"]);
+        git(
+            &root,
+            &["config", "branch.tugdash/finished.tugbase", "main"],
+        );
         // A round on the dash branch: a dash with nothing to join carries an
         // `empty` blocker, and a blocked dash is one the pilot leaves alone.
         git(&root, &["switch", "-q", "tugdash/finished"]);
@@ -2523,9 +2525,8 @@ Some context.
             1,
             "exactly the ready dash is piloted, and exactly once"
         );
-        assert_eq!(
+        assert!(
             tugdash_core::verify::read_pilot_mark(&root, "finished").is_some(),
-            true,
             "the pair it acted on is claimed"
         );
         assert!(
@@ -2620,7 +2621,10 @@ Some context.
         // A scratch repo outside the universe still composes its dashes.
         let (_dir2, scratch) = init_repo();
         git(&scratch, &["branch", "tugdash/fixture"]);
-        git(&scratch, &["config", "branch.tugdash/fixture.tugbase", "main"]);
+        git(
+            &scratch,
+            &["config", "branch.tugdash/fixture.tugbase", "main"],
+        );
         assert!(
             !dash_entries(&scratch, None).await.is_empty(),
             "a fixture repo outside the universe is untouched"

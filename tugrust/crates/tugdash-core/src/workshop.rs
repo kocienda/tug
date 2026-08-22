@@ -408,7 +408,12 @@ pub fn existing(repo: &Path) -> Vec<String> {
     }
     if let Ok(list) = git_stdout(
         &repo_root,
-        &["branch", "--list", "tugworkshop/*", "--format=%(refname:short)"],
+        &[
+            "branch",
+            "--list",
+            "tugworkshop/*",
+            "--format=%(refname:short)",
+        ],
     ) {
         for line in list.lines() {
             if let Some(name) = line.trim().strip_prefix("tugworkshop/") {

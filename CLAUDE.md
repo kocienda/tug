@@ -54,6 +54,8 @@ just app-test-select         # print that selection without running it
 
 Selection is derived, not guessed: every `*.test.ts` declares the source it exercises with `@covers` lines in its header docblock, and `app-test-changed` resolves the changed files through those declarations. Any new test **must** carry `@covers` — `just app-test-covers-check` fails on a missing declaration or a path that no longer resolves.
 
+The changed files are **this session's**, not the whole tree's. The selector reads `tugutil changes --json` and selects from the attributed bucket plus any unattributed entry carrying a this-session hint; the **foreign** bucket — files another live session claims — is never selected, so a shared checkout no longer hands you tests for work that isn't yours. When the ledger can't answer (no `TUG_SESSION_ID`, unresolvable session, no built `tugutil`), selection falls back to the whole working tree and prints which fallback it took and why.
+
 Do **not** run `just app-test-all` on your own initiative. Run the full corpus only when:
 
 - the user explicitly asks for it, or

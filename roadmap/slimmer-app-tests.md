@@ -386,26 +386,31 @@ Each object in `files[]` gains `"seconds": <number>`. `totals` is unchanged (`fi
 
 **Table T01: Corpus and cost as measured** {#t01-baseline}
 
-| Quantity | Value | How measured |
-|---|---|---|
-| `at*.test.ts` files | 233 | `ls tests/app-test/*.test.ts` |
-| Files the selector sees (incl. `harness-smoke/`) | 244 | `--check` output |
-| Total lines | 86,510 | `wc -l` over the corpus |
-| `launchTugApp` call sites | 723 | grep over the corpus |
-| Files created in Aug 2026 | 112 of 233 | first-commit date per file |
-| Core tier wall time | 106s for 20 files, **15 executed** | `TUG_APPTEST_JSON` on `just app-test` |
-| 3-file run wall time | 8s | `TUG_APPTEST_JSON` |
-| Implied per-file cost | ~7s | 106s ÷ 15 executed |
-| Cost constant in `select-tests.ts` | 15s | the literal in the refusal message |
-| `@covers` declarations | 1,276 over 244 files (mean 5.2) | parsed from headers |
-| Source files considered | 1,496 | `git ls-files` over `tugdeck/src`, `tugdeck/styles`, `tugrust`, `tugapp/Sources`, `tugcode/src` |
-| Source files selecting nothing | 696 (47%) | fan-out computed with the real `matches()`, same wide root set as the row above |
-| Coverage holes | 632 | `--holes`, whose `HOLE_ROOTS` is the narrower `tugdeck/src/`, `tugdeck/styles/`, `tugcode/src/` — this is why 632 and 696 differ; they are not two measurements of one quantity |
-| Mean fan-out among covered files | 3.6 | as above |
-| Files exceeding the budget alone | 2 (`focus-manager.ts` 29, `deck-canvas.tsx` 21) | as above |
-| `@foreground` files | 33 corpus-wide; 5 of the 20 core tier | `--foreground` |
-| Subset-duplicate pairs | 25 | `@covers` set containment |
-| Always-co-changed tests (≥3 commits) | 112 of 168 | git history per file |
+The **After** column was re-measured on 2026-08-21 at the end of the run. A dash (—) means the quantity was not re-measured because nothing in the plan could have moved it.
+
+| Quantity | Before | After | How measured |
+|---|---|---|---|
+| `at*.test.ts` files | 233 | 230 | `ls tests/app-test/*.test.ts` |
+| Files the selector sees (incl. `harness-smoke/`) | 244 | 242 | `--check` output |
+| Total lines | 86,510 | 85,407 | `wc -l` over the corpus |
+| `launchTugApp` call sites | 723 | — | grep over the corpus |
+| Files created in Aug 2026 | 112 of 233 | — | first-commit date per file |
+| Core tier wall time | 106s for 20 files, **15 executed** | 103s for 20 files, **15 executed** | `TUG_APPTEST_JSON` on `just app-test` |
+| 3-file run wall time | 8s | 6s for 2 files | `TUG_APPTEST_JSON` |
+| Implied per-file cost | ~7s | 6.5s mean, **2s–18s spread** | per-file `seconds`, now recorded |
+| Cost constant in `select-tests.ts` | 15s (guessed) | 7s (`SECONDS_PER_TEST_FILE`, measured) | the constant in the refusal message |
+| `@covers` declarations | 1,276 over 244 files (mean 5.2) | 1,256 over 242 files (mean 5.2) | parsed from headers |
+| Source files considered | 1,496 | — | `git ls-files` over `tugdeck/src`, `tugdeck/styles`, `tugrust`, `tugapp/Sources`, `tugcode/src` |
+| Source files selecting nothing | 696 (47%) | — | fan-out computed with the real `matches()`, same wide root set as the row above |
+| Coverage holes | 632 | 629 | `--holes`, whose `HOLE_ROOTS` is the narrower `tugdeck/src/`, `tugdeck/styles/`, `tugcode/src/` — this is why 632 and 696 differ; they are not two measurements of one quantity |
+| Mean fan-out among covered files | 3.6 | — | as above |
+| Files exceeding the budget alone | 2 (`focus-manager.ts` 29, `deck-canvas.tsx` 21) | 2, unchanged and now ratcheted | `--check` |
+| `@foreground` files | 33 corpus-wide; 5 of the 20 core tier | 32 corpus-wide; 5 of the 20 core tier | `--foreground` |
+| Subset-duplicate pairs | 25 | 25 reviewed, **0 retired** | `@covers` set containment |
+| Always-co-changed tests (≥3 commits) | 112 of 168 | 52 candidates reviewed, **0 retired** | git history per file |
+| Corpus ceiling | none | 254 (`MAX_CORPUS`) | `--check` |
+
+The two deletion rows are the plan's biggest miss and are recorded as such. Both heuristics measure declared-surface or co-change, and neither turns out to correlate with redundancy: every candidate read was a distinct claim on a shared surface. The corpus fell by 3 files, not the 53 the plan projected, and the ceiling in [#step-8](#step-8) was therefore set from the honest number.
 
 **Table T02: Selection size vs. concurrent work** {#t02-k-curve}
 
@@ -485,17 +490,17 @@ All three reads must gain the trailing variable in the same commit.
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Give the orphaned pure-logic tests a home | pending | — |
-| #step-2 | `--print` writes the selection to stdout | pending | — |
-| #step-3 | `changes --json` carries all three buckets | pending | — |
-| #step-4 | Session-scoped selection | pending | — |
-| #step-5 | Retire the subset duplicates | pending | — |
-| #step-6 | Retire the reviewed change-detectors | pending | — |
-| #step-7 | The fan-out ratchet turns one way | pending | — |
-| #step-8 | A corpus ceiling | pending | — |
-| #step-9 | Skipped files are named in the verdict | pending | — |
-| #step-10 | Per-file duration, and a measured cost constant | pending | — |
-| #step-11 | Integration checkpoint | pending | — |
+| #step-1 | Give the orphaned pure-logic tests a home | done | `bd9fdb270` |
+| #step-2 | `--print` writes the selection to stdout | done | `1e6a50b17` |
+| #step-3 | `changes --json` carries all three buckets | done | `7ffe5db21` |
+| #step-4 | Session-scoped selection | done | `fdc48b4aa` |
+| #step-5 | Retire the subset duplicates | done | `ef61366f0` |
+| #step-6 | Retire the reviewed change-detectors | done | `4be46bc15` |
+| #step-7 | The fan-out ratchet turns one way | done | `320f8ef7a` |
+| #step-8 | A corpus ceiling | done | `2d009a1ee` |
+| #step-9 | Skipped files are named in the verdict | done | `6b3a58272` |
+| #step-10 | Per-file duration, and a measured cost constant | done | `31f312cda` |
+| #step-11 | Integration checkpoint | done | `34a3ee545` |
 
 ---
 

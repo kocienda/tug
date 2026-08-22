@@ -102,7 +102,7 @@ pub fn sweep_workshops(repo_root: &Path, live_dashes: &[String]) {
 
     for name in tugdash_core::workshop::existing(repo_root) {
         let branch = tugdash_core::workshop::workshop_branch(&name);
-        if live.iter().any(|l| *l == branch) {
+        if live.contains(&branch) {
             continue;
         }
         let owner_key = tugdash_core::ops::dash_owner_key(repo_root, &name);
@@ -410,7 +410,6 @@ fn standing_stuck(repo_root: &Path, detail: &DashDetail) -> Option<String> {
     let head = ops::rev_parse(repo_root, &detail.branch).ok()?;
     resolve::read_stuck(repo_root, detail.name.as_str(), &head)
 }
-
 
 /// The conflict probe, from cache when the head pair is unmoved.
 fn cached_probe(repo_root: &Path, detail: &DashDetail) -> Option<CachedProbe> {
@@ -896,7 +895,10 @@ mod tests {
 
         // Conflicted, nothing built: the machine still has work, so there is
         // nothing to decide about.
-        assert!(compose(repo).prompt.is_none(), "a conflicted dash asks nothing");
+        assert!(
+            compose(repo).prompt.is_none(),
+            "a conflicted dash asks nothing"
+        );
 
         reconciled(repo);
         let asked = compose(repo)
@@ -1032,7 +1034,10 @@ mod tests {
             ],
         );
         let described = compose(repo).prompt.expect("asked");
-        assert_eq!(described.message, "tugdash(demo): Teach the imposer to breathe");
+        assert_eq!(
+            described.message,
+            "tugdash(demo): Teach the imposer to breathe"
+        );
         assert_eq!(described.message_source, "description");
 
         // An authored draft outranks it — and the ask keeps its identity, so

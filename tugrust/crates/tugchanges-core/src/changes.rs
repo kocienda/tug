@@ -91,13 +91,37 @@ pub struct ForeignChange {
 /// The `changes` result (Spec S01 payload). `known` is the
 /// unknown-session-with-no-events signal for the CLI's exit-code mapping — it is
 /// not serialized (not part of the wire contract).
+///
+/// `files` is the attributed bucket. `unattributed` and `foreign` are the other
+/// two buckets `resolve_changes` classifies every dirty path into; they are
+/// carried here so a JSON caller can read the whole classification rather than
+/// re-deriving it from `git status`. Both serialize unconditionally — a caller
+/// distinguishes "no such files" from "this build does not report them" by the
+/// key being present and empty.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChangesReport {
     pub session: String,
     pub project: String,
     pub files: Vec<Change>,
+    pub unattributed: Vec<Change>,
+    pub foreign: Vec<ForeignChange>,
     #[serde(skip)]
     pub known: bool,
+}
+
+impl ChangesReport {
+    /// Carry a classified working tree onto the wire shape. `files` is the
+    /// attributed bucket; the other two ride along under their own keys.
+    pub(crate) fn from_resolved(resolved: ResolvedChanges) -> Self {
+        Self {
+            session: resolved.session,
+            project: resolved.repo_root.to_string_lossy().into_owned(),
+            files: resolved.files,
+            unattributed: resolved.unattributed,
+            foreign: resolved.foreign,
+            known: resolved.known,
+        }
+    }
 }
 
 /// The exit-code-bearing outcome of a `changes`/`context` call. The three
@@ -259,13 +283,7 @@ pub(crate) fn resolve_changes(opts: &ChangesOptions) -> Result<ResolvedChanges, 
 
 /// Run the `changes` operation (Spec S01).
 pub fn changes(opts: ChangesOptions) -> Result<ChangesReport, ChangesError> {
-    let resolved = resolve_changes(&opts)?;
-    Ok(ChangesReport {
-        session: resolved.session,
-        project: resolved.repo_root.to_string_lossy().into_owned(),
-        files: resolved.files,
-        known: resolved.known,
-    })
+    Ok(ChangesReport::from_resolved(resolve_changes(&opts)?))
 }
 
 /// Invert the join ([P01]): `git status` is the universe, the ledger annotates
@@ -1135,6 +1153,54 @@ mod tests {
         assert_eq!(f.path, "shared.rs");
         assert_eq!(f.sessions, vec!["theirs".to_string()]);
         assert_eq!(f.git_status, "??");
+    }
+
+    /// The wire shape carries the whole classification, not just this
+    /// session's share of it. One file per bucket, then the report `changes()`
+    /// builds from them.
+    #[test]
+    fn report_carries_all_three_buckets_onto_the_wire() {
+        let repo = init_repo(&["mine.rs", "theirs.rs", "nobodys.rs"]);
+        let root = repo.path();
+        let rootstr = root.to_string_lossy().into_owned();
+        let db = seed_sessions(&[
+            ("mine", "mine.rs", &rootstr),
+            ("theirs", "theirs.rs", &rootstr),
+        ]);
+        let buckets = compute_changes(&open(&db), None, root, "mine", false).unwrap();
+
+        let report = ChangesReport::from_resolved(ResolvedChanges {
+            session: "mine".to_string(),
+            repo_root: root.to_path_buf(),
+            files: buckets.attributed,
+            unattributed: buckets.unattributed,
+            foreign: buckets.foreign,
+            known: true,
+        });
+
+        let paths = |c: &[Change]| -> Vec<String> { c.iter().map(|f| f.path.clone()).collect() };
+        assert_eq!(paths(&report.files), vec!["mine.rs".to_string()]);
+        assert_eq!(paths(&report.unattributed), vec!["nobodys.rs".to_string()]);
+        assert_eq!(
+            report
+                .foreign
+                .iter()
+                .map(|f| f.path.clone())
+                .collect::<Vec<_>>(),
+            vec!["theirs.rs".to_string()]
+        );
+
+        let json: serde_json::Value = serde_json::to_value(&report).unwrap();
+        let obj = json.as_object().unwrap();
+        let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["files", "foreign", "project", "session", "unattributed"]
+        );
+        assert_eq!(json["unattributed"][0]["path"], "nobodys.rs");
+        assert_eq!(json["foreign"][0]["path"], "theirs.rs");
+        assert_eq!(json["foreign"][0]["sessions"][0], "theirs");
     }
 
     #[test]

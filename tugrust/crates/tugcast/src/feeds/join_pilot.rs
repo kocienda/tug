@@ -108,10 +108,7 @@ pub fn pilot_action(join_ready: bool, bound: bool, state: &DashJoinState) -> Opt
     if state.question.is_some() || state.stuck.is_some() {
         return None;
     }
-    state
-        .candidate
-        .is_none()
-        .then_some(PilotAction::Reconcile)
+    state.candidate.is_none().then_some(PilotAction::Reconcile)
 }
 
 /// What actually performs a pilot action.
@@ -233,9 +230,7 @@ fn head_pair(repo_root: &Path, dash: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tugcast_core::types::{
-        DashJoinBlocker, DashJoinQuestion, DashJoinState,
-    };
+    use tugcast_core::types::{DashJoinBlocker, DashJoinQuestion, DashJoinState};
 
     /// A dash with nothing standing in the way and no candidate — the state a
     /// freshly built, conflicted dash arrives in.
@@ -305,7 +300,11 @@ mod tests {
             question: "which side wins?".to_string(),
             options: Vec::new(),
         });
-        assert_eq!(pilot_action(true, true, &asked), None, "waiting on a person");
+        assert_eq!(
+            pilot_action(true, true, &asked),
+            None,
+            "waiting on a person"
+        );
 
         let mut stuck = bare();
         stuck.stuck = Some("the resolver exhausted its budget".to_string());
@@ -332,8 +331,8 @@ mod tests {
 
     // ── The dispatch (Spec S06) ──────────────────────────────────────────
 
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// Counts what it was asked to do and drops the hold, which is the whole
     /// contract the dispatch has with a runner.
@@ -512,5 +511,4 @@ mod tests {
             "the pair is claimed before the ladder starts"
         );
     }
-
 }

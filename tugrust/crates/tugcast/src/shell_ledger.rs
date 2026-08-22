@@ -511,7 +511,8 @@ mod tests {
 
         led.record_exchange(&ex("s1", "echo a", Some(0))).unwrap();
         led.record_exchange(&ex("s1", "echo b", Some(0))).unwrap();
-        led.record_exchange(&ex("other", "echo c", Some(0))).unwrap();
+        led.record_exchange(&ex("other", "echo c", Some(0)))
+            .unwrap();
 
         let (total, max_seq) = led.exchange_census("s1", None).unwrap();
         assert_eq!(total, 2, "scoped to the session");
@@ -550,7 +551,10 @@ mod tests {
 
         let (total, max_seq) = led.exchange_census("s1", Some(5_000)).unwrap();
         assert_eq!(total, rows.len() as i64);
-        assert_eq!(max_seq, 3, "seq stays the session's, not the window's index");
+        assert_eq!(
+            max_seq, 3,
+            "seq stays the session's, not the window's index"
+        );
 
         // Unbounded still sees everything — the window is the caller's choice.
         assert_eq!(led.exchange_census("s1", None).unwrap(), (3, 3));

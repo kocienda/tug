@@ -3213,7 +3213,10 @@ impl AgentSupervisor {
                     str_at("level"),
                     str_at("source"),
                     str_at("message"),
-                    v.get("data").and_then(|s| s.as_str()).unwrap_or_default().to_owned(),
+                    v.get("data")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or_default()
+                        .to_owned(),
                 );
                 if level == "error" {
                     tracing::error!(source, detail, "deck: {message}");
@@ -3239,7 +3242,8 @@ impl AgentSupervisor {
                     .as_ref()
                     .and_then(|v| v.get("since_ms"))
                     .and_then(|s| s.as_i64());
-                self.do_list_shell_exchanges(&tug_session_id, since_ms).await;
+                self.do_list_shell_exchanges(&tug_session_id, since_ms)
+                    .await;
                 Ok(())
             }
             "list_refs" => {
@@ -5654,7 +5658,6 @@ impl AgentSupervisor {
         }
     }
 
-
     /// Handle a `changeset_join_prompt_answer` CONTROL request (Spec S05,
     /// [P06], [P07]): the answer to the arc's one question.
     ///
@@ -5709,8 +5712,7 @@ impl AgentSupervisor {
                 });
                 let _ = self.control_tx.send(Frame::new(
                     FeedId::CONTROL,
-                    serde_json::to_vec(&body)
-                        .expect("changeset_join_prompt_answer_err serializes"),
+                    serde_json::to_vec(&body).expect("changeset_join_prompt_answer_err serializes"),
                 ));
                 return;
             }
@@ -9281,13 +9283,10 @@ mod tests {
         let mut beats: Vec<(String, String)> = Vec::new();
         let mut landed = false;
         for _ in 0..40 {
-            let frame = tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                control_rx.recv(),
-            )
-            .await
-            .expect("a control frame")
-            .expect("sender alive");
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+                .await
+                .expect("a control frame")
+                .expect("sender alive");
             let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
             match body["action"].as_str() {
                 Some("changeset_join_land_delta") => {
@@ -9579,11 +9578,10 @@ mod tests {
             wanted: &[&str],
         ) -> serde_json::Value {
             for _ in 0..40 {
-                let frame =
-                    tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
-                        .await
-                        .expect("a control frame")
-                        .expect("sender alive");
+                let frame = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+                    .await
+                    .expect("a control frame")
+                    .expect("sender alive");
                 let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
                 if let Some(action) = body["action"].as_str() {
                     if wanted.contains(&action) {
@@ -9755,13 +9753,10 @@ mod tests {
             1,
         )
         .await;
-        let refused = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            control_rx.recv(),
-        )
-        .await
-        .expect("a reply")
-        .expect("sender alive");
+        let refused = tokio::time::timeout(std::time::Duration::from_secs(5), control_rx.recv())
+            .await
+            .expect("a reply")
+            .expect("sender alive");
         let body: serde_json::Value = serde_json::from_slice(&refused.payload).unwrap();
         assert_eq!(body["action"], "changeset_join_prompt_answer_err");
         assert!(
@@ -9852,17 +9847,10 @@ mod tests {
 
     #[test]
     fn a_landing_receipt_needs_a_session_to_belong_to() {
-        let ledger = Arc::new(
-            crate::shell_ledger::ShellLedger::open_in_memory().expect("in-memory ledger"),
-        );
+        let ledger =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("in-memory ledger"));
 
-        AgentSupervisor::record_landing_receipt(
-            Some(&ledger),
-            None,
-            "/dash-join",
-            "landed",
-            "/p",
-        );
+        AgentSupervisor::record_landing_receipt(Some(&ledger), None, "/dash-join", "landed", "/p");
         assert!(
             ledger.session_ids_with_rows().unwrap().is_empty(),
             "a sessionless landing writes no row"
@@ -9966,7 +9954,6 @@ mod tests {
 
         cancel.cancel();
     }
-
 
     /// A fake scribe that streams one delta and returns a fixed message.
     struct DraftScribe(String);
@@ -14528,7 +14515,9 @@ mod tests {
         assert!(summary.starts_with("committed "), "summary: {summary}");
         assert!(summary.contains("1 file(s) · +1 −0"), "summary: {summary}");
 
-        let rows = shell_ledger.list_exchanges_since("sess", None).expect("list");
+        let rows = shell_ledger
+            .list_exchanges_since("sess", None)
+            .expect("list");
         assert_eq!(rows.len(), 1, "exactly one /commit row");
         assert_eq!(rows[0].command, "/commit");
         assert_eq!(rows[0].exit_code, Some(0));
@@ -14548,7 +14537,10 @@ mod tests {
         sup.do_changeset_commit(&bare).await;
         let _ = drain_until_action(&mut rx, "changeset_commit_ok");
         assert_eq!(
-            shell_ledger.list_exchanges_since("sess", None).expect("list").len(),
+            shell_ledger
+                .list_exchanges_since("sess", None)
+                .expect("list")
+                .len(),
             1,
             "the session-less commit added no ledger row",
         );
