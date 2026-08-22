@@ -1,5 +1,6 @@
 //! tugutil — the unified Tug developer CLI (changes & commits, dashes, host plumbing).
 
+mod apptest;
 mod changes;
 mod cli;
 mod commands;
@@ -110,6 +111,12 @@ fn main() -> ExitCode {
         Some(Commands::Dash(cmd)) => dash::dispatch(cmd, json, quiet),
         Some(Commands::Plan(cmd)) => plan::dispatch(cmd, json),
         Some(Commands::Host(cmd)) => host::dispatch(cmd, json, quiet),
+
+        // The app-test results ledger.
+        Some(Commands::Apptest(cmd)) => changes::finish(match cmd {
+            cli::ApptestCommands::Record => apptest::run_record(),
+            cli::ApptestCommands::History { root, files, .. } => apptest::run_history(root, files),
+        }),
     }
 }
 

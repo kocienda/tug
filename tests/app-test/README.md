@@ -219,6 +219,8 @@ dash-UI one.
 | `APP_TEST_SKIP_RESIGN=1`  | Bypass the defensive re-sign in `just app-test`. Tests that need `CGEvent.post` will fail; tests that don't will pass. Diagnostic-only — see `tuglaws/code-signing-mac.md`. |
 | `TUG_APPTEST_STREAM=1`    | Print each file's raw `bun test` body as it runs. Off by default — see "Reading the output" below. |
 | `TUG_APPTEST_JSON=<path>` | Also write the run's results as a JSON document to `<path>`. Stdout is byte-identical either way. |
+| `TUG_APPTEST_SELECTION`   | How the run was selected (`changed` \| `all` \| `core` \| `explicit`), recorded in the results ledger. Exported by the delegating recipes; absent, the runner records what the invocation looks like. |
+| `TUG_APPTEST_RESULTS_DB`  | Point the results ledger at another file. Test-isolation only — the real record is machine-global under `~/Library/Application Support/Tug/`. |
 | `TUG_REPO_UNIVERSE`       | The checkout dash verbs resolve inside. Exported by the recipe as the invoking checkout; a test should read it through `universeRoot()` rather than setting it. |
 
 ### Reading the output
@@ -255,6 +257,43 @@ Both renderings are serialized from the same arrays in one pass, so the document
 
 Per-run log files are written under `tests/app-test/logs/` when a
 test passes `testName` to `launchTugApp`; the directory is gitignored.
+
+### Results history
+
+Every run leaves a record: one row for the run — its bounds, the checkout it ran in, the `HEAD` it ran against and whether that tree was dirty, how it was selected, its wall time and verdict — and one row per file, with that file's status, counts, seconds, and whether it took the screen. It lands in `apptest_results.db`, machine-global beside `changes.db`, and it is written and read only through `tugutil apptest record|history`; the recipe never opens SQLite itself.
+
+The record is keyed by the **resolved base checkout**, not by the directory the run executed in. A dash worktree and the checkout it forked from are one project, so a run on a dash answers a question asked from `main` and the reverse — which is the whole point, since a red file on a dash is exactly when you want to know what `main` last saw.
+
+**Where you meet it:** every red file in a `Failures:` section arrives with one line under its name, in one of four shapes:
+
+```
+    history: last green 0519182 (2026-08-18, 7 recorded runs ago)
+    history: last green 0519182 (2026-08-18, 7 recorded runs ago, dirty tree)
+    history: red in the last 4 recorded runs, back to dac7cfc (2026-08-19); last green 0519182 (2026-08-18)
+    history: no recorded runs for this file
+```
+
+The same object lands as `history` on that file's entry in the `TUG_APPTEST_JSON` document, formatted from the same lookup, so the two cannot disagree. A green file gets no line and a `null`.
+
+What each one licenses you to conclude:
+
+- **last green** — the file passed the last time it was recorded. A failure now is new, and most likely yours.
+- **red-streak** — it was already failing before you got here, back to the named commit. The `lastGreen` clause, when present, is where to start looking for what broke it.
+- **no recorded runs** — the ledger has never seen this file on this checkout. Says nothing either way; a new test, or a first run since the ledger arrived.
+
+Two words in those lines are load-bearing. **"recorded"** is literal: an interrupted run leaves no row at all, so the count is of runs that finished, not runs you attempted. And **"dirty tree"** appears when the green it names was recorded against uncommitted changes — the sha names bytes that are not quite what ran, which is materially weaker evidence than a clean green.
+
+The lookup happens *before* the run records itself, so a red file's history is what came before it rather than a reflection of the failure being asked about.
+
+**When it can't answer** it says so in place — `history: unavailable (<reason>)` — rather than printing nothing. Recording is telemetry and never gates a run: a missing `tugutil` or `jq`, or a verb that exits non-zero, produces one `[app-test] results not recorded: …` line on stderr and leaves the verdict and exit code exactly where they were.
+
+Retention is the most recent 500 runs per checkout, pruned at record time, with result rows following by cascade. There is no janitor to run.
+
+To look at it directly, copy first — never point the `sqlite3` CLI at a live ledger:
+
+```bash
+just db-inspect apptest_results "SELECT head_sha, selection, verdict FROM runs ORDER BY id DESC LIMIT 10"
+```
 
 ## Live-mode tugcode smoke
 

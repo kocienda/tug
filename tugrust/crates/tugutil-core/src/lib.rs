@@ -25,6 +25,9 @@ pub mod paths;
 /// Devise-skeleton plan parsing and linting
 pub mod plan;
 
+/// The app-test results ledger
+pub mod apptest_ledger;
+
 // Re-exports — exactly the surface consumed by the `tugutil` binary.
 pub use config::{Config, find_project_root, find_tugplans, tugplan_name_from_path};
 pub use error::TugError;

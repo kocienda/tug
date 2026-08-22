@@ -266,6 +266,40 @@ pub enum Commands {
     /// Instance discovery, the build gate, project state, and the tell bridge.
     #[command(subcommand)]
     Host(HostCommands),
+
+    /// The app-test results ledger — what every run leaves behind, and what
+    /// a red file's history says about it.
+    #[command(subcommand)]
+    Apptest(ApptestCommands),
+}
+
+#[derive(Subcommand)]
+pub enum ApptestCommands {
+    /// Record one run, read as JSON on stdin.
+    ///
+    /// The payload carries the run's bounds, its root, the `HEAD` it ran
+    /// against, how it was selected, and one entry per file. The base
+    /// checkout every history query keys on is resolved here from the run
+    /// root, so that rule lives in exactly one language.
+    Record,
+    /// Answer each named file's history for the run root's base checkout.
+    ///
+    /// One of `last-green`, `red-streak`, or `no-history` per file. `SKIP`
+    /// rows are excluded — a file the runner skipped says nothing about
+    /// whether it works.
+    History {
+        /// The root the run executed in (default: cwd). Resolved to its base
+        /// checkout, so a dash worktree and its checkout share one history.
+        #[arg(long)]
+        root: Option<PathBuf>,
+        /// Emit JSON. The only rendering today; named so the recipe's call
+        /// site says what it expects.
+        #[arg(long)]
+        json: bool,
+        /// Test files to answer for, as the report names them.
+        #[arg(required = true, num_args = 1..)]
+        files: Vec<String>,
+    },
 }
 
 /// Clap-facing mirror of {@link JoinStrategy}.

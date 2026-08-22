@@ -1335,10 +1335,19 @@ app-test *FILES:
         # before this point in the recipe is ever reached.
         read -r -a FILES <<< "$(bun scripts/select-tests.ts --core | tr '\n' ' ')"
         SWEEP_LABEL="core"
+        SELECTION_DEFAULT="core"
     else
         read -r -a FILES <<< "$FILES_INPUT"
         SWEEP_LABEL="explicit-files"
+        SELECTION_DEFAULT="explicit"
     fi
+
+    # How this run was *selected*, which the sweep label cannot say: every
+    # other app-test recipe reaches this body by delegating to
+    # `just app-test <files>`, so a changed-derived run and a hand-named one
+    # arrive here identical. The delegating recipe exports its own answer;
+    # absent, the run is what it looks like, and the runner never guesses.
+    SELECTION_LABEL="${TUG_APPTEST_SELECTION:-$SELECTION_DEFAULT}"
 
     # Normalize paths so a repo-root-relative path (e.g. the
     # `tests/app-test/at0001-...` form tab-completion produces) works the same as
@@ -1769,6 +1778,67 @@ app-test *FILES:
         done
     fi
 
+    # What the ledger already knows about the files that just went red. Asked
+    # BEFORE this run is recorded, so the answer is the history the reader is
+    # comparing against rather than one this run has already contaminated with
+    # its own failure. One call for the whole set, and never on a green run —
+    # the question only exists where there is a red file to ask it about.
+    #
+    # `tugutil` here is the workspace's own build, not whatever a PATH symlink
+    # resolves to: run from a dash worktree, a PATH `tugutil` is the base
+    # checkout's binary, which is exactly the wrong one to trust about a
+    # feature under development.
+    TUGUTIL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugutil"
+    [ -x "$TUGUTIL_BIN" ] || TUGUTIL_BIN="$(command -v tugutil 2>/dev/null || true)"
+    HISTORY_JSON=""
+    HISTORY_ERR=""
+    declare -a RED_FILES=()
+    for row in "${RESULT_ROWS[@]}"; do
+        IFS=':' read -r status file _p _t _s <<< "$row"
+        case "$status" in FAIL|ERR) RED_FILES+=("$file") ;; esac
+    done
+    if [ "${#RED_FILES[@]}" -gt 0 ]; then
+        if [ -z "$TUGUTIL_BIN" ]; then
+            HISTORY_ERR="tugutil is not on PATH"
+        elif ! command -v jq >/dev/null 2>&1; then
+            HISTORY_ERR="jq is not on PATH"
+        elif ! HISTORY_RAW="$("$TUGUTIL_BIN" apptest history --root "{{justfile_directory()}}" --json "${RED_FILES[@]}" 2>&1)"; then
+            HISTORY_ERR="tugutil apptest history exited non-zero"
+        elif ! HISTORY_JSON="$(printf '%s' "$HISTORY_RAW" | jq -c '[.files[] | {key: .file, value: .}] | from_entries' 2>/dev/null)"; then
+            HISTORY_ERR="tugutil apptest history returned unreadable JSON"
+            HISTORY_JSON=""
+        fi
+    fi
+
+    # Render one file's recorded history as the line that sits under it in the
+    # Failures section. Formatted from the verb's JSON, never re-derived — the
+    # same rule that keeps the summary and the document from drifting.
+    history_line() {
+        if [ -n "$HISTORY_ERR" ]; then
+            echo "    history: unavailable ($HISTORY_ERR)"
+            return
+        fi
+        [ -n "$HISTORY_JSON" ] || return 0
+        printf '%s' "$HISTORY_JSON" | jq -r --arg f "$1" '
+            def ago($n):
+                if $n == 0 then "the last recorded run"
+                elif $n == 1 then "1 recorded run ago"
+                else "\($n) recorded runs ago" end;
+            (.[$f] // empty) as $h
+            | if $h == null then empty
+              elif $h.answer == "no-history" then
+                "    history: no recorded runs for this file"
+              elif $h.answer == "last-green" then
+                "    history: last green \($h.sha) (\($h.date), \(ago($h.runsAgo))"
+                + (if $h.dirty then ", dirty tree" else "" end) + ")"
+              else
+                "    history: red in the last "
+                + (if $h.count == 1 then "recorded run" else "\($h.count) recorded runs" end)
+                + ", back to \($h.backToSha) (\($h.backToDate))"
+                + (if $h.lastGreen then "; last green \($h.lastGreen.sha) (\($h.lastGreen.date))" else "" end)
+              end'
+    }
+
     if [ ${#FAIL_DETAILS[@]} -gt 0 ]; then
         echo
         echo "Failures:"
@@ -1780,6 +1850,7 @@ app-test *FILES:
             dloc="${rest##*$US}"
             if [ "$dfile" != "$fail_file" ]; then
                 echo "  $dfile"
+                history_line "$dfile"
                 fail_file="$dfile"
             fi
             echo "    > $dtitle"
@@ -1834,11 +1905,21 @@ app-test *FILES:
                     # error, and no single file is worth losing the document.
                     [ -n "$notes" ] || notes='[]'
                     [ -n "$fails" ] || fails='[]'
+                    # The same answer the text line formats, from the same
+                    # JSON — a red file carries its history in both renderings
+                    # or in neither. `null` on a green file, on a file the
+                    # lookup could not answer for, and on a lookup that failed.
+                    history='null'
+                    if [ -n "$HISTORY_JSON" ]; then
+                        history="$(printf '%s' "$HISTORY_JSON" | jq -c --arg f "$file" '.[$f] // null')"
+                        [ -n "$history" ] || history='null'
+                    fi
                     jq -n --arg file "$file" --arg status "$status" \
                           --argjson passed "$rpassed" --argjson total "$rtotal" \
                           --argjson seconds "$rsecs" \
                           --argjson failures "$fails" --argjson notes "$notes" \
-                          '{file:$file,status:$status,passed:$passed,total:$total,seconds:$seconds,failures:$failures,notes:$notes}'
+                          --argjson history "$history" \
+                          '{file:$file,status:$status,passed:$passed,total:$total,seconds:$seconds,failures:$failures,notes:$notes,history:$history}'
                 done
             } | jq -s \
                 --arg sweep "$SWEEP_LABEL" \
@@ -1857,6 +1938,57 @@ app-test *FILES:
                           filesSkipped:$filesSkipped, testsPassed:$testsPassed,
                           testsTotal:$testsTotal},
                   files: .}' > "$TUG_APPTEST_JSON"
+        fi
+    fi
+
+    # Leave the record behind. Assembled from the same arrays both renderings
+    # above came from, and written only through `tugutil` — the recipe never
+    # opens SQLite, so no foreign build ever joins a live ledger's WAL.
+    #
+    # This is telemetry, and telemetry never gates a run: every failure here is
+    # one stderr line naming the skip, and the verdict and exit code below do
+    # not move. A test runner that failed because its diagnostics failed would
+    # be a worse tool than the one we have.
+    if [ -z "$TUGUTIL_BIN" ]; then
+        echo "[app-test] results not recorded: tugutil is not on PATH" >&2
+    elif ! command -v jq >/dev/null 2>&1; then
+        echo "[app-test] results not recorded: jq is not on PATH" >&2
+    else
+        record_verdict=PASS
+        { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ]; } || record_verdict=FAIL
+        record_head="$(git -C "{{justfile_directory()}}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+        record_branch="$(git -C "{{justfile_directory()}}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+        record_dirty=false
+        [ -n "$(git -C "{{justfile_directory()}}" status --porcelain 2>/dev/null)" ] && record_dirty=true
+        record_payload="$(
+            {
+                for row in "${RESULT_ROWS[@]}"; do
+                    IFS=':' read -r status file rpassed rtotal rsecs <<< "$row"
+                    fg=false
+                    for q in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
+                        [ "$q" = "$file" ] && fg=true && break
+                    done
+                    jq -n --arg file "$file" --arg status "$status" \
+                          --argjson passed "$rpassed" --argjson total "$rtotal" \
+                          --argjson secs "$rsecs" --argjson foreground "$fg" \
+                          '{file:$file,status:$status,passed:$passed,total:$total,secs:$secs,foreground:$foreground}'
+                done
+            } | jq -s \
+                --argjson startedAt "$START_EPOCH" --argjson endedAt "$END_EPOCH" \
+                --arg runRoot "{{justfile_directory()}}" \
+                --arg branch "$record_branch" --arg headSha "$record_head" \
+                --argjson dirty "$record_dirty" \
+                --arg sweep "$SWEEP_LABEL" --arg selection "$SELECTION_LABEL" \
+                --argjson wallSecs "$ELAPSED" --arg verdict "$record_verdict" \
+                '{startedAt:$startedAt, endedAt:$endedAt, runRoot:$runRoot,
+                  branch:$branch, headSha:$headSha, dirty:$dirty, sweep:$sweep,
+                  selection:$selection, wallSecs:$wallSecs, verdict:$verdict,
+                  files: .}'
+        )"
+        if [ -z "$record_payload" ]; then
+            echo "[app-test] results not recorded: could not assemble the run payload" >&2
+        elif ! printf '%s' "$record_payload" | "$TUGUTIL_BIN" apptest record >/dev/null; then
+            echo "[app-test] results not recorded: tugutil apptest record exited non-zero" >&2
         fi
     fi
 
@@ -1915,7 +2047,7 @@ app-test-changed *PATHS:
         echo "==> no app-test covers the changed files — nothing to run."
         exit 0
     fi
-    just app-test $FILES
+    TUG_APPTEST_SELECTION=changed just app-test $FILES
 
 # Print the app-test selection for the working diff without running it.
 app-test-select *PATHS:
@@ -1929,7 +2061,7 @@ app-test-all:
     #!/usr/bin/env bash
     set -uo pipefail
     FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; })"
-    just app-test $FILES
+    TUG_APPTEST_SELECTION=all just app-test $FILES
 
 # An unannotated test can never be selected by `app-test-changed`, so it
 # silently stops guarding its surface — this is the guard against that
