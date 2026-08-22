@@ -1,19 +1,20 @@
 /**
- * spike-deck-wayfinding.tsx — the column badges, round five: the superimposed
- * form, down-selected and tuned for legibility.
+ * spike-deck-wayfinding.tsx — the column badges, round six: stacks count,
+ * splits letter.
  *
- * The pair must read as ONE two-character coordinate: slot badge then column
- * badge — `1A`, `2C`. So the column badge is the slot badge's exact footprint
- * with the letter set exactly as the slot badge sets its number — same size,
- * same weight, same centering, same ink — and the glyph sits BEHIND the
- * letter as quiet scenery: the three-slice stack or the three-rung H, with
- * the lit element said by an accent OUTLINE, never a fill, so it can't
- * compete with the letter for the foreground.
+ * A logic correction drives this round: the badge lives on a card you can
+ * SEE, and a visible card in a stack is by definition the top one — its
+ * position letter would always read A, a fact with no information in it. So
+ * the stack badge shows the NUMBER OF CARDS in the stack, over the
+ * three-slice glyph with the top slice lit (you are the face of the stack).
+ * Split bands are all visible at once, so position there is real
+ * information, and the split badge keeps its letter — A is the topmost band
+ * — over the three-rung H with the lit rung at top, middle, or bottom.
  *
- * The lit element follows the position rule: top when this card is on top,
- * bottom when it is at the bottom, middle for everything in between. A is
- * the top of a stack and the topmost band of a split. The cluster badges are
- * live — click one to cycle the mock card through its column.
+ * Both badges keep the settled form: the slot badge's exact footprint, the
+ * character set exactly as the slot badge sets its number, the glyph behind
+ * as quiet scenery with an outline-lit accent, and a canvas knockout
+ * punching the character clear of the strokes.
  *
  * @module spikes/spike-deck-wayfinding
  */
@@ -45,7 +46,8 @@ interface Scenario {
   slots: number;
   slot: number;
   col: ColumnModel;
-  /** This card's place in its column. 0 = top of a stack, topmost band. */
+  /** This card's band in a split column. 0 = topmost. Meaningless for a
+   *  stack, where the visible card is always the top. */
   position: number;
 }
 
@@ -59,20 +61,20 @@ const SCENARIOS: readonly Scenario[] = [
     position: 0,
   },
   {
-    label: "Top of a stack",
-    blurb: "Slot 2 stacks three; this card is on top — reads 2A.",
+    label: "Stack of two",
+    blurb: "Slot 2 stacks two; one card behind this one — reads 2·2.",
+    slots: 4,
+    slot: 1,
+    col: { mode: "stack", members: 2 },
+    position: 0,
+  },
+  {
+    label: "Stack of three",
+    blurb: "Slot 2 stacks three; two cards behind this one — reads 2·3.",
     slots: 4,
     slot: 1,
     col: { mode: "stack", members: 3 },
     position: 0,
-  },
-  {
-    label: "Buried",
-    blurb: "Slot 2 stacks three; this card is second — reads 2B.",
-    slots: 4,
-    slot: 1,
-    col: { mode: "stack", members: 3 },
-    position: 1,
   },
   {
     label: "Split, lower",
@@ -97,8 +99,8 @@ function letterOf(position: number): string {
   return String.fromCharCode(65 + position);
 }
 
-/** Which of the glyph's three elements is lit: top when this card is on top,
- *  bottom when it is at the bottom, middle for everything in between. */
+/** Which rung is lit for a split band: top when this card is the topmost
+ *  band, bottom when it is the last, middle for everything in between. */
 function litOf(members: number, position: number): "top" | "middle" | "bottom" {
   if (position === 0) return "top";
   if (position === members - 1) return "bottom";
@@ -111,10 +113,10 @@ function litOf(members: number, position: number): "top" | "middle" | "bottom" {
 
 /**
  * The stack glyph: three flattened diamond slices, deepest drawn first. The
- * lit slice takes the accent as an OUTLINE; every fill is the canvas colour,
- * there only so the slices occlude one another the way real layers do.
+ * top slice is always the lit one — the badge stands on the card that IS the
+ * top of its stack. Outline accent, canvas fills for occlusion only.
  */
-function StackGlyph({ lit }: { lit: "top" | "middle" | "bottom" }): React.ReactElement {
+function StackGlyph(): React.ReactElement {
   const slices: ReadonlyArray<{ key: "bottom" | "middle" | "top"; dy: number }> = [
     { key: "bottom", dy: 11 },
     { key: "middle", dy: 5.5 },
@@ -131,7 +133,7 @@ function StackGlyph({ lit }: { lit: "top" | "middle" | "bottom" }): React.ReactE
         <polygon
           key={key}
           className="sdw-slice"
-          data-lit={key === lit ? "true" : undefined}
+          data-lit={key === "top" ? "true" : undefined}
           points={`9,${dy} 17.5,${dy + 4.5} 9,${dy + 9} 0.5,${dy + 4.5}`}
         />
       ))}
@@ -140,9 +142,8 @@ function StackGlyph({ lit }: { lit: "top" | "middle" | "bottom" }): React.ReactE
 }
 
 /**
- * The split glyph: an `H` with three horizontal rungs. The lit rung takes the
- * accent stroke; everything is already an outline, so the rule and the look
- * agree by construction.
+ * The split glyph: an `H` with three horizontal rungs, run the badge's full
+ * height so the lit end rungs sit at the badge's own ends.
  */
 function LadderGlyph({ lit }: { lit: "top" | "middle" | "bottom" }): React.ReactElement {
   const rungs: ReadonlyArray<{ key: "top" | "middle" | "bottom"; y: number }> = [
@@ -175,22 +176,30 @@ function LadderGlyph({ lit }: { lit: "top" | "middle" | "bottom" }): React.React
 }
 
 /* ---------------------------------------------------------------------------
- * The column badge — the letter set as the slot badge sets its number,
- * the glyph behind it
+ * The column badges
  * ---------------------------------------------------------------------------*/
 
-function ColumnBadgeChip({
-  mode,
+/** The stack badge: the COUNT of cards in the stack over the stack glyph. */
+function StackBadge({ members }: { members: number }): React.ReactElement {
+  return (
+    <span className="sdw-badge" aria-label={`A stack of ${members}`}>
+      <StackGlyph />
+      <span className="sdw-badge-letter">{members}</span>
+    </span>
+  );
+}
+
+/** The split badge: this card's band LETTER over the three-rung H, the lit
+ *  rung saying top, middle, or bottom. Live when given `onCycle`. */
+function SplitBadge({
   members,
   position,
   onCycle,
 }: {
-  mode: "stack" | "split";
   members: number;
   position: number;
   onCycle?: () => void;
 }): React.ReactElement {
-  const lit = litOf(members, position);
   const Tag = onCycle === undefined ? "span" : "button";
   return (
     <Tag
@@ -198,15 +207,29 @@ function ColumnBadgeChip({
       className="sdw-badge"
       aria-label={
         onCycle === undefined
-          ? undefined
-          : `${mode === "stack" ? "Stacked" : "Split"}, ${letterOf(position)} of ${members} — cycle`
+          ? `Split, band ${letterOf(position)} of ${members}`
+          : `Split, band ${letterOf(position)} of ${members} — cycle`
       }
       onClick={onCycle}
     >
-      {mode === "stack" ? <StackGlyph lit={lit} /> : <LadderGlyph lit={lit} />}
+      <LadderGlyph lit={litOf(members, position)} />
       <span className="sdw-badge-letter">{letterOf(position)}</span>
     </Tag>
   );
+}
+
+function ColumnBadge({
+  col,
+  position,
+  onCycle,
+}: {
+  col: ColumnModel;
+  position: number;
+  onCycle?: () => void;
+}): React.ReactElement | null {
+  if (col.mode === "single" || col.members <= 1) return null;
+  if (col.mode === "stack") return <StackBadge members={col.members} />;
+  return <SplitBadge members={col.members} position={position} onCycle={onCycle} />;
 }
 
 /* ---------------------------------------------------------------------------
@@ -216,24 +239,23 @@ function ColumnBadgeChip({
 /** A slot chip and a column badge, read together — the `1A` test. */
 function ReadingPair({
   slot,
-  mode,
-  members,
+  col,
   position,
 }: {
   slot: number;
-  mode: "stack" | "split";
-  members: number;
+  col: ColumnModel;
   position: number;
 }): React.ReactElement {
   return (
     <span className="sdw-cluster-mock">
       <TugSlot number={slot + 1} state="rest" size="sm" />
-      <ColumnBadgeChip mode={mode} members={members} position={position} />
+      <ColumnBadge col={col} position={position} />
     </span>
   );
 }
 
-/** The assembled cluster for one scenario, with a live position. */
+/** The assembled cluster for one scenario. A split badge is live — click it
+ *  to cycle the mock card through the column's bands. */
 function ClusterSpecimen({ scenario }: { scenario: Scenario }): React.ReactElement {
   const [position, setPosition] = useState(scenario.position);
   const cycle = (): void => setPosition((p) => (p + 1) % scenario.col.members);
@@ -243,22 +265,19 @@ function ClusterSpecimen({ scenario }: { scenario: Scenario }): React.ReactEleme
       <div className="sdw-specimen-blurb">{scenario.blurb}</div>
       <span className="sdw-cluster-mock">
         <TugSlot number={scenario.slot + 1} state="rest" size="sm" />
-        {scenario.col.members > 1 && scenario.col.mode !== "single" ? (
-          <ColumnBadgeChip
-            mode={scenario.col.mode}
-            members={scenario.col.members}
-            position={position}
-            onCycle={cycle}
-          />
-        ) : null}
+        <ColumnBadge
+          col={scenario.col}
+          position={position}
+          onCycle={scenario.col.mode === "split" ? cycle : undefined}
+        />
       </span>
       <div className="sdw-readout">
         slot {scenario.slot + 1}
-        {scenario.col.members > 1
-          ? ` · ${scenario.col.mode} ${letterOf(position)} of ${
-              scenario.col.members
-            }`
-          : " · alone"}
+        {scenario.col.mode === "stack"
+          ? ` · stack of ${scenario.col.members}`
+          : scenario.col.mode === "split"
+            ? ` · split ${letterOf(position)} of ${scenario.col.members}`
+            : " · alone"}
       </div>
     </div>
   );
@@ -268,7 +287,13 @@ function ClusterSpecimen({ scenario }: { scenario: Scenario }): React.ReactEleme
  * The card
  * ---------------------------------------------------------------------------*/
 
-const CASES: ReadonlyArray<{ label: string; members: number; position: number }> = [
+const STACK_CASES: ReadonlyArray<{ label: string; members: number }> = [
+  { label: "Stack of 2", members: 2 },
+  { label: "Stack of 3", members: 3 },
+  { label: "Stack of 4", members: 4 },
+];
+
+const SPLIT_CASES: ReadonlyArray<{ label: string; members: number; position: number }> = [
   { label: "A of 3 — top lit", members: 3, position: 0 },
   { label: "B of 3 — middle lit", members: 3, position: 1 },
   { label: "C of 3 — bottom lit", members: 3, position: 2 },
@@ -279,29 +304,27 @@ function SpikeDeckWayfinding(): React.ReactElement {
   return (
     <div className="sp-content">
       <section className="sp-section">
-        <h2 className="sp-section-title">The badge — letter first, glyph behind</h2>
+        <h2 className="sp-section-title">The badges — stacks count, splits letter</h2>
         <p className="sdw-prose">
-          Down-selected to the superimposed form. The letter is set exactly as
-          the slot badge sets its number — same size, same weight, same
-          centering, same ink — so the pair reads as one coordinate: 1A, 2C.
-          The glyph recedes to scenery, and the lit element is an accent
-          outline, never a fill, so nothing behind the letter competes with
-          it.
+          The badge stands on a card you can see, and a visible card in a
+          stack is by definition the top one — its letter would always read
+          A. So the stack badge shows how many cards the stack holds, top
+          slice lit: you are the face of that many. Split bands are all
+          visible at once, so position there is real information: the split
+          badge keeps its letter, with the lit rung at top, middle, or
+          bottom. Same footprint, same character setting, same outline-lit
+          scenery as before.
         </p>
       </section>
 
       <section className="sp-section">
-        <h2 className="sp-section-title">Stack badge — three slices</h2>
+        <h2 className="sp-section-title">Stack badge — the count, top slice lit</h2>
         <div className="sdw-grid">
-          {CASES.map(({ label, members, position }) => (
+          {STACK_CASES.map(({ label, members }) => (
             <div className="sdw-specimen" key={label}>
               <div className="sdw-specimen-title">{label}</div>
               <span className="sdw-case-row">
-                <ColumnBadgeChip
-                  mode="stack"
-                  members={members}
-                  position={position}
-                />
+                <StackBadge members={members} />
               </span>
             </div>
           ))}
@@ -309,17 +332,13 @@ function SpikeDeckWayfinding(): React.ReactElement {
       </section>
 
       <section className="sp-section">
-        <h2 className="sp-section-title">Split badge — three rungs</h2>
+        <h2 className="sp-section-title">Split badge — the band letter, three rungs</h2>
         <div className="sdw-grid">
-          {CASES.map(({ label, members, position }) => (
+          {SPLIT_CASES.map(({ label, members, position }) => (
             <div className="sdw-specimen" key={label}>
               <div className="sdw-specimen-title">{label}</div>
               <span className="sdw-case-row">
-                <ColumnBadgeChip
-                  mode="split"
-                  members={members}
-                  position={position}
-                />
+                <SplitBadge members={members} position={position} />
               </span>
             </div>
           ))}
@@ -327,25 +346,26 @@ function SpikeDeckWayfinding(): React.ReactElement {
       </section>
 
       <section className="sp-section">
-        <h2 className="sp-section-title">The reading test — 1A, 2C</h2>
+        <h2 className="sp-section-title">The reading test — 2·3, 3B</h2>
         <p className="sdw-prose">
-          Slot chip and column badge side by side at true size, the way the
-          cluster will show them. The pair should read as a two-character
-          coordinate at a glance.
+          Slot chip and column badge side by side at true size. A stack pair
+          is two numerals — 2 then 3 — with the slice glyph between them
+          carrying the "of a stack" sense; whether that reads cleanly or the
+          two numbers blur into one fact is exactly what this row is for.
         </p>
         <span className="sdw-case-row">
-          <ReadingPair slot={0} mode="stack" members={3} position={0} />
-          <ReadingPair slot={1} mode="stack" members={3} position={2} />
-          <ReadingPair slot={2} mode="split" members={2} position={1} />
-          <ReadingPair slot={3} mode="split" members={3} position={1} />
+          <ReadingPair slot={0} col={{ mode: "stack", members: 3 }} position={0} />
+          <ReadingPair slot={1} col={{ mode: "stack", members: 2 }} position={0} />
+          <ReadingPair slot={2} col={{ mode: "split", members: 2 }} position={1} />
+          <ReadingPair slot={3} col={{ mode: "split", members: 3 }} position={1} />
         </span>
       </section>
 
       <section className="sp-section">
         <h2 className="sp-section-title">The cluster, assembled</h2>
         <p className="sdw-prose">
-          The five scenarios on the mock cluster ground. The column badges are
-          live: click one to cycle the mock card through its column.
+          The five scenarios on the mock cluster ground. Split badges are
+          live — click one to cycle the mock card through the column's bands.
         </p>
         <div className="sdw-grid">
           {SCENARIOS.map((scenario) => (
@@ -381,13 +401,7 @@ function SpikeDeckWayfinding(): React.ReactElement {
                           : "rest",
                     )}
                   />
-                  {scenario.col.mode !== "single" ? (
-                    <ColumnBadgeChip
-                      mode={scenario.col.mode}
-                      members={scenario.col.members}
-                      position={scenario.position}
-                    />
-                  ) : null}
+                  <ColumnBadge col={scenario.col} position={scenario.position} />
                 </span>
               </div>
             ),
@@ -402,7 +416,7 @@ export const spike: SpikeDef = {
   name: "deck-wayfinding",
   title: "Deck Wayfinding",
   blurb:
-    "The superimposed column badge: the position letter set like the slot number, over an outline-lit glyph.",
+    "Column badges at slot-badge size: a stack shows its count over lit slices, a split shows its band letter over rungs.",
   icon: "Map",
   component: () => <SpikeDeckWayfinding />,
 };
