@@ -11,6 +11,7 @@
 pub mod instance;
 pub mod janitor;
 pub mod ledger_db;
+pub mod pathform;
 pub mod ports;
 pub mod quiesce;
 pub mod registry;

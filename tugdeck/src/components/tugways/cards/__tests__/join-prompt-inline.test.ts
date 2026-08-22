@@ -17,7 +17,7 @@ import {
   joinLandingView,
   joinPromptAsParsed,
   joinPromptMessage,
-} from "@/components/tugways/cards/join-prompt-sheet";
+} from "@/components/tugways/cards/join-prompt-inline";
 import type { DashJoinPromptWire } from "@/lib/changeset-types";
 
 const PROMPT: DashJoinPromptWire = {

@@ -299,26 +299,40 @@ async fn draft_handler(
     if !addr.ip().is_loopback() {
         return err(StatusCode::FORBIDDEN, "forbidden");
     }
-    let Some(ledger) = router
-        .supervisor
-        .as_ref()
-        .and_then(|s| s.session_ledger.clone())
-    else {
+    let Some(supervisor) = router.supervisor.as_ref() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "no supervisor");
+    };
+    let Some(ledger) = supervisor.session_ledger.clone() else {
         return err(StatusCode::SERVICE_UNAVAILABLE, "no session ledger");
     };
+    let registry = supervisor.registry.clone();
     let req: DraftApiRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid JSON: {e}")),
     };
     // Blocking work (path resolution syscalls, ledger mutex, SQLite)
     // stays off the async workers.
-    match tokio::task::spawn_blocking(move || apply_draft_request(&ledger, &req)).await {
+    let response = match tokio::task::spawn_blocking(move || apply_draft_request(&ledger, &req)).await
+    {
         Ok(response) => response,
-        Err(e) => err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("draft task failed: {e}"),
-        ),
+        Err(e) => {
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("draft task failed: {e}"),
+            );
+        }
+    };
+    // A draft the changesets feed derives from just moved, so the feed
+    // recomputes — the same bump the dash bind handler fires. Without it a
+    // standing join prompt keeps composing its "lands as" from the draft that
+    // existed when it was raised, and announces "no draft was written" while
+    // the join it offers would land with one. Unconditional on owner kind: a
+    // commit draft refreshing the feed is harmless, and a condition here is a
+    // branch nobody would maintain.
+    if response.status().is_success() {
+        registry.changeset_all_bump().notify_one();
     }
+    response
 }
 
 /// The ledger half of [`draft_handler`], run on the blocking pool.

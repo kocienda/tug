@@ -1878,6 +1878,14 @@ export interface SessionTranscriptHostProps {
    * unchanged.
    */
   renderTurnTrailing?: TurnTrailingRenderer;
+  /**
+   * The live-edge slot — an element rendered after the last row, inside the
+   * scroller, so it scrolls with the conversation and sits directly above the
+   * composer at rest. Un-indexed (it takes no row slot and perturbs no anchor
+   * math), and deliberately generic: it holds whatever the card needs to put
+   * at the live edge, which today is the join arc's decision surface.
+   */
+  liveEdgeContent?: React.ReactNode;
 }
 
 /**
@@ -1962,6 +1970,7 @@ export const SessionTranscriptHost = forwardRef<
     transcriptStore,
     findSession,
     renderTurnTrailing,
+    liveEdgeContent,
   },
   ref,
 ) {
@@ -2791,6 +2800,10 @@ export const SessionTranscriptHost = forwardRef<
                   />
                 ) : undefined
               }
+              // The live edge: an un-indexed element after the last row,
+              // inside the scroller, so it rides the bottom of the
+              // conversation rather than floating over it.
+              trailingContent={liveEdgeContent ?? undefined}
               // Freeze the per-commit scroll battery across the restore
               // replay, each load-previous bracket, and the post-reveal
               // height settle ([L04] via `onFirstSettle`) — the heavy

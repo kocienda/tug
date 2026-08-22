@@ -79,11 +79,26 @@ export interface DashJoinRegisterInput {
 }
 
 /**
+ * How long a landed join rests on its own last word before the surface
+ * carrying it stands down.
+ *
+ * A success that vanished on the terminal frame would be a progress surface
+ * that erases its own result — the failure `LandProgress.terminal` exists to
+ * prevent one layer down. A failure never rests out: it is the one outcome the
+ * user has something to do about.
+ *
+ * One constant for both surfaces that settle — the inline join surface departs
+ * on it, and the composer register retires its narration on it — so the two
+ * cannot leave the screen at different moments telling the same story.
+ */
+export const SETTLED_REST_MS = 1600;
+
+/**
  * The words each beat of a join in flight reads as.
  *
- * Exported because the prompt sheet's landing phase narrates the same beats
- * from the same store, and two tables for one vocabulary drift the moment one
- * of them gains a beat.
+ * Exported because the inline join surface's landing phase narrates the same
+ * beats from the same store, and two tables for one vocabulary drift the
+ * moment one of them gains a beat.
  */
 export const BEAT_WORDS: Record<string, string> = {
   squash: "squashing",

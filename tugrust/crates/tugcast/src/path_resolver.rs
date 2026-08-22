@@ -33,43 +33,12 @@ pub struct PathResolver {
     pub is_autofs: bool,
 }
 
-/// Resolve a user-supplied directory path to the **Claude form**: symlinks
-/// and macOS `synthetic.conf` firmlinks resolved, but the APFS data-volume
-/// firmlink collapsed back to its user-visible prefix
-/// (`/System/Volumes/Data/Users/…` → `/Users/…`).
-///
-/// This is the single path form that the kernel's `getcwd`, Bun's
-/// `realpathSync`, and Claude Code's `~/.claude/projects/<encoded-cwd>`
-/// directory naming all agree on. Every consumer that must line up with
-/// Claude's on-disk layout — the external-session scanner, the trash mover,
-/// the JSONL `cwd` record filter, `claude_project_dir` — MUST route through
-/// here. It is the standalone twin of [`PathResolver`]'s `primary` selection
-/// (they share `resolve_synthetic` / `resolve_apfs_firmlink`), exposed for
-/// callers that only need the canonical string, not a live FSEvents watcher.
-///
-/// **Do not** reach for [`std::fs::canonicalize`] on a project path: on macOS
-/// `realpath(3)` expands the data-volume firmlink to `/System/Volumes/Data/…`,
-/// a form Claude never writes. That single mismatch is the recurring
-/// "terminal sessions don't appear in the picker / trash silently no-ops"
-/// bug class — this function is its firmlink-aware replacement.
-pub fn resolve_to_claude_form(path: &Path) -> PathBuf {
-    // Phase 1: resolve symlinks via canonicalize (firmlink-expanded on macOS).
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-
-    // Phase 2/3 (macOS): collapse synthetic.conf + APFS firmlinks back to the
-    // user-visible form, identity-verified. Priority matches PathResolver's
-    // `primary`: synthetic-resolved > firmlink-resolved > canonical.
-    #[cfg(target_os = "macos")]
-    {
-        resolve_synthetic(path)
-            .or_else(|| resolve_apfs_firmlink(&canonical))
-            .unwrap_or(canonical)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        canonical
-    }
-}
+/// The canonicalization gateway ([L29]) lives in [`tugcore::pathform`], below
+/// this crate, so `tugdash-core` and every other consumer keys on the same
+/// spelling. Re-exported here because `PathResolver`'s `primary` selection is
+/// the gateway's twin and every call site in this crate names it through
+/// `path_resolver`.
+pub use tugcore::pathform::resolve_to_claude_form;
 
 // ---------------------------------------------------------------------------
 // CanonicalPath gateway
@@ -428,122 +397,16 @@ impl PathResolver {
 // Identity
 // ---------------------------------------------------------------------------
 
-/// The `(device, inode)` identity of a live path, or `None` when it cannot be
-/// stat'd (missing / permission-denied). Ground truth for "are these the same
-/// file", but only for **live** files — a deleted or renamed path has no inode
-/// to read, so this is a reconciliation aid, never a durable key.
+/// Identity and the macOS firmlink resolvers live alongside the gateway in
+/// [`tugcore::pathform`]; `PathResolver` and the alias table share them, so
+/// there is one implementation rather than a watcher-side copy.
 #[cfg(unix)]
-pub fn get_identity(path: &Path) -> Option<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    let meta = std::fs::metadata(path).ok()?;
-    Some((meta.dev(), meta.ino()))
-}
-
-/// Whether two **live** paths name the same file by `(device, inode)`. Used to
-/// judge equality when the canonical strings disagree (firmlink/symlink alias
-/// verification, legacy-row reconciliation). `false` when either path cannot be
-/// stat'd, so a deleted path never matches.
-#[cfg(unix)]
-pub fn same_file(a: &Path, b: &Path) -> bool {
-    match (get_identity(a), get_identity(b)) {
-        (Some(ia), Some(ib)) => ia == ib,
-        _ => false,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// macOS: synthetic.conf resolution
-// ---------------------------------------------------------------------------
-
-/// Parse `/etc/synthetic.conf` into `("/name", "target")` symlink entries, in
-/// file order. Comments, blank lines, and lines without both columns are
-/// dropped.
-#[cfg(target_os = "macos")]
-fn parse_synthetic_conf(conf: &str) -> Vec<(String, String)> {
-    conf.lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                return None;
-            }
-            let (name, target) = line.split_once('\t')?;
-            let (name, target) = (name.trim(), target.trim());
-            if name.is_empty() || target.is_empty() {
-                return None;
-            }
-            Some((format!("/{name}"), target.to_string()))
-        })
-        .collect()
-}
-
-/// The parsed synthetic.conf entries, read once per process. Entries only take
-/// effect at boot, so a running process can never observe a working change to
-/// the file — the boot-built [`AliasTable`] already froze this data on the same
-/// reasoning.
-#[cfg(target_os = "macos")]
-fn synthetic_table() -> &'static [(String, String)] {
-    static TABLE: OnceLock<Vec<(String, String)>> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        std::fs::read_to_string("/etc/synthetic.conf")
-            .map(|conf| parse_synthetic_conf(&conf))
-            .unwrap_or_default()
-    })
-}
+pub use tugcore::pathform::{get_identity, same_file};
 
 #[cfg(target_os = "macos")]
-fn resolve_synthetic(path: &Path) -> Option<PathBuf> {
-    let path_str = path.to_str()?;
-
-    for (syn_root, target) in synthetic_table() {
-        let syn_root = syn_root.as_str();
-        let target = target.as_str();
-
-        if path_str == syn_root || path_str.starts_with(&format!("{}/", syn_root)) {
-            let rest = &path_str[syn_root.len()..];
-            let resolved_target =
-                resolve_apfs_firmlink_str(target).unwrap_or_else(|| target.to_string());
-            let full = format!("{}{}", resolved_target, rest);
-            let full_path = PathBuf::from(&full);
-
-            if full_path.exists() && same_file(path, &full_path) {
-                return Some(full_path);
-            }
-
-            let fallback = PathBuf::from(format!("{}{}", target, rest));
-            if fallback.exists() && same_file(path, &fallback) {
-                return Some(fallback);
-            }
-        }
-    }
-    None
-}
-
-// ---------------------------------------------------------------------------
-// macOS: APFS firmlink resolution
-// ---------------------------------------------------------------------------
-
-#[cfg(target_os = "macos")]
-fn resolve_apfs_firmlink(path: &Path) -> Option<PathBuf> {
-    let path_str = path.to_str()?;
-    let resolved = resolve_apfs_firmlink_str(path_str)?;
-    let resolved_path = PathBuf::from(&resolved);
-    if resolved_path.exists() && same_file(path, &resolved_path) {
-        Some(resolved_path)
-    } else {
-        None
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn resolve_apfs_firmlink_str(path_str: &str) -> Option<String> {
-    let prefix = "/System/Volumes/Data";
-    if let Some(without) = path_str.strip_prefix(prefix) {
-        if !without.is_empty() && Path::new(without).exists() {
-            return Some(without.to_string());
-        }
-    }
-    None
-}
+use tugcore::pathform::{
+    resolve_apfs_firmlink, resolve_apfs_firmlink_str, resolve_synthetic, synthetic_table,
+};
 
 // ---------------------------------------------------------------------------
 // macOS: autofs detection
@@ -614,29 +477,6 @@ fn resolve_bind_mounts(_path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The conf parse keeps exactly the two-column entries, trims both
-    /// columns, and drops comments, blanks, and single-column lines.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn synthetic_conf_parse_keeps_only_valid_entries() {
-        let conf = "\
-# a comment
-
-u\t/Users/someone/Mounts/u
-malformed-single-column
- spaced \t /Volumes/Target \n\
-empty-target\t
-\t/no/name";
-        let entries = parse_synthetic_conf(conf);
-        assert_eq!(
-            entries,
-            vec![
-                ("/u".to_string(), "/Users/someone/Mounts/u".to_string()),
-                ("/spaced".to_string(), "/Volumes/Target".to_string()),
-            ]
-        );
-    }
 
     /// Regression pin for the firmlink bug class. A path reached through a
     /// macOS `synthetic.conf` symlink (e.g. `/u`) must resolve to the

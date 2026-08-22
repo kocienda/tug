@@ -2661,10 +2661,17 @@ pub fn dash_draft_key(repo_root: &Path, name: &str) -> DashDraftKey {
 /// A directory's spellings, canonical first, raw appended when it differs —
 /// the Spec S05 contract, which stores `project_dir` canonical but cannot
 /// promise every historical row was written through a canonicalizing writer.
+///
+/// The canonical spelling is the **gateway** form ([L29]) — the same
+/// `tugcore::pathform::resolve_to_claude_form` the writer keys on. A bare
+/// `std::fs::canonicalize` here would not do: on macOS `realpath(3)` expands
+/// the data-volume firmlink to `/System/Volumes/Data/…`, a spelling no writer
+/// ever stores, so a base root reached through a firmlink or a
+/// `synthetic.conf` alias would read as a different project and the dash's
+/// authored draft would silently go missing.
 fn project_spellings(dir: &Path) -> Vec<String> {
     let raw = dir.to_string_lossy().into_owned();
-    let canonical = std::fs::canonicalize(dir)
-        .unwrap_or_else(|_| dir.to_path_buf())
+    let canonical = tugcore::pathform::resolve_to_claude_form(dir)
         .to_string_lossy()
         .into_owned();
     if canonical == raw {
@@ -7439,6 +7446,52 @@ Some context.
         assert_eq!(
             dash_draft_message(repo, "tugdash/both").as_deref(),
             Some("the current row")
+        );
+    }
+
+    /// The read side keys on the **gateway** spelling ([L29]) — the same form
+    /// the writer stores — so a base root handed in under any other spelling
+    /// still finds its dash's authored draft. This is the lands-as lie's path
+    /// half: a prompt composed against a spelling that missed the row
+    /// announced "no draft was written" while the join landed with one.
+    ///
+    /// The firmlink divergence that made the two disagree in the field
+    /// (`/Users/…` vs the `realpath(3)` form `/System/Volumes/Data/Users/…`)
+    /// cannot be constructed in-process — it needs `synthetic.conf` or an APFS
+    /// firmlink, both machine state. The gateway's own firmlink behavior is
+    /// pinned in `tugcore::pathform`; what this pins is that the lookup routes
+    /// through it, so the two sides cannot drift apart again.
+    #[serial]
+    #[test]
+    fn a_gateway_keyed_row_is_found_from_another_spelling_of_the_root() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "spelled");
+        isolate_changes_db(&temp);
+        let repo = temp.path();
+        let db = temp.path().join("changes.db");
+
+        // Keyed exactly as `apply_draft_request` keys it.
+        let gateway = tugcore::pathform::resolve_to_claude_form(repo);
+        seed_draft_row(
+            &db,
+            &dash_owner_key(repo, "spelled"),
+            &gateway,
+            "the words the author chose",
+        );
+
+        // The canonical spelling the read probes IS the gateway's form.
+        assert_eq!(
+            project_spellings(repo).first().map(String::as_str),
+            Some(gateway.to_string_lossy().as_ref())
+        );
+
+        // A second spelling of the same root — here a symlink — reads the row.
+        let elsewhere = TempDir::new().unwrap();
+        let link = elsewhere.path().join("root-by-another-name");
+        std::os::unix::fs::symlink(repo, &link).unwrap();
+        assert_eq!(
+            dash_draft_message(&link, "tugdash/spelled").as_deref(),
+            Some("the words the author chose")
         );
     }
 

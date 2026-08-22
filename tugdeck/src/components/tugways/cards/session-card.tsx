@@ -74,7 +74,7 @@ import {
 import { useUnavailableModelBulletin } from "@/lib/use-unavailable-model-bulletin";
 import { persistModelCatalog } from "@/lib/model-catalog";
 import { useRewindSheet } from "./rewind-sheet";
-import { useJoinPromptSheet } from "./join-prompt-sheet";
+import { useJoinPrompt } from "./join-prompt-inline";
 import { useSkillsSheet } from "./skills-sheet";
 import { useAgentsSheet } from "./agents-sheet";
 import { useMemorySheet } from "./memory-sheet";
@@ -3470,13 +3470,14 @@ export function SessionCardBody({
   // it, on the card of a session bound to that dash and nowhere else. It
   // yields while this card's composer is already landing something; a running
   // turn is not a reason to yield, because the decision is about a dash rather
-  // than about Claude.
-  useJoinPromptSheet({
+  // than about Claude. What comes back rides the transcript's live-edge slot,
+  // so the ask arrives where the user is reading and the run's ending
+  // narration above it stays legible.
+  const joinPromptElement = useJoinPrompt({
     prompt: boundDashEntry?.join?.prompt ?? null,
     workspaceKey: changesController.workspaceKey,
     dashName: boundDashEntry?.display_name ?? "",
     landingActive: commitModeActive || joinActive,
-    showSheet: cardPickerSheet.showSheet,
     onAnswer: (requestId, answer) => {
       if (boundDashEntry === null) return;
       getChangesetJoinStore()?.answerPrompt(
@@ -5000,6 +5001,7 @@ export function SessionCardBody({
                   transcriptStore={transcriptStore}
                   findSession={findSession}
                   renderTurnTrailing={effectiveRenderTurnTrailing}
+                  liveEdgeContent={joinPromptElement}
                 />
                 {/*
                   A question raised from outside the turn stream (`/api/ask`),

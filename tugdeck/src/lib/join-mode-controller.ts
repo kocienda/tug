@@ -44,7 +44,11 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import { sendLandingReceipt } from "@/lib/landing-press-receipt";
 import { getChangesetDraftStore, type DraftOverlayPhase } from "@/lib/changeset-draft-store";
 import { getChangesetJoinStore } from "@/lib/changeset-join-store";
-import { dashJoinRegister, type DashJoinRegister } from "@/lib/dash-join-register";
+import {
+  dashJoinRegister,
+  SETTLED_REST_MS,
+  type DashJoinRegister,
+} from "@/lib/dash-join-register";
 
 /** The dash a join mode is aimed at — the identity plus what the face reads. */
 export interface JoinTarget {
@@ -276,8 +280,19 @@ export class JoinModeController implements LandingMode {
    * surface reported about a join it started. So the target dies on exit and
    * this does not: it is what the register is derived from while the join runs
    * and after it settles, and the next entry or aim retires it.
+   *
+   * A narration that **succeeded** also retires itself, after
+   * {@link SETTLED_REST_MS} ([P03]). It used to rest until something replaced
+   * it, which was right when the register was the only surface that could
+   * report a landed join. It no longer is: the join lands a durable
+   * `/dash-join` receipt row in the transcript, and the inline surface says so
+   * where the decision was made. A third copy of the same sentence resting
+   * forever on an input surface is furniture, not news. A **failed** narration
+   * still rests — it is the outcome the user has something to do about.
    */
   private narration: JoinTarget | null = null;
+  /** The pending retirement of a settled-success narration, if one is due. */
+  private narrationRestTimer: ReturnType<typeof setTimeout> | null = null;
   private snapshot: JoinModeSnapshot;
   private landHook: ((runJoin: () => void) => void) | null = null;
   private messageProvider: (() => string) | null = null;
@@ -457,11 +472,53 @@ export class JoinModeController implements LandingMode {
   }
 
   private recompute(): void {
+    this.scheduleNarrationRetirement();
     const next = this.derive();
     if (!snapshotsEqual(next, this.snapshot)) {
       this.snapshot = next;
       this.fire();
     }
+  }
+
+  /**
+   * Retire a narration whose join has landed, after its rest ([P03]).
+   *
+   * Only a *success* retires, and only while the mode is closed: an open mode
+   * has a target of its own and nothing here applies. A failure keeps the
+   * register, because `join-failed` is the standing surface for the one
+   * outcome that still wants an act. Anything that replaces the narration
+   * first — a new aim, a new press — cancels the pending retirement, so the
+   * timer can never clear a sentence about a different join.
+   */
+  private scheduleNarrationRetirement(): void {
+    const cancel = (): void => {
+      if (this.narrationRestTimer === null) return;
+      clearTimeout(this.narrationRestTimer);
+      this.narrationRestTimer = null;
+    };
+    const target = this.narration;
+    if (target === null || this.active) {
+      cancel();
+      return;
+    }
+    const progress = getChangesetJoinStore()?.landProgress(
+      this.deps.changesController.workspaceKey,
+      target.name,
+    );
+    if (progress?.terminal !== true || progress.status === "error") {
+      cancel();
+      return;
+    }
+    if (this.narrationRestTimer !== null) return;
+    this.narrationRestTimer = setTimeout(() => {
+      this.narrationRestTimer = null;
+      // Guard the moment of firing, not only the moment of scheduling: the
+      // narration may have been replaced by a join started while this one
+      // rested.
+      if (this.narration !== target) return;
+      this.narration = null;
+      this.recompute();
+    }, SETTLED_REST_MS);
   }
 
   private fire(): void {
@@ -800,6 +857,7 @@ export class JoinModeController implements LandingMode {
   dispose(): void {
     for (const unsub of this.unsubscribes) unsub();
     this.listeners.clear();
+    if (this.narrationRestTimer !== null) clearTimeout(this.narrationRestTimer);
   }
 }
 

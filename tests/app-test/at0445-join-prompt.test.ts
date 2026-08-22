@@ -18,12 +18,18 @@
  *   that matters most: the arc used to sit dark behind a declaration a skill
  *   had to remember to make, and a `mark built` reintroduced here would hide
  *   that regression the moment it came back.
- * - **The sheet says what would land, and whose words those are.** With no
+ * - **The ask says what would land, and whose words those are.** With no
  *   draft written, the join would quietly land the branch description; the
- *   provenance line is where "quietly" stops. Write a draft and the next ask
- *   shows the author's words plainly, with no annotation — the *next* ask,
- *   because the sheet's message is a snapshot of the question it was raised
- *   for rather than a live view.
+ *   provenance line is where "quietly" stops. Write a draft **while the ask
+ *   stands** and it repaints in place to the author's words, with no
+ *   annotation and under the same question — the lands-as is a live view of
+ *   the ledger, not a snapshot of the moment the ask was raised. It used to be
+ *   a snapshot, and the field consequence was an ask announcing "no draft was
+ *   written" over a join that landed with one.
+ * - **Nothing is scrimmed.** The ask mounts inline at the transcript's live
+ *   edge, so the run's ending narration above it stays readable while the
+ *   decision is made. The pane body carries no `inert`, which is exactly what
+ *   the modal it replaced put there.
  * - "Not yet" dismisses it, and the dismissal is durable — the mark is
  *   `branch.tugdash/<n>.tugjoinprompted`, not a client memory ([P07]).
  * - **A base move that reconciles to the same decision raises nothing.** The
@@ -33,6 +39,13 @@
  * - **A change that makes the checks red raises a new one.** The decision
  *   genuinely changed, and a dismissal of "this builds — join it?" is not an
  *   answer to "this does not build — join it anyway?".
+ * - **The landing narrates, settles, and gets out of the way.** After "Join
+ *   now" the same element becomes the progress surface: it renders at least
+ *   one of the join's beats before its outcome, settles on what happened, and
+ *   departs. The durable record is the transcript's receipt row — and the
+ *   composer's status row, which used to hold the settled sentence until
+ *   something replaced it, comes back empty. Three copies of one sentence, one
+ *   of them squatting on an input surface, is furniture rather than news.
  *
  * And one about reach: an **unbound** dash, with facts identical to the bound
  * one's in the same repository at the same moment, is left alone entirely.
@@ -52,8 +65,10 @@
  * drives; the unbound one is the control. Nothing is built anywhere: the join
  * gates on reconcile-clean alone, so the arc runs at git speed.
  *
- * @covers tugdeck/src/components/tugways/cards/join-prompt-sheet.tsx
+ * @covers tugdeck/src/components/tugways/cards/join-prompt-inline.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/lib/changeset-join-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/lib/dash-join-register.ts
@@ -90,18 +105,26 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 420_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-000000000445";
-/** The sheet itself, wherever the card's sheet host mounts it. */
-const PROMPT = '[data-slot="join-prompt-sheet"]';
+/** The ask, inline at the transcript's live edge. */
+const PROMPT = '[data-slot="join-prompt-inline"][data-phase="deciding"]';
 /** Its whole text. The question, the three options and their descriptions are
- *  all the server's words, so reading the sheet entire is reading the ask. */
+ *  all the server's words, so reading the surface entire is reading the ask. */
 const PROMPT_QUESTION = PROMPT;
+/** The lands-as block: what would land, and whose words those are. */
+const PROMPT_MESSAGE = `${PROMPT} [data-slot="join-prompt-inline-message"]`;
 const promptOption = (label: string): string =>
   `${PROMPT} .session-question-dialog-options-list [data-option-label="${label}"]`;
 const PROMPT_SUBMIT = `${PROMPT} .session-question-dialog-actionbar-buttons .tug-button-primary-action`;
-/** The same sheet after "Join now" — the question is gone, the work is on. */
-const LANDING = '[data-slot="join-prompt-sheet-landing"]';
-const LANDING_LINE = `${LANDING} [data-slot="join-prompt-sheet-landing-line"]`;
-const LANDING_DETAIL = `${LANDING} [data-slot="join-prompt-sheet-landing-detail"]`;
+/** The same surface after "Join now" — the question is gone, the work is on. */
+const LANDING = '[data-slot="join-prompt-inline"][data-phase="landing"]';
+const LANDING_LINE = `${LANDING} [data-slot="join-prompt-inline-landing-line"]`;
+const LANDING_DETAIL = `${LANDING} [data-slot="join-prompt-inline-landing-detail"]`;
+/** The composer's own join register — the row that used to hold the settled
+ *  sentence forever. */
+const COMPOSER_REGISTER =
+  '[data-slot="tug-prompt-entry"] [data-slot="dash-join-register"]';
+/** The pane body a modal would have inerted while the ask stood. */
+const PANE_BODY = ".tug-pane-body";
 /** The durable receipt a landing leaves in the transcript. */
 const JOIN_RECEIPT = '[data-slot="join-receipt-block"]';
 
@@ -181,7 +204,7 @@ function deckShape() {
 
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
-/** Click, scrolling into view first — the sheet is a scrolling panel. */
+/** Click, scrolling into view first — the ask rides the transcript scroller. */
 async function revealAndClick(app: App, selector: string): Promise<void> {
   await app.evalJS<null>(
     `(function(){
@@ -194,7 +217,7 @@ async function revealAndClick(app: App, selector: string): Promise<void> {
   await app.nativeClickAtElement(selector);
 }
 
-/** Whether the prompt sheet is up right now. */
+/** Whether the ask is up right now. */
 function promptUp(app: App): Promise<boolean> {
   return app.evalJS<boolean>(
     `document.querySelector(${JSON.stringify(PROMPT)}) !== null`,
@@ -243,6 +266,47 @@ async function registerEverReaches(
   return false;
 }
 
+/**
+ * Record every sentence the landing line ever holds.
+ *
+ * A `MutationObserver` rather than a poll, and that is the whole point: a join
+ * on a scratch repository is over in well under a second, so a sampler racing
+ * it can report "no beat" for a narration that rendered four. This records the
+ * DOM's own history, so the assertion below is about what was painted rather
+ * than about what a poll happened to catch.
+ */
+async function watchLandingLines(app: App): Promise<void> {
+  await app.evalJS<null>(
+    `(function(){
+      window.__at0445Lines = [];
+      var seen = "";
+      var read = function(){
+        var el = document.querySelector('[data-slot="join-prompt-inline-landing-line"]');
+        var text = el === null ? "" : (el.textContent || "");
+        if (text !== "" && text !== seen) { seen = text; window.__at0445Lines.push(text); }
+      };
+      var obs = new MutationObserver(read);
+      obs.observe(document.body, { subtree: true, childList: true, characterData: true });
+      read();
+      return null;
+    })()`,
+  );
+}
+
+/** Every distinct landing sentence painted since {@link watchLandingLines}. */
+function landingLines(app: App): Promise<string[]> {
+  return app.evalJS<string[]>(`(window.__at0445Lines || [])`);
+}
+
+/** The beat vocabulary, quoted rather than imported: an app-test drives the
+ *  built bundle, not the module graph. */
+const BEATS = [
+  "squashing",
+  "tearing down the workshop",
+  "releasing the branch",
+  "recording the landing",
+];
+
 /** Wait for a dash's Lens register to reach a word — the arc, without a gesture. */
 async function registerReaches(
   app: App,
@@ -258,7 +322,7 @@ async function registerReaches(
 
 describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
   test(
-    "a bound green dash asks with no mark anywhere, the sheet names its landing message, a dismissal holds across a base move, a red decision asks again, and an unbound dash is never piloted at all",
+    "a bound green dash asks with no mark anywhere, the ask names its landing message and repaints it live, a dismissal holds across a base move, a red decision asks again, and an unbound dash is never piloted at all",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -277,8 +341,8 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // The Lens stays up for the whole run: it is where the arc is read
-        // from without touching either dash, and the sheet mounts on the card
-        // rather than in it, so the two do not contend.
+        // from without touching either dash, and the ask mounts at the card's
+        // live edge rather than over the pane, so the two do not contend.
         await app.dispatchControlAction("toggle-lens");
         await app.waitForCondition<boolean>(
           `document.querySelector('${LENS_SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH}"]') !== null`,
@@ -329,17 +393,76 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
         // that "quietly" stops here, at the one moment somebody is about to
         // agree to it ([P05]).
         const provenance = await app.evalJS<string>(
-          `(document.querySelector('${PROMPT} [data-slot="join-prompt-sheet-message"]')?.textContent || "")`,
+          `(document.querySelector(${JSON.stringify(PROMPT_MESSAGE)})?.textContent || "")`,
         );
         note(`at0445 lands-as: ${JSON.stringify(provenance)}`);
         expect(
           provenance,
-          "the sheet quotes the message the join would land",
+          "the ask quotes the message the join would land",
         ).toContain("at0445 bound-dash fixture");
         expect(
           provenance,
           "and says the words are the branch description, not an authored draft",
         ).toContain("no draft was written");
+
+        // ── Nothing is scrimmed ──────────────────────────────────────────
+        // The modal this replaced inerted the pane body, which greyed out the
+        // run's ending narration at the exact moment the decision needed it.
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(PANE_BODY)})?.hasAttribute("inert") ?? false`,
+          ),
+          "an ask standing at the live edge inerts nothing",
+        ).toBe(false);
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(PROMPT)})?.closest('[data-tug-scroll-key="session-card-transcript"]') !== null`,
+          ),
+          "and it lives inside the transcript scroller, so it scrolls with the conversation",
+        ).toBe(true);
+
+        // ── The lands-as is live, not a snapshot ─────────────────────────
+        // A draft written WHILE the ask stands repaints it in place, under the
+        // same question. This is the defect that produced "no draft was
+        // written" over a join that landed with one: the read side missed the
+        // gateway-keyed row, and a draft write bumped no feed, so the standing
+        // ask served the words it was raised with forever.
+        //
+        // `--instance` is not optional here, and the omission is not benign:
+        // `draft set` writes through a running tugcast's `POST /api/draft`,
+        // and its discovery finds whichever instance is registered — which,
+        // on a developer's machine, is their **live** Tug. Without this the
+        // draft lands in the real machine-global `changes.db` under a scratch
+        // dash's owner key, and this instance never sees it.
+        tugutil(
+          [
+            "draft",
+            "set",
+            "--instance",
+            app.instanceId,
+            "--owner",
+            `dash:${DASH}`,
+            "--message",
+            "at0445 the words the author chose",
+          ],
+          { cwd: scratch, binaryRoot: cli.binaryRoot, env: cli.env },
+        );
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(PROMPT_MESSAGE)})?.getAttribute("data-source") || "") === "draft"`,
+          { timeoutMs: 30000 },
+        );
+        const repainted = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(PROMPT_MESSAGE)})?.textContent || "")`,
+        );
+        note(`at0445 lands-as (repainted): ${JSON.stringify(repainted)}`);
+        expect(
+          repainted,
+          "the standing ask now quotes the words the author just wrote",
+        ).toContain("the words the author chose");
+        expect(
+          repainted,
+          "and drops the apology, because these words ARE somebody's",
+        ).not.toContain("no draft was written");
 
         // ── "Not yet" ─────────────────────────────────────────────────────
         await revealAndClick(app, promptOption("Not yet"));
@@ -386,31 +509,9 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
         // which is the failure this policy was written for: a run that walked
         // four milestones asked once and went silent for the rest.
         //
-        // A draft goes in first, so the next ask can be read for the other
-        // half of the provenance rule. It is the NEXT ask rather than the
-        // standing one deliberately: the sheet's message is a snapshot of the
-        // question it was raised for, and re-rendering an open dialog under
-        // the user's cursor to swap its quote would be the interruption this
-        // whole arc is arranged to avoid.
-        // `--instance` is not optional here, and the omission is not benign:
-        // `draft set` writes through a running tugcast's `POST /api/draft`,
-        // and its discovery finds whichever instance is registered — which,
-        // on a developer's machine, is their **live** Tug. Without this the
-        // draft lands in the real machine-global `changes.db` under a scratch
-        // dash's owner key, and this instance never sees it.
-        tugutil(
-          [
-            "draft",
-            "set",
-            "--instance",
-            app.instanceId,
-            "--owner",
-            `dash:${DASH}`,
-            "--message",
-            "at0445 the words the author chose",
-          ],
-          { cwd: scratch, binaryRoot: cli.binaryRoot, env: cli.env },
-        );
+        // The draft written above survives the dismissal and the new round —
+        // it is the dash's, not the ask's — so the new question opens on the
+        // author's words with no second write.
         writeFileSync(
           join(boundWorktree, "bound.txt"),
           "at0445 the bound dash keeps working\n",
@@ -427,7 +528,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
         note(`at0445 re-asked: ${JSON.stringify(reasked)}`);
         expect(reasked, "the new ask is about the new state").toContain(DASH);
         const drafted = await app.evalJS<string>(
-          `(document.querySelector('${PROMPT} [data-slot="join-prompt-sheet-message"]')?.textContent || "")`,
+          `(document.querySelector(${JSON.stringify(PROMPT_MESSAGE)})?.textContent || "")`,
         );
         expect(
           drafted,
@@ -482,10 +583,11 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
 
         // ── "Join now" ────────────────────────────────────────────────────
         // The half of the decision the rest of this file never presses. The
-        // sheet the user agreed in is where the join then plays: it does not
-        // dismiss on the press, it narrates, and it settles naming what it
-        // did. A sheet that closed here would put the decision and its
-        // consequence on two different surfaces.
+        // surface the user agreed on is where the join then plays: it does not
+        // vanish on the press, it narrates, and it settles naming what it did.
+        // A surface that closed here would put the decision and its
+        // consequence in two different places.
+        await watchLandingLines(app);
         await revealAndClick(app, promptOption("Join now"));
         await revealAndClick(app, PROMPT_SUBMIT);
         await app.waitForCondition<boolean>(
@@ -496,7 +598,13 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
           await app.evalJS<boolean>(
             `document.querySelector(${JSON.stringify(PROMPT_SUBMIT)}) === null`,
           ),
-          "the question is gone — the same sheet is now the progress surface",
+          "the question is gone — the same surface is now the progress surface",
+        ).toBe(true);
+        expect(
+          await app.evalJS<boolean>(
+            `(document.body.textContent || "").indexOf("Join?") === -1`,
+          ),
+          "and nothing on screen is still asking a question the user already answered",
         ).toBe(true);
 
         await app.waitForCondition<boolean>(
@@ -510,7 +618,21 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
            })`,
         );
         note(`at0445 settled: ${JSON.stringify(settled)}`);
-        expect(settled.line, "the settled sheet names the dash it landed").toContain(DASH);
+
+        // Every sentence the landing ever painted, from the observer installed
+        // before the press. The join narrates four beats (`squashing`,
+        // `tearing down the workshop`, `releasing the branch`, `recording the
+        // landing`), and the claim is that the surface rendered at least one of
+        // them before its outcome — a landing that read `Joining <dash>` from
+        // first frame to last is not a progress surface, which is exactly what
+        // the 2026-08-22 join showed.
+        const lines = await landingLines(app);
+        note(`at0445 landing lines: ${JSON.stringify(lines)}`);
+        expect(
+          lines.some((line) => BEATS.some((beat) => line.includes(beat))),
+          "the landing narrates the join's work, not only that work is happening",
+        ).toBe(true);
+        expect(settled.line, "the settled surface names the dash it landed").toContain(DASH);
         expect(
           settled.detail,
           "and the outcome's own words, not a bare status word",
@@ -518,6 +640,12 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
 
         // It closes itself once it has been read, rather than resting forever
         // on a decision nobody has anything left to make about it.
+        // A landing outlives its dash: the instant the join lands, the dash's
+        // feed entry is gone. A surface reading the card's live dash name here
+        // would lose the store key it was watching at the exact moment the
+        // outcome arrived and narrate `Joining ` forever — never settling, so
+        // never departing. It holds the name it was pressed with instead, and
+        // this is the assertion that says so.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LANDING)}) === null`,
           { timeoutMs: 30000 },
@@ -525,7 +653,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
 
         // And the landing left its durable trace. This is the whole point of
         // threading the session id through the answer: before it, a join
-        // agreed to in the sheet wrote no transcript row at all, so the one
+        // agreed to at the live edge wrote no transcript row at all, so the one
         // record of the act lived on rows that unmount when the dash entry
         // goes.
         await app.waitForCondition<boolean>(
@@ -537,7 +665,19 @@ describe.skipIf(!SHOULD_RUN)("AT0445: the join prompt asks once", () => {
         );
         note(`at0445 receipt: ${JSON.stringify(receipt.slice(0, 200))}`);
         expect(receipt, "the receipt names the dash that landed").toContain(DASH);
-        note("at0445 joined: the sheet narrated it, settled on it, and left a receipt");
+
+        // And the composer goes back to being an input. The register narrates
+        // the beats while the join runs — all three surfaces stay consistent
+        // under way — but the settled sentence rests briefly and then clears,
+        // because the receipt row above is the durable record and a status row
+        // holding one sentence until the next join is furniture.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(COMPOSER_REGISTER)}) === null`,
+          { timeoutMs: 15000 },
+        );
+        note(
+          "at0445 joined: the surface narrated it, settled on it, left a receipt, and the composer emptied",
+        );
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

@@ -123,57 +123,51 @@ the user as a diff to read. The server runs a resolution ladder, then hands the
 result to a resolver: an agent working in the dash's own **workshop** worktree,
 where the merge is a real tree with the whole project around it. It finishes
 what the ladder could not, **audits every file the ladder's machine rungs
-decided** against the dash's recorded intent, and reports what it did. Then the
-project's own declared checks run over the tree that would actually land.
+decided** against the dash's recorded intent, and reports what it did.
 
-Three consequences for anyone working in this lane:
+**The gate is reconcile-clean, and nothing else** ([D149]). A dash joins when
+its merge onto the current base is clean — either because it always was, or
+because the ladder and the resolver made it so. No build runs here and no tests
+run here, because verification belongs to the run's ending, over the tree the
+run actually produced. A join that re-verified would be re-reading work that was
+already read, at the one moment the user is waiting.
+
+Two consequences for anyone working in this lane:
 
 - **A conflicted join is not a stall.** Do not resolve conflicts by hand on the
   dash worktree to "help it along". The resolve path owns that work, and a hand
   resolution is one nothing audited.
-- **The verdict is the gate, not a reading.** Green joins; red names its failing
-  commands and offers an explicit override; nobody has run the checks yet is
-  *unverified*, which is a different fact from passing. There is no diff to
-  acknowledge and no acknowledgement that opens the gate.
 - **An escalation is the user's, and only an intent question.** When the two
   sides want genuinely incompatible things the resolver asks — once, phrased as
   what each side was trying to do, with concrete resolutions. It reaches the
   join face and waits. Answer it there; a resolve blocked on a question is
   blocked on a person, not broken.
 
-Three rules the pipeline holds itself to, which are worth knowing when a join
+Two rules the pipeline holds itself to, which are worth knowing when a join
 behaves in a way that looks like nothing happening:
 
-- **One dash, one run.** A resolve, a verification, and a non-preview join each
-  take the dash before they touch anything, and any second one is refused by
-  name — "a resolve is already running for this dash". They share a workshop
-  worktree, so two at once means one resetting the tree the other is editing.
-  A preview takes nothing, because it touches nothing. Admission, never a
-  queue: one dash, one run, and the refused press is told what holds it.
-- **The gate lives on the server.** `tugutil dash join` refuses an unverified,
-  red, or candidate-less join exactly as the card does, because the refusal is
-  in `join_in` rather than in a surface. `--anyway` is the escape, and the
-  card's Join anyway writes the same durable override, anchored to the
-  candidate sha it was decided over.
+- **One dash, one run.** A resolve and a non-preview join each take the dash
+  before they touch anything, and any second one is refused by name — "a resolve
+  is already running for this dash". They share a workshop worktree, so two at
+  once means one resetting the tree the other is editing. A preview takes
+  nothing, because it touches nothing. Admission, never a queue: one dash, one
+  run, and the refused press is told what holds it.
 - **A failure fact is always terminal.** Nothing durable describes an activity
-  nobody is performing: a tier run that dies writes its verdict red rather than
-  leaving it running, and a question whose resolver is gone becomes a stuck
-  line quoting what was asked. So a face that says a run is live means one is.
+  nobody is performing: a run that dies writes its outcome rather than leaving
+  itself running, and a question whose resolver is gone becomes a stuck line
+  quoting what was asked. So a face that says a run is live means one is.
   Silence from the resolver is not evidence of anything — its rung reports four
   discrete beats with minutes between them, and only the server's own timeouts
   can call it dead.
 
-**Every join rides a candidate**, clean ones included. Opening join mode on a
-dash with no conflicts still resolves it and verifies what that produced, which
-costs a `commit-tree` and one run of the project's checks. The failure that pays
-for is the merge with no conflicting file that does not build — a symbol renamed
-on one side, a new call site on the other.
-
-What the project's checks *are* is per-project configuration, not built-in
-knowledge: `[tugtool.dash].verify_tier0` and `verify_tier1` in
-`.tugtool/config.toml`, beside `post_create`. A project that declares neither
-gets a stated green with a note, which is the right answer for a repository that
-has no build.
+**The join speaks where the decision was made.** The ask mounts inline at the
+transcript's live edge — not as a modal, which scrimmed the run's own ending
+narration at the exact moment the decision needed it — and it shows what would
+land and where those words came from, live: a draft written while the ask stands
+repaints it in place. On *Join now* that same surface becomes the progress
+surface, narrating the join's beats and settling on what happened, then
+departing. The durable record is the receipt row the landing leaves in the
+transcript.
 
 ## What never gets asked
 

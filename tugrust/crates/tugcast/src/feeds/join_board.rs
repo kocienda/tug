@@ -1042,7 +1042,9 @@ mod tests {
 
         // An authored draft outranks it — and the ask keeps its identity, so
         // editing the draft while the dialog stands cannot orphan the answer
-        // the user is in the middle of giving.
+        // the user is in the middle of giving. What carries a mid-ask draft
+        // write this far is the feed bump `draft_handler` fires: without it
+        // the composition below is correct and never runs.
         seed_draft_row(&db, "tugdash/demo", repo, "The words the author chose");
         let drafted = compose(repo).prompt.expect("asked");
         assert_eq!(drafted.message, "tugdash(demo): The words the author chose");
@@ -1053,9 +1055,11 @@ mod tests {
         );
     }
 
-    /// Seed a draft row the way every writer bootstraps the table.
+    /// Seed a draft row the way every writer bootstraps the table — keyed
+    /// through the [L29] gateway, which is what `apply_draft_request` writes
+    /// and what the draft lookup now probes.
     fn seed_draft_row(db: &Path, owner_id: &str, project: &Path, message: &str) {
-        let project = std::fs::canonicalize(project).unwrap_or_else(|_| project.to_path_buf());
+        let project = tugcore::pathform::resolve_to_claude_form(project);
         let conn = rusqlite::Connection::open(db).unwrap();
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS changeset_drafts (
