@@ -102,6 +102,7 @@ import {
 } from "@/lib/card-title-store";
 import { SessionMasthead } from "@/components/tugways/session-masthead";
 import { CardMasthead } from "@/components/tugways/card-masthead";
+import { CardSlotBadge } from "@/components/tugways/card-slot-badge";
 import { beginResizeEpisode } from "@/lib/resize-episode";
 import { composePaneTitleBarText } from "@/lib/pane-title";
 import { paneTitleBarItemsStore } from "@/lib/pane-title-bar-items-store";
@@ -741,7 +742,7 @@ function CardTitleBar({
         // A document card's lines. No key: unlike a session there is no dwell
         // queue or open placard to carry across, so reconciling a new path
         // onto the same element is exactly right.
-        <CardMasthead payload={masthead} cardId={activeCardId} />
+        <CardMasthead payload={masthead} />
       ) : (
         // Keyed by session, so a payload naming a DIFFERENT session remounts
         // rather than reconciling. A new session is a new entity, which is
@@ -762,14 +763,37 @@ function CardTitleBar({
       )}
 
       <div ref={controlsElRef} className="tug-pane-title-bar-controls" data-testid="tug-pane-title-bar-controls">
-        {/* FIRST, on every pane that has one. The badge is the one control here
-            that is about the pane's PLACE rather than about the pane, and a
+        {/* The pane's PLACE IN THE DECK, ahead of everything — including the
+            stack badge, whose comment below already argues this position and
+            gives it away: a control that reports where you are belongs at the
+            head of the row it leads. Two such controls read outward-in. The
+            slot badge names the place the PANE stands in the imposition; the
+            stack badge names where this CARD stands inside that pane. Outer,
+            then inner, then the verbs that act on either.
+
+            It stands here rather than in a masthead, which is where it first
+            landed. A masthead is a card's own three lines and only two kinds
+            of card wear one, so a badge seated there was a pane fact drawn by
+            a card, absent on every card that titles itself in one line. The
+            cluster is the pane's, it is on every pane, and it is the row this
+            control was always describing.
+
+            No condition. `CardSlotBadge` answers with nothing when there is no
+            place to name — a one-up imposition, a pane holding no slot, a
+            sidebar — and those are its guards to hold, not this bar's to
+            duplicate. */}
+        <CardSlotBadge cardId={activeCardId} />
+        {/* SECOND, behind the slot badge, on every pane that has one. The two
+            of them are the cluster's place-reporting pair, and they read
+            outward-in: the place the pane stands in the deck, then the place
+            this card stands inside the pane. Both lead the verbs, because a
             control that reports where you are belongs at the head of the row it
-            leads — read left to right, the cluster then says "one of two, and
-            here is what you can do to it". Leading is also the only position
-            that holds still: the badge comes and goes as cards stack, and each
-            of the controls behind it can be absent on a given card, so a badge
-            anywhere else in the row would sit at a different offset per card.
+            leads — read left to right, the cluster then says "one of two,
+            holding two cards, and here is what you can do to it". The head of
+            the row is also the only region that holds still: both badges come
+            and go, and each of the controls behind them can be absent on a
+            given card, so a badge further back would sit at a different offset
+            per card.
 
             The condition is `slotStack.length > 1` and nothing else — no
             "am I on top?" test, which would need a second cross-pane fact the

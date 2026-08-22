@@ -1362,20 +1362,21 @@ app-test *FILES:
     # It hands the pending question forward instead ($TUG_APPTEST_ASK_OUT), and
     # this is where the answer is collected.
     FG_FILES="$(bun scripts/select-tests.ts --foreground "${FILES[@]}")"
+    # Both queues are always built: the runner drives them separately, on
+    # different concurrency rules, so "there are no screen-takers" is an empty
+    # FG_QUEUE rather than an unpartitioned FILES.
     declare -a FG_QUEUE=()
-    if [ -n "$FG_FILES" ]; then
-        declare -a BG_QUEUE=()
-        for f in "${FILES[@]}"; do
-            if printf '%s\n' "$FG_FILES" | grep -qx "$f"; then
-                FG_QUEUE+=("$f")
-            else
-                BG_QUEUE+=("$f")
-            fi
-        done
-        FILES=("${BG_QUEUE[@]}" "${FG_QUEUE[@]}")
-        if [ "${#BG_QUEUE[@]}" -gt 0 ]; then
-            echo "==> running ${#BG_QUEUE[@]} background test(s) now; the ${#FG_QUEUE[@]} that take the screen come last."
+    declare -a BG_QUEUE=()
+    for f in "${FILES[@]}"; do
+        if [ -n "$FG_FILES" ] && printf '%s\n' "$FG_FILES" | grep -qx "$f"; then
+            FG_QUEUE+=("$f")
+        else
+            BG_QUEUE+=("$f")
         fi
+    done
+    FILES=(${BG_QUEUE[@]+"${BG_QUEUE[@]}"} ${FG_QUEUE[@]+"${FG_QUEUE[@]}"})
+    if [ "${#FG_QUEUE[@]}" -gt 0 ] && [ "${#BG_QUEUE[@]}" -gt 0 ]; then
+        echo "==> running ${#BG_QUEUE[@]} background test(s) now; the ${#FG_QUEUE[@]} that take the screen come last."
     fi
 
     # A ^C (or any other death) must not leave the question standing in the
@@ -1517,32 +1518,87 @@ app-test *FILES:
         ' "$1"
     }
 
-    START_EPOCH="$(date +%s)"
+    # How many background files run at once.
+    #
+    # Serializing the whole corpus was never what the hardware required. Native
+    # input, app activation and the key window are login-session singletons, so
+    # the SCREEN-TAKING tier genuinely cannot be shared — but a background test
+    # posts its keys with `CGEvent.postToPid(ownPid)` and rebuilds its mouse
+    # events as in-process `NSEvent`s, and every per-instance resource it owns
+    # already derives from a UUID `TUG_INSTANCE_ID`. Two of them have nothing in
+    # common to fight over. The invocation gate still serializes whole runs
+    # against each OTHER, and the screen-takers below still run one at a time.
+    #
+    # 4 is measured, not guessed, and so is the fact that it is the ceiling. On a
+    # 16-core machine the core tier runs clean and repeatably at 4 — three runs at
+    # 59s/59s/60s against a 103s serial baseline, 29/29 tests each time.
+    #
+    # At 6 and above it does NOT hold, and the reason is worth knowing before
+    # anybody raises this. The failures are not timeouts (those are handled by the
+    # scale below): every file dies on its FIRST `evalJS` with "returned a result
+    # of an unsupported type", `evalJS("1 + 1")` included. That is the launch
+    # handshake reporting ready before the WebView can actually evaluate — a
+    # readiness race that only has a window wide enough to lose under load.
+    # Raising this number is a fix to that race, not an edit here.
+    JOBS="${TUG_APPTEST_JOBS:-4}"
+    case "$JOBS" in ''|*[!0-9]*) JOBS=4 ;; esac
+    [ "$JOBS" -lt 1 ] && JOBS=1
+    [ "$JOBS" -gt 8 ] && JOBS=8
+    if [ "$JOBS" -gt 4 ]; then
+        echo "==> TUG_APPTEST_JOBS=$JOBS is above the measured-clean ceiling of 4; expect the launch-readiness race." >&2
+    fi
+    # Streaming interleaves each file's raw output; concurrent streams would be
+    # shuffled into nonsense, so asking for them asks for a serial run.
+    [ -n "$STREAM" ] && JOBS=1
 
-    for f in "${FILES[@]}"; do
-        # The screen-takers are last in the list, so this resolves once, after
-        # every background test has already run.
-        if [ "${#FG_QUEUE[@]}" -gt 0 ] && printf '%s\n' "${FG_QUEUE[@]}" | grep -qx "$f"; then
-            resolve_foreground_decision
-            if [ "$FG_DECISION" = "skip" ]; then
-                [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
-                RESULT_ROWS+=("SKIP:$f:0:0:0")
-                [ -n "$PROGRESS" ] && printf '  %-6s %-56s (skipped — takes the screen)\n' "[SKIP]" "$f"
-                continue
-            fi
-        fi
+    # Timeout budgets are sized for a file that has the machine to itself. Under
+    # concurrency the same work takes longer in wall time with nothing wrong, so
+    # the budgets travel with the contention. At JOBS=1 this is unset and every
+    # byte on the wire is what a serial run always sent.
+    [ "$JOBS" -gt 1 ] && export TUG_APPTEST_TIMEOUT_SCALE="$JOBS"
+
+    # Bun's own per-test timeout (5000ms) is the other budget sized for a lone
+    # file, and it lives outside the RPC path, so it is scaled on the command line.
+    BUN_TIMEOUT_ARG=""
+    [ "$JOBS" -gt 1 ] && BUN_TIMEOUT_ARG="--timeout $(( 5000 * JOBS ))"
+
+    RUNDIR="$(mktemp -d -t apptest-run.XXXXXX)"
+
+    # Stop any of THIS WORKTREE's apptest stragglers. The harness's
+    # `app.close()` already targets its own instance; this is defence-in-depth
+    # for a test that panics before reaching `close`.
+    #
+    # It is prefix-scoped, so it reaches every concurrent file's app as readily
+    # as its own — which is why it runs BETWEEN batches and never inside one.
+    # Called per-file under concurrency, the first file to finish would SIGTERM
+    # every app still under test.
+    reap_stragglers() {
+        while read -r ID; do
+            case "$ID" in "${TUG_APPTEST_ID_PREFIX}-"*)
+                tugrust/target/debug/tugutil host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
+            esac
+        done < <(tugrust/target/debug/tugutil host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
+    }
+
+    # Run one file and write its outcome to $RUNDIR, so a concurrent job can
+    # report without sharing a shell array with anybody.
+    run_one_file() {
+        local f="$1"
+        local out="$RUNDIR/$(printf '%s' "$f" | tr '/' '_')"
+        local tmpout="$out.out"
+        local file_start rc passed failed total secs status
         file_start="$(date +%s)"
         if [ -n "$STREAM" ]; then
             echo "---- $f ----"
             # bun's stdout/stderr both stream to the user's terminal AND
-            # land in $TMPOUT for parsing. `tee` truncates without `-a`.
-            if bun test "$f" 2>&1 | tee "$TMPOUT"; then
+            # land in $tmpout for parsing. `tee` truncates without `-a`.
+            if bun test $BUN_TIMEOUT_ARG "$f" 2>&1 | tee "$tmpout"; then
                 rc=0
             else
                 rc="${PIPESTATUS[0]}"
             fi
         else
-            if bun test "$f" > "$TMPOUT" 2>&1; then
+            if bun test $BUN_TIMEOUT_ARG "$f" > "$tmpout" 2>&1; then
                 rc=0
             else
                 rc=$?
@@ -1551,61 +1607,98 @@ app-test *FILES:
         # Bun emits "  N pass\n  N fail" near the end of each file.
         # Match the LAST occurrence so per-test mentions earlier in
         # the output do not confuse the count.
-        passed="$(grep -E '^[ \t]*[0-9]+ pass$' "$TMPOUT" | tail -n 1 | grep -oE '[0-9]+' | head -n 1)"
-        failed="$(grep -E '^[ \t]*[0-9]+ fail$' "$TMPOUT" | tail -n 1 | grep -oE '[0-9]+' | head -n 1)"
+        passed="$(grep -E '^[ \t]*[0-9]+ pass$' "$tmpout" | tail -n 1 | grep -oE '[0-9]+' | head -n 1)"
+        failed="$(grep -E '^[ \t]*[0-9]+ fail$' "$tmpout" | tail -n 1 | grep -oE '[0-9]+' | head -n 1)"
         passed="${passed:-0}"
         failed="${failed:-0}"
         total=$((passed + failed))
+        secs=$(( $(date +%s) - file_start ))
 
         # Diagnostics the test asked to be seen, on green runs as well as red.
-        while IFS= read -r ln; do
-            [ -n "$ln" ] && NOTE_ROWS+=("$f$US${ln#TUG-NOTE: }")
-        done < <(grep '^TUG-NOTE: ' "$TMPOUT" || true)
-
-        secs=$(( $(date +%s) - file_start ))
+        grep '^TUG-NOTE: ' "$tmpout" 2>/dev/null | sed 's/^TUG-NOTE: //' > "$out.notes" || true
 
         if [ "$rc" -eq 0 ] && [ "$total" -eq 0 ]; then
             status=SKIP; passed=0; total=0
-            RESULT_ROWS+=("SKIP:$f:0:0:$secs")
         elif [ "$rc" -eq 0 ]; then
             status=PASS
-            RESULT_ROWS+=("PASS:$f:$passed:$total:$secs")
         else
             if [ "$total" -gt 0 ]; then
                 status=FAIL
-                RESULT_ROWS+=("FAIL:$f:$passed:$total:$secs")
             else
                 status=ERR; passed=0; total=0
-                RESULT_ROWS+=("ERR:$f:0:0:$secs")
             fi
-            before=${#FAIL_DETAILS[@]}
-            while IFS= read -r -d "$RS" rec; do
-                [ -n "$rec" ] && FAIL_DETAILS+=("$f$US$rec")
-            done < <(extract_failures "$TMPOUT" "$f")
+            extract_failures "$tmpout" "$f" > "$out.fails"
             # A file that died before any test reported has no `(fail)` line to
             # hang detail off — carry the tail of its output instead, so an
             # early crash is not silently reduced to `[ERR]`.
-            if [ "${#FAIL_DETAILS[@]}" -eq "$before" ]; then
-                FAIL_DETAILS+=("$f$US(the file failed before any test reported)$US$(tail -n 12 "$TMPOUT")$US")
+            if [ ! -s "$out.fails" ]; then
+                printf '%s' "(the file failed before any test reported)$US$(tail -n 12 "$tmpout")$US$RS" > "$out.fails"
             fi
         fi
+        printf '%s\n' "$status:$f:$passed:$total:$secs" > "$out.row"
+    }
 
-        # Read from the values just computed, not back out of the array: a
-        # negative array index is bash 4.3+, and macOS ships 3.2 as /bin/bash,
-        # where `set -u` makes the failure fatal rather than cosmetic.
-        if [ -n "$PROGRESS" ]; then
-            printf '  %-6s %-56s (%d/%d)\n' "[$status]" "$f" "$passed" "$total"
+    # Fold one finished file's $RUNDIR output into the arrays the summary reads.
+    collect_file() {
+        local f="$1"
+        local out="$RUNDIR/$(printf '%s' "$f" | tr '/' '_')"
+        local row status rpassed rtotal
+        [ -f "$out.row" ] || return 0
+        row="$(cat "$out.row")"
+        RESULT_ROWS+=("$row")
+        IFS=':' read -r status _ rpassed rtotal _ <<< "$row"
+        if [ -f "$out.notes" ]; then
+            while IFS= read -r ln; do
+                [ -n "$ln" ] && NOTE_ROWS+=("$f$US$ln")
+            done < "$out.notes"
         fi
+        if [ -f "$out.fails" ]; then
+            while IFS= read -r -d "$RS" rec; do
+                [ -n "$rec" ] && FAIL_DETAILS+=("$f$US$rec")
+            done < "$out.fails"
+        fi
+        [ -n "$PROGRESS" ] && printf '  %-6s %-56s (%d/%d)  %4ds\n' \
+            "[$status]" "$f" "$rpassed" "$rtotal" "$(echo "$row" | awk -F: '{print $5}')"
+    }
 
-        # Between files, stop any of THIS WORKTREE's apptest
-        # stragglers. The harness's `app.close()` already targets the
-        # current instance; this is defence-in-depth for the rare case
-        # where a test panics before reaching `close`.
-        while read -r ID; do
-            case "$ID" in "${TUG_APPTEST_ID_PREFIX}-"*)
-                tugrust/target/debug/tugutil host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
-            esac
-        done < <(tugrust/target/debug/tugutil host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
+    START_EPOCH="$(date +%s)"
+
+    # The background tier, JOBS at a time. Batched rather than a rolling pool:
+    # macOS ships bash 3.2, which has no `wait -n` to retire one job at a time.
+    declare -a BATCH=()
+    if [ "${#BG_QUEUE[@]}" -gt 0 ]; then
+        for f in "${BG_QUEUE[@]}"; do
+            BATCH+=("$f")
+            if [ "${#BATCH[@]}" -ge "$JOBS" ]; then
+                for b in "${BATCH[@]}"; do run_one_file "$b" & done
+                wait
+                reap_stragglers
+                for b in "${BATCH[@]}"; do collect_file "$b"; done
+                BATCH=()
+            fi
+        done
+        if [ "${#BATCH[@]}" -gt 0 ]; then
+            for b in "${BATCH[@]}"; do run_one_file "$b" & done
+            wait
+            reap_stragglers
+            for b in "${BATCH[@]}"; do collect_file "$b"; done
+            BATCH=()
+        fi
+    fi
+
+    # The screen-takers, strictly one at a time. The decision resolves here,
+    # after every background file has already run.
+    for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
+        resolve_foreground_decision
+        if [ "$FG_DECISION" = "skip" ]; then
+            [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
+            RESULT_ROWS+=("SKIP:$f:0:0:0")
+            [ -n "$PROGRESS" ] && printf '  %-6s %-56s (skipped — takes the screen)\n' "[SKIP]" "$f"
+            continue
+        fi
+        TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f"
+        reap_stragglers
+        collect_file "$f"
         sleep 0.3
     done
 

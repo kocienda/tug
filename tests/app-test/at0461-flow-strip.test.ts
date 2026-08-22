@@ -44,11 +44,21 @@
  *      component that arrives. And it is a READOUT: it declines the pointer, so
  *      a hand aiming at a card is not caught by the picture of where it already
  *      is.
+ *  10. **The segments wear the ink of the ground they stand on.** A `TugSlot`'s
+ *      own tokens name a control on a control surface, and this mount stands on
+ *      the deck canvas — a dark band in every theme, the light ones included —
+ *      where control ink authored for a light control surface simply vanishes.
+ *      So the strip hands in the CARD pairing through the knobs the primitive
+ *      publishes, and this asserts the segment actually REACHED them. It is the
+ *      one failure the theme-contrast audit cannot see: a drifted knob name
+ *      falls back to the control tint silently, and the pairings table goes on
+ *      passing while the drawing goes invisible.
  *
  * @covers tugdeck/src/components/chrome/flow-strip.tsx
  * @covers tugdeck/src/components/chrome/flow-strip.css
  * @covers tugdeck/src/components/tugways/tug-slot-layout.tsx
  * @covers tugdeck/src/components/tugways/tug-slot-layout.css
+ * @covers tugdeck/src/components/tugways/tug-slot.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -883,6 +893,116 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
           drawn.pointer,
           "the bracket declines the pointer it is drawn over",
         ).toBe("none");
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the segments take the ink of the surface they stand on",
+    async () => {
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
+      try {
+        await openDeck(app, { cards: 3, cardWidth: SLIM_PX, layout: "flow" });
+
+        const ink = await app.evalJS<{
+          background: string;
+          color: string;
+          want: { background: string; color: string };
+          control: { background: string; color: string };
+          quietOpacity: number;
+        }>(
+          `(function () {
+            var segment = document.querySelector(${JSON.stringify(SEGMENTS)});
+            var computed = getComputedStyle(segment);
+
+            // Resolve the tokens through the live document rather than naming
+            // colours here: a literal would be six answers, one per theme, and
+            // the claim is about which TOKEN the segment reached, not which
+            // colour that token happens to hold today.
+            var probe = document.createElement("span");
+            probe.style.position = "absolute";
+            probe.style.visibility = "hidden";
+            document.body.appendChild(probe);
+            function resolve(surface, text) {
+              probe.style.backgroundColor = "var(" + surface + ")";
+              probe.style.color = "var(" + text + ")";
+              var p = getComputedStyle(probe);
+              return { background: p.backgroundColor, color: p.color };
+            }
+            var want = resolve(
+              "--tug7-surface-card-primary-normal-titlebar-inactive",
+              "--tug7-element-card-text-normal-title-inactive"
+            );
+            var control = resolve(
+              "--tug7-surface-control-primary-tinted-action-rest",
+              "--tug7-element-control-text-tinted-action-rest"
+            );
+            probe.remove();
+
+            // The quiet register, read from a strip that is in it. Reached by
+            // asking the stylesheet rather than by re-laying the deck out: the
+            // rule is a single selector and the opacity is not animated.
+            var quiet = 0;
+            var strip = document.querySelector(${JSON.stringify(STRIP_ROOT)});
+            var map = strip.querySelector(".flow-strip-map");
+            var was = strip.getAttribute("data-overflow");
+            strip.setAttribute("data-overflow", "false");
+            quiet = parseFloat(getComputedStyle(map).opacity);
+            strip.setAttribute("data-overflow", was);
+
+            return {
+              background: computed.backgroundColor,
+              color: computed.color,
+              want: want,
+              control: control,
+              quietOpacity: quiet
+            };
+          })()`,
+        );
+
+        note(
+          `segment bg=${ink.background} fg=${ink.color} | ` +
+            `card bg=${ink.want.background} fg=${ink.want.color} | ` +
+            `control bg=${ink.control.background} fg=${ink.control.color} | ` +
+            `quiet opacity=${ink.quietOpacity}`,
+        );
+
+        // A segment is a card seen small, so it wears the surface a card wears
+        // standing on this canvas — a title bar's, at the weight of a card the
+        // reader is not in. The knobs `tug-slot.css` publishes are how it says
+        // so, and their `var()` fallbacks are why this has to be asserted: a
+        // knob name that drifted would resolve silently back to the control
+        // tint, and the pairings table would go on passing the audit while the
+        // drawing went invisible in every light theme.
+        expect(
+          ink.background,
+          "the segment's ground is the card title bar's, not a control's",
+        ).toBe(ink.want.background);
+        expect(
+          ink.color,
+          "and its number is that title bar's ink",
+        ).toBe(ink.want.color);
+        expect(
+          ink.background,
+          "which is emphatically not the control tint it would fall back to",
+        ).not.toBe(ink.control.background);
+
+        // And the quiet register is quiet, not absent. This was 0.55 when the
+        // strip was a row of pager dots and the register only had to say "there
+        // are five of these". The drawing carries the arrangement itself now, so
+        // a floor rather than a number: a register that has to be hunted for is
+        // not a register.
+        expect(
+          ink.quietOpacity,
+          "a strip inside its band steps back without going faint",
+        ).toBeGreaterThanOrEqual(0.75);
+        expect(
+          ink.quietOpacity,
+          "and it does step back — the two registers are still two",
+        ).toBeLessThan(1);
       } finally {
         await app.close();
       }

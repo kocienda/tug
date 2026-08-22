@@ -59,19 +59,93 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * The resting look, and the knobs that re-pair it
+ *
+ * `rest` is the state a slot wears when it is simply part of an arrangement,
+ * and both forms wear it the same: the exemplar span and the control button at
+ * `rest` are one rectangle, so one rule paints them. It is keyed on
+ * `[data-state]` — the fact both forms carry — rather than on either form's
+ * look class, which is also what puts it above the emphasis class `TugButton`
+ * composes and lets the two agree without either restating the other.
+ *
+ * The knobs exist because a slot's tokens name a CONTROL on a control surface,
+ * and one mount stands somewhere else: the flow strip draws its arrangement on
+ * the deck canvas, which is a dark ground in every theme, light families
+ * included. Control ink authored for a light control surface is invisible
+ * there — measured, `harmony` put l:420 text on an l:380 canvas — so that mount
+ * hands in ink paired to what it actually renders on, and pays for it with a
+ * `@tug-renders-on` annotation the contrast audit can read.
+ *
+ * Defaults live in the `var()` fallback at point of use, never declared on the
+ * slot itself: a knob nobody sets resolves to exactly the token that was here
+ * before, so every existing mount is unchanged to the pixel.
+ * ---------------------------------------------------------------------------*/
+
+.tug-slot[data-state="rest"] {
+  background-color: var(
+    --tugx-slot-rest-bg,
+    var(--tug7-surface-control-primary-tinted-action-rest)
+  );
+  color: var(
+    --tugx-slot-rest-fg,
+    var(--tug7-element-control-text-tinted-action-rest)
+  );
+  border-color: var(
+    --tugx-slot-rest-border,
+    var(--tug7-element-control-border-tinted-action-rest)
+  );
+}
+
+/* The two responses, knobbed for the same reason and carrying one more: a
+   re-paired slot that answered the pointer in its ORIGINAL palette would flash
+   the control tint it was moved off — on the strip, the accent that mount is
+   specifically forbidden. An exemplar never matches these; it has no pointer
+   states to begin with. */
+.tug-slot[data-state="rest"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(
+    --tugx-slot-rest-bg-hover,
+    var(--tug7-surface-control-primary-tinted-action-hover)
+  );
+  color: var(
+    --tugx-slot-rest-fg-hover,
+    var(--tug7-element-control-text-tinted-action-hover)
+  );
+  border-color: var(
+    --tugx-slot-rest-border-hover,
+    var(--tug7-element-control-border-tinted-action-hover)
+  );
+}
+
+.tug-slot[data-state="rest"]:is(:active, [data-pressing="true"]):not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(
+    --tugx-slot-rest-bg-active,
+    var(--tug7-surface-control-primary-tinted-action-active)
+  );
+  color: var(
+    --tugx-slot-rest-fg-active,
+    var(--tug7-element-control-text-tinted-action-active)
+  );
+  border-color: var(
+    --tugx-slot-rest-border-active,
+    var(--tug7-element-control-border-tinted-action-active)
+  );
+}
+
+/* ---------------------------------------------------------------------------
  * Exemplar form
  *
  * The inert `<span>` gets the resting paint of the emphasis its state names,
  * so an exemplar slot and a control slot at the same state are the same
  * rectangle. There are no hover / pressed rules here on purpose: an exemplar
  * does not respond, and the surface it sits on owns the hover.
+ *
+ * `rest` is not among them — the block above paints it for both forms at once,
+ * which is what "the same rectangle" ought to mean. `tug-slot-exemplar-rest` is
+ * still the class the look function returns, and it is still the right hook to
+ * address; it simply has no declarations of its own to drift.
  * ---------------------------------------------------------------------------*/
 
-.tug-slot-exemplar-rest {
-  background-color: var(--tug7-surface-control-primary-tinted-action-rest);
-  color: var(--tug7-element-control-text-tinted-action-rest);
-  border-color: var(--tug7-element-control-border-tinted-action-rest);
-}
+
 
 .tug-slot-exemplar-outlined {
   background-color: var(--tug7-surface-control-primary-outlined-action-rest);

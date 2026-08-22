@@ -4,9 +4,8 @@
  * Under a multi-slot imposition the deck has numbered places, and until the
  * badge the only surface that named them was the Lens: a reader looking at a
  * card had to look somewhere else to learn where it stood. The badge brings
- * that fact back onto the card — one numbered chip in the masthead frame's
- * leading column, in the space the three-level stack leaves empty beneath the
- * phase dot.
+ * that fact back onto the card — one numbered chip at the head of the pane's
+ * control cluster, leading the stack badge beside it.
  *
  * What this file pins:
  *
@@ -19,11 +18,15 @@
  *   3. **A sidebar is not a member of the chain.** A pane the deck treats as a
  *      sidebar gets no badge even when the state hands it a slot — the same
  *      guard the Lens's own slot picker applies.
- *   4. **It stands in the dead leading column.** The chip sits inside the
- *      masthead frame, below the phase dot, on the mark's own vertical, leading
- *      of the title, and centered in the tier's lower band — the region the
- *      stack indents away from. Measured against those elements rather than
- *      against numbers.
+ *   4. **It leads the pane's control cluster.** The chip is the row's first
+ *      member, it is laid out ahead of every other control in it, and it sits
+ *      on the row's own vertical. Order and geometry are asserted separately
+ *      because they can disagree, and a first child laid out elsewhere is
+ *      exactly the failure worth catching. Its first home was the masthead
+ *      frame's leading column, which read well and was wrong about whose fact
+ *      this is: a masthead is a card's own three lines and only two kinds of
+ *      card wear one, so a badge seated there was a PANE fact drawn by a card,
+ *      absent on every card that titles itself in one line.
  *   5. **The badge opens a picker that moves the card.** Pressing it opens a
  *      popup of every place in the arrangement with the card's own filled;
  *      choosing one dispatches the same `assign-slot` the Lens dispatches, so
@@ -43,7 +46,8 @@
  * @covers tugdeck/src/components/tugways/card-slot-badge.tsx
  * @covers tugdeck/src/components/tugways/card-slot-badge.css
  * @covers tugdeck/src/components/tugways/tug-slot.tsx
- * @covers tugdeck/src/components/tugways/masthead-frame.css
+ * @covers tugdeck/src/components/chrome/tug-pane.tsx
+ * @covers tugdeck/src/components/tugways/tug-pane.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -58,9 +62,7 @@ const AFTER_LAND_MS = 900;
 
 const BADGE = '[data-testid="card-slot-badge"]';
 const FRAME = '[data-slot="session-masthead"]';
-const DOT = ".tug-session-row-dot";
-const DESCRIPTION = ".tug-session-row-description";
-const TITLE = ".tug-session-row-name-line .tug-list-row-title";
+const CLUSTER = '[data-testid="tug-pane-title-bar-controls"]';
 const TRIGGER = '[data-testid="card-slot-badge-trigger"]';
 const POPUP = '[data-testid="card-slot-badge-popup"]';
 const PICKER = '[data-testid="card-slot-badge-picker"]';
@@ -255,104 +257,90 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
   );
 
   test(
-    "it stands in the column the three-level stack leaves empty",
+    "it leads the pane's control cluster",
     async () => {
       const app = await launchTugApp({ testName: "at0462-card-slot-badge" });
       try {
         await openDeck(app, deckShape(2), "A");
 
         const geometry = await app.evalJS<{
-          insideFrame: boolean;
-          chip: { left: number; top: number; right: number; bottom: number };
-          dot: { bottom: number; axis: number };
-          description: { top: number; inkLeft: number };
-          title: { left: number };
-          frameBottom: number;
+          insideCluster: boolean;
+          firstChild: boolean;
+          chip: { left: number; right: number; axis: number };
+          /** Every OTHER control in the row: leading edge and vertical axis. */
+          others: { left: number; axis: number }[];
         }>(
           `(function () {
-            var frame = document.querySelector(${JSON.stringify(FRAME)});
-            var badge = frame.querySelector(${JSON.stringify(BADGE)});
-            // The CHIP, not its container: the container spans the tier's lower
-            // region so it can center the chip in it, and a placement assertion
-            // has to measure the thing that was placed.
+            var pane = document.querySelector(${JSON.stringify(PANE_A)});
+            var cluster = pane.querySelector(${JSON.stringify(CLUSTER)});
+            var badge = cluster.querySelector(${JSON.stringify(BADGE)});
+            // The CHIP, not its wrapper: the wrapper is an inline-flex box the
+            // popover anchors to, and a placement assertion has to measure the
+            // thing that was placed.
             var chip = badge.querySelector('[data-slot="tug-slot"]');
-            var dot = frame.querySelector(${JSON.stringify(DOT)});
-            var desc = frame.querySelector(${JSON.stringify(DESCRIPTION)});
-            var title = frame.querySelector(${JSON.stringify(TITLE)});
             var c = chip.getBoundingClientRect();
-            var d = dot.getBoundingClientRect();
-            var s = desc.getBoundingClientRect();
-            var t = title.getBoundingClientRect();
+            // Every other control in the row. The accessory host contributes no
+            // box (\`display: contents\`), so what is left is the buttons — and
+            // the chip is one of those too, which is why it is excluded by its
+            // own class rather than by counting.
+            var others = Array.prototype.slice.call(
+              cluster.querySelectorAll(".tug-button:not(.tug-slot)")
+            ).map(function (el) {
+              var b = el.getBoundingClientRect();
+              return { left: b.left, axis: b.top + b.height / 2 };
+            });
             return {
-              insideFrame: frame.contains(badge),
-              chip: { left: c.left, top: c.top, right: c.right, bottom: c.bottom },
-              // The dot BOX is the tier's leading column — the mark centres in
-              // it and paints a disc half its width, and the badge centres in
-              // the same column. Axes, therefore, not edges.
-              dot: { bottom: d.bottom, axis: d.left + d.width / 2 },
-              // The sub-lines take their indent as PADDING, so the box's own
-              // left edge is the column edge and the ink starts inside it. The
-              // dead column is bounded by the INK, so that is what is read.
-              description: {
-                top: s.top,
-                inkLeft: s.left + parseFloat(getComputedStyle(desc).paddingInlineStart),
-              },
-              title: { left: t.left },
-              frameBottom: frame.getBoundingClientRect().bottom,
+              insideCluster: cluster.contains(badge),
+              // The badge's own wrapper, not the chip: the chip is a
+              // grandchild, and what leads the row is the member.
+              firstChild: cluster.firstElementChild === badge,
+              chip: { left: c.left, right: c.right, axis: c.top + c.height / 2 },
+              others: others
             };
           })()`,
         );
 
-        // The pair beneath the title: from the description's block start to the
-        // tier's own end. The tape already reads centered on it, and the chip
-        // takes the same rule rather than inventing a second answer.
-        //
-        // Within a couple of pixels, and the couple is accounted for: the chip
-        // centers in the tier's LOWER BAND — everything below the first chrome
-        // band — which begins a shade later than the description does, because
-        // the phase dot's box is taller than the title's line and the name line
-        // takes the taller of the two. Half that difference is the offset. The
-        // tolerance is there to hold that one fact, not to hold a drift: a chip
-        // that stopped being seated on the pair at all misses by tens.
-        const pairCenter =
-          (geometry.description.top + geometry.frameBottom) / 2;
-        const chipCenter = (geometry.chip.top + geometry.chip.bottom) / 2;
-        const chipCenterX = (geometry.chip.left + geometry.chip.right) / 2;
-
         note(
-          `chip ${geometry.chip.left.toFixed(1)},${geometry.chip.top.toFixed(1)}` +
-            `–${geometry.chip.right.toFixed(1)},${geometry.chip.bottom.toFixed(1)} ` +
-            `dot axis=${geometry.dot.axis.toFixed(1)} bottom=${geometry.dot.bottom.toFixed(1)} ` +
-            `desc ink=${geometry.description.inkLeft.toFixed(1)} top=${geometry.description.top.toFixed(1)} ` +
-            `title left=${geometry.title.left.toFixed(1)} ` +
-            `pairCenter=${pairCenter.toFixed(1)} chipCenter=${chipCenter.toFixed(1)}`,
+          `chip ${geometry.chip.left.toFixed(1)}–${geometry.chip.right.toFixed(1)} ` +
+            `axis=${geometry.chip.axis.toFixed(1)} | ` +
+            `others ${geometry.others
+              .map((o) => `${o.left.toFixed(1)}@${o.axis.toFixed(1)}`)
+              .join(" ")}`,
         );
 
-        expect(geometry.insideFrame, "mounted in the masthead frame").toBe(true);
         expect(
-          geometry.chip.top,
-          "below the phase dot — the column beneath it is the empty region",
-        ).toBeGreaterThanOrEqual(geometry.dot.bottom);
+          geometry.insideCluster,
+          "mounted in the pane's control cluster, not in a masthead",
+        ).toBe(true);
         expect(
-          geometry.chip.right,
-          "and leading of the title, whose vertical the sub-lines indent to",
-        ).toBeLessThanOrEqual(geometry.title.left);
+          geometry.firstChild,
+          "and at the head of it — the deck's place, ahead of the pane's own",
+        ).toBe(true);
         expect(
-          geometry.chip.right,
-          "so it clears the description's ink as well",
-        ).toBeLessThanOrEqual(geometry.description.inkLeft);
-        // The frame gives the tier ONE leading column, and the mark and the
-        // chip both centre in it. An edge match would hold only while the two
-        // were the same width, and a phase dot's ink is half this chip's —
-        // which is exactly the coincidence at0464 watches across card types.
-        expect(
-          Math.abs(chipCenterX - geometry.dot.axis),
-          "on the mark's own axis",
-        ).toBeLessThanOrEqual(0.51);
-        expect(
-          Math.abs(chipCenter - pairCenter),
-          "centered on the pair beneath the title, the tape's own rule",
-        ).toBeLessThanOrEqual(2);
+          geometry.others.length,
+          "the row has other controls to be measured against",
+        ).toBeGreaterThan(0);
+
+        // Leading of EVERY other control, which is the claim `firstChild`
+        // cannot make on its own: a first child can still be laid out
+        // elsewhere, and a row whose order and whose geometry disagree is the
+        // failure this pair exists to catch.
+        for (const other of geometry.others) {
+          expect(
+            geometry.chip.right,
+            "leads every other control in the row",
+          ).toBeLessThanOrEqual(other.left);
+        }
+
+        // And it stands ON the row rather than beside it. The cluster centres
+        // its members in the first chrome band; a chip that took its own
+        // vertical would read as a box dropped into the row.
+        for (const other of geometry.others) {
+          expect(
+            Math.abs(geometry.chip.axis - other.axis),
+            "on the row's own vertical",
+          ).toBeLessThanOrEqual(0.51);
+        }
       } finally {
         await app.close();
       }

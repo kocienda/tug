@@ -1,10 +1,10 @@
 /**
- * card-slot-badge.css — the badge's popup, given room to be pressed in.
+ * card-slot-badge.css — the chip's seating in the cluster, and its popup.
  *
- * The chip's own seating is `masthead-frame.css`: it stands in the frame's
- * dead leading column, and where that column is is the frame's fact rather
- * than this component's. What is here is the surface the chip OPENS, which is
- * portalled out of the frame entirely and so belongs to nobody else.
+ * The chip stands at the head of the pane's control cluster, which is a flex
+ * row of ghost icon buttons. What it needs from this file is only what makes a
+ * chip a member of that row rather than a box dropped into it — the row owns
+ * the alignment, so this owns the air.
  *
  * Two things, and both of them are the same mistake corrected. `TugPopover`
  * ships a bubble with no padding — deliberately, since most of its consumers
@@ -22,6 +22,22 @@
  * @tug-pairings: none — geometry only. Every colour in here belongs to the
  * composed `TugSlot`s ([L20]) and to the popover bubble around them.
  */
+
+/* ── The chip in the cluster ───────────────────────────────────────────────
+   An `inline-flex` box with a rect of its own, for the reason
+   `.tug-pane-title-bar-tooltip-anchor` beside it gives: `display: contents`
+   would keep the wrapper out of the layout and take its rect with it, and a
+   popover trigger needs something to be positioned against.
+
+   The trailing gap is the row's own rhythm, spent here rather than left to the
+   next control's margin: the badge is the FIRST member and the cluster's
+   buttons carry their air inside their boxes, so without it the chip's border
+   would touch the glyph behind it. */
+.card-slot-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-end: var(--tug-space-xs);
+}
 
 .card-slot-badge-picker {
   /* Air inside the bubble, so the run is seated in the surface rather than

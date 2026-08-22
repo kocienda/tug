@@ -3,14 +3,12 @@
  *
  * A masthead tier is not a list of one kind of row. The same 72px band is worn
  * by a Session card (a small disc breathing inside a much larger ring) and by a
- * document card (a glyph that fills its box), and since the slot badge landed,
- * a numbered chip stands under both of them. Three marks, three ink widths.
+ * document card (a glyph that fills its box). Two marks, two ink widths.
  *
  * Packed the way a RAIL packs — title closed up against the pixels the mark
- * actually paints — those three land on three different verticals, each
- * correct on its own terms and none of them matching: measured, the session
- * tier put its title 25px into the frame and the document tier put its own at
- * 34, with both badges at 6 and neither on its mark's axis.
+ * actually paints — those land on different verticals, each correct on its own
+ * terms and neither matching: measured, the session tier put its title 25px
+ * into the frame and the document tier put its own at 34.
  *
  * So the tier packs against the COLUMN instead — air, then a fixed advance,
  * then the text — and the marks centre in it whatever their ink is. That is one
@@ -24,20 +22,25 @@
  *      sub-line indent are the same distance into the frame on a Session card
  *      and on a document card. This is the assertion that fails if either
  *      masthead is ever given its own leading again.
- *   2. **Mark, badge and column share an axis.** In each tier the mark's box
- *      centre and the badge's centre are the same vertical — an EDGE would
- *      hold only while the two were the same width, and they are not.
- *   3. **The badge leads the text.** The chip clears the title's ink, so the
- *      column is genuinely a column rather than an overlap nobody noticed.
+ *   2. **Both marks stand on one axis.** The two boxes' centres are the same
+ *      vertical — an EDGE would hold only while the two were the same width,
+ *      and they are not: a phase dot is 16px inside a breathing ring and a
+ *      document glyph fills the column at 20.
+ *   3. **The document glyph fills the column it stands in.** It is the width of
+ *      the frame's advance, which is what makes the tier's mark read at the
+ *      size of the tier rather than at a one-line title bar's. Read as a
+ *      RATIO against the column, never as a pixel count — the column's width is
+ *      free to change, and the claim is that the two track each other.
  *
- * Measured against the elements themselves, never against the numbers that
- * produced them: a test that restated the tokens would pass on the day the
- * tokens drifted apart.
+ * Every number is measured against the elements themselves rather than against
+ * the tokens that produced them: a test that restated the tokens would pass on
+ * the day the tokens drifted apart.
  *
  * @covers tugdeck/src/components/tugways/masthead-frame.css
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-masthead.tsx
  * @covers tugdeck/src/components/tugways/card-masthead.tsx
+ * @covers tugdeck/src/components/tugways/card-masthead.css
  */
 
 import { describe, expect, test } from "bun:test";
@@ -102,10 +105,10 @@ const DECK = {
 interface TierGeometry {
   /** The mark's box centre, as a distance from the frame's leading edge. */
   markAxis: number;
-  /** The badge chip's centre, the same way. */
-  badgeAxis: number;
-  /** The badge's trailing edge. */
-  badgeEnd: number;
+  /** The mark's own box width — a phase dot's ring, or the document glyph. */
+  markWidth: number;
+  /** The tier's leading column, read off the frame's computed advance. */
+  columnWidth: number;
   /** Where the title's INK starts — a range, not the line box. */
   titleInk: number;
   /** Where a sub-line's box starts. The indent is padding, so the box IS the
@@ -124,17 +127,20 @@ const PROBE = `(function () {
     var mark = frame.querySelector(markSel);
     var title = frame.querySelector(".tug-list-row-title");
     var sub = frame.querySelector(".tug-session-row-description");
-    var badge = frame.querySelector('[data-testid="card-slot-badge"] [data-slot="tug-slot"]');
-    if (mark === null || title === null || sub === null || badge === null) return null;
+    if (mark === null || title === null || sub === null) return null;
     var m = mark.getBoundingClientRect();
-    var b = badge.getBoundingClientRect();
     var range = document.createRange();
     range.selectNodeContents(title);
     var t = range.getBoundingClientRect();
     return {
       markAxis: +(m.left + m.width / 2 - f.left).toFixed(2),
-      badgeAxis: +(b.left + b.width / 2 - f.left).toFixed(2),
-      badgeEnd: +(b.right - f.left).toFixed(2),
+      markWidth: +m.width.toFixed(2),
+      // The column itself, off the frame's own computed advance rather than
+      // off any element standing in it — the point of the column is that it
+      // exists whether or not anything fills it.
+      columnWidth: +parseFloat(
+        getComputedStyle(frame).getPropertyValue("--tugx-session-row-dot-advance")
+      ).toFixed(2),
       titleInk: +((t.width === 0 ? title.getBoundingClientRect().left : t.left) - f.left).toFixed(2),
       subLineBox: +(sub.getBoundingClientRect().left - f.left).toFixed(2)
     };
@@ -191,29 +197,26 @@ describe.skipIf(!SHOULD_RUN)("at0464 — the masthead's leading column", () => {
           "and their sub-lines hang off that same vertical",
         ).toBeLessThanOrEqual(ONE_VERTICAL_PX);
 
-        // 2 — the mark and the badge stand on one axis, in each tier and
-        //     across both. Centres, not edges: a phase dot's ink is half the
-        //     chip's width, so an edge alignment would only ever be a
-        //     coincidence of two numbers that are free to move apart.
-        for (const [name, tier] of [
-          ["session", session],
-          ["doc", doc],
-        ] as const) {
-          expect(
-            Math.abs(tier.markAxis - tier.badgeAxis),
-            `${name}: the badge stands on the mark's own axis`,
-          ).toBeLessThanOrEqual(ONE_VERTICAL_PX);
-        }
+        // 2 — the two marks stand on one axis. Centres, not edges: a phase
+        //     dot's ink is smaller than a document glyph's, so an edge
+        //     alignment would only ever be a coincidence of two numbers that
+        //     are free to move apart.
         expect(
-          Math.abs(session.badgeAxis - doc.badgeAxis),
-          "and it is the same axis on both kinds of card",
+          Math.abs(session.markAxis - doc.markAxis),
+          "both marks centre on the same vertical",
         ).toBeLessThanOrEqual(ONE_VERTICAL_PX);
 
-        // 3 — and the column really is leading of the text.
+        // 3 — and the document glyph fills the column rather than sitting
+        //     inside it. A ratio, not a pixel count: the column is free to be
+        //     re-tuned, and the claim is that the glyph tracks it.
         expect(
-          session.badgeEnd,
-          "the chip clears the title's ink rather than sitting under it",
-        ).toBeLessThanOrEqual(session.titleInk);
+          doc.markWidth / doc.columnWidth,
+          "the document glyph is the width of the column it stands in",
+        ).toBeCloseTo(1, 2);
+        expect(
+          doc.markWidth,
+          "which is more ink than a one-line title bar's glyph spends",
+        ).toBeGreaterThan(15);
       } finally {
         await app.close();
       }

@@ -64,6 +64,50 @@ export interface RpcTransport {
 }
 
 /**
+ * Multiplier on every RPC timeout budget, from `TUG_APPTEST_TIMEOUT_SCALE`.
+ *
+ * The budgets are sized for a file that has the machine to itself. Under the
+ * parallel background runner several apps boot, render and settle at once, so the
+ * same work legitimately takes longer in wall time — a budget that does not travel
+ * with the contention turns concurrency into a wall of timeouts that look like
+ * failures. The runner sets this to its own job count.
+ *
+ * At the default of 1 nothing is rewritten: a serial run puts exactly the bytes on
+ * the wire it always did, including leaving the field absent so the server applies
+ * its own per-method default.
+ */
+const TIMEOUT_SCALE = ((): number => {
+  const raw = Number(process.env.TUG_APPTEST_TIMEOUT_SCALE);
+  if (!Number.isFinite(raw) || raw < 1) return 1;
+  return Math.min(raw, 10);
+})();
+
+/**
+ * The server's own per-method default budget, mirrored here so a scaled run can
+ * restate it as an explicit number. Kept in step with
+ * `TestHarnessConnection.swift`, which reads `timeoutMs ?? 5000` for `evalJS` and
+ * `timeoutMs ?? 2000` for `waitForCondition`. A method absent from this table is
+ * never given a default by the client — its budget stays the server's business.
+ */
+const SERVER_DEFAULT_TIMEOUT_MS: Record<string, number> = {
+  evalJS: 5000,
+  waitForCondition: 2000,
+};
+
+/**
+ * The budget to put on the wire for `method`, given whatever the caller asked for.
+ *
+ * An explicit `timeoutMs` is scaled, not replaced — it is the caller's considered
+ * number, and under contention it needs the same room every other budget gets.
+ */
+function scaledTimeout(method: string, explicit: number | undefined): number | undefined {
+  if (TIMEOUT_SCALE === 1) return explicit;
+  if (explicit !== undefined) return Math.round(explicit * TIMEOUT_SCALE);
+  const serverDefault = SERVER_DEFAULT_TIMEOUT_MS[method];
+  return serverDefault === undefined ? undefined : Math.round(serverDefault * TIMEOUT_SCALE);
+}
+
+/**
  * One in-flight RPC call.
  */
 interface PendingCall {
@@ -117,7 +161,12 @@ export class RpcClient {
       );
     }
     const id = this.nextId++;
-    const full = { ...req, id } as Request;
+    const asked = "timeoutMs" in req ? (req as { timeoutMs?: number }).timeoutMs : undefined;
+    const timeoutMs = scaledTimeout((req as { method: string }).method, asked);
+    // Only carry the field when there is a number to carry: omitting it is how a
+    // serial run lets the server apply its own default, and re-adding it as
+    // `undefined` would serialize the key with a null on some JSON paths.
+    const full = { ...req, ...(timeoutMs === undefined ? {} : { timeoutMs }), id } as Request;
     const line = `${JSON.stringify(full)}\n`;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, {
@@ -125,7 +174,7 @@ export class RpcClient {
         resolve: resolve as (v: unknown) => void,
         reject,
         script: "script" in req ? (req as { script?: string }).script : undefined,
-        timeoutMs: "timeoutMs" in req ? (req as { timeoutMs?: number }).timeoutMs : undefined,
+        timeoutMs,
       });
       try {
         this.transport.write(line);

@@ -4,8 +4,16 @@
  * Under a multi-slot imposition the deck has places, and until now the only
  * surface that named them was the Lens: a reader looking at a card had to look
  * somewhere else to learn where it stood. The badge is that fact, brought back
- * to the card — one numbered chip in the masthead frame's leading column,
+ * to the card — one numbered chip at the head of the pane's control cluster,
  * carrying the pane's `slot + 1`.
+ *
+ * **It stands in the CLUSTER, not in a masthead.** Its first home was the
+ * masthead frame's leading column, which read well and was wrong about whose
+ * fact this is: a masthead is a card's own three lines, only two kinds of card
+ * wear one, and every card that titles itself in one line therefore went
+ * unbadged. The place a pane stands in is the pane's to report, on the row it
+ * reports everything else on. There it leads the stack badge, and the two of
+ * them read outward-in — the deck's place, then this pane's own stack.
  *
  * It is a readout at rest, `outlined` rather than `filled`: a card sitting
  * where it belongs should not wear an accent. Accent is reserved for the
@@ -13,10 +21,10 @@
  *
  * **Absent, not dimmed, when there is no slot to name.** A one-up imposition,
  * a pane with no `slot`, a sidebar, and the Lens all render nothing at all.
- * That departs from the register-not-component rule the flow dots follow, and
- * deliberately: that rule governs a fact that always exists and only changes
- * emphasis — how much of the strip the band shows is always true, so the dots
- * are always there and only grow prominent. A one-up pane does not stand in a
+ * That departs from the register-not-component rule the flow strip follows,
+ * and deliberately: that rule governs a fact that always exists and only
+ * changes emphasis — how much of the strip the band shows is always true, so
+ * the strip is always there and only grows prominent. A one-up pane does not stand in a
  * slot, so a badge there would be a chip stating a fact that does not exist.
  * Dimming it would say "there is a position here, it is just unimportant",
  * which is false.
@@ -104,7 +112,7 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
   const held = host.slot;
 
   return (
-    <span className="tug-masthead-frame-slot-badge" data-testid="card-slot-badge">
+    <span className="card-slot-badge" data-testid="card-slot-badge">
       <TugPopover open={open} onOpenChange={setOpen}>
         <TugPopoverTrigger>
           {/* The chip is a CONTROL here, not the readout it looks like: the

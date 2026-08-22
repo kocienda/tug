@@ -15,6 +15,11 @@
  * |------------------------------------------------------|----------------------------------------------------|---------------|-------------------|
  * | --tug7-element-global-border-normal-default-rest      | --tug7-surface-global-primary-normal-canvas-rest   | informational | .flow-strip-band (quiet)   |
  * | --tug7-element-global-border-normal-strong-rest       | --tug7-surface-global-primary-normal-canvas-rest   | informational | .flow-strip-band (raised)  |
+ * | --tug7-surface-card-primary-normal-titlebar-inactive  | --tug7-surface-global-primary-normal-canvas-rest   | informational | .flow-strip-map segment (rest)   |
+ * | --tug7-element-card-text-normal-title-inactive        | --tug7-surface-card-primary-normal-titlebar-inactive | informational | .flow-strip-map segment number (rest) |
+ * | --tug7-element-global-border-normal-default-rest      | --tug7-surface-card-primary-normal-titlebar-inactive | informational | .flow-strip-map segment border (rest) |
+ * | --tug7-element-card-text-normal-title-active          | --tug7-surface-card-primary-normal-titlebar-active | control       | .flow-strip-map segment number (hover/active) |
+ * | --tug7-element-global-border-normal-strong-rest       | --tug7-surface-card-primary-normal-titlebar-active | control       | .flow-strip-map segment border (hover/active) |
  */
 
 .flow-strip {
@@ -49,6 +54,54 @@
 }
 
 /**
+ * The segments' ink.
+ *
+ * A `TugSlot`'s own tokens name a CONTROL on a control surface, and this mount
+ * stands on neither: the strip draws on the deck canvas, which is a dark ground
+ * in every theme — the light families included, where the canvas is a dark band
+ * beneath light chrome. Control ink authored for a light control surface
+ * disappears on it. Measured in `harmony`, the segment's text was l:420 on an
+ * l:380 canvas: the whole drawing was there and none of it was legible.
+ *
+ * So the strip hands in ink paired to what it actually renders on, through the
+ * knobs `tug-slot.css` publishes ([L20] — the primitive keeps its tokens, and a
+ * mount that stands somewhere unusual says so rather than reaching into its
+ * rules).
+ *
+ * The pairing it hands in is the CARD family, and that is the argument as much
+ * as the fix. Every segment is a card seen small, so the honest surface for one
+ * is the surface a card wears standing on this canvas — a title bar's, at its
+ * inactive weight, since a segment is a card the reader is not in. Both halves
+ * come from a pairing the themes already keep true on both sides of the
+ * light/dark line, which is what makes this hold in six themes rather than in
+ * the two anybody looked at.
+ *
+ * The border is the odd one out on purpose: the global DEFAULT border, where
+ * the bracket below takes the STRONG one. The bracket has to be read over the
+ * segments it encloses, so it must be the brighter line of the two.
+ */
+.flow-strip-map {
+  /* @tug-renders-on: --tug7-surface-global-primary-normal-canvas-rest */
+  --tugx-slot-rest-bg: var(--tug7-surface-card-primary-normal-titlebar-inactive);
+  /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+  --tugx-slot-rest-fg: var(--tug7-element-card-text-normal-title-inactive);
+  /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+  --tugx-slot-rest-border: var(--tug7-element-global-border-normal-default-rest);
+  /* The pointer response moves one step toward the ACTIVE title bar — the card
+     you are about to reveal, previewed in the paint it will wear once you are
+     in it. Never the control tint the slot would otherwise flash, which on this
+     component is the accent it is specifically not allowed to spend. */
+  --tugx-slot-rest-bg-hover: var(--tug7-surface-card-primary-normal-titlebar-active);
+  /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
+  --tugx-slot-rest-fg-hover: var(--tug7-element-card-text-normal-title-active);
+  --tugx-slot-rest-border-hover: var(--tug7-element-global-border-normal-strong-rest);
+  --tugx-slot-rest-bg-active: var(--tug7-surface-card-primary-normal-titlebar-active);
+  /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
+  --tugx-slot-rest-fg-active: var(--tug7-element-card-text-normal-title-active);
+  --tugx-slot-rest-border-active: var(--tug7-element-global-border-normal-strong-rest);
+}
+
+/**
  * The quiet register, and the whole of the difference between the two.
  *
  * A strip that fits its band has nowhere else to be, so the drawing is a
@@ -56,9 +109,15 @@
  * the bracket is withheld because a bracket around everything says nothing.
  * When the strip overflows both come forward. No element mounts or unmounts on
  * that boundary ([P10]) — only how loudly the same elements speak.
+ *
+ * A step back, not a retreat. This was 0.55 when the strip was a row of pager
+ * dots, where the quiet register had only to say "there are five of these" and
+ * a reader who wanted the count could lean in. The drawing is to scale now and
+ * carries the arrangement itself, so a register that has to be hunted for is
+ * not quiet, it is off.
  */
 .flow-strip[data-overflow="false"] .flow-strip-map {
-  opacity: 0.55;
+  opacity: 0.8;
 }
 
 /* ── The band, over the strip ─────────────────────────────────────────────

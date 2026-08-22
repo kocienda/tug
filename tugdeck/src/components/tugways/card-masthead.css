@@ -19,15 +19,26 @@
 
 /* ── The glyph ─────────────────────────────────────────────────────────────
    The row centers whatever mark it is handed in its own advance; this is only
-   the glyph's box and its ink. Sized at the chrome icon token rather than at
-   the advance, so the mark keeps the size every other title bar's glyph wears
-   and the row's packing stays the row's. */
+   the glyph's box and its ink.
+
+   Sized at `lg`, which is the width of the masthead frame's leading column —
+   the glyph FILLS the column rather than sitting inside it. That is the one
+   place a document tier may spend more ink than a one-line title bar, and it
+   should: a masthead's mark leads three lines and 72px of band, and the same
+   column on a Session card is already spent, since a phase dot paints a
+   breathing ring out to the column's edge. At the `md` a title bar uses, the
+   document glyph left 2.5px of air on each side and read a size smaller than
+   the tier it was marking.
+
+   The column is what makes this safe. Both sizes centre on the same axis, so
+   growing the glyph moves nothing else — the shared leading column, the title's
+   vertical, and the sub-line indent are all where they were. */
 .card-masthead-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  inline-size: var(--tug-icon-size-md);
-  block-size: var(--tug-icon-size-md);
+  inline-size: var(--tug-icon-size-lg);
+  block-size: var(--tug-icon-size-lg);
   flex-shrink: 0;
   color: var(--tugx-pane-title-bar-icon-inactive);
 }

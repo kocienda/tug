@@ -30,7 +30,6 @@ import { icons } from "lucide-react";
 import type { DocumentMastheadPayload } from "@/lib/card-title-store";
 import { TugSessionRow } from "@/components/tugways/tug-session-row";
 import { TugPath } from "@/components/tugways/tug-path";
-import { CardSlotBadge } from "@/components/tugways/card-slot-badge";
 
 import "./masthead-frame.css";
 import "./card-masthead.css";
@@ -38,8 +37,6 @@ import "./card-masthead.css";
 export interface CardMastheadProps {
   /** The card's published request, minus its discriminant. */
   payload: DocumentMastheadPayload;
-  /** The card wearing this masthead, so its slot badge can find the host pane. */
-  cardId?: string;
   /**
    * Act on the description line — reveal a path in the Finder, say. Present →
    * the line takes a pointer cursor and a hover underline; absent → it is
@@ -51,7 +48,6 @@ export interface CardMastheadProps {
 
 export function CardMasthead({
   payload,
-  cardId,
   onActivateDescription,
 }: CardMastheadProps): React.ReactElement {
   const IconComponent =
@@ -143,8 +139,6 @@ export function CardMasthead({
           )
         }
       />
-
-      <CardSlotBadge cardId={cardId} />
     </div>
   );
 }

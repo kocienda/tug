@@ -240,8 +240,12 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live", () => {
 
         let gaugeUnderHand: number | null = null;
         let slideUnderHand = 0;
-        let draggingAttr: string | null = null;
-        let transitionUnderHand: string | null = null;
+        // Definite-assignment rather than an initializer: both are written inside
+        // the `motionCensus` callback below, which TypeScript cannot see running,
+        // so an `= null` initializer narrows the declared type away and the
+        // assertions below compare against `null` instead of the value.
+        let draggingAttr!: string | null;
+        let transitionUnderHand!: string | null;
         // The census brackets the HOLD alone: the press and the travel to the
         // edge are outside it, so what it counts is the autoscroll's own cost.
         await app.nativeDragElementWithoutRelease(titleBar(members[0]), edge);

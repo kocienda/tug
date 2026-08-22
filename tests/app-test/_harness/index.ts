@@ -1840,6 +1840,17 @@ const processKillNative = (
  * it. Anything else falls back to the bare `apptest` family rather
  * than minting an id outside the app-test namespace.
  */
+/**
+ * The multiplier the parallel runner asks launch budgets to travel with, from
+ * `TUG_APPTEST_TIMEOUT_SCALE`. Mirrors the RPC transport's own scale (`rpc.ts`);
+ * unset or below 1 means a serial run, which is left exactly as it was.
+ */
+function launchTimeoutScale(): number {
+  const raw = Number(process.env.TUG_APPTEST_TIMEOUT_SCALE);
+  if (!Number.isFinite(raw) || raw < 1) return 1;
+  return Math.min(raw, 10);
+}
+
 function validatedIdPrefix(raw: string | undefined): string {
   if (raw && /^apptest-[a-z0-9-]+$/.test(raw)) return raw;
   return "apptest";
@@ -1873,7 +1884,10 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
   return {
     appPath,
     socketPath,
-    connectTimeoutMs: opts.connectTimeoutMs ?? 10000,
+    // Scaled with the runner's concurrency: a launch under contention reaches
+    // its handshake later than one that had the machine to itself, and that is
+    // slowness, not failure. Unset (serial) leaves the original 10s exactly.
+    connectTimeoutMs: opts.connectTimeoutMs ?? 10000 * launchTimeoutScale(),
     connectPollMs: opts.connectPollMs ?? 100,
     env: {
       ...forwardableEnv(),
