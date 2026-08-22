@@ -571,6 +571,61 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           badges.find((b) => b.paneId === "p1")?.digit,
           "the badge now reads the place the card is actually in",
         ).toBe("3");
+
+        // --- The popup opens with the card's OWN chip under the chip. -----
+        // Re-opened now that the card holds the THIRD place, which is the case
+        // that means something: flush-left, the popup put slot 1 under the
+        // trigger no matter which slot the card held, so the chip and the chip
+        // meaning the same thing sat apart by a distance that varied with the
+        // answer. Held at slot 0 the shift is only the popup's padding and a
+        // regression would hide; held at slot 2 it is two chips and a gap.
+        await app.nativeClickAtElement(`${PANE_A} ${TRIGGER}`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
+          { timeoutMs: 8_000 },
+        );
+        // The bubble enters on a scale keyframe; a box read mid-flight reports
+        // the interpolated pose. Let it land before measuring.
+        await wait(400);
+
+        const aligned = await app.evalJS<{
+          filledIndex: number;
+          filledCentre: number;
+          triggerCentre: number;
+        }>(
+          `(function () {
+            var trigger = document.querySelector(
+              ${JSON.stringify(PANE_A)} + " " + ${JSON.stringify(TRIGGER)}
+            );
+            var chips = Array.prototype.slice.call(
+              document.querySelectorAll(${JSON.stringify(PICKER_CHIPS)})
+            );
+            var filledIndex = chips.findIndex(function (c) {
+              return c.getAttribute("data-state") === "filled";
+            });
+            function centre(el) {
+              var r = el.getBoundingClientRect();
+              return r.left + r.width / 2;
+            }
+            return {
+              filledIndex: filledIndex,
+              filledCentre: filledIndex < 0 ? -1 : centre(chips[filledIndex]),
+              triggerCentre: centre(trigger)
+            };
+          })()`,
+        );
+        note(
+          `popup alignment: filled chip #${aligned.filledIndex} at ` +
+            `${aligned.filledCentre.toFixed(1)} vs trigger ${aligned.triggerCentre.toFixed(1)}`,
+        );
+        expect(
+          aligned.filledIndex,
+          "the filled chip is the third — the place the card now holds",
+        ).toBe(2);
+        expect(
+          Math.abs(aligned.filledCentre - aligned.triggerCentre),
+          "and it opens directly under the chip that opened it",
+        ).toBeLessThanOrEqual(0.51);
       } finally {
         await app.close();
       }

@@ -1209,21 +1209,28 @@ function CardTitleBar({
           // `focusin`, which bubbles), and the pointerdown that opens the menu
           // is the same one Radix closes the bubble on.
           //
-          // The tooltip names what the MENU does, not what the badge shows —
-          // the glyph and the count already say "two cards, split". What is
-          // not visible is that the badge is a door, so that is the sentence.
-          // Alone in its place there is no card to show you, so the phrase
-          // drops that half rather than offering a reveal that would do
-          // nothing.
-          <TugTooltip
+          // The phrase says the COUNT and then the act, in that order, and the
+          // chord chip closes it. The badge is small and its glyph is
+          // schematic, so a reader hovering it is asking two questions at once
+          // — what am I looking at, and what happens if I press — and a
+          // tooltip that answered only the second left the first to be
+          // guessed from a numeral behind a stack of slices.
+          //
+          // `TugActionTooltip`, so the chip is read from the keymap registry
+          // and a rebind reaches the bubble rather than leaving an authored
+          // chord to go stale. ⌃⌘S is a TOGGLE, which is why the same chord is
+          // named whether the place is stacked or split — it is the way back
+          // as much as the way in.
+          <TugActionTooltip
+            action={TUG_ACTIONS.TOGGLE_COLUMN_SPLIT}
             content={
               onArrangePlace !== undefined && placeArrangement !== undefined
                 ? placeSplit
-                  ? `Show a card, or stack this ${placeArrangement.kind}`
+                  ? `Band ${columnBadgeCharacter("split", badgeCount, badgeIndex)} of ${badgeCount} — press to show a card, or re-stack this ${placeArrangement.kind}`
                   : placeAlone
-                    ? `Split this ${placeArrangement.kind}`
-                    : `Show a card, or split this ${placeArrangement.kind}`
-                : "Show another card in this stack"
+                    ? `One card in this ${placeArrangement.kind} — press to split it`
+                    : `${badgeCount} cards in this ${placeArrangement.kind} — press to show one, or split it`
+                : `${badgeCount} cards stacked here — press to show another`
             }
           >
             <span className="tug-pane-title-bar-tooltip-anchor">
@@ -1307,7 +1314,7 @@ function CardTitleBar({
                 data-testid="tug-pane-title-bar-stack-menu"
               />
             </span>
-          </TugTooltip>
+          </TugActionTooltip>
         )}
 
         {closable && (

@@ -68,6 +68,7 @@ const AFTER_LAND_MS = 900;
 
 const PANE = '[data-pane-id="p1"]';
 const BADGE = `${PANE} [data-testid="tug-pane-title-bar-stack-badge"]`;
+const SLOT_BADGE = `${PANE} [data-testid="card-slot-badge-trigger"]`;
 const BULLSEYE = `${PANE} [data-testid="tug-pane-title-bar-bullseye-button"]`;
 const REVEAL_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-reveal-card-file"]`;
 const OPTIONS_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-show-card-settings"]`;
@@ -140,7 +141,15 @@ const anchorExpr = (selector: string): string =>
   `(function () {
     var el = document.querySelector(${JSON.stringify(selector)});
     if (el === null) throw new Error("no trigger: " + ${JSON.stringify(selector)});
-    return el.closest(".tug-pane-title-bar-tooltip-anchor") || el;
+    // Two anchor classes, because two components solve the same composition
+    // problem in their own file: a control already claimed by a Radix
+    // \`asChild\` slot cannot also be the tooltip's trigger, so each wraps a
+    // span the bubble can address. The cluster's is
+    // \`.tug-pane-title-bar-tooltip-anchor\`; the slot chip's is its own.
+    // A control that needs no wrapper — the target — is its own anchor.
+    return el.closest(".tug-pane-title-bar-tooltip-anchor")
+      || el.closest(".card-slot-badge-anchor")
+      || el;
   })()`;
 
 /**
@@ -316,19 +325,38 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
 
-          // --- The badge: a door, not a readout. --------------------------
-          // The glyph and the count already say "two cards, stacked". What
-          // the badge does NOT say is that it can be pressed.
+          // --- The column badge: the count, then the acts, then the chord. -
+          // The badge is small and its glyph is schematic, so a reader hovering
+          // it is asking two questions at once — what am I looking at, and what
+          // happens if I press. The phrase answers them in that order.
           //
-          // On a shared SLOT the badge is now the gateway to the column's
-          // arrangement as well, exactly as it has been for a rail — so the
-          // sentence names both acts. The bare "Show another card in this
-          // stack" is what a place with nothing to arrange still says, and a
-          // pane in a tab group is where that reading survives.
+          // Reading the count off the phrase is not redundant with the numeral
+          // the badge draws: the numeral is one character behind a stack of
+          // slices at 11px, and the bubble is where it gets said in words.
           expect(
             await hoverPhrase(app, BADGE),
-            "the badge offers the card behind this one, and the way to divide the slot",
-          ).toBe("Show a card, or split this column");
+            "the badge says how many cards share the column, then what pressing it does",
+          ).toBe("2 cards in this column — press to show one, or split it");
+          expect(
+            await chipText(app, BADGE),
+            "and names the chord that splits without the mouse",
+          ).toBe("⌃⌘S");
+
+          // --- The slot badge: where the card is, and that it can move. ----
+          // The chip's numeral says where the card stands and nothing on it
+          // says the number is changeable, which is the whole reason it has a
+          // bubble. No chord: assigning a slot holds no binding of its own.
+          expect(
+            await hoverPhrase(app, SLOT_BADGE),
+            "the chip says the position it holds, out of how many, and that pressing moves the card",
+          // The seed names no imposition, so the deck stands in its default
+          // three-up: the chip reports the arrangement it is actually in, not
+          // the number of panes that happen to be on the deck.
+          ).toBe("In position 1 of 3 — press to move this card");
+          expect(
+            await chipText(app, SLOT_BADGE),
+            "slot assignment has no chord to advertise",
+          ).toBeNull();
 
           // --- Bullseye: the act, plus the chord that does it. ------------
           expect(

@@ -61,6 +61,7 @@ import { slotCount } from "@/lib/layout-imposer";
 import { findSidebarPanes } from "@/deck-store-selectors";
 import { dispatchCommand } from "@/command-dispatch";
 import { TugSlot } from "@/components/tugways/tug-slot";
+import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
 import {
@@ -98,6 +99,10 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
   // Escape, a click outside — routes through the same setter.
   const [open, setOpen] = React.useState(false);
   const picker = React.useRef<TugSlotLayoutHandle | null>(null);
+  // The badge's own box, so the open handler can measure the trigger it is
+  // aligning the popup against. The popup portals out of here, so it cannot
+  // reach the trigger by walking up from itself.
+  const badgeRef = React.useRef<HTMLSpanElement | null>(null);
 
   if (deck === null || cardId === undefined) return null;
 
@@ -118,41 +123,99 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
   const held = host.slot;
 
   return (
-    <span className="card-slot-badge" data-testid="card-slot-badge">
+    <span
+      ref={badgeRef}
+      className="card-slot-badge"
+      data-testid="card-slot-badge"
+    >
       <TugPopover open={open} onOpenChange={setOpen}>
-        <TugPopoverTrigger>
-          {/* The chip is a CONTROL here, not the readout it looks like: the
-              popup is what a reader reaches for once they know where the card
-              stands. Radix's trigger composes its own click onto the button
-              `TugSlot` renders, and `onSelect` is the same act by the other
-              path — whichever handler the composition leaves on the element,
+      {/* The chip is a CONTROL here, not the readout it looks like, and that
+          is exactly what the bubble is for: the numeral says where the card
+          stands, and nothing on the chip says the number can be changed by
+          pressing it. No chord chip — assigning a slot has no binding of its
+          own, and naming a neighbouring one would advertise a keystroke that
+          does something else.
+
+          The tooltip is OUTSIDE the popover and anchors a span, which is the
+          one order this composition takes: `TugTooltip` and
+          `TugPopoverTrigger` both hand their child to a Radix `asChild` slot
+          and neither forwards what the other injects, so nesting them
+          directly leaves the inner one's props on the floor. A span is a DOM
+          element both can address — the trigger takes the chip inside it, the
+          tooltip takes the span, and the inner button's focus reaches the
+          span too because React's `onFocus` is `focusin`, which bubbles. */}
+      <TugTooltip
+        content={`In position ${held + 1} of ${count} — press to move this card`}
+      >
+        <span className="card-slot-badge-anchor">
+          {/* Radix's trigger composes its own click onto the button `TugSlot`
+              renders, and `onSelect` is the same act by the other path —
+              whichever handler the composition leaves on the element,
               pressing the chip opens the popup. */}
-          <TugSlot
-            number={held + 1}
-            state="rest"
-            size="sm"
-            aria-label={`In position ${held + 1} — move this card`}
-            data-testid="card-slot-badge-trigger"
-            onSelect={() => setOpen(true)}
-          />
-        </TugPopoverTrigger>
+          <TugPopoverTrigger>
+            <TugSlot
+              number={held + 1}
+              state="rest"
+              size="sm"
+              aria-label={`In position ${held + 1} — move this card`}
+              data-testid="card-slot-badge-trigger"
+              onSelect={() => setOpen(true)}
+            />
+          </TugPopoverTrigger>
+        </span>
+      </TugTooltip>
         <TugPopoverContent
           side="bottom"
           align="start"
           data-testid="card-slot-badge-popup"
-          /* Radix's FocusScope focuses the first focusable DESCENDANT on open,
-             and every descendant here is a slot — a control the engine walks
-             but the pointer does not focus. Left to the default, the popup
-             opened onto nothing holding the key view, and a Tab inside it had
-             no stop to advance from: the chips were reachable in principle and
-             unreachable in fact. So the landing is stated — the card's OWN
-             place, which is where a reader's next key should start. */
+          /* Two things happen on open, and both need the popup's own DOM.
+
+             FIRST, the landing. Radix's FocusScope focuses the first focusable
+             DESCENDANT, and every descendant here is a slot — a control the
+             engine walks but the pointer does not focus. Left to the default,
+             the popup opened onto nothing holding the key view, and a Tab
+             inside it had no stop to advance from: the chips were reachable in
+             principle and unreachable in fact. So the landing is stated — the
+             card's OWN place, which is where a reader's next key should start.
+
+             SECOND, the alignment. The popup is a row of every place in the
+             arrangement, and the card is standing in ONE of them; opening it
+             flush-left put slot 1 under the chip no matter which slot the card
+             held, so the chip and the chip meaning the same thing sat apart by
+             a distance that varied with the answer. The card's own chip is
+             brought under the trigger instead, so the popup opens as that chip
+             expanding into its neighbours and the eye has nothing to re-find.
+
+             Written as `translate` on the CONTENT, not as Radix's
+             `alignOffset`: Radix positions by writing `transform` on the
+             wrapper above this element, so an offset of our own on this
+             property composes with its positioning and survives every
+             reposition it does, with no round-trip through React state ([L06]).
+             The shift is always leftward — slot 1 shifts by the popup's own
+             padding and every later slot by more — so a card near the screen's
+             right edge moves away from it, never into it. */
           onOpenAutoFocus={(event) => {
             const root = picker.current?.element;
             if (root === null || root === undefined) return;
             const chips = root.querySelectorAll<HTMLElement>('[data-slot="tug-slot"]');
             const landing = chips[held] ?? chips[0];
             if (landing === undefined) return;
+
+            const content = root.closest<HTMLElement>('[data-slot="tug-popover"]');
+            const trigger = badgeRef.current?.querySelector<HTMLElement>(
+              '[data-testid="card-slot-badge-trigger"]',
+            );
+            if (content !== null && trigger != null) {
+              // Rect differences inside one laid-out subtree, so this is
+              // correct whether or not Radix has placed the popup yet.
+              const chipLeft =
+                landing.getBoundingClientRect().left -
+                content.getBoundingClientRect().left;
+              const shift =
+                trigger.offsetWidth / 2 - (chipLeft + landing.offsetWidth / 2);
+              content.style.translate = `${shift}px 0`;
+            }
+
             event.preventDefault();
             landing.focus();
           }}

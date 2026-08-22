@@ -36,6 +36,15 @@
    next control's margin: the badge is the FIRST member and the cluster's
    buttons carry their air inside their boxes, so without it the chip's border
    would touch the glyph behind it. */
+/* The box the tooltip hangs from. The bubble needs an element it can measure
+   and attach listeners to, and the chip cannot BE that element: it is already
+   claimed by the popover trigger's `asChild` slot. Contributes no geometry of
+   its own — the chip's own box is the whole of it. */
+.card-slot-badge-anchor {
+  display: inline-flex;
+  align-items: center;
+}
+
 .card-slot-badge {
   display: inline-flex;
   align-items: center;
