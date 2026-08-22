@@ -335,9 +335,12 @@ export const TUG_ACTIONS = {
   //                 and so the one slot verb that can run off the end: the
   //                 group either moves whole or refuses whole, and the
   //                 refusal flashes the member that blocked it.
-  // CENTER_SLOT:    payload — `value: number` (1-based slot number).
-  //                 Deck-level: move the band so slot N sits in the middle
-  //                 of it. Used by ⌃⌘1..6 (Window ▸ Center Slot N), handled
+  // GO_TO_SLOT:    payload — `value: number` (1-based slot number).
+  //                 Deck-level: take the reader to slot N — the band travels
+  //                 to put it as near its middle as the strip allows, which
+  //                 for the first and last slot is flush against that end.
+  //                 Named for the arrival rather than the geometry for that
+  //                 reason. Used by ⌃⌘1..6 (Window ▸ Go to Slot N), handled
   //                 by the deck canvas beside MOVE_TO_SLOT — the two are the
   //                 digit row's two readings, and the tier says which: ⌘n
   //                 sends the CARD to a place, ⌃⌘n sends the READER there.
@@ -349,7 +352,7 @@ export const TUG_ACTIONS = {
   //                 comfy / wide). Deck-level: put the SELECTED card's pane
   //                 at that named width. Its doors are Window ▸ Slim / Comfy
   //                 / Wide and the title bar's width popup — no chord: the
-  //                 ⌃⌘ digits it held went to CENTER_SLOT, which is the
+  //                 ⌃⌘ digits it held went to GO_TO_SLOT, which is the
   //                 hourly verb of the two. Handled by the deck canvas,
   //                 which owns the layout tree. The pane-addressed sibling
   //                 `SET_CARD_WIDTH` is the title bar's popup — the popup
@@ -511,7 +514,7 @@ export const TUG_ACTIONS = {
   FOCUS_PREVIOUS: "focus-previous",
   FOCUS_PROMPT:   "focus-prompt",
   MOVE_TO_SLOT:   "move-to-slot",
-  CENTER_SLOT:    "center-slot",
+  GO_TO_SLOT:    "go-to-slot",
   NUDGE_SLOT:     "nudge-slot",
   SET_PANE_WIDTH: "set-pane-width",
   TOGGLE_BULLSEYE: "toggle-bullseye",

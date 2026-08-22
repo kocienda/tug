@@ -1009,18 +1009,18 @@ export function initActionDispatch(
     dispatchCommand(`${TUG_ACTIONS.SET_PANE_WIDTH}:${preset}`);
   });
 
-  // center-slot: the Window ▸ Center Slot N round-trip, the same bare-name /
+  // go-to-slot: the Window ▸ Go to Slot N round-trip, the same bare-name /
   // parameterized-id shape as the width row above. The six commands the user
-  // invokes are `center-slot:1`…`center-slot:6`, so the host's one wire name
+  // invokes are `go-to-slot:1`…`go-to-slot:6`, so the host's one wire name
   // hands off to them rather than reaching the deck itself — which is what
   // keeps the menu item and the ⌃⌘ digit at ONE handler on the canvas.
-  registerAction(TUG_ACTIONS.CENTER_SLOT, (payload) => {
+  registerAction(TUG_ACTIONS.GO_TO_SLOT, (payload) => {
     const slot = payload.value;
     if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 1) {
-      console.warn(`${TUG_ACTIONS.CENTER_SLOT}: invalid slot`, payload);
+      console.warn(`${TUG_ACTIONS.GO_TO_SLOT}: invalid slot`, payload);
       return;
     }
-    dispatchCommand(`${TUG_ACTIONS.CENTER_SLOT}:${slot}`);
+    dispatchCommand(`${TUG_ACTIONS.GO_TO_SLOT}:${slot}`);
   });
 
   // toggle-bullseye: the Window ▸ Bullseye round-trip. No payload — the

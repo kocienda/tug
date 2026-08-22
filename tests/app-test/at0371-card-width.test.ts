@@ -4,7 +4,7 @@
  *
  * Width had two doors and now has one and a half. The chords ⌃⌘1/2/3 were
  * retired: setting a card's width is a once-a-session act, and the Tug tier's
- * digits went to Center Slot, which is a verb of the reading hour. What remains
+ * digits went to Go to Slot, which is a verb of the reading hour. What remains
  * is the title bar's own width popup — the door width was designed around
  * ([D130]) — and the Window ▸ Slim / Comfy / Wide rows beside it, which carry
  * no key equivalent of their own now.

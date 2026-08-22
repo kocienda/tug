@@ -1263,14 +1263,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // it stays rebindable end to end.
         wMenu.addItem(NSMenuItem(title: "Bullseye", action: #selector(toggleBullseye(_:)), keyEquivalent: "").identified("window.bullseye"))
         wMenu.addItem(NSMenuItem.separator())
-        // Center Slot 1…6 — move the band so that slot sits in the middle of
-        // it. The digit row's other reading: ⌘n sends the card to a place,
+        // Go to Slot 1…6 — take the reader to that slot: the band travels to
+        // put it as near the middle as the strip allows, which at either end
+        // is flush against it. The digit row's other reading: ⌘n sends the
+        // card to a place,
         // ⌃⌘n sends the reader to one, and nothing in the arrangement moves.
         // Six rows because six-up is the largest arrangement; each is dark
         // under fit and dark past the current kind's slot count, both gated by
         // its registry entry on the menuState push.
         for n in 1...6 {
-            let item = NSMenuItem(title: "Center Slot \(n)", action: #selector(centerSlotFromMenu(_:)), keyEquivalent: "").identified("window.centerSlot.\(n)")
+            let item = NSMenuItem(title: "Go to Slot \(n)", action: #selector(goToSlotFromMenu(_:)), keyEquivalent: "").identified("window.goToSlot.\(n)")
             item.representedObject = n
             wMenu.addItem(item)
         }
@@ -1278,7 +1280,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Card width — the focused card's own width, as one of the three
         // named presets, check-marked like the title bar's width popup it
         // duplicates. No key equivalents: the ⌃⌘ digits these held went to
-        // Center Slot, a verb of the reading hour, where a width is set once
+        // Go to Slot, a verb of the reading hour, where a width is set once
         // and read at. Construction still leaves them EMPTY rather than
         // absent, because `applyCommandChords` writes whatever the frontend's
         // keymap says — so a user who binds them in the keymap pane gets the
@@ -1850,15 +1852,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("set-pane-width", params: ["preset": preset])
     }
 
-    /// Window ▸ Center Slot N. The slot number rides `representedObject`.
+    /// Window ▸ Go to Slot N. The slot number rides `representedObject`.
     /// Unlike every other item in this group it is NOT selection-relative —
     /// centering moves the band, not a card — so the payload is the whole
     /// question and the frontend resolves nothing. Enablement rides the item's
     /// registry gate on the menuState push: dark under fit, and dark for a
     /// slot the current arrangement does not have.
-    @objc private func centerSlotFromMenu(_ sender: NSMenuItem) {
+    @objc private func goToSlotFromMenu(_ sender: NSMenuItem) {
         guard let slot = sender.representedObject as? Int else { return }
-        sendControl("center-slot", params: ["value": slot])
+        sendControl("go-to-slot", params: ["value": slot])
     }
 
     /// Window ▸ Bullseye. No payload — the command is selection-relative, and

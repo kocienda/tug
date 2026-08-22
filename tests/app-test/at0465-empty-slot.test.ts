@@ -25,7 +25,13 @@
  *   1. **An empty slot paints a tile**, one per slot of the kind no pane
  *      stands in, and none for a slot that is occupied. It stands at the empty
  *      slot's own anchor, which on a two-up with the card at the far end means
- *      the near end of the band.
+ *      the near end of the band. The tile is the MEASUREMENT — the full room a
+ *      card landing there would take — and the badge centered in it is the
+ *      PICTURE, a numbered chip in the vocabulary the strip and the masthead
+ *      already name places with. Two different sizes on purpose: the room
+ *      drawn as a hairline outline read as a rendering fault rather than as a
+ *      statement, and a several-hundred-pixel empty rectangle says nothing an
+ *      empty place needs said.
  *   2. **A card dragged onto the tile lands in that slot** — the gesture that
  *      was impossible before this existed — and the slot the card LEFT becomes
  *      a held-open place in its turn.
@@ -37,6 +43,7 @@
  *      numbering reads `1|2|3` rather than collapsing to `1|2`.
  *
  * @covers tugdeck/src/components/chrome/slot-vacancy.css
+ * @covers tugdeck/src/components/tugways/tug-slot.tsx
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  */
@@ -243,6 +250,64 @@ describe.skipIf(!SHOULD_RUN)("at0465 — the held-open slot", () => {
             tile.left,
             "and it stands at the near end of the band, where slot 0 is",
           ).toBeLessThan(card.left - EPSILON);
+        }
+
+        // ── 1a. The badge names the place, centered in the room. ──
+        // The tile is a measurement and the badge is the picture, and they are
+        // deliberately different sizes: the first cut drew the whole reserved
+        // room as a dim outline and read as a rendering fault. What is pinned
+        // is that the drawing is SMALL and CENTERED in both axes — an outline
+        // that came back would fill the box and fail the first assertion, and
+        // a badge that drifted to a corner would fail the other two.
+        {
+          const badge = await app.evalJS<{
+            text: string;
+            width: number;
+            height: number;
+            dx: number;
+            dy: number;
+          } | null>(
+            `(function () {
+              var tile = document.querySelector(
+                '.tug-slot-vacancy[data-vacant-slot="0"]');
+              if (tile === null) return null;
+              var el = tile.querySelector('[data-slot="tug-slot"]');
+              if (el === null) return null;
+              var t = tile.getBoundingClientRect();
+              var b = el.getBoundingClientRect();
+              return {
+                text: (el.textContent || "").trim(),
+                width: b.width,
+                height: b.height,
+                dx: (b.left + b.width / 2) - (t.left + t.width / 2),
+                dy: (b.top + b.height / 2) - (t.top + t.height / 2)
+              };
+            })()`,
+          );
+          note(
+            badge === null
+              ? "vacancy badge: ABSENT"
+              : `vacancy badge "${badge.text}" ${Math.round(badge.width)}x` +
+                `${Math.round(badge.height)} offset from tile centre ` +
+                `(${badge.dx.toFixed(1)}, ${badge.dy.toFixed(1)})`,
+          );
+          expect(badge, "the tile draws a badge").not.toBeNull();
+          expect(
+            badge?.text,
+            "and the badge is the place's own number, 1-based like every slot chip",
+          ).toBe("1");
+          expect(
+            badge!.width,
+            "the badge is a badge, not an outline of the whole room",
+          ).toBeLessThan(tile.width / 4);
+          expect(
+            Math.abs(badge!.dx),
+            "centered horizontally in the room it names",
+          ).toBeLessThanOrEqual(1.5);
+          expect(
+            Math.abs(badge!.dy),
+            "and vertically",
+          ).toBeLessThanOrEqual(1.5);
         }
 
         // ── 2. A card dragged onto the tile lands in that slot. ──

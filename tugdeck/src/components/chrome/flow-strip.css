@@ -20,6 +20,7 @@
  * | --tug7-element-global-border-normal-default-rest      | --tug7-surface-card-primary-normal-titlebar-inactive | informational | .flow-strip-map segment border (rest) |
  * | --tug7-element-card-text-normal-title-active          | --tug7-surface-card-primary-normal-titlebar-active | control       | .flow-strip-map segment number (hover/active) |
  * | --tug7-element-global-border-normal-strong-rest       | --tug7-surface-card-primary-normal-titlebar-active | control       | .flow-strip-map segment border (hover/active) |
+ * | --tug7-surface-global-primary-normal-canvas-rest      | --tug7-surface-global-primary-normal-canvas-rest   | informational | .flow-strip-veil |
  */
 
 .flow-strip {
@@ -156,4 +157,48 @@
 .flow-strip[data-gauge-drag],
 .flow-strip[data-gauge-drag] .flow-strip-frame {
   pointer-events: none;
+}
+
+/* ── The veils, over what the band does not show ──────────────────────────
+   What is on screen was said once, by the bracket, and a hairline is not
+   enough to say it: a reader glancing at the strip could not tell the three
+   segments inside the band from the one beyond it without tracing a 1px line
+   across the drawing. So the same fact is said a second way, and this way is
+   the loud one — the parts of the strip the band does NOT show are veiled in
+   the canvas's own colour, so what is in view is simply the bright part.
+
+   Two rectangles, both driven by the same two numbers the bracket is driven by
+   (`--flow-strip-offset` and `--flow-strip-band-share`), which is why they can
+   never disagree with it or with each other. Continuous, like the bracket: a
+   segment half inside the band is half veiled, which is the truth a per-slot
+   threshold could not tell.
+
+   No boundary case. A strip inside its band has offset 0 and share 1, so both
+   rectangles compute to zero width and the veil is absent without anything
+   deciding it should be — the quiet register there is the map's own opacity.
+
+   Canvas ink, not a shadow: veiling toward the ground the strip stands on
+   makes the covered part read as further away rather than as differently
+   coloured, which is the whole of what it has to say. */
+.flow-strip-veil {
+  /* @tug-renders-on: --tug7-surface-global-primary-normal-canvas-rest */
+  position: absolute;
+  inset-block: -2px;
+  background-color: var(--tug7-surface-global-primary-normal-canvas-rest);
+  opacity: var(--flow-strip-veil-opacity, 0.62);
+  /* A readout drawn over the segments: a hand aiming at a card must not be
+     caught by the picture of where the reader already is. */
+  pointer-events: none;
+}
+
+.flow-strip-veil-leading {
+  left: 0;
+  width: calc(var(--flow-strip-offset, 0) * 100%);
+}
+
+.flow-strip-veil-trailing {
+  left: calc(
+    (var(--flow-strip-offset, 0) + var(--flow-strip-band-share, 1)) * 100%
+  );
+  right: 0;
 }

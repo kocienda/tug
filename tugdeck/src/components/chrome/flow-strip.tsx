@@ -14,17 +14,26 @@
  * map instead of a run — so the three surfaces that talk about places all talk
  * about them the same way.
  *
- * **What is on screen is said once, by the band itself** — drawn over the
- * strip as a bracket: where it starts, and how much of the strip it covers.
+ * **What is on screen is said by the band, and said continuously** — as a
+ * bracket over the strip, and as a pair of veils dimming everything the band
+ * does not show. Two drawings of one quantity, from the same two numbers, so
+ * they cannot disagree. The bracket alone was not enough: a hairline has to be
+ * traced before it can be read, and the fact a reader wants at a glance is
+ * simply *which part of this is the part I am looking at*. Brightness answers
+ * that without being read at all.
  *
- * The instrument this replaced said it per-CARD instead, each chip `outlined`
- * while the band showed its slot. That was forced: those chips were a ROW, all
- * the same width, and a row cannot show a reader where a band edge falls. A map
- * can. So on a drawing to scale the per-slot register is not merely redundant,
- * it is worse — discrete where the fact is continuous, and it spends the accent
- * to say it. Accent marks a live selection, and where the reader is standing is
- * not one. The whole drawing is neutral ink; what changes across the overflow
- * boundary is only how loudly it speaks.
+ * Both are continuous, and that is the point. The instrument this replaced said
+ * it per-CARD instead, each chip `outlined` while the band showed its slot.
+ * That was forced: those chips were a ROW, all the same width, and a row cannot
+ * show a reader where a band edge falls. A map can, and a segment half inside
+ * the band is half veiled — the truth a per-slot threshold could not tell.
+ *
+ * **Where the reader is LOOKING and which card the reader is IN are different
+ * facts, and they are drawn differently.** The band is the first, and it is
+ * neutral ink throughout — the accent would be a lie there, because a viewport
+ * is not a selection. The reader's own card is the second, and it takes the
+ * accent, because a live selection is exactly what the accent is for. Given no
+ * `states` the strip has no selection to draw and is neutral end to end.
  *
  * **It always stands while the layout is flow, and overflow changes its
  * register rather than its existence** ([P10]). A strip that fits the band is
@@ -47,12 +56,14 @@
  *   when a render is owed.
  * - **Position** — where the band stands *between* commits — rides the gauge
  *   channel, and rides it with NO JS in the loop at all. The root registers as
- *   an element; the bracket reads the published fraction straight out of CSS by
- *   inheritance, and its own `left` and `width` are the whole projection. That
- *   is only possible because the bracket is a continuous quantity — a per-slot
- *   look would be a THRESHOLD over the same fraction, and CSS has no comparison
- *   that yields one, which is exactly what made the row of chips this replaced
- *   need a listener and a handle to write looks through.
+ *   an element; the bracket and the two veils read the published fraction
+ *   straight out of CSS by inheritance, and their own `left` and `width` are
+ *   the whole projection. That is only possible because all three are
+ *   continuous quantities — a per-slot look would be a THRESHOLD over the same
+ *   fraction, and CSS has no comparison that yields one, which is exactly what
+ *   made the row of chips this replaced need a listener and a handle to write
+ *   looks through. The selection is not on this path at all: which card the
+ *   reader is in changes on a commit, so it renders from the snapshot.
  *
  *   The element registration is also what inherits the drag gate the channel
  *   stamps on every registered element.
@@ -73,8 +84,8 @@
  * gives back less travel near an end and none at the very end, which is the
  * correct answer rather than an exception to it.
  *
- * The bracket takes no pointer events: it is a readout drawn over
- * the segments, and a reader aiming at a card should not be caught by the
+ * The bracket and the veils take no pointer events: they are readouts drawn
+ * over the segments, and a reader aiming at a card should not be caught by the
  * picture of where they already are.
  *
  * Laws: [L02] structure through the deck snapshot; [L03] the gauge and listener
@@ -94,6 +105,7 @@ import {
 } from "@/lib/layout-imposer";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";
+import type { TugSlotState } from "@/components/tugways/tug-slot";
 import "./flow-strip.css";
 
 /**
@@ -153,6 +165,16 @@ export interface FlowStripProps {
   strip: FlowStripModel;
   /** The band the strip is seen through, in px — `store.getFlowBandWidth()`. */
   band: number;
+  /**
+   * Per-slot look, indexed by slot, in `TugSlotLayout`'s own vocabulary.
+   *
+   * This is where the reader's card is marked, and it is the one place on the
+   * strip the accent is spent. That is not a contradiction of the rule above
+   * it: the band is where the reader is LOOKING and the veils say that in
+   * neutral ink, while this is which card the reader is IN — a live selection,
+   * which is precisely what the accent is for.
+   */
+  states?: readonly TugSlotState[];
   /** Where the band stands in the strip, in px — the COMMITTED offset. Live
    *  motion arrives on the gauge channel instead; this is the fallback the
    *  channel composes against. */
@@ -168,6 +190,7 @@ export function FlowStrip({
   count,
   strip,
   band,
+  states,
   offset,
   onPreview,
   onCommit,
@@ -384,14 +407,23 @@ export function FlowStrip({
           data-testid="flow-strip-map"
           count={count}
           spans={spans}
+          states={states}
           size="sm"
           onSelectSlot={onSelectSlot}
-          slotLabel={(slot) => `Center slot ${slot + 1}`}
+          slotLabel={(slot) => `Go to slot ${slot + 1}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endScrub}
           onPointerCancel={endScrub}
         />
+        {/* The veils: what the band does not show, dimmed toward the canvas.
+            The bracket below says the same fact as a line; this says it as a
+            difference in brightness, which is what a glance can read. Both
+            rectangles are driven by the bracket's own two numbers, so a strip
+            inside its band computes them to zero width and the veil is absent
+            without anything deciding it should be ([P10]). */}
+        <div className="flow-strip-veil flow-strip-veil-leading" aria-hidden="true" />
+        <div className="flow-strip-veil flow-strip-veil-trailing" aria-hidden="true" />
         {/* The band, drawn over the strip. In the DOM at every register so the
             overflow boundary is a change of appearance rather than of
             structure ([P10]), and withheld by CSS while the strip fits — a

@@ -89,7 +89,7 @@ Plain ⌘, for future grants under R3.
 | ⌘' ⌘; ⌘\ | Free punctuation. |
 | ⌘[ ⌘] | Reserved for any future back/forward navigation concept. |
 
-Plain-⌘ digits are fully spent: ⌘1–9 are slots, ⌘0 is actual size. ⌃⌘1–6 center those same slots; ⌃⌘7–9 and ⌃⌘0 are free, and free for an *ordered set* under the digit-row rule above — not as loose slots. (⌃⌘7–9 are really the tail of the centering set, held for an arrangement wider than six-up rather than open for anything else.)
+Plain-⌘ digits are fully spent: ⌘1–9 are slots, ⌘0 is actual size. ⌃⌘1–6 take the reader to those same slots; ⌃⌘7–9 and ⌃⌘0 are free, and free for an *ordered set* under the digit-row rule above — not as loose slots. (⌃⌘7–9 are really the tail of the Go to Slot set, held for an arrangement wider than six-up rather than open for anything else.)
 
 **Freed by [D126]** and returned to the pool: ⇧⌘P, ⇧⌘C, ⇧⌘H, ⇧⌘M, ⌥⌘T, ⌘I.
 
@@ -143,22 +143,26 @@ The grammar is the point. One toggle would not have justified moving Show Lens; 
 
 ---
 
-## The Center Slot row
+## The Go to Slot row
 
-⌃⌘⟨digit⟩ names a slot and puts it in the middle of the band.
+⌃⌘⟨digit⟩ names a slot and takes the reader to it.
+
+**Named for the arrival, not the geometry.** The band travels to put the named slot as near the middle as the strip allows, and the clamp pins the strip's two ends flush — so the first and last slot come to rest against their end rather than in the middle. That is the right behaviour (the strip is already showing everything it has that way), which makes *Center Slot 1* a row that cannot do what its label says. A reader who typed it and watched slot 1 land at the left edge would reasonably conclude the command was broken. *Go to* promises arrival and nothing more, which is the whole of what the verb owes. The arithmetic is still `stripCenterOffset` — the function centers and then clamps, and naming a function for its rule is not the same as naming a menu row for its outcome.
+
+**The arrival is answered.** Choosing the row or typing the chord flashes what it landed on — the pane's accent ring if a card stands there, the vacancy badge's if the place is empty. The band moving is the only thing this verb does, and on a deck of similar cards that is not enough to tell a reader which one they asked for; the flash is the same answer `assign-slot` gives when a card is sent somewhere.
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `center-slot:1` | **⌃⌘1** | Tug tier: where the reader stands in the arrangement is Tug's own layout vocabulary, alongside ⌃⌘L and ⌃⌘T. The digit is the slot's own number. |
-| `center-slot:2` … `center-slot:6` | **⌃⌘2**–**⌃⌘6** | As above. Six because six-up is the largest arrangement. |
+| `go-to-slot:1` | **⌃⌘1** | Tug tier: where the reader stands in the arrangement is Tug's own layout vocabulary, alongside ⌃⌘L and ⌃⌘T. The digit is the slot's own number. |
+| `go-to-slot:2` … `go-to-slot:6` | **⌃⌘2**–**⌃⌘6** | As above. Six because six-up is the largest arrangement. |
 
 **This is the digit-row rule at its tightest.** ⌘*n* and ⌃⌘*n* index the *same* ordered set — the deck's slots — and the tier alone says which reading: ⌘*n* sends the CARD to a place, ⌃⌘*n* sends the READER there. Same set, same digits, one modifier of difference.
 
 Six rows rather than the slot family's nine, and for the opposite reason. ⌘1–9 is bound in full so an out-of-range digit is inert rather than beeping; these are menu rows, and a row for a slot no arrangement can hold is a permanently dark row.
 
-The gate is the **arrangement's**, not the selection's: centering moves the band and touches no card, so the row is live on a deselected deck, and dark under fit — where every anchor is inside the band already and there is nothing to travel to.
+The gate is the **arrangement's**, not the selection's: travel moves the band and touches no card, so the row is live on a deselected deck, and dark under fit — where every anchor is inside the band already and there is nothing to travel to.
 
-**These are `menuEligible` with empty Swift key equivalents** (Window ▸ Center Slot *n*), so `applyCommandChords` writes them and all six stay rebindable — the discipline the sidebar toggles follow, and the one the shade toggles below do not.
+**These are `menuEligible` with empty Swift key equivalents** (Window ▸ Go to Slot *n*), so `applyCommandChords` writes them and all six stay rebindable — the discipline the sidebar toggles follow, and the one the shade toggles below do not.
 
 R6 says the menu placement is half the grant, so: promoting these preempts every scoped binding on ⌃⌘1–6, and that is the intent. It is safe here precisely where it was not for the slot family — ⌘1–9 stay chord-only because surfaces like the PDF viewer decline them by hand to leave the digits with the deck, and a menu item would take that choice away from every surface that comes after. Nothing in the app claims ⌃⌘ digits: no viewer, no text surface, no CM6 keymap.
 
@@ -205,7 +209,7 @@ Recorded so a reader takes them as debt rather than as precedent.
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `toggle-bullseye` | **⌃⌘B** | Tug tier: a card's *posture* on the deck is Tug's own layout machinery, alongside the Center Slot row above and ⌃⌘L / ⌃⌘T. |
+| `toggle-bullseye` | **⌃⌘B** | Tug tier: a card's *posture* on the deck is Tug's own layout machinery, alongside the Go to Slot row above and ⌃⌘L / ⌃⌘T. |
 
 **Why not plain ⌘.** R3. Bullseye is a deliberate posture change — you enter it to read or write for a while — not a verb hit many times an hour, so it has no claim on a finite plain-⌘ slot.
 
@@ -213,7 +217,7 @@ Recorded so a reader takes them as debt rather than as precedent.
 
 **B is free on the tier**, and free of macOS too — the reserved ⌃⌘ set is ⌃⌘Q (lock screen), ⌃⌘D (dictionary), ⌃⌘Space (emoji), and ⌃⌘F (full screen), which the tier already hosts as its anchoring resident.
 
-**Promotion to Window ▸ Bullseye is R6's half of the grant**, and here the preemption is the point rather than a cost: a menu item's key equivalent is claimed by AppKit before the web view sees the keydown, so no scoped binding can decline ⌃⌘B. A deck-level posture is not a surface's to refuse. The item carries an **empty** key equivalent so `applyCommandChords` writes the chord from the table and it stays rebindable — the discipline the sidebar toggles and the Center Slot row follow.
+**Promotion to Window ▸ Bullseye is R6's half of the grant**, and here the preemption is the point rather than a cost: a menu item's key equivalent is claimed by AppKit before the web view sees the keydown, so no scoped binding can decline ⌃⌘B. A deck-level posture is not a surface's to refuse. The item carries an **empty** key equivalent so `applyCommandChords` writes the chord from the table and it stays rebindable — the discipline the sidebar toggles and the Go to Slot row follow.
 
 **Tier occupancy after this grant.** ⌃⌘ letters in use: A, B, C, F, G, H, I, J, K, L, M, P, T, U. ⌃⌘ digits: 1–3 (the card widths); 4–9 and 0 free, and free only for an *ordered set* under the digit-row rule.
 
@@ -271,7 +275,7 @@ A slot holds a run of vertical space, and the cards standing in it either take t
 
 | Command | Chord | Derivation |
 |---|---|---|
-| `toggle-column-split` | **⌃⌘S** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the Center Slot row, ⌃⌘B Bullseye, ⌃⌘L Show Lens and ⌃⌘T Next Theme. Letter S is unoccupied on the tier — only ⌘S and ⇧⌘S exist on that key — and is the obvious mnemonic. |
+| `toggle-column-split` | **⌃⌘S** | Tug tier: dividing a slot is Tug's own layout vocabulary, alongside the Go to Slot row, ⌃⌘B Bullseye, ⌃⌘L Show Lens and ⌃⌘T Next Theme. Letter S is unoccupied on the tier — only ⌘S and ⇧⌘S exist on that key — and is the obvious mnemonic. |
 | `move-in-column:up` / `:down` | **⌃⌘↑ / ⌃⌘↓** | R1's base pair on the vertical axis, in the tier that owns the slot. Arrows are R1-exempt under R2. |
 | `move-in-column:top` / `:bottom` | **⌃⇧⌘↑ / ⌃⇧⌘↓** | The counterpart set of the ⌃⌘ base: top and bottom are the ⇧-extreme of up and down, exactly the shape ⌥⇧⌘↑/↓ First/Last Turn has one tier over. |
 
@@ -281,6 +285,6 @@ A slot holds a run of vertical space, and the cards standing in it either take t
 
 **Promoted to the Window menu**, unlike the nudge pair and ⌘1–9. The objection that kept the family off it was real: it acts on the *layout selection*, a fact about the Lens's Cards list rather than about the frontmost card, so a mirrored `validate` had nothing to read that would tell a live gesture from a dead one. That was answerable, and the answer costs a fact. `menu.column` resolves the **same ladder the handlers walk** — the selection, else the row the Cards list's cursor stands on, else the first responder — so an item is live exactly when its chord would act. The two inputs that move without a deck mutation, the selection store and the cursor, each push a menu-state flush; a fact that went stale on either would dim a live item, and a dimmed item's key equivalent is swallowed by AppKit before the web view sees it, which would take the chord down with it.
 
-That last sentence is the whole cost of a promotion and it applies to this family too: ⌃⌘S and the ⌃⌘ arrows now leave the JS funnel and are claimed globally by the menu bar, above every surface — including a text editor's caret. `disabledChord: "keep"`, as the Center Slot row does: nothing else in the funnel wants these chords, so there is nothing for a detach to hand them back to.
+That last sentence is the whole cost of a promotion and it applies to this family too: ⌃⌘S and the ⌃⌘ arrows now leave the JS funnel and are claimed globally by the menu bar, above every surface — including a text editor's caret. `disabledChord: "keep"`, as the Go to Slot row does: nothing else in the funnel wants these chords, so there is nothing for a detach to hand them back to.
 
 **Refusal is visible.** ⌃⌘S on a slot holding one card has nothing to divide, and a member already at the end it was sent to has nowhere to go; both flash the pane's border rather than returning quietly. A chord that does nothing and says nothing cannot be told from a chord that never arrived.

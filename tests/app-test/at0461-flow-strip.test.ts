@@ -22,6 +22,17 @@
  *   3. **The bracket says which part of the strip is on screen.** It covers the
  *      share of the strip the band shows and stands where that share begins, and
  *      scrolling moves it without changing its size.
+ *  3a. **And the veils say it a second time, loudly.** The parts of the strip
+ *      the band does not show are dimmed toward the canvas, so what is in view
+ *      is simply the bright part. The bracket alone was a hairline that had to
+ *      be traced before it could be read. Both are `calc()` over the same two
+ *      numbers, so the assertion is that the veils AGREE with the bracket — a
+ *      second drawing that could drift is worse than one that was hard to read.
+ *  3b. **The reader's own card is marked, and it is the only accent spent.**
+ *      Where the reader is LOOKING and which card the reader is IN are
+ *      different facts: the first is the band, in neutral ink, and the second
+ *      is one segment at `filled`. The assertion is on `data-state`, which is
+ *      the fact both forms of the slot carry, and on there being exactly one.
  *   4. **Clicking a segment CENTERS its slot in the band**, in one commit the
  *      settle animates as one crossing — and a slot standing wholly on screen
  *      already travels too. That is the whole difference from the reveal an
@@ -545,7 +556,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
 
         const census = await app.motionCensus(async () => {
           await app.nativeClickAtElement(
-            `${ROW} [aria-label="Center slot 2"]`,
+            `${ROW} [aria-label="Go to slot 2"]`,
           );
           await wait(AFTER_LAND_MS);
         });
@@ -573,7 +584,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
         // by the same rule — one arithmetic, whatever the reader can see.
         const again = await app.motionCensus(async () => {
           await app.nativeClickAtElement(
-            `${ROW} [aria-label="Center slot 3"]`,
+            `${ROW} [aria-label="Go to slot 3"]`,
           );
           await wait(AFTER_LAND_MS);
         });
@@ -612,8 +623,8 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
         // quiet timer that would land its own commit inside any bracket long
         // enough to read the picture back.
         await app.nativeDragElementWithoutRelease(
-          `${ROW} [aria-label="Center slot 1"]`,
-          { selector: `${ROW} [aria-label="Center slot 5"]` },
+          `${ROW} [aria-label="Go to slot 1"]`,
+          { selector: `${ROW} [aria-label="Go to slot 5"]` },
         );
         let held: { left: number; width: number } | null = null;
         let live: number | null = null;
@@ -650,7 +661,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
           "the bracket moved with zero store notifies — a projection, not a render",
         ).toBe(0);
 
-        const box = await boxOf(app, `${ROW} [aria-label="Center slot 5"]`);
+        const box = await boxOf(app, `${ROW} [aria-label="Go to slot 5"]`);
         await app.nativeMouseUp({
           x: Math.round(box.left + box.width / 2),
           y: Math.round(box.top + box.height / 2),
@@ -671,10 +682,10 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
         await openDeck(app, { cards: 5, cardWidth: SLIM_PX, layout: "flow" });
         expect(await committedOffset(app), "the strip starts home").toBe(0);
 
-        const last = `${ROW} [aria-label="Center slot 5"]`;
+        const last = `${ROW} [aria-label="Go to slot 5"]`;
         const census = await app.motionCensus(async () => {
           await app.nativeDragElementWithoutRelease(
-            `${ROW} [aria-label="Center slot 1"]`,
+            `${ROW} [aria-label="Go to slot 1"]`,
             { selector: last },
           );
           await wait(120);
@@ -937,6 +948,115 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
   );
 
   test(
+    "the veils cover exactly what the bracket does not, and one segment is marked",
+    async () => {
+      const app = await launchTugApp({ testName: "at0461-flow-strip" });
+      try {
+        // A strip well past its band, so there is something for the veils to
+        // cover. Two of the three slots are off screen at rest.
+        await openDeck(app, { cards: 3, cardWidth: SLIM_PX, layout: "flow" });
+
+        const read = await app.evalJS<{
+          frameLeft: number;
+          frameRight: number;
+          bandLeft: number;
+          bandRight: number;
+          leadLeft: number;
+          leadRight: number;
+          trailLeft: number;
+          trailRight: number;
+          leadPointer: string;
+          leadOpacity: number;
+        }>(
+          `(function () {
+            var frame = document.querySelector(".flow-strip-frame")
+              .getBoundingClientRect();
+            var band = document.querySelector('[data-testid="flow-strip-band"]')
+              .getBoundingClientRect();
+            var lead = document.querySelector(".flow-strip-veil-leading");
+            var trail = document.querySelector(".flow-strip-veil-trailing");
+            var lb = lead.getBoundingClientRect();
+            var tb = trail.getBoundingClientRect();
+            return {
+              frameLeft: frame.left, frameRight: frame.right,
+              bandLeft: band.left, bandRight: band.right,
+              leadLeft: lb.left, leadRight: lb.right,
+              trailLeft: tb.left, trailRight: tb.right,
+              leadPointer: getComputedStyle(lead).pointerEvents,
+              leadOpacity: parseFloat(getComputedStyle(lead).opacity)
+            };
+          })()`,
+        );
+        note(
+          `frame [${Math.round(read.frameLeft)}..${Math.round(read.frameRight)}] ` +
+            `bracket [${Math.round(read.bandLeft)}..${Math.round(read.bandRight)}] ` +
+            `veils [${Math.round(read.leadLeft)}..${Math.round(read.leadRight)}] + ` +
+            `[${Math.round(read.trailLeft)}..${Math.round(read.trailRight)}]`,
+        );
+
+        // The three rectangles tile the drawing with no gap and no overlap:
+        // veil, bracket, veil. Asserted against the BRACKET rather than
+        // against the offset arithmetic, because the whole reason the veils
+        // are safe to add is that they cannot say something different from
+        // the readout that was already there.
+        expect(
+          Math.abs(read.leadLeft - read.frameLeft),
+          "the leading veil starts where the drawing does",
+        ).toBeLessThanOrEqual(1.5);
+        expect(
+          Math.abs(read.leadRight - read.bandLeft),
+          "and ends where the bracket begins",
+        ).toBeLessThanOrEqual(1.5);
+        expect(
+          Math.abs(read.trailLeft - read.bandRight),
+          "the trailing veil starts where the bracket ends",
+        ).toBeLessThanOrEqual(1.5);
+        expect(
+          Math.abs(read.trailRight - read.frameRight),
+          "and ends where the drawing does",
+        ).toBeLessThanOrEqual(1.5);
+        // At rest the band sits at the strip's head, so the leading veil is
+        // empty and the trailing one carries the whole covered part. A veil
+        // that covered nothing at BOTH ends would satisfy the four bounds
+        // above by drawing nothing at all.
+        expect(
+          read.trailRight - read.trailLeft,
+          "and there is something covered to see",
+        ).toBeGreaterThan(20);
+        // A readout, like the bracket: drawn over the segments, so a hand
+        // aiming at a card passes straight through it.
+        expect(read.leadPointer, "the veil declines the pointer").toBe("none");
+        // Veiled, not hidden. A veil at full opacity would erase the shape of
+        // the arrangement, which is the other half of what the strip is for.
+        expect(read.leadOpacity, "it dims rather than erases").toBeGreaterThan(0);
+        expect(read.leadOpacity, "and leaves the drawing legible").toBeLessThan(1);
+
+        // --- The marked segment. -------------------------------------------
+        // `data-state` is the slot's own fact, carried by both of the
+        // primitive's forms, and the one every arrangement assertion reads.
+        const marked = await app.evalJS<string[]>(
+          `Array.from(document.querySelectorAll(${JSON.stringify(SEGMENTS)}))
+             .map(function (el) { return el.getAttribute("data-state"); })`,
+        );
+        note(`segment states: ${marked.join("|")}`);
+        expect(
+          marked.filter((s) => s === "filled").length,
+          "exactly one segment is marked — the card the reader is in",
+        ).toBe(1);
+        // Card A is seeded focused into slot 0, so the mark is the first.
+        expect(marked[0], "and it is the focused card's own slot").toBe("filled");
+        expect(
+          marked.slice(1).every((s) => s === "rest"),
+          "every other slot rests",
+        ).toBe(true);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
     "the segments take the ink of the surface they stand on",
     async () => {
       const app = await launchTugApp({ testName: "at0461-flow-strip" });
@@ -951,7 +1071,13 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
           quietOpacity: number;
         }>(
           `(function () {
-            var segment = document.querySelector(${JSON.stringify(SEGMENTS)});
+            // A RESTING segment. The first is the reader's own slot and wears
+            // the accent, which is a different claim (3b) and would read this
+            // one as a drifted knob.
+            var segment = Array.prototype.filter.call(
+              document.querySelectorAll(${JSON.stringify(SEGMENTS)}),
+              function (el) { return el.getAttribute("data-state") === "rest"; }
+            )[0];
             var computed = getComputedStyle(segment);
 
             // Resolve the tokens through the live document rather than naming

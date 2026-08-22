@@ -46,6 +46,7 @@ import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { FlowStrip } from "./flow-strip";
+import { TugSlot, type TugSlotState } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
 import { usePaneOcclusionController } from "./pane-occlusion-controller";
 import {
@@ -100,7 +101,7 @@ import {
 } from "@/components/lens/lens-selection-store";
 import { shrinkLensState } from "@/components/lens/lens-escape";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
-import { flashCardPane } from "@/lib/flash-pane-border";
+import { flashCardPane, flashSlot } from "@/lib/flash-pane-border";
 import {
   enumerateDropZones,
   type DropZoneHost,
@@ -756,7 +757,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.OPEN_FILE,
   TUG_ACTIONS.REVEAL_IN_FINDER,
   TUG_ACTIONS.MOVE_TO_SLOT,
-  TUG_ACTIONS.CENTER_SLOT,
+  TUG_ACTIONS.GO_TO_SLOT,
   TUG_ACTIONS.NUDGE_SLOT,
   TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
   TUG_ACTIONS.MOVE_IN_COLUMN,
@@ -1185,12 +1186,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (cardIds.length === 0) return;
         dispatchCommand("assign-slot", { cardIds, slot: event.value - 1 });
       },
-      // ⌃⌘1..⌃⌘6 — put slot N in the middle of the band. The digit row's
-      // other reading: ⌘n sends the card to a place, this sends the reader
-      // there, and nothing about the arrangement changes. So it resolves no
-      // selection and asks no pane anything — the deck's strip and the deck's
-      // band are the whole input, which is why an empty slot is as centerable
-      // as a full one now that a vacancy holds its room.
+      // ⌃⌘1..⌃⌘6 — take the reader to slot N. The digit row's other reading:
+      // ⌘n sends the card to a place, this sends the reader there, and nothing
+      // about the arrangement changes. So it resolves no selection and asks no
+      // pane anything — the deck's strip and the deck's band are the whole
+      // input, which is why an empty slot is as reachable as a full one now
+      // that a vacancy holds its room.
       //
       // It commits without previewing, which is the one caller `setFlowOffset`
       // is built for: the store lands a number CSS was not already drawing and
@@ -1198,7 +1199,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // than jumped to. Silent returns throughout, like every other chord the
       // canvas owns — under fit there is no strip, and a digit past the
       // arrangement's slots is a chord the user simply has not configured.
-      [TUG_ACTIONS.CENTER_SLOT]: (event: ActionEvent) => {
+      //
+      // And the arrival is ANSWERED. The band moving is the only thing the
+      // gesture does, and on a deck of near-identical cards a reader who typed
+      // ⌃⌘4 has no way to tell which of the two now on screen is the four they
+      // asked for. `flashSlot` says which — the pane's ring if a card stands
+      // there, the vacancy badge's if the place is empty, which is the same
+      // answer `assign-slot` gives when a card is sent somewhere. It runs on
+      // this frame rather than after the settle: the flash outlasts the tween
+      // several times over, so it is already burning when the card arrives.
+      [TUG_ACTIONS.GO_TO_SLOT]: (event: ActionEvent) => {
         if (typeof event.value !== "number") return;
         const state = store.getSnapshot();
         const strip = deckFlowStrip(state);
@@ -1215,6 +1225,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
             band,
           }),
         );
+        flashSlot(store, slot);
       },
       // ⌥⇧⌘[ / ⌥⇧⌘] — move the layout selection one slot along the
       // arrangement. The canvas owns it for the same reason it owns ⌘1..9,
@@ -2870,6 +2881,36 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // see that from its own props.
   const bullseyePaneId = bullseyePaneIdOf(deckState);
 
+  /**
+   * The strip's per-slot looks — which is to say, where the reader's own card
+   * stands in the arrangement, and nothing else.
+   *
+   * The strip draws two different facts and this is the second of them. The
+   * band says where the reader is LOOKING and draws itself in neutral ink;
+   * this says which card the reader is IN, and takes the accent, because that
+   * is a live selection and the accent is what a live selection is for.
+   *
+   * `activePaneId` is the reading of "in" that matters here — the deck's own
+   * active pane, which is what the pane chrome draws its active title bar
+   * from — so the strip and the card agree about which card that is without
+   * either asking the other. Not bullseye: that is a POSTURE a card is put
+   * into, absent almost always, and a mark that only appeared during a
+   * bullseye would say nothing the bullseye had not already said louder.
+   *
+   * A deck whose active pane is a rail, or has none, marks nothing — which is
+   * the honest picture rather than a fallback: the reader is not standing in
+   * any slot of the arrangement.
+   */
+  const flowSlotStates = useMemo((): readonly TugSlotState[] | undefined => {
+    if (impositionKind === undefined) return undefined;
+    const pane = deckState.panes.find((p) => p.id === deckState.activePaneId);
+    if (pane?.slot === undefined) return undefined;
+    const marked = clampSlot(impositionKind, pane.slot);
+    return Array.from({ length: slotCount(impositionKind) }, (_, slot) =>
+      slot === marked ? "filled" : "rest",
+    );
+  }, [impositionKind, deckState]);
+
   // Where the bullseyed pane WAS before it took the posture — its centre, as
   // a CSS length expression, in the frames container's coordinates.
   //
@@ -3474,12 +3515,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}
         {...(bullseyePaneId !== null ? { "data-bullseye": "" } : {})}
       >
-      {/* The held-open places: one quiet tile per slot of the arrangement no
-          card stands in, at the anchor and the width a card landing there
-          would take. First in the container, so every pane paints over them.
-          Inert to the pointer — the tile is a drawing and a measurement, and
-          a drop lands on it through the drop-zone engine, which reads its box
-          rather than its events. */}
+      {/* The held-open places: one tile per slot of the arrangement no card
+          stands in, at the anchor and the width a card landing there would
+          take, with a numbered badge centered in it. First in the container,
+          so every pane paints over them. Inert to the pointer — the tile is a
+          drawing and a measurement, and a drop lands on it through the
+          drop-zone engine, which reads its box rather than its events. */}
       {vacantSlots.map((vacancy) => (
         <div
           key={`vacancy:${vacancy.slot}`}
@@ -3487,7 +3528,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           data-vacant-slot={vacancy.slot}
           aria-hidden="true"
           style={vacancy.style}
-        />
+        >
+          {/* The badge: the place's own number, in the slot vocabulary the
+              strip and the masthead already name places with. The exemplar
+              form, so it is a drawing rather than a control — nothing here
+              responds to a pointer. */}
+          <TugSlot number={vacancy.slot + 1} size="md" />
+        </div>
       ))}
       {/* TugPanes: one per pane in deckState.panes.
           Rendered in stable ID order (no DOM reordering on focus change).
@@ -3684,6 +3731,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           count={slotCount(impositionKind)}
           strip={flowStrip}
           band={flowBandPx}
+          states={flowSlotStates}
           offset={flowOffset}
           onPreview={previewFlowOffset}
           onCommit={commitFlowOffset}

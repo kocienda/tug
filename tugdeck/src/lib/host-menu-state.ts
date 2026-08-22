@@ -557,13 +557,13 @@ export interface MenuStateDeckProjection {
    */
   bullseye: { on: boolean } | null;
   /**
-   * How many slots the deck can center — `slotCount(kind)` under flow, and 0
-   * otherwise. Gates Window ▸ Center Slot 1…6: a slot the arrangement does not
+   * How many slots the deck can travel to — `slotCount(kind)` under flow, and 0
+   * otherwise. Gates Window ▸ Go to Slot 1…6: a slot the arrangement does not
    * have is nothing to travel to, and under FIT nothing travels at all, since
    * every slot's anchor is already inside the band. Module-internal: the
    * mirror carries the gates, so this never rides the wire.
    */
-  centerableSlots: number;
+  reachableSlots: number;
 }
 
 /** The full wire payload posted to `webkit.messageHandlers.menuState`. */
@@ -716,7 +716,7 @@ export function projectDeckState(state: DeckState): MenuStateDeckProjection {
   // takes none of the gates above: it moves the band, and the band is the
   // deck's. Under fit the strip does not exist and no slot has anywhere to
   // travel to, which is why the count is the kind's only under flow.
-  const centerableSlots =
+  const reachableSlots =
     state.imposition.kind === undefined ||
     impositionLayout(state.imposition) !== "flow"
       ? 0
@@ -731,7 +731,7 @@ export function projectDeckState(state: DeckState): MenuStateDeckProjection {
     focusedActiveCardId: focusedActiveCard?.id ?? null,
     cardWidth,
     bullseye,
-    centerableSlots,
+    reachableSlots,
   };
 }
 
@@ -754,7 +754,7 @@ export class HostMenuStatePublisher {
     focusedActiveCardId: null,
     cardWidth: null,
     bullseye: null,
-    centerableSlots: 0,
+    reachableSlots: 0,
   };
   /**
    * Per-card dev blocks. Every mounted session card publishes its own
@@ -948,7 +948,7 @@ export class HostMenuStatePublisher {
       focusedActiveCardId,
       cardWidth,
       bullseye,
-      centerableSlots,
+      reachableSlots,
     } = this.deckProjection;
     const session =
       activeCard?.component === "session" && focusedActiveCardId !== null
@@ -1002,7 +1002,7 @@ export class HostMenuStatePublisher {
       stackDepth,
       cardWidth,
       bullseye,
-      centerableSlots,
+      reachableSlots,
       column: this.columnFactSource?.() ?? null,
     };
     this.lastFacts = facts;

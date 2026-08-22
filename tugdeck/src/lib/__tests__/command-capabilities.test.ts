@@ -374,37 +374,37 @@ describe("computeCommandCapabilities", () => {
     expect(custom["window.cardWidth.wide"].state).toBe(false);
   });
 
-  test("the Center Slot row lights for the arrangement, not for the selection", () => {
+  test("the Go to Slot row lights for the arrangement, not for the selection", () => {
     const chain = new ResponderChainManager();
 
     // Under fit — and on a deck with no imposition at all — nothing travels:
     // every anchor is inside the band already, so the whole row is dark.
     const still = computeCommandCapabilities(
-      source(chain, { centerableSlots: 0 }),
+      source(chain, { reachableSlots: 0 }),
     );
     for (let n = 1; n <= 6; n += 1) {
-      expect(still[`window.centerSlot.${n}`].enabled).toBe(false);
+      expect(still[`window.goToSlot.${n}`].enabled).toBe(false);
     }
 
     // A three-up flow deck lights exactly its own three. Slot 4 is not a place
     // this arrangement has, and a row for a place that does not exist would be
     // a row that lies.
     const threeUp = computeCommandCapabilities(
-      source(chain, { centerableSlots: 3 }),
+      source(chain, { reachableSlots: 3 }),
     );
-    expect(threeUp["window.centerSlot.1"].enabled).toBe(true);
-    expect(threeUp["window.centerSlot.3"].enabled).toBe(true);
-    expect(threeUp["window.centerSlot.4"].enabled).toBe(false);
-    expect(threeUp["window.centerSlot.6"].enabled).toBe(false);
+    expect(threeUp["window.goToSlot.1"].enabled).toBe(true);
+    expect(threeUp["window.goToSlot.3"].enabled).toBe(true);
+    expect(threeUp["window.goToSlot.4"].enabled).toBe(false);
+    expect(threeUp["window.goToSlot.6"].enabled).toBe(false);
 
     // And it takes NONE of the selection gates the rest of the Window menu
     // takes: centering moves the band, so a deselected deck can still be sent
     // to slot 3. This is the assertion that would catch someone "fixing" the
     // row by pairing it with `cardWidth`.
     const deselected = computeCommandCapabilities(
-      source(chain, { centerableSlots: 3, selectionActive: false, cardWidth: null }),
+      source(chain, { reachableSlots: 3, selectionActive: false, cardWidth: null }),
     );
-    expect(deselected["window.centerSlot.3"].enabled).toBe(true);
+    expect(deselected["window.goToSlot.3"].enabled).toBe(true);
   });
 
   test("the save family follows the frontmost Text card's gates", () => {

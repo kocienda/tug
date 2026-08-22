@@ -13,6 +13,12 @@
  * somewhere on the deck is a change the eye has to find; the ring says where
  * to look.
  *
+ * There are two subjects, not one, because there are two things a gesture can
+ * name. {@link flashPaneBorder} rings a CARD; {@link flashVacantSlot} rings the
+ * badge standing in a held-open PLACE. {@link flashSlot} is for a caller that
+ * was given a place and does not care which of the two is there — a distinction
+ * the deck can make and the gesture should not have to.
+ *
  * @module lib/flash-pane-border
  */
 
@@ -30,10 +36,10 @@ const FLASH_BACKSTOP_FALLBACK_MS = 2000;
  * backstop follows `--tugx-card-flash-duration` (`tug-pane.css`) instead of
  * carrying a second copy of the number that can drift out of step with it.
  */
-function flashBackstopMs(paneEl: HTMLElement): number {
-  const chrome = paneEl.querySelector(".tug-pane-chrome");
-  if (!(chrome instanceof HTMLElement)) return FLASH_BACKSTOP_FALLBACK_MS;
-  const declared = getComputedStyle(chrome).animationDuration.split(",")[0]?.trim() ?? "";
+function flashBackstopMs(host: HTMLElement, animatedSelector: string): number {
+  const animated = host.querySelector(animatedSelector);
+  if (!(animated instanceof HTMLElement)) return FLASH_BACKSTOP_FALLBACK_MS;
+  const declared = getComputedStyle(animated).animationDuration.split(",")[0]?.trim() ?? "";
   const seconds = declared.endsWith("ms")
     ? Number.parseFloat(declared) / 1000
     : Number.parseFloat(declared);
@@ -79,7 +85,7 @@ export function flashPaneBorder(paneId: string, allowRetry = true): void {
   // A window whose rendering is suspended never ticks the keyframes, so
   // `animationend` never arrives and the ring would rest on the pane forever.
   // The timer is the only thing that guarantees the flash is one-shot.
-  const backstop = window.setTimeout(clear, flashBackstopMs(paneEl));
+  const backstop = window.setTimeout(clear, flashBackstopMs(paneEl, ".tug-pane-chrome"));
 }
 
 /**
@@ -94,4 +100,62 @@ export function flashPaneBorder(paneId: string, allowRetry = true): void {
 export function flashCardPane(store: IDeckManagerStore, cardId: string): void {
   const pane = store.getSnapshot().panes.find((p) => p.cardIds.includes(cardId));
   if (pane !== undefined) flashPaneBorder(pane.id);
+}
+
+const VACANCY_FLASH_CLASS = "tug-slot-vacancy-flash";
+const VACANCY_FLASH_ANIMATION_NAME = "tug-slot-vacancy-flash";
+
+/**
+ * Flash the held-open place at `slot` — a slot of the arrangement no card
+ * stands in.
+ *
+ * The vacancy tile is inert to the pointer and quiet by construction, so a
+ * gesture that lands on one has nothing to answer with unless this does. The
+ * class goes on the tile — the reserved room — but the ring lands on the BADGE
+ * inside it, because ringing the room would read as a card arriving rather than
+ * as a place being pointed at.
+ *
+ * No retry. A pane can be in the store a frame before it is in the DOM, which
+ * is what {@link flashPaneBorder} defers for; a vacancy is derived from the
+ * same render that draws it, so a tile that is not there is a slot that is not
+ * vacant.
+ */
+export function flashVacantSlot(slot: number): void {
+  if (typeof document === "undefined") return;
+  const el = document.querySelector(
+    `.tug-slot-vacancy[data-vacant-slot="${CSS.escape(String(slot))}"]`,
+  );
+  if (!(el instanceof HTMLElement)) return;
+  el.classList.remove(VACANCY_FLASH_CLASS);
+  void el.offsetWidth;
+  el.classList.add(VACANCY_FLASH_CLASS);
+  const clear = (): void => {
+    el.classList.remove(VACANCY_FLASH_CLASS);
+    el.removeEventListener("animationend", onEnd);
+    window.clearTimeout(backstop);
+  };
+  const onEnd = (event: AnimationEvent): void => {
+    if (event.animationName !== VACANCY_FLASH_ANIMATION_NAME) return;
+    clear();
+  };
+  el.addEventListener("animationend", onEnd);
+  // Same reason as the pane's: a window whose rendering is suspended never
+  // ticks the keyframes, so the timer is what makes the flash one-shot.
+  const backstop = window.setTimeout(clear, flashBackstopMs(el, ".tug-slot"));
+}
+
+/**
+ * Flash whichever thing stands at `slot` — the pane if a card holds the place,
+ * the held-open tile if none does.
+ *
+ * What a gesture that names a PLACE has in hand, since the place is the whole
+ * of what it was told and whether anything is standing in it is the deck's
+ * business. An empty slot is a legitimate destination now that a vacancy holds
+ * its room, so answering only for occupied ones would make the same gesture
+ * silent for reasons the user never asked about.
+ */
+export function flashSlot(store: IDeckManagerStore, slot: number): void {
+  const pane = store.getSnapshot().panes.find((p) => p.slot === slot);
+  if (pane !== undefined) flashPaneBorder(pane.id);
+  else flashVacantSlot(slot);
 }

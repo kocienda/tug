@@ -1,5 +1,5 @@
 /**
- * at0466-center-slot.test.ts — ⌃⌘N sends the reader to slot N.
+ * at0466-go-to-slot.test.ts — ⌃⌘N sends the reader to slot N.
  *
  * The digit row has two readings and the tier says which. ⌘n sends the CARD to
  * a place; ⌃⌘n sends the READER there, moving the band the deck is seen through
@@ -12,17 +12,26 @@
  *      off the live menu bar's key equivalents rather than off the registry,
  *      because the whole point of a promotion is that AppKit — not the JS
  *      funnel — is what claims the press. A width row that kept its ⌃⌘ digit
- *      would shadow the centering silently, and the registry cannot see that.
+ *      would shadow the travel silently, and the registry cannot see that.
  *   2. **The rows light for the ARRANGEMENT, not for the selection.** Every
  *      other item in the group asks "what could happen to the card I am in";
  *      this one moves the band, so it is live on a deselected deck, dark under
  *      fit where nothing has anywhere to travel, and dark for a slot the
  *      current kind does not have.
- *   3. **The chord actually lands the centering** — one foreground test, since
+ *   3. **The chord actually lands the travel** — one foreground test, since
  *      a promoted chord is resolved by AppKit's key-equivalent scan and dies
  *      silently in a background app-test. It asserts the same arithmetic the
  *      strip's own click commits, so the pointer and the keyboard cannot
- *      disagree about where a named place belongs.
+ *      disagree about where a named place belongs — and it pins the END, where
+ *      the clamp puts the last slot flush rather than in the middle. That case
+ *      is the whole argument for the name: *Center Slot 5* cannot do what it
+ *      says, and a reader who watched it would call the command broken.
+ *   4. **The arrival is answered with a flash.** Moving the band is the only
+ *      thing this verb does, which on a deck of similar cards is not enough to
+ *      say which card the reader asked for. Both branches are driven: the
+ *      pane's accent ring where a card stands, the vacancy badge's where the
+ *      place is held open — the fixture is four cards in a five-up so one
+ *      digit lands on each.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -30,6 +39,7 @@
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugdeck/src/lib/flash-pane-border.ts
  * @foreground
  */
 
@@ -59,7 +69,11 @@ const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
 /** A deck of `count` content cards, one per slot, with the Lens on the right. */
-function deckShape(count: number, layout: "fit" | "flow"): Record<string, unknown> {
+function deckShape(
+  count: number,
+  layout: "fit" | "flow",
+  slots: number = count,
+): Record<string, unknown> {
   const ids = ["A", "B", "C", "D", "E"].slice(0, count);
   return {
     cards: [
@@ -94,7 +108,7 @@ function deckShape(count: number, layout: "fit" | "flow"): Record<string, unknow
     ],
     activePaneId: "p1",
     imposition: {
-      kind: ["one-up", "two-up", "three-up", "four-up", "five-up"][count - 1],
+      kind: ["one-up", "two-up", "three-up", "four-up", "five-up"][slots - 1],
       sidebars: { lens: { side: "right" } },
       layout,
     },
@@ -104,13 +118,13 @@ function deckShape(count: number, layout: "fit" | "flow"): Record<string, unknow
 
 async function openDeck(
   app: App,
-  options: { cards: number; layout: "fit" | "flow" },
+  options: { cards: number; layout: "fit" | "flow"; slots?: number },
 ): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
   );
   await app.seedDeckState({
-    state: deckShape(options.cards, options.layout),
+    state: deckShape(options.cards, options.layout, options.slots),
     focusCardId: "A",
   });
   await app.waitForCondition<boolean>(
@@ -157,28 +171,28 @@ async function menuItem(
   };
 }
 
-describe.skipIf(!SHOULD_RUN)("⌃⌘N centers slot N", () => {
+describe.skipIf(!SHOULD_RUN)("⌃⌘N takes the reader to slot N", () => {
   test(
-    "the Tug tier's digits belong to Center Slot, and the width rows are bare",
+    "the Tug tier's digits belong to Go to Slot, and the width rows are bare",
     async () => {
-      const app = await launchTugApp({ testName: "at0466-center-slot" });
+      const app = await launchTugApp({ testName: "at0466-go-to-slot" });
       try {
         // A flow deck, so the rows are live and the sweep that writes key
         // equivalents has a menuState push to run on.
         await openDeck(app, { cards: 5, layout: "flow" });
 
         for (let n = 1; n <= 6; n += 1) {
-          const item = await menuItem(app, `window.centerSlot.${n}`);
+          const item = await menuItem(app, `window.goToSlot.${n}`);
           expect(
             item.keyEquivalent,
-            `Center Slot ${n} carries its digit`,
+            `Go to Slot ${n} carries its digit`,
           ).toBe(String(n));
           expect(
             item.modifierMask & (CONTROL | COMMAND),
             `and carries it on the Tug tier`,
           ).toBe(CONTROL | COMMAND);
         }
-        note("center rows 1..6 carry ⌃⌘1..⌃⌘6");
+        note("go-to rows 1..6 carry ⌃⌘1..⌃⌘6");
 
         // The other half of the handover, and the half a registry test cannot
         // see: a width row that kept its digit would be resolved by AppKit
@@ -205,12 +219,12 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N centers slot N", () => {
   test(
     "the rows light for the arrangement, and go dark under fit",
     async () => {
-      const app = await launchTugApp({ testName: "at0466-center-slot" });
+      const app = await launchTugApp({ testName: "at0466-go-to-slot" });
       try {
         await openDeck(app, { cards: 3, layout: "flow" });
         const flow = await Promise.all(
           [1, 2, 3, 4, 5, 6].map((n) =>
-            menuItem(app, `window.centerSlot.${n}`).then((i) => i.enabled),
+            menuItem(app, `window.goToSlot.${n}`).then((i) => i.enabled),
           ),
         );
         note(`three-up flow: ${flow.map((e) => (e ? "on" : "off")).join(" ")}`);
@@ -229,7 +243,7 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N centers slot N", () => {
         await openDeck(app, { cards: 3, layout: "fit" });
         const fit = await Promise.all(
           [1, 2, 3].map((n) =>
-            menuItem(app, `window.centerSlot.${n}`).then((i) => i.enabled),
+            menuItem(app, `window.goToSlot.${n}`).then((i) => i.enabled),
           ),
         );
         note(`three-up fit: ${fit.map((e) => (e ? "on" : "off")).join(" ")}`);
@@ -251,11 +265,16 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N centers slot N", () => {
     "the chord commits the same centering the strip's own click does",
     async () => {
       const app = await launchTugApp({
-        testName: "at0466-center-slot-chord",
+        testName: "at0466-go-to-slot-chord",
         foreground: true,
       });
       try {
-        await openDeck(app, { cards: 5, layout: "flow" });
+        // Four cards in a five-up, so the last place is a held-open one. The
+        // strip is the same width either way — a vacancy reserves the widest
+        // card in the chain — so the arithmetic below is unchanged, and the
+        // deck now has one occupied destination and one empty one to answer
+        // for.
+        await openDeck(app, { cards: 4, slots: 5, layout: "flow" });
         expect(await committedOffset(app), "the strip starts home").toBe(0);
 
         const band = await bandWidth(app);
@@ -278,6 +297,20 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N centers slot N", () => {
           0,
         );
 
+        // And the arrival is ANSWERED. Moving the band is all this verb does,
+        // and on a deck of similar cards that is not enough to say which one
+        // the reader asked for. Read inside the flash's own window: the ring
+        // runs far longer than the settle, so it is still burning here.
+        const rung = await app.evalJS<string[]>(
+          `Array.from(document.querySelectorAll(".tug-pane.tug-pane-flash"))
+             .map(function (el) { return el.getAttribute("data-pane-id"); })`,
+        );
+        note(`⌃⌘3 rang: ${JSON.stringify(rung)}`);
+        expect(
+          rung,
+          "the card standing in the named place is rung, and only it",
+        ).toEqual(["p3"]);
+
         // A second digit travels from wherever the first left it — the answer
         // is a destination, so it does not depend on where the band stood.
         await app.nativeKey("5", ["ctrl", "cmd"]);
@@ -288,6 +321,48 @@ describe.skipIf(!SHOULD_RUN)("⌃⌘N centers slot N", () => {
           far,
           "and ⌃⌘5 reaches the far end, which the clamp pins flush",
         ).toBeCloseTo(stripWidth - band, 0);
+        // The end the clamp pins flush is exactly the case that makes
+        // "Center Slot 5" a lie and "Go to Slot 5" true: the reader arrived,
+        // and slot 5 is nowhere near the middle of anything. Measured against
+        // the UNCLAMPED middle — `centered()` above already clamps, so the two
+        // agree at the end by construction and could not catch this.
+        const middleOf = (k: number): number =>
+          k * (SLIM_PX + GAP_PX) + SLIM_PX / 2 - band / 2;
+        note(
+          `slot 5: rests at ${Math.round(far)}px, its middle would be ` +
+            `${Math.round(middleOf(4))}px`,
+        );
+        expect(
+          middleOf(4) - far,
+          "the last slot rests against the end, well short of its own middle",
+        ).toBeGreaterThan(1);
+
+        // Slot 5 is the held-open one, so the answer is the vacancy's badge
+        // rather than a pane's ring. Same act, and the same reason it has to
+        // happen — an empty slot is a legitimate destination, so answering
+        // only for occupied ones would make the same gesture silent for a
+        // reason the reader never asked about.
+        const rungEmpty = await app.evalJS<{ panes: string[]; tiles: string[] }>(
+          `(function () {
+            return {
+              panes: Array.from(
+                document.querySelectorAll(".tug-pane.tug-pane-flash"),
+              ).map(function (el) { return el.getAttribute("data-pane-id"); }),
+              tiles: Array.from(
+                document.querySelectorAll(".tug-slot-vacancy-flash"),
+              ).map(function (el) { return el.getAttribute("data-vacant-slot"); })
+            };
+          })()`,
+        );
+        note(`⌃⌘5 rang: ${JSON.stringify(rungEmpty)}`);
+        expect(
+          rungEmpty.tiles,
+          "the held-open place answers with its badge",
+        ).toEqual(["4"]);
+        expect(
+          rungEmpty.panes,
+          "and no card is rung for a place no card stands in",
+        ).toEqual([]);
       } finally {
         await app.close();
       }

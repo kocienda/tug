@@ -184,14 +184,14 @@ export interface CommandMenuFacts {
   readonly bullseye: { readonly on: boolean } | null;
   /**
    * How many slots the deck can center on — the kind's slot count under flow,
-   * and 0 otherwise. Gates the Center Slot row.
+   * and 0 otherwise. Gates the Go to Slot row.
    *
    * It takes NONE of the selection gates above, and that is the point: the
    * other three answer "what could happen to the card I am in", while this one
    * moves the band the whole deck is seen through. A deselected deck can still
    * be sent to slot 4.
    */
-  readonly centerableSlots: number;
+  readonly reachableSlots: number;
   /**
    * What the column verbs could do to the card the layout selection resolves
    * to. `null` when none does — nothing selected, no cursor in the Cards list,
@@ -226,7 +226,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   stackDepth: 0,
   cardWidth: null,
   bullseye: null,
-  centerableSlots: 0,
+  reachableSlots: 0,
   column: null,
 };
 
@@ -837,7 +837,15 @@ const CARD_WIDTH_COMMANDS: readonly CommandEntry[] = CONTENT_WIDTH_PRESETS.map(
 const MAX_SLOTS = Math.max(...IMPOSITION_KINDS.map(slotCount));
 
 /**
- * ⌃⌘1…⌃⌘6 — put slot N in the middle of the band.
+ * ⌃⌘1…⌃⌘6 — take the reader to slot N.
+ *
+ * **Named for the destination, not the geometry.** The arithmetic centers and
+ * then clamps, so the first and last slots come to rest flush against their end
+ * of the strip rather than in the middle of the band — which is the right
+ * answer (the strip is already showing everything it has that way) and makes
+ * "Center Slot 1" a row that cannot do what it says. A reader who typed it and
+ * watched slot 1 land at the left edge would conclude the command was broken.
+ * "Go to" promises only arrival, which is the whole of what the verb owes.
  *
  * **The tier, derived** (tuglaws/chord-tiers.md): the digit row indexes an
  * ordered set and the tier says WHICH reading of it. ⌘n moves the card to a
@@ -857,21 +865,21 @@ const MAX_SLOTS = Math.max(...IMPOSITION_KINDS.map(slotCount));
  * and claims them unconditionally. Nothing claims ⌃⌘ digits: no viewer, no text
  * surface, no CM6 keymap.
  *
- * The gate is the arrangement's, not the selection's. Centering moves the band
+ * The gate is the arrangement's, not the selection's. Travel moves the band
  * and touches no card, so it is live on a deselected deck — and dark under fit,
  * where every anchor is inside the band already and there is nothing to travel.
  */
-const CENTER_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
+const GO_TO_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
   { length: MAX_SLOTS },
   (_, i) => {
     const n = i + 1;
     return {
-      id: `${TUG_ACTIONS.CENTER_SLOT}:${n}`,
-      title: `Center Slot ${n}`,
+      id: `${TUG_ACTIONS.GO_TO_SLOT}:${n}`,
+      title: `Go to Slot ${n}`,
       routing: "first-responder" as const,
-      action: TUG_ACTIONS.CENTER_SLOT,
+      action: TUG_ACTIONS.GO_TO_SLOT,
       payload: n,
-      menuItemId: `window.centerSlot.${n}`,
+      menuItemId: `window.goToSlot.${n}`,
       mirrored: true,
       bindings: [
         chord(
@@ -880,7 +888,7 @@ const CENTER_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
         ),
       ],
       validate: (chain: CommandValidationSource) =>
-        chain.menu.centerableSlots >= n,
+        chain.menu.reachableSlots >= n,
     };
   },
 );
@@ -1529,14 +1537,14 @@ export const COMMANDS: readonly CommandEntry[] = [
     validate: (chain) => chain.menu.stackDepth > 1,
     disabledChord: "detach",
   },
-  ...CENTER_SLOT_COMMANDS,
+  ...GO_TO_SLOT_COMMANDS,
   ...CARD_WIDTH_COMMANDS,
   // ⌃⌘B — bullseye: put the focused card in a centered, comfy-width reading
   // posture with every other surface receded, and take it back out.
   //
   // **The tier, derived** (tuglaws/chord-tiers.md): a card's posture on the
   // deck is Tug's own layout machinery, so it takes the Tug tier ⌃⌘
-  // alongside ⌃⌘L Show Lens, ⌃⌘T Next Theme, and the ⌃⌘1..6 Center Slot
+  // alongside ⌃⌘L Show Lens, ⌃⌘T Next Theme, and the ⌃⌘1..6 Go to Slot
   // row directly above. Plain ⌘ is out under R3 — a deliberate posture change is
   // not a many-times-an-hour verb — and the composed sets are out under R1,
   // because there is no ⌘B base for this to be a variant or counterpart of

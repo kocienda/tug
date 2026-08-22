@@ -11,31 +11,93 @@
  * **It is a drawing and a measurement, and nothing else.** A drop lands here
  * through the drop-zone engine, which reads the tile's box rather than its
  * events, so the tile is inert to the pointer and carries no interactive role.
+ * The box is therefore the full reserved room even though the drawing inside
+ * it is small: the measurement and the picture are two different jobs, and
+ * only one of them is the reader's.
  *
- * Quiet on purpose. The tile has to say "a card would go here" without
- * competing with the cards that are actually on the deck, so it is a hairline
- * in the ordinary border ink over the canvas itself — no fill, no shadow, no
- * accent. Accent marks a live selection, and an empty place is the opposite of
- * one.
+ * **A badge, not an outline.** The first cut drew the whole reserved room as a
+ * dim hairline rectangle, and at deck scale that read as a mistake rather than
+ * as a statement — a several-hundred-pixel box outlined in ink faint enough to
+ * look like a rendering fault, with nothing in it to say what it was. What an
+ * empty place actually has to say is one short sentence: *this is place four,
+ * and there is no card in it.* A numbered badge says exactly that and stops,
+ * and it says it in the vocabulary the flow strip and the masthead already use
+ * for places — so a reader who has learned the chip anywhere has learned it
+ * here. Centered in both axes, because the badge names the room rather than
+ * marking any corner of it.
+ *
+ * The badge is a `TugSlot`, which brings its own shape and ink ([L20]). What
+ * this file hands it is the same re-pairing the flow strip hands in and for the
+ * same reason: a slot's own tokens name a CONTROL on a control surface, and
+ * this one draws straight on the deck canvas — a dark ground in every theme,
+ * the light families included — where control ink authored for a light control
+ * surface is invisible. The pairing is the CARD family at its inactive weight,
+ * which is the honest surface for a place a reader is not in.
  *
  * @tug-pairings
- *   --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-canvas-rest | global
+ * | Element                                              | Surface                                            | Role          | Context |
+ * |------------------------------------------------------|----------------------------------------------------|---------------|---------|
+ * | --tug7-surface-card-primary-normal-titlebar-inactive  | --tug7-surface-global-primary-normal-canvas-rest   | informational | .tug-slot-vacancy badge |
+ * | --tug7-element-card-text-normal-title-inactive        | --tug7-surface-card-primary-normal-titlebar-inactive | informational | .tug-slot-vacancy badge number |
+ * | --tug7-element-global-border-normal-default-rest      | --tug7-surface-card-primary-normal-titlebar-inactive | informational | .tug-slot-vacancy badge border |
+ * | --tug7-element-global-border-normal-accent-rest       | --tug7-surface-global-primary-normal-canvas-rest   | control       | .tug-slot-vacancy-flash |
  */
 
 .tug-slot-vacancy {
   /* @tug-renders-on: --tug7-surface-global-primary-normal-canvas-rest */
   position: absolute;
-  /* The outline is drawn INSIDE the reserved width, so the tile measures
-     exactly the card that will land in it rather than that width plus two
-     border pixels. */
-  box-sizing: border-box;
   /* Behind every pane. Panes carry their own stacking order from the store's
      array position, and the lowest of those is 1. */
   z-index: 0;
   pointer-events: none;
-  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
-  /* The same radius a pane wears, so the outline reads as the shape of the
-     thing that will land in it rather than as a rectangle drawn near it. */
-  border-radius: var(--tug-radius-md);
-  opacity: 0.5;
+  /* The box measures the card that would land here; the badge inside it is
+     what a reader sees. */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* The badge's ink, handed to the composed `TugSlot` through the knobs
+     `tug-slot.css` publishes. */
+  --tugx-slot-rest-bg: var(--tug7-surface-card-primary-normal-titlebar-inactive);
+  /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+  --tugx-slot-rest-fg: var(--tug7-element-card-text-normal-title-inactive);
+  /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+  --tugx-slot-rest-border: var(--tug7-element-global-border-normal-default-rest);
+  /* One step up from the strip's segment, which is read at map scale a few
+     hundred pixels away; this one is read at deck scale, standing alone in a
+     large empty room, and a chip sized for the map looks lost in it. */
+  --tugx-slot-width-md: 34px;
+  --tugx-slot-height-md: 44px;
+  --tugx-slot-font-size-md: 16px;
+  --tugx-slot-radius: 3px;
+}
+
+/* ── The "here it is" flash, for a place with nothing in it ───────────────
+   A gesture that names a place must answer, and when the place is empty there
+   is no pane to ring — so the badge is rung instead. Same accent and the same
+   duration knob as `tug-pane.css`'s card flash, because it is the same act:
+   the deck saying *here* to a reader who asked to be taken somewhere.
+
+   The badge is one rectangle with nothing painted over its edge, so the ring
+   can be a plain outset shadow on it — where a pane's has to hang outside the
+   chrome its title bar and body fill edge to edge. */
+@keyframes tug-slot-vacancy-flash {
+  0% {
+    box-shadow: 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
+  }
+  70% {
+    box-shadow: 0 0 0 2px var(--tug7-element-global-border-normal-accent-rest);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+/* The ring hugs the BADGE, not the reserved room: the room is a measurement
+   nobody looks at, and a several-hundred-pixel rectangle lighting up would read
+   as a card arriving rather than as a place being pointed at. */
+.tug-slot-vacancy-flash .tug-slot {
+  animation: tug-slot-vacancy-flash var(--tugx-card-flash-duration, 1750ms)
+    ease-out;
 }

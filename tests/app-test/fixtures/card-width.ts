@@ -2,7 +2,7 @@
  * Setting a card's width from a test, through the door that still exists.
  *
  * Width had two doors: the title bar's width popup and the chords ⌃⌘1/2/3. The
- * chords were retired when the Tug tier's digits went to Center Slot — setting
+ * chords were retired when the Tug tier's digits went to Go to Slot — setting
  * a width is a once-a-session act, and it was wearing an every-hour chord — so
  * the popup (and its Window-menu twin, which no test can drive) is what an
  * explicit width gesture is now.
