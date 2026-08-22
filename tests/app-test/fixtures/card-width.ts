@@ -40,6 +40,9 @@ export async function chooseWidth(
   paneId: string,
   preset: "slim" | "comfy" | "wide",
 ): Promise<void> {
+  // The width control rests inside the pane's rollup, revealed on a title-bar
+  // hover. Pin the row open first or the press lands on the bar behind it.
+  await app.revealPaneControls(`[data-pane-id="${paneId}"]`);
   await app.nativeClickAtElement(widthButton(paneId));
   await app.waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(WIDTH_MENU)}).length > 0`,

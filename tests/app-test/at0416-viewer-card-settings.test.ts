@@ -180,6 +180,9 @@ async function openGear(app: App, sheet: string): Promise<void> {
     `document.querySelector(${JSON.stringify(GEAR_BUTTON)}) !== null`,
     { timeoutMs: 10_000 },
   );
+  // The gear rests inside the pane's rollup, revealed on a title-bar hover.
+  // Pin the row open first or the press lands on the bar behind it.
+  await app.revealPaneControls();
   await app.nativeClickAtElement(GEAR_BUTTON);
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(sheet)}) !== null`,

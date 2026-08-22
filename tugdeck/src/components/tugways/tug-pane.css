@@ -815,6 +815,12 @@ body {
  * press reads as the exit it is. `data-on` is stamped by the title bar from
  * the derived posture, never from a local toggle, so the button and the
  * geometry cannot disagree.
+ *
+ * The rollup's MARK joins the selector on the same terms. It wears `data-on`
+ * when a control BEHIND it holds a posture — today only bullseye — so a card
+ * sitting in bullseye says so from the row's resting state, with the hidden ⊙
+ * still hidden and the cluster's geometry untouched. It takes the colour only:
+ * the mark is not a button and must not grow a button's filled box.
  */
 .tug-pane[data-focused="true"]
   .tug-pane-title-bar-controls
@@ -830,6 +836,131 @@ body {
   color: var(--tugx-pane-control-off-fg-active);
   background-color: var(--tugx-pane-control-off-bg-active);
   border-color: var(--tugx-pane-control-off-border-active);
+}
+
+/*
+ * THE ROLLUP — every verb the pane offers, held behind one `⋯`.
+ *
+ * The row REPLACES the mark rather than growing beside it. Both are anchored
+ * to the same trailing edge — the row absolutely, `inset-inline-end: 0` — so
+ * the row unfurls leftward from the exact spot the `⋯` occupies, and the mark
+ * fades out as the row fades in. One control's worth of space, showing one
+ * thing at a time.
+ *
+ * That the row is an OVERLAY is the whole reason a hover can drive it.
+ * `.tug-pane-title-bar` is `space-between` with a `flex-shrink: 0` cluster, so
+ * a row that grew in the flow would widen the cluster, steal the title's box,
+ * and re-truncate the card's name on every pass of the pointer. As an overlay
+ * it moves nothing at all — the badges and the close box behind it hold their
+ * pixel, and `--tugx-pane-controls-width` (measured off the cluster, which an
+ * absolutely-positioned child does not contribute to) never flinches, so the
+ * masthead's lower lines keep the inset they were already taking.
+ *
+ * It paints the bar's own ground so the unfurl reads as the control row simply
+ * extending, rather than as a panel arriving. On a card whose title runs long
+ * the row covers its tail; that is the intended trade — the title is legible
+ * at rest, which is when it is being read.
+ */
+.tug-pane-title-bar-rollup {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+/*
+ * The mark: a glyph in one icon button's footprint, so the row it stands for
+ * displaces exactly itself. Sized from the same tokens `TugButton`'s `sm` icon
+ * subtype uses rather than by eye — the mark and the buttons that replace it
+ * have to agree on the box or the swap steps sideways.
+ */
+.tug-pane-title-bar-rollup-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: var(--tugx-pane-rollup-mark-size, 28px);
+  block-size: var(--tugx-pane-rollup-mark-size, 28px);
+  color: var(--tugx-pane-control-off-fg-rest);
+}
+
+.tug-pane[data-focused="true"] .tug-pane-title-bar-rollup-mark {
+  color: var(--tugx-pane-control-on-fg-rest);
+}
+
+.tug-pane-title-bar-rollup-mark svg {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+
+/* Lit while a verb behind it holds a posture. Colour only — see above. */
+.tug-pane[data-focused="true"] .tug-pane-title-bar-rollup-mark[data-on] {
+  color: var(--tugx-pane-control-on-fg-active);
+}
+
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-rollup-mark[data-on] {
+  color: var(--tugx-pane-control-off-fg-active);
+}
+
+.tug-pane-title-bar-rollup-row {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding-inline: var(--tug-space-2xs);
+  border-radius: var(--tug-radius-sm);
+  background-color: var(--tugx-pane-title-bar-bg-inactive);
+  /* Above the bar's own text and above the mark it covers. */
+  z-index: 1;
+  /* Hidden by opacity, not by `display`, so the row keeps a box: the buttons
+   * keep their measured widths and the unfurl has no layout pass to do.
+   * `pointer-events: none` is what makes a hidden row unclickable — opacity
+   * alone would leave a row of invisible buttons sitting over the title. */
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tug-pane[data-focused="true"] .tug-pane-title-bar-rollup-row {
+  background-color: var(--tugx-pane-title-bar-bg-active);
+}
+
+/*
+ * The reveal, in three clauses, and every one of them is appearance the CSS
+ * owns outright ([L06]). The mark goes out under the same three, so the two
+ * are never both on screen.
+ *
+ * `:hover` is on the BAR: a whole title bar is a target the hand cannot miss,
+ * where an 18px glyph is one the hand has to aim at. It is also the only
+ * opener — the mark is a mark, not a button, because the row covers the mark's
+ * own spot and a control whose second press cannot reach it is worse than no
+ * control at all.
+ *
+ * `[data-held]` is React's half: a menu opened from inside the row is
+ * standing. Not a nicety — a `TugPopupMenu` portals its rows outside the card,
+ * so the pointer travelling to one leaves the bar and ends the hover, and
+ * without the hold the row would collapse out from under an open menu.
+ *
+ * `:focus-within` is the keyboard's, for the walk that arrives without a
+ * pointer and would otherwise be tabbing through invisible buttons.
+ */
+.tug-pane-title-bar[data-pointer-within] .tug-pane-title-bar-rollup-row,
+.tug-pane-title-bar-rollup[data-held] .tug-pane-title-bar-rollup-row,
+.tug-pane-title-bar-rollup-row:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The focus clause reaches the mark by SIBLING combinator, never `:has()`.
+ * The mark follows the row in the DOM precisely so `~` can address it, and
+ * WebKit's `:has()` does not reliably invalidate on a descendant's state
+ * change — the mark would linger under a keyboard walk. */
+.tug-pane-title-bar[data-pointer-within] .tug-pane-title-bar-rollup-mark,
+.tug-pane-title-bar-rollup[data-held] .tug-pane-title-bar-rollup-mark,
+.tug-pane-title-bar-rollup-row:focus-within ~ .tug-pane-title-bar-rollup-mark {
+  opacity: 0;
 }
 
 /*

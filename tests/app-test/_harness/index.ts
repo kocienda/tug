@@ -1026,6 +1026,72 @@ export class App {
     return client.nativeClickAtElement(this as HarnessCaller, selector, opts);
   }
 
+  /**
+   * Reveal a pane's rollup — the `⋯` row holding the card's own verbs, the
+   * assorted-commands menu, bullseye and the width control.
+   *
+   * Those controls rest hidden and reveal when the pointer enters the title
+   * bar, so a test that clicks one directly clicks through a
+   * `pointer-events: none` overlay and lands a drag on the bar instead.
+   *
+   * This dispatches the same `pointerenter` a real pointer raises, at the bar
+   * the product listens on. It is not a test-only door: the product reads
+   * `pointerenter`/`pointerleave` rather than the `:hover` pseudo-class for
+   * exactly this reason — a pseudo-class is decided by WebKit's hit-testing
+   * against the physical cursor, which a background app-test has no business
+   * moving and, in a non-key window, cannot usefully move anyway.
+   *
+   * The reveal SURVIVES what a test does next: `pointerleave` fires only when
+   * the pointer exits the bar and every descendant, and the revealed row is a
+   * descendant. Use {@link concealPaneControls} to end it deliberately.
+   *
+   * `paneSelector` scopes it to one pane; omitted, it takes the first title
+   * bar in the document. A pane with no rollup resolves to a no-op.
+   */
+  async revealPaneControls(paneSelector = ""): Promise<void> {
+    const scope = paneSelector === "" ? "" : `${paneSelector} `;
+    const bar = `${scope}[data-testid="tug-pane-title-bar"]`;
+    const rollup = `${scope}[data-testid="tug-pane-title-bar-rollup"]`;
+    const present = await this.evalJS<boolean>(
+      `document.querySelector(${JSON.stringify(rollup)}) !== null`,
+    );
+    if (!present) return;
+    await this.evalJS<null>(
+      `(function(){
+         var bar=document.querySelector(${JSON.stringify(bar)});
+         if(bar===null) throw new Error("no title bar at " + ${JSON.stringify(bar)});
+         bar.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
+         return null;
+       })()`,
+    );
+    await this.waitForCondition(
+      `(function(){
+         var r=document.querySelector(${JSON.stringify(rollup)});
+         if(r===null) return false;
+         var row=r.querySelector('[data-testid="tug-pane-title-bar-rollup-row"]');
+         return row!==null && window.getComputedStyle(row).pointerEvents!=='none';
+       })()`,
+      { timeoutMs: 4_000 },
+    );
+  }
+
+  /**
+   * Take the pointer back off a pane's title bar — the other half of
+   * {@link revealPaneControls}, for asserting what holds the row open once
+   * the hover is gone.
+   */
+  async concealPaneControls(paneSelector = ""): Promise<void> {
+    const scope = paneSelector === "" ? "" : `${paneSelector} `;
+    const bar = `${scope}[data-testid="tug-pane-title-bar"]`;
+    await this.evalJS<null>(
+      `(function(){
+         var bar=document.querySelector(${JSON.stringify(bar)});
+         if(bar!==null) bar.dispatchEvent(new PointerEvent("pointerleave", { bubbles: false }));
+         return null;
+       })()`,
+    );
+  }
+
   /** Double click at a viewport point (pinned inter-click interval). */
   nativeDoubleClick(
     viewportPoint: ViewportPoint,

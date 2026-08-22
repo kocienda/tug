@@ -60,6 +60,28 @@ const STACK_MENU = '[data-testid="tug-pane-title-bar-stack-menu"]';
  * changes only its z-index and never re-parents a frame, so DOM order says
  * nothing about what you can see.
  */
+/**
+ * The pane id of whichever rail member is in FRONT.
+ *
+ * A pointer gesture aimed at this rail has to name it: the badge now stands on
+ * every pane holding a place, a lone content pane included, so an unscoped
+ * `[data-testid]` resolves to whatever the deck happens to render first — and
+ * the two rail members share one rect, so only the front one is clickable
+ * anyway.
+ */
+const FRONT_RAIL_PANE_ID_JS = `(function () {
+  var rail = Array.from(document.querySelectorAll(".tug-pane")).filter(function (p) {
+    return p.querySelector(".jots-card") !== null || p.querySelector(".lens-content") !== null;
+  });
+  if (rail.length === 0) return null;
+  var zOf = function (el) {
+    var z = parseInt(window.getComputedStyle(el).zIndex, 10);
+    return Number.isNaN(z) ? 0 : z;
+  };
+  var front = rail.slice().sort(function (a, b) { return zOf(a) - zOf(b); }).pop();
+  return front.getAttribute("data-pane-id");
+})()`;
+
 const FRONT_IS_JOTS_JS = `(function () {
   var rail = Array.from(document.querySelectorAll(".tug-pane")).filter(function (p) {
     return p.querySelector(".jots-card") !== null || p.querySelector(".lens-content") !== null;
@@ -157,8 +179,19 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelectorAll(${JSON.stringify(STACK_BADGE)}).length >= 1`,
             { timeoutMs: 8_000 },
           );
+          // Scoped to the RAIL's two members, not to the document. The badge
+          // now stands on every pane holding a place, a lone content pane
+          // included — it just reads `1` there — so an unscoped sweep collects
+          // the deck's panes as well and the depth claim below is no longer
+          // about this rail.
           const badges = await app.evalJS<string[]>(
-            `Array.from(document.querySelectorAll(${JSON.stringify(STACK_BADGE)}))
+            `Array.from(document.querySelectorAll(".tug-pane"))
+              .filter(function (p) {
+                return p.querySelector(".jots-card") !== null
+                  || p.querySelector(".lens-content") !== null;
+              })
+              .map(function (p) { return p.querySelector(${JSON.stringify(STACK_BADGE)}); })
+              .filter(function (el) { return el !== null; })
               .map(function (el) { return (el.textContent || "").trim(); })`,
           );
           note("stack badges", badges.join(" · "));
@@ -179,7 +212,15 @@ describe.skipIf(!SHOULD_RUN)(
           // Opening the picker and choosing the OTHER row raises it. With two
           // identical rects this is the only way to the card underneath, which
           // is why it is the assertion that matters most here.
-          await app.nativeClickAtElement(STACK_BADGE);
+          const frontPaneId = await app.evalJS<string | null>(
+            FRONT_RAIL_PANE_ID_JS,
+          );
+          expect(frontPaneId, "the rail has a front member to press").not.toBe(
+            null,
+          );
+          await app.nativeClickAtElement(
+            `.tug-pane[data-pane-id="${frontPaneId}"] ${STACK_BADGE}`,
+          );
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(STACK_MENU)}) !== null`,
             { timeoutMs: 8_000 },

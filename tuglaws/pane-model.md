@@ -345,6 +345,27 @@ Two consequences follow, and both are intended:
 
 `TugColumnBadge` (`components/tugways/tug-column-badge.tsx`) is the one drawing of the second and third coordinates; `CardSlotBadge` is the first. A rail and a column are the same kind of place, so a split rail's members wear the same letters a split column's do. Pinned by `at0401`, `at0455`, and `at0467`.
 
+**A place one card deep is still a place, and the badge says so.** It draws `1`, which is quiet but true, and the reason it draws at all is that the badge is the only door to the arrange verbs: gating it on already having a neighbour left the one card that most needs *Split Vertically* — a card alone in its column — with no way to reach it and no way to learn that splitting was a thing columns did. The condition is holding a place, not depth. The single case that still draws nothing is a pane standing in no place at all, where a chip would claim a position the pane does not hold.
+
+---
+
+## The control cluster is a rollup and a place pair, anchored at its trailing edge
+
+**A pane's title-bar cluster holds every verb behind one `⋯` and pins the place badges against the trailing edge, because that is the cluster's only fixed end.** `.tug-pane-title-bar` is `space-between` with a `flex-shrink: 0` cluster, so the cluster is anchored by its right edge: its *head* is the end that slides whenever one card carries one more verb than its neighbour. The badges led the row for a while on the opposite reasoning, and that produced exactly the defect the reasoning was meant to prevent — a Session card's slot chip and a text card's sat at different x. A readout meant to be taken in at a glance cannot live at the end that moves.
+
+Left to right: the **rollup**, the slot badge, the column badge, the close box. That is the entire cluster. **A verb is either in the rollup or it does not exist** — including the ones a card portals in for itself (on a Session card, Reveal in Finder and the summary trigger, which arrive through a `display: contents` host at the head of the row). The rule admits no "this one is small" exception: the moment one verb sits outside, the cluster's resting width depends on which card it belongs to again, which is the whole thing the anchored end was for.
+
+At rest a card shows a `⋯`, two badges and a close box. The pointer entering the title bar anywhere reveals the verbs, unchanged in glyph, order and act. Four things are load-bearing:
+
+- **The row REPLACES the mark.** Both are anchored to the rollup's trailing edge — the row absolutely, at `inset-inline-end: 0` — so it unfurls leftward from the exact spot the `⋯` occupies and the mark goes out as the row comes in. One control's worth of space, showing one thing at a time; never a row that grows *beside* its own handle.
+- **The row is an overlay, not a flex member.** Grown in the flow it would widen the cluster and re-truncate the card's title on every pass of the pointer. As an overlay it moves nothing, and the cluster's measured `--tugx-pane-controls-width` — which the masthead's lower lines inset against — never flinches.
+- **Hidden by `opacity` + `pointer-events`, never by `display`.** The buttons keep their boxes, so the unfurl has no layout pass to do and the cluster's real order stays assertable without revealing anything.
+- **The reveal reads `data-pointer-within`, written to the bar's DOM from `pointerenter`/`pointerleave`, never React state ([L06]).** Not the `:hover` pseudo-class, and the difference is the point: a pseudo-class is decided by the engine's hit-testing against the physical cursor, which makes a hover-revealed surface unreachable from a test that is not driving a real mouse — and app-tests run in a background window with the user's pointer deliberately untouched. The event pair is what hover is derived from, so a hand gets identical behaviour and a dispatched event reaches the same listener a real one does. Two more clauses complete it: **`data-held`** on the rollup, because a `TugPopupMenu` portals its rows outside the card and the pointer travelling to one would otherwise collapse the row out from under an open menu; and **`:focus-within`**, for a keyboard walk arriving with no pointer at all.
+
+**The `⋯` is a mark, not a button.** The row covers the mark's own spot, so a button there could be pressed to open and never pressed again to close — a control whose second press cannot reach it is worse than none. What it does instead is *report*: a rolled-up control currently holding a posture lights the mark (`data-on`) rather than popping back out into the row, so the fact reaches the surface while the row's membership stays constant, which is the property that makes the cluster learnable. Bullseye is today's only such control.
+
+The two ellipses in the cluster are deliberately different glyphs — horizontal `⋯` is *more of this row*, vertical `⋮` is *this card's own menu*. Pinned by `at0468` and `at0462`.
+
 ---
 
 ## The imposer's motion is designed, not assembled

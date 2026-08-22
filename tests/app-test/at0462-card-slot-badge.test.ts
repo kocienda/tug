@@ -23,11 +23,14 @@
  *   3. **A sidebar is not a member of the chain.** A pane the deck treats as a
  *      sidebar gets no badge even when the state hands it a slot — the same
  *      guard the Lens's own slot picker applies.
- *   4. **It leads the pane's control cluster.** The chip is the row's first
- *      member, it is laid out ahead of every other control in it, and it sits
- *      on the row's own vertical. Order and geometry are asserted separately
- *      because they can disagree, and a first child laid out elsewhere is
- *      exactly the failure worth catching. Its first home was the masthead
+ *   4. **It stands at the cluster's anchored end.** The chip trails every verb
+ *      in the pane's rollup, leads the column badge and the close box, and
+ *      sits on the row's own vertical. It led the row until that reasoning was
+ *      checked against the layout: the title bar is `space-between` with a
+ *      `flex-shrink: 0` cluster, so the cluster is anchored by its RIGHT edge
+ *      and the head is the end that slides whenever one card carries one more
+ *      verb than its neighbour. A readout meant to be taken in at a glance
+ *      cannot live at the end that moves. Its first home was the masthead
  *      frame's leading column, which read well and was wrong about whose fact
  *      this is: a masthead is a card's own three lines and only two kinds of
  *      card wear one, so a badge seated there was a PANE fact drawn by a card,
@@ -327,18 +330,28 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
   );
 
   test(
-    "it leads the pane's control cluster",
+    "it stands at the cluster's anchored end",
     async () => {
       const app = await launchTugApp({ testName: "at0462-card-slot-badge" });
       try {
         await openDeck(app, deckShape(2), "A");
 
+        // The chip used to lead the row, on the reasoning that the head of the
+        // cluster is the region that holds still. That was backwards. The
+        // title bar is `space-between` with a `flex-shrink: 0` cluster, so the
+        // cluster is anchored by its RIGHT edge — the head is precisely the
+        // end that slides whenever one card carries one more verb than its
+        // neighbour. A readout you are meant to take in at a glance cannot
+        // live at the end that moves, so the chip now sits at the trailing
+        // end: behind every verb in the rollup, ahead of only the column badge
+        // that reads with it and the close box.
         const geometry = await app.evalJS<{
           insideCluster: boolean;
-          firstChild: boolean;
           chip: { left: number; right: number; axis: number };
-          /** Every OTHER control in the row: leading edge and vertical axis. */
-          others: { left: number; axis: number }[];
+          /** Controls the chip must TRAIL — everything inside the rollup. */
+          behind: { right: number; axis: number }[];
+          /** Controls the chip must LEAD — the column badge and the close box. */
+          ahead: { left: number; axis: number }[];
         }>(
           `(function () {
             var pane = document.querySelector(${JSON.stringify(PANE_A)});
@@ -349,23 +362,31 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
             // thing that was placed.
             var chip = badge.querySelector('[data-slot="tug-slot"]');
             var c = chip.getBoundingClientRect();
-            // Every other control in the row. The accessory host contributes no
-            // box (\`display: contents\`), so what is left is the buttons — and
-            // the chip is one of those too, which is why it is excluded by its
-            // own class rather than by counting.
-            var others = Array.prototype.slice.call(
-              cluster.querySelectorAll(".tug-button:not(.tug-slot)")
+            var rollup = cluster.querySelector('[data-testid="tug-pane-title-bar-rollup"]');
+            // The rollup's members are measured at REST, unrevealed. They are
+            // an absolutely-positioned overlay rather than \`display: none\`,
+            // precisely so they keep their boxes — which is what makes this a
+            // geometry claim about the row's real order rather than a claim
+            // about what happens to be painted.
+            var behind = Array.prototype.slice.call(
+              rollup === null ? [] : rollup.querySelectorAll(".tug-button")
+            ).map(function (el) {
+              var b = el.getBoundingClientRect();
+              return { right: b.right, axis: b.top + b.height / 2 };
+            });
+            var ahead = Array.prototype.slice.call(
+              cluster.querySelectorAll(
+                '[data-testid="tug-pane-title-bar-stack-badge"], [data-testid="tug-pane-close-button"]'
+              )
             ).map(function (el) {
               var b = el.getBoundingClientRect();
               return { left: b.left, axis: b.top + b.height / 2 };
             });
             return {
               insideCluster: cluster.contains(badge),
-              // The badge's own wrapper, not the chip: the chip is a
-              // grandchild, and what leads the row is the member.
-              firstChild: cluster.firstElementChild === badge,
               chip: { left: c.left, right: c.right, axis: c.top + c.height / 2 },
-              others: others
+              behind: behind,
+              ahead: ahead
             };
           })()`,
         );
@@ -373,7 +394,10 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         note(
           `chip ${geometry.chip.left.toFixed(1)}–${geometry.chip.right.toFixed(1)} ` +
             `axis=${geometry.chip.axis.toFixed(1)} | ` +
-            `others ${geometry.others
+            `behind ${geometry.behind
+              .map((o) => `${o.right.toFixed(1)}@${o.axis.toFixed(1)}`)
+              .join(" ")} | ` +
+            `ahead ${geometry.ahead
               .map((o) => `${o.left.toFixed(1)}@${o.axis.toFixed(1)}`)
               .join(" ")}`,
         );
@@ -383,29 +407,31 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           "mounted in the pane's control cluster, not in a masthead",
         ).toBe(true);
         expect(
-          geometry.firstChild,
-          "and at the head of it — the deck's place, ahead of the pane's own",
-        ).toBe(true);
-        expect(
-          geometry.others.length,
-          "the row has other controls to be measured against",
+          geometry.behind.length,
+          "the rollup holds verbs for the chip to be measured against",
         ).toBeGreaterThan(0);
+        expect(
+          geometry.ahead.length,
+          "the column badge and the close box stand behind the chip",
+        ).toBe(2);
 
-        // Leading of EVERY other control, which is the claim `firstChild`
-        // cannot make on its own: a first child can still be laid out
-        // elsewhere, and a row whose order and whose geometry disagree is the
-        // failure this pair exists to catch.
-        for (const other of geometry.others) {
+        for (const other of geometry.behind) {
+          expect(
+            geometry.chip.left,
+            "trails every verb in the rollup",
+          ).toBeGreaterThanOrEqual(other.right);
+        }
+        for (const other of geometry.ahead) {
           expect(
             geometry.chip.right,
-            "leads every other control in the row",
+            "and still leads the column badge and the close box",
           ).toBeLessThanOrEqual(other.left);
         }
 
         // And it stands ON the row rather than beside it. The cluster centres
         // its members in the first chrome band; a chip that took its own
         // vertical would read as a box dropped into the row.
-        for (const other of geometry.others) {
+        for (const other of [...geometry.behind, ...geometry.ahead]) {
           expect(
             Math.abs(geometry.chip.axis - other.axis),
             "on the row's own vertical",

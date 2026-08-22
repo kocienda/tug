@@ -268,15 +268,25 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seed(app, deckShape(), "A");
 
-          // --- The badge appears exactly where there is a stack. -----------
+          // --- The badge appears exactly where there is a PLACE. -----------
+          // Depth is no longer the condition. The badge is the only door to
+          // the arrange verbs, so gating it on already having a neighbour left
+          // the one card that most needs "Split Vertically" — a card alone in
+          // its column — with no way to reach it. A place one card deep is
+          // still a place, and the badge says so with a quiet `1`.
           expect(await count(app, `${frame("p1")} ${BADGE}`), "front pane of the 2-deep slot has a badge").toBe(1);
           expect(await count(app, `${frame("p0")} ${BADGE}`), "buried pane of the same slot has one too").toBe(1);
           expect(await badgeText(app, "p1"), "badge carries the slot's pane count").toBe("2");
           expect(await badgeText(app, "p0"), "and says the same thing on the buried pane").toBe("2");
 
-          expect(await count(app, `${frame("p2")} ${BADGE}`), "a pane alone in its slot has no badge").toBe(0);
+          expect(await count(app, `${frame("p2")} ${BADGE}`), "a pane alone in its slot stands in a place one deep").toBe(1);
+          expect(await badgeText(app, "p2"), "and says so — one of one").toBe("1");
+          expect(await count(app, `${frame("pLens")} ${BADGE}`), "a lone rail is a place too, and splittable").toBe(1);
+          expect(await badgeText(app, "pLens"), "reading the same one").toBe("1");
+          // The one case that still draws nothing: a pane standing in no place
+          // at all. A chip there would claim a position the pane does not hold
+          // — the same rule the slot chip beside it follows.
           expect(await count(app, `${frame("pFree")} ${BADGE}`), "a free pane holds no slot, so no badge").toBe(0);
-          expect(await count(app, `${frame("pLens")} ${BADGE}`), "a lone rail is a stack of one, and a stack of one shows no badge").toBe(0);
 
           // --- data-stack-depth says the same thing on the frame. ----------
           expect(await stackDepthAttr(app, "p1")).toBe("2");
@@ -398,22 +408,36 @@ describe.skipIf(!SHOULD_RUN)(
           // background window runs no rAF, so a synthetic Cmd-drag here would
           // fall into the no-travel branch and open the picker — the
           // assertion would invert rather than fail.
-          // --- The picker cannot outlive its badge. -------------------------
-          // The menu is open right now. Close the OTHER pane in the slot: the
-          // depth drops to 1, the badge stops rendering, and the trigger would
-          // unmount with the menu still up — the focus trap's
-          // `onCloseAutoFocus` never runs, keyboard focus is stranded on a
-          // removed node, and the stale open bit would make the badge mount
-          // ALREADY OPEN the next time this pane joins a stack. The depth prop
-          // the picker already reads is what closes it, so no notification is
-          // needed for a peer leaving by any route (⌘W, the X box, a drag
-          // eviction, a kind change that clamps the slot).
+          // --- A peer leaving does not take the picker with it. ------------
+          // The menu is open right now. Close the OTHER pane in the slot. The
+          // depth drops to 1 and the slot stays a slot, so the badge keeps
+          // standing — it just says `1` — and the menu it belongs to is left
+          // exactly where the hand put it.
+          //
+          // This inverts the old claim deliberately. While the badge was gated
+          // on depth, closing a peer unmounted the trigger mid-menu, so the
+          // depth prop had to force the picker shut: the focus trap's
+          // `onCloseAutoFocus` would never run, keyboard focus would strand on
+          // a removed node, and the stale open bit would make the badge mount
+          // ALREADY OPEN next time. The guard survives, keyed on whether the
+          // pane holds a place at all rather than on how deep the place is —
+          // and against a badge that no longer comes and goes with its peers,
+          // closing here would be the bug: it would snatch the menu out from
+          // under a hand reaching for "Split Vertically".
           await app.evalJS<null>(`(window.__tug.closePane("p0"), null)`);
-          await waitForMenu(app, false);
-          expect(await count(app, `${frame("p1")} ${BADGE}`), "and the badge is gone with the stack").toBe(0);
           expect(await stackDepthAttr(app, "p1"), "the surviving pane stands alone in its slot").toBe("1");
+          expect(await count(app, `${frame("p1")} ${BADGE}`), "and keeps its badge, because it keeps its slot").toBe(1);
+          expect(await badgeText(app, "p1"), "now reading one of one").toBe("1");
+          await waitForMenu(app, true);
 
           note("at0347", "Cmd-drag-still-drags is asserted in at0349 (foreground); see Spec S07");
+          note(
+            "at0347",
+            "the picker's unmount guard now keys on holding a PLACE, not on depth; " +
+              "losing a place outright is not reachable by gesture in this fixture " +
+              "(a reseed would close the menu for unrelated reasons), so it is covered " +
+              "by the guard's own condition rather than asserted here",
+          );
         } finally {
           await app.close();
         }

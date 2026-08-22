@@ -149,6 +149,9 @@ async function pressEditorOptions(app: App): Promise<void> {
     `document.querySelector(${JSON.stringify(OPTIONS_BUTTON)}) !== null`,
     { timeoutMs: 8000 },
   );
+  // The gear rests inside the pane's rollup, revealed on a title-bar hover.
+  // Pin the row open first or the press lands on the bar behind it.
+  await app.revealPaneControls(PANE);
   await app.nativeClickAtElement(OPTIONS_BUTTON);
 }
 

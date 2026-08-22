@@ -35,6 +35,7 @@ import React, {
 import {
   CircleDot,
   MoreHorizontal,
+  MoreVertical,
   MoveHorizontal,
   X,
   icons,
@@ -386,14 +387,27 @@ function CardTitleBar({
   // stack of any kind — the one fact the badge's glyph, its label, and its
   // verbs all read.
   const placeSplit = placeArrangement?.mode === "split";
-  // What the column badge draws. It is deliberately NOT gated on
-  // `placeArrangement`: the badge renders under `slotStack.length > 1` alone,
-  // and a pane can share a place while reaching the bar without an arrangement
-  // record. Missing, it reads as the stack the same pane's glyph read as
-  // before — the depth the title bar can always see for itself.
+  // Whether this pane stands in a PLACE at all — a slot, or a rail. That is
+  // the badge's whole condition now, and depth is no part of it: a card alone
+  // in its column is standing in a place one card deep, which is a true fact
+  // worth stating and, more to the point, the only door to the verb that gives
+  // it a neighbour. A free pane holds no place, so it draws nothing rather
+  // than a chip claiming a position it does not have — the same rule
+  // `CardSlotBadge` beside it already follows.
+  //
+  // `slotStack.length > 1` survives as a fallback, not as a gate: a pane can
+  // share a place while reaching the bar without an arrangement record, and
+  // when it does the depth the title bar can see for itself still answers.
+  const hasPlace = placeArrangement !== undefined || slotStack.length > 1;
   const badgeKind = placeSplit ? "split" : "stack";
-  const badgeCount = placeArrangement?.count ?? slotStack.length;
+  const badgeCount = placeArrangement?.count ?? Math.max(slotStack.length, 1);
   const badgeIndex = placeArrangement?.index ?? 0;
+  // A place one card deep. The badge draws the count all the same — one-of-one
+  // is a true sentence in the vocabulary the badge already speaks, and
+  // inventing a fourth glyph for solitude would say nothing the numeral does
+  // not. What DOES turn is the prose: a menu holding one card cannot offer to
+  // show you another, so the phrasing below asks a different question of it.
+  const placeAlone = badgeCount < 2;
   // Generic title-bar contributions: the active card may publish items via
   // `paneTitleBarItemsStore`. The pane renders them without knowing what
   // card published them (the `cardTitleStore` precedent) — no lens import.
@@ -486,6 +500,46 @@ function CardTitleBar({
   // resize, never React state ([L06]).
   const barElRef = useRef<HTMLDivElement | null>(null);
   const controlsElRef = useRef<HTMLDivElement | null>(null);
+
+  // Whether the pointer is inside the title bar — the fact the rollup's reveal
+  // reads. Written to the DOM as `data-pointer-within`, never to React state
+  // ([L06]): it is pure appearance, it turns on every pass of the pointer
+  // across every card on the deck, and a re-render per crossing is a re-render
+  // for nothing.
+  //
+  // `pointerenter`/`pointerleave` rather than the `:hover` pseudo-class, and
+  // the difference is worth stating because `:hover` would be one line of CSS.
+  // A pseudo-class is decided by the engine's own hit-testing against the real
+  // cursor, and nothing outside the engine can move it — which makes a
+  // hover-revealed surface unreachable from a test that is not driving a
+  // physical mouse, and this app's tests deliberately run in a background
+  // window with the user's pointer untouched. The pair of events IS what hover
+  // is derived from, so a hand gets identical behavior, and a dispatched event
+  // reaches the same listener a real one does. The reveal stays testable
+  // without a test-only door into the product.
+  //
+  // `pointerleave` fires only when the pointer exits the bar AND every
+  // descendant, so moving from the bar into the revealed row — a child of it —
+  // keeps the row up. Leaving for a portalled menu does end it, which is what
+  // `data-held` on the rollup exists to cover.
+  useLayoutEffect(() => {
+    const bar = barElRef.current;
+    if (bar === null) return;
+    const enter = (): void => bar.setAttribute("data-pointer-within", "");
+    const leave = (): void => bar.removeAttribute("data-pointer-within");
+    bar.addEventListener("pointerenter", enter);
+    bar.addEventListener("pointerleave", leave);
+    // A pointer that is cancelled out from under us — a drag taking capture, a
+    // window change — sends no `pointerleave`, and the row would stay open
+    // over a card nobody is pointing at.
+    bar.addEventListener("pointercancel", leave);
+    return () => {
+      bar.removeEventListener("pointerenter", enter);
+      bar.removeEventListener("pointerleave", leave);
+      bar.removeEventListener("pointercancel", leave);
+    };
+  }, []);
+
   useLayoutEffect(() => {
     const bar = barElRef.current;
     const controls = controlsElRef.current;
@@ -522,6 +576,20 @@ function CardTitleBar({
   // transient UI the title bar owns, and the deck never hears about it.
   const [stackMenuOpen, setStackMenuOpen] = useState(false);
 
+  // The rollup's HELD state — the row stands open even though the pointer has
+  // left the bar. The reveal itself is not here and must not be: hover is
+  // appearance, so it is a CSS state on the bar ([L06]) and React never learns
+  // the pointer arrived. What React owns is the one fact CSS cannot derive —
+  // that a menu opened from inside the row is currently standing.
+  //
+  // That is load-bearing rather than tidy. A `TugPopupMenu` portals its content
+  // outside the card, so the moment the pointer leaves the bar for the menu the
+  // hover ends, the row collapses, and the menu is left hanging off an anchor
+  // that is no longer painted. Both menus inside the row are therefore
+  // CONTROLLED, and while either stands the row is held open.
+  const [widthMenuOpen, setWidthMenuOpen] = useState(false);
+  const rollupHeld = titleBarMenuOpen || widthMenuOpen;
+
   // Where a masthead's own chrome affordance mounts: an empty host inside the
   // control cluster, directly AFTER the stack badge. Held as state rather than
   // in a ref because the masthead portals into it and must re-render once the
@@ -529,16 +597,21 @@ function CardTitleBar({
   const [controlsAccessoryEl, setControlsAccessoryEl] =
     useState<HTMLElement | null>(null);
 
-  // The open state must not outlive the badge. `slotStack.length` can drop to
-  // 1 while the picker is up — a peer in the slot closes, a drag evicts one, a
-  // kind change clamps a slot — and the trigger would then unmount open: the
-  // focus trap's `onCloseAutoFocus` never runs (keyboard focus left on a
-  // removed node) and the stale `true` would make the badge mount already-open
-  // the next time this pane joins a stack. The prop the picker already reads
-  // is the signal; nothing has to notify us.
+  // The open state must not outlive the badge. A pane can lose its PLACE while
+  // the picker is up — released from its slot by a resize, unpinned from a
+  // rail — and the trigger would then unmount open: the focus trap's
+  // `onCloseAutoFocus` never runs (keyboard focus left on a removed node) and
+  // the stale `true` would make the badge mount already-open the next time
+  // this pane stands somewhere. The props the picker already reads are the
+  // signal; nothing has to notify us.
+  //
+  // The test is `hasPlace`, not depth. Depth was the right question only while
+  // the badge itself was gated on it; now that a place one card deep still
+  // draws one, closing the picker when a peer leaves would snatch the menu out
+  // from under a hand that is about to press "Split Vertically".
   useEffect(() => {
-    if (slotStack.length <= 1) setStackMenuOpen(false);
-  }, [slotStack.length]);
+    if (!hasPlace) setStackMenuOpen(false);
+  }, [hasPlace]);
 
   // Drives the popover's copy only — not whether it appears.
   const isMultiTab = cardCount > 1;
@@ -780,155 +853,69 @@ function CardTitleBar({
       )}
 
       <div ref={controlsElRef} className="tug-pane-title-bar-controls" data-testid="tug-pane-title-bar-controls">
-        {/* The pane's PLACE IN THE DECK, ahead of everything — including the
-            stack badge, whose comment below already argues this position and
-            gives it away: a control that reports where you are belongs at the
-            head of the row it leads. Two such controls read outward-in. The
-            slot badge names the place the PANE stands in the imposition; the
-            stack badge names where this CARD stands inside that pane. Outer,
-            then inner, then the verbs that act on either.
+        {/* The cluster reads in two registers, and its order is the argument.
+            FIRST the rollup — every verb the pane offers, behind one `⋯`.
+            THEN, pinned hard against the trailing edge, the two badges that
+            say where this card stands and the box that closes it. Nothing
+            else stands in the row: a verb is either in the rollup or it does
+            not exist, and the only controls outside it are the two readouts
+            and the one act that must be reachable without a hover.
 
-            It stands here rather than in a masthead, which is where it first
-            landed. A masthead is a card's own three lines and only two kinds
-            of card wear one, so a badge seated there was a pane fact drawn by
-            a card, absent on every card that titles itself in one line. The
-            cluster is the pane's, it is on every pane, and it is the row this
-            control was always describing.
+            The badges used to lead the row, on the reasoning that the head of
+            the cluster is the region that holds still. That was exactly
+            backwards. `.tug-pane-title-bar` is `space-between` and the cluster
+            is `flex-shrink: 0`, so the cluster is anchored by its RIGHT edge:
+            the head is precisely the end that slides whenever one card carries
+            one more verb than its neighbour, which is why a Session card's
+            slot chip and a text card's sat at different x. The trailing edge
+            is the fixed one, so that is where the controls the eye must find
+            without looking now live. */}
+        {/* THE ROLLUP. Every verb the pane offers, at rest behind a single `⋯`,
+            revealed the moment the pointer touches the title bar anywhere.
+            Nothing about the buttons changes — same glyphs, same order, same
+            acts. What changes is that a card at rest shows a `⋯`, two badges
+            and a close box instead of seven controls, and the verbs arrive
+            when a hand does.
 
-            No condition. `CardSlotBadge` answers with nothing when there is no
-            place to name — a one-up imposition, a pane holding no slot, a
-            sidebar — and those are its guards to hold, not this bar's to
-            duplicate. */}
-        <CardSlotBadge cardId={activeCardId} />
-        {/* SECOND, behind the slot badge, on every pane that has one. The two
-            of them are the cluster's place-reporting pair, and they read
-            outward-in: the place the pane stands in the deck, then the place
-            this card stands inside the pane. Both lead the verbs, because a
-            control that reports where you are belongs at the head of the row it
-            leads — read left to right, the cluster then says "one of two,
-            holding two cards, and here is what you can do to it". The head of
-            the row is also the only region that holds still: both badges come
-            and go, and each of the controls behind them can be absent on a
-            given card, so a badge further back would sit at a different offset
-            per card.
+            The reveal is CSS on the bar's own `:hover` ([L06]); React never
+            learns the pointer arrived. `data-held` is the other half, and it
+            has exactly one job: a menu opened from inside the row portals
+            outside the card, so the pointer travelling to it ends the hover —
+            and without the hold the row would collapse out from under a
+            standing menu, leaving it anchored to something no longer painted.
 
-            The condition is `slotStack.length > 1` and nothing else — no
-            "am I on top?" test, which would need a second cross-pane fact the
-            title bar does not have. Every pane in the stack renders it,
-            because the badge describes the PLACE and a pane the user can see
-            is entitled to tell the truth about where it stands.
-
-            What the user sees therefore depends on the arrangement. In a slot
-            stack, or a stacked rail, occlusion hides the badge along with
-            everything else on a fully-covered pane, so a same-width stack
-            shows exactly one. In a SPLIT rail nothing is occluded, so both
-            members show one — two badges saying the same true thing about the
-            one rail they share, which is the honest reading rather than a
-            duplicate.
-
-            The badge is also the rail's gateway: its glyph states the mode,
-            and its menu carries the verbs that change it. A slot stack has no
-            such verbs and takes none of this. */}
-        {slotStack.length > 1 && (
-          // The tooltip anchors a SPAN around the menu rather than the trigger
-          // button itself. Both `TugTooltip` and `TugPopupMenu` hand their
-          // child to a Radix `asChild` slot, and neither wrapper forwards the
-          // props or the ref that slot injects — so they cannot be nested
-          // directly. A span is a DOM element both can address: the menu takes
-          // the button inside it, the tooltip takes the span. Hover and the
-          // inner button's focus both reach the span (React's `onFocus` is
-          // `focusin`, which bubbles), and the pointerdown that opens the menu
-          // is the same one Radix closes the bubble on.
-          //
-          // The tooltip names what the MENU does, not what the badge shows —
-          // the glyph and the count already say "two cards, split". What is
-          // not visible is that the badge is a door, so that is the sentence.
-          <TugTooltip
-            content={
-              onArrangePlace !== undefined && placeArrangement !== undefined
-                ? placeSplit
-                  ? `Show a card, or stack this ${placeArrangement.kind}`
-                  : `Show a card, or split this ${placeArrangement.kind}`
-                : "Show another card in this stack"
-            }
+            The row REPLACES the `⋯` rather than growing beside it. It is an
+            overlay anchored to the rollup's own trailing edge, so it unfurls
+            leftward over the bar's dead middle from the exact spot the `⋯`
+            occupies, and the handle goes out as the row comes in — one
+            control's worth of space, showing one thing at a time. Grown in
+            the flex flow instead, it would widen the cluster and
+            `space-between` would re-truncate the card's title on every pass
+            of the pointer. */}
+        <div
+          className="tug-pane-title-bar-rollup"
+          data-slot="tug-pane-title-bar-rollup"
+          {...(rollupHeld ? { "data-held": "" } : {})}
+          data-testid="tug-pane-title-bar-rollup"
+        >
+          <div
+            className="tug-pane-title-bar-rollup-row"
+            data-testid="tug-pane-title-bar-rollup-row"
           >
-            <span className="tug-pane-title-bar-tooltip-anchor">
-              <TugPopupMenu
-                trigger={
-                  <TugButton
-                    subtype="icon"
-                    emphasis="ghost"
-                    role="action"
-                    size="sm"
-                    /* One badge in the slot chip's footprint, rather than a
-                       lucide glyph beside a numeral. A stack draws how many
-                       cards are behind this one — the fact the eye cannot get,
-                       since a visible stacked card is the top one by
-                       construction. A split draws this member's band letter,
-                       because every band of a split is visible and the badge's
-                       job there is naming rather than revealing. */
-                    icon={
-                      <TugColumnBadge
-                        kind={badgeKind}
-                        count={badgeCount}
-                        index={badgeIndex}
-                      />
-                    }
-                    className="tug-pane-title-bar-stack-badge"
-                    aria-label={
-                      placeSplit
-                        ? `Split of ${badgeCount} cards, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}`
-                        : `Stack of ${badgeCount} cards`
-                    }
-                    data-testid="tug-pane-title-bar-stack-badge"
-                  />
-                }
-                align="end"
-                open={stackMenuOpen}
-                onOpenChange={setStackMenuOpen}
-                items={[
-                  ...slotStack.map((entry) => {
-                    // Each row is a miniature of the title bar it stands for: the
-                    // pane's own icon, then the pane's own title, in that order and
-                    // from the same `CardMeta.icon` the real title bar draws.
-                    const RowIcon =
-                      entry.icon !== undefined && entry.icon in icons
-                        ? icons[entry.icon as keyof typeof icons]
-                        : null;
-                    return {
-                      id: entry.paneId,
-                      label: entry.title,
-                      ...(RowIcon === null
-                        ? {}
-                        : { icon: React.createElement(RowIcon) }),
-                      // Set on every row, not just the checked one, so the check
-                      // column aligns across the menu.
-                      selected: entry.selected,
-                    };
-                  }),
-                  // The rail's own verbs, below its members. Their ids are
-                  // prefixed so they cannot collide with a paneId.
-                  ...(onArrangePlace === undefined || placeArrangement === undefined
-                    ? []
-                    : placeSplit
-                      ? [
-                          { id: PLACE_VERB_STACK, label: "Stack" },
-                          { id: PLACE_VERB_EQUALIZE, label: "Equalize Heights" },
-                        ]
-                      : [{ id: PLACE_VERB_SPLIT, label: "Split Vertically" }]),
-                ]}
-                onSelect={(id) => {
-                  if (id === PLACE_VERB_SPLIT) return onArrangePlace?.("split");
-                  if (id === PLACE_VERB_STACK) return onArrangePlace?.("stack");
-                  if (id === PLACE_VERB_EQUALIZE) return onArrangePlace?.("equalize");
-                  const entry = slotStack.find((e) => e.paneId === id);
-                  if (entry) onRevealPane?.(entry);
-                }}
-                data-testid="tug-pane-title-bar-stack-menu"
-              />
-            </span>
-          </TugTooltip>
-        )}
+            {/* The masthead's own chrome affordances — on a Session card, the
+                Reveal-in-Finder button and the summary popover's trigger —
+                mount HERE, portaled in by the masthead that owns them. They
+                are verbs the card publishes about itself, so they belong in
+                the rollup with every other verb, and they lead it because
+                they are the card's own rather than the pane's.
+
+                `display: contents` — an empty host contributes no box, so a
+                pane with no masthead accessory lays out exactly as before. */}
+            <span
+              ref={setControlsAccessoryEl}
+              className="tug-pane-title-bar-accessory"
+              data-slot="tug-pane-title-bar-accessory"
+            />
         {/* SECOND, immediately behind the stack badge, on every pane — rails
             included. The badge says where this pane stands; the target says
             "put it in front of me for a while", which is the other half of the
@@ -974,31 +961,18 @@ function CardTitleBar({
             />
           </TugActionTooltip>
         )}
-        {/* The masthead's own chrome affordance — the Session card's telemetry
-            widget — mounts HERE, portaled in by the masthead that owns it. It
-            used to be absolutely positioned against this cluster's measured
-            width, which put it left of the stack badge: the one control the
-            cluster wants to lead with sat second whenever a Session card stood
-            in a stack. Inside the flow it lands after the badge and before the
-            rest, and the cluster's measured width accounts for it, so the
-            masthead's lines no longer reserve its box by hand.
-
-            `display: contents` — an empty host contributes no box, so a pane
-            with no masthead accessory is laid out exactly as before. */}
-        <span
-          ref={setControlsAccessoryEl}
-          className="tug-pane-title-bar-accessory"
-          data-slot="tug-pane-title-bar-accessory"
-        />
         {/* A card's standing verbs, each as its own ghost icon button in the
-            cluster — the shape a verb the card offers every time it is open
+            rollup — the shape a verb the card offers every time it is open
             wants. The glyph is the card's (a lucide NAME, resolved here, the
             `cardTitleStore` rule); the phrase is the registry's, so a button
             and the same command's menu item can never say different things.
 
-            A button that cannot act right now DIMS; it never disappears
-            ([D06] never-hide — a cluster whose controls come and go is one
-            the hand cannot learn). Enablement is the registry's answer asked
+            A button that cannot act right now DIMS; it never disappears — a
+            row whose membership changes under the hand is one the hand cannot
+            learn, and that rule is what the rollup preserves rather than
+            breaks: the row's contents are constant, and it is the WHOLE row
+            that comes and goes, at one predictable place, on one predictable
+            gesture. Enablement is the registry's answer asked
             of the chain, and for a key-card command that query is LIVE rather
             than a snapshot, so sampling here is correct as long as this bar
             re-renders when the fact turns — which it does, because the card
@@ -1046,6 +1020,13 @@ function CardTitleBar({
           // Same span anchor as the stack badge, for the same reason. The
           // phrase names what the menu HOLDS — the commands for the card the
           // title bar belongs to — rather than describing the press.
+          //
+          // VERTICAL ellipsis, and it must stay vertical: the rollup's own
+          // handle is a horizontal `⋯`, and two identical glyphs in one row
+          // meaning different things is the one thing this cluster cannot
+          // afford. The convention does the teaching — `⋯` reads as "more of
+          // this row", `⋮` as "this thing's own menu" — so the pair is
+          // learnable rather than merely distinct.
           <TugTooltip content="Assorted commands">
             <span className="tug-pane-title-bar-tooltip-anchor">
               <TugPopupMenu
@@ -1055,7 +1036,7 @@ function CardTitleBar({
                     emphasis="ghost"
                     role="action"
                     size="sm"
-                    icon={<MoreHorizontal />}
+                    icon={<MoreVertical />}
                     aria-label="Card menu"
                     data-testid="tug-pane-title-bar-menu-button"
                   />
@@ -1115,6 +1096,14 @@ function CardTitleBar({
                   />
                 }
                 align="end"
+                // Controlled, and only because the rollup needs the answer.
+                // The menu portals its rows outside the card, so the pointer
+                // travelling to a width row leaves the title bar, ends its
+                // hover, and would collapse the row this trigger is standing
+                // in — leaving an open menu hanging off an anchor that is no
+                // longer painted. While it stands, the rollup is held.
+                open={widthMenuOpen}
+                onOpenChange={setWidthMenuOpen}
                 items={CONTENT_WIDTH_PRESETS.map((preset) => ({
                   id: preset,
                   label: CONTENT_WIDTH_LABELS[preset],
@@ -1124,6 +1113,187 @@ function CardTitleBar({
                 }))}
                 onSelect={(id) => onSetWidth(id as ContentWidth)}
                 data-testid="tug-pane-title-bar-width-menu"
+              />
+            </span>
+          </TugTooltip>
+        )}
+          </div>
+          {/* The rollup's MARK — the row's one visible trace at rest, standing
+              in the space the row itself occupies once it unfurls.
+
+              A mark and not a button, and that is a decision rather than an
+              omission. Hovering the bar is what opens the row, and the row
+              covers this spot when it does, so a button here could be pressed
+              to open but never pressed again to close — its own contents would
+              be sitting on top of it. A control whose second press cannot
+              reach it is worse than no control. What the keyboard needs is
+              served by `:focus-within` on the row instead, which reveals it
+              for a walk arriving with no pointer at all.
+
+              It reports, which is the other half of its job. `data-on` when a
+              verb hidden behind it is currently engaged — today that is
+              bullseye, the one rolled-up control carrying a posture rather
+              than an act. A card sitting in bullseye with its ⊙ tucked away
+              would show nothing about the posture it holds, which is the
+              resting lie this cluster is not allowed to tell. Popping ⊙ back
+              out would tell the truth by making the row's membership change
+              under the hand — so the mark lights instead, the geometry never
+              moves, and the fact is on the surface either way.
+
+              `aria-hidden`: the row behind it is in the accessibility tree
+              whether or not it is painted, so a screen reader already reaches
+              every verb. Announcing a decorative ellipsis beside them would
+              add a stop that does nothing. */}
+          <span
+            className="tug-pane-title-bar-rollup-mark"
+            data-slot="tug-pane-title-bar-rollup-mark"
+            {...(bullseye ? { "data-on": "" } : {})}
+            aria-hidden="true"
+            data-testid="tug-pane-title-bar-rollup-mark"
+          >
+            <MoreHorizontal />
+          </span>
+        </div>
+        {/* THE PLACE PAIR, pinned against the trailing edge behind only the
+            close box. Two controls that report where you are, reading
+            outward-in: the slot badge names the place the PANE stands in the
+            imposition, the column badge names where this CARD stands inside
+            that place. They sit at the cluster's one fixed end because a
+            readout you glance at is worthless if you have to find it first,
+            and the cluster's leading edge — where these two used to live —
+            is the end that slides with every change of membership.
+
+            The slot badge takes no condition here. `CardSlotBadge` answers
+            with nothing when there is no place to name — a one-up imposition,
+            a pane holding no slot, a sidebar — and those are its guards to
+            hold, not this bar's to duplicate. */}
+        <CardSlotBadge cardId={activeCardId} />
+        {/* The column badge, on every pane that stands in a place — and now at
+            depth one as well as depth many.
+
+            The old condition was `slotStack.length > 1`, which read as
+            economy and was really a hole: the badge is the only door to the
+            arrange verbs, so a card alone in its column had no way to split it
+            and no way to learn that splitting was a thing columns did. A place
+            one card deep is still a place. The badge draws `1` over the three
+            slices, which is a quiet sentence but a true one, and its menu
+            carries the verb that makes it a bigger number.
+
+            Every pane in a stack renders it — no "am I on top?" test, which
+            would need a cross-pane fact the title bar does not have. What the
+            user SEES therefore depends on the arrangement: in a slot stack or
+            a stacked rail, occlusion hides the badge along with everything
+            else on a covered pane, so a same-width stack shows exactly one. In
+            a SPLIT nothing is occluded, so every member shows one — several
+            badges saying the same true thing about the one place they share,
+            which is the honest reading rather than a duplicate. */}
+        {hasPlace && (
+          // The tooltip anchors a SPAN around the menu rather than the trigger
+          // button itself. Both `TugTooltip` and `TugPopupMenu` hand their
+          // child to a Radix `asChild` slot, and neither wrapper forwards the
+          // props or the ref that slot injects — so they cannot be nested
+          // directly. A span is a DOM element both can address: the menu takes
+          // the button inside it, the tooltip takes the span. Hover and the
+          // inner button's focus both reach the span (React's `onFocus` is
+          // `focusin`, which bubbles), and the pointerdown that opens the menu
+          // is the same one Radix closes the bubble on.
+          //
+          // The tooltip names what the MENU does, not what the badge shows —
+          // the glyph and the count already say "two cards, split". What is
+          // not visible is that the badge is a door, so that is the sentence.
+          // Alone in its place there is no card to show you, so the phrase
+          // drops that half rather than offering a reveal that would do
+          // nothing.
+          <TugTooltip
+            content={
+              onArrangePlace !== undefined && placeArrangement !== undefined
+                ? placeSplit
+                  ? `Show a card, or stack this ${placeArrangement.kind}`
+                  : placeAlone
+                    ? `Split this ${placeArrangement.kind}`
+                    : `Show a card, or split this ${placeArrangement.kind}`
+                : "Show another card in this stack"
+            }
+          >
+            <span className="tug-pane-title-bar-tooltip-anchor">
+              <TugPopupMenu
+                trigger={
+                  <TugButton
+                    subtype="icon"
+                    emphasis="ghost"
+                    role="action"
+                    size="sm"
+                    /* One badge in the slot chip's footprint, rather than a
+                       lucide glyph beside a numeral. A stack draws how many
+                       cards are behind this one — the fact the eye cannot get,
+                       since a visible stacked card is the top one by
+                       construction. A split draws this member's band letter,
+                       because every band of a split is visible and the badge's
+                       job there is naming rather than revealing. */
+                    icon={
+                      <TugColumnBadge
+                        kind={badgeKind}
+                        count={badgeCount}
+                        index={badgeIndex}
+                      />
+                    }
+                    className="tug-pane-title-bar-stack-badge"
+                    aria-label={
+                      placeSplit
+                        ? `Split of ${badgeCount} cards, band ${columnBadgeCharacter("split", badgeCount, badgeIndex)}`
+                        : placeAlone
+                          ? "Alone in this place"
+                          : `Stack of ${badgeCount} cards`
+                    }
+                    data-testid="tug-pane-title-bar-stack-badge"
+                  />
+                }
+                align="end"
+                open={stackMenuOpen}
+                onOpenChange={setStackMenuOpen}
+                items={[
+                  ...slotStack.map((entry) => {
+                    // Each row is a miniature of the title bar it stands for: the
+                    // pane's own icon, then the pane's own title, in that order and
+                    // from the same `CardMeta.icon` the real title bar draws.
+                    const RowIcon =
+                      entry.icon !== undefined && entry.icon in icons
+                        ? icons[entry.icon as keyof typeof icons]
+                        : null;
+                    return {
+                      id: entry.paneId,
+                      label: entry.title,
+                      ...(RowIcon === null
+                        ? {}
+                        : { icon: React.createElement(RowIcon) }),
+                      // Set on every row, not just the checked one, so the check
+                      // column aligns across the menu.
+                      selected: entry.selected,
+                    };
+                  }),
+                  // The place's own verbs, below its members. Their ids are
+                  // prefixed so they cannot collide with a paneId. Alone in a
+                  // place there is nothing to stack and nothing to equalize,
+                  // so only the verb that changes that is offered.
+                  ...(onArrangePlace === undefined || placeArrangement === undefined
+                    ? []
+                    : placeSplit
+                      ? [
+                          { id: PLACE_VERB_STACK, label: "Stack" },
+                          ...(placeAlone
+                            ? []
+                            : [{ id: PLACE_VERB_EQUALIZE, label: "Equalize Heights" }]),
+                        ]
+                      : [{ id: PLACE_VERB_SPLIT, label: "Split Vertically" }]),
+                ]}
+                onSelect={(id) => {
+                  if (id === PLACE_VERB_SPLIT) return onArrangePlace?.("split");
+                  if (id === PLACE_VERB_STACK) return onArrangePlace?.("stack");
+                  if (id === PLACE_VERB_EQUALIZE) return onArrangePlace?.("equalize");
+                  const entry = slotStack.find((e) => e.paneId === id);
+                  if (entry) onRevealPane?.(entry);
+                }}
+                data-testid="tug-pane-title-bar-stack-menu"
               />
             </span>
           </TugTooltip>
@@ -4067,9 +4237,17 @@ export function TugPane({
                   },
                   onArrangePlace: handleArrangePlace,
                 }
-              : placement !== undefined && slotStack.length > 1
+              : placement !== undefined
                 ? {
-                    // A content pane sharing its slot. The mode is read off
+                    // A content pane standing in a slot — sharing it or not.
+                    // The `slotStack.length > 1` gate this once carried is
+                    // gone: it made the arrangement record, and with it the
+                    // badge's whole menu, conditional on already having a
+                    // neighbour, so the one card that most needs "Split
+                    // Vertically" — a card alone in its column — was the one
+                    // card with no door to it. A slot is a place at depth one.
+                    //
+                    // The mode is read off
                     // `columnMember`, which `DeckCanvas` sets exactly when the
                     // column is split and has two or more members — the same
                     // condition the geometry uses, so the badge cannot offer

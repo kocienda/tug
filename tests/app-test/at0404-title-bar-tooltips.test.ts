@@ -422,6 +422,12 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
 
+          // The width control and the target both rest inside the pane's
+          // rollup. The hovers below are dispatched straight at the anchors
+          // and reach them either way, but the PRESSES are native and would
+          // land on the bar behind a hidden row — so pin it open once here.
+          await app.revealPaneControls(PANE);
+
           // --- The span is inert: the menu it wraps still opens. ----------
           // Pressing through a hovered wrapper is the whole risk of this
           // composition, so the press happens right after the hover.

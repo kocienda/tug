@@ -610,6 +610,29 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(3);
 
           // --- On a BACKGROUND content pane. --------------------------------
+          // The target rests inside p2's rollup, so pin p2's row open first —
+          // then hand focus back to p1, so the pane under test is a BACKGROUND
+          // pane again when its target is pressed. That order is what keeps
+          // the claim below intact: the pin is not the gesture being measured,
+          // and putting it first means the press that follows is still the
+          // single press that has to raise the pane and set the posture.
+          //
+          // A person needs no such preamble — hovering a background pane's
+          // title bar reveals the row without raising it, and the target is
+          // one press away. It is the TEST that cannot hold a synthesized
+          // hover across the click, so it takes the durable door instead.
+          await app.revealPaneControls('.tug-pane[data-pane-id="p2"]');
+          await app.nativeClickAtElement(
+            '.tug-pane[data-pane-id="p1"] .tug-pane-title-bar',
+          );
+          await wait(AFTER_LAND_MS);
+          expect(
+            await app.evalJS<string | null>(
+              `(function(){var e=document.querySelector('.tug-pane[data-focused="true"]');return e?e.getAttribute('data-pane-id'):null;})()`,
+            ),
+            "the pin's own click was handed back, so p2 is a background pane again",
+          ).toBe("p1");
+
           const restRect = await paneRect(app, "p2");
           const restRecord = await paneRecord(app, "p2");
           await app.nativeClickAtElement(button("p2"));
@@ -640,6 +663,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // --- On the RAIL, where the button is the only pointer door. ------
           const lensRect = await paneRect(app, "pLens");
+          await app.revealPaneControls('.tug-pane[data-pane-id="pLens"]');
           await app.nativeClickAtElement(button("pLens"));
           await wait(AFTER_LAND_MS);
           expect(await isBullseyed(app, "pLens")).toBe(true);
