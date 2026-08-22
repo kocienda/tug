@@ -8,42 +8,41 @@
  * |---------------------------------------------------|---------------------------------------------------|---------------|----------------------------------------------------|
  * | --tug7-element-control-text-tinted-action-rest     | --tug7-surface-global-primary-normal-default-rest | control       | .tug-column-badge (color)                          |
  *
- * **One ink in, the whole badge out.** The badge takes a single colour and
- * derives everything it draws from it: the character IS that colour, the lit
- * element is that colour, and the unlit scenery is that colour thinned. There
- * is exactly one knob to set, `--tugx-column-badge-fg`, and one pairing to
- * declare — this table's row — because there is one colour on the badge.
+ * **One rule, and it is not a palette: the badge wears whatever the slot chip
+ * beside it wears.** The badge is drawn in the chip's footprint so the two read
+ * as one address, and an address written in two hands is two facts. So the
+ * chip's colours are the badge's colours, its stroke is the chip's 1px border,
+ * and where the chip has no state to show the badge shows none either.
  *
- * It was three before, and the third one was a hue. The character took the
- * control family's text ink, the scenery took the global muted ink and the lit
- * element took the accent, which meant an 18×22 badge carrying two blues and a
- * grey. Standing beside a slot chip that is one flat colour, it read as a
- * different kind of object rather than as the second half of the same
- * coordinate — and the accent said *live* about the most inert fact the deck
- * has, which is where a card is sitting. The slot badge in the pane cluster
- * settled that argument for the chip already; this is the same settlement.
+ * Everything the badge draws derives from `currentColor` unless a consumer says
+ * otherwise, which is what lets a mount hand in one declaration and be done —
+ * and what makes the two shipped looks fall out of the same rule rather than
+ * out of two stylesheets that have to be kept in step:
  *
- * So lit-vs-unlit is carried by WEIGHT and VALUE inside one hue — the lit
- * element at full strength and a heavier stroke, the unlit ones thinned by a
- * `color-mix` against the same `currentColor`. That is why the derived strokes
- * need no pairing rows of their own: they cannot name a colour the character's
- * pairing has not already been audited for, since they are that colour with
- * alpha removed.
+ *  - **the pane's title bar**, where `tug-pane.css` hands in `currentColor` and
+ *    the badge simply *is* the cluster's ink, tracking rest / hover / pressed /
+ *    menu-open with the ghost buttons beside it and dimming with the whole
+ *    cluster when the pane loses focus. The chip there is grey chrome with no
+ *    selection state at rest, so the badge is monochrome — and it marks no
+ *    level at all (`showLevel={false}`), because at that size a lit element is
+ *    grit rather than an answer.
+ *  - **a Lens row**, where `lens-column-badge.css` hands in the run's three
+ *    inks. The chip there IS a control with a selection state, so the badge has
+ *    one too: the element the card occupies takes the selection fill outright.
  *
- * The token above is the DEFAULT — the badge's ink on the app's default
- * surface. It stands in two other places, and each hands in its own ([L20]):
+ * What the badge does not do, on any surface, is spend an accent on its own
+ * initiative. It carried one once — the lit element in the action colour on
+ * every surface, including a title bar where nothing was selecting anything —
+ * which said *live* about the most inert fact the deck has, since where a card
+ * is sitting is true whether or not anybody is reaching for it. The accent now
+ * appears exactly where the run beside it is already spending one.
  *
- *  - **the pane's title bar**, where `tug-pane.css` hands in `currentColor` so
- *    the badge simply is the cluster's ink, tracking rest / hover / pressed /
- *    menu-open with the ghost buttons beside it, and dimming with the whole
- *    cluster when the pane loses focus.
- *  - **a Lens row**, where `lens-column-badge.css` hands in the slot run's own
- *    control ink so the run and the badge read as one coordinate.
- *
- * Two looks, one rule: the badge wears whatever the slot chip beside it wears.
- * Defaults live in the `var()` fallback at point of use and are never declared
- * on the badge itself, so a knob nobody sets resolves to exactly the token
- * named above.
+ * The token in the table above is the DEFAULT, for a mount that hands in
+ * nothing. Defaults live in the `var()` fallback at point of use and are never
+ * declared on the badge itself, so a knob nobody sets resolves to exactly the
+ * token named — and the derived strokes need no pairing row, since
+ * `currentColor` thinned cannot name a colour the character's pairing has not
+ * already been audited for.
  */
 
 /* ---------------------------------------------------------------------------
@@ -69,10 +68,11 @@
   border: none;
   background: none;
 
-  /* The one ink. Everything the badge draws is this colour or a thinning of
-     it, resolved through `currentColor` rather than by repeating the knob at
-     each element — which is what lets a consumer hand in `currentColor` itself
-     and have the badge follow whatever the surrounding control is doing. */
+  /* The badge's own ink, and the root every other colour falls back to.
+     Declared here rather than repeated at each element, so a mount that hands
+     in nothing gets one coherent drawing — and so a mount can hand in
+     `currentColor` itself and have the badge follow whatever the surrounding
+     control is doing, through every state that control has. */
   color: var(
     --tugx-column-badge-fg,
     var(--tug7-element-control-text-tinted-action-rest)
@@ -139,39 +139,55 @@
   block-size: var(--tugx-column-badge-height, 22px);
 }
 
-/* The slice fills are the badge's ground, and they are there only so nearer
-   slices occlude the ones behind them the way real layers do. Selection is
-   never a fill — the lit element is an outline, so the accent cannot compete
-   with the character for the foreground. */
+/* Every element of the glyph is painted like a slot chip, because it stands
+   beside one: the same fill, the same border ink, the same 1px line. The
+   consumer hands in whatever the chip beside it was handed, so the two cannot
+   drift. A slice's fill also does the occluding — nearer slices cover the ones
+   behind them the way real layers do — which is why it defaults to the ground
+   rather than to nothing. */
 .tug-column-badge-slice {
   fill: var(
-    --tugx-column-badge-knockout,
-    var(--tug7-surface-global-primary-normal-default-rest)
+    --tugx-column-badge-fill,
+    var(
+      --tugx-column-badge-knockout,
+      var(--tug7-surface-global-primary-normal-default-rest)
+    )
   );
-  stroke: var(
-    --tugx-column-badge-stroke,
-    color-mix(in oklab, currentcolor 45%, transparent)
-  );
-  stroke-width: 1.25;
+  stroke: var(--tugx-column-badge-stroke, currentcolor);
+  stroke-width: var(--tugx-column-badge-stroke-width, 1);
   stroke-linejoin: round;
 }
 
+/* The element the card occupies wears the selected chip's paint — its fill and
+   its border — so the strong colour means the same thing on the badge as it
+   does two chips to the left. */
 .tug-column-badge-slice[data-lit="true"] {
+  fill: var(
+    --tugx-column-badge-lit-fill,
+    var(
+      --tugx-column-badge-fill,
+      var(
+        --tugx-column-badge-knockout,
+        var(--tug7-surface-global-primary-normal-default-rest)
+      )
+    )
+  );
   stroke: var(--tugx-column-badge-accent, currentcolor);
-  stroke-width: 1.75;
+  stroke-width: var(--tugx-column-badge-lit-stroke-width, 1);
 }
 
 .tug-column-badge-rail,
 .tug-column-badge-rung {
-  stroke: var(
-    --tugx-column-badge-stroke,
-    color-mix(in oklab, currentcolor 45%, transparent)
-  );
-  stroke-width: 1.5;
+  stroke: var(--tugx-column-badge-stroke, currentcolor);
+  stroke-width: var(--tugx-column-badge-stroke-width, 1);
   stroke-linecap: round;
 }
 
+/* The ladder is the one glyph with nothing to fill: a rung is a line, so the
+   only weight it has to spend on saying *here* is its own. It runs heavier
+   than the rest of the run for that reason, where a slice — which can be
+   painted as a selected chip — does not need to. */
 .tug-column-badge-rung[data-lit="true"] {
   stroke: var(--tugx-column-badge-accent, currentcolor);
-  stroke-width: 2;
+  stroke-width: var(--tugx-column-badge-lit-rung-width, 2);
 }

@@ -391,7 +391,8 @@ export function deckColumnsOf(state: DeckState): readonly DeckColumn[] {
 export interface ColumnBadgeFacts {
   kind: "stack" | "split";
   count: number;
-  /** 0-based, topmost first. Always 0 for a stack, which has no band. */
+  /** 0-based, front of the run first: a split's topmost band, a stack's
+   *  frontmost card. */
   index: number;
 }
 
@@ -432,8 +433,20 @@ export function columnBadgeFactsOf(
   const column = deckColumnsOf(state).find((c) => c.members.includes(host.id));
   if (column === undefined) return null;
   const count = column.members.length;
-  if (column.mode !== "split") return { kind: "stack", count, index: 0 };
-  return { kind: "split", count, index: column.members.indexOf(host.id) };
+  // Where the card stands in its place, for BOTH kinds. A stack answered 0
+  // flat once, which meant every row of a three-deep slot drew the same badge
+  // and the one thing a reader of a list wants to know — which of these is in
+  // front — was the one thing it would not say.
+  //
+  // Read through `columnMoveOrder` rather than off `column.members`, because
+  // for a stack those are different orders and only one of them is visible:
+  // members is the split band order (panes sorted by id), while a stack's only
+  // perceptible ordering is z. It is also the order *Move Up in Column*
+  // walks, so the marked end and the direction that verb travels agree by
+  // construction rather than by two functions happening to match.
+  const index = Math.max(columnMoveOrder(state, host.id).indexOf(host.id), 0);
+  if (column.mode !== "split") return { kind: "stack", count, index };
+  return { kind: "split", count, index };
 }
 
 /**

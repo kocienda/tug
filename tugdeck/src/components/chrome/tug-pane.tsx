@@ -1316,6 +1316,15 @@ function CardTitleBar({
                         kind={badgeKind}
                         count={badgeCount}
                         index={badgeIndex}
+                        // The cluster draws the RUN and lets the character
+                        // name the position. At this size a lit rung is a
+                        // fraction of a pixel of extra weight in a ladder the
+                        // height of a lowercase letter — it reads as grit on
+                        // the badge rather than as an answer, and the
+                        // character beside it is already saying the same
+                        // thing exactly. The Lens row keeps the mark, where
+                        // the slot picker's own selection fill teaches it.
+                        showLevel={false}
                       />
                     }
                     className="tug-pane-title-bar-stack-badge"

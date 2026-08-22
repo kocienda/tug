@@ -44,30 +44,28 @@ describe("columnBadgeCharacter", () => {
 });
 
 describe("columnBadgeLit", () => {
-  test("a stack always lights its top slice", () => {
-    expect(columnBadgeLit("stack", 2)).toBe("top");
-    expect(columnBadgeLit("stack", 3)).toBe("top");
-    expect(columnBadgeLit("stack", 4, 3)).toBe("top");
+  test("a run of two marks the end its member sits at", () => {
+    expect(columnBadgeLit(2, 0)).toBe("top");
+    expect(columnBadgeLit(2, 1)).toBe("bottom");
   });
 
-  test("a split of two lights the end its band sits at", () => {
-    expect(columnBadgeLit("split", 2, 0)).toBe("top");
-    expect(columnBadgeLit("split", 2, 1)).toBe("bottom");
+  test("a run of three marks top, middle, bottom in order", () => {
+    expect(columnBadgeLit(3, 0)).toBe("top");
+    expect(columnBadgeLit(3, 1)).toBe("middle");
+    expect(columnBadgeLit(3, 2)).toBe("bottom");
   });
 
-  test("a split of three lights top, middle, bottom in order", () => {
-    expect(columnBadgeLit("split", 3, 0)).toBe("top");
-    expect(columnBadgeLit("split", 3, 1)).toBe("middle");
-    expect(columnBadgeLit("split", 3, 2)).toBe("bottom");
+  test("every interior member of a deeper run answers middle", () => {
+    // The glyph names a REGION and the character names the exact position,
+    // which is why the run is three elements however deep the place runs.
+    expect(columnBadgeLit(4, 1)).toBe("middle");
+    expect(columnBadgeLit(4, 2)).toBe("middle");
+    expect(columnBadgeLit(6, 3)).toBe("middle");
+    expect(columnBadgeLit(6, 4)).toBe("middle");
+    expect(columnBadgeLit(6, 5)).toBe("bottom");
   });
 
-  test("every interior band of a deeper split answers middle", () => {
-    // The glyph names a REGION and the letter names the band, which is why the
-    // ladder is three rungs however deep the column runs.
-    expect(columnBadgeLit("split", 4, 1)).toBe("middle");
-    expect(columnBadgeLit("split", 4, 2)).toBe("middle");
-    expect(columnBadgeLit("split", 6, 3)).toBe("middle");
-    expect(columnBadgeLit("split", 6, 4)).toBe("middle");
-    expect(columnBadgeLit("split", 6, 5)).toBe("bottom");
+  test("no index given reads as the front of the run", () => {
+    expect(columnBadgeLit(3)).toBe("top");
   });
 });

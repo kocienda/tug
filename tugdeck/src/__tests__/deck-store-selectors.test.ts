@@ -437,14 +437,18 @@ describe("columnBadgeFactsOf", () => {
         state({ "pane-a": 0, "pane-b": 0, "pane-c": 0 }),
         "card-pane-b",
       ),
-    ).toEqual({ kind: "stack", count: 3, index: 0 });
+    ).toEqual({ kind: "stack", count: 3, index: 1 });
   });
 
-  test("every member of a stack answers the same, because they draw the same rect", () => {
-    const deck = state({ "pane-a": 0, "pane-b": 0 });
-    expect(columnBadgeFactsOf(deck, "card-pane-a")).toEqual(
-      columnBadgeFactsOf(deck, "card-pane-b")!,
-    );
+  test("each member of a stack says its own depth, front first", () => {
+    // Later in the panes array is higher in the stack, so the LAST pane
+    // holding the slot is the one you can see. Every member answered 0 once,
+    // which meant a list of them drew the same badge three times and would
+    // not say the one thing a reader of a list wants: which is in front.
+    const deck = state({ "pane-a": 0, "pane-b": 0, "pane-c": 0 });
+    expect(
+      ["a", "b", "c"].map((id) => columnBadgeFactsOf(deck, `card-pane-${id}`)?.index),
+    ).toEqual([2, 1, 0]);
   });
 
   test("a split slot says which band, top to bottom", () => {

@@ -16,9 +16,11 @@
  *      its Lens row said it stood nowhere, which is two surfaces disagreeing
  *      about the same card. It is also the row whose place can still be split,
  *      and the badge is the hint that it can.
- *   2. **A stacked slot's rows show the member COUNT.** Every member answers
- *      the same, and deliberately: they all draw the same rect, and what a
- *      reader cannot see is how many are behind the one on top.
+ *   2. **A stacked slot's rows show the member COUNT, and each marks its own
+ *      depth.** The count is the same on every row — what no amount of looking
+ *      at a stack will give you is how many are behind the front card — but
+ *      the marked slice is that row's own position in the z-order, so a list of
+ *      three sharers says which of them you are actually looking at.
  *   3. **A split slot's rows show the BAND LETTER, in the column's own member
  *      order.** A is the topmost band. This is the one place letters appear,
  *      and it is what makes a Lens row and the pane's own cluster the same
@@ -45,7 +47,7 @@ const TEST_TIMEOUT_MS = 180_000;
 /** The settle window, with room for the imposition's landing tween. */
 const AFTER_LAND_MS = 900;
 
-const SESSION_CARDS = ["A", "B", "C"] as const;
+const SESSION_CARDS = ["A", "B", "C", "D"] as const;
 const TEXT_CARD_TITLE = "Notes";
 const sessionIdOf = (cardId: string): string => `at0467-${cardId}`;
 
@@ -60,7 +62,7 @@ const wait = (ms: number): Promise<void> =>
  * The Lens holds the right rail so the rows are on screen.
  */
 function deckShape(): Record<string, unknown> {
-  const slots: Record<string, number> = { A: 0, B: 0, C: 1 };
+  const slots: Record<string, number> = { A: 0, B: 0, D: 0, C: 1 };
   return {
     cards: [
       ...SESSION_CARDS.map((id) => ({
@@ -118,6 +120,13 @@ interface RowBadge {
   kind: string | null;
   character: string | null;
   lit: string | null;
+  /**
+   * Whether the row's own slot run says this card is the one on screen — the
+   * run draws a `filled` chip only for the card at the front of its slot. Read
+   * from the run rather than from the fixture, so the claim below does not
+   * depend on predicting which pane a seed's focus raise left on top.
+   */
+  front: boolean;
 }
 
 /** Every Lens Sessions row, with whatever column badge it carries. */
@@ -131,7 +140,18 @@ async function rowBadges(app: App): Promise<RowBadge[]> {
         sessionId: row.getAttribute("data-session-id"),
         kind: badge === null ? null : badge.getAttribute("data-kind"),
         character: badge === null ? null : badge.textContent.trim(),
-        lit: badge === null ? null : badge.getAttribute("data-lit"),
+        // The MARKED ELEMENT OF THE DRAWING, not the root's computed fact.
+        // Reading the root passed a badge whose glyph lit its front slice no
+        // matter what the fact said — the root carried "middle" and the
+        // picture carried "top", and only the picture is on screen.
+        lit: badge === null
+          ? null
+          : (badge.querySelector('[data-region][data-lit="true"]') || {
+              getAttribute: function () { return "none"; },
+            }).getAttribute("data-region"),
+        front: row.querySelector(
+          '[data-testid="lens-slot-picker"] [data-slot="tug-slot"][data-state="filled"]',
+        ) !== null,
       };
     }).sort(function (a, b) {
       return a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0;
@@ -182,24 +202,46 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ── Stacked: the two sharers count, the lone card reads 1. ──
+        // ── Stacked: the three sharers count 3, the lone card reads 1. ──
         const stacked = await rowBadges(app);
         note(
           `stacked: ${stacked
-            .map((r) => `${r.sessionId}=${r.kind ?? "-"}${r.character ?? ""}`)
+            .map(
+              (r) =>
+                `${r.sessionId}=${r.kind ?? "-"}${r.character ?? ""}/${r.lit ?? "-"}` +
+                `${r.front ? "*" : ""}`,
+            )
             .join(" ")}`,
         );
         expect(
           stacked.map((r) => `${r.sessionId}:${r.kind ?? "none"}:${r.character ?? ""}`),
           "the sharers count their place, and the lone card names its own",
         ).toEqual([
-          `${sessionIdOf("A")}:stack:2`,
-          `${sessionIdOf("B")}:stack:2`,
+          `${sessionIdOf("A")}:stack:3`,
+          `${sessionIdOf("B")}:stack:3`,
           `${sessionIdOf("C")}:stack:1`,
+          `${sessionIdOf("D")}:stack:3`,
         ]);
-        // Every member of a stack lights the top slice — the badge stands on a
-        // card you can see, and a visible stacked card is the top one.
-        expect(stacked.slice(0, 2).map((r) => r.lit)).toEqual(["top", "top"]);
+
+        // The three sharers count the same and stand differently, and the
+        // badge has to say both. THREE deep is the case that matters: a
+        // two-deep stack can pass on a badge that only knows front-or-not,
+        // and a middle member is what proves the run is being read rather
+        // than a boolean.
+        const sharers = stacked.filter((r) => r.character === "3");
+        expect(
+          [...sharers.map((r) => r.lit)].sort(),
+          "three cards in one place mark three different slices",
+        ).toEqual(["bottom", "middle", "top"]);
+        // And the marks are not merely distinct, they are oriented: the card
+        // the RUN says is on screen — the row whose slot chip is filled — is
+        // the one at the front of the glyph. Read from the run rather than
+        // from the fixture, because which pane a seed's focus raise leaves on
+        // top is not something this file should be predicting.
+        expect(
+          sharers.filter((r) => r.front).map((r) => r.lit),
+          "the card the run says you are looking at is the front of the glyph",
+        ).toEqual(["top"]);
 
         // A content card's row is a different component from a Sessions cell,
         // and the badge has to be on both — a reader scanning the Cards
@@ -225,11 +267,12 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
         );
         expect(
           split.map((r) => `${r.sessionId}:${r.kind ?? "none"}:${r.character ?? ""}:${r.lit ?? ""}`),
-          "a split's bands read A then B; the untouched place still reads 1",
+          "a split's bands read A, B, C top to bottom; the untouched place still reads 1",
         ).toEqual([
           `${sessionIdOf("A")}:split:A:top`,
-          `${sessionIdOf("B")}:split:B:bottom`,
+          `${sessionIdOf("B")}:split:B:middle`,
           `${sessionIdOf("C")}:stack:1:top`,
+          `${sessionIdOf("D")}:split:C:bottom`,
         ]);
       } finally {
         await app.close();

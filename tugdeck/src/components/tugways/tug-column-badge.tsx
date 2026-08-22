@@ -7,10 +7,9 @@
  * deliberately different vocabularies:
  *
  *  - **A stack shows a NUMBER** — how many cards share the slot — over three
- *    flattened slices with the top one lit. The badge stands on a card you can
- *    see, and a visible card in a stack is by definition the top one, so a
- *    position there would always read the same and carry nothing. What the eye
- *    cannot get is how many are behind, so that is what the badge says.
+ *    flattened slices, the one the card sits at marked. What the eye cannot
+ *    get from a stack is how many are behind, which is why the character is a
+ *    count rather than a position; the slices carry the position.
  *  - **A split shows a LETTER** — this member's band, A being the topmost —
  *    over a three-rung ladder with the band's end of the run lit. Every band of
  *    a split is visible at once, so position is real information there and the
@@ -27,14 +26,22 @@
  * That is the intended reading, and it is why the ladder is not drawn with one
  * rung per member — at this size a subdivided badge stops being legible at all.
  *
- * The badge is one character over quiet scenery, in ONE ink: the character is
- * set exactly as `TugSlot` sets its number, the glyph sits behind it in the
- * same colour with the unlit elements thinned, the lit element is an
- * **outline** at full strength rather than a fill, and a stacked
- * ground-coloured `text-shadow` punches the character clear of the strokes.
- * Both the ink and the knockout colour are knobs, because both have to be
- * whatever the surface the badge stands on is wearing — beside a slot chip,
- * the badge wears what the chip wears.
+ * **Whether the glyph marks the level at all is the surface's call**, through
+ * `showLevel`. The character always says it; the mark is a second telling, and
+ * it earns its keep only where something nearby teaches the reading — a Lens
+ * row's slot picker, whose selection fill the badge borrows. In a pane's title
+ * bar there is nothing to teach it and no room to say it, so the glyph draws
+ * the run and stops.
+ *
+ * The badge is one character over quiet scenery, and **it is painted as the
+ * slot chip beside it is painted**: the character is set exactly as `TugSlot`
+ * sets its number, each element of the glyph takes a chip's fill and border,
+ * and a stacked `text-shadow` in whatever the character stands on punches it
+ * clear of the strokes. Every one of those colours is a knob, because the
+ * whole rule is *wear what the chip wears* and only the surface knows what
+ * that is — a resting chip's paint for an unlit element, a selected chip's for
+ * the one the card occupies, and on a surface whose chip has no selection
+ * state, no mark at all.
  *
  * Presentational by construction: it renders a `<span>` and owns only the
  * drawing. The pane cluster's menu trigger and the Lens row compose it, and the
@@ -86,17 +93,22 @@ export function columnBadgeCharacter(
 }
 
 /**
- * Which element of the glyph is lit. A stack always lights its top slice — the
- * badge stands on the card that is the face of the stack. A split lights the
- * end of the ladder its band sits at, and the middle rung for everything
- * between.
+ * Which element of the glyph the card occupies: the end of the run its index
+ * sits at, and the middle for everything between. One rule for both kinds —
+ * a stack's slices and a split's rungs are the same three-element run, and the
+ * card is somewhere in it either way.
+ *
+ * A stack lit its top slice unconditionally once, on the argument that the
+ * badge stands on the card you can see and a visible stacked card is the front
+ * one. That is true of a badge on a pane's own title bar and false everywhere
+ * else: a Lens row names a card that may be buried three deep, and lighting the
+ * front slice there said *this card is on top* about a card that is not. The
+ * pane cluster does not contradict this — it draws no lit element at all.
+ *
+ * The index is the same ordering `columnMoveOrder` walks, so the lit end and
+ * the direction *Move Up in Column* travels cannot disagree.
  */
-export function columnBadgeLit(
-  kind: TugColumnBadgeKind,
-  count: number,
-  index = 0,
-): TugColumnBadgeLit {
-  if (kind === "stack") return "top";
+export function columnBadgeLit(count: number, index = 0): TugColumnBadgeLit {
   if (index <= 0) return "top";
   if (index >= count - 1) return "bottom";
   return "middle";
@@ -116,11 +128,31 @@ export interface TugColumnBadgeProps
   /** How many panes share the place. Drawn as the character for a stack. */
   count: number;
   /**
-   * This member's 0-based position, topmost first. Required for a split, where
-   * it becomes the letter and the lit rung; ignored for a stack.
+   * This member's 0-based position, front of the run first: the topmost band
+   * of a split, or the frontmost card of a stack. It picks the marked element
+   * either way, and for a split it is also the letter.
    * @default 0
    */
   index?: number;
+  /**
+   * Whether the glyph marks WHICH element of its run the card occupies. The
+   * character always says it; this is only about the drawing behind it.
+   *
+   * Off is for a surface where the drawing is too small to carry a second
+   * fact. A lit rung at title-bar scale is a one-pixel difference in a
+   * three-rung ladder that is itself the height of a lowercase letter — the
+   * eye registers it as noise on the badge rather than as an answer, and it
+   * competes with the character, which is stating the same thing exactly.
+   * On a Lens row the run is drawn beside a slot picker whose own selection
+   * fill teaches the reading, so there the mark lands.
+   *
+   * The root's `data-lit` is unaffected either way: that is the computed
+   * region, a fact about the card, and it stays true whether or not the glyph
+   * is drawing it.
+   * @default true
+   * @selector [data-lit="true"] on .tug-column-badge-slice / -rung
+   */
+  showLevel?: boolean;
 }
 
 /* ---------------------------------------------------------------------------
@@ -128,8 +160,11 @@ export interface TugColumnBadgeProps
  * ---------------------------------------------------------------------------*/
 
 export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgeProps>(
-  function TugColumnBadge({ kind, count, index = 0, className, ...rest }, ref) {
-    const lit = columnBadgeLit(kind, count, index);
+  function TugColumnBadge(
+    { kind, count, index = 0, showLevel = true, className, ...rest },
+    ref,
+  ) {
+    const lit = columnBadgeLit(count, index);
 
     return (
       <span
@@ -144,7 +179,17 @@ export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgePr
         data-kind={kind}
         data-lit={lit}
       >
-        {kind === "stack" ? <StackGlyph /> : <LadderGlyph lit={lit} />}
+        {/* Both glyphs are handed the same thing: which element of the run
+            the card sits at, or `null` where the surface marks none. The stack
+            once decided that for itself and always marked its top slice, which
+            outlived the rule it came from — `columnBadgeLit` would answer
+            `middle`, the root would carry it, and the drawing would light the
+            front slice anyway. */}
+        {kind === "stack" ? (
+          <StackGlyph lit={showLevel ? lit : null} />
+        ) : (
+          <LadderGlyph lit={showLevel ? lit : null} />
+        )}
         <span className="tug-column-badge-character">
           {columnBadgeCharacter(kind, count, index)}
         </span>
@@ -160,9 +205,15 @@ export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgePr
 /**
  * Three flattened diamond slices, deepest drawn first so the nearer ones
  * occlude. The fills are the badge's own ground colour and exist only for that
- * occlusion — selection is never a fill here.
+ * occlusion where the surface hands in no fill of its own; where one does, a
+ * slice is painted as the chip it stands beside.
  */
-function StackGlyph(): React.ReactElement {
+function StackGlyph({
+  lit,
+}: {
+  /** `null` marks no slice at all — the surface draws the run, not the depth. */
+  lit: TugColumnBadgeLit | null;
+}): React.ReactElement {
   const slices: ReadonlyArray<{ key: TugColumnBadgeLit; dy: number }> = [
     { key: "bottom", dy: 11 },
     { key: "middle", dy: 5.5 },
@@ -180,7 +231,8 @@ function StackGlyph(): React.ReactElement {
         <polygon
           key={key}
           className="tug-column-badge-slice"
-          data-lit={key === "top" ? "true" : undefined}
+          data-region={key}
+          data-lit={key === lit ? "true" : undefined}
           points={`9,${dy} 17.5,${dy + 4.5} 9,${dy + 9} 0.5,${dy + 4.5}`}
         />
       ))}
@@ -197,7 +249,12 @@ function StackGlyph(): React.ReactElement {
  * bottom rungs sit at the badge's own ends — which is what makes "this band is
  * at the top of the run" legible at this size.
  */
-function LadderGlyph({ lit }: { lit: TugColumnBadgeLit }): React.ReactElement {
+function LadderGlyph({
+  lit,
+}: {
+  /** `null` marks no rung at all — the surface draws the run, not the band. */
+  lit: TugColumnBadgeLit | null;
+}): React.ReactElement {
   const rungs: ReadonlyArray<{ key: TugColumnBadgeLit; y: number }> = [
     { key: "top", y: 2 },
     { key: "middle", y: 11 },
@@ -217,6 +274,7 @@ function LadderGlyph({ lit }: { lit: TugColumnBadgeLit }): React.ReactElement {
         <line
           key={key}
           className="tug-column-badge-rung"
+          data-region={key}
           data-lit={key === lit ? "true" : undefined}
           x1="1.5"
           y1={y}
