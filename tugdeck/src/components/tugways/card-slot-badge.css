@@ -50,6 +50,12 @@
   align-items: center;
   margin-inline-end: var(--tug-space-xs);
 
+  /* Room for the wings, which are drawn INTO this padding rather than over the
+     neighbours: they are part of the badge's picture, so they are part of its
+     box. `position: relative` is what they hang from. */
+  position: relative;
+  padding-inline: var(--tugx-card-slot-badge-wing-reveal, 4px);
+
   /* The cluster's cut, which is the picker's cut and the Lens run's cut — one
      step up from the primitive's `sm` readout default. The chip no longer
      stands alone: the column badge beside it is drawn at this size, and the
@@ -88,6 +94,59 @@
   --tugx-slot-rest-bg-active: var(--tug7-surface-control-primary-outlined-action-active);
   --tugx-slot-rest-fg-active: var(--tug7-element-control-text-outlined-action-active);
   --tugx-slot-rest-border-active: var(--tug7-element-control-border-outlined-action-active);
+}
+
+/* ── The wings ─────────────────────────────────────────────────────────────
+   Two shorter rectangles flanking the chip, each showing only the edge that
+   clears it. The chip alone says *place 2*; the wings say *of several*, which
+   is the fact that makes the number mean anything and the fact the masthead
+   otherwise has no room to state. It is the same picture the Lens draws with a
+   run of chips, at the size a title bar can afford: one numbered place, in
+   front, with its neighbours behind it.
+
+   Drawn as three-sided borders rather than as full rectangles at low opacity.
+   The chip carries no fill in this cluster — the title bar it stands on is the
+   fill — so a rectangle tucked behind it would show through, and the wings
+   would read as three overlapping outlines instead of as one card in front of
+   two. Leaving off the edge the chip covers IS the occlusion.
+
+   Shorter than the chip on purpose: same height would read as three columns of
+   equal standing, and the point is that one of them is the one you are in.
+
+   Their ink is `--tugx-slot-rest-border` — not a copy of it, the same custom
+   property the chip's own border resolves — so the pair cannot disagree about
+   focused-versus-background, and the hover pose below is the chip's hover knob
+   for the same reason. */
+.card-slot-badge::before,
+.card-slot-badge::after {
+  content: "";
+  position: absolute;
+  inset-block: var(--tugx-card-slot-badge-wing-inset, 3px);
+  inline-size: var(--tugx-card-slot-badge-wing-reveal, 4px);
+  border-block: 1px solid var(--tugx-slot-rest-border);
+  pointer-events: none;
+}
+
+.card-slot-badge::before {
+  inset-inline-start: 0;
+  border-inline-start: 1px solid var(--tugx-slot-rest-border);
+  border-start-start-radius: var(--tugx-slot-radius, 2px);
+  border-end-start-radius: var(--tugx-slot-radius, 2px);
+}
+
+.card-slot-badge::after {
+  inset-inline-end: 0;
+  border-inline-end: 1px solid var(--tugx-slot-rest-border);
+  border-start-end-radius: var(--tugx-slot-radius, 2px);
+  border-end-end-radius: var(--tugx-slot-radius, 2px);
+}
+
+/* The wrapper contains the chip, so it is hovered exactly when the chip is —
+   which is what keeps the whole badge one object under the pointer instead of
+   a lit chip between two grey stubs. */
+.card-slot-badge:hover::before,
+.card-slot-badge:hover::after {
+  border-color: var(--tugx-slot-rest-border-hover);
 }
 
 /* The focused pane's chrome is brighter, and the chip goes with it — keyed on
