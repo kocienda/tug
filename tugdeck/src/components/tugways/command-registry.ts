@@ -32,6 +32,8 @@ import type { ContentWidth } from "@/lib/layout-imposer";
 import {
   CONTENT_WIDTH_LABELS,
   CONTENT_WIDTH_PRESETS,
+  IMPOSITION_KINDS,
+  slotCount,
 } from "@/lib/layout-imposer";
 
 /* ---------------------------------------------------------------------------
@@ -181,6 +183,16 @@ export interface CommandMenuFacts {
    */
   readonly bullseye: { readonly on: boolean } | null;
   /**
+   * How many slots the deck can center on — the kind's slot count under flow,
+   * and 0 otherwise. Gates the Center Slot row.
+   *
+   * It takes NONE of the selection gates above, and that is the point: the
+   * other three answer "what could happen to the card I am in", while this one
+   * moves the band the whole deck is seen through. A deselected deck can still
+   * be sent to slot 4.
+   */
+  readonly centerableSlots: number;
+  /**
    * What the column verbs could do to the card the layout selection resolves
    * to. `null` when none does — nothing selected, no cursor in the Cards list,
    * no content card fronted, or a deck with no imposition to hold a column.
@@ -214,6 +226,7 @@ export const EMPTY_MENU_FACTS: CommandMenuFacts = {
   stackDepth: 0,
   cardWidth: null,
   bullseye: null,
+  centerableSlots: 0,
   column: null,
 };
 
@@ -779,28 +792,23 @@ const COLUMN_SPLIT_COMMANDS: readonly CommandEntry[] = [
  * is a cycle you have to look at. Each is separately rebindable and each is
  * one row in the keymap pane ([P05]).
  *
- * **The tier, derived** (tuglaws/chord-tiers.md): a pane's width is Tug's
- * own layout vocabulary, so it takes the Tug tier ⌃⌘ alongside ⌃⌘L Show
- * Lens and ⌃⌘T Next Theme — not plain ⌘, which R3 reserves for verbs hit
- * many times an hour. The digits index `CONTENT_WIDTH_PRESETS` in the order
- * every picker offers them, which is the tier doc's amended reading of the
- * digit row: a digit indexes an ordered set, and the tier says which set —
- * ⌘n a place on the deck, ⌃⌘n a size for the card. ⌥⌘1/2/3 was considered
- * and rejected: ⌥ is the variant operator, so under R1 it would have to
- * read as a variant of Move Card to Slot N, which width is not.
+ * **Menu rows with no chord of their own.** The row held ⌃⌘1/2/3 and gave
+ * them up: the Tug tier's digits now center a slot, which is a verb of the
+ * reading hour, and setting a width is not — a card is given its size once
+ * and read at it for the rest of the session. A chord is not a label for a
+ * command's importance, it is a claim on a scarce row of keys, and the
+ * scarce row goes to what the hand reaches for. The three rows keep their
+ * Window-menu places and the title bar's width popup, which are the doors a
+ * once-a-session verb wants; a user who disagrees can bind them in the
+ * keymap pane, because `bindings: []` is a command with no DEFAULT chord and
+ * not a command that refuses one.
  *
- * **Promoted to the Window menu**, unlike the slot family. ⌘1–⌘9 stay
- * chord-only ([Q02]) because surfaces like `pdf-view.tsx` decline them by
- * hand to leave the digits with the deck, and a menu item would take that
- * choice away — AppKit's key-equivalent scan runs first and claims them
- * unconditionally. Nothing claims ⌃⌘ digits: no viewer, no text surface, no
- * CM6 keymap. So the reason that kept slots off the menu simply does not
- * apply here, and the promotion is free. The Swift items are constructed
- * with EMPTY key equivalents so `applyCommandChords` writes them from this
- * table and all three stay rebindable end to end.
+ * The Swift items are still constructed with EMPTY key equivalents, so
+ * `applyCommandChords` writes whatever this table says — which is now
+ * nothing, and the rows draw bare.
  */
 const CARD_WIDTH_COMMANDS: readonly CommandEntry[] = CONTENT_WIDTH_PRESETS.map(
-  (preset, i) => ({
+  (preset) => ({
     id: `${TUG_ACTIONS.SET_PANE_WIDTH}:${preset}`,
     title: CONTENT_WIDTH_LABELS[preset],
     routing: "first-responder" as const,
@@ -808,12 +816,7 @@ const CARD_WIDTH_COMMANDS: readonly CommandEntry[] = CONTENT_WIDTH_PRESETS.map(
     payload: preset,
     menuItemId: `window.cardWidth.${preset}`,
     mirrored: true,
-    bindings: [
-      chord(
-        { key: `Digit${i + 1}`, meta: true, ctrl: true, label: String(i + 1) },
-        { menuEligible: true },
-      ),
-    ],
+    bindings: [],
     // Both predicates read the published fact rather than walking the
     // chain: which pane is focused and what width it holds is deck state,
     // and the canvas answering "yes I handle set-pane-width" says nothing
@@ -825,6 +828,61 @@ const CARD_WIDTH_COMMANDS: readonly CommandEntry[] = CONTENT_WIDTH_PRESETS.map(
     state: (chain: CommandValidationSource) =>
       chain.menu.cardWidth?.preset === preset,
   }),
+);
+
+/**
+ * The most slots any arrangement defines — six-up's six, read off the kinds
+ * rather than written down, so a seventh kind would bring its own row.
+ */
+const MAX_SLOTS = Math.max(...IMPOSITION_KINDS.map(slotCount));
+
+/**
+ * ⌃⌘1…⌃⌘6 — put slot N in the middle of the band.
+ *
+ * **The tier, derived** (tuglaws/chord-tiers.md): the digit row indexes an
+ * ordered set and the tier says WHICH reading of it. ⌘n moves the card to a
+ * place; ⌃⌘n moves the reader to a place. Same set, same digits, and the
+ * modifier is the whole difference — which is the tier doc's amended reading
+ * of the digit row working exactly as intended, and a better fit for ⌃⌘ than
+ * the widths that held it, since a width is not an index into the deck at all.
+ *
+ * Six rather than nine, unlike the slot family: ⌘1..9 is bound in full so an
+ * out-of-range digit is inert rather than beeping, but these are MENU rows, and
+ * a row for a slot no arrangement can have is a permanently dark row.
+ *
+ * **Promoted to the Window menu**, for the reason the width row was and the
+ * slot row was not ([Q02]): ⌘1–⌘9 stay chord-only because surfaces like
+ * `pdf-view.tsx` decline them by hand to leave the digits with the deck, and a
+ * menu item takes that choice away — AppKit's key-equivalent scan runs first
+ * and claims them unconditionally. Nothing claims ⌃⌘ digits: no viewer, no text
+ * surface, no CM6 keymap.
+ *
+ * The gate is the arrangement's, not the selection's. Centering moves the band
+ * and touches no card, so it is live on a deselected deck — and dark under fit,
+ * where every anchor is inside the band already and there is nothing to travel.
+ */
+const CENTER_SLOT_COMMANDS: readonly CommandEntry[] = Array.from(
+  { length: MAX_SLOTS },
+  (_, i) => {
+    const n = i + 1;
+    return {
+      id: `${TUG_ACTIONS.CENTER_SLOT}:${n}`,
+      title: `Center Slot ${n}`,
+      routing: "first-responder" as const,
+      action: TUG_ACTIONS.CENTER_SLOT,
+      payload: n,
+      menuItemId: `window.centerSlot.${n}`,
+      mirrored: true,
+      bindings: [
+        chord(
+          { key: `Digit${n}`, meta: true, ctrl: true, label: String(n) },
+          { menuEligible: true },
+        ),
+      ],
+      validate: (chain: CommandValidationSource) =>
+        chain.menu.centerableSlots >= n,
+    };
+  },
 );
 
 export const COMMANDS: readonly CommandEntry[] = [
@@ -1471,14 +1529,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     validate: (chain) => chain.menu.stackDepth > 1,
     disabledChord: "detach",
   },
+  ...CENTER_SLOT_COMMANDS,
   ...CARD_WIDTH_COMMANDS,
   // ⌃⌘B — bullseye: put the focused card in a centered, comfy-width reading
   // posture with every other surface receded, and take it back out.
   //
   // **The tier, derived** (tuglaws/chord-tiers.md): a card's posture on the
   // deck is Tug's own layout machinery, so it takes the Tug tier ⌃⌘
-  // alongside ⌃⌘L Show Lens, ⌃⌘T Next Theme, and the ⌃⌘1/2/3 width row
-  // directly above. Plain ⌘ is out under R3 — a deliberate posture change is
+  // alongside ⌃⌘L Show Lens, ⌃⌘T Next Theme, and the ⌃⌘1..6 Center Slot
+  // row directly above. Plain ⌘ is out under R3 — a deliberate posture change is
   // not a many-times-an-hour verb — and the composed sets are out under R1,
   // because there is no ⌘B base for this to be a variant or counterpart of
   // (⌘B is held in reserve for bold, and Tug renders markdown).

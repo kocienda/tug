@@ -58,12 +58,22 @@
  *   stamps on every registered element.
  *
  * Three gestures move the strip and there is one path for all of them. The
- * canvas wheel is the deck's, untouched here. Clicking a segment reveals its
- * slot. And a SCRUB — a pointer down on the strip, dragged across it — previews
- * each segment it crosses and commits exactly once, at release. Each crossed
- * segment is a whole-slot move under the user's own finger, which is what a
- * paging control does; there is no animator in a preview path ([L13]) and none
- * is wanted. The bracket takes no pointer events: it is a readout drawn over
+ * canvas wheel is the deck's, untouched here. Clicking a segment CENTERS its
+ * slot in the band. And a SCRUB — a pointer down on the strip, dragged across
+ * it — centers each segment it crosses as a preview and commits exactly once,
+ * at release. Each crossed segment is a whole-slot move under the user's own
+ * finger, which is what a paging control does; there is no animator in a
+ * preview path ([L13]) and none is wanted.
+ *
+ * Both gestures CENTER rather than reveal, and they must agree: pointing at a
+ * segment names a place, and a rule that moved the least would answer the same
+ * click differently depending on where the band already stood — a slot merely
+ * visible at the band's edge would stay at the edge. Naming a place should put
+ * the reader at it. The clamp pins the strip's two ends flush, so the gesture
+ * gives back less travel near an end and none at the very end, which is the
+ * correct answer rather than an exception to it.
+ *
+ * The bracket takes no pointer events: it is a readout drawn over
  * the segments, and a reader aiming at a card should not be caught by the
  * picture of where they already are.
  *
@@ -78,8 +88,7 @@ import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 
 import { gaugeProperties, registerGauge } from "@/lib/imposer-gauges";
 import {
-  clampFlowOffset,
-  flowRevealOffset,
+  flowCenterOffset,
   IMPOSITION_GAP_PX,
   type FlowStrip as FlowStripModel,
 } from "@/lib/layout-imposer";
@@ -119,8 +128,9 @@ const FLOW_OFFSET_PROPERTY = gaugeProperties("flow-offset")[0];
 /**
  * Each slot's place in the strip, as fractions of it — which is what a
  * percentage of the drawn strip means, so the map needs no measurement of
- * itself and stays true through a resize. A slot with no card in it has no
- * extent and no place, and gets no entry.
+ * itself and stays true through a resize. Every slot the kind defines has a
+ * place, an empty one included — the strip holds its room — so the only slot
+ * without an entry is one the strip has never heard of.
  */
 export function flowSlotSpans(
   count: number,
@@ -193,25 +203,27 @@ export function FlowStrip({
    *  release does not commit a second time on top of it. */
   const swallowClick = useRef(false);
 
-  /** The least the strip can move to put the whole of `slot` on screen, clamped
-   *  the way the store would clamp it — so a previewed frame never shows a
-   *  position the commit would refuse. `null` for a slot with no card in it:
-   *  there is nothing to reveal. */
-  const revealOffsetFor = useCallback((slot: number): number | null => {
-    const { strip: s, band: b, offset: o } = live.current;
+  /** Where the strip stands with `slot` in the middle of the band, clamped the
+   *  way the store would clamp it — so a previewed frame never shows a position
+   *  the commit would refuse. `null` for a slot the strip has no place for at
+   *  all, which is a slot outside the kind rather than an empty one: an empty
+   *  slot holds its room, so it has a middle like any other.
+   *
+   *  Centering, not revealing. Pointing at a segment names a place, and the
+   *  answer to a named place must not depend on where the band already stands —
+   *  the minimal-move rule would leave a slot that is merely visible exactly
+   *  where it is, so the same click would move the deck or not depending on
+   *  history the reader cannot see. The clamp still pins the two ends flush. */
+  const centerOffsetFor = useCallback((slot: number): number | null => {
+    const { strip: s, band: b } = live.current;
     const stripLeft = s.positions.get(slot);
     if (stripLeft === undefined) return null;
-    return clampFlowOffset(
-      flowRevealOffset({
-        stripLeft,
-        extent: s.extents.get(slot) ?? 0,
-        stripWidth: s.width,
-        band: b,
-        offset: o,
-      }),
-      s.width,
-      b,
-    );
+    return flowCenterOffset({
+      stripLeft,
+      extent: s.extents.get(slot) ?? 0,
+      stripWidth: s.width,
+      band: b,
+    });
   }, []);
 
   // The committed truth, refreshed before paint on every commit, for the
@@ -273,8 +285,10 @@ export function FlowStrip({
     if (event.button !== 0) return;
     const row = layout.current?.element;
     if (row === null || row === undefined) return;
-    // Every drawn segment, in slot order. A slot with no card is rendered
-    // undrawn, so its box is empty and it is not a place a hand can be over.
+    // Every drawn segment, in slot order. A segment the strip gives no span is
+    // rendered undrawn, so its box is empty and it is not a place a hand can be
+    // over; an EMPTY slot is not one of those — it holds its room and is
+    // scrubbed across like any other place.
     const segments = Array.from(
       row.querySelectorAll<HTMLElement>('[data-slot="tug-slot"]'),
     );
@@ -303,7 +317,7 @@ export function FlowStrip({
     const slot = slotAt(gesture.spans, event.clientX);
     if (slot === undefined || slot === gesture.slot) return;
     gesture.slot = slot;
-    const next = revealOffsetFor(slot);
+    const next = centerOffsetFor(slot);
     if (next === null) return;
     gesture.offset = next;
     gesture.moved = true;
@@ -329,15 +343,15 @@ export function FlowStrip({
     onCommit(gesture.offset);
   };
 
-  /** Clicking a segment reveals its slot — the same arithmetic an activation
-   *  reveals with. A slot already wholly in the band computes its own offset
-   *  back and moves nothing; an unoccupied slot has nothing to reveal. */
+  /** Clicking a segment centers its slot in the band — the same arithmetic the
+   *  Center Card chords commit, so the pointer and the keyboard cannot disagree
+   *  about where a named place belongs. */
   const onSelectSlot = (slot: number): void => {
     if (swallowClick.current) {
       swallowClick.current = false;
       return;
     }
-    const next = revealOffsetFor(slot);
+    const next = centerOffsetFor(slot);
     if (next === null) return;
     onCommit(next);
   };
@@ -372,7 +386,7 @@ export function FlowStrip({
           spans={spans}
           size="sm"
           onSelectSlot={onSelectSlot}
-          slotLabel={(slot) => `Reveal slot ${slot + 1}`}
+          slotLabel={(slot) => `Center slot ${slot + 1}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endScrub}

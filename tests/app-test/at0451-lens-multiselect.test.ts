@@ -154,24 +154,6 @@ async function slotsByCard(app: App): Promise<Record<string, number | null>> {
   );
 }
 
-/** Every content pane's width preset, keyed by the card it holds. */
-async function widthsByCard(app: App): Promise<Record<string, string | null>> {
-  return app.evalJS<Record<string, string | null>>(
-    `(function () {
-      var deck = window.tugdeck.diag.getDeckState();
-      var out = {};
-      for (var i = 0; i < deck.panes.length; i += 1) {
-        var pane = deck.panes[i];
-        for (var j = 0; j < pane.cardIds.length; j += 1) {
-          out[pane.cardIds[j]] =
-            pane.widthPreset === undefined ? null : pane.widthPreset;
-        }
-      }
-      return out;
-    })()`,
-  );
-}
-
 /** The card standing in front — the deck's composite first responder. */
 async function frontCard(app: App): Promise<string | null> {
   return app.evalJS<string | null>(
@@ -309,7 +291,7 @@ describe.skipIf(!SHOULD_RUN)(
   "at0451 — the layout selection is what a layout verb acts on",
   () => {
     test(
-      "slot and width chords resolve through the selection, and move it as one",
+      "the layout chords resolve through the selection, and move it as one",
       async () => {
         const app = await launchTugApp({ testName: "at0451-lens-multiselect" });
         try {
@@ -390,16 +372,16 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(1);
           expect(slots.C, "both of it").toBe(1);
 
-          // ---- The width chord resolves the same way ----
-          await app.nativeKey("1", ["ctrl", "cmd"]);
+          // ---- A second verb, a different shape, the same ladder ----
+          // The nudge is RELATIVE where ⌘n is absolute, so it exercises the
+          // resolver's other half: the group either moves whole or refuses
+          // whole. Still typed with the keyboard in the Lens.
+          await app.nativeKey("]", ["cmd", "alt", "shift"]);
           await wait(AFTER_LAND_MS);
-          const widths = await widthsByCard(app);
-          expect(widths.B, "⌃⌘1 widths the selection").toBe("slim");
-          expect(widths.C, "all of it").toBe("slim");
-          expect(
-            widths.A,
-            "and leaves the cards outside it at their own width",
-          ).toBeNull();
+          slots = await slotsByCard(app);
+          expect(slots.B, "⌥⇧⌘] carries the selection along the arrangement").toBe(2);
+          expect(slots.C, "both of it").toBe(2);
+          expect(slots.A, "and leaves the card outside it alone").toBe(2);
 
           // ---- Collapse: activating a CONTENT card outside the set ends it ----
           await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);

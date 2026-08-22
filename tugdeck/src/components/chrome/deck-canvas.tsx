@@ -142,6 +142,7 @@ import {
   FLOW_OFFSET_PROPERTY,
   FLOW_STRIP_PROPERTY,
   clampFlowOffset,
+  flowCenterOffset,
   effectiveRailOrder,
   imposeSidebarStyle,
   impositionLayout,
@@ -755,6 +756,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.OPEN_FILE,
   TUG_ACTIONS.REVEAL_IN_FINDER,
   TUG_ACTIONS.MOVE_TO_SLOT,
+  TUG_ACTIONS.CENTER_SLOT,
   TUG_ACTIONS.NUDGE_SLOT,
   TUG_ACTIONS.TOGGLE_COLUMN_SPLIT,
   TUG_ACTIONS.MOVE_IN_COLUMN,
@@ -1183,6 +1185,37 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (cardIds.length === 0) return;
         dispatchCommand("assign-slot", { cardIds, slot: event.value - 1 });
       },
+      // ⌃⌘1..⌃⌘6 — put slot N in the middle of the band. The digit row's
+      // other reading: ⌘n sends the card to a place, this sends the reader
+      // there, and nothing about the arrangement changes. So it resolves no
+      // selection and asks no pane anything — the deck's strip and the deck's
+      // band are the whole input, which is why an empty slot is as centerable
+      // as a full one now that a vacancy holds its room.
+      //
+      // It commits without previewing, which is the one caller `setFlowOffset`
+      // is built for: the store lands a number CSS was not already drawing and
+      // the settle tweens the crossing, so a named place is traveled to rather
+      // than jumped to. Silent returns throughout, like every other chord the
+      // canvas owns — under fit there is no strip, and a digit past the
+      // arrangement's slots is a chord the user simply has not configured.
+      [TUG_ACTIONS.CENTER_SLOT]: (event: ActionEvent) => {
+        if (typeof event.value !== "number") return;
+        const state = store.getSnapshot();
+        const strip = deckFlowStrip(state);
+        const band = store.getFlowBandWidth();
+        if (strip === null || band === null || band <= 0) return;
+        const slot = event.value - 1;
+        const stripLeft = strip.positions.get(slot);
+        if (stripLeft === undefined) return;
+        store.setFlowOffset(
+          flowCenterOffset({
+            stripLeft,
+            extent: strip.extents.get(slot) ?? 0,
+            stripWidth: strip.width,
+            band,
+          }),
+        );
+      },
       // ⌥⇧⌘[ / ⌥⇧⌘] — move the layout selection one slot along the
       // arrangement. The canvas owns it for the same reason it owns ⌘1..9,
       // and it resolves the same selection, so the two verbs cannot disagree
@@ -1248,12 +1281,13 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           flashCardPane(store, cardIds[0]);
         }
       },
-      // ⌃⌘1..3 — put the selected card's pane at a named width. The canvas
-      // owns this for the same reason it owns ⌘1..9: the chord walks past
-      // the focused card and its pane to the one responder that can name
-      // which pane the selection is in. `set-card-width` does the work, so
-      // the keyboard, the Window menu, and the title bar's width popup
-      // share one path (clamp to the stack's bounds, stamp the preset).
+      // Window ▸ Slim / Comfy / Wide — put the selected card's pane at a named
+      // width. The canvas owns this for the same reason it owns ⌘1..9: the
+      // command walks past the focused card and its pane to the one responder
+      // that can name which pane the selection is in. `set-card-width` does the
+      // work, so the Window menu and the title bar's width popup share one path
+      // (clamp to the stack's bounds, stamp the preset). The row no longer
+      // carries a chord — ⌃⌘1..6 centers a slot now.
       // Silent returns throughout — a rail has no preset to set, and a
       // deselected deck has no pane to set it on.
       [TUG_ACTIONS.SET_PANE_WIDTH]: (event: ActionEvent) => {

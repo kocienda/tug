@@ -44,7 +44,9 @@ import {
   clampFlowOffset,
   firstVisibleFlowSlot,
   FLOW_CLIP_SLACK_PX,
+  flowCenterOffset,
   flowRevealOffset,
+  stripCenterOffset,
   flowStripPositions,
   vacancyExtent,
   hairlineOf,
@@ -427,6 +429,111 @@ describe("the reveal rule", () => {
         offset: first,
       }),
     ).toBe(first);
+  });
+});
+
+describe("the centering rule", () => {
+  const band = 1000;
+  const stripWidth = 3000;
+
+  test("a member's middle lands on the band's middle", () => {
+    expect(
+      flowCenterOffset({ stripLeft: 1200, extent: 400, stripWidth, band }),
+    ).toBe(1200 + 200 - 500);
+  });
+
+  test("a member already fully in view still travels", () => {
+    // The whole difference from the reveal, in one assertion: the same inputs
+    // that make `flowRevealOffset` return the standing offset unchanged move
+    // the band here, because a named place is a destination and not a
+    // deficiency in the current one.
+    const standing = 300;
+    expect(
+      flowRevealOffset({
+        stripLeft: 500,
+        extent: 400,
+        stripWidth,
+        band,
+        offset: standing,
+      }),
+      "the reveal sits still",
+    ).toBe(standing);
+    expect(
+      flowCenterOffset({ stripLeft: 500, extent: 400, stripWidth, band }),
+      "and the centering does not",
+    ).toBe(500 + 200 - 500);
+  });
+
+  test("the answer does not depend on where the band stands", () => {
+    // Stated directly, because it is the property the gesture is FOR: the
+    // signature has no offset in it at all, so two readers at opposite ends of
+    // the strip who name slot 4 end up at the same place.
+    const wanted = flowCenterOffset({
+      stripLeft: 1200,
+      extent: 400,
+      stripWidth,
+      band,
+    });
+    expect(
+      flowCenterOffset({ stripLeft: 1200, extent: 400, stripWidth, band }),
+    ).toBe(wanted);
+  });
+
+  test("the near end cannot reach the middle, and is pinned flush", () => {
+    // Centering the first member would show emptiness before it, so the clamp
+    // answers 0 — the gesture gives back less travel at the ends by design.
+    expect(
+      flowCenterOffset({ stripLeft: 0, extent: 400, stripWidth, band }),
+    ).toBe(0);
+  });
+
+  test("the far end is pinned flush too", () => {
+    expect(
+      flowCenterOffset({ stripLeft: 2600, extent: 400, stripWidth, band }),
+    ).toBe(stripWidth - band);
+  });
+
+  test("a member wider than the band centers its overflow evenly", () => {
+    // Nothing special-cased: the middle of a 1400-wide member is still its
+    // middle, so the band sits over the center of it and equal amounts hang
+    // off both edges.
+    expect(
+      flowCenterOffset({ stripLeft: 1000, extent: 1400, stripWidth, band }),
+    ).toBe(1000 + 700 - 500);
+  });
+
+  test("a strip shorter than its band has no travel to give", () => {
+    expect(
+      flowCenterOffset({
+        stripLeft: 400,
+        extent: 300,
+        stripWidth: 800,
+        band,
+      }),
+    ).toBe(0);
+  });
+
+  test("a non-finite place reads as the strip's origin", () => {
+    expect(
+      flowCenterOffset({
+        stripLeft: Number.NaN,
+        extent: 400,
+        stripWidth,
+        band,
+      }),
+    ).toBe(0);
+  });
+
+  test("flowCenterOffset is stripCenterOffset under flow's names", () => {
+    const flow = { stripLeft: 1200, extent: 400, stripWidth, band };
+    expect(flowCenterOffset(flow)).toBe(
+      stripCenterOffset({
+        stripStart: flow.stripLeft,
+        extent: flow.extent,
+        stripLength: flow.stripWidth,
+        band: flow.band,
+      }),
+    );
   });
 });
 

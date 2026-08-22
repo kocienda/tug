@@ -21,7 +21,7 @@
  *     content happens not to reflow at that width passes every position
  *     assertion while the mechanism is dead, which is the exact shape of the
  *     bug this feature exists to fix.
- *  2. **Every raise site, not one.** The width chords and bullseye come in
+ *  2. **Every raise site, not one.** The width popup and bullseye come in
  *     through the FLIP settle; the west-edge drag comes in at pointer-down and
  *     lives across a gesture the settle never sees; the deck-wide Card Width
  *     bypasses `movePane` entirely. Three doors, three different lifetimes.
@@ -82,6 +82,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { chooseWidth } from "./fixtures/card-width";
 import { encodePdf } from "./fixtures/pdf";
 import {
   mkTempTugbank,
@@ -159,7 +160,7 @@ function galleryDeck(): Record<string, unknown> {
   };
 }
 
-/** One Text card, seeded wide so a slim chord is a real re-wrap. */
+/** One Text card, seeded wide so narrowing it to slim is a real re-wrap. */
 function textDeck(): Record<string, unknown> {
   return {
     cards: [{ id: "A", componentId: "text", title: "File", closable: true }],
@@ -379,9 +380,9 @@ describe.skipIf(!SHOULD_RUN)(
             );
           };
 
-          // ── Door 1: the wide chord, through the FLIP settle. ─────────────
-          await holdsThrough("wide chord", async () => {
-            await app.nativeKey("3", ["ctrl", "cmd"]);
+          // ── Door 1: the width popup, through the FLIP settle. ────────────
+          await holdsThrough("wide", async () => {
+            await chooseWidth(app, "p1", "wide");
           });
 
           // ── Door 2: bullseye in, a 400-odd pixel narrowing. ──────────────
@@ -394,9 +395,9 @@ describe.skipIf(!SHOULD_RUN)(
             await app.nativeKey("b", ["ctrl", "cmd"]);
           });
 
-          // ── Door 4: the slim chord. ──────────────────────────────────────
-          await holdsThrough("slim chord", async () => {
-            await app.nativeKey("1", ["ctrl", "cmd"]);
+          // ── Door 4: the popup again, the other way. ──────────────────────
+          await holdsThrough("slim", async () => {
+            await chooseWidth(app, "p1", "slim");
           });
 
           // ── Door 5: a west-edge drag — the gesture the settle never sees. ─
@@ -448,7 +449,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await isAtBottom(app, SCROLLER)).toBe(true);
 
           const episodesBeforeTail = await episodeCount(app);
-          await app.nativeKey("3", ["ctrl", "cmd"]);
+          await chooseWidth(app, "p1", "wide");
           await waitForEpisodesClosed(app, FRAME);
           expect(await episodeCount(app)).toBeGreaterThan(episodesBeforeTail);
           expect(await isAtBottom(app, SCROLLER)).toBe(true);
@@ -631,7 +632,7 @@ describe.skipIf(!SHOULD_RUN)(
           const widthBefore = await paneWidth(app, FRAME);
           const episodesBefore = await episodeCount(app);
 
-          await app.nativeKey("1", ["ctrl", "cmd"]);
+          await chooseWidth(app, "p1", "slim");
           await waitForEpisodesClosed(app, FRAME);
 
           const widthAfter = await paneWidth(app, FRAME);

@@ -162,9 +162,12 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⇧⌘A | `disclaim-all-changes` | Disclaim All Changes | JS, responder |
 | ⌃⇧⌘↑ | `move-in-column:top` | Move Card to Top of Column | menu bar (swept) |
 | ⌃⇧⌘↓ | `move-in-column:bottom` | Move Card to Bottom of Column | menu bar (swept) |
-| ⌃⌘1 | `set-pane-width:slim` | Slim | menu bar (swept) |
-| ⌃⌘2 | `set-pane-width:comfy` | Comfy | menu bar (swept) |
-| ⌃⌘3 | `set-pane-width:wide` | Wide | menu bar (swept) |
+| ⌃⌘1 | `center-slot:1` | Center Slot 1 | menu bar (swept) |
+| ⌃⌘2 | `center-slot:2` | Center Slot 2 | menu bar (swept) |
+| ⌃⌘3 | `center-slot:3` | Center Slot 3 | menu bar (swept) |
+| ⌃⌘4 | `center-slot:4` | Center Slot 4 | menu bar (swept) |
+| ⌃⌘5 | `center-slot:5` | Center Slot 5 | menu bar (swept) |
+| ⌃⌘6 | `center-slot:6` | Center Slot 6 | menu bar (swept) |
 | ⌃⌘A | `claim-all-changes` | Claim All Changes | JS, responder |
 | ⌃⌘B | `toggle-bullseye` | Bullseye | menu bar (swept) |
 | ⌃⌘C | `toggle-changes-view` | Show Session Changes | JS, global |
@@ -342,6 +345,12 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `window.cardWidth.comfy` | `set-pane-width:comfy` | first responder | registry gate |
 | `window.cardWidth.slim` | `set-pane-width:slim` | first responder | registry gate |
 | `window.cardWidth.wide` | `set-pane-width:wide` | first responder | registry gate |
+| `window.centerSlot.1` | `center-slot:1` | first responder | registry gate |
+| `window.centerSlot.2` | `center-slot:2` | first responder | registry gate |
+| `window.centerSlot.3` | `center-slot:3` | first responder | registry gate |
+| `window.centerSlot.4` | `center-slot:4` | first responder | registry gate |
+| `window.centerSlot.5` | `center-slot:5` | first responder | registry gate |
+| `window.centerSlot.6` | `center-slot:6` | first responder | registry gate |
 | `window.columnMoveBottom` | `move-in-column:bottom` | first responder | registry gate |
 | `window.columnMoveDown` | `move-in-column:down` | first responder | registry gate |
 | `window.columnMoveTop` | `move-in-column:top` | first responder | registry gate |

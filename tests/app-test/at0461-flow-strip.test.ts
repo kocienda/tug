@@ -22,9 +22,12 @@
  *   3. **The bracket says which part of the strip is on screen.** It covers the
  *      share of the strip the band shows and stands where that share begins, and
  *      scrolling moves it without changing its size.
- *   4. **Clicking a segment reveals its slot** by the least the strip can move —
- *      the same arithmetic an activation reveals with — in one commit the settle
- *      animates as one crossing.
+ *   4. **Clicking a segment CENTERS its slot in the band**, in one commit the
+ *      settle animates as one crossing — and a slot standing wholly on screen
+ *      already travels too. That is the whole difference from the reveal an
+ *      activation does: a reveal moves the least it can and would answer the
+ *      same click differently depending on where the band happened to stand,
+ *      while naming a place has to put the reader at it.
  *   5. **The bracket is live between commits.** A held gesture moves the strip
  *      on the gauge channel and the bracket follows with ZERO store notifies —
  *      a projection rather than a render, and here not even a scripted one: its
@@ -514,52 +517,76 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
   );
 
   test(
-    "clicking a segment reveals its slot, by the least the strip can move",
+    "clicking a segment centers its slot, and a slot already in view still travels",
     async () => {
       const app = await launchTugApp({ testName: "at0461-flow-strip" });
       try {
-        await openDeck(app, { cards: 3, cardWidth: SLIM_PX, layout: "flow" });
+        await openDeck(app, { cards: 5, cardWidth: SLIM_PX, layout: "flow" });
         const band = await bandWidth(app);
-        // The last slot's right edge, brought to the band's right edge — the
-        // same arithmetic an activation reveals with, and the least move that
-        // puts the whole slot on screen.
-        const expected = 2 * (SLIM_PX + GAP_PX) + SLIM_PX - band;
+        const stripWidth = 5 * SLIM_PX + 4 * GAP_PX;
+        /** Where the strip stands with slot `k` in the middle of the band. */
+        const centered = (k: number): number =>
+          Math.min(
+            Math.max(0, k * (SLIM_PX + GAP_PX) + SLIM_PX / 2 - band / 2),
+            stripWidth - band,
+          );
+
+        // The whole difference between centering and revealing, measured on
+        // the one slot where the two rules disagree most plainly. The deck
+        // starts home, and slot 2 stands wholly inside the band there — so the
+        // minimal-move rule would hand back offset 0 and the click would do
+        // nothing at all. Naming a place has to put the reader at it.
+        expect(await committedOffset(app), "the strip starts home").toBe(0);
+        const slot2Left = SLIM_PX + GAP_PX;
+        expect(
+          slot2Left + SLIM_PX <= band,
+          "slot 2 is wholly on screen at home, so a reveal would sit still",
+        ).toBe(true);
 
         const census = await app.motionCensus(async () => {
           await app.nativeClickAtElement(
-            `${ROW} [aria-label="Reveal slot 3"]`,
+            `${ROW} [aria-label="Center slot 2"]`,
           );
           await wait(AFTER_LAND_MS);
         });
 
         const landed = await committedOffset(app);
         note(
-          `${summarizeMotionCensus("segment click", census)} — ` +
-            `offset ${Math.round(landed)}px, expected ${Math.round(expected)}px`,
+          `${summarizeMotionCensus("segment click, slot already shown", census)} — ` +
+            `offset 0 -> ${Math.round(landed)}px, expected ${Math.round(centered(1))}px`,
         );
         expect(
           landed,
-          "clicking 3 brings the third slot into the band",
-        ).toBeCloseTo(expected, 0);
+          "a slot already in the band centers anyway",
+        ).toBeCloseTo(centered(1), 0);
+        expect(
+          landed,
+          "which is a real move, not the same number back",
+        ).toBeGreaterThan(1);
         expect(census.notifies, "in one commit").toBe(1);
         expect(
           census.arms,
           "which the settle animates as one crossing",
         ).toBeLessThanOrEqual(1);
 
-        // A slot already wholly on screen computes its own offset back, so it
-        // moves nothing at all.
-        const still = await app.motionCensus(async () => {
+        // And a slot the band is not showing at all travels to the same place
+        // by the same rule — one arithmetic, whatever the reader can see.
+        const again = await app.motionCensus(async () => {
           await app.nativeClickAtElement(
-            `${ROW} [aria-label="Reveal slot 3"]`,
+            `${ROW} [aria-label="Center slot 3"]`,
           );
           await wait(AFTER_LAND_MS);
         });
-        note(summarizeMotionCensus("segment click, already shown", still));
+        const moved = await committedOffset(app);
+        note(
+          `${summarizeMotionCensus("segment click, slot off screen", again)} — ` +
+            `offset ${Math.round(landed)} -> ${Math.round(moved)}px, ` +
+            `expected ${Math.round(centered(2))}px`,
+        );
         expect(
-          await committedOffset(app),
-          "a slot already in the band stays where it is",
-        ).toBeCloseTo(expected, 0);
+          moved,
+          "clicking 3 puts the third slot in the middle of the band",
+        ).toBeCloseTo(centered(2), 0);
       } finally {
         await app.close();
       }
@@ -585,8 +612,8 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
         // quiet timer that would land its own commit inside any bracket long
         // enough to read the picture back.
         await app.nativeDragElementWithoutRelease(
-          `${ROW} [aria-label="Reveal slot 1"]`,
-          { selector: `${ROW} [aria-label="Reveal slot 5"]` },
+          `${ROW} [aria-label="Center slot 1"]`,
+          { selector: `${ROW} [aria-label="Center slot 5"]` },
         );
         let held: { left: number; width: number } | null = null;
         let live: number | null = null;
@@ -623,7 +650,7 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
           "the bracket moved with zero store notifies — a projection, not a render",
         ).toBe(0);
 
-        const box = await boxOf(app, `${ROW} [aria-label="Reveal slot 5"]`);
+        const box = await boxOf(app, `${ROW} [aria-label="Center slot 5"]`);
         await app.nativeMouseUp({
           x: Math.round(box.left + box.width / 2),
           y: Math.round(box.top + box.height / 2),
@@ -644,10 +671,10 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
         await openDeck(app, { cards: 5, cardWidth: SLIM_PX, layout: "flow" });
         expect(await committedOffset(app), "the strip starts home").toBe(0);
 
-        const last = `${ROW} [aria-label="Reveal slot 5"]`;
+        const last = `${ROW} [aria-label="Center slot 5"]`;
         const census = await app.motionCensus(async () => {
           await app.nativeDragElementWithoutRelease(
-            `${ROW} [aria-label="Reveal slot 1"]`,
+            `${ROW} [aria-label="Center slot 1"]`,
             { selector: last },
           );
           await wait(120);
@@ -688,7 +715,8 @@ describe.skipIf(!SHOULD_RUN)("at0461 — the flow strip", () => {
         );
         expect(
           landed,
-          "the release is where the deck now stands — the last segment's reveal",
+          "the release is where the deck now stands — the last segment " +
+            "centered, which the clamp pins flush at the strip's far end",
         ).toBeCloseTo(stripWidth - band, 0);
         expect(
           census.notifies,

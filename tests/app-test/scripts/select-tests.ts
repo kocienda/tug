@@ -196,6 +196,11 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // would be a fiction; the alternative of not naming it at all would leave
     // the seam gate covered by nothing, which is the failure the declaration
     // exists to prevent.
+    //
+    // Held at 21 across the ⌃⌘-digit handover: at0466 arrived naming this file
+    // (the handler that turns the chord into a committed band offset is one of
+    // its action cases) and at0371 stopped naming it in the same change, since
+    // the width verb it drives no longer reaches the canvas through a chord.
     "tugdeck/src/components/chrome/deck-canvas.tsx": 21,
 };
 

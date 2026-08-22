@@ -998,7 +998,8 @@ export function initActionDispatch(
   // actually invokes are the parameterized ids, so this hands off to them
   // rather than reaching `setPaneWidth` itself — same shape as the
   // permission-mode submenu above, and it keeps the chain walk (and the
-  // "which pane am I in" answer) on the canvas where the chord lands too.
+  // "which pane am I in" answer) on the canvas, which is the one responder
+  // that can give it.
   registerAction(TUG_ACTIONS.SET_PANE_WIDTH, (payload) => {
     const preset = payload.preset;
     if (!isContentWidth(preset)) {
@@ -1006,6 +1007,20 @@ export function initActionDispatch(
       return;
     }
     dispatchCommand(`${TUG_ACTIONS.SET_PANE_WIDTH}:${preset}`);
+  });
+
+  // center-slot: the Window ▸ Center Slot N round-trip, the same bare-name /
+  // parameterized-id shape as the width row above. The six commands the user
+  // invokes are `center-slot:1`…`center-slot:6`, so the host's one wire name
+  // hands off to them rather than reaching the deck itself — which is what
+  // keeps the menu item and the ⌃⌘ digit at ONE handler on the canvas.
+  registerAction(TUG_ACTIONS.CENTER_SLOT, (payload) => {
+    const slot = payload.value;
+    if (typeof slot !== "number" || !Number.isInteger(slot) || slot < 1) {
+      console.warn(`${TUG_ACTIONS.CENTER_SLOT}: invalid slot`, payload);
+      return;
+    }
+    dispatchCommand(`${TUG_ACTIONS.CENTER_SLOT}:${slot}`);
   });
 
   // toggle-bullseye: the Window ▸ Bullseye round-trip. No payload — the

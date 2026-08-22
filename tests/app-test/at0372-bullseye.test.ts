@@ -26,7 +26,7 @@
  *     shapes fail differently and both are covered: the focus-shaped doors
  *     (a second chord, clicking another pane, clicking bare canvas) are a
  *     DERIVATION over the first responder, while the geometry-shaped doors
- *     (a width chord, the deck-wide Card Width) are explicit clears at the
+ *     (the width popup, the deck-wide Card Width) are explicit clears at the
  *     mutation sites. The `set-content-width` case is the one an
  *     implementation gated on call sites rather than on what changed would
  *     miss, because it bypasses `movePane` entirely.
@@ -81,6 +81,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { chooseWidth } from "./fixtures/card-width";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -100,7 +101,7 @@ const TARGET_BUTTON = '[data-testid="tug-pane-title-bar-bullseye-button"]';
 
 /** Comfy, as `lib/layout-imposer.ts` fixes it — bullseye's one width. */
 const COMFY = 800;
-/** Slim, for the width-chord exit door. */
+/** Slim, for the explicit-width exit door. */
 const SLIM = 675;
 
 /** Seeded widths chosen so no preset resolves to them: a pane that moved
@@ -326,6 +327,18 @@ async function bullseyeChord(app: App): Promise<void> {
   await wait(AFTER_LAND_MS);
 }
 
+/** The width popup, then the settle — the door the retired ⌃⌘ digits used to
+ *  stand beside. Both doors land on `set-card-width` and reach the store
+ *  through `movePane`, which is the whole of what this test needs from it. */
+async function setWidth(
+  app: App,
+  paneId: string,
+  preset: "slim" | "comfy" | "wide",
+): Promise<void> {
+  await chooseWidth(app, paneId, preset);
+  await wait(AFTER_LAND_MS);
+}
+
 async function focusCard(app: App, cardId: string): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.dispatchControlAction("focus-session-card", { cardId: ${JSON.stringify(cardId)} }), null)`,
@@ -456,14 +469,13 @@ describe.skipIf(!SHOULD_RUN)(
           // With nothing selected the command does not apply at all.
           expect((await menuItem(app, "window.bullseye")).enabled).toBe(false);
 
-          // --- Exit door 4: a width chord (the `movePane` clear). -----------
-          // ⌃⌘1 must land the pane at slim AT ITS STORED POSITION, not at
-          // comfy centred: the explicit gesture wins over the posture.
+          // --- Exit door 4: an explicit width (the `movePane` clear). -------
+          // Choosing Slim must land the pane at slim AT ITS STORED POSITION,
+          // not at comfy centred: the explicit gesture wins over the posture.
           await focusCard(app, "A");
           await bullseyeChord(app);
           expect(await isBullseyed(app, "p1")).toBe(true);
-          await app.nativeKey("1", ["ctrl", "cmd"]);
-          await wait(AFTER_LAND_MS);
+          await setWidth(app, "p1", "slim");
           expect(await isBullseyed(app, "p1")).toBe(false);
           const afterWidth = await paneRect(app, "p1");
           expect(afterWidth.width).toBe(SLIM);

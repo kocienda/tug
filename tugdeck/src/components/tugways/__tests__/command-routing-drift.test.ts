@@ -248,6 +248,7 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   // The parameter picks the command.
   "run-card-command": { bridgeFor: TUG_ACTIONS.RUN_SLASH_COMMAND },
   "set-pane-width": { bridgeFor: TUG_ACTIONS.SET_PANE_WIDTH },
+  "center-slot": { bridgeFor: TUG_ACTIONS.CENTER_SLOT },
   "toggle-bullseye": "command",
   "toggle-column-split": "command",
   "move-in-column": { bridgeFor: TUG_ACTIONS.MOVE_IN_COLUMN },
@@ -409,11 +410,16 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // the chord kept its letter and moved to the sheet that now owns the model.
   ["⌃⌘I", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:ai`],
   ["⌃⌘U", `${TUG_ACTIONS.RUN_SLASH_COMMAND}:usage`],
-  // The card-width row. ⌘ digits are places on the deck, ⌃⌘ digits are
-  // sizes for the card — one tier apart, both indexing an ordered set.
-  ["⌃⌘1", `${TUG_ACTIONS.SET_PANE_WIDTH}:slim`],
-  ["⌃⌘2", `${TUG_ACTIONS.SET_PANE_WIDTH}:comfy`],
-  ["⌃⌘3", `${TUG_ACTIONS.SET_PANE_WIDTH}:wide`],
+  // The Center Slot row. ⌘ digits send the CARD to a place, ⌃⌘ digits send
+  // the READER to one — one tier apart, both indexing the same ordered set,
+  // which is a tighter fit for the pair than the card widths that held ⌃⌘1/2/3
+  // before them. The widths kept their Window rows and lost their chords.
+  ["⌃⌘1", `${TUG_ACTIONS.CENTER_SLOT}:1`],
+  ["⌃⌘2", `${TUG_ACTIONS.CENTER_SLOT}:2`],
+  ["⌃⌘3", `${TUG_ACTIONS.CENTER_SLOT}:3`],
+  ["⌃⌘4", `${TUG_ACTIONS.CENTER_SLOT}:4`],
+  ["⌃⌘5", `${TUG_ACTIONS.CENTER_SLOT}:5`],
+  ["⌃⌘6", `${TUG_ACTIONS.CENTER_SLOT}:6`],
   // Bullseye — a card's POSTURE on the deck, one tier-mate of the width row
   // above: ⌃⌘ carries Tug's layout and card-posture vocabulary generally,
   // of which the sidebar toggles are one family.

@@ -1203,7 +1203,7 @@ export interface ImposedRect {
  * overhanging result is returned as computed.
  *
  * `pinned` mirrors {@link imposeStyle}'s: the slot is computed from
- * `slotWidth` either way, and a pinned card keeps its own size centred inside
+ * `slotWidth` either way, and a pinned card keeps its own size centerd inside
  * it rather than filling it.
  *
  * **Fit only.** This is the travel-fraction rule, and it has no flow variant
@@ -1259,7 +1259,7 @@ export function imposeRect(
  * × 360 by registration — an about box has exactly one correct size — and it
  * has no larger form to be stretched into, so the imposition PLACES it rather
  * than sizing it: the slot is computed as though an ordinary content card
- * stood there, and About is centred inside it on both axes.
+ * stood there, and About is centerd inside it on both axes.
  *
  * Taking the slot from the card's own 320 instead would be the visible bug in
  * the screenshot this was written from: the card hugs the band's left edge in
@@ -1272,9 +1272,9 @@ export function imposeRect(
  * it pins at the near edge rather than taking a negative offset.
  */
 export interface PinnedFrame {
-  /** The card's own width, centred across `slotWidth`. */
+  /** The card's own width, centerd across `slotWidth`. */
   width?: number;
-  /** The card's own height, centred down the vertical run. */
+  /** The card's own height, centerd down the vertical run. */
   height?: number;
 }
 
@@ -1301,8 +1301,8 @@ export function imposeStyle(
           bottom: run.bottom,
         }
       : {
-          // A size-locked card centres inside whatever run it was given, so a
-          // split column shrinks the box it centres in rather than taking it
+          // A size-locked card centers inside whatever run it was given, so a
+          // split column shrinks the box it centers in rather than taking it
           // out of the division.
           width: `${frameWidth}px`,
           height: `${pinned.height}px`,
@@ -1310,11 +1310,11 @@ export function imposeStyle(
         };
 
   const band = `(100% - ${INSET_LEFT} - ${INSET_RIGHT} - ${GAP} * 2)`;
-  // The centring term is a plain number, not a percentage: both widths are
+  // The centering term is a plain number, not a percentage: both widths are
   // known here, so it never needs the browser to resolve it.
-  const centreOffset =
+  const centerOffset =
     frameWidth === slotWidth ? 0 : Math.max(0, (slotWidth - frameWidth) / 2);
-  const centre = frameWidth === slotWidth ? "" : ` + ${centreOffset}px`;
+  const center = frameWidth === slotWidth ? "" : ` + ${centerOffset}px`;
 
   if (placement.flow !== undefined) {
     // FLOW. The slot's place along the strip is a number the canvas resolved,
@@ -1332,7 +1332,7 @@ export function imposeStyle(
     const offset =
       `min(var(${FLOW_OFFSET_PROPERTY}, 0px), ` +
       `max(0px, var(${FLOW_STRIP_PROPERTY}, 0px) - ${band}))`;
-    style.left = `calc(0% + ${INSET_LEFT} + ${GAP} + ${placement.flow.stripLeft}px - ${offset}${centre})`;
+    style.left = `calc(0% + ${INSET_LEFT} + ${GAP} + ${placement.flow.stripLeft}px - ${offset}${center})`;
 
     // THE BAND CLIPS. A flow pane's ink stops at the band's edges — without
     // this, a card that straddles an edge paints on under the rail and out
@@ -1358,7 +1358,7 @@ export function imposeStyle(
     const offsetOfViewport =
       `min(var(${FLOW_OFFSET_PROPERTY}, 0px), ` +
       `max(0px, var(${FLOW_STRIP_PROPERTY}, 0px) - ${bandOfViewport}))`;
-    const near = placement.flow.stripLeft + centreOffset;
+    const near = placement.flow.stripLeft + centerOffset;
     const clipLeft =
       `max(${-FLOW_CLIP_SLACK_PX}px, calc(${offsetOfViewport} - ${near}px))`;
     const clipRight =
@@ -1373,7 +1373,7 @@ export function imposeStyle(
   // `k / (N - 1) × max(0, band - width)` — see the module note.
   const offset =
     fraction === 0 ? "0px" : `${fraction} * max(0px, ${band} - ${slotWidth}px)`;
-  style.left = `calc(0% + ${INSET_LEFT} + ${GAP} + ${offset}${centre})`;
+  style.left = `calc(0% + ${INSET_LEFT} + ${GAP} + ${offset}${center})`;
   return style;
 }
 
@@ -1615,6 +1615,57 @@ export function flowRevealOffset(input: FlowRevealInput): number {
     stripLength: input.stripWidth,
     band: input.band,
     offset: input.offset,
+  });
+}
+
+/**
+ * What the centering rule is told. The same four lengths the reveal is told
+ * MINUS the offset standing now, and the omission is the whole difference
+ * between the two rules: where the band is has no bearing on where the middle
+ * of the strip's `stripStart..stripStart + extent` run is.
+ */
+export type StripCenterInput = Omit<StripRevealInput, "offset">;
+
+/**
+ * The offset that puts a member's middle at the band's middle.
+ *
+ * Where {@link stripRevealOffset} answers "move as little as possible", this
+ * answers "put it here" — an absolute position rather than a correction. That
+ * is what a reader asking for a slot BY NAME means: they named a place, not a
+ * deficiency in the current one, so the answer must not depend on where the
+ * band happens to stand. A member already wholly on screen still travels.
+ *
+ * The clamp is what makes the ends behave: the first and last slots of a strip
+ * cannot reach the middle of the band without showing emptiness beside them,
+ * and the clamp pins them flush instead. So a centering gesture near an end
+ * moves less than the middle of the strip would, and at the very end moves
+ * nothing — the strip is already showing everything it has in that direction.
+ *
+ * Axis-free, like its neighbour, so a column's vertical strip could center by
+ * exactly this arithmetic over heights.
+ */
+export function stripCenterOffset(input: StripCenterInput): number {
+  const { stripStart, extent, stripLength, band } = input;
+  if (!Number.isFinite(stripStart) || !Number.isFinite(extent)) {
+    return clampStripOffset(0, stripLength, band);
+  }
+  return clampStripOffset(
+    stripStart + extent / 2 - band / 2,
+    stripLength,
+    band,
+  );
+}
+
+/** Flow's own name for {@link StripCenterInput}. */
+export type FlowCenterInput = Omit<FlowRevealInput, "offset">;
+
+/** {@link stripCenterOffset} read horizontally — flow's centering. */
+export function flowCenterOffset(input: FlowCenterInput): number {
+  return stripCenterOffset({
+    stripStart: input.stripLeft,
+    extent: input.extent,
+    stripLength: input.stripWidth,
+    band: input.band,
   });
 }
 
