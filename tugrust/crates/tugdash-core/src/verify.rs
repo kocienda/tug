@@ -90,51 +90,6 @@ pub fn write_pilot_mark(repo: &Path, name: &str, head_pair: &str) -> Result<(), 
     Ok(())
 }
 
-/// The branch-config key holding the **dash head** the user last declined.
-///
-/// The head is the whole key, and the base sha is deliberately not part of it.
-/// Those are two different questions and only one of them is new work. A base
-/// move means *the same dash work, reconciled again* — including it would ask
-/// the same question on every push to the base branch, which is nagging. A new
-/// round means *work the user has not been asked about* — and that is the case
-/// the mark must expire on, because a dismissal is about a state, not about a
-/// dash forever. Declining at the end of one milestone must not silence the
-/// ask at the end of the next.
-///
-/// A mark written by an older build holds a decision word rather than a sha,
-/// and a word can never equal a 40-character head, so those dismissals expire
-/// on upgrade — the prompt returns, which is the direction to fail in.
-pub fn prompt_mark_key(name: &str) -> String {
-    format!("branch.tugdash/{}.tugjoinprompted", name)
-}
-
-/// The dash head the user last declined, if any.
-pub fn read_prompt_mark(repo: &Path, name: &str) -> Option<String> {
-    config_get(repo, &prompt_mark_key(name))
-}
-
-/// Record that the user declined the ask standing over this dash head.
-pub fn write_prompt_mark(repo: &Path, name: &str, dash_head: &str) -> Result<(), String> {
-    let out = git_output(
-        repo,
-        &["config", "--replace-all", &prompt_mark_key(name), dash_head],
-    )?;
-    if !out.status.success() {
-        return Err(format!(
-            "failed to record the declined prompt for {}: {}",
-            name,
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    Ok(())
-}
-
-/// Drop the dismissal — the user engaged, so the next state this dash reaches
-/// is a fresh question.
-pub fn clear_prompt_mark(repo: &Path, name: &str) {
-    let _ = git_output(repo, &["config", "--unset-all", &prompt_mark_key(name)]);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,66 +138,6 @@ mod tests {
             read_pilot_mark(repo, "demo").as_deref(),
             Some("base2:head1"),
             "a rewritten mark replaces the old pair"
-        );
-    }
-
-    /// The dismissal round-trips, suppresses the head it declined, expires on
-    /// the next round, and clears on engagement.
-    #[test]
-    fn the_prompt_mark_declines_one_head() {
-        let temp = init();
-        let repo = temp.path();
-        let head_b = "b".repeat(40);
-        let head_c = "c".repeat(40);
-        let declined = |mark: Option<String>, head: &str| mark.as_deref() == Some(head);
-
-        assert!(read_prompt_mark(repo, "demo").is_none());
-
-        write_prompt_mark(repo, "demo", &head_b).unwrap();
-        assert!(declined(read_prompt_mark(repo, "demo"), &head_b));
-        assert!(
-            !declined(read_prompt_mark(repo, "demo"), &head_c),
-            "a new round is a question nobody has declined"
-        );
-
-        write_prompt_mark(repo, "demo", &head_c).unwrap();
-        assert!(declined(read_prompt_mark(repo, "demo"), &head_c));
-
-        clear_prompt_mark(repo, "demo");
-        assert!(read_prompt_mark(repo, "demo").is_none());
-    }
-
-    /// A mark left by an older build holds a decision word, which no head can
-    /// equal — so the dismissal expires on upgrade and the prompt returns.
-    #[test]
-    fn a_legacy_decision_word_mark_never_suppresses() {
-        let temp = init();
-        let repo = temp.path();
-        let head = "d".repeat(40);
-
-        write_prompt_mark(repo, "demo", "clean").unwrap();
-        assert_ne!(
-            read_prompt_mark(repo, "demo").as_deref(),
-            Some(head.as_str())
-        );
-    }
-
-    /// The two marks live on different keys and cannot shadow one another —
-    /// they answer different questions and are keyed deliberately differently.
-    #[test]
-    fn the_two_marks_are_independent() {
-        let temp = init();
-        let repo = temp.path();
-        assert_ne!(pilot_mark_key("demo"), prompt_mark_key("demo"));
-
-        write_pilot_mark(repo, "demo", "b:h").unwrap();
-        write_prompt_mark(repo, "demo", &"e".repeat(40)).unwrap();
-        clear_prompt_mark(repo, "demo");
-
-        assert_eq!(
-            read_pilot_mark(repo, "demo").as_deref(),
-            Some("b:h"),
-            "clearing a declined decision does not license a re-run"
         );
     }
 

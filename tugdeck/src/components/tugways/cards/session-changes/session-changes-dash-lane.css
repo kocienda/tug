@@ -173,3 +173,12 @@ body {
   line-height: 1.5;
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
+
+/* Where a standing join's message came from, when the precedence fell through
+   to something nobody wrote. Prose rather than mono: it is the surface
+   speaking about the quote above it, not part of the quote. */
+.session-changes-dash-draft-note {
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

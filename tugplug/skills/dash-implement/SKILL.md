@@ -85,7 +85,7 @@ Walk the resolved steps in dependency order. For each step:
   {"instruction":"Step N: <title>","summary":"<what landed + how verified>"}
   EOF
   ```
-- **On the final declared step — and only there — write the join draft before closing it.** Closing step `m` is the arming event: the instant its `done` lands, the server may raise the join prompt, and whatever draft exists at that moment is the squash message the user lands with. A draft written afterwards is a draft racing the user's finger. Compose it from the run's rounds per phase 3's rules (bare subject, rounds digest) and write it now:
+- **On the final declared step — and only there — write the join draft before closing it.** Closing step `m` is the arming event: the instant its `done` lands, the server may raise the join offer, and whatever draft exists at that moment is the squash message the user lands with. A draft written afterwards is a draft racing the user's finger. Compose it from the run's rounds per phase 3's rules (bare subject, rounds digest) and write it now:
   ```bash
   tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
   ```
@@ -132,9 +132,9 @@ tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
 
 **Write the subject bare — no `tugdash(<name>): ` prefix.** The join adds the scope itself, so one written here is redundant; a scope naming a *different* dash is stripped at the join rather than preserved, so writing one at best changes nothing and at worst hides what you meant.
 
-Write it even on a run that stops mid-plan: the draft is what the prompt shows the user when it asks, and a dash with no draft offers to land its branch description — or, with neither, the words `Dash work`. The prompt says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
+Write it even on a run that stops mid-plan: the draft is what the shade shows the user, and a dash with no draft offers to land its branch description — or, with neither, the words `Dash work`. The fold says which of the three it is, so a missing draft is visible rather than silent, but visible-and-wrong is still wrong.
 
-**Then say what happened and stop.** The ending narration is three things: what was built, that the fit is verified (or that the replay reported `Current`, so it was already), and that the draft is written. At most add *"the join prompt will raise momentarily."* **Do not print a `/join <name>` chip.** The dash is bound and armed; the prompt raises itself on this card, and a chip alongside it teaches the user that nothing happens until they type — which is the belief this whole arc exists to retire ([D147]).
+**Then say what happened and stop.** The ending narration is three things: what was built, that the fit is verified (or that the replay reported `Current`, so it was already), and that the draft is written. At most add *"the Changes shade will reveal itself momentarily."* **Do not print a `/join <name>` chip.** The dash is bound and armed; the shade summons itself on this card, and a chip alongside it teaches the user that nothing happens until they type — which is the belief this whole arc exists to retire ([D147], [D152]).
 
 **Offer a build when the work wants one.** A change the user will want to *see* — a surface with a face — is worth building and vetting before the join. What to run is the project's to say: the `build` command `tugutil dash config` reports. Run it from the worktree root, read what it says, and relay that to the user rather than describing a build you did not watch.
 
@@ -162,14 +162,16 @@ Loop until the user is satisfied. A follow-up "now do Steps 6-8" is just another
 
 ### 5. Join (the user's join gesture)
 
-**The prompt is the door.** A modal raises on the bound card — *Join now*, *Review first*, *Not yet* — and *Join now* squash-lands the dash with the draft you wrote in phase 3, narrating the beats in the sheet itself and settling on the outcome. The user answers it; you do not. Your part ended at the draft.
+**The shade is the door.** The Changes shade reveals itself on the bound card in the first quiet moment, showing the dash's row, the message the join would land, and where those words came from. Entering the landing mode and pressing the composer's ⬆ squash-lands the dash with the draft you wrote in phase 3, narrating the beats and settling on the outcome. The user does that; you do not. Your part ended at the draft.
+
+Closing the shade costs nothing and answers nothing — the row is still in there, and new work on the dash reveals it again. There is no "not yet" to record and nothing that can lock the offer out.
 
 **`/join <name>` in the Session card is the escape hatch**, the same join by hand, previewing the merge in memory before anything is touched. Reach for it only in the cases below.
 
-**The escapes.** Print the chip in exactly two situations, because in both of them the prompt genuinely cannot raise:
+**The escapes.** Print the chip in exactly two situations, because in both of them the shade genuinely has nothing to reveal:
 
-- **The dash is unbound by choice.** The prompt only raises on a card bound to the dash, and an unbound dash is never even reconciled. If the user has declined to bind one, `/join <name>` is their only path.
-- **A legacy dash** with no declared run and no mark — nothing arms it, so nothing will ask.
+- **The dash is unbound by choice.** The offer only reaches a card bound to the dash, and an unbound dash is never even reconciled. If the user has declined to bind one, `/join <name>` is their only path.
+- **A legacy dash** with no declared run and no mark — nothing arms it, so no offer ever stands.
 
 Everywhere else the chip is noise at best and misinformation at worst. If the user reports the join blocked on base dirt, the preflight is intersection-aware: only base changes overlapping the dash's files block; unrelated base dirt should be committed or stashed first.
 

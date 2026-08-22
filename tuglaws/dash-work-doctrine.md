@@ -116,7 +116,7 @@ Write it knowing exactly what it becomes: **a join lands one commit on the base,
 
 **The arc arms itself, and `tugutil dash mark <name> built` is telemetry** ([D147]). What arms it is the run reaching the step it declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time a run ended early. The mark stamps the word `built` on the dash's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
 
-Once armed, the pilot reconciles the dash against its base, unprompted. It runs no build and no tests — the run's ending already verified the tree that lands ([D149]) — so a standing candidate is the whole of readiness, and the dash **asks** the moment it has one: a prompt raises on the bound session offering *Join now*, *Review first* or *Not yet*. A run's report therefore does not end in a `/join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142], [D147]).
+Once armed, the pilot reconciles the dash against its base, unprompted. It runs no build and no tests — the run's ending already verified the tree that lands ([D149]) — so a standing candidate is the whole of readiness, and the dash **offers** the moment it has one: the Changes shade reveals itself on the bound session in the first quiet moment, showing the dash's row, what the join would land, and where those words came from ([D152]). A run's report therefore does not end in a `/join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142], [D147]).
 
 ## The join finishes itself
 
@@ -162,14 +162,27 @@ behaves in a way that looks like nothing happening:
   discrete beats with minutes between them, and only the server's own timeouts
   can call it dead.
 
-**The join speaks where the decision was made.** The ask mounts inline at the
-transcript's live edge — not as a modal, which scrimmed the run's own ending
-narration at the exact moment the decision needed it — and it shows what would
-land and where those words came from, live: a draft written while the ask stands
-repaints it in place. On *Join now* that same surface becomes the progress
-surface, narrating the join's beats and settling on what happened, then
-departing. The durable record is the receipt row the landing leaves in the
-transcript.
+**The join speaks in the room where the work is, and that room stands**
+([D152]). The decision surface is the Changes shade: the card reveals it in the
+first quiet moment — no turn running, no landing up, no half-typed prompt — and
+until one arrives the Changes segment wears an accent dot so the offer is quiet
+rather than silent. The reveal is a glance and nothing more: it enters no mode
+and touches no composer, so entering the landing mode and pressing the ⬆ stay
+the user's own gestures. The fronted dash's fold says what the join would land
+and where those words came from, live: a draft written while the offer stands
+repaints it in place.
+
+The shade replaced a dialog, and the reason is worth carrying: **a transient
+surface has no reopen gesture**, so every dismissible one needs a durable record
+of the dismissal and a policy for when that record expires — machinery that once
+locked a real dash out of its own join until somebody ran `git config
+--unset-all` by hand. Closing a standing room costs nothing, because the row is
+still in it. So closing the shade is the whole of "not yet", and new work on the
+dash summons it again.
+
+While the join runs, its beats narrate in the register the shade and the
+composer already share. The durable record is the receipt row the landing leaves
+in the transcript.
 
 ## What never gets asked
 

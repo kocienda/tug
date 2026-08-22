@@ -81,13 +81,13 @@ tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
 
 Compose it from what the rounds actually did: an imperative subject under 50 chars naming the deliverable, then a terse factual digest. **The subject is bare — no `tugdash(<name>): ` prefix**, because the join adds the scope itself and a scope naming a different dash is stripped there rather than preserved. Every line unbroken to its end (**no hard wrapping**), no AI or agent attribution, ever. The join gesture lands this message and does not compose one — a dash that reaches it draftless stops there.
 
-Write the draft whether or not you built anything: the join prompt shows it, and a draftless dash offers to land its branch description — or, with neither, the words `Dash work`.
+Write the draft whether or not you built anything: the Changes shade shows it, and a draftless dash offers to land its branch description — or, with neither, the words `Dash work`.
 
 Then **stop.** Don't merge.
 
 ### Join (only on the user's word)
 
-The join is the user's, and the **prompt** is how it reaches them: a modal raises on the bound card offering *Join now*, *Review first*, *Not yet*, and lands the squash with the draft you left. Say the draft is written and stop — do not print a `/join <name>` chip, which reads as "nothing will happen until you type this" beside a dialog that is about to raise on its own.
+The join is the user's, and the **Changes shade** is how it reaches them: the shade reveals itself on the bound card in the first quiet moment, showing the dash's row and the message the join would land, and the composer's ⬆ lands the squash with the draft you left. Say the draft is written and stop — do not print a `/join <name>` chip, which reads as "nothing will happen until you type this" beside a room that is about to open on its own.
 
 The chip belongs only where the prompt cannot raise: a dash the user has left unbound, or a legacy dash with no declared run and no mark. If the user asks you to run the join instead, `/tugplug:dash-join <name>` is the same join in skill form.
 

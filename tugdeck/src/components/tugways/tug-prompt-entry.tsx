@@ -805,6 +805,19 @@ export interface TugPromptEntryProps {
    */
   changesLandingKind?: LandingKind;
   /**
+   * A join is standing for this card's dash and the room is not open.
+   *
+   * The unread idiom: while it holds, the Changes segment wears a small accent
+   * dot saying there is something in there to look at. It is the held signal
+   * for the case the shade's own reveal must yield to — a running turn, a
+   * half-typed composer — so the offer is never silent, only quiet.
+   *
+   * The host derives it per render from live facts and never remembers it, so
+   * the dot cannot outlive the dash. The label does not change with it: the
+   * group stays invariant in shape and in words.
+   */
+  changesHasOffer?: boolean;
+  /**
    * Entering the Changes room, which the host must resolve: which landing a
    * card enters depends on what it is mated to, and only the host holds both
    * controllers. Leaving to the prompt is handled here, because it has to
@@ -1139,6 +1152,7 @@ export const TugPromptEntry = React.forwardRef<
     findSession,
     landingMode,
     changesLandingKind = "commit",
+    changesHasOffer = false,
     onEnterChanges,
     onAttachmentError,
     sessionMetadataStore,
@@ -3616,6 +3630,11 @@ export const TugPromptEntry = React.forwardRef<
     landingMode !== undefined ? (
       <TugChoiceGroup
         className="tug-prompt-entry-route-group"
+        // The unread dot, painted by CSS off this attribute rather than by a
+        // second segment or a label swap ([L06]). It rides the group root
+        // because `TugChoiceItem` carries no per-segment attribute hook, and
+        // the segment it belongs to is named in the selector.
+        data-join-offer={changesHasOffer || undefined}
         items={[
           {
             value: "prompt",

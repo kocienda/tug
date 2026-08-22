@@ -74,7 +74,6 @@ import {
 import { useUnavailableModelBulletin } from "@/lib/use-unavailable-model-bulletin";
 import { persistModelCatalog } from "@/lib/model-catalog";
 import { useRewindSheet } from "./rewind-sheet";
-import { useJoinPrompt } from "./join-prompt-inline";
 import { useSkillsSheet } from "./skills-sheet";
 import { useAgentsSheet } from "./agents-sheet";
 import { useMemorySheet } from "./memory-sheet";
@@ -3466,46 +3465,55 @@ export function SessionCardBody({
     showSheet: cardPickerSheet.showSheet,
   });
 
-  // The join arc's one decision ([P06]). Nothing opens this — the feed causes
-  // it, on the card of a session bound to that dash and nowhere else. It
-  // yields while this card's composer is already landing something; a running
-  // turn is not a reason to yield, because the decision is about a dash rather
-  // than about Claude. What comes back rides the transcript's live-edge slot,
-  // so the ask arrives where the user is reading and the run's ending
-  // narration above it stays legible.
-  const joinPromptElement = useJoinPrompt({
-    prompt: boundDashEntry?.join?.prompt ?? null,
-    workspaceKey: changesController.workspaceKey,
-    dashName: boundDashEntry?.display_name ?? "",
-    landingActive: commitModeActive || joinActive,
-    onAnswer: (requestId, answer) => {
-      if (boundDashEntry === null) return;
-      getChangesetJoinStore()?.answerPrompt(
-        changesController.workspaceKey,
-        boundDashEntry.display_name,
-        requestId,
-        answer,
-        changesController.tugSessionId,
-      );
-      if (answer !== "join-now") return;
-      // The server is about to join, and the two surfaces that report a join
-      // only report the ones this card correlated. Registering the same
-      // correlation a composer press registers is what gives a prompt-route
-      // join its failure bulletin, its live receipt row, and its beats.
-      getChangesetVerbStore()?.expectServerJoin(
-        changesController.entryKey,
-        changesController.workspaceKey,
-        boundDashEntry.display_name,
-      );
-      joinModeController.narrateServerJoin(joinTargetFromEntry(boundDashEntry));
-    },
-    // The same entry `/dash-join` takes, so the composer opens on the message
-    // the run maintained rather than on an empty document.
-    onReviewFirst: () => {
-      if (boundDashEntry === null) return;
-      joinModeController.enter(joinTargetFromEntry(boundDashEntry));
-    },
-  });
+  // The join arc's decision surface is the Changes shade, and this is what
+  // summons it. Nothing opens it by hand — the feed causes it, on the card of
+  // a session bound to that dash and nowhere else.
+  //
+  // The reveal is a passive glance: `show("changes")` and nothing else. It
+  // enters no mode and touches no composer, so the user's next keystroke still
+  // goes where they aimed it. Entering the landing mode stays their gesture.
+  //
+  // **Quiet moments only.** The shade is a view swap — it replaces the
+  // transcript pane rather than pushing it — so revealing over a running turn
+  // would cover the output the user is reading, and revealing over a
+  // half-typed composer would take the surface out from under them. So all
+  // four hold before it fires: no turn in flight, no landing up, an empty
+  // composer, and the shade not already showing. The gate opens on its own the
+  // moment the turn settles, because this effect re-runs on the same store
+  // reads the card already subscribes to.
+  //
+  // **Once per dash head, remembered only for this mount.** The offer's
+  // `request_id` moves when *either* head does, so it is not what to remember:
+  // a base push would mint a new id over work the reader has already been
+  // shown, and the room would open again every time somebody else landed
+  // something. The **dash head** is the fact that says "work you have not
+  // seen" — a new round moves it, a base move does not. Nothing durable
+  // records the reveal: closing the shade discards nothing, and the worst case
+  // of forgetting is one extra glance ([L22] — mount-local memory,
+  // deliberately not a store).
+  const joinOffer = boundDashEntry?.join?.offer ?? null;
+  const turnInFlight = useSyncExternalStore(
+    codeSessionStore.subscribe,
+    () => codeSessionStore.getSnapshot().canInterrupt === true,
+  );
+  const revealedOffersRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const dashHead = joinOffer?.dash_head;
+    if (dashHead === undefined) return;
+    if (revealedOffersRef.current.has(dashHead)) return;
+    if (turnInFlight) return;
+    if (anyLandingActive) return;
+    if (entryDelegateRef.current?.isEmpty() === false) return;
+    if (shadeViewController.getSnapshot() !== "none") return;
+    revealedOffersRef.current.add(dashHead);
+    shadeViewController.show("changes");
+  }, [
+    joinOffer,
+    turnInFlight,
+    anyLandingActive,
+    entryDelegateRef,
+    shadeViewController,
+  ]);
 
   // `/resume` focused sessions overlay ([#step-8]), card-scoped per [D15].
   // Reads the bound project from the binding store and lists its sessions;
@@ -5001,7 +5009,6 @@ export function SessionCardBody({
                   transcriptStore={transcriptStore}
                   findSession={findSession}
                   renderTurnTrailing={effectiveRenderTurnTrailing}
-                  liveEdgeContent={joinPromptElement}
                 />
                 {/*
                   A question raised from outside the turn stream (`/api/ask`),
@@ -5270,6 +5277,12 @@ export function SessionCardBody({
                   ? "join"
                   : "commit"
               }
+              // Derived on every render from two live reads, and remembered
+              // nowhere: a join stands for this card's dash, and the room it
+              // stands in is closed. When the join lands the dash leaves the
+              // feed and the offer goes with it, so the dot cannot outlive
+              // what it points at.
+              changesHasOffer={joinOffer !== null && shadeView === "none"}
               onEnterChanges={enterChanges}
               // A rejected drop / paste (unsupported, oversize, or
               // undecodable image) is transient input validation, not a

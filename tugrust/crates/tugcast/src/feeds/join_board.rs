@@ -30,12 +30,11 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinPrompt, DashJoinPromptOption,
+    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinOffer,
     DashJoinQuestion, DashJoinReport, DashJoinState, DashResolvedFile,
 };
 use tugdash_core::ops::{self, DashDetail};
 use tugdash_core::resolve::{self, CandidateStatus};
-use tugdash_core::verify;
 
 /// The cacheable half of one dash's join facts, and the head pair it describes.
 #[derive(Clone)]
@@ -197,9 +196,9 @@ pub fn join_state_for(
             stuck,
             question,
             run,
-            // A blocked dash is not waiting on a decision — it is waiting on an
-            // act, elsewhere, that each blocker names.
-            prompt: None,
+            // A blocked dash has nothing to offer — it is waiting on an act,
+            // elsewhere, that each blocker names.
+            offer: None,
         };
     }
 
@@ -227,7 +226,7 @@ pub fn join_state_for(
         .and_then(|sha| standing_report(repo_root, name, sha));
     let question = standing_question(repo_root, detail);
     let stuck = standing_stuck(repo_root, detail);
-    let prompt = standing_prompt(
+    let offer = standing_offer(
         repo_root,
         detail,
         candidate.is_some() && run.is_none() && question.is_none() && stuck.is_none(),
@@ -245,58 +244,31 @@ pub fn join_state_for(
         stuck,
         question,
         run,
-        prompt,
+        offer,
     }
 }
 
-/// The three answers the prompt offers ([P06]).
-///
-/// Composed here rather than in the deck so the durable fact and the rendered
-/// one are the same bytes — the same reason the landing receipt is
-/// server-formatted. A label that drifted between the two would make an answer
-/// unmatchable against the ask it came from.
-fn prompt_options() -> Vec<DashJoinPromptOption> {
-    vec![
-        DashJoinPromptOption {
-            label: "Join now".to_string(),
-            description: "Squash the dash into its base with its standing message.".to_string(),
-        },
-        DashJoinPromptOption {
-            label: "Review first".to_string(),
-            description: "Open the join message in the composer without landing.".to_string(),
-        },
-        DashJoinPromptOption {
-            label: "Not yet".to_string(),
-            description: "Leave the dash where it is. You will be asked again only if the \
-                          decision changes."
-                .to_string(),
-        },
-    ]
-}
-
-/// The decision the arc is waiting on a person for, if it is waiting on one
-/// (Spec S04, [P06], [P07]).
+/// The join this dash is ready for, if it is ready for one.
 ///
 /// Everything this reads is already computed by the caller, with one exception:
 /// the two head shas, which cost a `rev-parse` each. They are paid for only in
-/// the narrow branch that is actually going to ask — a dash that is join-ready,
-/// with a candidate, with nothing running and nothing else standing in the way
-/// — and `cached_probe` has already paid the same two on the path that reaches
-/// here, so in practice the answers are warm. The dash head is read one gate
-/// earlier than the base sha, because the dismissal is keyed on it.
+/// the narrow branch that is actually going to offer — a dash that is
+/// join-ready, with a candidate, with nothing running and nothing else standing
+/// in the way — and `cached_probe` has already paid the same two on the path
+/// that reaches here, so in practice the answers are warm.
 ///
-/// **Reconcile-clean is the whole gate.** The ask used to wait on a settled
+/// **Reconcile-clean is the whole gate.** The offer used to wait on a settled
 /// verdict over the candidate's tree, which put a build between the user and
-/// the dialog. The run's ending verifies the tree that lands, so a candidate
-/// standing on a ready dash is a question, immediately.
+/// the decision. The run's ending verifies the tree that lands, so a candidate
+/// standing on a ready dash is an offer, immediately.
 ///
-/// **The re-ask policy is the last gate, deliberately** ([P07]). The prompt is
-/// re-derived from durable state on every recompute, so what stops a dismissed
-/// ask from reappearing on the very next one is the mark comparison here — and
-/// it compares the *dash head*, which is what makes an ordinary base move
-/// silent while a new round still interrupts. Declining the ask at one
-/// milestone therefore says nothing about the next one.
-fn standing_prompt(repo_root: &Path, detail: &DashDetail, quiet: bool) -> Option<DashJoinPrompt> {
+/// **There is no dismissal gate, and that is the design.** The offer is a
+/// standing fact about the dash, not an ask somebody can decline: the surface
+/// that renders it is the Changes shade, which the user closes for free and
+/// reopens at will. A durable mark recording that a dialog had been dismissed
+/// only ever existed to stop a modal from re-raising itself, and a surface that
+/// never raises itself uninvited needs no such record.
+fn standing_offer(repo_root: &Path, detail: &DashDetail, quiet: bool) -> Option<DashJoinOffer> {
     // The arc's decision belongs at the end of the arc. A dash that has not
     // finished the work somebody asked it for is still being worked, and there
     // is nothing to decide about. Readiness is derived rather than declared
@@ -307,37 +279,22 @@ fn standing_prompt(repo_root: &Path, detail: &DashDetail, quiet: bool) -> Option
     }
     let name = detail.name.as_str();
     let dash_head = ops::rev_parse(repo_root, &detail.branch).ok()?;
-    // The dismissal is about the dash head, so this is where a dismissed ask
-    // stays dismissed — through any number of base moves — and where a new
-    // round brings it back.
-    if verify::read_prompt_mark(repo_root, name).as_deref() == Some(dash_head.as_str()) {
-        return None;
-    }
     let base_sha = ops::rev_parse(repo_root, &detail.base).ok()?;
-    // Readiness and reconciliation, and nothing about a build: a dash arms from
-    // a finished selection or a landed round, and what the joined tree does was
-    // asked at the end of the run.
-    let question = format!(
-        "{name} is ready and reconciled with {} — join it?",
-        detail.base
-    );
-    // What the join would land with, read on the ask branch only ([P05]) — one
-    // config read and one draft lookup, paid where a person is about to be
-    // shown the answer.
+    // What the join would land with, read on the offer branch only — one config
+    // read and one draft lookup, paid where a person is about to be shown the
+    // answer.
     let (message, message_source) = ops::landing_message_preview(repo_root, name, &detail.branch);
-    Some(DashJoinPrompt {
-        // The three facts the ask is about, joined. Stable across recomputes
-        // because every one of them is, which is what lets an answer given
-        // several seconds after the ask still match it — and distinct the
-        // moment any of them moves, which is what stops an answer to the old
-        // question from resolving the new one.
+    Some(DashJoinOffer {
+        // The three facts the offer is about, joined. Stable across recomputes
+        // because every one of them is, which is what lets a surface reveal
+        // itself once per offer rather than on every recompute — and distinct
+        // the moment any of them moves, which is what makes new work summon the
+        // surface again.
         request_id: format!("{name}:{base_sha}:{dash_head}"),
         base_sha,
         dash_head,
-        question,
         message,
         message_source: message_source.as_str().to_string(),
-        options: prompt_options(),
     })
 }
 
@@ -864,10 +821,10 @@ mod tests {
         );
     }
 
-    // ── The join prompt (Spec S04, [P06], [P07]) ────────────────────────────
+    // ── The join offer ──────────────────────────────────────────────────────
 
     /// Take the fixture's dash all the way to a settled verdict — the only
-    /// state the arc asks a question in.
+    /// state the arc offers a join in.
     ///
     /// **Nothing is declared here.** The dash is a plan-less generation with a
     /// landed round and a clean worktree, which is the whole arming fact
@@ -889,101 +846,81 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_arrives_once_the_machine_is_out_of_work_and_not_before() {
+    fn the_offer_arrives_once_the_machine_is_out_of_work_and_not_before() {
         let temp = fixture();
         let repo = temp.path();
 
         // Conflicted, nothing built: the machine still has work, so there is
-        // nothing to decide about.
+        // nothing to offer.
         assert!(
-            compose(repo).prompt.is_none(),
-            "a conflicted dash asks nothing"
+            compose(repo).offer.is_none(),
+            "a conflicted dash offers nothing"
         );
 
         reconciled(repo);
-        let asked = compose(repo)
-            .prompt
-            .expect("a reconciled ready dash asks — with no mark anywhere");
-        assert!(
-            asked.question.contains("demo") && asked.question.contains("main"),
-            "the question names the dash and its base: {}",
-            asked.question
-        );
-        assert_eq!(
-            asked.options.len(),
-            3,
-            "join now / review first / not yet — composed server-side so the \
-             durable fact and the rendered one are the same bytes"
-        );
+        let offer = compose(repo)
+            .offer
+            .expect("a reconciled ready dash offers its join");
 
-        // Stable across recomputes. The prompt is re-derived every time, so an
-        // id that moved would invalidate the answer the user is in the middle
-        // of giving.
+        // Stable across recomputes. The offer is re-derived every time, so an
+        // id that moved would re-summon the shade on every recompute.
         assert_eq!(
-            compose(repo).prompt.expect("still asked").request_id,
-            asked.request_id,
-            "the same ask, re-derived"
+            compose(repo).offer.expect("still offered").request_id,
+            offer.request_id,
+            "the same offer, re-derived"
         );
     }
 
-    /// The two cases the old decision-keyed mark collapsed into one: a base
-    /// move is the same work reconciled again, and a new round is work the
-    /// user has never been asked about ([P02]).
+    /// New work mints a new offer, and nothing else does.
+    ///
+    /// The id is what a surface reveals itself once per, so a base move must
+    /// not mint one — the same work reconciled again is the same offer — while
+    /// a round the user has never seen must.
     #[test]
-    fn a_dismissal_declines_one_head_not_the_dash() {
+    fn a_new_round_mints_a_new_offer_and_a_base_move_does_not() {
         let temp = fixture();
         let repo = temp.path();
         reconciled(repo);
-        let asked = compose(repo).prompt.expect("asked once");
+        let first = compose(repo).offer.expect("offered once");
 
-        // "Not yet" records the dash head it declined.
-        verify::write_prompt_mark(repo, "demo", &asked.dash_head).unwrap();
-        assert!(
-            compose(repo).prompt.is_none(),
-            "the same state does not ask twice — this is what stops the \
-             dialog from being trained into a reflex"
-        );
-
-        // The base moves and the dash reconciles again. Nothing about the work
-        // changed, so nothing is asked — the objection the old docstring
-        // raised, still honored.
+        // The base moves and the dash reconciles again. The base sha is part
+        // of the identity, so this is a distinct offer — but it describes the
+        // same dash head, which is the fact a surface keys its "same work"
+        // reading on.
         std::fs::write(repo.join("f.txt"), "D\n").unwrap();
         git(repo, &["commit", "-am", "main to D"]);
         reconciled(repo);
-        assert!(
-            compose(repo).prompt.is_none(),
-            "a push to the base is not a new question"
+        let moved = compose(repo).offer.expect("still offered");
+        assert_eq!(
+            moved.dash_head, first.dash_head,
+            "a push to the base is not new work on the dash"
         );
 
-        // A new round on the dash is. This is the milestone case the field
-        // report found: declining at one milestone silenced every later one.
+        // A new round is.
         git(repo, &["switch", "-q", "tugdash/demo"]);
         std::fs::write(repo.join("g.txt"), "r2\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "r2"]);
         git(repo, &["switch", "-q", "main"]);
         reconciled(repo);
-        let again = compose(repo).prompt.expect("a new round asks again");
-        assert_ne!(again.dash_head, asked.dash_head);
+        let again = compose(repo).offer.expect("a new round offers again");
+        assert_ne!(again.dash_head, first.dash_head);
         assert_ne!(
-            again.request_id, asked.request_id,
-            "a different state is a different ask, so an answer to the old \
-             one cannot resolve it"
+            again.request_id, first.request_id,
+            "new work is a new offer, so a surface that has already shown the \
+             old one shows this one too"
         );
-
-        // Engagement clears the mark, and the next state is fresh.
-        verify::write_prompt_mark(repo, "demo", &again.dash_head).unwrap();
-        assert!(compose(repo).prompt.is_none());
-        verify::clear_prompt_mark(repo, "demo");
-        assert!(compose(repo).prompt.is_some());
     }
 
     #[test]
-    fn a_run_in_flight_holds_the_question() {
+    fn a_run_in_flight_holds_the_offer() {
         let temp = fixture();
         let repo = temp.path();
         reconciled(repo);
-        assert!(compose(repo).prompt.is_some(), "precondition: it would ask");
+        assert!(
+            compose(repo).offer.is_some(),
+            "precondition: it would offer"
+        );
 
         let owner_key = ops::dash_owner_key(repo, "demo");
         let held = crate::feeds::join_occupancy::acquire(
@@ -993,21 +930,21 @@ mod tests {
         )
         .expect("the dash is free");
         assert!(
-            compose(repo).prompt.is_none(),
-            "a dash with work in flight is not waiting on a person"
+            compose(repo).offer.is_none(),
+            "a dash with work in flight has nothing settled to offer"
         );
         drop(held);
-        assert!(compose(repo).prompt.is_some(), "and asks again once it is");
+        assert!(compose(repo).offer.is_some(), "and offers again once it is");
     }
 
-    /// The ask carries the words it would land, and says where they came from
-    /// ([P05], Spec S03).
+    /// The offer carries the words it would land, and says where they came
+    /// from.
     ///
     /// The precedence is silent by construction — a forgotten draft lands the
     /// branch description and nobody is told — so the whole point of the pair
-    /// of fields is that the prompt can name the arm it fell through to.
+    /// of fields is that the surface can name the arm it fell through to.
     #[test]
-    fn the_ask_carries_its_landing_message_and_names_the_source() {
+    fn the_offer_carries_its_landing_message_and_names_the_source() {
         let temp = fixture();
         let repo = temp.path();
         // `reconciled` redirects the data dir; the drafts ledger
@@ -1021,7 +958,7 @@ mod tests {
 
         // Neither draft nor description: the stand-in, declared as one rather
         // than passed off as somebody's words.
-        let bare = compose(repo).prompt.expect("asked");
+        let bare = compose(repo).offer.expect("offered");
         assert_eq!(bare.message, "tugdash(demo): Dash work");
         assert_eq!(bare.message_source, "fallback");
 
@@ -1033,20 +970,20 @@ mod tests {
                 "Teach the imposer to breathe",
             ],
         );
-        let described = compose(repo).prompt.expect("asked");
+        let described = compose(repo).offer.expect("offered");
         assert_eq!(
             described.message,
             "tugdash(demo): Teach the imposer to breathe"
         );
         assert_eq!(described.message_source, "description");
 
-        // An authored draft outranks it — and the ask keeps its identity, so
-        // editing the draft while the dialog stands cannot orphan the answer
-        // the user is in the middle of giving. What carries a mid-ask draft
-        // write this far is the feed bump `draft_handler` fires: without it
-        // the composition below is correct and never runs.
+        // An authored draft outranks it — and the offer keeps its identity, so
+        // editing the draft while the offer stands does not mint a new one and
+        // re-summon the surface. What carries a mid-offer draft write this far
+        // is the feed bump `draft_handler` fires: without it the composition
+        // below is correct and never runs.
         seed_draft_row(&db, "tugdash/demo", repo, "The words the author chose");
-        let drafted = compose(repo).prompt.expect("asked");
+        let drafted = compose(repo).offer.expect("offered");
         assert_eq!(drafted.message, "tugdash(demo): The words the author chose");
         assert_eq!(drafted.message_source, "draft");
         assert_eq!(

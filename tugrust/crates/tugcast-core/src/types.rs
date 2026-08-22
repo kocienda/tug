@@ -663,43 +663,41 @@ pub struct DashJoinState {
     /// absence — the server knows, so the wire should say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<String>,
-    /// The decision the machine is waiting on a person for (Spec S04, [P06]).
+    /// The join this dash is ready for, standing until it is taken or the work
+    /// moves on.
     ///
-    /// Raised once the pilot's work is done and a candidate stands, cleared by
-    /// an answer. Durable and derived rather than pushed, for the same reason
-    /// [`DashJoinQuestion`] is: an ask that a reload can lose is an ask that
-    /// leaves a built dash sitting unmentioned.
+    /// Raised once the pilot's work is done and a candidate stands. Durable and
+    /// derived rather than pushed, for the same reason [`DashJoinQuestion`] is:
+    /// a fact that a reload can lose is a fact that leaves a built dash sitting
+    /// unmentioned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<DashJoinPrompt>,
+    pub offer: Option<DashJoinOffer>,
 }
 
-/// The one decision the join arc asks a person for (Spec S04, [P06]).
+/// The join a dash is ready for, as a fact rather than an ask.
 ///
 /// Everything before it is the machine's: the reconcile and the candidate it
-/// produced. This is where that work stops and a person decides, and it is
-/// deliberately the only place in the arc that does.
+/// produced. This is where that work stops and a person decides. The decision
+/// surface is the Changes shade — the offer is what the shade shows and what
+/// summons it, so this carries what a person needs to see and nothing that
+/// belongs to a dialog.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinPrompt {
-    /// Identifies this ask, so an answer cannot resolve a different one.
+pub struct DashJoinOffer {
+    /// Identifies this offer, so a surface can tell one from the next.
     ///
     /// Derived rather than random: `<dash>:<base_sha>:<dash_head>`. The
-    /// derivation is what makes it stable across recomputes — the prompt is
+    /// derivation is what makes it stable across recomputes — the offer is
     /// re-derived from durable state on every one, so an id that changed each
-    /// time would invalidate the answer the user was in the middle of giving —
-    /// and what makes it change the moment any of those three facts does, so an
-    /// answer to the old question cannot resolve the new one.
+    /// time would re-summon the shade endlessly — and what makes it change the
+    /// moment any of those three facts does, so new work summons it again.
     pub request_id: String,
     pub base_sha: String,
     pub dash_head: String,
-    /// The question, composed server-side so the durable fact and the rendered
-    /// one are the same bytes.
-    pub question: String,
     /// The message this join would land with, composed exactly as the landing
-    /// itself would compose it ([P05]).
+    /// itself would compose it.
     ///
     /// Display, not identity: it is deliberately absent from `request_id`, so
-    /// editing the draft while the ask stands does not orphan the answer the
-    /// user is in the middle of giving.
+    /// editing the draft while the offer stands does not mint a new offer.
     #[serde(default)]
     pub message: String,
     /// `"draft"`, `"description"`, or `"fallback"` — which precedence arm the
@@ -707,15 +705,6 @@ pub struct DashJoinPrompt {
     /// branch description silently.
     #[serde(default)]
     pub message_source: String,
-    pub options: Vec<DashJoinPromptOption>,
-}
-
-/// One answer offered on the join prompt.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct DashJoinPromptOption {
-    pub label: String,
-    #[serde(default)]
-    pub description: String,
 }
 
 /// An escalation from the resolver, phrased as intent ([P06]).

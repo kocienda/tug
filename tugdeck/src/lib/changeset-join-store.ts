@@ -228,7 +228,6 @@ export class ChangesetJoinStore {
       action !== "changeset_join_resolve_ok" &&
       action !== "changeset_join_resolve_err" &&
       action !== "changeset_join_question_answer_err" &&
-      action !== "changeset_join_prompt_answer_err" &&
       action !== "changeset_join_land_delta" &&
       action !== "changeset_join_ok" &&
       action !== "changeset_join_err"
@@ -279,13 +278,10 @@ export class ChangesetJoinStore {
       return;
     }
 
-    // A press that changed nothing has to say so. Both of these are refusals
-    // of a *side* act — the run they belong to, if there is one, is unharmed —
-    // so they land as a stated reason and leave the phase where it was.
-    if (
-      action === "changeset_join_question_answer_err" ||
-      action === "changeset_join_prompt_answer_err"
-    ) {
+    // A press that changed nothing has to say so. This is a refusal of a
+    // *side* act — the run it belongs to, if there is one, is unharmed — so it
+    // lands as a stated reason and leaves the phase where it was.
+    if (action === "changeset_join_question_answer_err") {
       const detail = typeof body.detail === "string" ? body.detail : null;
       this._note(k, detail ?? "That answer was not delivered");
       return;
@@ -444,34 +440,6 @@ export class ChangesetJoinStore {
       dash,
       request_id: requestId,
       answer,
-    });
-  }
-
-  /**
-   * Answer the arc's one decision (Spec S05, [P06]).
-   *
-   * `requestId` carries the four facts the ask was about, so an answer given
-   * over a sheet the repository has moved past is refused rather than applied
-   * to a decision nobody made. The refusal comes back as
-   * `changeset_join_prompt_answer_err` and lands in this cell's stated reason,
-   * on the same path the other two side-act refusals take.
-   */
-  answerPrompt(
-    workspaceKey: string,
-    dash: string,
-    requestId: string,
-    answer: "join-now" | "review-first" | "not-yet",
-    sessionId?: string | null,
-  ): void {
-    this._connection.sendControlFrame("changeset_join_prompt_answer", {
-      project_dir: workspaceKey,
-      dash,
-      request_id: requestId,
-      answer,
-      // The session that answered, so a "join-now" leaves the same durable
-      // `/dash-join` receipt the composer route leaves. The server tolerates
-      // its absence, so a card without an identity still gets to decide.
-      ...(sessionId ? { session_id: sessionId } : {}),
     });
   }
 

@@ -49,17 +49,16 @@
 //! time-of-check/time-of-use window that a second recompute walks straight
 //! through, and two recomputes would produce two runs.
 //!
-//! # Why the two marks are keyed differently
+//! # Why it is keyed on the head pair
 //!
-//! The pilot's attempt mark is keyed on the **head pair**: either head moving
-//! is new work, so the mark stops matching and the pilot runs again. The
-//! prompt's dismissal mark (`…tugjoinprompted`) is keyed on the **dash head**
-//! alone, so a base move that reconciles the same work re-reconciles silently
-//! and asks nothing, while a new round asks. Merging them breaks both: keyed
-//! on the pair, a dismissal would expire on every push to the base and the
-//! same question would be asked forever; keyed on the dash head alone, the
-//! pilot would never re-run after the base moved. Both live in
-//! `tugdash_core::verify`.
+//! Either head moving is new work — a round on the dash, or a base the dash
+//! has not been reconciled against — so the pair is exactly the fact that says
+//! "this reconcile has not been attempted". Keyed on the dash head alone the
+//! pilot would never re-run after the base moved, and a dash cut days ago
+//! would sit unreconciled against a base it had never met. It lives in
+//! `tugdash_core::verify`, and it is now the only mark on this arc: the
+//! dismissal mark that once sat beside it was a record of a dialog having been
+//! declined, and nothing raises a dialog here any more.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -247,7 +246,7 @@ mod tests {
             stuck: None,
             question: None,
             run: None,
-            prompt: None,
+            offer: None,
         }
     }
 

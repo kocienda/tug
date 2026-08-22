@@ -486,57 +486,6 @@ describe("a press that changed nothing says so ([P04], [P06])", () => {
     // mean the resolver died.
     expect(live.phase).toBe("resolving");
   });
-
-  test("the join decision's answer carries the id the ask was about", () => {
-    // The `request_id` is the whole safety of this round trip ([P06]). The
-    // prompt is re-derived from durable state on every recompute and a person
-    // reads a sheet at their own pace, so the answer that arrives may be about
-    // a state the repository has already left. Sending the id is what lets the
-    // server refuse that rather than apply a decision nobody made.
-    const { conn, sent } = recordingConn();
-    const store = attachChangesetJoinStore(conn);
-    store.answerPrompt("/p", "demo", "demo:base0:head0:clean", "join-now");
-    expect(sent).toEqual([
-      {
-        action: "changeset_join_prompt_answer",
-        body: {
-          project_dir: "/p",
-          dash: "demo",
-          request_id: "demo:base0:head0:clean",
-          answer: "join-now",
-        },
-      },
-    ]);
-  });
-
-  test("the decision names the session that made it, when it has one", () => {
-    // What makes the prompt route leave the same durable `/dash-join` receipt
-    // the composer route leaves: the server writes the row against the session
-    // the answer names, and returns early when it has none.
-    const { conn, sent } = recordingConn();
-    const store = attachChangesetJoinStore(conn);
-    store.answerPrompt("/p", "demo", "demo:base0:head0", "join-now", "sess-1");
-    expect(sent[0]?.body.session_id).toBe("sess-1");
-
-    // A card with no identity still gets to decide — the key is omitted rather
-    // than sent empty, and the server tolerates its absence.
-    store.answerPrompt("/p", "demo", "demo:base0:head0", "not-yet", null);
-    expect(sent[1]?.body).not.toHaveProperty("session_id");
-  });
-
-  test("a refused decision states its reason on the same path the others take", () => {
-    const store = attachChangesetJoinStore(fakeConn);
-    _ingestJoinFrameForTest({
-      action: "changeset_join_prompt_answer_err",
-      ...K,
-      detail: "that decision was about a state that has since moved",
-    });
-    const refused = store.state("/p", "demo");
-    expect(refused.error).toBe("that decision was about a state that has since moved");
-    // Nothing about the dash failed — the answer was refused, and painting the
-    // row as a failed run would be a second lie on top of the first.
-    expect(refused.phase).toBe("idle");
-  });
 });
 
 describe("an admission refusal does not kill the run it was refused for ([P01])", () => {

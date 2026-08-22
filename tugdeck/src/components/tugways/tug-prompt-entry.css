@@ -115,6 +115,35 @@ body {
   flex: 0 0 auto;
 }
 
+/* The standing-join dot [L06].
+ *
+ * A join is reconciled and waiting, and the room it waits in is closed. The
+ * unread idiom: a small accent dot on the Changes segment, and nothing else —
+ * no label change (the group is invariant in its words) and no pulse (a
+ * pulsing dot is the registers' "running" vocabulary, and nothing is
+ * running).
+ *
+ * It rides a pseudo-element so it costs the segment no layout: the group's
+ * width is what keeps the centred Z4B cluster from shifting, and a dot that
+ * took space would move it every time a dash went ready. Positioned against
+ * the segment's own box, which `tug-choice-group.css` already makes a
+ * containing block. */
+.tug-prompt-entry-route-group[data-join-offer] button[data-choice-value="changes"] {
+  position: relative;
+}
+
+.tug-prompt-entry-route-group[data-join-offer] button[data-choice-value="changes"]::after {
+  content: "";
+  position: absolute;
+  top: var(--tug-space-2xs);
+  right: var(--tug-space-2xs);
+  width: var(--tug-space-xs);
+  height: var(--tug-space-xs);
+  border-radius: 50%;
+  background: var(--tugx-accent);
+  pointer-events: none;
+}
+
 /* Z5 submit-button modes [L06].
  *
  * The submit button is one node whose mode is carried by `data-mode`

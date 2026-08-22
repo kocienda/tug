@@ -249,6 +249,22 @@ export function discardConfirmMessage(entry: DashChangesetEntry): string {
   return clauses.join(" ");
 }
 
+/**
+ * Where a standing join's message came from, when that is worth saying.
+ *
+ * The landing-message precedence is silent by construction — a run that forgot
+ * its draft lands the branch description, and nobody is told — and this is the
+ * one place it breaks that silence, because the user is about to agree to
+ * those exact words at the Z5 button. A drafted message needs no note: it says
+ * what somebody wrote, which is the case that needs no explanation.
+ *
+ * Keyed on the wire spellings `LandingMessageSource::as_str` emits.
+ */
+const LANDING_MESSAGE_PROVENANCE: Record<string, string | undefined> = {
+  description: "from the branch description — no draft was written",
+  fallback: "no draft and no description — the generic stand-in",
+};
+
 // ---------------------------------------------------------------------------
 // The row
 // ---------------------------------------------------------------------------
@@ -308,6 +324,13 @@ function DashRow({
     if (aim === null || !expanded || wasExpanded) return;
     aim(entry);
   }, [aim, expanded, entry]);
+
+  // The join this dash is ready for, when it is ready for one. It carries the
+  // exact bytes a join would land — composed server-side by the same
+  // `landing_message_preview` the landing itself runs — so the fold shows the
+  // message rather than the raw draft it may have come from. The two cannot
+  // drift, because they are one function.
+  const offer = entry.join?.offer ?? null;
 
   const descriptor: DiffDescriptor = {
     kind: "range",
@@ -504,7 +527,28 @@ function DashRow({
               ) : null}
             </div>
           ) : null}
-          {entry.draft !== undefined ? (
+          {offer !== null ? (
+            <div
+              className="session-changes-dash-draft"
+              data-slot="session-changes-dash-lands-as"
+            >
+              <TugSectionLabel
+                label={{ name: "lands as" }}
+                slot="session-changes-dash-draft-label"
+              />
+              <div className="session-changes-dash-draft-message">
+                {offer.message}
+              </div>
+              {LANDING_MESSAGE_PROVENANCE[offer.message_source ?? ""] !== undefined ? (
+                <div
+                  className="session-changes-dash-draft-note"
+                  data-slot="session-changes-dash-lands-as-note"
+                >
+                  {LANDING_MESSAGE_PROVENANCE[offer.message_source ?? ""]}
+                </div>
+              ) : null}
+            </div>
+          ) : entry.draft !== undefined ? (
             <div
               className="session-changes-dash-draft"
               data-slot="session-changes-dash-draft"

@@ -311,43 +311,41 @@ export interface DashJoinStateWire {
    */
   run?: string;
   /**
-   * The one decision the arc asks a person for ([P06]).
+   * The join this dash is ready for, standing until it is taken or the work
+   * moves on.
    *
-   * Raised once the machine's work is done and a candidate stands; cleared by
-   * an answer. Absent is the ordinary case — a dash still being worked, one
-   * with nothing reconciled yet, and one whose decision was already declined
-   * and has not changed since ([P07]).
+   * Raised once the machine's work is done and a candidate stands. Absent is
+   * the ordinary case — a dash still being worked, and one with nothing
+   * reconciled yet.
    */
-  prompt?: DashJoinPromptWire;
+  offer?: DashJoinOfferWire;
 }
 
-/** The join arc's one question, composed server-side (Spec S04). */
-export interface DashJoinPromptWire {
+/**
+ * The join a dash is ready for, as a fact rather than an ask.
+ *
+ * The decision surface is the Changes shade, so this carries what the shade
+ * shows and what summons it — nothing that belongs to a dialog.
+ */
+export interface DashJoinOfferWire {
   /**
    * `<dash>:<base_sha>:<dash_head>` — stable across recomputes, and different
-   * the moment any of those three facts moves, so an answer cannot resolve a
-   * question the repository has already passed.
+   * the moment any of those three facts moves. A surface reveals itself once
+   * per id, so stability is what keeps it from re-revealing on every recompute
+   * and motion is what makes new work summon it again.
    */
   request_id: string;
   base_sha: string;
   dash_head: string;
-  question: string;
   /**
    * The message this join would land with, composed server-side by the same
    * code the landing itself uses, so the preview cannot drift from the act.
-   * Deliberately absent from `request_id`: editing the draft while the ask
-   * stands must not orphan the answer being given.
+   * Deliberately absent from `request_id`: editing the draft while the offer
+   * stands must not mint a new offer.
    */
   message?: string;
   /** `"draft"` | `"description"` | `"fallback"` — which arm the message came from. */
   message_source?: string;
-  options: DashJoinPromptOptionWire[];
-}
-
-/** One answer offered on the join prompt. */
-export interface DashJoinPromptOptionWire {
-  label: string;
-  description?: string;
 }
 
 /** An escalation from the resolver, phrased as intent — never as a diff. */
