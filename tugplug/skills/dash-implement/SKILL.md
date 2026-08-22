@@ -83,6 +83,10 @@ Walk the resolved steps in dependency order. For each step:
   {"instruction":"Step N: <title>","summary":"<what landed + how verified>"}
   EOF
   ```
+- **On the final declared step — and only there — write the join draft before closing it.** Closing step `m` is the arming event: the instant its `done` lands, the server may raise the join prompt, and whatever draft exists at that moment is the squash message the user lands with. A draft written afterwards is a draft racing the user's finger. Compose it from the run's rounds per phase 3's rules (bare subject, rounds digest) and write it now:
+  ```bash
+  tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
+  ```
 - **Close the step** with the commit the round produced:
   ```bash
   tugutil dash step <name> done <n> --commit <sha>
@@ -118,7 +122,7 @@ tugutil dash replay <name>
 
 Do not re-run the sweep. A checkpoint that passed is spent; the ending's job is the fit, not a second reading of the steps.
 
-**Then the phase's one obligation** — write the dash's **join draft**, the squash message the user's join lands with. Compose it from the run's rounds (a subject line naming the plan's deliverable, then a terse digest of what the rounds landed), and write it:
+**Then check the dash's join draft still tells the truth.** You wrote it before closing the final step — that ordering is what made the words current at the instant the arc armed. Two cases reopen it: the ending added rounds (a `Conflicted` replay resolved as new work the digest doesn't mention), or the run stopped before its final declared step and no draft was ever written. In either case compose it from the run's rounds — a subject line naming the plan's deliverable, then a terse digest of what the rounds landed — and write it:
 
 ```bash
 tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"

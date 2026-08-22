@@ -35,7 +35,13 @@ Idempotent — returns the existing active dash if `<name>` already exists. **Ca
 
 ### Work (in-thread, per round)
 
-Carry out the instruction yourself in the worktree. Run the checks the doctrine names, then commit the round:
+Carry out the instruction yourself in the worktree. Run the checks the doctrine names. **Before the commit, write the dash's join draft** — committing the round is the arming event, so the prompt can raise and the user can join the moment the commit lands, and whatever draft exists at that instant is the message they land with:
+
+```bash
+tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
+```
+
+Compose it from what the rounds (including this one) will have done, per the rules under "Stop" below; on a follow-up round, refresh it the same way. Then commit:
 
 ```bash
 tugutil dash commit <name> --message "tugdash(<name>): <imperative summary, under 50 chars>" --json <<'EOF'
@@ -70,7 +76,7 @@ tugutil dash replay <name>
 
 On **`Replayed`** / **`Recorded`** the tree moved — verify it, scoped to the diff (`sh scripts/verify-fit.sh <base-sha> <head-sha>`, or the project's equivalent). On **`Current`** the base never moved and the checks you already ran covered these exact bytes, so run nothing and say so. On **`Conflicted`** the replay names the round it stopped at: resolve it in the worktree, commit the fix as a round, then verify. Do not re-run what already passed.
 
-Then write the dash's **join draft** — the squash message their join will land:
+Then check the dash's **join draft** — the squash message their join will land — still tells the truth. You wrote it before each round's commit; if the ending added a round (a `Conflicted` replay resolved as new work), refresh it now:
 
 ```bash
 tugutil draft set --owner dash:<name> --message "<subject + rounds digest>"
