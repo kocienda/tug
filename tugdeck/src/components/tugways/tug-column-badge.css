@@ -117,9 +117,10 @@
  * consumer's size override carries the drawing with it. The rules are written descendant-of-the-badge rather than on the
  * glyph class alone, because a mount inside a `TugButton` meets
  * `.tug-button svg { width: 1rem; height: 1rem }` — one specificity step above
- * a bare class, and enough to flatten the drawing. The stack glyph is inset two pixels from the badge's height, which
- * is what keeps three slices from touching the box's ends; the ladder runs the
- * full height on purpose, so its lit end rungs sit at the badge's own ends.
+ * a bare class, and enough to flatten the drawing. Both glyphs are inset two
+ * pixels from the badge's height, which is what keeps their three elements from
+ * touching the box's ends — one box for the pair, so a stack and a split drawn
+ * side by side read at one weight.
  * ---------------------------------------------------------------------------*/
 
 .tug-column-badge .tug-column-badge-glyph {
@@ -133,10 +134,6 @@
      themselves. A group opacity here would fade the lit element along with
      them, and the whole point of the lit element is that it does not fade. */
   opacity: var(--tugx-column-badge-glyph-opacity, 1);
-}
-
-.tug-column-badge .tug-column-badge-glyph-ladder {
-  block-size: var(--tugx-column-badge-height, 22px);
 }
 
 /* Every element of the glyph is painted like a slot chip, because it stands
@@ -176,18 +173,10 @@
   stroke-width: var(--tugx-column-badge-lit-stroke-width, 1);
 }
 
-.tug-column-badge-rail,
-.tug-column-badge-rung {
-  stroke: var(--tugx-column-badge-stroke, currentcolor);
-  stroke-width: var(--tugx-column-badge-stroke-width, 1);
-  stroke-linecap: round;
-}
-
-/* The ladder is the one glyph with nothing to fill: a rung is a line, so the
-   only weight it has to spend on saying *here* is its own. It runs heavier
-   than the rest of the run for that reason, where a slice — which can be
-   painted as a selected chip — does not need to. */
-.tug-column-badge-rung[data-lit="true"] {
-  stroke: var(--tugx-column-badge-accent, currentcolor);
-  stroke-width: var(--tugx-column-badge-lit-rung-width, 2);
-}
+/* Both glyphs are slices now — a stack's flattened diamonds and a split's
+   bands — so the rules above are the whole paint, and there is no second set
+   of drawing primitives to keep in step with them. The rails and rungs this
+   replaced were line work, which is the one kind of drawing with no body to
+   read by: on any ground close to its own stroke it simply disappeared, and
+   beside the stack's filled slices it read as a different kind of thing
+   rather than as the other answer to one question. */

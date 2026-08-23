@@ -2850,5 +2850,19 @@ export const ELEMENT_SURFACE_PAIRING_MAP: ElementSurfacePairing[] = [
   // ---- tug-value-input.css ----
   { element: "--tug7-element-global-text-normal-inverse-rest", surface: "--tug7-element-global-fill-normal-accentCool-rest", role: "content" },
 
+  // ---- lens/layout-places.css ----
+  //
+  // The Lens's layout marks. The surface is a BORDER token because that is
+  // what the miniature paints its blocks with (`layout-miniature.css`), and a
+  // mark stands on a block — pairing it against the section's background
+  // would be checking two things that never touch. Registered here rather
+  // than left to the file's own docblock because the mark has to hold up in
+  // both polarities against a MID-tone ground, which is exactly the case a
+  // single hand-checked theme gets wrong.
+  { element: "--tug7-element-global-text-normal-default-rest", surface: "--tug7-element-global-border-normal-strong-rest", role: "informational" },
+  // Under the hand, the same two colours swapped — the theme's own body-text
+  // contrast, run the other way.
+  { element: "--tug7-surface-global-primary-normal-default-rest", surface: "--tug7-element-global-text-normal-default-rest", role: "control" },
+
 ];
 

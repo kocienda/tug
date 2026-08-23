@@ -34,8 +34,8 @@
  * but membership churn PRESERVES an arrangement (`columnDrawsSplit`), so a slot
  * set to split and standing one card deep was invisible everywhere and
  * reachable from nowhere until a second card arrived and it resurfaced. A mark
- * is cheap enough to give every occupied place, so every occupied place has
- * one.
+ * is cheap enough to give every place the drawing draws, so every one of them
+ * has one — every slot the kind defines, and every occupied side.
  *
  * All of it writes the deck's `imposition` record — so "where is the Lens" and
  * "how wide is a Session card" are layout questions answered beside the other
@@ -72,6 +72,9 @@
  * shows. A preview is ephemeral appearance, so no React state is involved in
  * showing one ([L06]); the layers themselves are semantic data — drawings of
  * the store's candidate arrangements — and re-render when the store moves.
+ * Which layer shows is on a hover-intent clock rather than on the raw pointer
+ * — see `hoverPreview` for why a switch answering instantly made the section
+ * strobe.
  *
  * Laws: [L02] the imposition record enters React through `useSyncExternalStore`
  * on the deck store; [L03] the section's content declaration is a
@@ -90,6 +93,7 @@ import "./layouts-section.css";
 
 import React, {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -115,6 +119,7 @@ import {
   isContentWidth,
   isImpositionKind,
   isColumnMode,
+  columnModeOf,
   isImpositionLayout,
   impositionLayout,
   isRailMode,
@@ -197,6 +202,18 @@ const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 3;
  *  unreachable by any addressed placement. */
 const LAYOUTS_PLACES_FOCUS_ORDER = 20;
 
+/** How long a pointer must rest before the plan answers it, raising a preview
+ *  from the committed layer. Long enough that a pointer crossing the section
+ *  on its way elsewhere asks for nothing; short enough that a reader who meant
+ *  it does not notice waiting. */
+const PREVIEW_INTENT_MS = 110;
+
+/** How long a raised preview stands after the pointer stops resolving to one.
+ *  Longer than the intent beat, and longer than any traverse of the air
+ *  between two affordances, so crossing that air cannot show the committed
+ *  layer for an instant on the way past. */
+const PREVIEW_HOLD_MS = 180;
+
 /** User-facing label for each kind. */
 const KIND_LABELS: Record<ImpositionKind, string> = {
   "one-up": "One Up",
@@ -227,28 +244,10 @@ const SIDE_LABELS: Record<SidebarSide, string> = {
   right: "Right",
 };
 
-/** The two arrangements a shared rail can stand under, in the order the control
- *  offers them — stack first, because stack is the default. */
-const RAIL_MODES: readonly RailMode[] = ["stack", "split"];
-
-const RAIL_MODE_LABELS: Record<RailMode, string> = {
-  stack: "Stack",
-  split: "Split",
-};
-
 /** The caption for a side's rail row. */
 const RAIL_CAPTIONS: Record<SidebarSide, string> = {
   left: "Left Rail",
   right: "Right Rail",
-};
-
-/** The two arrangements a shared slot can stand under, in the order the control
- *  offers them — the same two words a rail takes, over the other kind of place. */
-const COLUMN_MODES: readonly ColumnMode[] = ["stack", "split"];
-
-const COLUMN_MODE_LABELS: Record<ColumnMode, string> = {
-  stack: "Stack",
-  split: "Split",
 };
 
 /** The caption for a slot's column row. One-based, matching the ⌘-digit chords
@@ -498,13 +497,10 @@ interface PlanLayer {
    * at THIS arrangement's geometry and modes. Without it a preview moved the
    * deck under a set of marks that stayed at the committed positions, so the
    * picture auditioned a change while its own legend flatly contradicted it.
-   * `subject` names the one place the preview proposes to change, for the
-   * accent; deck-wide layers carry `null`.
    */
   ghost: {
     columns: readonly LayoutPlace[];
     railPlaces: readonly LayoutPlace[];
-    subject: string | null;
   };
 }
 
@@ -570,14 +566,6 @@ function LayoutsSectionBody({
     left: railModeOf(imposition, "left"),
     right: railModeOf(imposition, "right"),
   };
-  // Every side that carries a rail at all — counted from the registrations the
-  // miniature draws from rather than from what is open, so the picture and the
-  // marks standing on it cannot disagree about how many cards a side holds.
-  //
-  // The overlay marks each of these and takes a press on each, so each needs
-  // both of its proposals drawn: a side holding one card can still be SET to
-  // split, and the picture has to be able to state what pressing it would do.
-  const occupiedSides = SIDES.filter((side) => (rails[side] ?? 0) > 0);
   // Every occupied slot, whatever its membership (see `useDeckColumns` for
   // why one card deep still counts).
   const columns = useDeckColumns();
@@ -585,20 +573,26 @@ function LayoutsSectionBody({
   // draws at rest ([P06]).
   const committedFlow = useCommittedFlow();
   const committedColumnOffsets = useCommittedColumnOffsets();
-  // The arrangeable places, for the overlay that draws them on the picture.
-  // Each carries its STORED arrangement and how many cards actually stand
-  // there: the glyph is drawn from the first and dimmed by the second, and the
-  // two come apart at exactly one card — which is the whole reason a place one
-  // card deep still gets a mark.
-  const columnPlaces: LayoutPlace[] = columns.map((column) => ({
-    key: `col-${column.slot}`,
-    slot: column.slot,
-    mode: column.mode,
-    members: column.members.length,
-    label: columnCaption(column.slot),
-    previewAxis: `columnmode:${column.slot}`,
-    senderId: `${COLUMN_SENDER_PREFIX}${column.slot}`,
-  }));
+  // The arrangeable places, for the overlay that draws them on the picture:
+  // EVERY slot the kind defines, occupied or not, each carrying its STORED
+  // arrangement. An arrangement outlives its membership all the way to zero,
+  // so an empty slot can still hold a split, and the drawing draws the empty
+  // block either way — a block with no mark reads as a hole in the instrument
+  // rather than as a fact about the deck. Membership is deliberately not
+  // passed down: the mark states the arrangement and nothing else, at one
+  // weight for every place.
+  const occupiedColumnOf = (slot: number): DeckColumn | undefined =>
+    columns.find((column) => column.slot === slot);
+  const columnPlaces: LayoutPlace[] = Array.from(
+    { length: slotCount(kind) },
+    (_, slot) => ({
+      key: `col-${slot}`,
+      slot,
+      mode: occupiedColumnOf(slot)?.mode ?? columnModeOf(imposition, slot),
+      label: columnCaption(slot),
+      senderId: `${COLUMN_SENDER_PREFIX}${slot}`,
+    }),
+  );
   /** The rail places a given pair of rail counts and modes comes to — used for
    *  the live overlay and again for every preview layer's ghost, so the two
    *  cannot disagree about what an occupied side is. */
@@ -610,9 +604,7 @@ function LayoutsSectionBody({
       key: `rail-${side}`,
       side,
       mode: modes[side] ?? "stack",
-      members: counts[side] ?? 0,
       label: RAIL_CAPTIONS[side],
-      previewAxis: `railmode:${side}`,
       senderId: `${RAIL_SENDER_PREFIX}${side}`,
     }));
   const railPlaces: LayoutPlace[] = railPlacesFor(rails, railModes);
@@ -716,7 +708,6 @@ function LayoutsSectionBody({
   // long as the pointer or cursor that asked for it.
   const planRef = useRef<HTMLDivElement | null>(null);
   const rowsRef = useRef<HTMLDivElement | null>(null);
-  const figureRef = useRef<HTMLDivElement | null>(null);
 
   const setPreview = useCallback((id: string | null) => {
     const plan = planRef.current;
@@ -730,42 +721,94 @@ function LayoutsSectionBody({
     plan.toggleAttribute("data-previewing", matched);
   }, []);
 
+  // ---- Hover intent: the pointer asks, the plan waits to be sure ----
+  //
+  // A hover that switched the plan the instant it resolved made the section
+  // strobe, and the reason is geometry rather than speed. The affordances have
+  // air between them — marks at the foot of adjacent blocks, segments inside a
+  // group — and every crossing of that air resolves to no preview at all. A
+  // pointer travelling from one mark to the next therefore raised a layer,
+  // dropped back to the committed one for the width of a gap, and raised the
+  // next: a flicker per traverse, which reads as the picture panicking rather
+  // than as an instrument answering.
+  //
+  // So the two edges are treated differently, the way a menu treats them.
+  //
+  //  - **Raising from rest costs a beat.** A pointer merely crossing the
+  //    section on its way somewhere else never asks for anything, and the beat
+  //    is what tells the difference between crossing and stopping.
+  //  - **Swapping while a preview stands is immediate.** The reader is already
+  //    auditioning; making them wait again per mark would be the opposite
+  //    mistake, and there is no ambiguity left to resolve.
+  //  - **Clearing is held.** The gap between two marks is not a decision to
+  //    stop previewing, so the committed layer is never shown for the width of
+  //    one. A hold longer than any traverse makes the flicker impossible
+  //    rather than merely unlikely.
+  //
+  // The keyboard does not go through here: a movement cursor is always ON a
+  // mark, so it has no gaps to cross and no ambiguity to wait out. It calls
+  // `setPreview` directly and answers instantly.
+  const previewTimerRef = useRef<number | null>(null);
+  const cancelPendingPreview = useCallback(() => {
+    if (previewTimerRef.current === null) return;
+    window.clearTimeout(previewTimerRef.current);
+    previewTimerRef.current = null;
+  }, []);
+  const hoverPreview = useCallback(
+    (id: string | null) => {
+      const plan = planRef.current;
+      if (plan === null) return;
+      const showing = plan.hasAttribute("data-previewing");
+      cancelPendingPreview();
+      if (id !== null && showing) {
+        setPreview(id);
+        return;
+      }
+      if (id === null && !showing) return;
+      previewTimerRef.current = window.setTimeout(
+        () => {
+          previewTimerRef.current = null;
+          setPreview(id);
+        },
+        id === null ? PREVIEW_HOLD_MS : PREVIEW_INTENT_MS,
+      );
+    },
+    [cancelPendingPreview, setPreview],
+  );
+  /** A press answers the question the audition was asking, so the audition
+   *  ends with it — immediately, and with nothing scheduled behind it. */
+  const commitPreview = useCallback(() => {
+    cancelPendingPreview();
+    setPreview(null);
+  }, [cancelPendingPreview, setPreview]);
+  useEffect(() => cancelPendingPreview, [cancelPendingPreview]);
+
   // The keyboard cursor previews the same way the pointer does: the engine
   // marks the ringed group `data-key-view-kbd` and the cursor segment
   // `data-key-cursor`, so an observer on those attributes resolves the
   // cursored segment to its preview id whenever either moves. Deferred
   // commit ([P24]) then reads: arrows audition arrangements in the plan,
   // Space makes one real.
-  // Watched over the figure as well as the rows, because the picture is a stop
-  // too: its marks carry the same `data-choice-value` a row's segments carry, so
-  // an arrow that lands on one resolves through the same `previewIdOf` and
-  // raises the same layer. One recompute across both roots — whichever of them
-  // holds the ringed group is the one that answers, and only one can.
+  // Only the rows are watched. The picture is a stop too, but a mark is a
+  // button rather than an audition, so a cursor standing on one asks the plan
+  // for nothing — and the ring LEAVING a row still clears whatever that row
+  // was auditioning, because losing `data-key-view-kbd` is itself a mutation
+  // here.
   useLayoutEffect(() => {
-    const roots = [rowsRef.current, figureRef.current].filter(
-      (el): el is HTMLDivElement => el !== null,
-    );
-    if (roots.length === 0) return;
+    const root = rowsRef.current;
+    if (root === null) return;
     const recompute = () => {
-      for (const root of roots) {
-        const cursored = root.querySelector(
-          "[data-key-view-kbd] [data-key-cursor][data-choice-value]",
-        );
-        if (cursored !== null) {
-          setPreview(previewIdOf(cursored));
-          return;
-        }
-      }
-      setPreview(null);
+      const cursored = root.querySelector(
+        "[data-key-view-kbd] [data-key-cursor][data-choice-value]",
+      );
+      setPreview(cursored === null ? null : previewIdOf(cursored));
     };
     const observer = new MutationObserver(recompute);
-    for (const root of roots) {
-      observer.observe(root, {
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["data-key-cursor", "data-key-view-kbd"],
-      });
-    }
+    observer.observe(root, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-key-cursor", "data-key-view-kbd"],
+    });
     return () => observer.disconnect();
   }, [setPreview]);
 
@@ -777,19 +820,15 @@ function LayoutsSectionBody({
     ...(layout === "flow" ? [LAYOUT_LABELS[layout]] : []),
   ];
 
-  // Every layer below draws the deck's CURRENT column arrangement unless it is
-  // itself a column proposal — a preview changes one axis and states what the
-  // others would keep. Folded in once, after the list, rather than repeated in
-  // each literal.
+  // Every layer draws the deck's CURRENT column arrangement — a preview changes
+  // one axis and states what the others would keep. Folded in once, after the
+  // list, rather than repeated in each literal.
+  //
   // The base ghost: the committed marks restated. Deck-wide previews (layout,
   // width) change no place, so their ghosts are the marks as they stand — at
   // the LAYER's geometry, which is the whole point: the marks travel with the
   // blocks they annotate.
-  const baseGhost = {
-    columns: columnPlaces,
-    railPlaces,
-    subject: null,
-  };
+  const baseGhost = { columns: columnPlaces, railPlaces };
 
   const layers: PlanLayer[] = [
     ...IMPOSITION_KINDS.map((k) => ({
@@ -805,7 +844,7 @@ function LayoutsSectionBody({
       // redistribution is the imposer's to make — so the ghost claims nothing
       // about columns and keeps only the rails, which a kind change leaves
       // alone.
-      ghost: { columns: [], railPlaces, subject: null },
+      ghost: { columns: [], railPlaces },
     })),
     ...LAYOUTS.map((mode) => ({
       previewId: `layout:${mode}`,
@@ -849,10 +888,8 @@ function LayoutsSectionBody({
         railModes,
         width: contentWidth,
         layout,
-        // The card's placement changes, which the drawing itself shows; no
-        // single MARK changes, so there is no subject to accent. The rail
-        // marks still travel: the destination side gains one and the origin
-        // may lose its rail outright.
+        // The rail marks travel with the placement: the destination side gains
+        // one and the origin may lose its rail outright.
         ghost: {
           columns: columnPlaces,
           railPlaces: railPlacesFor(
@@ -862,7 +899,6 @@ function LayoutsSectionBody({
             }),
             railModes,
           ),
-          subject: null,
         },
       })),
     ),
@@ -887,70 +923,20 @@ function LayoutsSectionBody({
         ghost: {
           columns: columnPlaces,
           railPlaces: railPlacesFor(counts, railModes),
-          subject: null,
         },
       };
     }),
-    ...occupiedSides.flatMap((side) =>
-      RAIL_MODES.map((mode) => ({
-        previewId: `railmode:${side}:${mode}`,
-        caption: [`${RAIL_CAPTIONS[side]} ${RAIL_MODE_LABELS[mode]}`],
-        // Splitting a rail divides that side's run and leaves the cards'
-        // band exactly as it was, so the note says what stands.
-        note: planNote(kind, contentWidth, layout),
-        kind,
-        rails,
-        railModes: { ...railModes, [side]: mode },
-        width: contentWidth,
-        layout,
-        ghost: {
-          columns: columnPlaces,
-          railPlaces: railPlacesFor(rails, { ...railModes, [side]: mode }),
-          subject: `rail-${side}`,
-        },
-      })),
-    ),
   ].map((layer) => ({ ...layer, columnSplits }));
 
-  // And one per column proposal: the slot divided, or made whole again. Every
-  // occupied slot, not just the shared ones — a slot standing one card deep can
-  // still be SET to split, and both of its proposals draw the same picture with
-  // different captions, which is the honest statement that what would change is
-  // the arrangement rather than what is on screen.
-  for (const column of columns) {
-    for (const mode of COLUMN_MODES) {
-      layers.push({
-        previewId: `columnmode:${column.slot}:${mode}`,
-        caption: [
-          `${columnCaption(column.slot)} ${COLUMN_MODE_LABELS[mode]}`,
-        ],
-        // Splitting a column divides that slot's run and leaves every card's
-        // band exactly as it was, so the note says what stands.
-        note: planNote(kind, contentWidth, layout),
-        kind,
-        rails,
-        railModes,
-        width: contentWidth,
-        layout,
-        columnSplits: {
-          ...columnSplits,
-          ...(mode === "split"
-            ? { [column.slot]: column.members.length }
-            : { [column.slot]: 1 }),
-        },
-        ghost: {
-          // The ghost wears the PROPOSED mode on the slot in question — the
-          // preview is the one moment the mark states what would be rather
-          // than what is.
-          columns: columnPlaces.map((place) =>
-            place.slot === column.slot ? { ...place, mode } : place,
-          ),
-          railPlaces,
-          subject: `col-${column.slot}`,
-        },
-      });
-    }
-  }
+  // There is deliberately no layer per ARRANGEMENT proposal — no
+  // `columnmode:<slot>:<mode>`, no `railmode:<side>:<mode>`. A layer exists to
+  // be auditioned, and the marks that would raise those do not audition: a
+  // mark is a two-state toggle whose effect is the glyph it wears, so hovering
+  // one to see what it would do shows a picture the reader can already read
+  // off the mark, and the marks stand close enough together that raising a
+  // layer per crossing made the section strobe as the hand moved. The rows
+  // still audition, because `Comfy` and `Flow` are words whose effect on the
+  // deck is genuinely hard to picture.
 
   // ---- The rows: one compact segmented group per axis ----
 
@@ -1010,18 +996,10 @@ function LayoutsSectionBody({
             overlay inside it would hide its own buttons from assistive
             technology. The wrapper is what the overlay positions against.
 
-            The pointer handlers live here, not on the drawing: hovering a mark
-            shows the proposal it would commit, exactly as hovering a row's
-            segment does. */}
-        <div
-          className="layouts-figure"
-          ref={figureRef}
-          onPointerOver={(event) =>
-            setPreview(previewIdOf(event.target as Element))
-          }
-          onPointerLeave={() => setPreview(null)}
-          onClick={() => setPreview(null)}
-        >
+            No pointer handlers here, and nothing watching for a cursor: the
+            marks are buttons rather than auditions, so neither the hand nor the
+            ring asks the plan for anything while it is on the picture. */}
+        <div className="layouts-figure">
         <div
           className="layouts-plan"
           data-testid="lens-layouts-plan"
@@ -1077,7 +1055,7 @@ function LayoutsSectionBody({
                 layout={layer.layout}
                 columns={layer.ghost.columns}
                 railPlaces={layer.ghost.railPlaces}
-                ghost={{ subject: layer.ghost.subject }}
+                ghost
               />
             </div>
           ))}
@@ -1112,10 +1090,10 @@ function LayoutsSectionBody({
           className="layouts-section-rows"
           ref={rowsRef}
           onPointerOver={(event) =>
-            setPreview(previewIdOf(event.target as Element))
+            hoverPreview(previewIdOf(event.target as Element))
           }
-          onPointerLeave={() => setPreview(null)}
-          onClick={() => setPreview(null)}
+          onPointerLeave={() => hoverPreview(null)}
+          onClick={commitPreview}
         >
           <div className="layouts-section-row" data-preview-axis="kind">
             <TugLabel

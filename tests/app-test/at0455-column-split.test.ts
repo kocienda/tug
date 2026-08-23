@@ -437,7 +437,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ── The picture marks the occupied slots, and only them. ──
+        // ── The picture marks every drawn slot, the empty one included. ──
         //
         // The Lens door for a column's arrangement is a mark on the deck's own
         // drawing rather than a row of words under it (at0469 covers the mark
@@ -445,8 +445,8 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         // COLUMN command and that the geometry follows.
         expect(
           await markedSlots(app),
-          "a mark for each occupied slot, and none for slot 2 which is empty",
-        ).toEqual([0, 1]);
+          "a mark for every slot the kind defines, the empty slot 2 included",
+        ).toEqual([0, 1, 2]);
 
         // ── The Lens door splits. ──
         //
@@ -559,9 +559,8 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         // unsplit and has nothing to restore. It is not: membership churn
         // preserves the arrangement (`columnDrawsSplit`), so the slot goes on
         // storing `split` with nothing to divide — and with the row gone, no
-        // way to say otherwise. The mark stays instead, dimmed to say there is
-        // nothing standing under the arrangement right now, and pressable so
-        // there is a way back.
+        // way to say otherwise. The mark stays instead, still saying what the
+        // slot is set to and still pressable, so there is a way back.
         await app.click(`${frame("p2")} [data-testid="tug-pane-title-bar"]`);
         await wait(300);
         await app.dispatchControlAction("close");
@@ -572,31 +571,27 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         await wait(AFTER_LAND_MS);
         expect(
           await markedSlots(app),
-          "both occupied slots are still marked — slot 0 lost a card, not its place",
-        ).toEqual([0, 1]);
-        const survivor = await app.evalJS<{ mode: string | null; dim: boolean }>(
+          "every slot is still marked — slot 0 lost a card, not its place",
+        ).toEqual([0, 1, 2]);
+        const survivor = await app.evalJS<string | null>(
           `(function () {
             var el = document.querySelector('[data-testid="lens-layouts-places"] .layout-places-mark[data-place="col-0"]');
-            return el === null
-              ? { mode: null, dim: false }
-              : { mode: el.getAttribute("data-mode"), dim: el.hasAttribute("data-dim") };
+            return el === null ? null : el.getAttribute("data-mode");
           })()`,
         );
-        note(
-          `slot 0 after losing a member: ${survivor.mode}${survivor.dim ? " (dim)" : ""}`,
-        );
+        note(`slot 0 after losing a member: ${survivor}`);
         expect(
-          survivor.dim,
-          "one card standing there now, so the mark drops to a whisper",
-        ).toBe(true);
+          survivor,
+          "the slot kept the split it was set to when its second card left",
+        ).toBe("split");
         // And the way back is a press, on the mark that was unreachable before.
-        expect(await placeOffers(app, "col-0")).toBe(survivor.mode === "split" ? "stack" : "split");
+        expect(await placeOffers(app, "col-0")).toBe("stack");
         await app.click(placeMark("col-0"));
         await wait(AFTER_LAND_MS);
         expect(
           (await columnsRecord(app))["0"]?.mode ?? "stack",
           "the survivor's arrangement is still the user's to change",
-        ).not.toBe(survivor.mode);
+        ).not.toBe(survivor);
       } finally {
         await app.close();
       }

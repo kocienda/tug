@@ -11,20 +11,27 @@
  *    get from a stack is how many are behind, which is why the character is a
  *    count rather than a position; the slices carry the position.
  *  - **A split shows a LETTER** — this member's band, A being the topmost —
- *    over a three-rung ladder with the band's end of the run lit. Every band of
- *    a split is visible at once, so position is real information there and the
- *    badge's job is naming rather than revealing: a letter is an address to
+ *    over three filled bands with the band's end of the run marked. Every band
+ *    of a split is visible at once, so position is real information there and
+ *    the badge's job is naming rather than revealing: a letter is an address to
  *    match against a Lens row.
  *
  * Number and letter therefore map categorically onto stack and split, which is
  * teachable in a sentence and can never be misread against a slot number.
  * **Letters are split-only vocabulary, on every surface.**
  *
- * The glyph names a REGION and the character names the position. Three rungs
- * say top / middle / bottom however deep the split runs, so every interior band
- * of a deep column lights the same middle rung while its letter stays exact.
- * That is the intended reading, and it is why the ladder is not drawn with one
- * rung per member — at this size a subdivided badge stops being legible at all.
+ * **Both glyphs are filled, in one box.** They answer one question — how is
+ * this place arranged — so they are one vocabulary drawn one way: a run of
+ * three elements with area, the card's own marked. The split was line work
+ * once, two rails and three rungs, and an outline standing beside filled
+ * slices reads as a different KIND of thing rather than as the other answer,
+ * at a fraction of the weight and with no body to read by on a close ground.
+ *
+ * The glyph names a REGION and the character names the position. Three elements
+ * say top / middle / bottom however deep the run goes, so every interior member
+ * of a deep column marks the same middle element while its letter stays exact.
+ * That is the intended reading, and it is why neither glyph is drawn with one
+ * element per member — at this size a subdivided badge stops being legible.
  *
  * **Whether the glyph marks the level at all is the surface's call**, through
  * `showLevel`. The character always says it; the mark is a second telling, and
@@ -95,7 +102,7 @@ export function columnBadgeCharacter(
 /**
  * Which element of the glyph the card occupies: the end of the run its index
  * sits at, and the middle for everything between. One rule for both kinds —
- * a stack's slices and a split's rungs are the same three-element run, and the
+ * a stack's slices and a split's bands are the same three-element run, and the
  * card is somewhere in it either way.
  *
  * A stack lit its top slice unconditionally once, on the argument that the
@@ -139,8 +146,8 @@ export interface TugColumnBadgeProps
    * character always says it; this is only about the drawing behind it.
    *
    * Off is for a surface where the drawing is too small to carry a second
-   * fact. A lit rung at title-bar scale is a one-pixel difference in a
-   * three-rung ladder that is itself the height of a lowercase letter — the
+   * fact. A marked element at title-bar scale is a fractional difference in a
+   * three-element run that is itself the height of a lowercase letter — the
    * eye registers it as noise on the badge rather than as an answer, and it
    * competes with the character, which is stating the same thing exactly.
    * On a Lens row the run is drawn beside a slot picker whose own selection
@@ -150,7 +157,7 @@ export interface TugColumnBadgeProps
    * region, a fact about the card, and it stays true whether or not the glyph
    * is drawing it.
    * @default true
-   * @selector [data-lit="true"] on .tug-column-badge-slice / -rung
+   * @selector [data-lit="true"] on .tug-column-badge-slice
    */
   showLevel?: boolean;
 }
@@ -188,7 +195,7 @@ export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgePr
         {kind === "stack" ? (
           <StackGlyph lit={showLevel ? lit : null} />
         ) : (
-          <LadderGlyph lit={showLevel ? lit : null} />
+          <SplitGlyph lit={showLevel ? lit : null} />
         )}
         <span className="tug-column-badge-character">
           {columnBadgeCharacter(kind, count, index)}
@@ -241,45 +248,55 @@ export function StackGlyph({
 }
 
 /* ---------------------------------------------------------------------------
- * LadderGlyph
+ * SplitGlyph
  * ---------------------------------------------------------------------------*/
 
 /**
- * Two rails and three rungs, drawn over the badge's full height so the top and
- * bottom rungs sit at the badge's own ends — which is what makes "this band is
- * at the top of the run" legible at this size.
+ * Three filled bands dividing the run, top to bottom — the same box, the same
+ * ink and the same weight as {@link StackGlyph}'s slices, because the two
+ * glyphs are one vocabulary answering one question and a reader should not
+ * have to learn them separately.
+ *
+ * This was a LADDER once — two rails and three rungs, all of it line work —
+ * and the mismatch was not a matter of taste. A stack drawn as filled slices
+ * beside a split drawn as an outline reads as two different KINDS of thing
+ * rather than as two answers to "how is this place arranged", and the outline
+ * carries so much less weight that at badge scale the pair looked like a
+ * rendering fault. It was also the more fragile drawing: line work has no body
+ * to read by, so on any ground close to its own stroke it simply disappeared.
+ * A split IS a run divided into bands, which is a thing with area — so it is
+ * drawn with area.
  */
-export function LadderGlyph({
+export function SplitGlyph({
   lit,
 }: {
-  /** `null` marks no rung at all — the surface draws the run, not the band. */
+  /** `null` marks no band at all — the surface draws the run, not the band. */
   lit: TugColumnBadgeLit | null;
 }): React.ReactElement {
-  const rungs: ReadonlyArray<{ key: TugColumnBadgeLit; y: number }> = [
-    { key: "top", y: 2 },
-    { key: "middle", y: 11 },
-    { key: "bottom", y: 20 },
+  const bands: ReadonlyArray<{ key: TugColumnBadgeLit; y: number }> = [
+    { key: "top", y: 0.5 },
+    { key: "middle", y: 7.5 },
+    { key: "bottom", y: 14.5 },
   ];
 
   return (
     <svg
-      className="tug-column-badge-glyph tug-column-badge-glyph-ladder"
-      viewBox="0 0 18 22"
+      className="tug-column-badge-glyph"
+      viewBox="0 0 18 20"
       aria-hidden="true"
       focusable="false"
     >
-      <line className="tug-column-badge-rail" x1="1.5" y1="1" x2="1.5" y2="21" />
-      <line className="tug-column-badge-rail" x1="16.5" y1="1" x2="16.5" y2="21" />
-      {rungs.map(({ key, y }) => (
-        <line
+      {bands.map(({ key, y }) => (
+        <rect
           key={key}
-          className="tug-column-badge-rung"
+          className="tug-column-badge-slice"
           data-region={key}
           data-lit={key === lit ? "true" : undefined}
-          x1="1.5"
-          y1={y}
-          x2="16.5"
-          y2={y}
+          x="0.5"
+          y={y}
+          width="17"
+          height="5"
+          rx="1"
         />
       ))}
     </svg>

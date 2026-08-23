@@ -14,14 +14,27 @@
  * **A place wears what it is SET to, not what it is showing.** A slot's glyph
  * reads `columnModeOf` and a side's reads `railModeOf` — the stored
  * arrangement. The blocks under them are honest about what is on screen, and
- * the two come apart at exactly one card: membership churn preserves an
+ * the two come apart below two cards: membership churn preserves an
  * arrangement (`columnDrawsSplit`), so a slot set to split and standing one
  * card deep draws as one undivided block. Before this overlay that stored split
  * was invisible on every surface and unreachable from the Lens — the column
  * rows were gated on `members.length > 1` — so it sat there until a second card
- * arrived and it resurfaced as a surprise. A one-member place therefore keeps
- * its glyph, dimmed to say there is nothing to arrange right now, and stays
- * pressable so the arrangement can be put back.
+ * arrived and it resurfaced as a surprise. Every place therefore wears its
+ * glyph at one weight, whatever stands under it, and stays pressable so the
+ * arrangement can be put back. An earlier cut whispered the places with fewer
+ * than two cards; two tints in one picture read as a rendering fault before
+ * they read as a distinction, and the distinction was about membership, which
+ * is not what a mark is for.
+ *
+ * **A mark is a button, and it behaves like one.** It answers a hand the way
+ * every other control does — its own hover and its own press — and it does not
+ * audition. The deck-wide rows swap the whole plan on hover because their
+ * answers are hard to picture from a word (`Comfy`, `Flow`) and a wrong guess
+ * costs a re-imposition; a mark's answer is a two-state toggle whose effect is
+ * the glyph itself, and pressing it again undoes it. Auditioning it bought
+ * nothing and cost the picture its composure: the marks stand a few pixels
+ * apart, so a pointer crossing from one to the next raised a layer, dropped
+ * back, and raised the next — the whole section strobing as the hand moved.
  *
  * **A mark's words state what is, then what the press does.** The glyph names
  * the stored arrangement to the eye; the tooltip names it in words and then
@@ -37,18 +50,17 @@
  *
  * **It stands outside the plan's layers, on purpose.** The layers swap by
  * `display`, so an overlay parked inside the committed one would vanish the
- * instant its own hover raised a preview, un-hover itself, come back, and
- * oscillate. Anchored to the plan's box it stays under the pointer while the
- * drawing beneath it auditions the change.
+ * instant a row's hover raised a preview, and reappear when it cleared.
+ * Anchored to the plan's box it stays put while the drawing beneath it
+ * auditions a row's answer.
  *
  * **Ghost mode is the preview's copy of this readout.** A preview layer passes
  * `ghost`, and the overlay renders the same marks with no buttons, no focus
- * stop, and no pointer: it shows where the marks WOULD stand and what each
- * place WOULD be set to under that layer's arrangement, and `ghost.subject`
- * names the one place the preview is about so it can carry the accent. The
- * ghost takes no events at all — the live overlay beneath keeps the hover that
- * raised the preview, which is what stops the show/hide oscillation a hoverable
- * ghost would reintroduce.
+ * stop, and no pointer: it shows where the marks WOULD stand under that
+ * layer's arrangement, which is what stops a row's preview from moving the
+ * deck under a legend still standing at the committed geometry. The ghost
+ * takes no events at all — the live overlay beneath keeps the hover that
+ * raised the preview.
  *
  * Presentational: props in, CSS out, no store reads and no state ([L06]). The
  * section resolves every fact from its own subscription and hands them down.
@@ -69,7 +81,7 @@ import {
   miniatureGeometry,
   type MiniatureRails,
 } from "@/components/lens/layout-miniature";
-import { LadderGlyph, StackGlyph } from "@/components/tugways/tug-column-badge";
+import { SplitGlyph, StackGlyph } from "@/components/tugways/tug-column-badge";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useControlDispatch } from "@/components/tugways/use-control-dispatch";
@@ -88,10 +100,10 @@ import type {
  * One place in the deck that has an arrangement of its own: a numbered slot, or
  * a side's rail.
  *
- * `mode` is the STORED arrangement and `members` is what actually stands there.
- * Both are carried because the glyph needs the first and the dimming needs the
- * second, and deriving either from the other is exactly the conflation this
- * overlay exists to undo.
+ * `mode` is the STORED arrangement — deliberately not derived from what stands
+ * there, which is exactly the conflation this overlay exists to undo. How many
+ * cards a place holds is not carried at all: the mark states the arrangement
+ * and nothing else, at one weight for every place.
  */
 export interface LayoutPlace {
   /** Stable key — `col-<slot>` or `rail-<side>`. Also the affordance's testid. */
@@ -102,13 +114,8 @@ export interface LayoutPlace {
   side?: SidebarSide;
   /** The arrangement the deck has stored for this place. */
   mode: ColumnMode | RailMode;
-  /** How many cards stand here. One means nothing to arrange — yet. */
-  members: number;
   /** What to call it out loud: "Column 3", "Left rail". */
   label: string;
-  /** The preview axis this place's proposals are drawn under —
-   *  `columnmode:<slot>` or `railmode:<side>`, the ids the plan's layers carry. */
-  previewAxis: string;
   /** The sender id the section's responder routes this place's presses by. */
   senderId: string;
 }
@@ -121,7 +128,10 @@ export interface LayoutPlacesProps {
   layout?: ImpositionLayout;
   /** The live flow strip, when the drawing beneath is drawing one. */
   flow?: { bandPx: number; extents: readonly FlowSlotExtent[] } | null;
-  /** Every slot that holds a card, whatever its arrangement. */
+  /** Every slot the kind defines, occupied or not — the drawing draws the
+   *  empty ones too, and a drawn block with no mark reads as a hole in the
+   *  instrument. An empty slot's stored arrangement is as real as a
+   *  one-card slot's, and its mark is the door back to it. */
   columns: readonly LayoutPlace[];
   /** Every occupied side. */
   railPlaces: readonly LayoutPlace[];
@@ -131,18 +141,15 @@ export interface LayoutPlacesProps {
   focusOrder?: number;
   /**
    * Render as a preview layer's inert readout instead of the live instrument:
-   * plain glyphs, no buttons, no focus stop, no pointer. `subject` is the key
-   * of the one place this preview proposes to change (`col-2`, `rail-left`),
-   * which the ghost accents; `null` for a preview that changes no single
-   * place.
+   * plain glyphs, no buttons, no focus stop, no pointer.
    */
-  ghost?: { subject: string | null };
+  ghost?: boolean;
 }
 
 /** The glyph a place's stored arrangement wears. Nothing is ever marked lit:
  *  the glyph is naming the arrangement, not a position within it. */
 function PlaceGlyph({ mode }: { mode: ColumnMode | RailMode }): React.ReactElement {
-  return mode === "split" ? <LadderGlyph lit={null} /> : <StackGlyph lit={null} />;
+  return mode === "split" ? <SplitGlyph lit={null} /> : <StackGlyph lit={null} />;
 }
 
 /** The other of the two arrangements — what pressing this mark would set. */
@@ -172,21 +179,20 @@ function describePlace(place: LayoutPlace): string {
  * used, so the overlay slots into a funnel that was already there rather than
  * growing a second one beside it ([L30]).
  *
- * Carrying the proposal rather than the current value is also what makes the
- * hover preview work without a new mechanism: `previewIdOf` resolves a
- * `data-preview-axis` ancestor plus this element's `data-choice-value`, and
- * since the value is always the arrangement NOT in force, the layer it finds is
- * always the change rather than a tentative copy of what is already true.
+ * Carrying the proposal rather than the current value is what makes one control
+ * enough for a two-valued fact: the press is always "make it the other thing",
+ * so the same element goes each way and there is no segmented pair to keep in
+ * sync with the glyph.
  */
 function PlaceMark({
   place,
   senderId,
-  ghost,
+  ghost = false,
 }: {
   place: LayoutPlace;
   /** The sender the section's responder routes this place by. */
   senderId: string;
-  ghost?: { subject: string | null };
+  ghost?: boolean;
 }): React.ReactElement {
   const proposed = otherMode(place.mode);
   return (
@@ -194,17 +200,8 @@ function PlaceMark({
       className="layout-places-mark"
       data-place={place.key}
       data-mode={place.mode}
-      // Nothing to arrange while one card stands here — said by weight rather
-      // than by absence, because the arrangement is still real and still the
-      // one a second card would land under, and pressing it is how it is put
-      // back.
-      data-dim={place.members > 1 ? undefined : ""}
-      data-preview-axis={place.previewAxis}
-      data-subject={
-        ghost !== undefined && ghost.subject === place.key ? "" : undefined
-      }
     >
-      {ghost !== undefined ? (
+      {ghost ? (
         <span className="layout-places-ghost-glyph" aria-hidden="true">
           <PlaceGlyph mode={place.mode} />
         </span>
@@ -213,7 +210,7 @@ function PlaceMark({
           icon={<PlaceGlyph mode={place.mode} />}
           aria-label={describePlace(place)}
           title={describePlace(place)}
-          size="xs"
+          size="sm"
           emphasis="ghost"
           senderId={senderId}
           dispatch={{
@@ -244,7 +241,7 @@ export function LayoutPlaces({
   railPlaces,
   focusGroup,
   focusOrder = 0,
-  ghost,
+  ghost = false,
 }: LayoutPlacesProps): React.ReactElement {
   const geometry = miniatureGeometry({ kind, rails, width, layout, flow });
 
@@ -254,10 +251,9 @@ export function LayoutPlaces({
   // affordance would make Tab crawl the drawing, and the same rule already
   // holds for every segmented row in this section. Arrows move a cursor over
   // the marks — appearance projected straight to the DOM, no re-render ([L06])
-  // — and Space commits the one under it. Because a mark carries the
-  // arrangement NOT in force, an arrow that lands on one raises that
-  // arrangement's preview through the section's existing switch, so the
-  // keyboard auditions exactly the way the pointer does.
+  // — and Space commits the one under it. The cursor wears the mark's own
+  // hover appearance, which is the whole of what standing on a mark means: the
+  // press is what changes the deck, here as under the pointer.
   //
   // A ghost registers nothing: it is a drawing of marks, not marks.
   const rootId = useId();
@@ -302,7 +298,7 @@ export function LayoutPlaces({
     id: rootId,
     group: focusGroup ?? "",
     order: focusOrder,
-    register: ghost === undefined && focusGroup !== undefined,
+    register: !ghost && focusGroup !== undefined,
     collectItems: affordances,
     initialIndex: () => 0,
     onSelect: (element) => commitAt(element),
@@ -345,15 +341,13 @@ export function LayoutPlaces({
 
   return (
     <span
-      className={
-        ghost !== undefined ? "layout-places layout-places-ghost" : "layout-places"
-      }
+      className={ghost ? "layout-places layout-places-ghost" : "layout-places"}
       data-testid={
-        ghost !== undefined ? "lens-layouts-places-ghost" : "lens-layouts-places"
+        ghost ? "lens-layouts-places-ghost" : "lens-layouts-places"
       }
-      ref={ghost !== undefined ? undefined : setRootRef}
-      tabIndex={ghost === undefined && focusGroup !== undefined ? 0 : undefined}
-      onKeyDown={ghost !== undefined ? undefined : onKeyDown}
+      ref={ghost ? undefined : setRootRef}
+      tabIndex={!ghost && focusGroup !== undefined ? 0 : undefined}
+      onKeyDown={ghost ? undefined : onKeyDown}
     >
       {rail("left")}
       <span className="layout-places-field">

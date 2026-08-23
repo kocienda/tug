@@ -14,14 +14,17 @@
  * the Lens, because the section's column rows were gated on `members.length > 1`
  * — so it sat there until a second card arrived and it resurfaced as a surprise.
  *
- *   1. **Every occupied slot is marked**, whatever its membership, and each
- *      mark says the slot's own stored arrangement.
- *   2. **A one-card split is visible**, drawn split and dimmed: the arrangement
- *      is real, there is just nothing standing under it yet.
+ *   1. **Every slot the kind defines is marked**, occupied or not, and each
+ *      mark says that slot's own stored arrangement.
+ *   2. **A one-card split is visible**, drawn split: the arrangement is real,
+ *      there is just nothing standing under it yet.
  *   3. **The marks land on the picture.** Each one is inside the block it
  *      belongs to, which is what makes it a mark on a place rather than a row
  *      of icons under a drawing.
  *   4. **A rail is a place too**, and wears the same vocabulary.
+ *   5. **A mark is a button.** It answers a hand and does not audition, and
+ *      every mark rests at one weight — the picture states arrangements, not
+ *      how many cards stand under them.
  *
  * Read from live `getBoundingClientRect()` and `data-` attributes. Nothing here
  * reads back a declared style value.
@@ -57,10 +60,9 @@ interface Rect {
   height: number;
 }
 
-/** What a place's mark is saying, and whether it is saying it quietly. */
+/** What a place's mark is saying, and where it stands. */
 interface MarkFacts {
   mode: string | null;
-  dim: boolean;
   rect: Rect | null;
 }
 
@@ -177,7 +179,6 @@ function readMarks(app: App): Promise<Record<string, MarkFacts>> {
         var r = el.getBoundingClientRect();
         out[el.getAttribute("data-place")] = {
           mode: el.getAttribute("data-mode"),
-          dim: el.hasAttribute("data-dim"),
           rect: {
             top: r.top, bottom: r.bottom, left: r.left, right: r.right,
             width: r.width, height: r.height,
@@ -227,40 +228,56 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         note(
           `marks: ${Object.keys(marks)
             .sort()
-            .map((k) => `${k}=${marks[k].mode}${marks[k].dim ? " (dim)" : ""}`)
+            .map((k) => `${k}=${marks[k].mode}`)
             .join(", ")}`,
         );
 
-        // ── Both occupied slots are marked, and the empty one is not. ──
+        // ── Every drawn slot is marked, the empty one included. ──
         //
-        // A slot nobody is standing in has no arrangement to report: there is
-        // no card whose place it is. Slot 2 is empty in this fixture.
+        // The drawing draws all three of three-up's blocks, and an arrangement
+        // outlives its membership all the way to zero — an empty slot can
+        // still store a split — so every drawn block wears a mark. Slot 2 is
+        // empty in this fixture, and marked at its default.
         expect(
           Object.keys(marks).sort(),
-          "the two occupied slots and the occupied side, and nothing else",
-        ).toEqual(["col-0", "col-1", "rail-right"]);
+          "every slot the kind defines, and the occupied side",
+        ).toEqual(["col-0", "col-1", "col-2", "rail-right"]);
+        expect(marks["col-2"].mode, "the empty slot reads its default").toBe(
+          "stack",
+        );
 
-        // ── The shared, untouched slot reads stacked, at full weight. ──
+        // ── The shared, untouched slot reads stacked. ──
         expect(marks["col-0"].mode).toBe("stack");
-        expect(
-          marks["col-0"].dim,
-          "two cards share slot 0, so there is something to arrange",
-        ).toBe(false);
 
         // ── THE TRAP, VISIBLE. ──
         //
         // Slot 1 stores a split and holds one card. The drawing beneath shows
         // one undivided block, honestly — and the mark says the slot is set to
-        // split, which is the fact that had nowhere to live. Dimmed, because
-        // nothing is standing under the arrangement yet.
+        // split, which is the fact that had nowhere to live.
         expect(
           marks["col-1"].mode,
           "slot 1 is SET to split, and says so even standing one card deep",
         ).toBe("split");
+
+        // ── And every mark rests at ONE weight. ──
+        //
+        // An earlier cut whispered the places with fewer than two cards under
+        // them. Two tints in one picture read as a rendering fault before they
+        // read as a distinction, and the distinction was about membership,
+        // which is not what a mark is for. Read as computed opacity across the
+        // whole set — a declared value would prove only that the rule exists.
+        const weights = await app.evalJS<number[]>(
+          `Array.prototype.map.call(
+            document.querySelectorAll('${PLACES} [data-testid^="lens-layouts-place-"]'),
+            function (el) { return Number(getComputedStyle(el).opacity); }
+          )`,
+        );
+        note(`resting weights: ${weights.join(", ")}`);
         expect(
-          marks["col-1"].dim,
-          "quietly: the arrangement is real, but it is arranging one card",
-        ).toBe(true);
+          new Set(weights).size,
+          "every mark rests at the same weight, whatever stands under it",
+        ).toBe(1);
+        expect(weights[0], "and that weight is full").toBe(1);
 
         // And the drawing is still telling its own truth: one block per
         // occupied slot, slot 1 undivided.
@@ -274,20 +291,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
 
         // ── The rail is a place too, wearing the same vocabulary. ──
         //
-        // A side's membership is a live read of what is standing: `railsFor`
+        // Which sides are marked is a live read of what is standing: `railsFor`
         // in `layouts-section.tsx` counts the OPEN sidebar cards, so a card
-        // that is registered but hidden is not drawn and not counted — the
-        // same count the drawing above it uses. The mark's weight follows
-        // that count, so it is read from the drawing rather than predicted.
-        const railMembers = await app.evalJS<number>(
-          `document.querySelectorAll('.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-rail .layout-mini-rail-member').length`,
-        );
-        note(`the right rail draws ${railMembers} member(s)`);
+        // that is registered but hidden is not drawn and not marked. Here the
+        // Lens holds the right edge and the left is empty.
         expect(marks["rail-right"].mode).toBe("stack");
-        expect(
-          marks["rail-right"].dim,
-          "the rail's mark dims exactly when the side holds one card",
-        ).toBe(railMembers < 2);
 
         // ── The rows are fixed, and the count does not move. ──
         //
@@ -357,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         // fractions of the frame, and this is the claim that says so: a mark
         // whose geometry drifted by the drawing's padding or its 2px gap would
         // sit outside the block it belongs to, or over its neighbour.
-        for (const slot of [0, 1]) {
+        for (const slot of [0, 1, 2]) {
           const block = await blockRect(app, slot);
           const m = marks[`col-${slot}`];
           expect(block, `slot ${slot} is drawn`).not.toBeNull();
@@ -419,7 +427,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
   );
 
   test(
-    "pressing a place's mark sets the place, and hovering it auditions the change",
+    "a mark is a button: it answers a hand, and it does not audition",
     async () => {
       const app = await launchTugApp();
       try {
@@ -433,30 +441,32 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ── Hovering a mark shows what pressing it would do. ──
+        // ── Hovering a mark changes the MARK, and nothing else. ──
         //
-        // The mark carries the arrangement NOT in force, so the layer it
-        // resolves to is always the change rather than a copy of what is
-        // already true. Nothing new resolves it: the same `previewIdOf` the
-        // mixer rows use reads the mark's own `data-preview-axis` ancestor and
-        // its `data-choice-value`.
+        // A mark is a two-state toggle whose effect is the glyph it wears, so
+        // there is nothing an audition could show that the mark is not already
+        // showing — and the marks stand close enough together that raising a
+        // layer per crossing made the whole section strobe as the hand moved.
+        // What a hover does instead is what it does on any button: the control
+        // answers, and the plan stays where it is.
         await hover(app, mark("col-0"));
         await wait(300);
-        const previewed = await app.evalJS<string | null>(
-          `(function () {
-            var el = document.querySelector('.layouts-plan [data-plan-active]');
-            return el === null ? null : el.getAttribute("data-plan-preview-id");
-          })()`,
-        );
         expect(
-          previewed,
-          "hovering slot 0's stack mark auditions splitting slot 0",
-        ).toBe("columnmode:0:split");
-        const caption = await app.evalJS<string>(
-          `(document.querySelector('.layouts-plan [data-plan-active] .layouts-plan-caption') || { textContent: "" }).textContent`,
-        );
-        note(`hover caption: ${caption}`);
-        expect(caption).toContain("Column 1");
+          await app.evalJS<boolean>(
+            `document.querySelector('[data-testid="lens-layouts-plan"]').hasAttribute("data-previewing")`,
+          ),
+          "hovering a mark does not swap the plan out from under the reader",
+        ).toBe(false);
+        // And there is no layer standing by to be raised: a preview nothing can
+        // reach is dead weight in the DOM, not a spare.
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(
+              '[data-plan-preview-id^="columnmode:"], [data-plan-preview-id^="railmode:"]'
+            ).length`,
+          ),
+          "the arrangement layers are gone, not merely unreachable",
+        ).toBe(0);
 
         // ── THE TRAP, CLOSED. ──
         //
@@ -636,57 +646,84 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         expect(stops, "the drawing registers exactly one focusable").toBe(1);
 
-        // ── The cursor lands on a mark, and auditions from there. ──
+        // ── The cursor lands on a mark, and wears the mark's own hover face. ──
         //
         // Tab-into parks the cursor on the group's first item; an arrow steps
-        // it along the run. Either way, standing on a mark raises that mark's
-        // proposal in the drawing, the same way resting a pointer on it does —
-        // the mark carries the arrangement not in force, so the layer is always
-        // the change rather than a copy of what is already true.
+        // it along the run. Standing on a mark does not audition — a mark is a
+        // button — so what says where the cursor is standing is the appearance
+        // the mark gives a pointer, which the cursor takes as its own. That is
+        // read as the accent the glyph carries, not as a declared value: the
+        // resting stroke is the drawing's neutral ink and the reached-for one
+        // is the control accent, so the two are simply different colours.
         await app.waitForCondition<boolean>(
           `document.querySelector('${PLACES} [data-key-cursor]') !== null`,
           { timeoutMs: 4_000 },
         );
         await app.nativeKey("ArrowRight");
         await wait(400);
-        const cursored = await app.evalJS<string | null>(
+        const cursorFacts = await app.evalJS<{
+          testid: string | null;
+          cursorStroke: string;
+          restStroke: string;
+          previewing: boolean;
+        }>(
           `(function () {
             var el = document.querySelector('${PLACES} [data-key-cursor]');
-            return el === null ? null : el.getAttribute("data-testid");
+            var strokeOf = function (node) {
+              return node === null
+                ? ""
+                : getComputedStyle(node)
+                    .getPropertyValue("--tugx-column-badge-stroke")
+                    .trim();
+            };
+            var others = Array.prototype.filter.call(
+              document.querySelectorAll('${PLACES} [data-testid^="lens-layouts-place-"]'),
+              function (n) { return !n.hasAttribute("data-key-cursor"); }
+            );
+            return {
+              testid: el === null ? null : el.getAttribute("data-testid"),
+              cursorStroke: strokeOf(el),
+              restStroke: strokeOf(others[0] || null),
+              previewing: document
+                .querySelector('[data-testid="lens-layouts-plan"]')
+                .hasAttribute("data-previewing"),
+            };
           })()`,
         );
-        expect(cursored, "an arrow put the cursor on a mark").not.toBeNull();
-        const auditioned = await app.evalJS<string | null>(
-          `(function () {
-            var el = document.querySelector('.layouts-plan [data-plan-active]');
-            return el === null ? null : el.getAttribute("data-plan-preview-id");
-          })()`,
-        );
+        expect(cursorFacts.testid, "an arrow put the cursor on a mark").not.toBeNull();
         expect(
-          auditioned,
-          "the cursored mark's proposal is showing in the drawing",
-        ).not.toBeNull();
-        note(`cursor on ${cursored}, auditioning ${auditioned}`);
+          cursorFacts.previewing,
+          "and standing there auditions nothing — a mark is a button",
+        ).toBe(false);
+        expect(
+          cursorFacts.cursorStroke,
+          "the cursored mark is drawn differently from the ones at rest",
+        ).not.toBe(cursorFacts.restStroke);
+        note(
+          `cursor on ${cursorFacts.testid}: ${cursorFacts.cursorStroke} ` +
+            `vs ${cursorFacts.restStroke} at rest`,
+        );
 
         // ── Space commits what the cursor is standing on. ──
         //
-        // The proposal the drawing was auditioning becomes the deck's stored
-        // arrangement — and the audition clears, because there is nothing left
-        // to propose.
-        const [, axis, proposed] = (auditioned ?? "::").split(":");
+        // The mark carries the arrangement NOT in force, so what Space does is
+        // exactly what a press does: it sets the other thing, and the glyph
+        // under the cursor turns over to say so.
+        const key = (cursorFacts.testid ?? "").replace(
+          "lens-layouts-place-",
+          "",
+        );
+        const before = (await readMarks(app))[key]?.mode;
         // Space, spelled as the character — `VirtualKeyMap` has no "Space" name.
         await app.nativeKey(" ");
         await wait(AFTER_LAND_MS);
 
-        const marksNow = await readMarks(app);
-        const committedKey =
-          axis === "left" || axis === "right" ? `rail-${axis}` : `col-${axis}`;
+        const after = (await readMarks(app))[key]?.mode;
         expect(
-          marksNow[committedKey]?.mode,
-          `Space committed the arrangement the cursor was auditioning ` +
-            `(${committedKey} → ${proposed})`,
-        ).toBe(proposed);
-        note(`Space committed ${committedKey} = ${proposed}`);
+          after,
+          `Space set ${key} to the arrangement its mark was offering`,
+        ).toBe(before === "split" ? "stack" : "split");
+        note(`Space committed ${key}: ${before} → ${after}`);
       } finally {
         await app.close();
       }
@@ -809,25 +846,30 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ── Hovering a mark: the ghost states the PROPOSED arrangement. ──
-        await hover(app, mark("col-0"));
-        await wait(300);
+        // ── A row's preview restates the marks, at the LAYER's geometry. ──
+        //
+        // The rows audition; the marks do not. So a preview moves the deck out
+        // from under a legend that would otherwise stay at the committed
+        // positions, and the ghost is what keeps the two together: it draws
+        // every mark again, inert, on the arrangement being auditioned. The
+        // live overlay steps back while it speaks, or two mark sets overlap —
+        // one of them at the wrong geometry.
+        await hover(
+          app,
+          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
+        );
+        await wait(400);
         const ghostFacts = await app.evalJS<{
-          previewing: boolean;
           ghostMode: string | null;
-          ghostSubject: boolean;
           liveOpacity: string;
         } | null>(
           `(function () {
-            var plan = document.querySelector('[data-testid="lens-layouts-plan"]');
             var layer = document.querySelector('.layouts-plan-layer[data-plan-active]');
-            if (plan === null || layer === null) return null;
-            var ghostMark = layer.querySelector('[data-testid="lens-layouts-places-ghost"] .layout-places-mark[data-place="col-0"]');
+            if (layer === null) return null;
+            var ghostMark = layer.querySelector('[data-testid="lens-layouts-places-ghost"] .layout-places-mark[data-place="col-1"]');
             var live = document.querySelector('${PLACES} .layout-places-mark[data-place="col-1"]');
             return {
-              previewing: plan.hasAttribute("data-previewing"),
               ghostMode: ghostMark === null ? null : ghostMark.getAttribute("data-mode"),
-              ghostSubject: ghostMark !== null && ghostMark.hasAttribute("data-subject"),
               liveOpacity: live === null ? "" : getComputedStyle(live).opacity,
             };
           })()`,
@@ -835,29 +877,18 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         expect(ghostFacts, "an active layer is showing").not.toBeNull();
         expect(
           ghostFacts!.ghostMode,
-          "the ghost's mark wears the PROPOSED mode — the one the press would set",
+          "the ghost restates what each place is set to — slot 1's stored split",
         ).toBe("split");
-        expect(
-          ghostFacts!.ghostSubject,
-          "and it is the subject: the one place this preview is about",
-        ).toBe(true);
-        // The live overlay steps back while the ghost speaks — otherwise two
-        // mark sets overlap, one of them at the wrong geometry.
         expect(
           Number(ghostFacts!.liveOpacity),
           "the live marks step back while a preview shows",
         ).toBe(0);
         note(
-          `hover col-0: ghost says split (subject), live marks at opacity ${ghostFacts!.liveOpacity}`,
+          `width preview: ghost restates col-1 as split, live marks at opacity ${ghostFacts!.liveOpacity}`,
         );
 
-        // ── Hovering a deck-wide row: the ghost's marks land on the layer's
-        //    own blocks, not the committed ones. ──
-        await hover(
-          app,
-          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
-        );
-        await wait(300);
+        // And they land on the PREVIEWED drawing's blocks rather than the
+        // committed ones — the marks travel with what they annotate.
         const carried = await app.evalJS<{
           layerId: string | null;
           inside: boolean;
@@ -894,8 +925,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           `[data-testid="lens-layouts-sidebar-jots"] [data-choice-value="right"]`,
         );
         await wait(AFTER_LAND_MS);
-        await hover(app, mark("col-0"));
-        await wait(300);
+        await hover(
+          app,
+          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
+        );
+        await wait(400);
         const railDrawing = await app.evalJS<{
           committed: number;
           preview: number;
@@ -925,9 +959,65 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "a proposal draws the stacked rail as one silhouette",
         ).toBe(1);
 
+        // ── A pointer merely CROSSING a row raises nothing. ──
+        //
+        // The rows have air between them, and every crossing of that air
+        // resolves to no preview — so a switch that answered the raw pointer
+        // raised a layer, dropped to committed for the width of a gap, and
+        // raised the next: a flicker per traverse. Raising from rest is on an
+        // intent beat, and this is the claim that says so. Both events are
+        // dispatched in ONE round trip, so the crossing is genuinely faster
+        // than the beat rather than merely usually faster — no timing race in
+        // the assertion, which comes after everything has settled.
+        await hover(app, ".layouts-section-rows");
+        await wait(400);
+        await app.evalJS<null>(
+          `(function () {
+            var over = function (sel) {
+              var el = document.querySelector(sel);
+              if (el === null) throw new Error("nothing at " + sel);
+              el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+            };
+            over('[data-testid="lens-layouts-width"] [data-choice-value="wide"]');
+            over(".layouts-section-rows");
+            return null;
+          })()`,
+        );
+        await wait(400);
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector('[data-testid="lens-layouts-plan"]').hasAttribute("data-previewing")`,
+          ),
+          "a pointer that crossed a segment without stopping asked for nothing",
+        ).toBe(false);
+
+        // ── And the gap between two segments does not drop the plan. ──
+        //
+        // A raised preview is HELD when the pointer stops resolving to one, for
+        // longer than any traverse of the air between affordances, so the
+        // committed layer is never shown for an instant on the way past. Read
+        // immediately after the crossing — the hold is the point.
+        await hover(
+          app,
+          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
+        );
+        await wait(400);
+        const heldThrough = await app.evalJS<boolean>(
+          `(function () {
+            document.querySelector(".layouts-section-rows")
+              .dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+            return document.querySelector('[data-testid="lens-layouts-plan"]').hasAttribute("data-previewing");
+          })()`,
+        );
+        expect(
+          heldThrough,
+          "crossing the air between segments holds the audition rather than dropping it",
+        ).toBe(true);
+        note("hover intent: a crossing raises nothing, a gap drops nothing");
+
         // ── Clearing the hover brings the live marks back. ──
-        await hover(app, ".layouts-figure");
-        await wait(300);
+        await hover(app, ".layouts-section-rows");
+        await wait(400);
         const after = await app.evalJS<{ previewing: boolean; liveOpacity: string }>(
           `(function () {
             var plan = document.querySelector('[data-testid="lens-layouts-plan"]');

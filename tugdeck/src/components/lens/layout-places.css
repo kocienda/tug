@@ -21,17 +21,21 @@
  * @tug-pairings
  * | Element                                             | Surface                                             | Role          | Context                       |
  * |-----------------------------------------------------|-----------------------------------------------------|---------------|-------------------------------|
- * | --tug7-element-global-border-normal-strong-rest     | --tug7-surface-global-primary-normal-sunken-rest    | informational | .layout-places mark at rest   |
- * | --tug7-element-control-border-outlined-action-rest  | --tug7-surface-global-primary-normal-sunken-rest    | control       | .layout-places mark on hover  |
+ * | --tug7-element-global-text-normal-default-rest      | --tug7-element-global-border-normal-strong-rest     | informational | .layout-places mark at rest   |
+ * | --tug7-surface-global-primary-normal-default-rest   | --tug7-element-global-text-normal-default-rest      | control       | .layout-places mark on hover  |
  *
- * The mark is drawn in the picture's own ink, not the control palette. The
- * drawing is chrome — global neutrals — and a mark on it painted in the accent
- * would claim to be the live thing on a surface where nothing is live: where a
- * card is standing is the deck's resting fact, true whether or not anybody is
- * reaching for it. Its fill is the drawing's ground rather than nothing, which
- * is what lets a glyph read on a committed block (solid) and on a proposed one
- * (hollow) alike, and what makes a stack's nearer slices occlude the ones
- * behind them.
+ * The surface in the first row is a border token, and that is not a slip: a
+ * mark stands on a drawn BLOCK, and `layout-miniature.css` paints its blocks
+ * with `--tug7-element-global-border-normal-strong-rest`. Pairing the mark
+ * against the section's background instead would be checking the contrast of
+ * two things that never touch.
+ *
+ * At rest the mark is drawn in the picture's own ink, not the control palette.
+ * The drawing is chrome — global neutrals — and a mark on it painted in the
+ * accent would claim to be the live thing on a surface where nothing is live:
+ * where a card is standing is the deck's resting fact, true whether or not
+ * anybody is reaching for it. Under the hand it becomes a control and says so
+ * by inverting: the page's own two colours, swapped.
  */
 
 .layout-places {
@@ -107,45 +111,78 @@
   /* The one thing in the picture that answers a hand. */
   pointer-events: auto;
 
-  --tugx-column-badge-fill: var(--tug7-surface-global-primary-normal-sunken-rest);
+  /* **Body in the ink, seams in the ground.** A mark stands ON a drawn block,
+     and a block is painted with `--tug7-element-global-border-normal-strong-rest`
+     — a border token used as a surface (`layout-miniature.css`). So that token
+     is the mark's GROUND, never its ink, and the first cut had it as both: the
+     slice stroke and the ladder's lines were the block's own colour, which made
+     the split glyph a drawing of a block on a block. It survived at all only
+     because a slice has a fill to read by; the ladder, which is lines and
+     nothing else, simply vanished.
+
+     The ink is the page's own text colour, which is the one pairing guaranteed
+     to read in every theme — and it has to be, because the block is a MID tone
+     in both polarities: the sunken surface used here before sat 340 steps below
+     it in the dark themes and only 170 above it in the light ones, so the same
+     declaration gave a legible glyph on one side and a wash on the other.
+     Text ink lands 320 below and 590 above, and in the direction the reader's
+     eye is already calibrated for. */
+  --tugx-column-badge-fill: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-column-badge-accent: var(--tug7-element-global-text-normal-default-rest);
   --tugx-column-badge-stroke: var(--tug7-element-global-border-normal-strong-rest);
-  --tugx-column-badge-accent: var(--tug7-element-global-border-normal-strong-rest);
 }
 
-/* Nothing to arrange here yet — one card standing in a place that can hold
-   several. The arrangement is still real and still the one a second card would
-   land under, so the mark stays and only its weight drops. It is NOT disabled:
-   pressing it is how a place that quietly kept a split gets put back, which is
-   precisely the gesture the old membership-gated row denied. */
-.layout-places-mark[data-dim] {
-  opacity: var(--tugx-control-disabled-opacity);
-}
+/* Every mark rests at ONE weight. An earlier cut whispered the marks with
+   fewer than two cards under them, on the theory that a place with nothing to
+   arrange should say so quietly — but a picture whose glyphs sit at two tints
+   reads as a rendering fault before it reads as a distinction, and the
+   distinction was not one the reader had asked about. What a mark is for is
+   stating the arrangement, and every place has one of those. */
 
-/* Under the pointer a mark becomes what it always was underneath: a control.
-   THAT is where the accent goes, and only there — the same trade the pane's
-   slot chip makes. Where a card is standing is the deck's resting fact, true
+/* Under the hand a mark becomes what it always was underneath: a control, and
+   it says so with an OPAQUE chip. The ghost emphasis's own hover surface is a
+   14%-alpha wash, which is right on a card and illegible here: the drawing
+   beneath is a mid-neutral, so a translucent tint over it lands a step from
+   where it started and the glyph goes on competing with the block behind it.
+
+   Rest stays neutral: where a card is standing is the deck's resting fact, true
    whether or not anybody is reaching for it, so spending the accent to state it
    would leave the picture permanently lit with nothing happening.
 
-   A dimmed mark comes up to full weight on hover too: the hand has found it, so
-   the reason for the whisper is gone. */
-.layout-places-mark:hover {
-  opacity: 1;
-  --tugx-column-badge-stroke: var(
-    --tug7-element-control-border-outlined-action-rest
-  );
+   The keyboard cursor takes the same appearance, because standing on a mark and
+   pointing at one mean the same thing here: the press is what changes the deck. */
+.layout-places-mark .tug-icon-button:hover,
+.layout-places-mark .tug-icon-button[data-key-cursor] {
+  /* The chip is the page's own two colours, SWAPPED — text ink as the ground,
+     the page's surface as the glyph. Which makes it the most legible pair the
+     theme has, in every theme, by construction: it is the contrast of body
+     text on its own background, and nothing a palette does to one polarity can
+     weaken it without making prose unreadable first.
+
+     The accent chip this replaced was the obvious choice and the wrong one. It
+     borrows the app's filled-action pair, which measures WCAG 2.87 and
+     perceptual 39 in five of the six themes — a saturated ground carrying
+     near-white ink is inherently about 3:1 — so a mark asked to be legible
+     would have been drawn in the one family that cannot be. It also would have
+     claimed the accent for a hover, on a drawing whose whole argument is that
+     nothing here is live. */
+  background-color: var(--tug7-element-global-text-normal-default-rest);
+  /* The same rule as at rest, over a new ground: body in the ink, seams in
+     whatever the glyph is standing on — which under the hand is the chip. */
+  --tugx-column-badge-fill: var(--tug7-surface-global-primary-normal-default-rest);
   --tugx-column-badge-accent: var(
-    --tug7-element-control-border-outlined-action-rest
+    --tug7-surface-global-primary-normal-default-rest
   );
+  --tugx-column-badge-stroke: var(--tug7-element-global-text-normal-default-rest);
 }
 
 /* The glyph's size. Written with the mark's class in front of it because a
    glyph mounted inside a `TugButton` meets `.tug-button svg { width: 1rem }` —
    one specificity step above a bare class, and enough to blow the drawing up to
-   sixteen pixels inside a picture two hundred wide. */
+   sixteen pixels inside a picture three hundred wide. */
 .layout-places-mark .tug-column-badge-glyph {
-  inline-size: var(--tugx-layout-places-glyph-width, 14px);
-  block-size: var(--tugx-layout-places-glyph-height, 17px);
+  inline-size: var(--tugx-layout-places-glyph-width, 17px);
+  block-size: var(--tugx-layout-places-glyph-height, 20px);
   flex: none;
   overflow: visible;
 }
@@ -169,34 +206,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  inline-size: var(--tug-button-xs-height);
-  block-size: var(--tug-button-xs-height);
+  inline-size: var(--tug-button-sm-height);
+  block-size: var(--tug-button-sm-height);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
 .layout-places-ghost-glyph .tug-column-badge-glyph {
-  inline-size: var(--tugx-layout-places-glyph-width, 14px);
-  block-size: var(--tugx-layout-places-glyph-height, 17px);
+  inline-size: var(--tugx-layout-places-glyph-width, 17px);
+  block-size: var(--tugx-layout-places-glyph-height, 20px);
   flex: none;
   overflow: visible;
-}
-
-/* The subject — the one place this preview proposes to change — carries the
-   accent and full weight; every other ghost mark is context. The accent that
-   the live overlay spends only on hover is exactly right here: a preview IS a
-   reach in progress. */
-.layout-places-ghost [data-subject] {
-  opacity: 1;
-}
-
-.layout-places-ghost [data-subject] .layout-places-ghost-glyph {
-  color: var(--tug7-element-control-border-outlined-action-rest);
-  --tugx-column-badge-stroke: var(
-    --tug7-element-control-border-outlined-action-rest
-  );
-  --tugx-column-badge-accent: var(
-    --tug7-element-control-border-outlined-action-rest
-  );
 }
 
 /* While a preview shows, the live marks step back: the ghost standing in the
