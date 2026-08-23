@@ -1,0 +1,176 @@
+/**
+ * layout-places.css — the places overlay's box, which is the drawing's box.
+ *
+ * The overlay has to land on the picture to the pixel, and the picture is not a
+ * grid of percentages: `.layout-mini` is a flex row with a 1px border, 3px of
+ * padding and a 2px gap, and its rails are flex children sized by basis while
+ * its field takes what is left. So this file does not attempt to *compute*
+ * where anything is — it restates that box exactly and lets the same numbers
+ * from `miniatureGeometry` flow into the same properties. Any of those three
+ * lengths changing in `layout-miniature.css` must change here in the same
+ * commit; they are one box described twice because one element cannot both
+ * paint the deck and take a press for each of its parts.
+ *
+ * The overlay stands OUTSIDE the plan's layers. Those swap by `display`, so an
+ * overlay parked inside the committed layer would disappear the moment its own
+ * hover raised a preview — and disappearing under the pointer un-hovers it,
+ * which clears the preview, which brings it back. Anchored to the plan's own
+ * box, bottom-aligned and at the drawing's width, it coincides with whichever
+ * layer is showing and stays put while the drawing beneath auditions a change.
+ *
+ * @tug-pairings
+ * | Element                                             | Surface                                             | Role          | Context                       |
+ * |-----------------------------------------------------|-----------------------------------------------------|---------------|-------------------------------|
+ * | --tug7-element-global-border-normal-strong-rest     | --tug7-surface-global-primary-normal-sunken-rest    | informational | .layout-places mark at rest   |
+ * | --tug7-element-control-border-outlined-action-rest  | --tug7-surface-global-primary-normal-sunken-rest    | control       | .layout-places mark on hover  |
+ *
+ * The mark is drawn in the picture's own ink, not the control palette. The
+ * drawing is chrome — global neutrals — and a mark on it painted in the accent
+ * would claim to be the live thing on a surface where nothing is live: where a
+ * card is standing is the deck's resting fact, true whether or not anybody is
+ * reaching for it. Its fill is the drawing's ground rather than nothing, which
+ * is what lets a glyph read on a committed block (solid) and on a proposed one
+ * (hollow) alike, and what makes a stack's nearer slices occlude the ones
+ * behind them.
+ */
+
+.layout-places {
+  /* Anchored to the plan's box rather than to a layer inside it: the drawing is
+     the last thing in every layer and every layer centres its contents, so the
+     bottom edge and the drawing's own width put this exactly over it. */
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline: 0;
+  margin-inline: auto;
+  inline-size: var(--tugx-layouts-plan-mini-width);
+
+  /* `.layout-mini`'s box, restated. The transparent border is not decoration —
+     it is the drawing's 1px border occupying the same space, so both content
+     boxes start at the same offset. */
+  display: flex;
+  gap: 2px;
+  aspect-ratio: 16 / 10;
+  padding: 3px;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+
+  /* The plan sets `pointer-events: none` over the whole drawing, because a
+     drawing is a statement and there is nothing in it to press. This overlay is
+     the exception the rule was waiting for, so the pointer comes back here.
+
+     It comes back on the WHOLE box rather than on the marks alone, and that is
+     load-bearing rather than lazy: the focus engine's walk excludes any
+     registered element that computes `pointer-events: none`
+     (`isRecordInteractive` in `focus-manager.ts`), on the sound principle that
+     the ring must never land on something a press cannot reach. An inert root
+     therefore takes the picture out of the Tab walk entirely — registered,
+     visible, and silently unreachable by keyboard. Nothing is lost by letting
+     the box take the pointer: the only thing under it is a drawing that already
+     refuses one, and a hover on the box's empty air resolves to no preview id,
+     which is the same as no hover at all. */
+  pointer-events: auto;
+}
+
+/* One side's strip. Width comes from the same flex-basis the drawing's rail
+   takes, so the two land on each other whatever the preset. */
+.layout-places-rail {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+/* The cards on one side, each pressable, stacked down the strip in equal
+   shares — deliberately NOT the drawing's own member geometry, where a stacked
+   rail's members are near-congruent slivers three percent apart. That is a good
+   picture of a stack and an impossible thing to press.
+
+   The run stops short of the strip's foot, which belongs to the side's own
+   arrangement mark. */
+.layout-places-rail-members {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  inset-block-end: var(--tugx-layout-places-mark-room, 22px);
+  display: flex;
+  flex-direction: column;
+}
+
+.layout-places-rail-member {
+  flex: 1 1 0;
+  min-block-size: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+/* The run the cards stand across — everything the rails have not taken, exactly
+   as in the drawing. */
+.layout-places-field {
+  position: relative;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+/* A slot's block, at the same left and width the drawing gave it. */
+.layout-places-block {
+  position: absolute;
+  inset-block: 0;
+}
+
+/* The mark itself, at the foot of the part it belongs to. The foot rather than
+   the middle because a block's middle is where the card's own content would be
+   in the real deck, and because a row of marks along one line reads as one
+   legend for the picture rather than as scattered stickers. */
+.layout-places-mark {
+  position: absolute;
+  inset-block-end: 1px;
+  inset-inline: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+
+  /* The one thing in the picture that answers a hand. */
+  pointer-events: auto;
+
+  --tugx-column-badge-fill: var(--tug7-surface-global-primary-normal-sunken-rest);
+  --tugx-column-badge-stroke: var(--tug7-element-global-border-normal-strong-rest);
+  --tugx-column-badge-accent: var(--tug7-element-global-border-normal-strong-rest);
+}
+
+/* Nothing to arrange here yet — one card standing in a place that can hold
+   several. The arrangement is still real and still the one a second card would
+   land under, so the mark stays and only its weight drops. It is NOT disabled:
+   pressing it is how a place that quietly kept a split gets put back, which is
+   precisely the gesture the old membership-gated row denied. */
+.layout-places-mark[data-dim] {
+  opacity: var(--tugx-control-disabled-opacity);
+}
+
+/* Under the pointer a mark becomes what it always was underneath: a control.
+   THAT is where the accent goes, and only there — the same trade the pane's
+   slot chip makes. Where a card is standing is the deck's resting fact, true
+   whether or not anybody is reaching for it, so spending the accent to state it
+   would leave the picture permanently lit with nothing happening.
+
+   A dimmed mark comes up to full weight on hover too: the hand has found it, so
+   the reason for the whisper is gone. */
+.layout-places-mark:hover {
+  opacity: 1;
+  --tugx-column-badge-stroke: var(
+    --tug7-element-control-border-outlined-action-rest
+  );
+  --tugx-column-badge-accent: var(
+    --tug7-element-control-border-outlined-action-rest
+  );
+}
+
+/* The glyph's size. Written with the mark's class in front of it because a
+   glyph mounted inside a `TugButton` meets `.tug-button svg { width: 1rem }` —
+   one specificity step above a bare class, and enough to blow the drawing up to
+   sixteen pixels inside a picture two hundred wide. */
+.layout-places-mark .tug-column-badge-glyph {
+  inline-size: var(--tugx-layout-places-glyph-width, 10px);
+  block-size: var(--tugx-layout-places-glyph-height, 12px);
+  flex: none;
+  overflow: visible;
+}

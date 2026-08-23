@@ -970,30 +970,38 @@ describe.skipIf(!SHOULD_RUN)(
               railOrderPaneIds,
             );
 
-            // ── The Lens offers a rail row for BOTH sides, always. ──
-            // The seed shares the right side and leaves the left empty, so
-            // this is the asymmetric case: the row that can act and the row
-            // that cannot stand side by side, and the one that cannot is
-            // disabled rather than absent. A row that came and went with the
-            // arrangement moved every control below it.
+            // ── The Lens marks a side's arrangement on the deck's picture. ──
+            //
+            // The seed shares the right side and leaves the left empty, so this
+            // is the asymmetric case: a side that carries a rail is marked, and
+            // a side that carries nothing has no place to mark. The row pair
+            // this replaced was always both sides, one of them permanently
+            // disabled — a control standing there for a place that does not
+            // exist. A mark on a drawing needs no such placeholder, because the
+            // drawing is not there either.
             await app.dispatchControlAction("focus-lens");
             await app.waitForCondition<boolean>(
-              `document.querySelectorAll('[data-testid^="lens-layouts-rail-"]').length === 2`,
+              `document.querySelector('.layout-places-mark[data-place^="rail-"]') !== null`,
               { timeoutMs: 5_000 },
             );
-            const railRowState = await app.evalJS<Record<string, boolean>>(
-              `["left", "right"].reduce(function (out, side) {
-                var el = document.querySelector(
-                  '[data-testid="lens-layouts-rail-' + side + '"]',
-                );
-                out[side] = el !== null && el.hasAttribute("data-disabled");
-                return out;
-              }, {})`,
+            const railMarks = await app.evalJS<string[]>(
+              `Array.from(document.querySelectorAll('.layout-places-mark[data-place^="rail-"]'))
+                .map(function (el) { return el.getAttribute("data-place"); })
+                .sort()`,
             );
             expect(
-              railRowState,
-              "the shared side acts; the empty side is present but disabled",
-            ).toEqual({ left: true, right: false });
+              railMarks,
+              "the shared side is marked; the empty side has no rail to mark",
+            ).toEqual(["rail-right"]);
+            // And that mark reads the side's STORED arrangement, which this
+            // test has just spent its length driving.
+            expect(
+              await app.getElementAttribute(
+                '.layout-places-mark[data-place="rail-right"]',
+                "data-mode",
+              ),
+              "the mark says what the right rail is set to",
+            ).toBe("split");
           } finally {
             await app.close().catch(() => undefined);
           }

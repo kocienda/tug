@@ -23,6 +23,26 @@
    the rows below it are where that statement is changed — so hovering it gives
    no cursor, selects no text and reacts in no way, and a hover crossing it on
    the way to a control is not a hover the section has to answer. */
+/* The figure: the drawing and the places standing on it, as one block. The
+   overlay positions against this rather than against the plan, because the plan
+   is `aria-hidden` and an overlay inside it would hide its own buttons from
+   assistive technology along with the picture. */
+.layouts-figure {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  /* The drawing's width, declared once and read by the drawing and by the
+     overlay that has to land on it. Two literals would be one drift away from
+     an overlay standing beside the picture instead of on it.
+
+     Sized so a six-up arrangement's blocks still read as separate cards — the
+     drawing's densest case — and so a place's mark has a pressable target at
+     the foot of a block rather than a speck. */
+  --tugx-layouts-plan-mini-width: 260px;
+}
+
 .layouts-plan {
   display: flex;
   flex-direction: column;
@@ -64,13 +84,11 @@
   display: flex;
 }
 
-/* The drawing's size. TUNE here — the plan is singular, so it takes the room
-   the fifteen per-option tiles used to split, and the dense arrangements'
-   blocks stay wide enough to count. Sized so a six-up arrangement's blocks
-   still read as separate cards, which is the drawing's densest case — a step
-   up from the original 150px, not a takeover of the section. */
+/* The drawing's size. TUNE at `--tugx-layouts-plan-mini-width` above — the
+   overlay reads the same knob, so the picture and its controls resize together
+   or not at all. */
 .layouts-plan .layout-mini {
-  inline-size: 200px;
+  inline-size: var(--tugx-layouts-plan-mini-width);
 }
 
 /* The plan's caption is the section's one statement of what the deck is doing,
@@ -117,11 +135,15 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* The axes: two columns — captions and controls — sized to their content and
-   CENTERED under the plan as one block. The captions right-align and the
-   controls left-align, so the two columns meet at one straight seam and each
-   caption sits against the control it names rather than across the section
-   from it. */
+/* The deck-wide axes: two columns — captions and controls — sized to their
+   content and CENTERED under the plan as one block. The captions right-align
+   and the controls left-align, so the two columns meet at one straight seam and
+   each caption sits against the control it names rather than across the section
+   from it.
+
+   Three rows, and the count no longer moves: the per-place rows that used to
+   grow and shrink with the deck are marks on the drawing now, so the section's
+   height is a constant and nothing below it jumps as cards move. */
 .layouts-section-rows {
   display: grid;
   grid-template-columns: max-content max-content;
@@ -139,16 +161,6 @@
 .layouts-section-caption {
   justify-self: end;
   white-space: nowrap;
-}
-
-/* A row whose control has nothing to arrange — a side carrying fewer than two
-   sidebar cards. The control fades itself off the shared disabled knob
-   (`tug-choice-group.css`); the caption reads the same knob so the pair dims
-   as one row rather than as a live label beside a dead control. The row is
-   `display: contents`, so this styles the caption directly rather than
-   fading a box that paints nothing. */
-.layouts-section-row[data-disabled] .layouts-section-caption {
-  opacity: var(--tugx-control-disabled-opacity);
 }
 
 .layouts-section-row [data-slot="tug-choice-group"] {

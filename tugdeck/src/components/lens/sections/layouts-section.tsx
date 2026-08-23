@@ -1,27 +1,40 @@
 /**
  * layouts-section.tsx — the Lens **Layout** section: the deck's layout picker.
  *
- * Every layout decision the deck has is made here, on five axes. **Cards** says
- * how many the arrangement holds; **Layout** says how a slot resolves into a
- * place — `Fit`, where the cards share the band and crowd when it is narrow, or
- * `Flow`, where they keep their width and the deck runs past the edge; **Card
- * Width** says how wide they read; **Sidebar positions** says which edge each
- * sidebar card holds; and a **rail row** per shared side says whether the cards
- * on that side stack front-to-back or divide it between them. All five write
- * the deck's `imposition` record — so
- * "where is the Lens" and "how wide is a Session card" are layout questions
- * answered beside the other layout questions rather than in an app-wide
- * preference somewhere else.
+ * Every layout decision the deck has is made here, and the section asks them in
+ * the two kinds they actually come in.
  *
- * The sidebar controls are **registry-driven**: one Left/Right group per card
- * that registered `layoutRole: "sidebar"`, in registration order. A third
- * sidebar card appears here by registering, with nothing to add in this file.
- * The rail rows are derived the same way — a side gets one when the registry
- * assigns two or more sidebar cards to it, open or not. That is deliberately
- * not a live read of what is standing: this section reads no panes at all, and
- * a row gated on visible members would both disagree with the miniature drawn
- * directly above it and disappear at the moment a split side dropped to one
- * card, taking the only way to un-split it along.
+ * **Deck-wide questions are rows.** Three of them, and only three: **Cards**
+ * says how many the arrangement holds; **Layout** says how a slot resolves into
+ * a place — `Fit`, where the cards share the band and crowd when it is narrow,
+ * or `Flow`, where they keep their width and the deck runs past the edge; and
+ * **Card Width** says how wide they read. They are enumerable and they are
+ * about the whole deck, which is what the segmented-row idiom is good at.
+ *
+ * **Per-place questions are asked on the drawing.** Which edge a sidebar card
+ * holds, and whether a slot or a rail stacks or splits, are facts about a place
+ * the picture is already drawing — so they are stated and changed there, by
+ * {@link LayoutPlaces}. This section used to re-describe each of them in a row
+ * of its own: one per registered sidebar card, one per side, one per shared
+ * slot, up to thirteen rows under a picture that had just drawn every one of
+ * them. The reader's eye joined "Column 3" to the third block on every read,
+ * the count grew with the deck, and the panel's height moved as cards did. The
+ * marks cost none of that and scale sideways for free.
+ *
+ * The trade also closed a trap. The column rows were gated on a slot holding
+ * two or more cards, on the argument that a column of one is already unsplit —
+ * but membership churn PRESERVES an arrangement (`columnDrawsSplit`), so a slot
+ * set to split and standing one card deep was invisible everywhere and
+ * reachable from nowhere until a second card arrived and it resurfaced. A mark
+ * is cheap enough to give every occupied place, so every occupied place has
+ * one.
+ *
+ * All of it writes the deck's `imposition` record — so "where is the Lens" and
+ * "how wide is a Session card" are layout questions answered beside the other
+ * layout questions rather than in an app-wide preference somewhere else. The
+ * sidebar side of it stays **registry-driven**: the cards that registered
+ * `layoutRole: "sidebar"` are what the overlay offers, in registration order,
+ * and a third one appears by registering with nothing to add in this file.
  *
  * The Cards axis has no *off*. One-up is the quietest arrangement rather than
  * the absence of one — a single anchor, which a card occupies only by being put
@@ -38,9 +51,12 @@
  * standing the movement cursor on it, swaps the plan for that option's
  * arrangement, drawn tentative (hollow blocks) rather than committed (filled).
  *
- * The plan is a readout, and takes no pointer at all (`pointer-events: none`):
- * it is drawn in chrome neutrals rather than the control palette, and the hand
- * that tries it finds nothing to press.
+ * The drawing itself is a readout and takes no pointer (`pointer-events: none`)
+ * — it is drawn in chrome neutrals rather than the control palette, and the
+ * hand that tries it finds nothing to press. What answers a hand is the places
+ * overlay standing over it, which is a separate element for exactly that
+ * reason: the picture states, the marks act, and the two never argue about
+ * which one a click was meant for.
  *
  * The previews are pre-rendered: React renders one hidden plan layer per
  * offerable option from the same store read as the committed layer, and the
@@ -78,6 +94,11 @@ import type { LensSectionHost } from "@/components/lens/lens-section-registry";
 import { setSectionContent } from "@/components/lens/lens-section-content";
 import { LayoutMiniature } from "@/components/lens/layout-miniature";
 import type { MiniatureRails } from "@/components/lens/layout-miniature";
+import { LayoutPlaces } from "@/components/lens/layout-places";
+import type {
+  LayoutPlace,
+  LayoutRailMember,
+} from "@/components/lens/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
 import { getAllRegistrations } from "@/card-registry";
 import { getDeckStore } from "@/lib/deck-store-registry";
@@ -140,25 +161,30 @@ const COLUMN_SENDER_PREFIX = "lens-layouts-column:";
 const KIND_CAPTION_ID = "lens-layouts-kind-caption";
 const LAYOUT_CAPTION_ID = "lens-layouts-layout-caption";
 const WIDTH_CAPTION_ID = "lens-layouts-width-caption";
-const SIDE_CAPTION_ID_PREFIX = "lens-layouts-side-caption-";
-const RAIL_CAPTION_ID_PREFIX = "lens-layouts-rail-caption-";
-const COLUMN_CAPTION_ID_PREFIX = "lens-layouts-column-caption-";
 
-/** The groups' focus orders. Distinct, and declared rather than defaulted,
+/** The three rows' focus orders. Distinct, and declared rather than defaulted,
  *  because they are separate stops: sharing an order would give two groups one
  *  focus key ([Q12]) between them, and the engine resolves a key to exactly one
  *  stop — so the other would be unreachable by any addressed placement. Being
  *  separately ordered is also what makes them separate rows of the Lens's arrow
- *  plane, so a vertical arrow steps from one group to the next. The sidebar
- *  groups take the orders after these, one each, in registration order, and the
- *  rail rows the orders after those, and the per-slot column rows after the
- *  rails. The column rows are indexed over the rows actually RENDERED rather
- *  than over slot numbers: their set is membership-dependent, so a ladder dense
- *  over slots would leave holes in the walk wherever a slot held one card. */
+ *  plane, so a vertical arrow steps from one group to the next.
+ *
+ *  Three is the whole list, and fixed. The per-place rows this section used to
+ *  grow — one per sidebar card, one per side, one per shared slot — needed
+ *  their orders computed from a running count, and that arithmetic is gone with
+ *  them: those questions are asked on the drawing now. */
 const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
-const LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER = 3;
+
+/** The picture's own stop. One stop for the whole drawing rather than one per
+ *  mark: a stop per affordance would make Tab crawl the picture, and the marks
+ *  are items within it exactly as a segmented group's segments are items within
+ *  it. The order is a sort key rather than a count, so it is set past every row
+ *  the section can grow — two stops sharing an order would share one focus key
+ *  ([Q12]) and the engine resolves a key to exactly one stop, leaving the other
+ *  unreachable by any addressed placement. */
+const LAYOUTS_PLACES_FOCUS_ORDER = 20;
 
 /** User-facing label for each kind. */
 const KIND_LABELS: Record<ImpositionKind, string> = {
@@ -288,14 +314,19 @@ function useImposition(): DeckImposition {
  * The deck's occupied slots and how each one is arranged.
  *
  * The one place this section reads PANES rather than the imposition alone, and
- * it has to: a column row is offered only for a slot that holds two or more
- * cards, which is a fact about membership. The rail rows deliberately do the
- * opposite — they read registrations and are always present — because a split
- * side dropping to one card would otherwise take the only way to un-split it
- * away with it. A slot cannot reach that trap: a column of one is already
- * unsplit and has nothing to restore, so a row that comes and goes with
- * membership costs nothing and mirroring the rails would put up to six
- * permanently disabled rows under the two that are already there.
+ * it has to: how many cards share a slot is a fact about membership, and the
+ * overlay's marks dim on it.
+ *
+ * Every occupied slot is returned, whatever its membership. An earlier version
+ * offered a column control only for a slot holding two or more cards, arguing
+ * that a column of one is already unsplit and has nothing to restore. That was
+ * false, and the way it was false is the whole reason this overlay exists:
+ * membership churn deliberately preserves the arrangement
+ * (`columnDrawsSplit`), so a slot set to split and standing one card deep keeps
+ * `mode: "split"` — invisible on every surface and, under that gate,
+ * unreachable from the Lens. It sat there until a second card arrived and
+ * resurfaced as a surprise. The rails avoided exactly this trap by never gating
+ * their rows on membership; the columns walked into it.
  */
 function useDeckColumns(): readonly DeckColumn[] {
   const deck = useDeck();
@@ -486,21 +517,14 @@ function LayoutsSectionBody({
     left: railModeOf(imposition, "left"),
     right: railModeOf(imposition, "right"),
   };
-  // A side the section counts two or more sidebar cards on — the same
-  // registration-derived count the miniature above draws from, deliberately not
-  // a live read of what is open. The section reads no panes at all, and a row
-  // gated on visible members would sit under a miniature that disagreed with
-  // it; worse, it would vanish exactly when a split side dropped to one card,
-  // taking the only Lens-side way to un-split with it ([P08]).
+  // Every side that carries a rail at all — counted from the registrations the
+  // miniature draws from rather than from what is open, so the picture and the
+  // marks standing on it cannot disagree about how many cards a side holds.
   //
-  // Both sides get a row EITHER WAY; a side with nothing to arrange gets a
-  // disabled one. A row that came and went as cards moved edges made the
-  // panel's own height a function of the arrangement — the rows below it
-  // jumped every time, and the reader had to notice an absence to learn that
-  // a side could be split at all. A dimmed control states the same fact and
-  // holds its place.
-  const isShared = (side: SidebarSide): boolean => (rails[side] ?? 0) > 1;
-  const sharedSides = SIDES.filter(isShared);
+  // The overlay marks each of these and takes a press on each, so each needs
+  // both of its proposals drawn: a side holding one card can still be SET to
+  // split, and the picture has to be able to state what pressing it would do.
+  const occupiedSides = SIDES.filter((side) => (rails[side] ?? 0) > 0);
   // The slots that can be arranged at all: two or more cards standing in one
   // place. A slot with one card is already unsplit, so it gets no row (see
   // `useDeckColumns`).
@@ -509,9 +533,41 @@ function LayoutsSectionBody({
   // draws at rest ([P06]).
   const committedFlow = useCommittedFlow();
   const committedColumnOffsets = useCommittedColumnOffsets();
-  const shareableColumns = columns.filter(
-    (column) => column.members.length > 1,
-  );
+  // The arrangeable places, for the overlay that draws them on the picture.
+  // Each carries its STORED arrangement and how many cards actually stand
+  // there: the glyph is drawn from the first and dimmed by the second, and the
+  // two come apart at exactly one card — which is the whole reason a place one
+  // card deep still gets a mark.
+  const columnPlaces: LayoutPlace[] = columns.map((column) => ({
+    key: `col-${column.slot}`,
+    slot: column.slot,
+    mode: column.mode,
+    members: column.members.length,
+    label: columnCaption(column.slot),
+    previewAxis: `columnmode:${column.slot}`,
+    senderId: `${COLUMN_SENDER_PREFIX}${column.slot}`,
+  }));
+  const railPlaces: LayoutPlace[] = SIDES.filter(
+    (side) => (rails[side] ?? 0) > 0,
+  ).map((side) => ({
+    key: `rail-${side}`,
+    side,
+    mode: railModes[side] ?? "stack",
+    members: rails[side] ?? 0,
+    label: RAIL_CAPTIONS[side],
+    previewAxis: `railmode:${side}`,
+    senderId: `${RAIL_SENDER_PREFIX}${side}`,
+  }));
+  // The sidebar cards themselves, with the edge each currently holds. The
+  // drawing's rails are counts, which is all a picture needs; a control needs
+  // to know WHICH card it would move.
+  const railMembers: LayoutRailMember[] = sidebars.map((entry) => ({
+    componentId: entry.componentId,
+    title: entry.title,
+    side: sidebarSide(imposition, entry.componentId),
+    senderId: `${SIDE_SENDER_PREFIX}${entry.componentId}`,
+    previewAxis: `side:${entry.componentId}`,
+  }));
   /** Which slots the miniature draws divided, and into how many shares. */
   const columnSplits: Record<number, number> = {};
   for (const column of columns) {
@@ -597,6 +653,7 @@ function LayoutsSectionBody({
   // long as the pointer or cursor that asked for it.
   const planRef = useRef<HTMLDivElement | null>(null);
   const rowsRef = useRef<HTMLDivElement | null>(null);
+  const figureRef = useRef<HTMLDivElement | null>(null);
 
   const setPreview = useCallback((id: string | null) => {
     const plan = planRef.current;
@@ -616,21 +673,36 @@ function LayoutsSectionBody({
   // cursored segment to its preview id whenever either moves. Deferred
   // commit ([P24]) then reads: arrows audition arrangements in the plan,
   // Space makes one real.
+  // Watched over the figure as well as the rows, because the picture is a stop
+  // too: its marks carry the same `data-choice-value` a row's segments carry, so
+  // an arrow that lands on one resolves through the same `previewIdOf` and
+  // raises the same layer. One recompute across both roots — whichever of them
+  // holds the ringed group is the one that answers, and only one can.
   useLayoutEffect(() => {
-    const rows = rowsRef.current;
-    if (rows === null) return;
+    const roots = [rowsRef.current, figureRef.current].filter(
+      (el): el is HTMLDivElement => el !== null,
+    );
+    if (roots.length === 0) return;
     const recompute = () => {
-      const segment = rows.querySelector(
-        "[data-key-view-kbd] [data-key-cursor][data-choice-value]",
-      );
-      setPreview(previewIdOf(segment));
+      for (const root of roots) {
+        const cursored = root.querySelector(
+          "[data-key-view-kbd] [data-key-cursor][data-choice-value]",
+        );
+        if (cursored !== null) {
+          setPreview(previewIdOf(cursored));
+          return;
+        }
+      }
+      setPreview(null);
     };
     const observer = new MutationObserver(recompute);
-    observer.observe(rows, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["data-key-cursor", "data-key-view-kbd"],
-    });
+    for (const root of roots) {
+      observer.observe(root, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-key-cursor", "data-key-view-kbd"],
+      });
+    }
     return () => observer.disconnect();
   }, [setPreview]);
 
@@ -695,7 +767,7 @@ function LayoutsSectionBody({
         layout,
       })),
     ),
-    ...sharedSides.flatMap((side) =>
+    ...occupiedSides.flatMap((side) =>
       RAIL_MODES.map((mode) => ({
         previewId: `railmode:${side}:${mode}`,
         caption: [`${RAIL_CAPTIONS[side]} ${RAIL_MODE_LABELS[mode]}`],
@@ -711,8 +783,12 @@ function LayoutsSectionBody({
     ),
   ].map((layer) => ({ ...layer, columnSplits }));
 
-  // And one per column proposal: the slot divided, or made whole again.
-  for (const column of shareableColumns) {
+  // And one per column proposal: the slot divided, or made whole again. Every
+  // occupied slot, not just the shared ones — a slot standing one card deep can
+  // still be SET to split, and both of its proposals draw the same picture with
+  // different captions, which is the honest statement that what would change is
+  // the arrangement rather than what is on screen.
+  for (const column of columns) {
     for (const mode of COLUMN_MODES) {
       layers.push({
         previewId: `columnmode:${column.slot}:${mode}`,
@@ -756,21 +832,6 @@ function LayoutsSectionBody({
     label: CONTENT_WIDTH_LABELS[preset],
   }));
 
-  const sideItems: TugChoiceItem[] = SIDES.map((side) => ({
-    value: side,
-    label: SIDE_LABELS[side],
-  }));
-
-  const columnModeItems: TugChoiceItem[] = COLUMN_MODES.map((mode) => ({
-    value: mode,
-    label: COLUMN_MODE_LABELS[mode],
-  }));
-
-  const railModeItems: TugChoiceItem[] = RAIL_MODES.map((mode) => ({
-    value: mode,
-    label: RAIL_MODE_LABELS[mode],
-  }));
-
   return (
     <ResponderScope>
       <div
@@ -778,6 +839,25 @@ function LayoutsSectionBody({
         data-testid="lens-layouts-section"
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
+        {/* The figure: the drawing, and the places standing on it. They are
+            siblings rather than nested because the drawing is `aria-hidden` —
+            it is a picture of facts stated in words elsewhere — and an
+            `aria-hidden` ancestor cannot be undone by a descendant, so an
+            overlay inside it would hide its own buttons from assistive
+            technology. The wrapper is what the overlay positions against.
+
+            The pointer handlers live here, not on the drawing: hovering a mark
+            shows the proposal it would commit, exactly as hovering a row's
+            segment does. */}
+        <div
+          className="layouts-figure"
+          ref={figureRef}
+          onPointerOver={(event) =>
+            setPreview(previewIdOf(event.target as Element))
+          }
+          onPointerLeave={() => setPreview(null)}
+          onClick={() => setPreview(null)}
+        >
         <div
           className="layouts-plan"
           data-testid="lens-layouts-plan"
@@ -825,6 +905,32 @@ function LayoutsSectionBody({
               />
             </div>
           ))}
+        </div>
+
+        {/* The places, over whichever layer is showing — anchored to the figure
+            rather than mounted inside a layer, because the layers swap by
+            `display` and a mark inside the committed one would vanish the
+            moment its own hover raised a preview, un-hover itself, and
+            oscillate. */}
+        <LayoutPlaces
+          kind={kind}
+          rails={rails}
+          width={contentWidth}
+          layout={layout}
+          flow={
+            committedFlow === null
+              ? null
+              : {
+                  bandPx: committedFlow.bandPx,
+                  extents: committedFlow.extents,
+                }
+          }
+          columns={columnPlaces}
+          railPlaces={railPlaces}
+          railMembers={railMembers}
+          focusGroup={host.focusGroup}
+          focusOrder={LAYOUTS_PLACES_FOCUS_ORDER}
+        />
         </div>
 
         <div
@@ -905,128 +1011,6 @@ function LayoutsSectionBody({
             />
           </div>
 
-          {sidebars.map((entry, index) => {
-            const side = sidebarSide(imposition, entry.componentId);
-            const captionId = `${SIDE_CAPTION_ID_PREFIX}${entry.componentId}`;
-            return (
-              <div
-                className="layouts-section-row"
-                data-preview-axis={`side:${entry.componentId}`}
-                key={entry.componentId}
-              >
-                <TugLabel
-                  id={captionId}
-                  size="md"
-                  emphasis="proposal"
-                  className="layouts-section-caption"
-                >
-                  {entry.title}
-                </TugLabel>
-                <TugChoiceGroup
-                  items={sideItems}
-                  value={side}
-                  senderId={`${SIDE_SENDER_PREFIX}${entry.componentId}`}
-                  size="xs"
-                  sidePadding="xs"
-                  reselect
-                  focusGroup={host.focusGroup}
-                  focusOrder={LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER + index}
-                  aria-labelledby={captionId}
-                  data-testid={`lens-layouts-side-${entry.componentId}`}
-                />
-              </div>
-            );
-          })}
-
-          {/* One row per side, always both: the arrangement that side's rail
-              stands under. Below the position rows, because which edge a card
-              holds is the question you answer first — a side has to be shared
-              before it can be split. A side carrying fewer than two sidebar
-              cards has nothing to arrange, so its row is disabled rather than
-              absent, and it previews nothing: a hover cannot rehearse a
-              gesture the control will not accept. */}
-          {SIDES.map((side, index) => {
-            const captionId = `${RAIL_CAPTION_ID_PREFIX}${side}`;
-            const shared = isShared(side);
-            return (
-              <div
-                className="layouts-section-row"
-                data-preview-axis={shared ? `railmode:${side}` : undefined}
-                data-disabled={shared ? undefined : ""}
-                key={side}
-              >
-                <TugLabel
-                  id={captionId}
-                  size="md"
-                  emphasis="proposal"
-                  className="layouts-section-caption"
-                >
-                  {RAIL_CAPTIONS[side]}
-                </TugLabel>
-                <TugChoiceGroup
-                  items={railModeItems}
-                  value={railModes[side] ?? "stack"}
-                  senderId={`${RAIL_SENDER_PREFIX}${side}`}
-                  size="xs"
-                  sidePadding="xs"
-                  reselect
-                  disabled={!shared}
-                  focusGroup={host.focusGroup}
-                  focusOrder={
-                    LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER + sidebars.length + index
-                  }
-                  aria-labelledby={captionId}
-                  data-testid={`lens-layouts-rail-${side}`}
-                />
-              </div>
-            );
-          })}
-
-          {/* One row per slot holding two or more cards: the arrangement that
-              column stands under. Last, because a slot has to be shared before
-              it can be split and sharing is something the cards above decide.
-              Unlike the rail rows these are ABSENT rather than disabled when
-              there is nothing to arrange — a column of one is already unsplit
-              and has nothing to restore, so there is no trap to keep a row
-              standing for, and six permanently dimmed rows would be six rows
-              of noise. Keyed by slot, so a slot gaining a second card inserts
-              its row in place rather than at the end. */}
-          {shareableColumns.map((column, index) => {
-            const captionId = `${COLUMN_CAPTION_ID_PREFIX}${column.slot}`;
-            return (
-              <div
-                className="layouts-section-row"
-                data-preview-axis={`columnmode:${column.slot}`}
-                key={column.slot}
-              >
-                <TugLabel
-                  id={captionId}
-                  size="md"
-                  emphasis="proposal"
-                  className="layouts-section-caption"
-                >
-                  {columnCaption(column.slot)}
-                </TugLabel>
-                <TugChoiceGroup
-                  items={columnModeItems}
-                  value={column.mode}
-                  senderId={`${COLUMN_SENDER_PREFIX}${column.slot}`}
-                  size="xs"
-                  sidePadding="xs"
-                  reselect
-                  focusGroup={host.focusGroup}
-                  focusOrder={
-                    LAYOUTS_FIRST_SIDEBAR_FOCUS_ORDER +
-                    sidebars.length +
-                    SIDES.length +
-                    index
-                  }
-                  aria-labelledby={captionId}
-                  data-testid={`lens-layouts-column-${column.slot}`}
-                />
-              </div>
-            );
-          })}
         </div>
       </div>
     </ResponderScope>

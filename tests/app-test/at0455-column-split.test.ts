@@ -167,6 +167,26 @@ function splitFrameCount(app: App): Promise<number> {
   );
 }
 
+/** A place's mark on the Layout drawing — the Lens door for its arrangement. */
+const placeMark = (key: string): string =>
+  `[data-testid="lens-layouts-place-${key}"]`;
+
+/** Which slots the drawing currently marks, low to high. */
+function markedSlots(app: App): Promise<number[]> {
+  return app.evalJS<number[]>(
+    `Array.from(document.querySelectorAll('.layout-places-mark[data-place^="col-"]'))
+      .map(function (el) {
+        return parseInt(el.getAttribute("data-place").replace("col-", ""), 10);
+      })
+      .sort(function (a, b) { return a - b; })`,
+  );
+}
+
+/** The arrangement pressing this mark would set — always the one NOT in force. */
+function placeOffers(app: App, key: string): Promise<string | null> {
+  return app.getElementAttribute(placeMark(key), "data-choice-value");
+}
+
 async function setColumnMode(
   app: App,
   slot: number,
@@ -176,40 +196,6 @@ async function setColumnMode(
     `(window.__tug.dispatchControlAction("set-column-mode", { slot: ${slot}, mode: ${JSON.stringify(mode)} }), null)`,
   );
   await wait(AFTER_LAND_MS);
-}
-
-/** Tab until `selector` is the group carrying the keyboard ring — the walk the
- *  Lens ladder is actually navigated by (at0277 and at0454 use the same one). */
-async function tabUntilKbd(app: App, selector: string): Promise<void> {
-  const reached = (): Promise<boolean> =>
-    app.evalJS<boolean>(
-      `document.querySelector(${JSON.stringify(`${selector}[data-key-view-kbd]`)}) !== null`,
-    );
-  for (let i = 0; i < 20; i += 1) {
-    if (await reached()) return;
-    await app.nativeKey("Tab");
-    await wait(200);
-  }
-  if (await reached()) return;
-  throw new Error(`Tab never reached ${selector}`);
-}
-
-/**
- * Which Layouts group currently carries the keyboard ring, by test id.
- *
- * The LAST match, not the first: the ring attribute stands on the focused
- * element and on the containers that hold it, so a document-order
- * `querySelector` answers with the outermost one — which is the same element
- * for every rung and would report the walk as never moving.
- */
-async function ringedGroup(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
-    `(function () {
-      var all = document.querySelectorAll('.lens-content [data-key-view-kbd][data-testid]');
-      if (all.length === 0) return null;
-      return all[all.length - 1].getAttribute("data-testid");
-    })()`,
-  );
 }
 
 /** The `columns` record as the live store holds it. */
@@ -451,28 +437,28 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         );
         await wait(AFTER_LAND_MS);
 
-        // ── The rows exist for the shared slots, and only for them. ──
-        const rowSlots = async (): Promise<number[]> =>
-          app.evalJS<number[]>(
-            `Array.from(document.querySelectorAll('[data-testid^="lens-layouts-column-"]'))
-              .map(function (el) {
-                return parseInt(el.getAttribute("data-testid").replace("lens-layouts-column-", ""), 10);
-              })
-              .sort(function (a, b) { return a - b; })`,
-          );
+        // ── The picture marks the occupied slots, and only them. ──
+        //
+        // The Lens door for a column's arrangement is a mark on the deck's own
+        // drawing rather than a row of words under it (at0469 covers the mark
+        // itself); what this file still owns is that the door reaches the
+        // COLUMN command and that the geometry follows.
         expect(
-          await rowSlots(),
-          "a row for each slot holding two cards, and none for slot 2 which is empty",
+          await markedSlots(app),
+          "a mark for each occupied slot, and none for slot 2 which is empty",
         ).toEqual([0, 1]);
 
-        // ── The Lens row splits. ──
-        await app.click(
-          `[data-testid="lens-layouts-column-0"] [data-choice-value="split"]`,
-        );
+        // ── The Lens door splits. ──
+        //
+        // One mark rather than two segments: it carries the arrangement NOT in
+        // force, so pressing it is always "make it the other thing" and the
+        // test presses the same element to go each way.
+        expect(await placeOffers(app, "col-0")).toBe("split");
+        await app.click(placeMark("col-0"));
         await wait(AFTER_LAND_MS);
         expect(
           await splitFrameCount(app),
-          "clicking Split on the slot 0 row divides that column",
+          "pressing slot 0's mark divides that column",
         ).toBe(2);
         expect((await columnsRecord(app))["0"]?.mode).toBe("split");
 
@@ -483,13 +469,11 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         // column terms in `arrangementSignature` the settle would not arm and
         // the one gesture the feature exists for would be the one that cuts.
         await app.evalJS<null>(`(window.__tug.armCutDetector(), null)`);
-        await app.click(
-          `[data-testid="lens-layouts-column-0"] [data-choice-value="stack"]`,
-        );
+        // Split now, so the mark offers stack; press it, then press it back.
+        expect(await placeOffers(app, "col-0")).toBe("stack");
+        await app.click(placeMark("col-0"));
         await wait(AFTER_LAND_MS);
-        await app.click(
-          `[data-testid="lens-layouts-column-0"] [data-choice-value="split"]`,
-        );
+        await app.click(placeMark("col-0"));
         await wait(AFTER_LAND_MS);
         await app.evalJS<null>(`(window.__tug.disarmCutDetector(), null)`);
         const cuts = await app.evalJS<{ paneId: string; kind: string; dx: number; dy: number }[]>(
@@ -568,7 +552,16 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         ).toBe("split");
         expect(await splitFrameCount(app)).toBe(4);
 
-        // ── A slot dropping to one card loses its row; the ladder stays dense. ──
+        // ── A slot dropping to one card KEEPS its door. ──
+        //
+        // The deliberate reversal. A column row used to vanish when its slot
+        // fell to one card, on the argument that a column of one is already
+        // unsplit and has nothing to restore. It is not: membership churn
+        // preserves the arrangement (`columnDrawsSplit`), so the slot goes on
+        // storing `split` with nothing to divide — and with the row gone, no
+        // way to say otherwise. The mark stays instead, dimmed to say there is
+        // nothing standing under the arrangement right now, and pressable so
+        // there is a way back.
         await app.click(`${frame("p2")} [data-testid="tug-pane-title-bar"]`);
         await wait(300);
         await app.dispatchControlAction("close");
@@ -578,42 +571,32 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         );
         await wait(AFTER_LAND_MS);
         expect(
-          await rowSlots(),
-          "slot 0 now holds one card, so its row is gone rather than dimmed",
-        ).toEqual([1]);
-        // Dense over PRESENT rows, and last in the ladder — WALKED, because a
-        // `focusOrder` is a number in a registration and never reaches the DOM,
-        // so the only honest way to assert a rung is to stand on it.
-        //
-        // The walk catches both failures the ladder can have here: a HOLE (the
-        // vanished row's rung still claimed, so the walk stops dead before
-        // reaching slot 1's row) and a COLLISION (a column row sharing a rung
-        // with a rail row, which leaves one of the two unreachable by any
-        // addressed placement).
-        // Walked by TAB, not by arrow: the stops are one Tab apart, while a
-        // vertical arrow steps the CURSOR through a row's own segments and
-        // leaves the group only off the run's end (at0277 pins both halves).
-        // An arrow walk here would spend six presses inside the Cards row.
-        await app.dispatchControlAction("focus-lens");
-        await tabUntilKbd(app, '[data-testid="lens-layouts-kind"]');
-        const walk: string[] = [];
-        for (let i = 0; i < 12; i += 1) {
-          await app.nativeKey("Tab");
-          await wait(150);
-          const at = await ringedGroup(app);
-          if (at === null || walk[walk.length - 1] === at) break;
-          walk.push(at);
-        }
-        note(`ladder below Cards: ${walk.join(" -> ")}`);
-        expect(
-          walk.filter((id) => id.startsWith("lens-layouts-column-")),
-          "exactly one column row is reachable, and it is the surviving slot's",
-        ).toEqual(["lens-layouts-column-1"]);
-        // It comes after both rail rows, which is the order the panel states:
-        // a place has to be shared before it can be split.
-        expect(walk.indexOf("lens-layouts-column-1")).toBeGreaterThan(
-          walk.indexOf("lens-layouts-rail-right"),
+          await markedSlots(app),
+          "both occupied slots are still marked — slot 0 lost a card, not its place",
+        ).toEqual([0, 1]);
+        const survivor = await app.evalJS<{ mode: string | null; dim: boolean }>(
+          `(function () {
+            var el = document.querySelector('.layout-places-mark[data-place="col-0"]');
+            return el === null
+              ? { mode: null, dim: false }
+              : { mode: el.getAttribute("data-mode"), dim: el.hasAttribute("data-dim") };
+          })()`,
         );
+        note(
+          `slot 0 after losing a member: ${survivor.mode}${survivor.dim ? " (dim)" : ""}`,
+        );
+        expect(
+          survivor.dim,
+          "one card standing there now, so the mark drops to a whisper",
+        ).toBe(true);
+        // And the way back is a press, on the mark that was unreachable before.
+        expect(await placeOffers(app, "col-0")).toBe(survivor.mode === "split" ? "stack" : "split");
+        await app.click(placeMark("col-0"));
+        await wait(AFTER_LAND_MS);
+        expect(
+          (await columnsRecord(app))["0"]?.mode ?? "stack",
+          "the survivor's arrangement is still the user's to change",
+        ).not.toBe(survivor.mode);
       } finally {
         await app.close();
       }

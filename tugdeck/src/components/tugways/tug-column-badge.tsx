@@ -208,7 +208,7 @@ export const TugColumnBadge = React.forwardRef<HTMLSpanElement, TugColumnBadgePr
  * occlusion where the surface hands in no fill of its own; where one does, a
  * slice is painted as the chip it stands beside.
  */
-function StackGlyph({
+export function StackGlyph({
   lit,
 }: {
   /** `null` marks no slice at all — the surface draws the run, not the depth. */
@@ -249,7 +249,7 @@ function StackGlyph({
  * bottom rungs sit at the badge's own ends — which is what makes "this band is
  * at the top of the run" legible at this size.
  */
-function LadderGlyph({
+export function LadderGlyph({
   lit,
 }: {
   /** `null` marks no rung at all — the surface draws the run, not the band. */

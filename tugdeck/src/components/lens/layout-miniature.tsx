@@ -279,27 +279,70 @@ function Rail({
   );
 }
 
+/** A block's place along the field, in percent of the field's own width. */
+export interface MiniatureRect {
+  leftPct: number;
+  widthPct: number;
+}
+
 /**
- * LayoutMiniature — the deck, drawn small.
+ * Where every part of the drawing stands — the arithmetic, separated from the
+ * drawing that performs it.
  *
- * Each occupied side is a strip of that side's cards, and the content cards
- * tile what is left of the frame edge to edge, numbered left to right as the
- * real deck numbers them.
+ * The shape follows the drawing's BOX MODEL rather than reducing everything to
+ * fractions of the frame, and that is the whole point of extracting it. The
+ * frame is a flex row with real pixel padding and a real pixel gap: a rail is a
+ * flex child at `basisPct` of the CONTENT box, the field takes what is left,
+ * and a block stands at a percentage of the FIELD. A second consumer that
+ * flattened all of that into "percent of the drawing" would be off by the
+ * padding and the gaps at every size — which is exactly the drift this function
+ * exists to make impossible. Anything positioning itself against the drawing
+ * replicates the same flex row and feeds these numbers to the same properties.
  */
-export function LayoutMiniature({
+export interface MiniaturePlaceRects {
+  /** Each occupied side's flex basis, in percent of the frame's content box. */
+  rails: Partial<Record<SidebarSide, { basisPct: number }>>;
+  /** One entry per drawn block, placed within the field. */
+  blocks: readonly (MiniatureRect & { slot: number })[];
+  /** Whether the flow strip is longer than the band, and the scale that fits
+   *  the whole of it into the field when it is. */
+  flow: { overflows: boolean; scale: number };
+}
+
+/**
+ * The drawing's geometry, given the arrangement — one arithmetic for however
+ * many consumers.
+ *
+ * Everything here is the SETTLED geometry: where the parts stand once the deck
+ * has stopped moving. The two live terms the committed drawing also carries —
+ * the flow offset that slides the window, and a column's own slide — are
+ * deliberately not inputs, because neither moves a block along the band: the
+ * offset moves the window element over a strip whose blocks stay put, and a
+ * column's slide runs down the field. Both stay where they were, applied on top
+ * of these rects by the drawing alone.
+ *
+ * The live flow strip IS an input, though, and has to be: `slotExtents` decides
+ * where the blocks are, so a consumer handed the synthetic strip while the
+ * drawing drew the real one would stand its parts over a picture that is not
+ * there. Absent, the strip is the synthetic one every proposal draws.
+ */
+export function miniatureGeometry({
   kind,
   rails = {},
-  railModes,
-  columnSplits,
-  columnOffsets,
   cards = true,
   width,
   layout = "fit",
-  committed = false,
-  flowOffsetPx,
-  flowBandPx,
-  slotExtents,
-}: LayoutMiniatureProps): React.ReactElement {
+  flow,
+}: {
+  kind: ImpositionKind | null;
+  rails?: MiniatureRails;
+  cards?: boolean;
+  width?: ContentWidth;
+  layout?: ImpositionLayout;
+  /** The live strip, when there is one: the band it is seen through and each
+   *  occupied slot's extent. */
+  flow?: { bandPx: number; extents: readonly FlowSlotExtent[] } | null;
+}): MiniaturePlaceRects {
   const left = rails.left ?? 0;
   const right = rails.right ?? 0;
   const count = !cards ? 0 : kind === null ? 1 : slotCount(kind);
@@ -329,42 +372,20 @@ export function LayoutMiniature({
   // the strip can be shorter than the band (air at the right, which is what a
   // half-full flow deck really looks like) or longer than it (the strip runs
   // off the edge and the deck scrolls). When it is longer the WHOLE strip is
-  // scaled into the frame and a window marks the part that is on screen — the
-  // picture states the arrangement AND how much of it you see.
-  //
-  // The COMMITTED drawing is an instrument: given the deck's live flow truth it
-  // draws the real strip — each occupied slot at its own extent — and puts the
-  // window where the offset actually stands, so activating an off-band card
-  // moves the window here too. That costs a Lens row's repaint per activation,
-  // which is the price of the drawing answering "how much of this can I see"
-  // for the deck in front of you rather than for a deck of identical cards.
-  //
-  // PREVIEW layers keep drawing at rest, and that half is not a compromise: an
-  // arrangement nobody has committed has no offset to track and no extents to
-  // measure, because the deck has never stood under it. They get the synthetic
-  // strip — every card one preset wide against a nominal band — which is
-  // exactly the picture a plan can honestly make.
-  //
-  // All three live props or none. They are one fact in three numbers: a strip's
-  // proportions mean nothing without the band they are seen through, and an
-  // offset into a strip nobody has measured places the window nowhere.
-  const flowLive =
-    layout === "flow" &&
-    kind !== null &&
-    flowOffsetPx !== undefined &&
-    flowBandPx !== undefined &&
-    flowBandPx > 0 &&
-    slotExtents !== undefined &&
-    slotExtents.length > 0
-      ? { offsetPx: flowOffsetPx, bandPx: flowBandPx, extents: slotExtents }
-      : null;
-  // Each block the flow drawing lays along the strip: the slot it stands for
-  // and its width as a percentage of the BAND — the unit both the live and the
-  // synthetic strip are stated in before the scale that fits them in the frame.
+  // scaled into the frame and a window marks the part that is on screen.
   //
   // Live, the blocks are the OCCUPIED slots, in strip order. An empty slot
   // contributes nothing to a real strip — not even a gap — so drawing one would
   // be drawing a place the deck does not hold.
+  const flowLive =
+    layout === "flow" &&
+    kind !== null &&
+    flow !== undefined &&
+    flow !== null &&
+    flow.bandPx > 0 &&
+    flow.extents.length > 0
+      ? flow
+      : null;
   const flowBlocks: readonly { slot: number; widthPct: number }[] =
     flowLive !== null
       ? flowLive.extents.map((extent) => ({
@@ -387,27 +408,104 @@ export function LayoutMiniature({
   // equal shares; flow lays the strip out at each block's own width and scales
   // the whole of it in when it is longer than the band. A free card (no
   // imposition) keeps its own width and the middle of the field under either.
-  const blocks: readonly { slot: number; left: number; width: number }[] =
+  const blocks: readonly (MiniatureRect & { slot: number })[] =
     layout === "flow" && kind !== null
       ? flowBlocks.map((block, i) => ({
           slot: block.slot,
-          left:
+          leftPct:
             flowBlocks
               .slice(0, i)
               .reduce((sum, prior) => sum + prior.widthPct + flowGap, 0) *
             flowScale,
-          width: block.widthPct * flowScale,
+          widthPct: block.widthPct * flowScale,
         }))
       : Array.from({ length: count }, (_, i) => ({
           slot: i,
-          left: kind === null ? (100 - fitShare) / 2 : i * (fitShare + cardGap),
-          width: fitShare,
+          leftPct:
+            kind === null ? (100 - fitShare) / 2 : i * (fitShare + cardGap),
+          widthPct: fitShare,
         }));
+
+  const railRects: Partial<Record<SidebarSide, { basisPct: number }>> = {};
+  if (left > 0) railRects.left = { basisPct: railPct };
+  if (right > 0) railRects.right = { basisPct: railPct };
+
+  return {
+    rails: railRects,
+    blocks,
+    flow: { overflows: flowOverflows, scale: flowScale },
+  };
+}
+
+/**
+ * LayoutMiniature — the deck, drawn small.
+ *
+ * Each occupied side is a strip of that side's cards, and the content cards
+ * tile what is left of the frame edge to edge, numbered left to right as the
+ * real deck numbers them.
+ */
+export function LayoutMiniature({
+  kind,
+  rails = {},
+  railModes,
+  columnSplits,
+  columnOffsets,
+  cards = true,
+  width,
+  layout = "fit",
+  committed = false,
+  flowOffsetPx,
+  flowBandPx,
+  slotExtents,
+}: LayoutMiniatureProps): React.ReactElement {
+  const left = rails.left ?? 0;
+  const right = rails.right ?? 0;
+
+  // The deck's live flow truth, as one fact or none. A strip's proportions mean
+  // nothing without the band they are seen through, and an offset into a strip
+  // nobody has measured places the window nowhere — so a partial set draws at
+  // rest rather than drawing a mixture of two truths.
+  //
+  // The COMMITTED drawing is an instrument: given this it draws the real strip
+  // — each occupied slot at its own extent — and puts the window where the
+  // offset actually stands, so activating an off-band card moves the window
+  // here too. PREVIEW layers keep drawing at rest, and that half is not a
+  // compromise: an arrangement nobody has committed has no offset to track and
+  // no extents to measure, because the deck has never stood under it.
+  const flowLive =
+    flowOffsetPx !== undefined &&
+    flowBandPx !== undefined &&
+    flowBandPx > 0 &&
+    slotExtents !== undefined &&
+    slotExtents.length > 0
+      ? { offsetPx: flowOffsetPx, bandPx: flowBandPx, extents: slotExtents }
+      : null;
+
+  // Where everything stands — the shared arithmetic, not a second copy of it.
+  const geometry = miniatureGeometry({
+    kind,
+    rails,
+    cards,
+    width,
+    layout,
+    flow: flowLive,
+  });
+  const railPct =
+    geometry.rails.left?.basisPct ?? geometry.rails.right?.basisPct ?? 0;
+  const blocks = geometry.blocks;
+  const flowOverflows = geometry.flow.overflows;
+  const flowScale = geometry.flow.scale;
+
   // The window marks the band over the strip: as wide a share of the drawing as
   // the band is of the strip, standing where the offset has slid the strip
   // under it. At rest — or with no live truth to read — that is flush left.
+  //
+  // Read from the same guard the geometry used, so the window and the blocks it
+  // stands over cannot disagree about whether the strip is the real one.
   const flowFraction =
-    flowLive === null ? 0 : flowLive.offsetPx / flowLive.bandPx;
+    flowLive === null || layout !== "flow" || kind === null
+      ? 0
+      : flowLive.offsetPx / flowLive.bandPx;
   const windowLeft = flowFraction * 100 * flowScale;
 
   // Which columns are drawn as sliding strips — the signals this drawing has
@@ -470,7 +568,7 @@ export function LayoutMiniature({
               <span
                 key={block.slot}
                 className="layout-mini-block"
-                style={{ left: `${block.left}%`, width: `${block.width}%` }}
+                style={{ left: `${block.leftPct}%`, width: `${block.widthPct}%` }}
               />
             );
           }
@@ -509,8 +607,8 @@ export function LayoutMiniature({
                 data-column-overflow={overflow ? "" : undefined}
                 style={
                   {
-                    left: `${block.left}%`,
-                    width: `${block.width}%`,
+                    left: `${block.leftPct}%`,
+                    width: `${block.widthPct}%`,
                     top: `${top}%`,
                     bottom: `${100 - top - span}%`,
                     "--mini-slide-y":

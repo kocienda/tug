@@ -322,13 +322,13 @@ Dimming and hiding: the overlay hides (CSS, keyed on the sibling plan's `data-pr
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The geometry extracted | pending | |
-| #step-2 | The places overlay, readout first | pending | |
-| #step-3 | The glyphs take the pointer | pending | |
-| #step-4 | Sidebar members join the overlay | pending | |
-| #step-5 | The overlay joins the keyboard walk | pending | |
-| #step-6 | The row diet | pending | |
-| #step-7 | Test rework and integration checkpoint | pending | |
+| #step-1 | The geometry extracted | done | `b0fbe708a` |
+| #step-2 | The places overlay, readout first | done | `c9a702e43` |
+| #step-3 | The glyphs take the pointer | done | `2336b34fc` |
+| #step-4 | Sidebar members join the overlay | done | `59b112d65` |
+| #step-5 | The overlay joins the keyboard walk | done | `7cc51529d` |
+| #step-6 | The row diet | done | `cbbef6a56` |
+| #step-7 | Test rework and integration checkpoint | done | `1ee07adec` |
 
 #### Step 1: The geometry extracted {#step-1}
 
