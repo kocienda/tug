@@ -1883,7 +1883,9 @@ export interface SessionTranscriptHostProps {
    * scroller, so it scrolls with the conversation and sits directly above the
    * composer at rest. Un-indexed (it takes no row slot and perturbs no anchor
    * math), and deliberately generic: it holds whatever the card needs to put
-   * at the live edge, which today is the join arc's decision surface.
+   * at the live edge, which today is the landing arc's live narration — the
+   * join register, pinned beneath every row while messages still stream in
+   * above it.
    */
   liveEdgeContent?: React.ReactNode;
 }

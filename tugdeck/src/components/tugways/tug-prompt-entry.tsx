@@ -107,7 +107,6 @@ import { TugProgressIndicator } from "./tug-progress-indicator";
 import { PencilSparkles } from "./tug-icons";
 import { TugPushButton } from "./tug-push-button";
 import { TugTooltip } from "./tug-tooltip";
-import { DashJoinRegisterView } from "./dash-join-register";
 import { TugActionTooltip } from "./tug-action-tooltip";
 import { TugConfirmPopover } from "./tug-confirm-popover";
 import { resolveSubmitButtonView } from "./tug-prompt-entry-submit-button";
@@ -910,6 +909,18 @@ export interface TugPromptEntryProps {
    */
   onDoubleEscapeWhenEmpty?: () => void;
   /**
+   * Fires when the editor's emptiness *changes* — once at mount to seed the
+   * host's reading, then only on a transition between empty and non-empty.
+   * Never per keystroke: the appearance path stays the root's `data-empty`
+   * attribute ([L06] / [L22]); this is the behavior path, for hosts that
+   * gate an act on a quiet composer.
+   *
+   * Landing-mode entry and exit swap the document, so a mode change fires
+   * this the same as typing does. That is correct and deliberate — a host
+   * that cares whether the *prompt* is quiet gates on landing state as well.
+   */
+  onEmptyChange?: (empty: boolean) => void;
+  /**
    * Optional content rendered in the status row above the input.
    */
   statusContent?: React.ReactNode;
@@ -1167,6 +1178,7 @@ export const TugPromptEntry = React.forwardRef<
     onAfterSubmit,
     onEscapeWhenEmpty,
     onDoubleEscapeWhenEmpty,
+    onEmptyChange,
     statusContent,
     cautionContent,
     indicatorsContent,
@@ -2104,6 +2116,21 @@ export const TugPromptEntry = React.forwardRef<
   useLayoutEffect(() => {
     onDoubleEscapeWhenEmptyRef.current = onDoubleEscapeWhenEmpty;
   }, [onDoubleEscapeWhenEmpty]);
+  // Live ref for the emptiness-transition callback, for the same reason the
+  // Escape refs above exist: the substrate extensions are captured at mount
+  // and cannot read a prop that changes identity later. [L07]
+  const onEmptyChangeRef = useRef(onEmptyChange);
+  useLayoutEffect(() => {
+    onEmptyChangeRef.current = onEmptyChange;
+  }, [onEmptyChange]);
+  // The last emptiness the host was told about — the transition filter, so a
+  // keystroke inside a non-empty document reports nothing.
+  const lastReportedEmptyRef = useRef<boolean | null>(null);
+  const reportEmptiness = useCallback((empty: boolean) => {
+    if (lastReportedEmptyRef.current === empty) return;
+    lastReportedEmptyRef.current = empty;
+    onEmptyChangeRef.current?.(empty);
+  }, []);
   // Timestamp (performance.now) of the previous Escape keydown, used by
   // the editor keymap to recognise a double-Escape and reject auto-repeat.
   const lastEscapePressAtRef = useRef(0);
@@ -2261,6 +2288,9 @@ export const TugPromptEntry = React.forwardRef<
             String(update.state.doc.length === 0),
           );
         }
+        // Behavior path alongside the attribute: hosts that gate on a quiet
+        // composer hear the transition, never the keystroke.
+        reportEmptiness(update.state.doc.length === 0);
         // Z4C bridge: refresh the compose-phase attachment strip from the
         // editor's live atom set. Cheap structural-key gate inside.
         const positioned = getAtomsInState(update.state);
@@ -3212,11 +3242,12 @@ export const TugPromptEntry = React.forwardRef<
   // stay disabled until the user typed. Running the same check once
   // at mount closes that gap.
   useLayoutEffect(() => {
-    const root = rootRef.current;
     const view = textEditorRef.current?.view() ?? null;
+    reportEmptiness(isEffectivelyEmpty(view));
+    const root = rootRef.current;
     if (root === null) return;
     root.setAttribute("data-empty", String(isEffectivelyEmpty(view)));
-  }, []);
+  }, [reportEmptiness]);
 
   // Snapshot the substrate's scroll position the moment the card
   // deactivates. The framework hides inactive cards via `display:
@@ -3474,8 +3505,9 @@ export const TugPromptEntry = React.forwardRef<
         }
       }
       const root = rootRef.current;
+      const view = editor?.view() ?? null;
+      reportEmptiness(isEffectivelyEmpty(view));
       if (root !== null) {
-        const view = editor?.view() ?? null;
         root.setAttribute("data-empty", String(isEffectivelyEmpty(view)));
       }
     },
@@ -3884,21 +3916,17 @@ export const TugPromptEntry = React.forwardRef<
     </>
   );
 
-  // The join arc's register, when the active landing has one ([P04]). The
-  // entry reads it off the landing snapshot rather than deriving it, which is
-  // what keeps this component ignorant of which landing it is hosting: commit
-  // mode reports null, join mode reports the same reading the Lens row and the
-  // shade row show.
-  // Deliberately NOT gated on `landingActive`: the press exits the mode, and
-  // gating here is what took this row down at the exact moment the join it
-  // started had the most to say ([P03]). Commit mode reports a null register,
-  // so an inactive join mode is the only thing this can be showing.
-  const landingRegister = landingSnap?.register ?? null;
+  // The landing arc's register used to mount here, and does not any more: an
+  // account of what the machine is doing is something to *read*, so it belongs
+  // in the transcript, where the rest of the session's account is. It lives at
+  // the transcript's live edge now (`SessionLandingProgressRow`), reading the
+  // same landing snapshot with the same lifetime — including the narration
+  // that outlives the mode, which is what let it finish its sentence here.
+  // What is left of this row is the host's own status and caution slots.
+  //
   // Render the status row only when there is something to put in it.
   const hasStatusRow =
-    statusContent !== undefined ||
-    cautionContent !== undefined ||
-    landingRegister !== null;
+    statusContent !== undefined || cautionContent !== undefined;
 
   return (
       <ResponderScope>
@@ -3937,7 +3965,6 @@ export const TugPromptEntry = React.forwardRef<
               <div className="tug-prompt-entry-status">
                 <div className="tug-prompt-entry-status-content">
                   {statusContent}
-                  <DashJoinRegisterView register={landingRegister} />
                 </div>
                 {cautionContent !== undefined && (
                   <div

@@ -4,7 +4,7 @@
  * The register says what is happening between a dash reaching `built` and its
  * join landing: reconciling, checking, ready, waiting on a decision, red,
  * joining. It mounts on three surfaces — the Lens Dashes row, the Changes
- * shade's dash row, and the composer's status row — and the whole point is
+ * shade's dash row, and the transcript's live edge — and the whole point is
  * that all three read the *same sentence*, because all three call the same
  * pure derivation ({@link dashJoinRegister}).
  *

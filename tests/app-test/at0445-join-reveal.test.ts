@@ -26,10 +26,13 @@
  *   arms them. This is the negative that matters most: the arc used to sit
  *   dark behind a declaration a skill had to remember to make, and a `mark
  *   built` reintroduced here would hide that regression the moment it returned.
- * - **The reveal is a passive glance.** It shows the room and enters no mode:
- *   the composer is still a prompt, no landing is active, and the Z5 button is
- *   still Submit. Entering the landing mode stays the user's gesture, and the
- *   ⬆ that lands stays the only control that joins.
+ * - **The card goes to the Changes route, not to a glance at it.** Work ready
+ *   to join arrives presented: the Z4A toggle reads Changes, join mode is up,
+ *   and the Z5 is the Join button — the state the user would otherwise have to
+ *   build by hand before the ⬆ meant anything. The shade without the mode was
+ *   the half-switched card this file used to pin, and the field complaint that
+ *   retired it: the room open, the composer still a prompt, and the join
+ *   behind a door the reveal declined to open.
  * - **The fold says what would land, and whose words those are.** With no
  *   draft written, the join would quietly land the branch description; the
  *   provenance note is where "quietly" stops. Write a draft while the shade
@@ -127,9 +130,11 @@ const LANDS_AS_NOTE = `${ROW} [data-slot="session-changes-dash-lands-as-note"]`;
 /** The Z4A route group — invariant in shape and words, so the offer rides an
  *  attribute rather than a label or a third segment. */
 const ROUTE_GROUP = `${CARD} .tug-prompt-entry-route-group`;
-/** The composer's Z5. In `submit` it is a prompt's button; a reveal that
- *  entered a landing mode would have turned it into a land button. */
+/** The composer's Z5 in its prompt form — present only when no landing is up,
+ *  which is how its *absence* reads as "the card went to the Changes route". */
 const SUBMIT = `${CARD} [data-slot="tug-prompt-entry"] [data-mode]`;
+/** The Z5 the join wears: the control that actually lands, per at0436. */
+const JOIN_BUTTON = `${CARD} .tug-prompt-entry-commit-button[aria-label="Join"]`;
 
 const LENS_SECTION = '.lens-section[data-lens-section="dashes"]';
 const lensRow = (dash: string): string =>
@@ -272,7 +277,7 @@ function offerDot(app: App): Promise<boolean> {
 
 describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
   test(
-    "a bound reconciled dash reveals the Changes shade with no mark and no mode entry, the fold names what would land and repaints it live, the segment wears the offer while the room is closed, closing costs nothing across a base move, a new round summons it again, and an unbound dash is never piloted at all",
+    "a bound reconciled dash puts the card on the Changes route with no mark and no gesture, the fold names what would land and repaints it live, the segment wears the offer while the room is closed, closing costs nothing across a base move, a new round summons it again, and an unbound dash is never piloted at all",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
@@ -338,23 +343,29 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         );
         note("at0445 revealed: the shade came up on its own");
 
-        // ── It is a glance, not a takeover ────────────────────────────────
-        // The composer is untouched: no landing mode is up, so the Z5 is still
-        // a Submit button and the route group still reads Prompt. A reveal
-        // that entered join mode would have commandeered the composer
-        // uninvited, which is the interruption this whole redesign retired.
+        // ── The route, not a glance at it ─────────────────────────────────
+        // The card is *on* Changes: join mode is up, so the Z4A toggle reads
+        // Changes and the Z5 is the Join button. Every one of those follows
+        // from the one act of entering the mode — the toggle derives from
+        // whether a landing is active, and the shade came up through the same
+        // coupling ⌃⌘C rides. A shade raised without the mode is the
+        // half-switched card, and it is what this pins the absence of.
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${ROUTE_GROUP} button[data-choice-value="changes"]')?.getAttribute("data-state") === "active"`,
+          { timeoutMs: 20000 },
+        );
         expect(
-          await app.evalJS<string>(
-            `(document.querySelector(${JSON.stringify(SUBMIT)})?.getAttribute("data-mode") || "")`,
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           ),
-          "the composer is still a prompt — the reveal entered no mode",
-        ).toBe("submit");
+          "the composer is the join's, so its ⬆ is the control that lands",
+        ).toBe(true);
         expect(
-          await app.evalJS<string | null>(
-            `document.querySelector('${ROUTE_GROUP} button[data-choice-value="changes"]')?.getAttribute("data-state") ?? null`,
+          await app.evalJS<boolean>(
+            `document.querySelector(${JSON.stringify(SUBMIT)}) === null`,
           ),
-          "and the Changes segment is not selected, because no landing is active",
-        ).toBe("inactive");
+          "and the prompt's Submit is not what is sitting under the cursor",
+        ).toBe(true);
 
         // ── What it would land, and whose words those are ─────────────────
         // Nobody wrote a draft on this dash, so the join would quietly land
@@ -430,14 +441,21 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         ).toBe(false);
 
         // ── Closing costs nothing ────────────────────────────────────────
-        // ⌃⌘C with the shade up and no landing mode active is the passive
-        // close. Nothing durable is written, which is the machinery this file
-        // exists to pin the absence of.
+        // ⌃⌘C with the room open leaves the landing mode, and the mode↔sheet
+        // coupling drops the shade with it — the card returns to the Prompt
+        // route in one press. Nothing durable is written, which is the
+        // machinery this file exists to pin the absence of.
         await app.dispatchControlAction("toggle-changes-view");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 15000 },
         );
+        expect(
+          await app.evalJS<string | null>(
+            `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") ?? null`,
+          ),
+          "and the card is back on the Prompt route, mode and shade together",
+        ).toBe("active");
         expect(
           await offerDot(app),
           "and the segment picks the offer back up the moment the room closes",

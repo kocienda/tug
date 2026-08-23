@@ -1,0 +1,17 @@
+/**
+ * session-landing-progress-row.css — placement only.
+ *
+ * The register's appearance is `BlockHeader`'s and its framing is
+ * `dash-join-register.css`'s. All this file does is give the row breathing
+ * space where it sits: at the live edge, under the last transcript row, above
+ * the composer. The scroller already insets its content, so there is no
+ * horizontal padding here — a live-edge row that indented itself would sit off
+ * the transcript's own left edge.
+ *
+ * [L20] — nothing here reaches into `--tugx-toolheader-*` or the register's
+ * own tokens.
+ */
+
+.session-landing-progress-row {
+  padding-block: var(--tug-space-sm);
+}

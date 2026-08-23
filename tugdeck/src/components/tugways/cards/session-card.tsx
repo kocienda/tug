@@ -43,6 +43,7 @@ import { getChangesetDraftStore } from "@/lib/changeset-draft-store";
 import { CommitModeController } from "@/lib/commit-mode-controller";
 import { JoinModeController, joinTargetFromEntry } from "@/lib/join-mode-controller";
 import { SessionTranscriptHost, type SessionTranscriptHandle } from "./session-card-transcript";
+import { SessionLandingProgressRow } from "./session-landing-progress-row";
 import { AppTestAskDialog } from "../chrome/session-app-test-ask-dialog";
 import { pendingAskStore } from "@/lib/pending-ask-store";
 import {
@@ -3470,18 +3471,31 @@ export function SessionCardBody({
   // summons it. Nothing opens it by hand — the feed causes it, on the card of
   // a session bound to that dash and nowhere else.
   //
-  // The reveal is a passive glance: `show("changes")` and nothing else. It
-  // enters no mode and touches no composer, so the user's next keystroke still
-  // goes where they aimed it. Entering the landing mode stays their gesture.
+  // The card goes to the Changes **route**, not to a glance at it. Work that
+  // is ready to join is presented the way the user would present it by hand:
+  // `enterChanges()` enters join mode, which raises the shade through the
+  // mode↔sheet coupling below, flips the Z4A toggle (its value derives from
+  // `landingActive`), swaps the composer to the join's draft, and arms ⬆ as
+  // Join. A shade raised without the mode was the half-switched card — the
+  // room open, the composer still a prompt composer, and the join behind a
+  // mode nothing had entered.
   //
-  // **Quiet moments only.** The shade is a view swap — it replaces the
-  // transcript pane rather than pushing it — so revealing over a running turn
-  // would cover the output the user is reading, and revealing over a
-  // half-typed composer would take the surface out from under them. So all
-  // four hold before it fires: no turn in flight, no landing up, an empty
-  // composer, and the shade not already showing. The gate opens on its own the
-  // moment the turn settles, because this effect re-runs on the same store
-  // reads the card already subscribes to.
+  // Entering is not destructive: the composer stashes an in-progress prompt on
+  // mode entry and restores it verbatim on exit, and every existing exit —
+  // Escape, ⌘., the shade's ✕, the Prompt segment, ⌃⌘C, a completed land —
+  // already returns the card to the Prompt route with the shade down. Nothing
+  // here needs its own way out.
+  //
+  // **Quiet moments only, and the gate re-arms.** The shade is a view swap —
+  // it replaces the transcript pane rather than pushing it — so entering over
+  // a running turn would cover the output the user is reading, and entering
+  // over a half-typed composer would take the surface out from under them. So
+  // all four hold before it fires: no turn in flight, no landing up, an empty
+  // composer, and the shade not already showing. Every one of them is a
+  // *dependency*, not a peek: a deferral re-runs this effect the moment the
+  // turn settles, the composer empties, or the shade closes. (Read as refs,
+  // the composer and shade gates could defer forever — nothing would wake
+  // the effect once the offer stopped changing.)
   //
   // **Once per dash head, remembered only for this mount.** The offer's
   // `request_id` moves when *either* head does, so it is not what to remember:
@@ -3497,6 +3511,12 @@ export function SessionCardBody({
     codeSessionStore.subscribe,
     () => codeSessionStore.getSnapshot().canInterrupt === true,
   );
+  // Whether the composer holds no user content. The entry reports this on
+  // transitions only — never per keystroke — so this is render state that
+  // moves a handful of times a session ([L22]), and unlike a ref peek it is a
+  // signal the gate above can wait on: a reveal deferred over a half-typed
+  // composer fires on its own when the composer empties.
+  const [composerEmpty, setComposerEmpty] = useState(true);
   const revealedOffersRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const dashHead = joinOffer?.dash_head;
@@ -3504,16 +3524,17 @@ export function SessionCardBody({
     if (revealedOffersRef.current.has(dashHead)) return;
     if (turnInFlight) return;
     if (anyLandingActive) return;
-    if (entryDelegateRef.current?.isEmpty() === false) return;
-    if (shadeViewController.getSnapshot() !== "none") return;
+    if (!composerEmpty) return;
+    if (shadeView !== "none") return;
     revealedOffersRef.current.add(dashHead);
-    shadeViewController.show("changes");
+    enterChanges();
   }, [
     joinOffer,
     turnInFlight,
     anyLandingActive,
-    entryDelegateRef,
-    shadeViewController,
+    composerEmpty,
+    shadeView,
+    enterChanges,
   ]);
 
   // The same reveal, asked for out loud — a Lens dash row activating routes
@@ -3524,13 +3545,23 @@ export function SessionCardBody({
   // work the reader has just been shown.
   //
   // The quiet-moment gate is deliberately not consulted. It exists to keep an
-  // *unbidden* reveal from covering what somebody is reading; an explicit
-  // click is its own license, exactly as the Z4A Changes segment is.
+  // *unbidden* entry from covering what somebody is reading; an explicit click
+  // is its own license, exactly as the Z4A Changes segment is.
+  //
+  // One path, two forms, chosen by the offer. A dash with work ready to join
+  // gets the same route entry the automatic path performs, so the row the user
+  // clicked arrives armed. A dash still mid-implementation has no join to arm:
+  // entering join mode on it would seed a composer for a press its own gate
+  // must refuse, so that stays a glance at the room.
   const revealChanges = useCallback((): void => {
     const dashHead = joinOffer?.dash_head;
-    if (dashHead !== undefined) revealedOffersRef.current.add(dashHead);
-    shadeViewController.show("changes");
-  }, [joinOffer, shadeViewController]);
+    if (dashHead === undefined) {
+      shadeViewController.show("changes");
+      return;
+    }
+    revealedOffersRef.current.add(dashHead);
+    enterChanges();
+  }, [joinOffer, shadeViewController, enterChanges]);
 
   // `/resume` focused sessions overlay ([#step-8]), card-scoped per [D15].
   // Reads the bound project from the binding store and lists its sessions;
@@ -5040,6 +5071,16 @@ export function SessionCardBody({
                   transcriptStore={transcriptStore}
                   findSession={findSession}
                   renderTurnTrailing={effectiveRenderTurnTrailing}
+                  // The landing arc narrates at the live edge, beneath every
+                  // row and above the composer — ink in motion, never
+                  // ledgered. Built inline rather than memoized for the same
+                  // reason the dialogs below are: caching the element would
+                  // freeze the component reference against Fast Refresh.
+                  liveEdgeContent={
+                    <SessionLandingProgressRow
+                      joinModeController={joinModeController}
+                    />
+                  }
                 />
                 {/*
                   A question raised from outside the turn stream (`/api/ask`),
@@ -5337,6 +5378,7 @@ export function SessionCardBody({
               inlineCommandMatcher={inlineCommandMatcher}
               onAfterSubmit={handleAfterSubmit}
               onDoubleEscapeWhenEmpty={() => rewindSheet.openRewindSheet()}
+              onEmptyChange={setComposerEmpty}
               indicatorsContent={
                 commitModeActive ? (
                   // Commit cluster ([P03], Table T01): the Claude-session

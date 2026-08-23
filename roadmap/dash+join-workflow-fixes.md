@@ -211,10 +211,10 @@ In `tug-prompt-entry.tsx`: the `landingRegister` local (from `landingSnap?.regis
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The composer reports emptiness transitions | pending | — |
-| #step-2 | A ready dash fronts the Changes route | pending | — |
-| #step-3 | The landing register moves to the transcript's live edge | pending | — |
-| #step-4 | Integration checkpoint | pending | — |
+| #step-1 | The composer reports emptiness transitions | done | `c91c4f18c` |
+| #step-2 | A ready dash fronts the Changes route | done | `9204c416a` |
+| #step-3 | The landing register moves to the transcript's live edge | done | `ecf605210` |
+| #step-4 | Integration checkpoint | done | `ecf605210` |
 
 #### Step 1: The composer reports emptiness transitions {#step-1}
 
