@@ -197,16 +197,21 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
         const ink = await app.evalJS<{
           chipFg: string;
           chipBg: string;
+          buttonFg: string;
           rowFg: string;
           accent: string;
-          hoverResolved: string;
+          inTheFamily: boolean;
         }>(
           `(function () {
             var badge = document.querySelector(${JSON.stringify(BADGE)});
             var chip = badge.querySelector('[data-slot="tug-slot"]');
-            var glyph = badge
-              .closest("[data-pane-id]")
-              .querySelector(".tug-pane-title-bar-controls .tug-button:not(.tug-slot)");
+            var button = badge.querySelector(".card-slot-badge-button");
+            var glyph = Array.prototype.filter.call(
+              badge
+                .closest("[data-pane-id]")
+                .querySelectorAll(".tug-pane-title-bar-controls .tug-button"),
+              function (el) { return !badge.contains(el); },
+            )[0];
             var probe = document.createElement("span");
             probe.style.display = "none";
             badge.appendChild(probe);
@@ -215,22 +220,27 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
             // comparing against it would compare nothing to nothing.
             probe.style.color = "var(--tug7-element-control-border-outlined-action-rest)";
             var accent = getComputedStyle(probe).color;
-            probe.style.color = "var(--tugx-slot-rest-border-hover)";
-            var hoverResolved = getComputedStyle(probe).color;
             probe.remove();
             return {
               chipFg: getComputedStyle(chip).color,
               chipBg: getComputedStyle(chip).backgroundColor,
+              buttonFg: getComputedStyle(button).color,
               rowFg: getComputedStyle(glyph).color,
               accent: accent,
-              hoverResolved: hoverResolved,
+              // The row's colour rules — rest, hover, pressed, both focus
+              // states — are all written against this selector. Matching it is
+              // the whole of the claim: the badge is not painted LIKE its
+              // neighbours, it is painted BY the same rules.
+              inTheFamily: button.matches(
+                ".tug-pane-title-bar-controls .tug-button",
+              ),
             };
           })()`,
         );
         note(
           `badge ink: chip fg=${ink.chipFg} bg=${ink.chipBg} | ` +
-            `row glyph fg=${ink.rowFg} | accent=${ink.accent} | ` +
-            `hover resolves to ${ink.hoverResolved}`,
+            `badge button fg=${ink.buttonFg} | row glyph fg=${ink.rowFg} | ` +
+            `accent=${ink.accent} | in the cluster's family=${ink.inTheFamily}`,
         );
         expect(
           ink.chipFg,
@@ -244,14 +254,23 @@ describe.skipIf(!SHOULD_RUN)("at0462 — the card's slot badge", () => {
           ink.chipFg,
           "which is emphatically not the accent it used to wear at rest",
         ).not.toBe(ink.accent);
-        // The accent has not been thrown away, it has been moved: the chip
-        // takes it under the pointer, which is the one moment it is a control
-        // rather than a readout. Asserted at the knob rather than by hovering,
-        // because a background app-test has no pointer to hover with.
+        // The chip is the badge button's ICON, so its ink is `currentColor` —
+        // the button's, therefore the row's. That is what retires the chip's
+        // own state rules: it had a copy of the row's colours, kept in step by
+        // hand, and the hover half of that copy named the outlined-action
+        // family. One control in a row of six answered the pointer with an
+        // accent rectangle while the rest answered with the row's hover box.
         expect(
-          ink.hoverResolved,
-          "and the hover knob is what carries the accent now",
-        ).toBe(ink.accent);
+          ink.chipFg,
+          "because the chip's ink IS the button's, through currentColor",
+        ).toBe(ink.buttonFg);
+        // Asserted structurally rather than by hovering, because a background
+        // app-test has no pointer to hover with — and structurally is the
+        // stronger claim anyway: what carries every state now is membership.
+        expect(
+          ink.inTheFamily,
+          "and the badge is one of the cluster's buttons, not an exception to them",
+        ).toBe(true);
       } finally {
         await app.close();
       }

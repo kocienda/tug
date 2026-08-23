@@ -35,6 +35,7 @@
  * @covers tugdeck/src/components/lens/sections/cards-section.tsx
  * @covers tugdeck/src/deck-store-selectors.ts
  * @covers tugdeck/src/components/tugways/tug-column-badge.tsx
+ * @covers tugdeck/src/components/lens/slot-picker.tsx
  */
 
 import { describe, expect, test } from "bun:test";
@@ -258,10 +259,15 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Lens row's column badge", () => {
         }>(
           `(function () {
              function measure(row) {
-               var chips = row.querySelectorAll(
-                 '[data-testid="lens-slot-picker"] [data-slot="tug-slot"]',
-               );
-               var last = chips[chips.length - 1].getBoundingClientRect();
+               // The RUN's own box, not its last chip. The run draws a window
+               // now, and a card at the end of the arrangement has a stub in
+               // the position past it — so the last chip and the last drawn
+               // position are different elements, and only one of them is what
+               // the badge stands next to. The claim is about the run and the
+               // badge being one coordinate, and the run is this box.
+               var last = row
+                 .querySelector('[data-testid="lens-slot-picker"]')
+                 .getBoundingClientRect();
                var badge = row
                  .querySelector('[data-testid="lens-column-badge"]')
                  .getBoundingClientRect();

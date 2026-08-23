@@ -910,6 +910,14 @@ export const TUG_ACTIONS = {
   //                   hide and whose side segments show a hidden card where
   //                   they say.
   SET_SIDEBAR_OPEN:       "set-sidebar-open",
+  // SET_SLOT_WINDOW: payload — `{ size }`, 3 or 5. How many places a Lens row
+  //                  draws around the one its card holds. A reading
+  //                  preference rather than a deck fact — it moves no card and
+  //                  changes no arrangement — so it is persisted through
+  //                  tugbank and nothing about the deck's state knows it
+  //                  happened. Its door is the Lens Layouts section's Slot
+  //                  Window row.
+  SET_SLOT_WINDOW:        "set-slot-window",
   // SET_RAIL_MODE: payload — `{ side, mode }`. Stack or split one side's rail:
   //                stacked, its sidebar cards stand front-to-back and z-order
   //                decides which you see; split, the side's run is divided

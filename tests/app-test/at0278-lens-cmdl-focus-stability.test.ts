@@ -236,19 +236,38 @@ describe.skipIf(!SHOULD_RUN)("at0278 — ⌘L lands the keyboard visibly, where 
             `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && (el.getAttribute('aria-label') || '').indexOf('Close ') === 0; })()`,
             { timeoutMs: 3_000 },
           );
+          // The row draws a WINDOW of the arrangement, and its middle chip is
+          // the DOOR to the whole run rather than a destination — pressing
+          // where a card already stands is not a move, so the press spends
+          // itself on the run instead. The move is the neighbour, so the walk
+          // goes one further. (The first chip is matched as a slot naming
+          // place 1 rather than by its exact label: what the door says depends
+          // on whether the row's card stands anywhere yet.)
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
-            `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && el.getAttribute('aria-label') === 'Put at position 1'; })()`,
+            `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && el.getAttribute('data-slot') === 'tug-slot' && el.textContent.trim() === '1'; })()`,
             { timeoutMs: 3_000 },
           );
-          await app.nativeKey(" "); // assign slot 1 → raises card A
+          await app.nativeKey("ArrowRight");
+          await app.waitForCondition<boolean>(
+            `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && el.getAttribute('data-slot') === 'tug-slot' && el.textContent.trim() === '2'; })()`,
+            { timeoutMs: 3_000 },
+          );
+          await app.nativeKey(" "); // assign slot 2 → raises card A
           await app.waitForCondition<boolean>(
             `window.__tug.getActiveCardId() === "A"`,
             { timeoutMs: 3_000 },
           );
           await app.dispatchControlAction("focus-lens"); // back in
+          // The restore lands on the SLOT the reader was standing on, which is
+          // the sharp claim now that the run is a window: assigning re-centres
+          // the window under them, so the chip that was second from the left is
+          // a different chip afterwards. A focus order keyed by drawn position
+          // would have handed the restore a stub — not a control, nothing to
+          // land on. Keyed by slot, they are still on place 2, which is now
+          // the card's own.
           await app.waitForCondition<boolean>(
-            `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && el.getAttribute('aria-label') === 'Put at position 1'; })()`,
+            `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && (el.getAttribute('aria-label') || '').indexOf('In position 2 of ') === 0; })()`,
             { timeoutMs: 3_000 },
           );
 
@@ -269,7 +288,14 @@ describe.skipIf(!SHOULD_RUN)("at0278 — ⌘L lands the keyboard visibly, where 
             await app.evalJS<string | null>(
               `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el === null ? null : el.getAttribute('aria-label'); })()`,
             ),
-          ).toBe("Put at position 1");
+          ).toMatch(/^In position 2 of /);
+          // Two Lefts to reach the accessory now, because the card sits at the
+          // far end of the run: the walk crosses the place it is NOT in first.
+          await app.nativeKey("ArrowLeft");
+          await app.waitForCondition<boolean>(
+            `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && el.getAttribute('aria-label') === 'Move to position 1'; })()`,
+            { timeoutMs: 3_000 },
+          );
           await app.nativeKey("ArrowLeft");
           await app.waitForCondition<boolean>(
             `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && (el.getAttribute('aria-label') || '').indexOf('Close ') === 0; })()`,
@@ -292,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("at0278 — ⌘L lands the keyboard visibly, where 
           await app.nativeKey("ArrowRight");
           await app.nativeKey("ArrowRight");
           await app.waitForCondition<boolean>(
-            `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && el.getAttribute('aria-label') === 'Put at position 1'; })()`,
+            `(function(){ var el = document.querySelector(${JSON.stringify(LENS_KBD)}); return el !== null && el.getAttribute('aria-label') === 'Move to position 1'; })()`,
             { timeoutMs: 3_000 },
           );
 
@@ -329,7 +355,7 @@ describe.skipIf(!SHOULD_RUN)("at0278 — ⌘L lands the keyboard visibly, where 
             })()`,
           );
           expect(healed.width).toBeGreaterThan(0);
-          expect(healed.label).not.toBe("Put at position 1");
+          expect(healed.label).not.toBe("Move to position 1");
         } finally {
           await app.close();
         }

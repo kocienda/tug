@@ -312,18 +312,24 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         note(`rows: ${rows.join(", ")}`);
         expect(
-          rows.slice(0, 3),
-          "the three deck-wide rows lead, in a fixed order",
+          rows.slice(0, 4),
+          "the four deck-wide rows lead, in a fixed order",
         ).toEqual([
           "lens-layouts-kind",
           "lens-layouts-layout",
           "lens-layouts-width",
+          // The last of the four is the odd one — it states how the Lens's own
+          // rows draw a place rather than anything about the deck — and it is
+          // seated here rather than below because the rows below are named for
+          // the cards they place. Among them it would read as a fourth sidebar
+          // card called Slot Window.
+          "lens-layouts-slot-window",
         ]);
         // Under them, one row per REGISTERED sidebar card — the show/hide +
         // side question the picture cannot ask, because a hidden card is
         // exactly what the picture does not draw. The registry is a boot
         // step, so this count is fixed too.
-        const sidebarRows = rows.slice(3);
+        const sidebarRows = rows.slice(4);
         expect(
           sidebarRows.length,
           "every remaining row is a sidebar card's",

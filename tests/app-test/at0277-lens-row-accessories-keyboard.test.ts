@@ -367,28 +367,29 @@ describe.skipIf(!SHOULD_RUN)("at0277 — Lens row accessories answer the keyboar
             })()`,
             { timeoutMs: 3_000 },
           );
-          await app.nativeKey("ArrowRight");
-          await app.waitForCondition<boolean>(
+          // The row draws a WINDOW of the arrangement, so the slots the walk
+          // reaches are the ones drawn — and a position the run does not reach
+          // is an inert stub the walk passes over, because it is not a control.
+          // Asserted as "the key view is a slot naming place 1" rather than by
+          // an exact label: what a chip says depends on whether the row's card
+          // stands anywhere yet, and the claim here is about the WALK.
+          const slotAt = (n: number): string =>
             `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
-              return el !== null && el.getAttribute('aria-label') === 'Put at position 1';
-            })()`,
-            { timeoutMs: 3_000 },
-          );
+               var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
+               return el !== null
+                 && el.getAttribute('data-slot') === 'tug-slot'
+                 && el.textContent.trim() === '${n}';
+             })()`;
+          await app.nativeKey("ArrowRight");
+          await app.waitForCondition<boolean>(slotAt(1), { timeoutMs: 3_000 });
           // Inside the row's scope the slots are a run walked left→right in the
           // order the arrangement draws them. Right walks it, and so does Tab —
           // the row scope bounds both planes, so either reaches every slot.
           await app.nativeKey("ArrowRight");
-          await app.waitForCondition<boolean>(
-            `(function(){
-              var el = document.querySelector('.jots-card [data-key-view-kbd], .lens-content [data-key-view-kbd]');
-              return el !== null && el.getAttribute('aria-label') === 'Put at position 2';
-            })()`,
-            { timeoutMs: 3_000 },
-          );
+          await app.waitForCondition<boolean>(slotAt(2), { timeoutMs: 3_000 });
           await app.nativeKey("ArrowLeft");
           await new Promise<void>((r) => setTimeout(r, 200));
-          expect(await kbdLabel(app)).toBe("Put at position 1");
+          expect(await app.evalJS<boolean>(slotAt(1))).toBe(true);
         } finally {
           await app.close();
         }

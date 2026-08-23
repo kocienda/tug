@@ -16,13 +16,18 @@
  * `"rest"`. A layout with no `states` at all is therefore an empty
  * arrangement — the right picture for a chooser option.
  *
- * Crossing both of those is how the arrangement is DRAWN. By default it is a
- * run: equal chips, side by side, saying how many places there are. Given
- * {@link TugSlotLayoutProps.spans} it is a map instead — each slot at its own
- * place and its own width, as fractions of the layout. Same slots, same states,
- * same projection; only the scale changes, which is why the deck's flow strip
- * is this component rather than a second one that had to be kept looking like
- * it.
+ * Crossing both of those is how the arrangement is DRAWN, and there are three
+ * projections. By default it is a RUN: equal chips, side by side, saying how
+ * many places there are. Given {@link TugSlotLayoutProps.spans} it is a MAP —
+ * each slot at its own place and its own width, as fractions of the layout,
+ * which is what the deck's flow strip is. Given
+ * {@link TugSlotLayoutProps.window} it is a WINDOW — a fixed-width slice of
+ * the run centred on one slot, which is what a Lens row is, and what keeps a
+ * row's width from growing every time the deck learns another place.
+ *
+ * Same slots, same states, same `setStates` projection in all three: only what
+ * is drawn where changes. That is why they are one component rather than three
+ * that would have had to be kept looking like each other.
  *
  * **Two write paths reach a slot's resting look, and they are ordered.** The
  * `states` prop is the committed truth: every commit re-renders the arrangement
@@ -125,6 +130,30 @@ export interface TugSlotLayoutProps
    * @selector [data-scaled="true"]
    */
   spans?: readonly ({ left: number; width: number } | undefined)[];
+  /**
+   * Draw a SLICE of the arrangement rather than all of it — the layout's
+   * fourth form, and the one that unpins a row's width from the deck's slot
+   * count.
+   *
+   * `size` positions are drawn, `centre` sits in the middle of them, and the
+   * positions the arrangement does not reach are inert STUBS. The window does
+   * not slide to stay full: a slot at either end of the run keeps its place in
+   * the middle of the window and the stub takes the overhang, so the answer
+   * lands at the same offset on every row in a column of them. A window that
+   * slid would put the lit chip somewhere different per row, which is the one
+   * thing a column of runs is read for.
+   *
+   * Everything stays addressed by ABSOLUTE slot: `states`, `slotLabel`, and
+   * `onSelectSlot` all speak the arrangement's own indices, so a windowed run
+   * and a whole one are the same component fed the same facts. `setStates`
+   * is the exception the projection cannot make — it writes positionally onto
+   * the rendered chips, so a windowed layout's handle covers the drawn slice.
+   *
+   * Ignored when {@link spans} is set: a map already draws every slot at its
+   * own place, and windowing it would be two answers to where a slot goes.
+   * @selector [data-window]
+   */
+  window?: { centre: number; size: number };
 }
 
 /* ---------------------------------------------------------------------------
@@ -166,6 +195,7 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
       slotLabel,
       focusGroup,
       spans,
+      window: windowProp,
       className,
       ...rest
     },
@@ -199,17 +229,46 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
       [],
     );
 
+    // A map already places every slot itself, so a window over one would be a
+    // second answer to where a slot goes. The map wins; the window stands down.
+    const window = spans === undefined ? windowProp : undefined;
+    // Which slots this run DRAWS, left to right. Without a window that is the
+    // whole arrangement; with one it is a fixed-width slice centred on
+    // `centre`, whose out-of-range positions are the stubs.
+    const drawn: number[] =
+      window === undefined
+        ? Array.from({ length: count }, (_, slot) => slot)
+        : Array.from(
+            { length: window.size },
+            (_, i) => window.centre - Math.floor(window.size / 2) + i,
+          );
+
     return (
       <span
         ref={rootRef}
         data-slot="tug-slot-layout"
         data-count={count}
+        data-window={window !== undefined ? window.size : undefined}
         data-scaled={spans !== undefined ? "true" : undefined}
         data-disabled={disabled ? "true" : undefined}
         className={cn("tug-slot-layout", `tug-slot-layout-size-${size}`, className)}
         {...rest}
       >
-        {Array.from({ length: count }, (_, slot) => {
+        {drawn.map((slot, i) => {
+          // Where the window overhangs the arrangement. A stub rather than
+          // nothing, because the window's whole argument is that the centre
+          // lands at the same offset on every row — and it only does while
+          // the positions either side of it are still occupying space.
+          if (slot < 0 || slot >= count) {
+            return (
+              <span
+                key={`stub-${i}`}
+                className="tug-slot-layout-stub"
+                data-slot="tug-slot-layout-stub"
+                aria-hidden="true"
+              />
+            );
+          }
           const label = slotLabel?.(slot) ?? `Position ${slot + 1}`;
           // Percentages of the layout, so the map redraws on a resize with
           // nothing measuring itself. A slot the caller placed nowhere is
@@ -231,6 +290,16 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
               disabled={disabled}
               {...(placement !== undefined ? { style: placement } : {})}
               focusGroup={onSelectSlot !== undefined ? focusGroup : undefined}
+              /* The absolute SLOT, not the drawn position. Both give the same
+                 left-to-right walk, because a window's positions map onto
+                 ascending slots — but only the slot is stable when the window
+                 moves. A focus key is (group, order), so ordering by position
+                 means the key a reader is standing on names "second chip from
+                 the left", and assigning a slot re-centres the window under
+                 them: the key they held can come back as a stub, which is not
+                 a control, leaving the restore with nothing to land on. Keyed
+                 by slot, the reader stays on the PLACE they were on, which is
+                 also the thing they were looking at. */
               focusOrder={slot}
               aria-label={onSelectSlot !== undefined ? label : undefined}
               title={onSelectSlot !== undefined ? label : undefined}

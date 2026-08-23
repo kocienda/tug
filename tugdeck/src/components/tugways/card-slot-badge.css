@@ -1,105 +1,112 @@
 /**
- * card-slot-badge.css — the chip's seating in the cluster, and its popup.
+ * card-slot-badge.css — the chip's seating in the cluster.
  *
- * The chip stands at the head of the pane's control cluster, which is a flex
- * row of ghost icon buttons. What it needs from this file is only what makes a
- * chip a member of that row rather than a box dropped into it — the row owns
- * the alignment, so this owns the air.
+ * The badge stands in the pane's control cluster, which is a flex row of ghost
+ * icon buttons — and the badge is one of them. That is the whole of this
+ * file's argument, and it settles what used to be several arguments: the chip
+ * is drawn as the button's ICON, so the row's own rules paint every state it
+ * has, and nothing here re-authors rest, hover, pressed, menu-open, or the
+ * focused-versus-background pair. What is left is the chip's size, the wings,
+ * and the seating that makes the button measure like its neighbours.
  *
- * Two things, and both of them are the same mistake corrected. `TugPopover`
- * ships a bubble with no padding — deliberately, since most of its consumers
- * are lists that pad their own rows — so a run of chips handed straight to it
- * sat flush against the bubble's border with its 8px radius biting the corner
- * chips. And the chips were the primitive's default `sm` (15×19), which is a
- * READOUT's size: right for the badge in the tier, too small for the thing you
- * open the badge to press.
+ * **The chip is 16×20 with an 11px numeral.** It was 18×22, a size chosen back
+ * when it was a chip standing alone rather than a glyph in a row of 14px ones,
+ * and beside them it read as one control wearing a bigger box. The numeral did
+ * NOT shrink with it: 11px is what makes the digit legible at glyph scale, and
+ * the box had the room to give.
  *
- * So the popup wears the Lens picker's cut. That is not a coincidence to be
- * kept in step by hand — the two surfaces do the same job, moving a card to a
- * place by pressing its number, and a reader who learns the gesture in one
- * should meet the same target in the other.
- *
- * @tug-pairings: none of its own. The chip's ink is written through
- * `TugSlot`'s knobs ([L20]) and every pair it names is already declared where
- * it was authored — the pane title bar's icon ink in `tug-pane.css`, the
- * control's outlined-action family in `tug-slot.css`. Re-declaring them here
- * would give the audit two tables to keep in step for one fact.
+ * @tug-pairings: none of its own. The chip's ink is `currentColor` — the
+ * button's, therefore the row's — and the row's pairs are declared in
+ * `tug-pane.css` where they were authored. Re-declaring them here would give
+ * the audit two tables to keep in step for one fact.
  */
 
-/* ── The chip in the cluster ───────────────────────────────────────────────
-   An `inline-flex` box with a rect of its own, for the reason
-   `.tug-pane-title-bar-tooltip-anchor` beside it gives: `display: contents`
-   would keep the wrapper out of the layout and take its rect with it, and a
-   popover trigger needs something to be positioned against.
-
-   The trailing gap is the row's own rhythm, spent here rather than left to the
-   next control's margin: the badge is the FIRST member and the cluster's
-   buttons carry their air inside their boxes, so without it the chip's border
-   would touch the glyph behind it. */
 /* The box the tooltip hangs from. The bubble needs an element it can measure
-   and attach listeners to, and the chip cannot BE that element: it is already
-   claimed by the popover trigger's `asChild` slot. Contributes no geometry of
-   its own — the chip's own box is the whole of it. */
+   and attach listeners to, and the button cannot BE that element: it is
+   already claimed by the popover trigger's `asChild` slot. Contributes no
+   geometry of its own — the button's own box is the whole of it. */
 .card-slot-badge-anchor {
   display: inline-flex;
   align-items: center;
 }
 
+/* The mount. `inline-flex` rather than `display: contents` for the reason
+   `.tug-pane-title-bar-tooltip-anchor` beside it gives: a contents box has no
+   rect, and a popover trigger needs something to be positioned against. */
 .card-slot-badge {
   display: inline-flex;
   align-items: center;
-  margin-inline-end: var(--tug-space-xs);
+}
 
-  /* Room for the wings, which are drawn INTO this padding rather than over the
-     neighbours: they are part of the badge's picture, so they are part of its
-     box. `position: relative` is what they hang from. */
+/* The badge's button, cut to the cluster's optical inset rather than to the
+   stock `sm` inline padding — the same derivation the stack badge beside it
+   takes, from the same two tokens, so the two badges and the icon buttons
+   around them sit on one rhythm. Written compounded onto `.tug-button`
+   because `.tug-button-size-sm` sets padding through the shorthand and would
+   otherwise tie on specificity and win by load order. */
+.tug-button.card-slot-badge-button {
+  padding-inline: calc(
+    (var(--tug-button-sm-height) - var(--tug-button-sm-icon-size)) / 2
+  );
+  justify-content: center;
+}
+
+/* ── The chip, and its wings ───────────────────────────────────────────────
+   Room for the wings, drawn INTO this padding rather than over the neighbours:
+   they are part of the badge's picture, so they are part of its box.
+   `position: relative` is what they hang from. */
+.card-slot-badge-chip {
   position: relative;
-  padding-inline: var(--tugx-card-slot-badge-wing-reveal, 4px);
+  display: inline-flex;
+  align-items: center;
+  padding-inline: var(--tugx-card-slot-badge-wing-reveal, 3px);
 
-  /* The cluster's cut, which is the picker's cut and the Lens run's cut — one
-     step up from the primitive's `sm` readout default. The chip no longer
-     stands alone: the column badge beside it is drawn at this size, and the
-     pair has to be read as one coordinate (1A, 2C), which is a legibility
-     requirement rather than a preference. At the smaller default the glyph
-     behind the badge's character loses its middle slice and middle rung
-     first, which are exactly the elements that carry the reading. */
-  --tugx-slot-width-sm: 18px;
-  --tugx-slot-height-sm: 22px;
+  /* The chip's cut. One step DOWN from the run's 18×22, because this chip
+     stands among 14px glyphs rather than among other chips — and the numeral
+     stays at 11px, which is the part that carries the reading. */
+  --tugx-slot-width-sm: 16px;
+  --tugx-slot-height-sm: 20px;
   --tugx-slot-font-size-sm: 11px;
 
   /* ── The chip's ink ───────────────────────────────────────────────────────
-     At rest the badge is a READOUT standing in a row of icon buttons, so it
-     takes the row's own ink — literally the row's: the same
-     `--tugx-pane-control-*-fg-rest` the cluster's ghost buttons take, for the
-     number and for the outline alike, so the chip reads as a member of the row
-     rather than as a mark laid over it. No fill — the title bar it stands on
-     is the fill.
+     All of it, in one word. The chip is the button's icon, so `currentColor`
+     is the button's ink, so the chip simply IS the cluster's ink — through
+     every state the cluster has, with no rule here for any of them. That is
+     the same route the column badge beside it already took
+     (`--tugx-column-badge-fg: currentcolor` in `tug-pane.css`), and the two of
+     them being one coordinate is the reason they should have taken it
+     together.
 
-     Under the pointer it becomes what it always was underneath: a control.
-     THAT is where the accent goes, and only there. Accent marks a live thing,
-     and where a card is standing is not one — it is the resting fact of the
-     deck, true whether or not anybody is reaching for it. Spending the accent
-     to state it left every masthead on the deck carrying a lit chip that
-     nothing was doing.
+     What this replaced was six declarations naming the pane-control tokens
+     directly plus a second block for the focused pane — a copy of the row's
+     colour rules, kept in step by hand, that could only ever be as correct as
+     the last time somebody checked. And it was not correct: the hover and
+     pressed pairs named the OUTLINED-ACTION family, so the one control in the
+     cluster that answered the pointer with an accent rectangle was this one.
+     Accent marks a live thing, and where a card is standing is the deck's
+     resting fact — the argument that took the accent off the chip at rest
+     applies exactly as well under the hand. What the hand should get is what
+     every other control in the row gives it: the row's own hover box.
 
-     Written through `TugSlot`'s own knobs ([L20]) rather than by restating the
-     primitive's selectors here — the same knobs the flow strip re-pairs
-     itself with, which is why they exist. */
+     The three pointer knobs are pinned to `currentColor` rather than left
+     unset, because a knob nobody sets falls back to the tinted-action family
+     the primitive ships — a control tint on a chip that is no longer a
+     control. The BUTTON is the control now, and it is already answering. */
   --tugx-slot-rest-bg: transparent;
-  --tugx-slot-rest-fg: var(--tugx-pane-control-off-fg-rest);
-  --tugx-slot-rest-border: var(--tugx-pane-control-off-fg-rest);
-  --tugx-slot-rest-bg-hover: var(--tug7-surface-control-primary-outlined-action-rest);
-  --tugx-slot-rest-fg-hover: var(--tug7-element-control-text-outlined-action-rest);
-  --tugx-slot-rest-border-hover: var(--tug7-element-control-border-outlined-action-rest);
-  --tugx-slot-rest-bg-active: var(--tug7-surface-control-primary-outlined-action-active);
-  --tugx-slot-rest-fg-active: var(--tug7-element-control-text-outlined-action-active);
-  --tugx-slot-rest-border-active: var(--tug7-element-control-border-outlined-action-active);
+  --tugx-slot-rest-bg-hover: transparent;
+  --tugx-slot-rest-bg-active: transparent;
+  --tugx-slot-rest-fg: currentcolor;
+  --tugx-slot-rest-fg-hover: currentcolor;
+  --tugx-slot-rest-fg-active: currentcolor;
+  --tugx-slot-rest-border: currentcolor;
+  --tugx-slot-rest-border-hover: currentcolor;
+  --tugx-slot-rest-border-active: currentcolor;
 }
 
 /* ── The wings ─────────────────────────────────────────────────────────────
    Two shorter rectangles flanking the chip, each showing only the edge that
    clears it. The chip alone says *place 2*; the wings say *of several*, which
-   is the fact that makes the number mean anything and the fact the masthead
+   is the fact that makes the number mean anything and the fact the title bar
    otherwise has no room to state. It is the same picture the Lens draws with a
    run of chips, at the size a title bar can afford: one numbered place, in
    front, with its neighbours behind it.
@@ -113,61 +120,36 @@
    Shorter than the chip on purpose: same height would read as three columns of
    equal standing, and the point is that one of them is the one you are in.
 
-   Their ink is `--tugx-slot-rest-border` — not a copy of it, the same custom
-   property the chip's own border resolves — so the pair cannot disagree about
-   focused-versus-background, and the hover pose below is the chip's hover knob
-   for the same reason. */
-.card-slot-badge::before,
-.card-slot-badge::after {
+   Their ink is `currentcolor`, which is the chip's border for the same reason
+   it is the chip's number: everything the badge draws is the row's ink. The
+   pair cannot disagree about hover or about which pane is in front, because
+   neither of them holds an opinion. */
+.card-slot-badge-chip::before,
+.card-slot-badge-chip::after {
   content: "";
   position: absolute;
   inset-block: var(--tugx-card-slot-badge-wing-inset, 3px);
-  inline-size: var(--tugx-card-slot-badge-wing-reveal, 4px);
-  border-block: 1px solid var(--tugx-slot-rest-border);
+  inline-size: var(--tugx-card-slot-badge-wing-reveal, 3px);
+  border-block: 1px solid currentcolor;
   pointer-events: none;
 }
 
-.card-slot-badge::before {
+.card-slot-badge-chip::before {
   inset-inline-start: 0;
-  border-inline-start: 1px solid var(--tugx-slot-rest-border);
+  border-inline-start: 1px solid currentcolor;
   border-start-start-radius: var(--tugx-slot-radius, 2px);
   border-end-start-radius: var(--tugx-slot-radius, 2px);
 }
 
-.card-slot-badge::after {
+.card-slot-badge-chip::after {
   inset-inline-end: 0;
-  border-inline-end: 1px solid var(--tugx-slot-rest-border);
+  border-inline-end: 1px solid currentcolor;
   border-start-end-radius: var(--tugx-slot-radius, 2px);
   border-end-end-radius: var(--tugx-slot-radius, 2px);
 }
 
-/* The wrapper contains the chip, so it is hovered exactly when the chip is —
-   which is what keeps the whole badge one object under the pointer instead of
-   a lit chip between two grey stubs. */
-.card-slot-badge:hover::before,
-.card-slot-badge:hover::after {
-  border-color: var(--tugx-slot-rest-border-hover);
-}
-
-/* The focused pane's chrome is brighter, and the chip goes with it — keyed on
-   the same attribute and taking the same `--tugx-pane-control-*` pair the row
-   itself takes, so the badge and the buttons beside it cannot disagree about
-   which pane is in front. */
-.tug-pane[data-focused="true"] .card-slot-badge {
-  --tugx-slot-rest-fg: var(--tugx-pane-control-on-fg-rest);
-  --tugx-slot-rest-border: var(--tugx-pane-control-on-fg-rest);
-}
-
-.card-slot-badge-picker {
-  /* Air inside the bubble, so the run is seated in the surface rather than
-     pressed against its border and clipped by its radius. */
-  padding: var(--tug-space-sm);
-  /* The Lens picker's cut, one step up from the primitive's `sm` default —
-     `slot-picker.css` states the same three. A popup is a thing to press. */
-  --tugx-slot-width-sm: 18px;
-  --tugx-slot-height-sm: 22px;
-  --tugx-slot-font-size-sm: 11px;
-  /* And one more pixel between them than a row's run carries: at rest these
-     read as one arrangement, but here each is a separate target. */
-  --tugx-slot-layout-gap-sm: 4px;
-}
+/* The popup's run has no rules here at all: it wears
+   `.tug-slot-layout-popup`, which is where the air inside the bubble and the
+   chips' pressable cut are stated once for both surfaces that open one. The
+   Lens row's own window opens the same popup, and the two used to state the
+   same four declarations in two files — one fact, kept in step by hand. */

@@ -27,6 +27,7 @@ import { FeedId } from "./protocol";
 import { BASE_THEME_NAME } from "./theme-constants";
 import { transferFocusForActivation } from "./focus-transfer";
 import { toggleSidebarCard } from "./sidebar-toggle";
+import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { COMMANDS_BY_ID, isCommandId } from "@/components/tugways/command-registry";
 import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
@@ -694,6 +695,21 @@ export function initActionDispatch(
     } else {
       deckManager.hideSidebarPane(componentId);
     }
+  });
+
+  // set-slot-window: how many places a Lens row draws around its own.
+  // Dispatched by the Lens Layouts section's Slot Window row. The only action
+  // in this neighbourhood that touches no deck state at all — nothing moves,
+  // nothing is arranged, the rows simply state the same fact at another width
+  // — so it writes the preference and stops. Every row reads it through
+  // `useSlotWindow` ([L02]) and redraws from the local cache write.
+  registerAction(TUG_ACTIONS.SET_SLOT_WINDOW, (payload) => {
+    const size = payload.size;
+    if (!isSlotWindowSize(size)) {
+      console.warn("set-slot-window: missing or invalid size", payload);
+      return;
+    }
+    writeSlotWindow(size);
   });
 
   // set-rail-mode: stack or split one side's rail. Dispatched by the title

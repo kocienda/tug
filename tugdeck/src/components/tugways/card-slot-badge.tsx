@@ -60,6 +60,7 @@ import { getDeckStore } from "@/lib/deck-store-registry";
 import { slotCount } from "@/lib/layout-imposer";
 import { findSidebarPanes } from "@/deck-store-selectors";
 import { dispatchCommand } from "@/command-dispatch";
+import { TugButton } from "@/components/tugways/internal/tug-button";
 import { TugSlot } from "@/components/tugways/tug-slot";
 import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
@@ -141,25 +142,54 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
           `TugPopoverTrigger` both hand their child to a Radix `asChild` slot
           and neither forwards what the other injects, so nesting them
           directly leaves the inner one's props on the floor. A span is a DOM
-          element both can address — the trigger takes the chip inside it, the
-          tooltip takes the span, and the inner button's focus reaches the
+          element both can address — the trigger takes the button inside it,
+          the tooltip takes the span, and the inner button's focus reaches the
           span too because React's `onFocus` is `focusin`, which bubbles. */}
       <TugTooltip
         content={`In position ${held + 1} of ${count} — press to move this card`}
       >
         <span className="card-slot-badge-anchor">
-          {/* Radix's trigger composes its own click onto the button `TugSlot`
-              renders, and `onSelect` is the same act by the other path —
-              whichever handler the composition leaves on the element,
-              pressing the chip opens the popup. */}
+          {/* **The badge is a member of the cluster, so it is one of the
+              cluster's buttons.** It was the row's one exception: a bare
+              `TugSlot` control standing among ghost icon buttons, which meant
+              every state the row has had to be re-authored for it — and the
+              one that mattered most was authored differently. Its neighbours
+              answer the pointer with the row's own hover box; the chip
+              answered with `TugSlot`'s outlined-action family, an accent
+              rectangle nothing else in the title bar wears. One press-target
+              in a row of six looking and behaving unlike the other five is not
+              a detail, and it could not be fixed by matching the colours: the
+              chip would still have needed its own rule for hover, for pressed,
+              for the focused pane and the background one, each kept in step
+              with a row that already states all four.
+
+              So the winged chip becomes this button's ICON, and the button is
+              the control. Rest, hover, pressed, menu-open, focused pane,
+              background pane all arrive from the cluster's own rules with
+              nothing restated, and the chip's ink rides `currentColor` — it
+              simply IS the row's ink, exactly as the column badge beside it
+              already was. The pair reads as one coordinate because they are
+              now two icons in one row rather than a chip and an icon.
+
+              Radix's trigger composes its own click onto this button, and
+              `onClick` is the same act by the other path — whichever handler
+              the composition leaves on the element, pressing it opens the
+              popup. */}
           <TugPopoverTrigger>
-            <TugSlot
-              number={held + 1}
-              state="rest"
+            <TugButton
+              subtype="icon"
+              emphasis="ghost"
+              role="action"
               size="sm"
+              className="card-slot-badge-button"
+              icon={
+                <span className="card-slot-badge-chip">
+                  <TugSlot number={held + 1} state="rest" size="sm" />
+                </span>
+              }
               aria-label={`In position ${held + 1} — move this card`}
               data-testid="card-slot-badge-trigger"
-              onSelect={() => setOpen(true)}
+              onClick={() => setOpen(true)}
             />
           </TugPopoverTrigger>
         </span>
@@ -226,7 +256,7 @@ export function CardSlotBadge({ cardId }: CardSlotBadgeProps): React.ReactElemen
               this card's business to report from here. */}
           <TugSlotLayout
             ref={picker}
-            className="card-slot-badge-picker"
+            className="tug-slot-layout-popup"
             data-testid="card-slot-badge-picker"
             count={count}
             states={Array.from({ length: count }, (_, slot) =>

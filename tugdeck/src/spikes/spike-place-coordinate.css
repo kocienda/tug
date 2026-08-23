@@ -1,0 +1,228 @@
+/**
+ * spike-place-coordinate.css — fixture frames for the place-coordinate spike.
+ *
+ * Styles the FIXTURES only. The subjects on display — chips, runs, badges,
+ * popups — draw themselves from `tug-slot.css`, `tug-column-badge.css`,
+ * `card-slot-badge.css` and `tug-pane.css`; what this file adds is the
+ * pane-shaped and row-shaped boxes they sit in, plus the handful of knob
+ * overrides that ARE the proposal (the 16×20 chip, the currentColor ink, the
+ * three-chip window's cut).
+ *
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role          | Context                    |
+ * |--------------------------------------------------|---------------------------------------------------|---------------|----------------------------|
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .sp-pc-note, tags, icons   |
+ * | --tug7-element-global-text-normal-default-rest   | --tug7-surface-global-primary-normal-default-rest | informational | .sp-pc-row-title           |
+ * | --tug7-element-global-border-normal-default-rest | --tug7-surface-global-primary-normal-default-rest | decorative    | .sp-pc-stub, .sp-pc-lens   |
+ */
+
+/* ── Layout scaffolding ─────────────────────────────────────────────────── */
+
+.sp-pc-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-md);
+}
+
+.sp-pc-pair {
+  display: flex;
+  gap: var(--tug-space-lg);
+  flex-wrap: wrap;
+}
+
+.sp-pc-tag {
+  font-size: 10px;
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  margin-block-end: 4px;
+  user-select: none;
+}
+
+.sp-pc-note {
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.55;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  max-width: 62ch;
+}
+
+/* ── The masthead fixture ───────────────────────────────────────────────────
+   A real `.tug-pane` wrapper so every shipping selector keyed on the pane and
+   its focus attribute — the cluster's ghost rules, the badge knockouts, the
+   chip's focused ink — applies verbatim. The pane box itself is restated here
+   because the fixture sits in normal flow, not on a deck (the same recipe the
+   card-chrome spike uses). */
+
+.tug-pane.sp-pc-pane {
+  position: relative;
+  max-width: 430px;
+  border: 1px solid var(--tugx-pane-border);
+  border-radius: var(--tug-radius-md);
+  overflow: hidden;
+  background-color: var(--tugx-pane-bg);
+  box-shadow: var(--tugx-pane-shadow-inactive);
+}
+
+.tug-pane.sp-pc-pane[data-focused="true"] {
+  box-shadow: var(--tugx-pane-shadow-active);
+}
+
+/* A title bar in a fixture is not a drag surface. */
+.sp-pc-pane .sp-pc-bar {
+  cursor: default;
+}
+
+.sp-pc-pane .sp-pc-bar:active {
+  cursor: default;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-pc-body {
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  background-color: var(--tug7-surface-global-primary-normal-default-rest);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+/* ── The proposed masthead slot badge ───────────────────────────────────────
+   The proposal in three knob groups, all on the ghost button that now owns the
+   chip. Inline padding is the stack badge's own derivation, so the two badges
+   sit in the cluster at the same optical inset. */
+
+.tug-button.sp-pc-slot-button {
+  padding-inline: calc(
+    (var(--tug-button-sm-height) - var(--tug-button-sm-icon-size)) / 2
+  );
+  justify-content: center;
+}
+
+/* Written under `.tug-pane` at four classes of weight, so it outranks both of
+   `card-slot-badge.css`'s ink pins (the base rule and the focused-pane one).
+   The chip stops carrying the pane-control tokens directly and rides
+   `currentColor` instead — the ghost button's own ink — which is the entire
+   hover fix: rest, hover box, pressed, and focused/background pane all arrive
+   from the cluster's existing rules with no chip-specific state left over. */
+.tug-pane .tug-button.sp-pc-slot-button .card-slot-badge {
+  margin-inline-end: 0;
+
+  /* The size drop: 18×22 → 16×20, numeral kept at 11px, wings slimmed a
+     pixel to stay proportional. */
+  --tugx-slot-width-sm: 16px;
+  --tugx-slot-height-sm: 20px;
+  --tugx-slot-font-size-sm: 11px;
+  --tugx-card-slot-badge-wing-reveal: 3px;
+  --tugx-card-slot-badge-wing-inset: 3px;
+
+  /* The family ink: everything the chip draws is the button's own colour, and
+     the pointer states are neutralized on the chip itself because the BUTTON
+     is what answers the pointer now. */
+  --tugx-slot-rest-bg: transparent;
+  --tugx-slot-rest-bg-hover: transparent;
+  --tugx-slot-rest-bg-active: transparent;
+  --tugx-slot-rest-fg: currentcolor;
+  --tugx-slot-rest-fg-hover: currentcolor;
+  --tugx-slot-rest-fg-active: currentcolor;
+  --tugx-slot-rest-border: currentcolor;
+  --tugx-slot-rest-border-hover: currentcolor;
+  --tugx-slot-rest-border-active: currentcolor;
+}
+
+/* The column badge slims in step, so the coordinate pair keeps one weight. */
+.sp-pc-pane[data-variant="proposed"] .tug-pane-title-bar-stack-badge {
+  --tugx-column-badge-width: 16px;
+  --tugx-column-badge-height: 20px;
+}
+
+/* ── The Lens fixture ─────────────────────────────────────────────────────── */
+
+.sp-pc-lens {
+  max-width: 430px;
+  border: 1px solid var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tug-radius-md);
+  background-color: var(--tug7-surface-global-primary-normal-default-rest);
+  padding-block: var(--tug-space-xs);
+}
+
+.sp-pc-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding: 5px var(--tug-space-md);
+  min-width: 0;
+}
+
+.sp-pc-row-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.sp-pc-row-title {
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-medium);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ── The proposed window ────────────────────────────────────────────────────
+   The `slot-picker` cut restated — same chip size, same 3px gap the layout
+   primitive uses — so a proposed row's chips are pixel-identical to a current
+   row's and only the count differs. Right-aligned exactly as the run is. */
+
+.sp-pc-window {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-inline-start: auto;
+  flex: none;
+  font-family: var(--tug-font-family-sans);
+  --tugx-slot-width-sm: 18px;
+  --tugx-slot-height-sm: 22px;
+  --tugx-slot-font-size-sm: 11px;
+}
+
+.sp-pc-chip-anchor {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Where the run ends before the window does: a stub at full chip geometry, so
+   the three columns never shift — dashed and faint, saying "no slot here"
+   without claiming to be one. */
+.sp-pc-stub {
+  inline-size: var(--tugx-slot-width-sm, 18px);
+  block-size: var(--tugx-slot-height-sm, 22px);
+  box-sizing: border-box;
+  border: 1px dashed var(--tug7-element-global-border-normal-default-rest);
+  border-radius: var(--tugx-slot-radius, 2px);
+  opacity: 0.55;
+}
+
+/* ── The place door ─────────────────────────────────────────────────────────
+   The badge keeps the exact footprint it has as a readout — the ghost button
+   shrink-wraps it — so now and proposed rows put the glyph at the same spot;
+   what changes is only that a hand finds a button there. */
+
+.tug-button.sp-pc-place-door {
+  padding-inline: 2px;
+  min-width: 0;
+  justify-content: center;
+}
+
+.tug-button.sp-pc-place-door .lens-column-badge {
+  margin-inline-start: 0;
+}
+
+.sp-pc-window + .sp-pc-chip-anchor {
+  margin-inline-start: var(--tug-space-xs);
+}

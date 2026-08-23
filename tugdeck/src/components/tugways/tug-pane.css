@@ -665,30 +665,30 @@ body {
    them together so a hand-rolled one cannot arrive wearing a flat global muted
    token beside full-strength neighbours.
 
-   `:not(.tug-slot)` is the one exception, and it is a real one. The slot badge
-   at the head of the row composes `TugButton` too, but it is not an icon
-   button: it is a numbered chip that brings the slot vocabulary's own paint —
-   the same rectangle the Lens picker and the flow strip draw — and a reader
-   should meet one chip, not two spellings of it. These selectors carry three
-   classes to the slot's one, so without the exclusion the cluster would win and
-   the chip would lose its outline to a ghost button's transparent border,
-   leaving a bare number where a slot should be. [L20] */
+   There is no exception. The slot badge used to be one — a bare `TugSlot`
+   control, excluded here by `:not(.tug-slot)` so the cluster could not flatten
+   its outline — and buying the chip's own paint that way cost it the row's
+   behaviour: it answered the pointer in the slot vocabulary's accent family
+   while every control beside it answered with the row's hover box. The chip is
+   the badge button's ICON now, so it takes the row's paint through
+   `currentColor` and keeps its outline by drawing it, which is what lets these
+   selectors address the whole row without qualification. [L20] */
 
 /* Pane title bar control buttons — focused pane (plain role) */
 /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:not(.tug-slot) {
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button {
   color: var(--tugx-pane-control-on-fg-rest);
   background-color: var(--tugx-pane-control-on-bg-rest);
   border-color: var(--tugx-pane-control-on-border-rest);
 }
 
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:not(.tug-slot):hover:not(:disabled) {
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) {
   color: var(--tugx-pane-control-on-fg-hover);
   background-color: var(--tugx-pane-control-on-bg-hover);
   border-color: var(--tugx-pane-control-on-border-hover);
 }
 
-.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:not(.tug-slot):active:not(:disabled) {
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:active:not(:disabled) {
   color: var(--tugx-pane-control-on-fg-active);
   background-color: var(--tugx-pane-control-on-bg-active);
   border-color: var(--tugx-pane-control-on-border-active);
@@ -696,25 +696,25 @@ body {
 
 /* Pane title bar control buttons — unfocused pane (muted role) */
 /* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:not(.tug-slot) {
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button {
   color: var(--tugx-pane-control-off-fg-rest);
   background-color: var(--tugx-pane-control-off-bg-rest);
   border-color: var(--tugx-pane-control-off-border-rest);
 }
 
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:not(.tug-slot):hover:not(:disabled) {
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) {
   color: var(--tugx-pane-control-off-fg-hover);
   background-color: var(--tugx-pane-control-off-bg-hover);
   border-color: var(--tugx-pane-control-off-border-hover);
 }
 
-.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:not(.tug-slot):active:not(:disabled) {
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:active:not(:disabled) {
   color: var(--tugx-pane-control-off-fg-active);
   background-color: var(--tugx-pane-control-off-bg-active);
   border-color: var(--tugx-pane-control-off-border-active);
 }
 
-.tug-pane-title-bar-controls .tug-button:not(.tug-slot) svg {
+.tug-pane-title-bar-controls .tug-button svg {
   color: inherit;
 }
 
@@ -786,6 +786,14 @@ body {
      focused pane's title bar is a different fill. */
   --tugx-column-badge-fg: currentcolor;
   --tugx-column-badge-knockout: var(--tugx-pane-title-bar-bg-inactive);
+
+  /* One step down from the run's 18×22, matching the slot chip beside it,
+     which came down for the same reason: these two are glyphs in a row of
+     14px ones, and at the run's size the pair read as two controls wearing
+     bigger boxes than their neighbours. The glyph's own elements are drawn
+     off these, so the run scales with the box rather than rattling in it. */
+  --tugx-column-badge-width: 16px;
+  --tugx-column-badge-height: 20px;
 }
 
 .tug-pane[data-focused="true"] .tug-button.tug-pane-title-bar-stack-badge {

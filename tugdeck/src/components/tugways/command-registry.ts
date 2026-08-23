@@ -1636,6 +1636,16 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its door is the Lens Layouts section's Slot Window row. Internal for the
+    // reason the rows around it are: the two widths are a segmented choice
+    // whose answer is only legible beside the rows it redraws, so a palette
+    // entry reading "Set Slot Window" would be a verb with no picture.
+    id: TUG_ACTIONS.SET_SLOT_WINDOW,
+    title: "Set Slot Window",
+    routing: "registry",
+    internal: true,
+  },
+  {
     // Its doors are the title bar's stack badge menu and the Lens Layouts
     // section's per-side rail row; the side set is the deck's, so the payload
     // set is runtime.

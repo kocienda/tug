@@ -146,6 +146,11 @@ import {
 } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { LENS_CARD_ID } from "@/lib/lens-card-id";
+import {
+  SLOT_WINDOW_SIZES,
+  isSlotWindowSize,
+  useSlotWindow,
+} from "@/lib/slot-window-pref";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugChoiceGroup } from "@/components/tugways/tug-choice-group";
 import type { TugChoiceItem } from "@/components/tugways/tug-choice-group";
@@ -162,6 +167,7 @@ const SECTION_KIND = "layouts";
 const KIND_SENDER_ID = "lens-layouts-kind";
 const LAYOUT_SENDER_ID = "lens-layouts-layout";
 const WIDTH_SENDER_ID = "lens-layouts-width";
+const SLOT_WINDOW_SENDER_ID = "lens-layouts-slot-window";
 const SIDE_SENDER_PREFIX = "lens-layouts-side:";
 const RAIL_SENDER_PREFIX = "lens-layouts-rail:";
 const COLUMN_SENDER_PREFIX = "lens-layouts-column:";
@@ -171,27 +177,37 @@ const COLUMN_SENDER_PREFIX = "lens-layouts-column:";
 const KIND_CAPTION_ID = "lens-layouts-kind-caption";
 const LAYOUT_CAPTION_ID = "lens-layouts-layout-caption";
 const WIDTH_CAPTION_ID = "lens-layouts-width-caption";
+const SLOT_WINDOW_CAPTION_ID = "lens-layouts-slot-window-caption";
 
-/** The three rows' focus orders. Distinct, and declared rather than defaulted,
+/** The four rows' focus orders. Distinct, and declared rather than defaulted,
  *  because they are separate stops: sharing an order would give two groups one
  *  focus key ([Q12]) between them, and the engine resolves a key to exactly one
  *  stop — so the other would be unreachable by any addressed placement. Being
  *  separately ordered is also what makes them separate rows of the Lens's arrow
  *  plane, so a vertical arrow steps from one group to the next.
  *
- *  Three is the whole list, and fixed. The per-place rows this section used to
+ *  Four is the whole list, and fixed. The per-place rows this section used to
  *  grow — one per sidebar card, one per side, one per shared slot — needed
  *  their orders computed from a running count, and that arithmetic is gone with
- *  them: those questions are asked on the drawing now. */
+ *  them: those questions are asked on the drawing now.
+ *
+ *  The last of the four is the odd one, and it is placed here rather than after
+ *  the sidebars on purpose. Every other row states a DECK fact; the slot window
+ *  states how the Lens's own rows draw one, and moves nothing. But the rows
+ *  below are named for the cards they place — Lens, Jots, Overview — so a row
+ *  seated among them reads as a fourth sidebar card called Slot Window. Kept
+ *  with the deck-wide rows it is plainly a different kind of question about the
+ *  same subject, which is what it is. */
 const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
+const LAYOUTS_SLOT_WINDOW_FOCUS_ORDER = 3;
 
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
  *  sidebar card the deck HAS, open or not, because a hidden card's row is the
  *  one door that shows it. The deck-wide rows above never move. */
-const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 3;
+const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 4;
 
 /** The picture's own stop. One stop for the whole drawing rather than one per
  *  mark: a stop per affordance would make Tab crawl the picture, and the marks
@@ -558,6 +574,7 @@ function LayoutsSectionBody({
   // the full registry is what the sidebar rows list, because a hidden card's
   // row is the door that shows it.
   const openSidebarIds = useOpenSidebarIds();
+  const slotWindow = useSlotWindow();
   const openSidebars = sidebars.filter((entry) =>
     openSidebarIds.has(entry.componentId),
   );
@@ -664,6 +681,17 @@ function LayoutsSectionBody({
                 open: true,
               });
             }
+          }
+          return;
+        }
+        if (sender === SLOT_WINDOW_SENDER_ID) {
+          // The one row here that changes nothing about the deck — it says how
+          // the Lens draws a fact, not what the fact is. The segments carry
+          // their number as a string, because that is what a choice group's
+          // value is.
+          const size = Number(value);
+          if (isSlotWindowSize(size)) {
+            dispatchCommand(TUG_ACTIONS.SET_SLOT_WINDOW, { size });
           }
           return;
         }
@@ -957,6 +985,19 @@ function LayoutsSectionBody({
     label: CONTENT_WIDTH_LABELS[preset],
   }));
 
+  // How many places a Cards row draws around its card's own. The tooltips take
+  // the section's form — what is, then what a press would do — and say it in
+  // terms of the rows above rather than of this control, because the rows are
+  // where the answer is visible.
+  const slotWindowItems: TugChoiceItem[] = SLOT_WINDOW_SIZES.map((size) => ({
+    value: String(size),
+    label: String(size),
+    tooltip:
+      size === slotWindow
+        ? `A card's row shows ${size} places`
+        : `Show ${size} places on a card's row`,
+  }));
+
   // One row per registered sidebar card: Off, or a side — show/hide and
   // placement as one question, because "where is it" and "is it there at all"
   // are the same axis with a zero. Tooltips state what is before what the
@@ -1161,6 +1202,35 @@ function LayoutsSectionBody({
               focusOrder={LAYOUTS_WIDTH_FOCUS_ORDER}
               aria-labelledby={WIDTH_CAPTION_ID}
               data-testid="lens-layouts-width"
+            />
+          </div>
+
+          {/* No `data-preview-axis`: there is nothing in the picture to
+              audition. The drawing is of the DECK, and this row moves no card
+              and changes no arrangement — what it redraws is the Cards rows
+              above, where the answer shows itself the moment it is pressed. A
+              hover here therefore resolves to no preview id, which clears any
+              standing one, which is the honest reading. */}
+          <div className="layouts-section-row">
+            <TugLabel
+              id={SLOT_WINDOW_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Slot Window
+            </TugLabel>
+            <TugChoiceGroup
+              items={slotWindowItems}
+              value={String(slotWindow)}
+              senderId={SLOT_WINDOW_SENDER_ID}
+              size="xs"
+              sidePadding="xs"
+              reselect
+              focusGroup={host.focusGroup}
+              focusOrder={LAYOUTS_SLOT_WINDOW_FOCUS_ORDER}
+              aria-labelledby={SLOT_WINDOW_CAPTION_ID}
+              data-testid="lens-layouts-slot-window"
             />
           </div>
 

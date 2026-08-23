@@ -1,5 +1,15 @@
-/* @tug-pairings: none — layout only. Every color in a slot layout belongs to
-   the slots it composes ([L20]); this file sets nothing but the run. */
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                           | Role       | Context                          |
+ * |--------------------------------------------------|---------------------------------------------------|------------|----------------------------------|
+ * | --tug7-element-global-border-normal-default-rest  | --tug7-surface-global-primary-normal-default-rest | decorative | .tug-slot-layout-stub (border)   |
+ *
+ * Layout, and one line of ink. Every colour a SLOT wears belongs to the slots
+ * this composes ([L20]) — what the run adds is the stub that marks where the
+ * arrangement has run out, which is not a slot and so cannot borrow a slot's
+ * paint. It is knobbed like everything else here, so a mount on a surface
+ * other than the app's own ground re-pairs it rather than inheriting a guess.
+ */
 
 .tug-slot-layout {
   display: inline-flex;
@@ -64,4 +74,67 @@
      strip draws a few pixels wide — and a digit that spilled would paint over
      its neighbours. */
   overflow: clip;
+}
+
+/* ── The windowed form ────────────────────────────────────────────────────
+   The arrangement drawn as a SLICE: a fixed number of positions with the
+   centre one in the middle, whatever the run's own length. Everything about a
+   chip is unchanged — this form differs from a plain run only in how many
+   chips there are and which slots they name.
+
+   The stub is what a position holds where the arrangement has run out. It
+   takes a chip's exact box, from the same knobs a chip takes it from, so the
+   centre lands at one offset down a column of rows: a window that let its
+   overhang collapse would slide the answer left or right by a chip at either
+   end of the run, which is the one thing a column of runs is read for.
+
+   Drawn as a dashed outline rather than as a faint chip. A chip means a place
+   a card can stand, and there is no place here — a quiet chip would be a
+   fourth slot state nobody can press, and pressing it is exactly what a reader
+   would try. */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-slot-layout-stub {
+  flex: none;
+  box-sizing: border-box;
+  border: 1px dashed
+    var(
+      --tugx-slot-layout-stub-border,
+      var(--tug7-element-global-border-normal-default-rest)
+    );
+  border-radius: var(--tugx-slot-radius, 2px);
+  opacity: var(--tugx-slot-layout-stub-opacity, 0.55);
+}
+
+.tug-slot-layout-size-sm .tug-slot-layout-stub {
+  inline-size: var(--tugx-slot-width-sm, 15px);
+  block-size: var(--tugx-slot-height-sm, 19px);
+}
+
+.tug-slot-layout-size-md .tug-slot-layout-stub {
+  inline-size: var(--tugx-slot-width-md, 20px);
+  block-size: var(--tugx-slot-height-md, 26px);
+}
+
+/* ── The run, seated in a popup ───────────────────────────────────────────
+   Both surfaces that open the whole arrangement as a bubble — a card's own
+   slot badge and a Lens row's windowed run — put this class on the run
+   inside it, because they are the same surface reached from two places: a
+   reader who learns the gesture on one meets the same target on the other.
+
+   Two things, and both are corrections. `TugPopover` ships a bubble with no
+   padding, since most of its consumers are lists that pad their own rows, so
+   a run handed straight to it sits flush against the border with the 8px
+   radius biting the corner chips. And the chips take one step up from the
+   primitive's `sm` default, which is a READOUT's size: right for a badge in a
+   title bar, too small for the thing you opened the badge to press. One more
+   pixel between them than a row's run carries, too — at rest those read as
+   one arrangement, but here each is a separate target. */
+
+.tug-slot-layout-popup {
+  padding: var(--tug-space-sm);
+  --tugx-slot-width-sm: 18px;
+  --tugx-slot-height-sm: 22px;
+  --tugx-slot-font-size-sm: 11px;
+  --tugx-slot-layout-gap-sm: 4px;
 }
