@@ -118,12 +118,10 @@ export interface SessionTipFacts {
   identityLine: string;
   /** The session's description, when it has one. */
   description?: string | null;
-  /** Ancestors this session forked through, oldest first. */
-  lineage?: readonly string[];
   /** The flat-text citation — the form a reader would paste elsewhere. */
   citation: string;
   /**
-   * A further meta row the caller renders itself, after the lineage.
+   * A further meta row the caller renders itself, after the description.
    *
    * A node rather than a string because the fact it states may be LIVE: the
    * dash a session is bound to comes from a store, and the caller mounts a
@@ -135,21 +133,15 @@ export interface SessionTipFacts {
 }
 
 /**
- * The session hover: what the run cannot show — the description, the
- * lineage, where it is working, and the citation.
+ * The session hover: what the run cannot show — the description, where it
+ * is working, and the citation.
  */
 export function sessionTip(facts: SessionTipFacts): React.ReactNode {
-  const lineage = facts.lineage ?? [];
   return (
     <span className="tugx-tip">
       <span className="tugx-tip-title">{facts.identityLine}</span>
       {facts.description !== null && facts.description !== undefined ? (
         <span className="tugx-tip-meta">{facts.description}</span>
-      ) : null}
-      {lineage.length > 0 ? (
-        <span className="tugx-tip-meta">
-          {`forked at ${lineage.join(" → ")}`}
-        </span>
       ) : null}
       {facts.extra}
       <span className="tugx-tip-mono">{facts.citation}</span>

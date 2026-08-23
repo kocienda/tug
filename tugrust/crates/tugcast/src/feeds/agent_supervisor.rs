@@ -225,6 +225,25 @@ impl<T> Default for BoundedQueue<T> {
 // LedgerEntry
 // ---------------------------------------------------------------------------
 
+/// A rewind-fork's staged identity ([P11]) — what the `session_fork`
+/// announcement resolved and the following `session_init` consumes.
+#[derive(Debug, Clone)]
+pub struct PendingFork {
+    /// The callsign the fork inherited from its parent by transfer, or
+    /// `None` when the parent had none to hand down (a legacy tagless row,
+    /// or a sibling fork whose parent's callsign already moved on) — the
+    /// fork then spawns as a root session and mints a fresh pair.
+    pub tag: Option<String>,
+    /// The `/rename` the fork inherited with the callsign, or `None` when
+    /// the parent had none. Written through [`SessionLedger::rename`] after
+    /// the spawn record exists.
+    pub user_name: Option<String>,
+    /// The session this fork was rewind-forked from.
+    pub parent_session_id: String,
+    /// The prompt uuid of the rewind point.
+    pub fork_point: String,
+}
+
 /// Per-session ledger record, keyed by [`TugSessionId`] in the supervisor.
 ///
 /// Shape follows the supervisor ledger contract. Notably, there is no
@@ -264,13 +283,15 @@ pub struct LedgerEntry {
     /// `session_updated`. `None` when tugdeck sent no tag. Tug-side only — never
     /// forwarded into the child spawn args ([P07]).
     pub tag: Option<String>,
-    /// A rewind-fork's allocated lineage ([P11]), staged by the
-    /// `session_fork` announcement and consumed by the `session_init` that
-    /// immediately follows it. The composed callsign rides in as the spawn's
-    /// tag; the two structured columns are written onto the row right after.
-    /// Keyed by the fork's claude session id so a `session_init` for anything
-    /// else cannot consume it. `None` for every ordinary spawn.
-    pub pending_fork: Option<(String, crate::session_ledger::ForkLineage)>,
+    /// A rewind-fork's staged identity ([P11]): the parent's callsign the
+    /// fork inherited by transfer (`None` when the parent had none to hand
+    /// down — the fork then spawns as a root and mints fresh), plus the
+    /// provenance pair written onto the row right after `record_spawn`.
+    /// Staged by the `session_fork` announcement and consumed by the
+    /// `session_init` that immediately follows it. Keyed by the fork's claude
+    /// session id so a `session_init` for anything else cannot consume it.
+    /// `None` for every ordinary spawn.
+    pub pending_fork: Option<(String, PendingFork)>,
     /// Lifecycle state.
     pub spawn_state: SpawnState,
     /// Whether this entry currently owns a `WorkspaceRegistry` refcount for its
@@ -900,8 +921,6 @@ pub fn build_session_updated_frame(
             "name": row.name,
             "name_user_set": row.name_user_set,
             "tag": row.tag,
-            "root_tag": row.root_tag,
-            "tag_lineage": row.tag_lineage,
             "synopsis": row.synopsis,
             // Privacy is a resting state, so it has to reach the deck: a chip
             // that only showed the transition ack would go quiet on reload and
@@ -1344,8 +1363,6 @@ fn build_listed_union(
                     // `sessions` row rather than minting a second one.
                     tag: meta.tag,
                     // A scanned session is a root until it is forked from.
-                    root_tag: None,
-                    tag_lineage: None,
                     // The description is ledger state; a session with no
                     // `sessions` row has none until it is adopted.
                     synopsis: None,
@@ -8769,8 +8786,6 @@ mod tests {
             name: None,
             name_user_set: false,
             tag: Some("azure-heron".to_owned()),
-            root_tag: None,
-            tag_lineage: None,
             private: false,
             synopsis: Some("Repair ligature fallback in monospace".to_owned()),
             dash_id: None,
@@ -8804,8 +8819,6 @@ mod tests {
             name: None,
             name_user_set: false,
             tag: None,
-            root_tag: None,
-            tag_lineage: None,
             synopsis: None,
             private: false,
             dash_id: None,

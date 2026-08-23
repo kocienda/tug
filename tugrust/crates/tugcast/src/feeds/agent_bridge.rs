@@ -1488,43 +1488,58 @@ pub async fn relay_session_io(
                     Ok(Some(line)) => {
                         // A rewind-fork announcement ([P11]). It arrives
                         // immediately BEFORE the fork's synthetic
-                        // `session_init`, so the lineage is allocated and
-                        // staged here and consumed there. Best-effort: a
-                        // parent with no callsign to descend from (a legacy
-                        // tagless row), or an allocation error, leaves the
-                        // fork to spawn as an ordinary root session rather
-                        // than inventing a lineage.
+                        // `session_init`, so the parent's callsign is
+                        // transferred and staged here and consumed there —
+                        // the fork inherits the name verbatim; a callsign is
+                        // stable for the life of its line of work ([D132]).
+                        // Best-effort: a parent with no callsign to hand down
+                        // (a legacy tagless row, or a sibling fork whose
+                        // parent's name already moved on), or a transfer
+                        // error, leaves the fork to spawn as an ordinary root
+                        // session minting a fresh pair. Provenance is staged
+                        // in either case.
                         if line.contains("\"type\":\"session_fork\"") {
                             if let (Some(ledger), Some(fork)) =
                                 (session_ledger, parse_session_fork(line.as_bytes()))
                             {
                                 let now = crate::session_ledger::now_millis();
-                                match ledger.allocate_fork_lineage(
+                                match ledger.inherit_fork_identity(
                                     &fork.parent_session_id,
-                                    &fork.fork_point,
                                     &fork.new_session_id,
                                     now,
                                 ) {
-                                    Ok(Some(lineage)) => {
-                                        info!(
-                                            session = %tug_session_id,
-                                            parent = %fork.parent_session_id,
-                                            tag = %lineage.tag,
-                                            "allocated fork lineage"
-                                        );
+                                    Ok(inherited) => {
+                                        match inherited.tag.as_deref() {
+                                            Some(tag) => info!(
+                                                session = %tug_session_id,
+                                                parent = %fork.parent_session_id,
+                                                tag = %tag,
+                                                "fork inherited its parent's callsign"
+                                            ),
+                                            None => info!(
+                                                session = %tug_session_id,
+                                                parent = %fork.parent_session_id,
+                                                "fork parent has no callsign to hand \
+                                                 down; the fork spawns as a root"
+                                            ),
+                                        }
                                         let mut entry = ledger_entry.lock().await;
-                                        entry.pending_fork =
-                                            Some((fork.new_session_id.clone(), lineage));
+                                        entry.pending_fork = Some((
+                                            fork.new_session_id.clone(),
+                                            crate::feeds::agent_supervisor::PendingFork {
+                                                tag: inherited.tag,
+                                                user_name: inherited.user_name,
+                                                parent_session_id: fork
+                                                    .parent_session_id
+                                                    .clone(),
+                                                fork_point: fork.fork_point.clone(),
+                                            },
+                                        ));
                                     }
-                                    Ok(None) => info!(
-                                        session = %tug_session_id,
-                                        parent = %fork.parent_session_id,
-                                        "fork parent has no callsign; the fork spawns as a root"
-                                    ),
                                     Err(err) => warn!(
                                         session = %tug_session_id,
                                         error = %err,
-                                        "fork lineage allocation failed"
+                                        "fork identity transfer failed"
                                     ),
                                 }
                             }
@@ -1576,16 +1591,17 @@ pub async fn relay_session_io(
                                 if let Some(id) = &claude_id {
                                     entry.claude_session_id = Some(id.clone());
                                 }
-                                // A staged fork lineage ([P11]) is consumed by
-                                // the one `session_init` that follows its
+                                // A staged fork identity ([P11]) is consumed
+                                // by the one `session_init` that follows its
                                 // announcement, and names the spawn: the
-                                // composed callsign outranks the parent's tag
-                                // the entry is still carrying.
+                                // inherited callsign outranks the tag the
+                                // entry is still carrying (that spelling was
+                                // just transferred off the parent's row).
                                 let pending_fork = match &entry.pending_fork {
                                     Some((fork_id, _))
                                         if claude_id.as_deref() == Some(fork_id.as_str()) =>
                                     {
-                                        entry.pending_fork.take().map(|(_, lineage)| lineage)
+                                        entry.pending_fork.take().map(|(_, fork)| fork)
                                     }
                                     _ => None,
                                 };
@@ -1614,11 +1630,12 @@ pub async fn relay_session_io(
                                     pending_fork,
                                 )
                             };
-                            // A fork's composed callsign outranks the tag the
-                            // entry still carries — that one belongs to the
-                            // session this fork was taken from.
+                            // A fork's inherited callsign outranks the tag
+                            // the entry still carries; an inheritance that
+                            // came back empty (sibling / legacy parent)
+                            // falls through so `record_spawn` mints fresh.
                             let tag = match &pending_fork {
-                                Some(lineage) => Some(lineage.tag.clone()),
+                                Some(fork) => fork.tag.clone().or(tag),
                                 None => tag,
                             };
 
@@ -1663,19 +1680,30 @@ pub async fn relay_session_io(
                                 card_id: card_id_for_ledger,
                                 tag: tag.as_deref(),
                             });
-                            // The row now exists under the composed callsign;
-                            // write the structured lineage beside it ([P11]).
-                            if let (Some(ledger), Some(lineage)) = (session_ledger, &pending_fork) {
-                                if let Err(err) = ledger.set_fork_lineage(
+                            // The row now exists under the inherited (or
+                            // freshly minted) callsign; write the fork's
+                            // provenance beside it, and the `/rename` it
+                            // inherited with the callsign ([P11], [D154]).
+                            if let (Some(ledger), Some(fork)) = (session_ledger, &pending_fork) {
+                                if let Err(err) = ledger.set_fork_provenance(
                                     record_id,
-                                    &lineage.root_tag,
-                                    &lineage.tag_lineage,
+                                    &fork.parent_session_id,
+                                    &fork.fork_point,
                                 ) {
                                     warn!(
                                         session = %tug_session_id,
                                         error = %err,
-                                        "set_fork_lineage failed; the fork keeps its callsign but loses its structured lineage"
+                                        "set_fork_provenance failed; the fork keeps its callsign but loses its parentage record"
                                     );
+                                }
+                                if let Some(name) = fork.user_name.as_deref() {
+                                    if let Err(err) = ledger.rename(record_id, Some(name)) {
+                                        warn!(
+                                            session = %tug_session_id,
+                                            error = %err,
+                                            "fork rename transfer failed; the fork keeps its callsign but loses the inherited name"
+                                        );
+                                    }
                                 }
                             }
                             // After each successful spawn record, cap the

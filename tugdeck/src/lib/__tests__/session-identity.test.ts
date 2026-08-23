@@ -1,7 +1,7 @@
 /**
  * session-identity.test.ts — the resolver's pure derivation.
  *
- * Precedence, lineage parsing, and the two flat-text forms. The reactivity
+ * Precedence and the two flat-text forms. The reactivity
  * contract (`useSessionIdentity` repaints a live surface on `/rename`) is not
  * testable here by design — a render test would be the banned pattern — and is
  * covered by an app-test on the real app.
@@ -12,11 +12,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   callsignRunParts,
   composeSessionIdentity,
-  parseTagLineage,
   projectLeafName,
   resolveCitedSession,
   resolveSessionIdentity,
-  rootCallsign,
   sessionCitation,
   sessionDisplayTitle,
   sessionIdentityLine,
@@ -262,85 +260,16 @@ describe("callsignRunParts — where a middle truncation cuts", () => {
   });
 });
 
-describe("lineage", () => {
-  test("a root session has no segments", () => {
-    expect(identity().lineage).toEqual([]);
-  });
-
-  test("the structured tag_lineage wins when present", () => {
-    expect(identity({ tag: "stocky-pixie-A1", tagLineage: "A1" }).lineage).toEqual([
-      "A1",
-    ]);
-    expect(
-      identity({ tag: "stocky-pixie-A1-B2", tagLineage: "A1-B2" }).lineage,
-    ).toEqual(["A1", "B2"]);
-  });
-
-  test("falls back to reading the segments off the composed tag", () => {
-    expect(parseTagLineage("stocky-pixie-A1-B2", null)).toEqual(["A1", "B2"]);
-    expect(parseTagLineage("stocky-pixie", null)).toEqual([]);
-  });
-
-  test("a lowercase root callsign is never mistaken for a segment", () => {
-    // Both words of a root callsign are lowercase, so no `<Letter><Number>`
-    // run can be confused with one — this is why the tail scan is safe.
-    expect(parseTagLineage("azure-heron", null)).toEqual([]);
-    expect(parseTagLineage("azure-h2", null)).toEqual([]);
-  });
-
-  test("multi-digit sequence numbers parse", () => {
-    expect(parseTagLineage("stocky-pixie-A12", null)).toEqual(["A12"]);
-  });
-
-  test("a tagless session has no lineage", () => {
-    expect(parseTagLineage(null, null)).toEqual([]);
-  });
-});
-
-describe("rootCallsign — the family a fork belongs to", () => {
-  test("a root session is its own root", () => {
-    expect(rootCallsign("stocky-pixie")).toBe("stocky-pixie");
-  });
-
-  test("every depth of fork answers the same root", () => {
-    expect(rootCallsign("stocky-pixie-A1")).toBe("stocky-pixie");
-    expect(rootCallsign("stocky-pixie-A1-B2")).toBe("stocky-pixie");
-    expect(rootCallsign("stocky-pixie-A12-B3-C4")).toBe("stocky-pixie");
-  });
-
-  test("a lowercase tail is part of the root, not a segment", () => {
-    expect(rootCallsign("azure-h2")).toBe("azure-h2");
-    expect(rootCallsign("other-elide-1")).toBe("other-elide-1");
-  });
-
-  test("a tagless session has no root", () => {
-    expect(rootCallsign(null)).toBe(null);
-    expect(rootCallsign("  ")).toBe(null);
-  });
-
-  test("it is the tag with exactly the parsed lineage removed", () => {
-    for (const tag of [
-      "stocky-pixie",
-      "stocky-pixie-A1",
-      "stocky-pixie-A1-B2",
-      "azure-h2",
-    ]) {
-      const depth = parseTagLineage(tag).length;
-      expect(rootCallsign(tag)).toBe(
-        tag.split("-").slice(0, tag.split("-").length - depth).join("-"),
-      );
-    }
-  });
-});
-
 /**
- * The collision verdict, driven through the real stores `resolveSessionIdentity`
- * reads — there is no seam to derive it without them, and inventing one would
- * be testing a copy of the rule rather than the rule.
+ * The collision verdict, driven through the real store `resolveSessionIdentity`
+ * reads — there is no seam to derive it without it, and inventing one would
+ * be testing a copy of the rule rather than the rule. There is no kin
+ * exemption: a rewind-fork inherits its parent's name with its callsign, so
+ * kin never share a name and any peer spelling it the same way is a genuine
+ * second thing to tell apart.
  */
 describe("nameShared — who counts as a collision", () => {
   const SELF = "aaaaaaaa-0000-4000-8000-000000000001";
-  const KIN = "aaaaaaaa-0000-4000-8000-000000000002";
   const STRANGER = "aaaaaaaa-0000-4000-8000-000000000003";
   const NAME = "layout-imposer-xp";
 
@@ -352,64 +281,38 @@ describe("nameShared — who counts as a collision", () => {
   }
 
   afterEach(() => {
-    for (const id of [SELF, KIN, STRANGER]) {
+    for (const id of [SELF, STRANGER]) {
       sessionNameStore.setName(id, null);
       sessionTagStore.setTag(id, null);
     }
   });
 
   test("a name nobody else holds is no collision", () => {
-    seed([{ id: SELF, name: NAME, tag: "nutty-gnat-A1" }]);
+    seed([{ id: SELF, name: NAME, tag: "nutty-gnat" }]);
     expect(resolveSessionIdentity(SELF).nameShared).toBe(false);
   });
 
-  test("a fork carrying its parent's name down the lineage is not a collision", () => {
+  test("another session taking the same name IS a collision", () => {
     seed([
-      { id: SELF, name: NAME, tag: "nutty-gnat-A1" },
-      { id: KIN, name: NAME, tag: "nutty-gnat" },
-    ]);
-    expect(resolveSessionIdentity(SELF).nameShared).toBe(false);
-    expect(resolveSessionIdentity(KIN).nameShared).toBe(false);
-  });
-
-  test("two forks of one root are kin however deep either sits", () => {
-    seed([
-      { id: SELF, name: NAME, tag: "nutty-gnat-A1-B2" },
-      { id: KIN, name: NAME, tag: "nutty-gnat-C3" },
-    ]);
-    expect(resolveSessionIdentity(SELF).nameShared).toBe(false);
-  });
-
-  test("an unrelated session taking the same name IS a collision", () => {
-    seed([
-      { id: SELF, name: NAME, tag: "nutty-gnat-A1" },
+      { id: SELF, name: NAME, tag: "nutty-gnat" },
       { id: STRANGER, name: NAME, tag: "frothy-nurse" },
     ]);
     expect(resolveSessionIdentity(SELF).nameShared).toBe(true);
     expect(resolveSessionIdentity(STRANGER).nameShared).toBe(true);
   });
 
-  test("kin do not excuse a stranger holding the same name", () => {
-    seed([
-      { id: SELF, name: NAME, tag: "nutty-gnat-A1" },
-      { id: KIN, name: NAME, tag: "nutty-gnat" },
-      { id: STRANGER, name: NAME, tag: "frothy-nurse" },
-    ]);
-    expect(resolveSessionIdentity(SELF).nameShared).toBe(true);
-  });
-
-  test("an unknown callsign on either side reads as a collision", () => {
+  test("a tagless session sharing the name still collides", () => {
     seed([
       { id: SELF, name: NAME, tag: null },
-      { id: KIN, name: NAME, tag: "nutty-gnat" },
+      { id: STRANGER, name: NAME, tag: "nutty-gnat" },
     ]);
     expect(resolveSessionIdentity(SELF).nameShared).toBe(true);
-    expect(resolveSessionIdentity(KIN).nameShared).toBe(true);
+    expect(resolveSessionIdentity(STRANGER).nameShared).toBe(true);
   });
 
   test("a differently spelled name is not shared at all", () => {
     seed([
-      { id: SELF, name: NAME, tag: "nutty-gnat-A1" },
+      { id: SELF, name: NAME, tag: "nutty-gnat" },
       { id: STRANGER, name: "some other name", tag: "frothy-nurse" },
     ]);
     expect(resolveSessionIdentity(SELF).nameShared).toBe(false);

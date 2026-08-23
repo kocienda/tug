@@ -54,16 +54,15 @@
 //! the duplicate-column race, so an existing on-disk `sessions.db` is
 //! upgraded in place on open. There is no `migrations` table and no
 //! version counter — per-instance state needs neither, and **never
-//! delete the database to "migrate" it**: `minted_tags` and
-//! `tag_lineage_points` are append-only arbiters whose loss silently
-//! re-opens callsign recycling. (The shared `changes.db` is a different
+//! delete the database to "migrate" it**: `minted_tags` is an append-only
+//! arbiter whose loss silently re-opens callsign recycling. (The shared `changes.db` is a different
 //! regime entirely — its schema changes bump `CHANGES_SCHEMA_VERSION`
 //! with a registered migration.)
 //!
-//! # Callsigns: permanence, and the one suffix ([D132])
+//! # Callsigns: permanence and stability ([D132])
 //!
 //! Every session wears a mnemonic `adjective-noun` **callsign** in
-//! `sessions.tag`. Two rules govern it, and both are load-bearing because
+//! `sessions.tag`. Three rules govern it, and all are load-bearing because
 //! commit trailers cite callsigns.
 //!
 //! **It is never recycled.** `sessions` rows are hard-`DELETE`d — trash, the
@@ -83,19 +82,25 @@
 //! retired, along with the silent NULL tag it landed on at exhaustion. On a
 //! genuine collision the mint rolls a complete fresh pair and re-claims.
 //!
-//! **The only sanctioned suffix is fork lineage:** `<root>-<Letter><Number>`,
-//! the letter naming the rewind point forked from (`A` for the first point ever
-//! forked from within a lineage) and the number sequencing forks from that
-//! point, extending for a fork of a fork (`stocky-pixie-A1-B2`). Letters and
-//! numbers are allocated from **`tag_lineage_points`**, one row per point ever
-//! forked from within a root's lineage — a table rather than a query over
-//! sibling names, because a query would have to re-derive letters from parsed
-//! display strings and a trashed fork would take its number with it. That table
-//! is append-only for the same reason `minted_tags` is: a reissued letter or
-//! number would make two unrelated forks share a callsign. A colliding lineage
-//! candidate **errors rather than rerolling** — a reroll would write an
-//! unrelated word pair into `tag` while `root_tag`/`tag_lineage` still named the
-//! lineage, a contradiction the client's resolver would render to the user.
+//! **A rewind-fork inherits its callsign; the name never accretes.** The
+//! callsign names the *line of work*, not the JSONL file: a rewind-fork is an
+//! edit to a conversation, not the birth of a new one, so the fork takes the
+//! parent's callsign verbatim by **transfer** ([`inherit_fork_identity`]) — one
+//! transaction repoints `minted_tags.session_id` at the fork and clears the
+//! superseded parent row's `tag`. The tag stays spent forever (permanence
+//! protects a citation from resolving to an *unrelated* session; the fork IS
+//! the same conversation, so resolving there is the right answer, not a
+//! compromise). The retired `<root>-<Letter><Number>` lineage-suffix grammar
+//! (`stocky-pixie-A1-B2`) is composed by nothing anymore — its
+//! `tag_lineage_points` allocator is dropped and existing chains collapse onto
+//! their root spelling on open ([`migrate_collapse_lineage_chains`]) — but
+//! legacy spellings still *parse* ([`is_session_callsign`]) and still resolve,
+//! through `minted_tags`, to the session now heading the line. The only path
+//! to a fresh callsign is a genuinely new line of work: a root spawn, or a
+//! **sibling fork** — forking a parent whose callsign has already moved on to
+//! an earlier fork — which mints a fresh pair like any other new session, with
+//! its parentage held in the `forked_from_session_id` / `fork_point` columns
+//! rather than in its spelling.
 //!
 //! # Concurrency
 //!
@@ -341,19 +346,11 @@ pub struct SessionRow {
     /// and made permanent by the append-only `minted_tags` arbiter (Spec S08):
     /// a tag any session ever minted is spent forever, so a collision rerolls a
     /// complete fresh pair rather than suffixing the taken one. `None` on
-    /// legacy rows until they are next resumed. A fork's tag carries a
-    /// `-<Letter><Number>` lineage suffix ([P11]). Keep in lockstep with the TS
+    /// legacy rows until they are next resumed. Stable for the life of the
+    /// line of work: a rewind-fork inherits it by transfer ([P11]), so the
+    /// name never accretes suffixes. Keep in lockstep with the TS
     /// `SessionRow.tag`.
     pub tag: Option<String>,
-    /// The lineage root's callsign, or `None` for a root session ([P11]).
-    /// `tag` already carries the composed name; this is the structured record
-    /// the resolver reads. Keep in lockstep with the TS `SessionRow.root_tag`.
-    #[serde(default)]
-    pub root_tag: Option<String>,
-    /// Dash-joined lineage segments (`A1`, `A1-B2`), or `None` for a root
-    /// session. Keep in lockstep with the TS `SessionRow.tag_lineage`.
-    #[serde(default)]
-    pub tag_lineage: Option<String>,
     /// The rolling generated description ([P07]) — a standing line saying what
     /// this session is about, composed on the SharedAgent's Summarize lane and
     /// re-composed as the work moves. `None` until the first one is written.
@@ -1478,7 +1475,7 @@ impl SessionLedger {
         Self::migrate_sessions_add_name(conn)?;
         Self::migrate_sessions_add_name_user_set(conn)?;
         Self::migrate_sessions_add_tag(conn)?;
-        Self::migrate_sessions_add_lineage(conn)?;
+        Self::migrate_sessions_add_fork_provenance(conn)?;
         Self::migrate_sessions_add_synopsis(conn)?;
         Self::migrate_sessions_add_private(conn)?;
         Self::migrate_sessions_add_dash_binding(conn)?;
@@ -1510,11 +1507,13 @@ impl SessionLedger {
                 name              TEXT,
                 name_user_set     INTEGER NOT NULL DEFAULT 0,
                 tag               TEXT,
-                -- Fork lineage ([P11]): the root's callsign and the
-                -- dash-joined segments (`A1`, `A1-B2`). Both NULL for a root
-                -- session. `tag` keeps the full composed callsign.
-                root_tag          TEXT,
-                tag_lineage       TEXT,
+                -- Fork provenance ([P11]): which session this one was
+                -- rewind-forked from, and the prompt uuid of the rewind
+                -- point. Both NULL for a root session. Provenance lives in
+                -- these columns, never in the callsign's spelling — a
+                -- rewind-fork inherits its parent's `tag` verbatim.
+                forked_from_session_id TEXT,
+                fork_point        TEXT,
                 -- The rolling generated description ([P07]). NULL until the
                 -- Summarize lane writes one; frozen (never written) once the
                 -- user has renamed the session.
@@ -1574,20 +1573,6 @@ impl SessionLedger {
                 SELECT tag, session_id, created_at
                 FROM sessions
                 WHERE tag IS NOT NULL;
-
-            -- Fork-lineage allocation ([P11]). One row per rewind point ever
-            -- forked from, within one root session's lineage: the point gets a
-            -- letter (first point forked from is A), and `allocated` counts the
-            -- numbers issued under that letter, so two forks from one point
-            -- read A1 and A2. Append-only for the same reason `minted_tags` is
-            -- — a recycled letter would make two unrelated forks share a name.
-            CREATE TABLE IF NOT EXISTS tag_lineage_points (
-                root_tag   TEXT NOT NULL,
-                fork_point TEXT NOT NULL,
-                letter     TEXT NOT NULL,
-                allocated  INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (root_tag, fork_point)
-            );
 
             CREATE TABLE IF NOT EXISTS turns (
                 journal_id        TEXT PRIMARY KEY,
@@ -2075,6 +2060,9 @@ impl SessionLedger {
             DROP TRIGGER IF EXISTS file_events_cascade_delete_on_session;
             ",
         )?;
+        // After the batch, because it repoints rows in `minted_tags`, which
+        // the batch creates and seeds.
+        Self::migrate_collapse_lineage_chains(conn)?;
         // After the batch, because it needs the FTS tables to exist.
         Self::backfill_search_tokens(conn, facts_fts_dropped, posts_fts_dropped)?;
         let changes_write_ok = Self::bootstrap_changes_schema(conn, may_write_changes)?;
@@ -2386,24 +2374,18 @@ impl SessionLedger {
         Ok(())
     }
 
-    /// Self-healing add of the fork-lineage columns ([P11], Spec S05).
+    /// Self-healing add of the fork-provenance columns ([P11]).
     ///
-    /// `root_tag` is the lineage root's callsign and `tag_lineage` the
-    /// dash-joined segments (`A1`, `A1-B2`); both are NULL for a root session.
-    /// The `tag` column keeps the full composed callsign, so every existing
-    /// lookup and the uniqueness invariant are unchanged — these two are the
-    /// structured record the resolver reads.
-    ///
-    /// The column is `tag_lineage`, **not** `lineage`:
-    /// `external_scan_cache.lineage_ancestors` already owns that word for
-    /// JSONL message ancestry, an unrelated concept, and two `lineage` columns
-    /// one table apart meaning different things is a trap for the next reader.
-    fn migrate_sessions_add_lineage(conn: &Connection) -> Result<(), LedgerError> {
+    /// `forked_from_session_id` names the session a rewind-fork was taken
+    /// from and `fork_point` the prompt uuid of the rewind point; both are
+    /// NULL for a root session. Provenance lives here, never in the
+    /// callsign's spelling — the fork wears its parent's `tag` verbatim.
+    fn migrate_sessions_add_fork_provenance(conn: &Connection) -> Result<(), LedgerError> {
         let cols = Self::table_columns(conn, "sessions")?;
         if cols.is_empty() {
             return Ok(());
         }
-        for name in ["root_tag", "tag_lineage"] {
+        for name in ["forked_from_session_id", "fork_point"] {
             if !cols.iter().any(|(n, _)| n == name) {
                 match conn.execute(&format!("ALTER TABLE sessions ADD COLUMN {name} TEXT"), []) {
                     Ok(_) => {}
@@ -2412,6 +2394,112 @@ impl SessionLedger {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Collapse the retired lineage-suffix chains onto their root spelling
+    /// ([D132]). One-shot in effect, self-healing in form: after the first
+    /// run no row carries `root_tag`, so every later open is a no-op, and a
+    /// database that never grew the legacy columns skips outright.
+    ///
+    /// Per distinct `root_tag`: the chain's **head** (deepest `tag_lineage`,
+    /// newest `last_used_at` on a tie) takes the root spelling as its `tag` —
+    /// unless a live row already wears it, a genuine sibling situation the
+    /// sweep leaves alone. Every `minted_tags` spelling in the chain (the
+    /// root and each suffixed intermediate) is repointed at the head session,
+    /// so a legacy citation of `stocky-pixie-A1-B2` resolves to the session
+    /// now heading the line. Superseded chain rows have their `tag` cleared —
+    /// their spellings now belong to the head, and a superseded copy that
+    /// respawns mints a fresh pair like any sibling. The
+    /// `tag_lineage_points` allocator is dropped — nothing composes from it
+    /// anymore.
+    fn migrate_collapse_lineage_chains(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if !cols.iter().any(|(n, _)| n == "root_tag") {
+            conn.execute("DROP TABLE IF EXISTS tag_lineage_points", [])?;
+            return Ok(());
+        }
+        let roots: Vec<String> = {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT root_tag FROM sessions
+                 WHERE root_tag IS NOT NULL AND root_tag != ''",
+            )?;
+            let collected = stmt
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            collected
+        };
+        for root in roots {
+            let wearer: Option<(String, String)> = conn
+                .query_row(
+                    "SELECT session_id, state FROM sessions WHERE tag = ?1",
+                    params![root],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            match wearer {
+                Some((_, state)) if state == "live" => {
+                    // The root spelling is worn by a LIVE session: a genuine
+                    // sibling lineage. Clear the structured columns and move
+                    // on — renaming anything here would steal a live
+                    // session's name.
+                    conn.execute(
+                        "UPDATE sessions SET root_tag = NULL, tag_lineage = NULL
+                         WHERE root_tag = ?1",
+                        params![root],
+                    )?;
+                    continue;
+                }
+                Some((sid, _)) => {
+                    // A superseded pre-fork copy still wears the root
+                    // spelling. It hands the name down exactly as
+                    // `inherit_fork_identity` would have.
+                    conn.execute(
+                        "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
+                        params![sid],
+                    )?;
+                }
+                None => {}
+            }
+            let head: Option<String> = conn
+                .query_row(
+                    "SELECT session_id FROM sessions
+                     WHERE root_tag = ?1
+                     ORDER BY LENGTH(COALESCE(tag_lineage, '')) DESC,
+                              last_used_at DESC
+                     LIMIT 1",
+                    params![root],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let Some(head) = head else { continue };
+            // Repoint every spelling the chain ever minted — the root and
+            // each `<root>-…` suffix — at the head, so legacy citations
+            // resolve to the line's live end. Spellings stay spent forever.
+            conn.execute(
+                "UPDATE minted_tags SET session_id = ?2
+                 WHERE tag = ?1 OR tag LIKE ?1 || '-%'",
+                params![root, head],
+            )?;
+            // Superseded chain rows lose their worn spellings first — those
+            // names now belong to the head, and a copy displaying one would
+            // be a resting lie. Then the head takes the root spelling.
+            conn.execute(
+                "UPDATE sessions SET tag = NULL
+                 WHERE root_tag = ?1 AND session_id != ?2",
+                params![root, head],
+            )?;
+            conn.execute(
+                "UPDATE sessions SET tag = ?1 WHERE session_id = ?2",
+                params![root, head],
+            )?;
+            conn.execute(
+                "UPDATE sessions SET root_tag = NULL, tag_lineage = NULL
+                 WHERE root_tag = ?1",
+                params![root],
+            )?;
+        }
+        conn.execute("DROP TABLE IF EXISTS tag_lineage_points", [])?;
         Ok(())
     }
 
@@ -2895,7 +2983,7 @@ impl SessionLedger {
         let mut stmt = conn.prepare(
             "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
                     turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    root_tag, tag_lineage, synopsis, private, dash_id, dash_name
+                    synopsis, private, dash_id, dash_name
              FROM sessions
              WHERE workspace_key = ?1
              ORDER BY last_used_at DESC",
@@ -2918,7 +3006,7 @@ impl SessionLedger {
         let mut stmt = conn.prepare(
             "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
                     turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    root_tag, tag_lineage, synopsis, private, dash_id, dash_name
+                    synopsis, private, dash_id, dash_name
              FROM sessions
              WHERE project_dir = ?1
              ORDER BY last_used_at DESC",
@@ -2950,7 +3038,7 @@ impl SessionLedger {
         let mut stmt = conn.prepare(
             "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
                     turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    root_tag, tag_lineage, synopsis, private, dash_id, dash_name
+                    synopsis, private, dash_id, dash_name
              FROM sessions
              WHERE card_id IS NOT NULL
                AND state != 'failed'
@@ -2980,7 +3068,7 @@ impl SessionLedger {
         let mut stmt = conn.prepare(
             "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
                     turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    root_tag, tag_lineage, synopsis, private, dash_id, dash_name
+                    synopsis, private, dash_id, dash_name
              FROM sessions
              WHERE (?1 IS NULL OR last_used_at >= ?1)
                AND (?2 IS NULL OR last_used_at <= ?2)
@@ -3007,7 +3095,7 @@ impl SessionLedger {
         let mut stmt = conn.prepare(
             "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
                     turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    root_tag, tag_lineage, synopsis, private, dash_id, dash_name
+                    synopsis, private, dash_id, dash_name
              FROM sessions
              WHERE session_id = ?1
              LIMIT 1",
@@ -3065,7 +3153,7 @@ impl SessionLedger {
     ) -> Result<Vec<(String, SessionRow)>, LedgerError> {
         const COLUMNS: &str = "session_id, workspace_key, project_dir, created_at, last_used_at,
                     turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
-                    root_tag, tag_lineage, synopsis, private, dash_id, dash_name";
+                    synopsis, private, dash_id, dash_name";
         // The scan cache's own columns, projected into the same row shape the
         // picker union synthesizes for an unadopted session.
         const SCAN_COLUMNS: &str = "session_id, project_dir, created_at, last_used_at,
@@ -3085,8 +3173,6 @@ impl SessionLedger {
                 name: row.get(6)?,
                 name_user_set: false,
                 tag: row.get(7)?,
-                root_tag: None,
-                tag_lineage: None,
                 synopsis: None,
                 // An unadopted scan row has no `sessions` row to carry a flag,
                 // and an absent row reads as public everywhere else too.
@@ -3125,6 +3211,18 @@ impl SessionLedger {
         let mut scan_tagged = conn.prepare(&format!(
             "SELECT {SCAN_COLUMNS} FROM external_scan_cache
              WHERE tag = ?1 AND excluded = 0 LIMIT 2"
+        ))?;
+        // The alias arm: a spelling nothing wears anymore but the arbiter
+        // remembers. A rewind-fork inherits its parent's callsign by
+        // transfer, and the retired lineage-suffix chains collapsed onto
+        // their root spelling — either way `minted_tags` points each spent
+        // spelling at the session now heading the line, so a legacy citation
+        // (`stocky-pixie-A1-B2` in an old commit trailer) still resolves to
+        // the same conversation.
+        let mut minted_alias = conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM sessions
+             WHERE session_id = (SELECT session_id FROM minted_tags WHERE tag = ?1)
+             LIMIT 1"
         ))?;
         let mut seen = HashSet::new();
         let mut resolved = Vec::new();
@@ -3178,11 +3276,22 @@ impl SessionLedger {
                     .query_map(params![queried], scan_row_from_query)?
                     .collect::<Result<Vec<_>, _>>()?
             };
-            if scan_rows.len() != 1 {
+            if scan_rows.len() == 1 {
+                let row = scan_rows.into_iter().next().expect("length checked");
+                resolved.push((queried.to_owned(), row));
                 continue;
             }
-            let row = scan_rows.into_iter().next().expect("length checked");
-            resolved.push((queried.to_owned(), row));
+            if !scan_rows.is_empty() || !callsign {
+                continue;
+            }
+            // The alias fallback: a spent spelling resolving through the
+            // arbiter to the session now heading its line of work.
+            let alias_rows = minted_alias
+                .query_map(params![queried], row_from_query)?
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(row) = alias_rows.into_iter().next() {
+                resolved.push((queried.to_owned(), row?));
+            }
         }
         Ok(resolved)
     }
@@ -3275,6 +3384,7 @@ impl SessionLedger {
         // spawn-ack path. A callsign may therefore change once, seconds after
         // spawn, and is immutable forever after ([P12]).
         let mut candidate: Option<String> = existing_tag
+            .clone()
             .or(scanned_tag)
             .or_else(|| tag.map(str::to_owned));
         let mut attempt: u32 = 0;
@@ -3285,6 +3395,18 @@ impl SessionLedger {
                 match claim_tag(&tx, c, session_id, now)? {
                     TagClaim::Claimed => {}
                     TagClaim::TakenByOther => {
+                        // A row whose own worn tag lost its claim is a
+                        // superseded pre-fork copy: the spelling moved on to
+                        // the lineage head via `inherit_fork_identity`. Clear it
+                        // so the COALESCE below lands the fresh pair instead
+                        // of resurrecting a name that is no longer this
+                        // session's.
+                        if existing_tag.as_deref() == Some(c) {
+                            tx.execute(
+                                "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
+                                params![session_id],
+                            )?;
+                        }
                         candidate = Some(reroll_or_fail(c, session_id, now, &mut attempt)?);
                         continue;
                     }
@@ -3465,124 +3587,106 @@ impl SessionLedger {
         Ok(ids)
     }
 
-    /// Allocate the fork's callsign from its parent's lineage ([P11]).
+    /// Transfer the parent's identity onto its rewind-fork ([P11], [D154]).
     ///
-    /// The grammar is `<root>-<Letter><Number>`: the **letter** names the
-    /// rewind point (the first point ever forked from within this root is
-    /// `A`), the **number** sequences the forks taken from that point. A fork
-    /// of a fork extends the chain — a root `stocky-pixie` forked at two
-    /// points yields `…-A1`, `…-A2`, `…-B1`, and forking `stocky-pixie-A1` at
-    /// the second point yields `stocky-pixie-A1-B2`.
+    /// The callsign — and a `/rename`, when the user gave one — names the
+    /// line of work, not the JSONL file, and a rewind-fork is an edit to a
+    /// conversation rather than the birth of a new one — so the fork wears
+    /// the parent's `tag` (and user-set `name`) verbatim, forever. One
+    /// transaction repoints `minted_tags.session_id` at the fork (the tag
+    /// stays spent; a later [`claim_tag`] by the fork is the idempotent
+    /// mine-is-not-taken path) and clears the superseded parent row's `tag`
+    /// and user-set `name` — the identity moved on, and a superseded copy
+    /// still wearing it would be a resting lie. An auto `aiTitle` is not
+    /// transferred: it is embedded in the JSONL records the fork's file
+    /// copies, so the fork re-derives it on its own.
     ///
-    /// Allocation is scoped to the **root**, not to the parent, which is what
-    /// makes a point's letter mean the same thing everywhere in one lineage.
-    /// It runs inside one ledger transaction, so two racing forks cannot be
-    /// handed the same segment. The composed tag claims through
-    /// [`claim_tag`] like any other mint, so a fork's callsign is permanent on
-    /// the same terms ([P12]).
-    ///
-    /// Returns `None` when the parent has no callsign to descend from (a
-    /// legacy tagless row) — the caller then spawns the fork as an ordinary
-    /// root session rather than inventing a lineage.
-    pub fn allocate_fork_lineage(
+    /// `tag` is `None` when the parent has none to hand down — a legacy
+    /// tagless row, or a **sibling fork**: the parent's callsign already
+    /// moved on to an earlier fork, so this new branch is a new line of work
+    /// and spawns as an ordinary root session, minting a fresh pair. Its
+    /// parentage is recorded by [`set_fork_provenance`] either way.
+    pub fn inherit_fork_identity(
         &self,
         parent_session_id: &str,
-        fork_point: &str,
         fork_session_id: &str,
         now: i64,
-    ) -> Result<Option<ForkLineage>, LedgerError> {
+    ) -> Result<InheritedForkIdentity, LedgerError> {
         let mut conn = self.db.lock().expect("ledger mutex");
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let parent: Option<(Option<String>, Option<String>, Option<String>)> = tx
+        let parent: Option<(Option<String>, Option<String>, bool)> = tx
             .query_row(
-                "SELECT tag, root_tag, tag_lineage FROM sessions WHERE session_id = ?1",
+                "SELECT tag, name, name_user_set FROM sessions WHERE session_id = ?1",
                 params![parent_session_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()?;
-        let Some((Some(parent_tag), parent_root, parent_lineage)) = parent else {
-            return Ok(None);
-        };
-        // A fork of a fork descends from the same root; a fork of a root makes
-        // that root the lineage's origin.
-        let root_tag = parent_root.unwrap_or(parent_tag);
-
-        // The letter belongs to the point, once and forever within this root.
-        let existing: Option<(String, i64)> = tx
-            .query_row(
-                "SELECT letter, allocated FROM tag_lineage_points
-                 WHERE root_tag = ?1 AND fork_point = ?2",
-                params![root_tag, fork_point],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        let (letter, issued) = match existing {
-            Some(pair) => pair,
-            None => {
-                let points: i64 = tx.query_row(
-                    "SELECT COUNT(*) FROM tag_lineage_points WHERE root_tag = ?1",
-                    params![root_tag],
-                    |row| row.get(0),
-                )?;
-                let letter = fork_point_letter(points).ok_or_else(|| {
-                    LedgerError::TagClaimFailed(format!(
-                        "lineage {root_tag} has exhausted its branch-point letters"
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get::<_, i64>(2)? != 0,
                     ))
-                })?;
-                tx.execute(
-                    "INSERT INTO tag_lineage_points (root_tag, fork_point, letter, allocated)
-                     VALUES (?1, ?2, ?3, 0)",
-                    params![root_tag, fork_point, letter],
-                )?;
-                (letter, 0)
-            }
+                },
+            )
+            .optional()?;
+        let Some((tag, name, name_user_set)) = parent else {
+            return Ok(InheritedForkIdentity::default());
         };
-        let number = issued + 1;
-        tx.execute(
-            "UPDATE tag_lineage_points SET allocated = ?3
-             WHERE root_tag = ?1 AND fork_point = ?2",
-            params![root_tag, fork_point, number],
-        )?;
-
-        let segment = format!("{letter}{number}");
-        let tag_lineage = match parent_lineage {
-            Some(prefix) if !prefix.is_empty() => format!("{prefix}-{segment}"),
-            _ => segment,
-        };
-        let tag = format!("{root_tag}-{tag_lineage}");
-        // Unique by construction (the root's tag is unique and the segment was
-        // just allocated from the ledger's own rows), so this claim should
-        // never lose. "Unreachable by construction" is an argument, not a
-        // guard — a lineage tag must never be rerolled.
-        match claim_tag(&tx, &tag, fork_session_id, now)? {
-            TagClaim::Claimed => {}
-            TagClaim::TakenByOther => {
-                return Err(LedgerError::TagClaimFailed(format!(
-                    "lineage tag {tag} is already minted for another session"
-                )));
-            }
+        let user_name = if name_user_set { name } else { None };
+        if user_name.is_some() {
+            tx.execute(
+                "UPDATE sessions SET name = NULL, name_user_set = 0
+                 WHERE session_id = ?1",
+                params![parent_session_id],
+            )?;
         }
+        let Some(tag) = tag else {
+            tx.commit()?;
+            drop(conn);
+            if user_name.is_some() {
+                self.notify_sessions_changed();
+            }
+            return Ok(InheritedForkIdentity {
+                tag: None,
+                user_name,
+            });
+        };
+        tx.execute(
+            "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
+            params![parent_session_id],
+        )?;
+        // Repoint the arbiter rather than re-claiming: the spelling stays
+        // spent, and from here on it resolves to the fork — the same
+        // conversation, now living under a new file. INSERT-or-UPDATE covers
+        // a pre-arbiter legacy row whose tag was never seeded.
+        tx.execute(
+            "INSERT INTO minted_tags (tag, session_id, minted_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(tag) DO UPDATE SET session_id = excluded.session_id",
+            params![tag, fork_session_id, now],
+        )?;
         tx.commit()?;
-        Ok(Some(ForkLineage {
-            tag,
-            root_tag,
-            tag_lineage,
-        }))
+        drop(conn);
+        self.notify_sessions_changed();
+        Ok(InheritedForkIdentity {
+            tag: Some(tag),
+            user_name,
+        })
     }
 
-    /// Write a fork's structured lineage onto its `sessions` row, after
-    /// `record_spawn` has created it. The composed callsign already rode in
-    /// as the spawn's tag; these two columns are what the resolver reads.
-    pub fn set_fork_lineage(
+    /// Write a fork's provenance onto its `sessions` row, after
+    /// `record_spawn` has created it. The inherited callsign already rode in
+    /// as the spawn's tag; these columns record where the fork came from —
+    /// which the spelling no longer does, by design.
+    pub fn set_fork_provenance(
         &self,
         session_id: &str,
-        root_tag: &str,
-        tag_lineage: &str,
+        forked_from_session_id: &str,
+        fork_point: &str,
     ) -> Result<(), LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let affected = conn.execute(
-            "UPDATE sessions SET root_tag = ?2, tag_lineage = ?3 WHERE session_id = ?1",
-            params![session_id, root_tag, tag_lineage],
+            "UPDATE sessions SET forked_from_session_id = ?2, fork_point = ?3
+             WHERE session_id = ?1",
+            params![session_id, forked_from_session_id, fork_point],
         )?;
         if affected == 0 {
             return Err(LedgerError::NotFound(session_id.to_owned()));
@@ -6686,12 +6790,10 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
     let name: Option<String> = row.get(9)?;
     let name_user_set: bool = row.get::<_, i64>(10)? != 0;
     let tag: Option<String> = row.get(11)?;
-    let root_tag: Option<String> = row.get(12)?;
-    let tag_lineage: Option<String> = row.get(13)?;
-    let synopsis: Option<String> = row.get(14)?;
-    let private: bool = row.get::<_, i64>(15)? != 0;
-    let dash_id: Option<String> = row.get(16)?;
-    let dash_name: Option<String> = row.get(17)?;
+    let synopsis: Option<String> = row.get(12)?;
+    let private: bool = row.get::<_, i64>(13)? != 0;
+    let dash_id: Option<String> = row.get(14)?;
+    let dash_name: Option<String> = row.get(15)?;
     let state = match state_str.parse::<SessionState>() {
         Ok(s) => s,
         Err(e) => return Ok(Err(e)),
@@ -6709,8 +6811,6 @@ fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow
         name,
         name_user_set,
         tag,
-        root_tag,
-        tag_lineage,
         synopsis,
         private,
         dash_id,
@@ -6767,26 +6867,16 @@ fn is_session_callsign(s: &str) -> bool {
     })
 }
 
-/// A fork's allocated identity ([P11]) — the composed callsign plus the
-/// structured record behind it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ForkLineage {
-    /// `<root>-<segments>`, e.g. `stocky-pixie-A1-B2`. The value that lands in
-    /// `sessions.tag`.
-    pub tag: String,
-    /// The lineage root's callsign.
-    pub root_tag: String,
-    /// Dash-joined segments, e.g. `A1-B2`.
-    pub tag_lineage: String,
-}
-
-/// The branch-point letter for the `n`th distinct point forked from within one
-/// root's lineage: `A`, `B`, … `Z`. `None` past 26, which the caller reports
-/// rather than wrapping — a wrapped letter would name two points alike.
-fn fork_point_letter(n: i64) -> Option<String> {
-    (0..26)
-        .contains(&n)
-        .then(|| ((b'A' + n as u8) as char).to_string())
+/// What a rewind-fork inherited from its parent ([P11], [D154]) — the
+/// callsign, and the `/rename` when the user gave one. Both `None` for an
+/// unknown or identity-less parent; the fork then spawns as a root.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InheritedForkIdentity {
+    /// The transferred callsign, or `None` (legacy tagless parent, or a
+    /// sibling fork whose parent's name already moved on).
+    pub tag: Option<String>,
+    /// The transferred user-set name, or `None` when the parent had none.
+    pub user_name: Option<String>,
 }
 
 /// The verdict of a `minted_tags` claim (Spec S08).
@@ -6834,22 +6924,6 @@ pub fn claim_tag(
     })
 }
 
-/// True when `tag` carries a fork-lineage suffix (`-A1`, `-A1-B2`) rather
-/// than being a bare `adjective-noun` ([P11]).
-///
-/// A lineage tag must never be rerolled: the reroll would write an unrelated
-/// word pair into `tag` while `root_tag` / `tag_lineage` still name the
-/// lineage, and the resolver would render that contradiction straight to the
-/// user. The fork path re-allocates the segment instead.
-fn tag_has_lineage(tag: &str) -> bool {
-    tag.split('-').skip(2).any(|seg| {
-        let mut chars = seg.chars();
-        matches!(chars.next(), Some(c) if c.is_ascii_uppercase())
-            && chars.clone().count() > 0
-            && chars.all(|c| c.is_ascii_digit())
-    })
-}
-
 /// Roll a fresh `adjective-noun` from the Rust lexicon.
 ///
 /// The roller needs no exclusion set: `minted_tags` is the arbiter, so a
@@ -6890,23 +6964,16 @@ const TAG_REROLL_CAP: u32 = 64;
 
 /// The collision response: a fresh `adjective-noun`, or an error.
 ///
-/// A **lineage-suffixed** candidate never rerolls. Replacing `stocky-pixie-A1`
-/// with an unrelated word pair would leave `tag` contradicting `root_tag` /
-/// `tag_lineage`, and the resolver would render that contradiction to the
-/// user. The fork path re-allocates its segment instead. That a lineage tag is
-/// unique by construction is why this should never fire — an argument, not a
-/// guard.
+/// This also covers a spelling that has **moved on**: a candidate carried by
+/// a superseded pre-fork copy loses its claim to the lineage head that
+/// inherited it, and the fresh pair names what that copy now is — a new line
+/// of work.
 fn reroll_or_fail(
     taken: &str,
     session_id: &str,
     now: i64,
     attempt: &mut u32,
 ) -> Result<String, LedgerError> {
-    if tag_has_lineage(taken) {
-        return Err(LedgerError::TagClaimFailed(format!(
-            "lineage tag {taken} is already minted; the fork must re-allocate its segment"
-        )));
-    }
     *attempt += 1;
     if *attempt > TAG_REROLL_CAP {
         return Err(LedgerError::TagClaimFailed(format!(
@@ -7400,10 +7467,10 @@ mod tests {
     }
 
     #[test]
-    fn a_colliding_lineage_tag_errors_rather_than_rerolling() {
-        // A reroll would write an unrelated word pair into `tag` while
-        // root_tag/tag_lineage still name the lineage — a contradiction the
-        // resolver would render. The fork path re-allocates instead ([P11]).
+    fn a_spelling_that_moved_on_rerolls_a_fresh_pair() {
+        // A legacy suffixed spelling claimed by one session is spent like any
+        // other; a second session presenting it gets a complete fresh pair —
+        // the retired lineage grammar earns no special refusal.
         let l = fresh();
         l.record_spawn(
             "s1",
@@ -7414,31 +7481,18 @@ mod tests {
             Some("azure-heron-A1"),
         )
         .unwrap();
-        let err = l
-            .record_spawn(
-                "s2",
-                WS_A,
-                "/proj",
-                "card-2",
-                millis(0),
-                Some("azure-heron-A1"),
-            )
-            .expect_err("a lineage collision is an error");
-        assert!(
-            matches!(err, LedgerError::TagClaimFailed(_)),
-            "unexpected error: {err:?}"
-        );
-    }
-
-    #[test]
-    fn tag_lineage_detection_reads_only_the_segment_grammar() {
-        assert!(!tag_has_lineage("azure-heron"));
-        assert!(tag_has_lineage("azure-heron-A1"));
-        assert!(tag_has_lineage("azure-heron-A1-B2"));
-        // A bare numeric suffix is not lineage — the retired `-N` grammar.
-        assert!(!tag_has_lineage("azure-heron-2"));
-        // A word third segment is not lineage either.
-        assert!(!tag_has_lineage("azure-heron-swan"));
+        l.record_spawn(
+            "s2",
+            WS_A,
+            "/proj",
+            "card-2",
+            millis(0),
+            Some("azure-heron-A1"),
+        )
+        .unwrap();
+        let tag = l.get("s2").unwrap().unwrap().tag.expect("rerolled tag");
+        assert_ne!(tag, "azure-heron-A1");
+        assert_is_lexicon_pair(&tag);
     }
 
     #[test]
@@ -7634,36 +7688,39 @@ mod tests {
         assert_eq!(l.get("s2").unwrap().unwrap().tag, None);
     }
 
-    // ── fork lineage: <root>-<Letter><Number> ────────────────────────────────
+    // ── fork identity: the callsign is stable ([D132]) ───────────────────────
 
-    /// Spawn a fork: allocate its lineage off `parent`, then record the spawn
-    /// under the composed callsign and write the structured columns — the
-    /// same two-step the bridge performs around `session_init`.
+    /// Spawn a fork the way the bridge does around `session_init`: transfer
+    /// the parent's callsign, record the spawn under it (or under nothing,
+    /// letting the mint fall through), then write the provenance columns.
     fn spawn_fork(
         l: &SessionLedger,
         parent: &str,
         fork_point: &str,
         fork_id: &str,
-    ) -> Option<ForkLineage> {
-        let lineage = l
-            .allocate_fork_lineage(parent, fork_point, fork_id, millis(0))
-            .expect("allocate")?;
+    ) -> Option<String> {
+        let inherited = l
+            .inherit_fork_identity(parent, fork_id, millis(0))
+            .expect("inherit");
         l.record_spawn(
             fork_id,
             WS_A,
             "/proj",
             "card-1",
             millis(0),
-            Some(&lineage.tag),
+            inherited.tag.as_deref(),
         )
         .expect("record_spawn");
-        l.set_fork_lineage(fork_id, &lineage.root_tag, &lineage.tag_lineage)
-            .expect("set_fork_lineage");
-        Some(lineage)
+        l.set_fork_provenance(fork_id, parent, fork_point)
+            .expect("set_fork_provenance");
+        if let Some(name) = inherited.user_name.as_deref() {
+            l.rename(fork_id, Some(name)).expect("rename");
+        }
+        inherited.tag
     }
 
     #[test]
-    fn fork_lineage_letters_the_point_and_numbers_the_fork() {
+    fn a_rewind_fork_inherits_its_parents_callsign() {
         let l = fresh();
         l.record_spawn(
             "root",
@@ -7675,57 +7732,119 @@ mod tests {
         )
         .unwrap();
 
-        // Two forks from one rewind point share its letter and sequence.
-        let a1 = spawn_fork(&l, "root", "point-1", "f-a1").unwrap();
-        let a2 = spawn_fork(&l, "root", "point-1", "f-a2").unwrap();
-        assert_eq!(a1.tag, "stocky-pixie-A1");
-        assert_eq!(a2.tag, "stocky-pixie-A2");
+        // Five successive rewinds; the name never accretes a single segment.
+        let mut parent = "root".to_owned();
+        for n in 0..5 {
+            let fork_id = format!("f-{n}");
+            let tag = spawn_fork(&l, &parent, &format!("point-{n}"), &fork_id);
+            assert_eq!(tag.as_deref(), Some("stocky-pixie"));
+            assert_eq!(
+                l.get(&fork_id).unwrap().unwrap().tag.as_deref(),
+                Some("stocky-pixie")
+            );
+            // The superseded parent handed the name down.
+            assert_eq!(l.get(&parent).unwrap().unwrap().tag, None);
+            parent = fork_id;
+        }
 
-        // A second point takes the next letter.
-        let b1 = spawn_fork(&l, "root", "point-2", "f-b1").unwrap();
-        assert_eq!(b1.tag, "stocky-pixie-B1");
-
-        // A fork of a fork extends the chain. The point's letter means the
-        // same thing everywhere in one lineage, and the number sequences
-        // across the whole root — so forking `-A1` at point-2 reads `B2`.
-        let nested = spawn_fork(&l, "f-a1", "point-2", "f-a1b2").unwrap();
-        assert_eq!(nested.tag, "stocky-pixie-A1-B2");
-        assert_eq!(nested.root_tag, "stocky-pixie");
-        assert_eq!(nested.tag_lineage, "A1-B2");
-
-        // The original keeps its callsign throughout.
-        assert_eq!(
-            l.get("root").unwrap().unwrap().tag.as_deref(),
-            Some("stocky-pixie")
-        );
-        // …and every fork's row carries the structured record.
-        let row = l.get("f-a1b2").unwrap().unwrap();
-        assert_eq!(row.tag.as_deref(), Some("stocky-pixie-A1-B2"));
-        assert_eq!(row.root_tag.as_deref(), Some("stocky-pixie"));
-        assert_eq!(row.tag_lineage.as_deref(), Some("A1-B2"));
+        // Provenance lives in the columns, not the spelling.
+        let conn = l.db.lock().unwrap();
+        let (from, point): (String, String) = conn
+            .query_row(
+                "SELECT forked_from_session_id, fork_point FROM sessions
+                 WHERE session_id = 'f-4'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(from, "f-3");
+        assert_eq!(point, "point-4");
     }
 
     #[test]
-    fn a_fork_of_a_tagless_parent_has_no_lineage_to_descend_from() {
+    fn an_inherited_callsign_resolves_to_the_line_head() {
+        let l = fresh();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
+        spawn_fork(&l, "root", "point-1", "f-1");
+        let resolved = l
+            .resolve_session_ids(&["stocky-pixie".to_owned()])
+            .unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].1.session_id, "f-1");
+    }
+
+    #[test]
+    fn a_sibling_fork_mints_a_fresh_pair() {
+        let l = fresh();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
+        // The first fork carries the name on.
+        assert_eq!(
+            spawn_fork(&l, "root", "point-1", "f-1").as_deref(),
+            Some("stocky-pixie")
+        );
+        // Forking the superseded parent again finds no callsign to hand
+        // down — a sibling is a new line of work. The bridge falls back to
+        // the entry's remembered tag; the claim loses to the head and
+        // rerolls a complete fresh pair.
+        assert_eq!(
+            l.inherit_fork_identity("root", "f-2", millis(0)).unwrap().tag,
+            None
+        );
+        l.record_spawn(
+            "f-2",
+            WS_A,
+            "/proj",
+            "card-2",
+            millis(0),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
+        l.set_fork_provenance("f-2", "root", "point-2").unwrap();
+        let sibling = l.get("f-2").unwrap().unwrap().tag.expect("fresh tag");
+        assert_ne!(sibling, "stocky-pixie");
+        assert_is_lexicon_pair(&sibling);
+        // The head still wears the inherited name.
+        assert_eq!(
+            l.get("f-1").unwrap().unwrap().tag.as_deref(),
+            Some("stocky-pixie")
+        );
+    }
+
+    #[test]
+    fn a_fork_of_a_tagless_parent_has_no_callsign_to_inherit() {
         let l = fresh();
         l.record_spawn("root", WS_A, "/proj", "card-1", millis(0), None)
             .unwrap();
         assert_eq!(
-            l.allocate_fork_lineage("root", "point-1", "f-1", millis(0))
-                .unwrap(),
+            l.inherit_fork_identity("root", "f-1", millis(0)).unwrap().tag,
             None,
-            "the caller spawns it as a root rather than inventing a lineage"
+            "the caller spawns it as a root"
         );
         // An unknown parent is the same answer, not an error.
         assert_eq!(
-            l.allocate_fork_lineage("no-such", "point-1", "f-2", millis(0))
-                .unwrap(),
-            None
+            l.inherit_fork_identity("no-such", "f-2", millis(0)).unwrap(),
+            InheritedForkIdentity::default()
         );
     }
 
     #[test]
-    fn a_lineage_tag_is_permanent_like_any_other_callsign() {
+    fn a_rewind_fork_inherits_a_rename_with_the_callsign() {
         let l = fresh();
         l.record_spawn(
             "root",
@@ -7736,15 +7855,111 @@ mod tests {
             Some("stocky-pixie"),
         )
         .unwrap();
-        let a1 = spawn_fork(&l, "root", "point-1", "f-a1").unwrap();
+        l.rename("root", Some("perf hunt")).unwrap();
+        spawn_fork(&l, "root", "point-1", "f-1");
+        // The name moved with the callsign; the superseded copy wears
+        // neither.
+        let fork = l.get("f-1").unwrap().unwrap();
+        assert_eq!(fork.name.as_deref(), Some("perf hunt"));
+        assert!(fork.name_user_set);
+        let parent = l.get("root").unwrap().unwrap();
+        assert_eq!(parent.tag, None);
+        assert_eq!(parent.name, None);
+        assert!(!parent.name_user_set);
+        // An auto title is NOT transferred — the fork's copied JSONL
+        // re-derives it.
+        l.record_spawn("root2", WS_A, "/proj", "card-2", millis(0), Some("azure-heron"))
+            .unwrap();
+        l.record_auto_title("root2", "Auto title").unwrap();
+        let inherited = l
+            .inherit_fork_identity("root2", "f-2", millis(0))
+            .unwrap();
+        assert_eq!(inherited.tag.as_deref(), Some("azure-heron"));
+        assert_eq!(inherited.user_name, None);
+        assert_eq!(
+            l.get("root2").unwrap().unwrap().name.as_deref(),
+            Some("Auto title"),
+            "an auto title stays on the superseded copy's row"
+        );
+    }
 
-        // Trash the fork; its callsign is spent forever, so the next fork
-        // from that same point gets A2 rather than reusing A1.
-        l.mark_closed("f-a1").unwrap();
-        l.trash("f-a1").unwrap();
-        let next = spawn_fork(&l, "root", "point-1", "f-a2").unwrap();
-        assert_eq!(a1.tag, "stocky-pixie-A1");
-        assert_eq!(next.tag, "stocky-pixie-A2");
+    #[test]
+    fn an_inherited_tag_stays_spent_across_trash() {
+        let l = fresh();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
+        spawn_fork(&l, "root", "point-1", "f-1");
+        // Trash the head; the spelling is spent forever and never recycles
+        // onto an unrelated session.
+        l.mark_closed("f-1").unwrap();
+        l.trash("f-1").unwrap();
+        l.record_spawn("s-new", WS_A, "/proj", "card-2", millis(0), Some("stocky-pixie"))
+            .unwrap();
+        let tag = l.get("s-new").unwrap().unwrap().tag.expect("rerolled");
+        assert_ne!(tag, "stocky-pixie");
+        assert_is_lexicon_pair(&tag);
+    }
+
+    #[test]
+    fn migration_collapses_a_suffixed_chain_onto_its_root() {
+        let l = fresh();
+        {
+            let conn = l.db.lock().unwrap();
+            // A legacy-shaped database: the retired structured columns, a
+            // chain whose root row was evicted, and the arbiter rows the old
+            // regime minted.
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN root_tag TEXT;
+                 ALTER TABLE sessions ADD COLUMN tag_lineage TEXT;
+                 INSERT INTO sessions (
+                     session_id, workspace_key, project_dir, created_at,
+                     last_used_at, state, tag, root_tag, tag_lineage
+                 ) VALUES
+                     ('mid',  'ws', '/p', 0, 1, 'closed',
+                      'juicy-roach-A1',    'juicy-roach', 'A1'),
+                     ('head', 'ws', '/p', 0, 2, 'closed',
+                      'juicy-roach-A1-B1', 'juicy-roach', 'A1-B1');
+                 INSERT OR IGNORE INTO minted_tags (tag, session_id, minted_at)
+                 VALUES ('juicy-roach', 'gone', 0),
+                        ('juicy-roach-A1', 'mid', 0),
+                        ('juicy-roach-A1-B1', 'head', 0);",
+            )
+            .unwrap();
+            SessionLedger::migrate_collapse_lineage_chains(&conn).unwrap();
+        }
+        // The head wears the root spelling; the superseded copy wears none.
+        assert_eq!(
+            l.get("head").unwrap().unwrap().tag.as_deref(),
+            Some("juicy-roach")
+        );
+        assert_eq!(l.get("mid").unwrap().unwrap().tag, None);
+        // Every legacy spelling resolves to the head — worn, via the tag
+        // arm; spent, via the arbiter alias.
+        for spelling in ["juicy-roach", "juicy-roach-A1", "juicy-roach-A1-B1"] {
+            let resolved = l.resolve_session_ids(&[spelling.to_owned()]).unwrap();
+            assert_eq!(resolved.len(), 1, "unresolved: {spelling}");
+            assert_eq!(resolved[0].1.session_id, "head", "wrong head: {spelling}");
+        }
+        // Idempotent: a second open changes nothing and the allocator table
+        // stays gone.
+        let conn = l.db.lock().unwrap();
+        SessionLedger::migrate_collapse_lineage_chains(&conn).unwrap();
+        let points: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'tag_lineage_points'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(points, 0);
     }
 
     // ── sessions.name: the live auto-title write ─────────────────────────────

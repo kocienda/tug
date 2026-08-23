@@ -2917,8 +2917,6 @@ Some context.
             name: name.map(str::to_owned),
             name_user_set: name.is_some(),
             tag: None,
-            root_tag: None,
-            tag_lineage: None,
             synopsis: None,
             private: false,
             dash_id: None,

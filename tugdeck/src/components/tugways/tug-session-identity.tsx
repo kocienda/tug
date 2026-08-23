@@ -371,7 +371,6 @@ function identityTooltip(identity: SessionIdentity): React.ReactNode {
   return sessionTip({
     identityLine: sessionIdentityLine(identity),
     description: identity.description,
-    lineage: identity.lineage,
     citation: sessionCitation(identity, { project: true }),
     // A leaf, so the surface holding this identity does not subscribe to the
     // changeset aggregate just to be able to describe itself.
@@ -598,7 +597,6 @@ export function TugSessionCitation({
       ? {
           projectDir: context?.projectDir ?? cited.projectDir,
           state: context?.state ?? cited.state,
-          tagLineage: context?.tagLineage ?? cited.tagLineage,
           ledgerKnown: true,
         }
       : {}),

@@ -76,10 +76,9 @@ export interface SessionIdentity {
   project: string;
   /** Workspace branch, or null — telemetry only, never rendered in identity. */
   branch: string | null;
-  /** The callsign, including any lineage suffix; null only for a legacy tagless row. */
+  /** The callsign; null only for a legacy tagless row. Stable for the life
+   *  of the line of work — a rewind-fork inherits it by transfer. */
   tag: string | null;
-  /** Parsed lineage segments, e.g. `["A1","B2"]`; empty for a root session. */
-  lineage: readonly string[];
   /**
    * The user's own name for this session — `/rename`, never an auto title.
    *
@@ -92,21 +91,14 @@ export interface SessionIdentity {
   /** The agent's rolling description. Independent of {@link customName}. */
   description: string | null;
   /**
-   * Whether some session **outside this one's lineage** carries the same
-   * custom name.
+   * Whether some other session carries the same custom name.
    *
    * The collision fact behind the title rule: a custom name removes the
    * callsign from the title ({@link sessionTitleParts}), and the callsign
    * returns only when two sessions share one name — the final disambiguation,
    * and the prod toward picking a non-colliding name. Always `false` for an
-   * unnamed session.
-   *
-   * **Lineage kin do not collide.** A fork carries its parent's name across
-   * the branch point, so `nutty-gnat` and `nutty-gnat-A1` sharing one name is
-   * inheritance, not contention: they are the same work continued, there is no
-   * second thing for a reader to tell apart, and no better name to be prodded
-   * toward. The test is {@link rootCallsign} equality — see
-   * {@link nameCollides}.
+   * unnamed session. A rewind-fork can never collide with its own superseded
+   * parent: the name transfers with the callsign, so kin never share one.
    */
   nameShared: boolean;
   /** Ledger state, when the caller knows it. */
@@ -150,14 +142,6 @@ export interface SessionIdentityContext {
   projectDir?: string | null;
   branch?: string | null;
   state?: SessionRow["state"] | null;
-  /**
-   * The ledger's structured lineage record (`SessionRow.tag_lineage`), when
-   * the caller holds one. There is deliberately no `rootTag` beside it: the
-   * root's callsign is the composed `tag` with its lineage tail removed, so a
-   * second field would be a second spelling of a fact the record already
-   * carries — and the two could disagree.
-   */
-  tagLineage?: string | null;
   /**
    * A callsign recorded **elsewhere**, at write time — the tag inside a commit's
    * `Tug-Session:` trailer. Used only when this ledger has none of its own, so
@@ -214,56 +198,6 @@ export function shortSessionId(sessionId: string): string {
   return sessionId.slice(0, SESSION_SHORT_ID_LENGTH);
 }
 
-/** One lineage segment: a branch-point letter and a sequence number (`A1`, `B12`). */
-const LINEAGE_SEGMENT = /^[A-Z]\d+$/;
-
-/**
- * The lineage segments of a fork's callsign.
- *
- * `tagLineage` is the ledger's structured record and wins when present. A row
- * that predates it (or a client holding only the composed tag) falls back to
- * reading the segments off the tag's tail, which is unambiguous: a root
- * callsign is `adjective-noun`, both lowercase words, so any trailing
- * `<Letter><Number>` run is lineage and nothing else can be mistaken for it.
- */
-export function parseTagLineage(
-  tag: string | null,
-  tagLineage?: string | null,
-): readonly string[] {
-  const structured = tagLineage?.trim() ?? "";
-  if (structured.length > 0) {
-    return structured.split("-").filter((s) => LINEAGE_SEGMENT.test(s));
-  }
-  const composed = tag?.trim() ?? "";
-  if (composed.length === 0) return [];
-  const parts = composed.split("-");
-  const segments: string[] = [];
-  for (let i = parts.length - 1; i >= 0; i -= 1) {
-    if (!LINEAGE_SEGMENT.test(parts[i])) break;
-    segments.unshift(parts[i]);
-  }
-  return segments;
-}
-
-/**
- * The lineage root's callsign — the composed tag with its lineage tail
- * removed, and the identity of the whole family a fork belongs to.
- *
- * Read off the tag alone rather than taking `tagLineage` beside it, for the
- * reason {@link SessionIdentityContext.tagLineage} gives about a `rootTag`
- * field: the root is already spelled inside the tag, and a second input is a
- * second spelling that could disagree with it. A root session is its own root
- * (`nutty-gnat` → `nutty-gnat`); a legacy tagless session has none.
- */
-export function rootCallsign(tag: string | null): string | null {
-  const composed = tag?.trim() ?? "";
-  if (composed.length === 0) return null;
-  const depth = parseTagLineage(composed).length;
-  if (depth === 0) return composed;
-  const parts = composed.split("-");
-  return parts.slice(0, parts.length - depth).join("-");
-}
-
 /**
  * Compose an identity record from explicit facts — the pure half, with no
  * store reads. This is what the unit tests exercise; {@link resolveSessionIdentity}
@@ -290,7 +224,6 @@ export function composeSessionIdentity(input: {
   projectDir?: string | null;
   branch?: string | null;
   state?: SessionRow["state"] | null;
-  tagLineage?: string | null;
   /** The ledger's explicit answer that it holds this session. */
   ledgerKnown?: boolean;
   /** Whether `name` is also some other session's custom name. */
@@ -316,7 +249,6 @@ export function composeSessionIdentity(input: {
     // callsign tells the reader what was named, never that it can be found.
     resolved:
       input.ledgerKnown === true || ledgerTag !== null || projectDir.length > 0,
-    lineage: parseTagLineage(tag, input.tagLineage),
     // Two fields, never a fallback between them: they occupy different lines on
     // every surface. The name store holds only user-set names, so an auto title
     // can never arrive here as a `customName`.
@@ -337,50 +269,25 @@ export function sessionIdentityContextFrom(
   return {
     projectDir: row.project_dir,
     state: row.state,
-    tagLineage: row.tag_lineage,
   };
 }
 
 /**
  * The collision verdict behind {@link SessionIdentity.nameShared}: another
- * session outside this one's lineage answers to the same custom name.
+ * session answers to the same custom name.
  *
- * Two stores, because the fact is two facts. `sessionNameStore` knows who
- * spells the name the same way; `sessionTagStore` knows which family each of
- * them belongs to. The rule lives here rather than in either store because it
- * is neither store's business — and because a store that had to learn the
- * other's fact would end up holding a second copy of it.
- *
- * An unknown root — either side — counts as a collision. A tagless session
- * cannot be shown to be kin, and the conservative answer is the one that keeps
- * the handle on screen: showing a callsign that was not needed costs a reader
- * some width, and hiding one that was needed costs them the disambiguation the
- * whole rule exists to provide.
+ * There is no kin exemption to apply: a rewind-fork inherits its parent's
+ * name along with its callsign, and the superseded copy wears neither, so
+ * any peer spelling the name the same way is genuinely a second thing a
+ * reader must tell apart.
  */
 function nameCollides(sessionId: string): boolean {
-  const peers = sessionNameStore.sessionsSharingName(sessionId);
-  if (peers.length === 0) return false;
-  const root = rootCallsign(sessionTagStore.getTag(sessionId));
-  if (root === null) return true;
-  return peers.some((id) => rootCallsign(sessionTagStore.getTag(id)) !== root);
+  return sessionNameStore.sessionsSharingName(sessionId).length > 0;
 }
 
-/**
- * The two stores {@link nameCollides} reads, as one subscription.
- *
- * A tag seed can flip the verdict with no name change at all — a peer that
- * arrives untagged reads as a collision until its callsign lands and proves it
- * kin — so subscribing to the name store alone would leave the title one frame
- * stale in exactly the case this rule was written for. Neither store is new to
- * an identity surface; this adds a listener, not a dependency.
- */
+/** The store {@link nameCollides} reads, as one subscription. */
 function subscribeNameCollision(listener: () => void): () => void {
-  const unsubscribeName = sessionNameStore.subscribe(listener);
-  const unsubscribeTag = sessionTagStore.subscribe(listener);
-  return () => {
-    unsubscribeName();
-    unsubscribeTag();
-  };
+  return sessionNameStore.subscribe(listener);
 }
 
 /** The project dir of whichever card is bound to `sessionId`, or null. */
@@ -415,7 +322,6 @@ export function resolveSessionIdentity(
     projectDir: context?.projectDir ?? boundProjectDirFor(sessionId),
     branch: context?.branch ?? null,
     state: context?.state ?? null,
-    tagLineage: context?.tagLineage ?? null,
     ledgerKnown: context?.ledgerKnown ?? false,
   });
 }
@@ -504,7 +410,6 @@ export function useSessionIdentity(
     projectDir: context?.projectDir ?? boundProjectDir,
     branch: context?.branch ?? null,
     state: context?.state ?? null,
-    tagLineage: context?.tagLineage ?? null,
     ledgerKnown: context?.ledgerKnown ?? false,
   });
 }

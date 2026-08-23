@@ -397,8 +397,6 @@ describe("session ledger CONTROL encoders / decoders", () => {
         file_size: null,
         name_user_set: false,
         tag: null,
-        root_tag: null,
-        tag_lineage: null,
         synopsis: null,
         private: false,
       },

@@ -68,7 +68,6 @@ export type CitedSessionAnswer =
       sessionId: string;
       projectDir: string;
       state: SessionRow["state"];
-      tagLineage: string | null;
     }
   /** The ledger holds no such session — an unresolvable citation ([P13]). */
   | { status: "unknown" };
@@ -168,7 +167,6 @@ class SessionCitationStore {
         sessionId: session.session_id,
         projectDir: session.project_dir,
         state: session.state,
-        tagLineage: session.tag_lineage,
       });
       this.queued.delete(queried.trim());
       changed = true;

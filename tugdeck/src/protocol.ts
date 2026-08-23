@@ -140,19 +140,11 @@ export interface SessionRow {
    *  never a numeric suffix, and a callsign any session ever minted is spent
    *  forever); `null` on legacy rows until they are next resumed. Layered over
    *  the UUID and the `/rename` name (precedence: name → tag → truncated UUID).
-   *  A fork's callsign carries a `-<Letter><Number>` lineage suffix.
+   *  Stable for the life of the line of work — a rewind-fork inherits it by
+   *  transfer, never a suffix.
    *  Defaults to `null` for older tugcast that omits the field. Keep in lockstep
    *  with the Rust `SessionRow.tag`. */
   tag: string | null;
-  /** The lineage root's callsign, or `null` for a root session. `tag` already
-   *  carries the composed name; this is the structured record. Defaults to
-   *  `null` for older tugcast. Keep in lockstep with the Rust
-   *  `SessionRow.root_tag`. */
-  root_tag: string | null;
-  /** Dash-joined lineage segments (`A1`, `A1-B2`), or `null` for a root
-   *  session. Defaults to `null` for older tugcast. Keep in lockstep with the
-   *  Rust `SessionRow.tag_lineage`. */
-  tag_lineage: string | null;
   /** The rolling generated description — a standing line saying what the
    *  session is about, composed on tugcast's Summarize lane. `null` until the
    *  first one is written. Independent of `name` — a renamed session keeps
@@ -214,8 +206,6 @@ export function normalizeSessionRow(
     | "terminal_live"
     | "name_user_set"
     | "tag"
-    | "root_tag"
-    | "tag_lineage"
     | "synopsis"
   > &
     Partial<
@@ -225,8 +215,6 @@ export function normalizeSessionRow(
         | "terminal_live"
         | "name_user_set"
         | "tag"
-        | "root_tag"
-        | "tag_lineage"
         | "synopsis"
       >
     >,
@@ -238,8 +226,6 @@ export function normalizeSessionRow(
     file_size: row.file_size ?? null,
     name_user_set: row.name_user_set ?? false,
     tag: row.tag ?? null,
-    root_tag: row.root_tag ?? null,
-    tag_lineage: row.tag_lineage ?? null,
     synopsis: row.synopsis ?? null,
     private: row.private ?? false,
   };

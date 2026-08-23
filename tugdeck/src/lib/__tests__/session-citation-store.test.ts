@@ -66,7 +66,6 @@ describe("what the ledger said", () => {
       sessionId: FULL,
       projectDir: "/Users/dev/src/tugtool",
       state: "closed",
-      tagLineage: null,
     });
   });
 

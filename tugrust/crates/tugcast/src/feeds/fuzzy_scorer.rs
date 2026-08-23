@@ -27,7 +27,11 @@ const SCORE_MATCH: i32 = 16;
 const SCORE_CONSECUTIVE: i32 = 8;
 const SCORE_BOUNDARY: i32 = 8;
 const SCORE_CAMEL: i32 = 7;
-const SCORE_FIRST_CHAR: i32 = 8;
+// Strictly above SCORE_BOUNDARY: the start of the string is the strongest
+// boundary there is. At parity, `CLAUDE` scored `.claude/` (dot-boundary
+// start) and `CLAUDE.md` (string start) into an exact tie, and the
+// shorter-path tiebreak put the dotdir first.
+const SCORE_FIRST_CHAR: i32 = 16;
 const SCORE_CASE_EXACT: i32 = 1;
 const PENALTY_GAP_FIRST: i32 = -3;
 const PENALTY_GAP_EXTENSION: i32 = -1;
@@ -441,6 +445,23 @@ mod tests {
         let m = fuzzy_score("model", "Model.ts").unwrap();
         assert!(m.score > 0);
         assert_eq!(m.matches, vec![(0, 5)]);
+    }
+
+    #[test]
+    fn string_start_outranks_an_internal_boundary() {
+        // `CLAUDE` against the real pair from the tugtool root: the file
+        // whose stem IS the query must beat the dotdir whose match starts
+        // after the dot. These tied before SCORE_FIRST_CHAR outranked
+        // SCORE_BOUNDARY, and the shorter-path tiebreak then put `.claude/`
+        // at the head of the completion popup.
+        let file = score_file_path("CLAUDE", "CLAUDE.md").unwrap();
+        let dotdir = score_file_path("CLAUDE", ".claude/").unwrap();
+        assert!(
+            file.score > dotdir.score,
+            "CLAUDE.md ({}) must outrank .claude/ ({})",
+            file.score,
+            dotdir.score
+        );
     }
 
     #[test]
