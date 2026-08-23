@@ -90,8 +90,8 @@ export const HIDDEN_SLASH_COMMANDS: ReadonlySet<string> = new Set<string>([
   // tugcode/probes/goal-loop/FINDINGS.md.)
   "branch",
   "plan",
-  // (`/tasks` and its alias `/bashes` graduated to Tug-local commands —
-  // they open the WORK popover; see LOCAL_SLASH_COMMANDS.)
+  // (`/tasks` and `/bashes` graduated to Tug-local commands — they open
+  // the TASKS and JOBS popovers respectively; see LOCAL_SLASH_COMMANDS.)
   // (`/btw` graduated to a Tug-local command — it drives claude's native
   // `side_question` control-request and renders the answer in a non-modal
   // overlay; see LOCAL_SLASH_COMMANDS and tugcode/probes/btw/FINDINGS.md.

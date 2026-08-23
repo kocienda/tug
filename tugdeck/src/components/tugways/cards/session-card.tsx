@@ -3895,11 +3895,11 @@ export function SessionCardBody({
       });
     },
     context: () => statusRowRef.current?.openContext(),
-    // `/tasks` (upstream: running shells + subagents) opens the WORK
-    // placard — the unified surface those rows live in here. `/bashes`
-    // is upstream's alias; both were hidden before the WORK cell landed.
-    tasks: () => statusRowRef.current?.openWork(),
-    bashes: () => statusRowRef.current?.openWork(),
+    // The two finally mean different things: `/tasks` is the numbered
+    // checklist, `/bashes` (upstream: running shells + subagents) is
+    // the background-work surface those rows live in here.
+    tasks: () => statusRowRef.current?.openTasks(),
+    bashes: () => statusRowRef.current?.openJobs(),
     skills: () => skillsSheet.openSkillsSheet(),
     agents: () => agentsSheet.openAgentsSheet(),
     memory: () => memorySheet.openMemorySheet(),

@@ -19,7 +19,6 @@ import {
   deriveJobExtendedActiveMs,
   deriveTimeCellMs,
   computeTimeSummary,
-  computeTokensSummary,
   computeRichContextBreakdown,
   isCompactionLowEffect,
   turnHasTiming,
@@ -693,61 +692,6 @@ describe("computeTimeSummary", () => {
       totalActiveMs: 2_500,
       avgActiveMs: 1_250,
     });
-  });
-});
-
-describe("computeTokensSummary", () => {
-  // A turn whose `turnWindowTokens` (sum of the four cost fields)
-  // equals `n` — the whole window parked in cache-read keeps the
-  // fixture terse, the way a real turn's window is cache-dominated.
-  function win(n: number) {
-    return turn({
-      cost: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheCreationInputTokens: 0,
-        cacheReadInputTokens: n,
-        totalCostUsd: 0,
-      },
-    });
-  }
-
-  it("returns zeros for an empty transcript", () => {
-    expect(computeTokensSummary([], 18_575)).toEqual({
-      count: 0,
-      perTurn: [],
-      totalTokens: 0,
-      avgTokensPerTurn: 0,
-    });
-  });
-
-  it("each turn's figure is its signed perTurn window delta", () => {
-    // Captured session 7635e374: windows 19354 / 21852 / 21971 /
-    // 59196 against sessionInit 18575 → perTurn 779 / 2498 / 119 /
-    // 37225 (the same numbers Z1B shows).
-    const r = computeTokensSummary(
-      [win(19_354), win(21_852), win(21_971), win(59_196)],
-      18_575,
-    );
-    expect(r.count).toBe(4);
-    expect(r.perTurn).toEqual([779, 2_498, 119, 37_225]);
-    // totalTokens telescopes to window(latest) − sessionInit.
-    expect(r.totalTokens).toBe(59_196 - 18_575);
-    // avg = 40621 / 4 = 10155.25 → round → 10155.
-    expect(r.avgTokensPerTurn).toBe(10_155);
-  });
-
-  it("a /compact turn contributes an honest negative perTurn", () => {
-    const r = computeTokensSummary([win(200_000), win(60_000)], 18_575);
-    expect(r.perTurn).toEqual([181_425, -140_000]);
-    // The sum still telescopes: 60000 − 18575.
-    expect(r.totalTokens).toBe(60_000 - 18_575);
-  });
-
-  it("a null sessionInit walks from a zero bootstrap", () => {
-    const r = computeTokensSummary([win(1_000), win(3_000)], null);
-    expect(r.perTurn).toEqual([1_000, 2_000]);
-    expect(r.totalTokens).toBe(3_000);
   });
 });
 

@@ -121,11 +121,11 @@ export const LOCAL_SLASH_COMMANDS = [
   },
   {
     name: "tasks",
-    description: "Show the session's work (goal, jobs, scheduled, checklist) in the WORK popover",
+    description: "Show the session's numbered task list in the TASKS popover",
   },
   {
     name: "bashes",
-    description: "Show the session's work in the WORK popover (alias of /tasks)",
+    description: "Show the session's background work — goal, jobs, scheduled — in the JOBS popover",
   },
   {
     name: "skills",

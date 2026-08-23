@@ -13,8 +13,9 @@
  * contradict the wake that then actually fires. The pure rule is
  * unit-tested in `select-jobs.test.ts`; this drives the live surface:
  * register a wakeup through the store's real `frameToEvent → dispatch`
- * path, inject the respawn's `session_init`, and assert the WORK cell
- * still reads the scheduled count (a false flip would read `1/1`).
+ * path, inject the respawn's `session_init`, and assert the JOBS cell
+ * still reports the row as scheduled (a false flip would report it
+ * finished).
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -34,7 +35,7 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const SID = "test-session-A"; // bindSession default
-const WORK_CELL = '[data-slot="tug-status-cell"][data-priority="work"]';
+const JOBS_CELL = '[data-slot="tug-status-cell"][data-priority="jobs"]';
 
 let projectDir = "";
 
@@ -84,7 +85,16 @@ describe.skipIf(!SHOULD_RUN)(
           });
         const jobsCellText = async (): Promise<string> =>
           app.evalJS<string>(
-            `(document.querySelector(${JSON.stringify(WORK_CELL)})||{}).textContent || ""`,
+            `(document.querySelector(${JSON.stringify(JOBS_CELL)})||{}).textContent || ""`,
+          );
+        // The cell's composed summary, carried as the indicator's
+        // `aria-label` — it names which bucket the count came from.
+        const jobsCellSummary = async (): Promise<string> =>
+          app.evalJS<string>(
+            `(() => {
+              const el = document.querySelector(${JSON.stringify(JOBS_CELL)} + " [aria-label]");
+              return el === null ? "" : el.getAttribute("aria-label");
+            })()`,
           );
         try {
           await app.enableDeckTrace(true);
@@ -126,18 +136,19 @@ describe.skipIf(!SHOULD_RUN)(
             result: "success",
           });
 
-          // The scheduled row lands: the WORK cell shows the scheduled
-          // count (no executing rows → no fraction).
+          // The scheduled row lands: the JOBS cell counts it.
           await app.waitForCondition<boolean>(
-            `((document.querySelector(${JSON.stringify(WORK_CELL)})||{}).textContent || "").includes("1")`,
+            `((document.querySelector(${JSON.stringify(JOBS_CELL)})||{}).textContent || "").includes("1")`,
             { timeoutMs: 6000 },
           );
-          const before = await jobsCellText();
-          expect(before.includes("1/1")).toBe(false);
+          // The count alone cannot tell the two outcomes apart — a
+          // flipped row would linger for five minutes and still read
+          // "1". The cell's summary names the bucket, so that is the
+          // discriminator: "1 scheduled" survives, "1 finished" is the
+          // false flip.
+          expect(await jobsCellSummary()).toBe("1 scheduled");
 
-          // The respawn signal. A falsely stale-marked scheduled row
-          // would flip to stopped (terminal) and read as the `1/1`
-          // fraction; a surviving one keeps the bare scheduled count.
+          // The respawn signal.
           await ingest({
             type: "session_init",
             tug_session_id: SID,
@@ -146,12 +157,11 @@ describe.skipIf(!SHOULD_RUN)(
           // The flip (if any) is synchronous on dispatch; re-read after
           // a beat rather than racing the render.
           await app.waitForCondition<boolean>(
-            `((document.querySelector(${JSON.stringify(WORK_CELL)})||{}).textContent || "").length > 0`,
+            `((document.querySelector(${JSON.stringify(JOBS_CELL)})||{}).textContent || "").length > 0`,
             { timeoutMs: 3000 },
           );
-          const after = await jobsCellText();
-          expect(after.includes("1/1")).toBe(false);
-          expect(after.includes("1")).toBe(true);
+          expect(await jobsCellSummary()).toBe("1 scheduled");
+          expect((await jobsCellText()).includes("1")).toBe(true);
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {

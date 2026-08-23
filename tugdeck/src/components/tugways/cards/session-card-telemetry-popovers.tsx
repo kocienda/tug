@@ -60,7 +60,6 @@ import {
 import { formatStateChangeRow } from "@/lib/code-session-store/state-change-formatter";
 import {
   computeTimeSummary,
-  computeTokensSummary,
   type ContextBreakdown,
 } from "@/lib/code-session-store/telemetry";
 import type { TurnEntry } from "@/lib/code-session-store/types";
@@ -117,7 +116,6 @@ import { turnHasTiming } from "@/lib/code-session-store/telemetry";
 import { Square, X } from "lucide-react";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import {
-  composeJobsSummary,
   countJobs,
   isTerminalJobStatus,
   type JobItem,
@@ -128,7 +126,7 @@ import {
   goalIsActive,
   type GoalState,
 } from "@/lib/code-session-store/select-goal";
-import { composeWorkSummary } from "@/lib/code-session-store/select-work";
+import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
 
 // ---------------------------------------------------------------------------
 // Cross-popover callback contract
@@ -492,99 +490,6 @@ export function TimePopoverContent({
 }
 
 // ---------------------------------------------------------------------------
-// Tokens popover
-// ---------------------------------------------------------------------------
-
-/**
- * `TOKENS` popup — per-turn token log + summary rows. Each turn's
- * figure is its SIGNED `perTurn` window delta (`window(N) −
- * window(N−1)`, the transcript window-walk — the same number Z1B
- * shows), never a sum of raw `TurnCost`. A `/compact` turn reads as an
- * honest negative. Same in-flight contract as the Time popup. Footer:
- * COPY.
- */
-export function TokensPopoverContent({
-  transcript,
-  turnNumberBase = 0,
-  sessionInitTokens,
-  inflight,
-  onScrollToRow,
-}: {
-  transcript: ReadonlyArray<TurnEntry>;
-  /** `firstLoadedTurnIndex` of the loaded window, so the per-turn
-   *  addresses match the transcript's paged numbering. Defaults to `0`
-   *  (a full / non-windowed load, and the gallery / fixtures). */
-  turnNumberBase?: number;
-  sessionInitTokens: number | null;
-  inflight: { currentTurnTokens: number } | null;
-  onScrollToRow?: ScrollToRowHandler;
-}): React.ReactElement {
-  const summary = computeTokensSummary(transcript, sessionInitTokens);
-  const rows = transcript.map((t, i) => (
-    <TugPopupListRow
-      key={t.turnKey}
-      label={<TurnEntryPair turnIndex={i} transcript={transcript} turnNumberBase={turnNumberBase} onScrollToRow={onScrollToRow} />}
-      preview={<RequestPreview turn={t} />}
-      value={formatTokensCaps(summary.perTurn[i] ?? 0)}
-      badge={<TurnEndStateBadge turn={t} />}
-    />
-  ));
-  const summaryRows: React.ReactElement[] = [
-    <TugPopupListRow key="turns" label="turns" value={String(summary.count)} />,
-    <TugPopupListRow
-      key="total"
-      label="total"
-      value={formatTokensCaps(summary.totalTokens)}
-    />,
-    <TugPopupListRow
-      key="avg"
-      label="avg"
-      value={formatTokensCaps(summary.avgTokensPerTurn)}
-      hint="per turn"
-    />,
-  ];
-  if (inflight !== null) {
-    summaryRows.push(
-      <TugPopupListRow
-        key="current"
-        label="current turn"
-        value={formatTokensCaps(inflight.currentTurnTokens)}
-        hint="in flight"
-      />,
-    );
-  }
-  const footer =
-    transcript.length > 0 ? (
-      <TugPopupListFooter>
-        <PopupCopyButton
-          aria-label="Copy the per-turn token log"
-          getText={() =>
-            composeTurnLogCopyText(
-              transcript,
-              turnNumberBase,
-              (_t, i) => formatTokensCaps(summary.perTurn[i] ?? 0),
-              [
-                `turns\t${summary.count}`,
-                `total\t${formatTokensCaps(summary.totalTokens)}`,
-                `avg\t${formatTokensCaps(summary.avgTokensPerTurn)}`,
-              ],
-            )
-          }
-        />
-      </TugPopupListFooter>
-    ) : undefined;
-  return (
-    <TugPopupListFrame kind="log" footer={footer}>
-      <TugPopupListGrid
-        rows={rows}
-        summary={summaryRows}
-        empty={<EmptyTranscriptBody />}
-      />
-    </TugPopupListFrame>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Context popover
 // ---------------------------------------------------------------------------
 
@@ -799,12 +704,16 @@ export function StateChangeLogPopoverContent({
 /**
  * `TASKS` popup — opened from the `TASKS` cell in the status row.
  * Renders the full assembled task list ([D100]) as popup-list item
- * rows, each led by a {@link TugProgressIndicator} pulsing dot. Each
- * row's status drives its `(role, state)` pair through
- * {@link taskRowState}; an `idle` session demotes any `in_progress`
- * row to `state="stopped"` (same gate that stops the status-bar TASKS
- * dot). Rows with descriptions wrap in a `TugTooltip` so the longer
- * prose surfaces on hover. Footer: count summary + COPY.
+ * rows, each numbered `1.`–`N.` in source order and led by a
+ * {@link TugProgressIndicator} pulsing dot. Each row's status drives
+ * its `(role, state)` pair through {@link taskRowState}; an `idle`
+ * session demotes any `in_progress` row to `state="stopped"` (same
+ * gate that stops the status-bar TASKS dot). Rows with descriptions
+ * wrap in a `TugTooltip` so the longer prose surfaces on hover.
+ * Footer: count summary + COPY.
+ *
+ * There is no clear affordance: the list is transcript-derived, so
+ * there is nothing deck-local to clear.
  *
  * An empty `tasks` array renders the standard popup empty message.
  */
@@ -840,14 +749,26 @@ export function TasksPopoverContent({
       }
     >
       <TugPopupListScroller data-slot="session-tasks-popover-body">
-        {state.tasks.map((task) => {
-          // Always the `subject` — it carries the task's stable identity
-          // (e.g. the "Step N:" prefix). The present-continuous
-          // `activeForm` reads nicely inline but drops that identity, so
-          // the popup keeps every row reading the same way regardless
-          // of status.
+        {state.tasks.map((task, index) => {
+          // Always the `subject` — it carries the task's stable identity.
+          // The present-continuous `activeForm` reads nicely inline but
+          // drops that identity, so the popup keeps every row reading
+          // the same way regardless of status.
+          //
+          // The ordinal is the list's source position, which is the
+          // order the assistant wrote it in and the order the rows
+          // render in.
           const text = (
-            <TugPopupListItemText primary={task.subject} />
+            <TugPopupListItemText
+              primary={
+                <>
+                  <span className="session-tasks-popover-ordinal">
+                    {index + 1}.
+                  </span>
+                  {task.subject}
+                </>
+              }
+            />
           );
           return (
             <TugPopupListItem
@@ -1149,134 +1070,28 @@ function JobRow({
 }
 
 /**
- * `JOBS` popup — opened from the `JOBS` cell in the status row.
- * Renders the session-lifetime background-jobs ledger as popup-list
- * item rows above a footer carrying the composed summary ("1 running,
- * 2 done, 1 failed"), COPY, and a CLEAR button. Clear is a deck-local
- * wipe of terminal rows only — running and scheduled rows always
- * survive — and is disabled while nothing is clearable. Once a
- * wakeup/cron is pending, the rows split into labeled Running /
- * Scheduled / Finished groups.
+ * `JOBS` popup — opened from the `JOBS` cell in the status row. The
+ * session's background work: the `/goal`, running jobs, scheduled
+ * wakeups/crons/routines, and finished rows, in Goal / Running /
+ * Scheduled / Finished groups that render only when non-empty. Every
+ * management action lives here — stop job, cancel cron, stop a
+ * wakeup-paced loop, clear the goal, clear finished rows.
  *
- * An empty ledger renders the standard popup empty message.
+ * The checklist is the TASKS popup's subject and appears nowhere in
+ * this one: a checklist is turn-scoped plan-following, while
+ * everything here is session-lifetime background machinery.
+ *
+ * The footer's CLEAR wipes terminal rows only — running and scheduled
+ * rows always survive — and is disabled while nothing is clearable.
+ * Its name is bare because its scope is unambiguous: everything this
+ * popup shows is a job.
+ *
+ * An empty surface renders the standard popup empty message.
  */
 export function JobsPopoverContent({
-  jobs,
-  transcript,
-  turnNumberBase = 0,
-  onScrollToRow,
-  onStopJob,
-  onCancelScheduledWork,
-  onClearJobs,
-}: {
-  jobs: readonly JobItem[];
-  /** Committed turns — resolves each job's `#a{turn}` launch-row link. */
-  transcript: ReadonlyArray<TurnEntry>;
-  /** `firstLoadedTurnIndex` of the loaded window, so each job's address
-   *  matches the transcript's paged numbering. Defaults to `0`. */
-  turnNumberBase?: number;
-  onScrollToRow?: ScrollToRowHandler;
-  onStopJob?: (jobId: string) => void;
-  onCancelScheduledWork?: (jobId: string) => void;
-  onClearJobs?: () => void;
-}): React.ReactElement {
-  if (jobs.length === 0) {
-    return (
-      <TugPopupListFrame title="Jobs" kind="item">
-        <TugPopupListEmpty>No background jobs this session.</TugPopupListEmpty>
-      </TugPopupListFrame>
-    );
-  }
-  const counts = countJobs(jobs);
-  const renderRow = (job: JobItem): React.ReactElement => (
-    <JobRow
-      key={job.jobId}
-      job={job}
-      transcript={transcript}
-      turnNumberBase={turnNumberBase}
-      onScrollToRow={onScrollToRow}
-      onStopJob={onStopJob}
-      onCancelScheduledWork={onCancelScheduledWork}
-    />
-  );
-  // Flat (launch-order) list when there is no scheduled work — the
-  // long-standing shape. Once a wakeup/cron is pending, split into
-  // Running / Scheduled / Finished so the time-deferred promises read
-  // distinctly from work that is executing or done.
-  const group = (
-    label: string,
-    rows: readonly JobItem[],
-  ): React.ReactElement | null =>
-    rows.length === 0 ? null : (
-      <TugPopupListGroup label={label}>
-        {rows.map(renderRow)}
-      </TugPopupListGroup>
-    );
-  const body =
-    counts.scheduled === 0 ? (
-      jobs.map(renderRow)
-    ) : (
-      <>
-        {group("Running", jobs.filter((j) => j.status === "running"))}
-        {group("Scheduled", jobs.filter((j) => j.status === "scheduled"))}
-        {group("Finished", jobs.filter((j) => isTerminalJobStatus(j.status)))}
-      </>
-    );
-  return (
-    <TugPopupListFrame
-      title="Jobs"
-      kind="item"
-      footer={
-        <TugPopupListFooter summary={composeJobsSummary(counts)}>
-          <PopupCopyButton
-            aria-label="Copy the jobs list"
-            getText={() => composeJobsCopyText(jobs)}
-          />
-          <TugPushButton
-            emphasis="outlined"
-            role="action"
-            size="2xs"
-            aria-label="Clear finished jobs"
-            title="Clear finished jobs (running jobs are kept)"
-            disabled={counts.finished === 0 || onClearJobs === undefined}
-            onClick={onClearJobs}
-          >
-            Clear
-          </TugPushButton>
-        </TugPopupListFooter>
-      }
-    >
-      <TugPopupListScroller data-slot="session-jobs-popover-body">
-        {body}
-      </TugPopupListScroller>
-    </TugPopupListFrame>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Work popover — the unified surface
-// ---------------------------------------------------------------------------
-
-/** The goal row's dot pose. */
-/**
- * `WORK` popup — opened from the `WORK` cell, the single surface over
- * every trackable unit of session work ([P02]/[P03] of
- * `roadmap/slash-command-plan.md`): the `/goal`, running background
- * jobs, scheduled wakeups/crons, the task checklist, and finished
- * rows. Sections render only when non-empty; every management action
- * carries over from the surfaces it merges — stop job, cancel cron,
- * stop loop, clear finished, clear goal.
- *
- * The storage stays split ([P02]): tasks are the derived turn-scoped
- * fold, jobs the session-lifetime ledger, the goal its own snapshot
- * field. This component only composes them.
- */
-export function WorkPopoverContent({
   goal,
   canClearGoal,
   onClearGoal,
-  taskState,
-  idle,
   jobs,
   transcript,
   turnNumberBase = 0,
@@ -1290,10 +1105,11 @@ export function WorkPopoverContent({
   /** Clear is gated to idle (a live goal run is stopped via interrupt). */
   canClearGoal?: boolean;
   onClearGoal?: () => void;
-  taskState: TaskListState;
-  idle: boolean;
   jobs: readonly JobItem[];
+  /** Committed turns — resolves each job's `#a{turn}` launch-row link. */
   transcript: ReadonlyArray<TurnEntry>;
+  /** `firstLoadedTurnIndex` of the loaded window, so each job's address
+   *  matches the transcript's paged numbering. Defaults to `0`. */
   turnNumberBase?: number;
   onScrollToRow?: ScrollToRowHandler;
   onStopJob?: (jobId: string) => void;
@@ -1302,17 +1118,16 @@ export function WorkPopoverContent({
   onClearJobs?: () => void;
 }): React.ReactElement {
   const hasGoal = goal !== null;
-  const hasTasks = taskState.tasks.length > 0;
   const hasJobs = jobs.length > 0;
-  if (!hasGoal && !hasTasks && !hasJobs) {
+  if (!hasGoal && !hasJobs) {
     return (
-      <TugPopupListFrame kind="item">
-        <TugPopupListEmpty>No work for this session.</TugPopupListEmpty>
+      <TugPopupListFrame title="Jobs" kind="item">
+        <TugPopupListEmpty>No background jobs this session.</TugPopupListEmpty>
       </TugPopupListFrame>
     );
   }
-  const jobCounts = countJobs(jobs);
-  const renderJobRow = (job: JobItem): React.ReactElement => (
+  const counts = countJobs(jobs);
+  const renderRow = (job: JobItem): React.ReactElement => (
     <JobRow
       key={job.jobId}
       job={job}
@@ -1335,7 +1150,7 @@ export function WorkPopoverContent({
     goal === null ? null : (
       <TugPopupListItem
         data-status={goal.status}
-        data-slot="session-work-popover-goal-row"
+        data-slot="session-jobs-popover-goal-row"
         indicator={
           <TugProgressIndicator
             variant="pulsing-dot"
@@ -1379,95 +1194,46 @@ export function WorkPopoverContent({
       </TugPopupListItem>
     );
 
-  const taskRows = taskState.tasks.map((task) => {
-    const text = <TugPopupListItemText primary={task.subject} />;
-    return (
-      <TugPopupListItem
-        key={task.taskId}
-        className="session-tasks-popover-item"
-        data-status={task.status}
-        indicator={
-          <TugProgressIndicator
-            variant="pulsing-dot"
-            size={14}
-            state={taskRowState(task.status, idle)}
-            aria-label={`task ${task.status}`}
-          />
-        }
-      >
-        {task.description === undefined ? (
-          text
-        ) : (
-          <TugTooltip content={task.description} side="top" align="start">
-            {text}
-          </TugTooltip>
-        )}
-      </TugPopupListItem>
-    );
-  });
-
-  const summary = composeWorkSummary(
-    countTasks(taskState.tasks),
-    jobCounts,
-    goal,
-  );
   return (
     <TugPopupListFrame
+      title="Jobs"
       kind="item"
       footer={
-        <TugPopupListFooter summary={summary}>
+        <TugPopupListFooter summary={composeJobsCellSummary(counts, goal)}>
           <PopupCopyButton
-            aria-label="Copy the work list"
-            getText={() =>
-              [
-                hasJobs ? composeJobsCopyText(jobs) : null,
-                hasTasks ? composeTaskCopyText(taskState.tasks, false) : null,
-              ]
-                .filter((s): s is string => s !== null)
-                .join("\n\n")
-            }
+            aria-label="Copy the jobs list"
+            getText={() => composeJobsCopyText(jobs)}
           />
-          {/*
-            Named for its scope, unlike the JOBS popup's bare "Clear".
-            This footer sits under Goal + Tasks + Jobs, and clearing is
-            a jobs-only affordance: the task list is derived from the
-            transcript's Task* calls, so it has no deck-local wipe —
-            it empties only when the assistant deletes the tasks. A
-            bare "Clear" here reads as "clear the work list" and then
-            sits disabled for want of a finished job, which is exactly
-            the wrong story.
-          */}
           <TugPushButton
             emphasis="outlined"
             role="action"
             size="2xs"
             aria-label="Clear finished jobs"
             title="Clear finished jobs (running and scheduled rows are kept)"
-            disabled={jobCounts.finished === 0 || onClearJobs === undefined}
+            disabled={counts.finished === 0 || onClearJobs === undefined}
             onClick={onClearJobs}
           >
-            Clear Jobs
+            Clear
           </TugPushButton>
         </TugPopupListFooter>
       }
     >
-      <TugPopupListScroller data-slot="session-work-popover-body">
+      <TugPopupListScroller data-slot="session-jobs-popover-body">
         {group("Goal", goalRow, goalRow === null)}
         {group(
           "Running",
-          jobs.filter((j) => j.status === "running").map(renderJobRow),
-          jobCounts.running === 0,
+          jobs.filter((j) => j.status === "running").map(renderRow),
+          counts.running === 0,
         )}
         {group(
           "Scheduled",
-          jobs.filter((j) => j.status === "scheduled").map(renderJobRow),
-          jobCounts.scheduled === 0,
+          jobs.filter((j) => j.status === "scheduled").map(renderRow),
+          counts.scheduled === 0,
         )}
-        {group("Tasks", taskRows, !hasTasks)}
         {group(
           "Finished",
-          jobs.filter((j) => isTerminalJobStatus(j.status)).map(renderJobRow),
-          jobCounts.finished === 0,
+          jobs.filter((j) => isTerminalJobStatus(j.status)).map(renderRow),
+          counts.finished === 0,
         )}
       </TugPopupListScroller>
     </TugPopupListFrame>

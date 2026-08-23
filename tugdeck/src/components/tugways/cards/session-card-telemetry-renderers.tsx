@@ -72,7 +72,6 @@ import {
 } from "@/lib/code-session-store/telemetry";
 import {
   deriveContextWindows,
-  perTurnTokens,
   turnWindowTokens,
 } from "@/lib/code-session-store/end-state";
 import { useLifecycleTick } from "@/lib/code-session-store/hooks/use-lifecycle-tick";
@@ -87,10 +86,10 @@ import { useSessionStateChanges } from "@/lib/session-state-changes-store";
 
 import {
   ContextPopoverContent,
+  JobsPopoverContent,
   StateChangeLogPopoverContent,
+  TasksPopoverContent,
   TimePopoverContent,
-  TokensPopoverContent,
-  WorkPopoverContent,
   type ScrollToRowHandler,
 } from "./session-card-telemetry-popovers";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
@@ -102,16 +101,22 @@ import {
 } from "@/lib/code-session-store/select-jobs";
 import { goalIsActive } from "@/lib/code-session-store/select-goal";
 import {
-  composeWorkSummary,
-  countRecentlyDone,
-  formatWorkCount,
+  cellDisplayCount,
+  composeJobsCellSummary,
+  formatCellCount,
+  formatTaskFraction,
+  jobsCellActiveCount,
+  jobsCellDisplayPose,
+  jobsRecentlyDone,
   nextLingerExpiryMs,
-  workActiveCount,
-  workCellPose,
+  tasksCellPose,
+  tasksRecentlyDone,
   WORK_LINGER_MS,
-  workDisplayCount,
 } from "@/lib/code-session-store/select-work";
-import { countTasks } from "@/components/tugways/body-kinds/todo-list-block";
+import {
+  composeTaskSummary,
+  countTasks,
+} from "@/components/tugways/body-kinds/todo-list-block";
 
 // ---------------------------------------------------------------------------
 // Pure-logic formatters (exported for tests)
@@ -320,8 +325,8 @@ export interface SessionTelemetryStatusRowProps extends SessionTelemetryProps {
   focusGroup?: string;
   /**
    * Order of the FIRST cell (STATE) within {@link focusGroup}; the cells
-   * take consecutive orders left→right (STATE, TIME, TOKENS, CONTEXT,
-   * WORK = base + 0…4).
+   * take consecutive orders left→right (STATE, TIME, CONTEXT, TASKS,
+   * JOBS = base + 0…4).
    */
   focusOrderBase?: number;
   /** Walk policy when registered (`accept` default; `skip` = a11y-only). */
@@ -349,9 +354,9 @@ export interface SessionTelemetryStatusRowProps extends SessionTelemetryProps {
 export type PlacardKind =
   | "state"
   | "time"
-  | "tokens"
   | "context"
-  | "work"
+  | "tasks"
+  | "jobs"
   | "btw";
 
 /** Placard header title per surface — the placard header carries these now
@@ -359,9 +364,9 @@ export type PlacardKind =
 const PLACARD_TITLES: Record<PlacardKind, string> = {
   state: "State",
   time: "Time",
-  tokens: "Tokens",
   context: "Context",
-  work: "Work",
+  tasks: "Tasks",
+  jobs: "Jobs",
   btw: "/btw",
 };
 
@@ -376,9 +381,12 @@ const PLACARD_TITLES: Record<PlacardKind, string> = {
 export interface SessionTelemetryStatusRowHandle {
   /** Open the CONTEXT placard (the `/context`-style breakdown). */
   openContext(): void;
-  /** Open the WORK placard (goal / jobs / scheduled / checklist) — the
-   *  `/tasks` surface. */
-  openWork(): void;
+  /** Open the TASKS placard (the numbered checklist) — the `/tasks`
+   *  surface. */
+  openTasks(): void;
+  /** Open the JOBS placard (goal / running / scheduled / finished) —
+   *  the `/bashes` surface. */
+  openJobs(): void;
   /** Open the `/btw` placard (the side-question body). */
   openSideQuestions(): void;
 }
@@ -558,9 +566,11 @@ export const SessionTelemetryPhase: React.FC<SessionTelemetryProps> = ({
  * Combined session status row — production Z2 surface promoted from
  * the workshop gallery. Layout:
  *
- *     STATE   TIME   TOKENS   CONTEXT   WORK
+ *     STATE   TIME   CONTEXT   TASKS   JOBS
  *
- * Five cell anchors, each opening a popover on click:
+ * Measurements sit left, work sits right, and the two work cells are
+ * neighbors so the split reads as one story. Five cell anchors, each
+ * opening a popover on click:
  *
  *   - **STATE** → `StateChangeLogPopoverContent` driven by
  *     `useSessionStateChanges(snap.tugSessionId)` against the
@@ -568,11 +578,14 @@ export const SessionTelemetryPhase: React.FC<SessionTelemetryProps> = ({
  *   - **TIME** → `TimePopoverContent` — per-turn `activeMs` log +
  *     count/total/avg footer + live in-flight footer row when a
  *     turn is in flight.
- *   - **TOKENS** → `TokensPopoverContent` — per-turn token-sum log +
- *     count/total/avg footer + live in-flight footer row.
  *   - **CONTEXT** → `ContextPopoverContent` — rich `/context`-style
  *     breakdown when a `lastContextBreakdown` frame is present, the
- *     5-segment `cost_update`-derived fallback otherwise.
+ *     5-segment `cost_update`-derived fallback otherwise. Its
+ *     `messages` segment is where the session's conversation total
+ *     reads.
+ *   - **TASKS** → `TasksPopoverContent` — the numbered checklist.
+ *   - **JOBS** → `JobsPopoverContent` — goal, running, scheduled and
+ *     finished rows with their management actions.
  *
  * TIME cell text is the live in-flight clock when a turn is in
  * flight (`isLivePhase(phase)` true) and the last committed turn's
@@ -597,14 +610,16 @@ export const SessionTelemetryPhase: React.FC<SessionTelemetryProps> = ({
  * commit while the agents it launched keep working: that session reads
  * "Active", not "Idle".
  *
- * The WORK cell unifies the [D100] todo list, the [D102]
- * background-jobs ledger (`useJobsState`), and the `/goal` under one
- * merged `label + pose` grammar (`select-work.ts`): jobs and goals
- * never idle-demote (a background job genuinely runs between turns),
- * the checklist contribution keeps [D100]'s idle demotion. Cumulative
- * TOTAL TIME / TOTAL TOKENS are not separate cells; the same sums
- * surface in the TIME and TOKENS popovers' summary footers (one click
- * reveals the per-turn rows + the cumulative totals).
+ * The two work cells divide along the checklist / everything-else
+ * seam, each keeping its own source's semantics (`select-work.ts`).
+ * TASKS is the [D100] todo list alone, reading `done/total` and
+ * holding that decision's idle demotion. JOBS is the [D102]
+ * background-jobs ledger (`useJobsState`) plus the `/goal`, counting
+ * running rows, scheduled rows and one active goal; it never
+ * idle-demotes, because a background job genuinely runs between turns.
+ * Cumulative TOTAL TIME is not a separate cell; the sum surfaces in the
+ * TIME popover's summary footer (one click reveals the per-turn rows +
+ * the cumulative total).
  *
  * **Mount-identity ([L26]):** the five-cell flex row and every cell
  * are unconditionally mounted across phase / transport / interrupt
@@ -715,7 +730,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     ref,
     () => ({
       openContext: () => showPlacard("context"),
-      openWork: () => showPlacard("work"),
+      openTasks: () => showPlacard("tasks"),
+      openJobs: () => showPlacard("jobs"),
       openSideQuestions: () => showPlacard("btw"),
     }),
     [showPlacard],
@@ -787,16 +803,13 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // turn restored without a row carries the zero-placeholder. Show the honest
   // `—` then, never a fabricated `0:00`. A live in-flight clock is always real.
   const lastTurnHasTiming = lastTurn !== null && turnHasTiming(lastTurn);
-  // TOKENS / CONTEXT cells — both feed-derived. While a turn is in
-  // flight the cells read the latest `streaming_usage` frame
-  // (the streaming document's live-usage path) so they climb mid-turn
-  // the way TIME does; once
-  // the turn commits — and between turns — they read the transcript
+  // CONTEXT cell — feed-derived. While a turn is in flight the cell
+  // reads the latest `streaming_usage` frame (the streaming document's
+  // live-usage path) so it climbs mid-turn the way TIME does; once the
+  // turn commits — and between turns — it reads the transcript
   // window-walk.
   //
-  // TOKENS — `perTurn`: the signed per-turn delta `window(N) −
-  // window(N−1)` (the number Z1B shows; negative at a `/compact`).
-  // CONTEXT — the resident context total, unified with the popover
+  // The reading is the resident context total, unified with the popover
   // through `computeRichContextBreakdown`: `breakdown.totalUsed` is
   // `window` by construction. Before turn 1 (no `sessionInit`, no
   // window) the breakdown's bootstrap is tugcode's static estimate,
@@ -816,20 +829,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // turn's window, else `null` (no turns yet — fresh session).
   const windowTokens =
     isInflight && live !== null ? turnWindowTokens(live) : lastCommittedWindow;
-  // The prior window the in-flight per-turn delta is measured against.
-  const priorWindow = lastCommittedWindow ?? sessionInit ?? 0;
-  // The instant a turn is submitted the TOKENS cell clears — it must
-  // not keep showing the *previous* turn's delta until the new turn's
-  // first `streaming_usage` frame lands. So in-flight with no live
-  // frame yet reads 0; the last-committed delta is shown only between
-  // turns.
-  const tokensCellValue = isInflight
-    ? live !== null
-      ? perTurnTokens(live, priorWindow)
-      : 0
-    : windows.length > 0
-      ? windows[windows.length - 1].perTurn
-      : 0;
   // One breakdown computation feeds BOTH the CONTEXT cell (its
   // `totalUsed`) and the Context popover (its `segments`) — the two
   // surfaces cannot disagree.
@@ -879,13 +878,21 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // own role + state via sessionSessionPhaseVisual.
   const stateLabelText = SESSION_PHASE_LABELS[statePhaseKey];
 
-  // WORK cell — the unified surface over every trackable unit of
-  // session work ([P02]/[P03] of `roadmap/slash-command-plan.md`): the
-  // task checklist ([D100]'s fold, with its idle demotion preserved for
-  // the checklist contribution only), the background-jobs ledger
-  // ([D102]'s ledger, never idle-demoted — a job genuinely runs between
-  // turns), and the `/goal`. Pose and label are the merged grammar in
-  // `select-work.ts`; the popover carries the full grouped picture.
+  // TASKS cell — the numbered checklist alone ([D100]'s derived
+  // turn-scoped fold, keeping its idle demotion: a half-done list does
+  // not glow over an idle session). The label is the `done/total`
+  // fraction, which is the reading a plan-following session tracks.
+  //
+  // JOBS cell — everything else the session has outstanding ([D102]'s
+  // session-lifetime ledger plus the `/goal`): running jobs, scheduled
+  // rows, and one active goal. Never idle-demoted — a job genuinely
+  // runs between turns.
+  //
+  // Both cells linger their recently-finished work for WORK_LINGER_MS
+  // rather than snapping to "None" the instant the last item finishes,
+  // and each lingers only its own half. `nowMs` is read at render;
+  // while idle-and-lingering a single bounded timeout (below)
+  // recomputes once at the earliest expiry across the two — no ticker.
   const taskListState = useTaskListState(codeSessionStore);
   const taskCounts = countTasks(taskListState.tasks);
   const hasTasks = taskCounts.total > 0;
@@ -894,38 +901,40 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     hasTasks && taskCounts.completed === taskCounts.total;
   const goal = snap.goal;
   const jobCounts = countJobs(jobsLedger);
-  const hasWork =
-    hasTasks || jobsLedger.length > 0 || goal !== null;
-  // Completion linger: hold the recently-finished count for
-  // WORK_LINGER_MS rather than snapping to "None" the instant the last
-  // item completes. `nowMs` is read at render; while idle-and-lingering
-  // a single bounded timeout (below) recomputes once at the window's
-  // edge — no ticker, matching the tick-free scheduled badge.
   const nowMs = Date.now();
-  const activeCount = workActiveCount(taskCounts, jobCounts, goal);
-  const recentlyDone = countRecentlyDone(
+
+  const tasksRecent = tasksRecentlyDone(
     taskListState.tasks,
-    jobsLedger,
     nowMs,
     WORK_LINGER_MS,
   );
-  const displayCount = workDisplayCount(activeCount, recentlyDone);
-  const recentlyCompleted = recentlyDone > 0;
-  const workLabelText = formatWorkCount(displayCount);
-  const workIndicatorState: TugProgressIndicatorState = workCellPose(
-    jobsLedger,
-    goal,
+  const tasksLabelText = formatTaskFraction(taskCounts);
+  const tasksIndicatorState: TugProgressIndicatorState = tasksCellPose(
     { hasTasks, allTasksComplete, isIdle },
-    recentlyCompleted,
+    tasksRecent > 0,
   );
-  const workSummary = composeWorkSummary(taskCounts, jobCounts, goal);
+  const tasksSummary = composeTaskSummary(taskCounts);
+
+  const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);
+  const jobsActiveCount = jobsCellActiveCount(jobCounts, goal);
+  const jobsDisplayCount = cellDisplayCount(jobsActiveCount, jobsRecent);
+  const jobsLabelText = formatCellCount(jobsDisplayCount);
+  const jobsIndicatorState: TugProgressIndicatorState = jobsCellDisplayPose(
+    jobsLedger,
+    jobsRecent > 0,
+  );
+  const jobsSummary = composeJobsCellSummary(jobCounts, goal);
+  // A settled cell needs one nudge to leave its lingered reading:
+  // TASKS to drop its green dot once a finished list ages out, JOBS to
+  // fall back to "None". Active work needs none — the row already
+  // re-renders on its own (the live TIME clock). One timeout serves
+  // both, scheduled at the earliest expiry across them; when it fires,
+  // a recompute drops that item and reschedules for the next.
+  const tasksLingering = allTasksComplete && tasksRecent > 0;
+  const jobsLingering = jobsActiveCount === 0 && jobsRecent > 0;
   const [, setLingerTick] = useState(0);
   useEffect(() => {
-    // Only the idle→"None" transition needs a nudge: active work keeps
-    // the row re-rendering on its own (the live TIME clock). Schedule
-    // one timeout at the earliest lingering item's expiry; when it
-    // fires, a recompute drops that item and reschedules for the next.
-    if (activeCount !== 0 || recentlyDone === 0) return;
+    if (!tasksLingering && !jobsLingering) return;
     const expiry = nextLingerExpiryMs(
       taskListState.tasks,
       jobsLedger,
@@ -938,7 +947,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       Math.max(0, expiry - Date.now()),
     );
     return () => clearTimeout(id);
-  }, [activeCount, recentlyDone, taskListState.tasks, jobsLedger]);
+  }, [tasksLingering, jobsLingering, taskListState.tasks, jobsLedger]);
   // Popover actions — fire-and-forget control-style callbacks onto the
   // store's named methods (stop/cancel/stop-loop/clear-goal ride the
   // wire; clear is deck-local).
@@ -982,20 +991,6 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       onScrollToRow={onScrollToRow}
     />
   );
-  const tokensPopover = (
-    <TokensPopoverContent
-      transcript={snap.transcript}
-      turnNumberBase={turnNumberBase}
-      sessionInitTokens={sessionInit}
-      inflight={
-        // The in-flight footer carries the live per-turn delta —
-        // `tokensCellValue` is the signed `window − priorWindow`
-        // while a turn is in flight (see the cell-value block above).
-        isInflight ? { currentTurnTokens: tokensCellValue } : null
-      }
-      onScrollToRow={onScrollToRow}
-    />
-  );
   const contextPopover = (
     <ContextPopoverContent
       breakdown={contextBreakdown}
@@ -1005,13 +1000,14 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const statePopover = (
     <StateChangeLogPopoverContent rows={stateChangeSnap.rows} />
   );
-  const workPopover = (
-    <WorkPopoverContent
+  const tasksPopover = (
+    <TasksPopoverContent state={taskListState} idle={isIdle} />
+  );
+  const jobsPopover = (
+    <JobsPopoverContent
       goal={goal}
       canClearGoal={isIdle && goalIsActive(goal)}
       onClearGoal={clearGoal}
-      taskState={taskListState}
-      idle={isIdle}
       jobs={jobsLedger}
       transcript={snap.transcript}
       turnNumberBase={turnNumberBase}
@@ -1034,17 +1030,17 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         ? statePopover
         : placard.key === "time"
           ? timePopover
-          : placard.key === "tokens"
-            ? tokensPopover
-            : placard.key === "context"
-              ? contextPopover
-              : placard.key === "work"
-                ? workPopover
+          : placard.key === "context"
+            ? contextPopover
+            : placard.key === "tasks"
+              ? tasksPopover
+              : placard.key === "jobs"
+                ? jobsPopover
                 : sideQuestionStore !== undefined
                   ? <SideQuestionBody store={sideQuestionStore} annotation={annotation} pendingContextStore={pendingContextStore} />
                   : null;
 
-  // Flat 5-cell flex row — STATE + TIME + TOKENS + CONTEXT + WORK as
+  // Flat 5-cell flex row — STATE + TIME + CONTEXT + TASKS + JOBS as
   // direct siblings. The row's `justify-content: center` (declared in
   // CSS) packs the cells as one group with a fixed inter-item `gap`;
   // the leftover width splits into equal flexing margins on the row's
@@ -1116,23 +1112,11 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         </span>
       </TugStatusCell>
       <TugStatusCell
-        priority="tokens"
-        label="TOKENS"
-        onActivate={() => togglePlacard("tokens")}
-        focusGroup={focusGroup}
-        focusOrder={cellOrder(2)}
-        focusPolicy={focusPolicy}
-      >
-        <span className="session-telemetry-status-value">
-          {inertValue(formatTokensCaps(tokensCellValue))}
-        </span>
-      </TugStatusCell>
-      <TugStatusCell
         priority="context"
         label="CONTEXT"
         onActivate={() => togglePlacard("context")}
         focusGroup={focusGroup}
-        focusOrder={cellOrder(3)}
+        focusOrder={cellOrder(2)}
         focusPolicy={focusPolicy}
       >
         <span
@@ -1148,10 +1132,41 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         </span>
       </TugStatusCell>
       <TugStatusCell
-        priority="work"
-        label="WORK"
-        onActivate={() => togglePlacard("work")}
-        valueEmpty={!hasWork}
+        priority="tasks"
+        label="TASKS"
+        onActivate={() => togglePlacard("tasks")}
+        valueEmpty={!hasTasks}
+        focusGroup={focusGroup}
+        focusOrder={cellOrder(3)}
+        focusPolicy={focusPolicy}
+      >
+        {replayInert ? (
+          <span className="session-telemetry-status-value">—</span>
+        ) : (
+          <TugProgressIndicator
+            variant="pulsing-dot"
+            glyphPosition="both"
+            size={12}
+            state={tasksIndicatorState}
+            label={tasksLabelText}
+            labelAlign="center"
+            // Width-stabilize ghosts: under `labelAlign="center"` every
+            // entry renders hidden and the label box sizes to the
+            // widest, so a fraction needs a fraction-shaped reservation
+            // or it shifts as digits accrue.
+            phaseLabels={{
+              none: "None",
+              max: "00/00",
+            }}
+            aria-label={tasksSummary}
+          />
+        )}
+      </TugStatusCell>
+      <TugStatusCell
+        priority="jobs"
+        label="JOBS"
+        onActivate={() => togglePlacard("jobs")}
+        valueEmpty={jobsDisplayCount === 0}
         focusGroup={focusGroup}
         focusOrder={cellOrder(4)}
         focusPolicy={focusPolicy}
@@ -1163,14 +1178,14 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             variant="pulsing-dot"
             glyphPosition="both"
             size={12}
-            state={workIndicatorState}
-            label={workLabelText}
+            state={jobsIndicatorState}
+            label={jobsLabelText}
             labelAlign="center"
             phaseLabels={{
               none: "None",
               max: "00",
             }}
-            aria-label={workSummary}
+            aria-label={jobsSummary}
           />
         )}
       </TugStatusCell>

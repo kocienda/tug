@@ -53,9 +53,10 @@ plan/review, and scheduled cloud routines. Out of conversational-parity
 scope; each is a substantial standalone feature for a future plan, and is
 kept in the hidden registry as a marker for that future work.
 
-(`/tasks` — alias `/bashes` — graduated to a Tug-local command: it opens
-the WORK popover, the unified surface where running shells, subagents,
-scheduled work, the checklist, and the `/goal` live.)
+(`/tasks` and `/bashes` graduated to Tug-local commands, and they open
+different surfaces: `/tasks` the numbered checklist, `/bashes` the JOBS
+popover where running shells, subagents, scheduled work, and the `/goal`
+live.)
 
 (`/goal` and `/loop` — alias `/proactive` — graduated out of this group as
 pass-throughs, probe-verified on claude 2.1.204; see

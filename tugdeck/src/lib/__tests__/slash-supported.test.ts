@@ -53,7 +53,7 @@ describe("classifySlashCommand", () => {
     }
   });
 
-  test("/tasks and /bashes are supported-local (the WORK popover surface)", () => {
+  test("/tasks and /bashes are supported-local (the TASKS and JOBS popovers)", () => {
     for (const name of ["tasks", "bashes"]) {
       expect(classifySlashCommand(name)).toBe("supported-local");
       expect(HIDDEN_SLASH_COMMANDS.has(name)).toBe(false);

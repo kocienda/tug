@@ -66,11 +66,15 @@
    Widest face → measured need, at 1ch ≈ 6.8px:
      STATE    "Disconnected"   61px  (value wins)
      TIME     "4h 30m 00s"     54px  (value wins)
-     TOKENS   "−208.3K"        50px  (the TOKENS label wins, at 50px)
      CONTEXT  "999.9K / 1M"    58px  (value wins; the denominator is a round
                                       ceiling, so it renders without decimals —
                                       `formatTokenCap`, not `formatTokensCaps`)
-     WORK     the dot + "00"   36px  (the WORK label wins)
+     TASKS    dots + "00/00"   68px  (value wins — the fraction plus its two
+                                      flanking glyphs; the reservation is the
+                                      indicator's `phaseLabels` ghost set, which
+                                      sizes the label box, so the two are
+                                      measured together)
+     JOBS     the dots + "00"  36px  (the JOBS label wins)
 
    **The budgets are not those needs.** A row of cells trimmed to their content
    is a row of five labels huddled in the middle of an empty strip — which is
@@ -91,23 +95,29 @@
    overshot by ~19px and quietly tripped its own first rung, hiding TIME on a card
    that was supposed to show everything.
 
-   Their proportions are the pre-diet row's, so the shape a reader knows survives
-   the resize: STATE and CONTEXT are the wide pair, TIME and WORK the middle,
-   TOKENS the narrowest. */
+   STATE and CONTEXT are the wide pair, TIME and TASKS the middle, JOBS the
+   narrowest.
+
+   **The total is held at 80ch on purpose.** The row spends the same width it
+   did when it carried TOKENS and a merged WORK cell: the 28ch those two held
+   between them is what TASKS and JOBS divide, with TASKS taking the larger
+   share to seat its fraction. Holding the sum fixed is what lets the
+   `@container` rungs below keep their measured values — the full set and each
+   post-collapse subset need exactly what they needed before. */
 .session-telemetry-status-cell[data-priority="state"] {
   --tugx-session-status-cell-width: 18ch;
 }
 .session-telemetry-status-cell[data-priority="time"] {
   --tugx-session-status-cell-width: 15ch;
 }
-.session-telemetry-status-cell[data-priority="tokens"] {
-  --tugx-session-status-cell-width: 14ch;
-}
 .session-telemetry-status-cell[data-priority="context"] {
   --tugx-session-status-cell-width: 19ch;
 }
-.session-telemetry-status-cell[data-priority="work"] {
-  --tugx-session-status-cell-width: 14ch;
+.session-telemetry-status-cell[data-priority="tasks"] {
+  --tugx-session-status-cell-width: 15ch;
+}
+.session-telemetry-status-cell[data-priority="jobs"] {
+  --tugx-session-status-cell-width: 13ch;
 }
 .session-telemetry-status-value-wrap {
   /* Wrap centers its single child value within the static cell width —
@@ -138,36 +148,44 @@
   margin-inline: 2px;
 }
 
-/* WORK value row — a single `TugProgressIndicator` (pulsing-dot
-   variant) whose `label` carries the merged reading (`goal`, `N/M`, a
-   scheduled count, or `None`), flanked by its two glyphs.
+/* Work-cell value rows — TASKS and JOBS. Each is a single
+   `TugProgressIndicator` (pulsing-dot variant) whose `label` carries the
+   cell's reading (a `done/total` fraction, a count, or `None`), flanked
+   by its two glyphs. The four rules below apply to both cells: their
+   value rows are built the same way, and a rule that reached only one of
+   them would leave the other silently untreated.
 
    Unlike STATE, whose two glyphs and title are three siblings of the
-   value-wrap, WORK's whole row is ONE element — so `space-between` has
-   to be declared on the indicator itself, which stretches to the cell
+   value-wrap, a work cell's whole row is ONE element — so `space-between`
+   has to be declared on the indicator itself, which stretches to the cell
    width here. Without it the indicator sizes to its content and centers,
    which parks the two dots ~30px inside the endcap ticks: their pulse
    rings finish their travel in open space while STATE's cross the ticks.
    Pinned to the same 2px inset as STATE, at the same 12px box, the ring's
-   excursion past the label apparatus is identical in both cells by
+   excursion past the label apparatus is identical in every cell by
    construction rather than by arithmetic. The two glyphs are equal-width,
    so the label stays centered as its reading changes. */
-.session-telemetry-status-cell[data-priority="work"] .tug-progress-indicator {
+.session-telemetry-status-cell[data-priority="tasks"] .tug-progress-indicator,
+.session-telemetry-status-cell[data-priority="jobs"] .tug-progress-indicator {
   display: flex;
   width: 100%;
   justify-content: space-between;
 }
 
-.session-telemetry-status-cell[data-priority="work"]
+.session-telemetry-status-cell[data-priority="tasks"]
+  .tug-progress-indicator-glyph,
+.session-telemetry-status-cell[data-priority="jobs"]
   .tug-progress-indicator-glyph {
   margin-inline: 2px;
 }
 
-/* The indicator's label inside the WORK cell takes the same focal
-   "value" treatment as every other cell: bold, tabular-nums, step-up
-   size. */
+/* The indicator's label inside a work cell takes the same focal "value"
+   treatment as every other cell: bold, tabular-nums, step-up size.
+   `tabular-nums` is what keeps a ticking fraction from reflowing. */
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
-.session-telemetry-status-cell[data-priority="work"]
+.session-telemetry-status-cell[data-priority="tasks"]
+  .tug-progress-indicator-label-active,
+.session-telemetry-status-cell[data-priority="jobs"]
   .tug-progress-indicator-label-active {
   font-size: 0.75rem;
   font-weight: var(--tug-font-weight-bold);
@@ -177,7 +195,10 @@
 
 /* Dim the indicator + label when the cell is empty so it reads as a
    quiet placeholder. */
-.session-telemetry-status-cell[data-priority="work"]
+/* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */
+.session-telemetry-status-cell[data-priority="tasks"]
+  .session-telemetry-status-value-wrap[data-empty="true"],
+.session-telemetry-status-cell[data-priority="jobs"]
   .session-telemetry-status-value-wrap[data-empty="true"] {
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
@@ -354,19 +375,24 @@
    declares `container-type: inline-size` + `container-name: session-status`
    so these `@container` rules can target it. As the host narrows, whole
    cells (label apparatus + value together) hide in priority order — TIME
-   first, then TOKENS, with WORK the last collapsible: a running job / live
-   goal is live "something is happening" signal. STATE / CONTEXT stay as the
-   most-persistent set.
+   first, then TASKS, with JOBS the last collapsible: a running job / live
+   goal is live "something is happening" signal, while a checklist is a
+   standing reading that keeps. STATE / CONTEXT stay as the most-persistent
+   set.
 
-   The rungs are placed against the post-diet row's measured intrinsic width,
-   not inherited from the pre-diet one. Five cells at the budgets above are
-   ~649px including the 24px gaps and the row's inline padding, so the full set
-   holds down to a ~645px query width — which slim clears by only ~8px,
-   deliberately: the budgets were sized to spend the slim row rather than to
-   leave headroom in it. The query width is the strip's CONTENT box (~657px at
-   slim), not the card and not the strip's border box. Each rung then fires just under what the
-   remaining set needs. Degradation is therefore something the slim preset never
-   reaches: it is there for a card dragged narrower than any preset offers. */
+   Five cells at the budgets above are ~649px including the 24px gaps and the
+   row's inline padding, so the full set holds down to a ~645px query width —
+   which slim clears by only ~8px, deliberately: the budgets were sized to
+   spend the slim row rather than to leave headroom in it. The query width is
+   the strip's CONTENT box (~657px at slim), not the card and not the strip's
+   border box. Each rung then fires just under what the remaining set needs.
+   Degradation is therefore something the slim preset never reaches: it is
+   there for a card dragged narrower than any preset offers.
+
+   The three thresholds are the measured ones, and they survive the TOKENS
+   retirement because the budgets above hold the row's total at 80ch: the full
+   set needs what it needed, and so does each set left standing after a rung
+   fires. */
 
 @container session-status (max-width: 645px) {
   .session-telemetry-status-cell[data-priority="time"] {
@@ -375,13 +401,13 @@
 }
 
 @container session-status (max-width: 520px) {
-  .session-telemetry-status-cell[data-priority="tokens"] {
+  .session-telemetry-status-cell[data-priority="tasks"] {
     display: none;
   }
 }
 
 @container session-status (max-width: 405px) {
-  .session-telemetry-status-cell[data-priority="work"] {
+  .session-telemetry-status-cell[data-priority="jobs"] {
     display: none;
   }
 }

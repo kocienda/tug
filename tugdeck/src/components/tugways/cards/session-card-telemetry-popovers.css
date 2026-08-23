@@ -256,6 +256,19 @@
 }
 
 /* ============================================================================
+   Tasks — row ordinals
+   ========================================================================= */
+
+/* The `N.` that leads each row's primary line. Muted and tabular so a
+   two-digit ordinal aligns under a one-digit one down the column.
+   @tug-renders-on var(--tug7-surface-popover-primary-normal-default-rest) */
+.session-tasks-popover-ordinal {
+  margin-inline-end: 0.4em;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
    Tasks — completed-row strikethrough
    ========================================================================= */
 

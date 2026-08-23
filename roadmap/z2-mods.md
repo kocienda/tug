@@ -432,12 +432,12 @@ None. Every change lands in existing files; one file is deleted (`use-work-state
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Selector layer: per-cell derivations | pending | — |
-| #step-2 | Popup layer: Tasks and Jobs rewritten | pending | — |
-| #step-3 | Status row swap: lineup, placards, routing, CSS | pending | — |
-| #step-4 | App-test updates and selective run | pending | — |
-| #step-5 | Durable record: retire [D107], restore [D100]/[D102] | pending | — |
-| #step-6 | Integration Checkpoint | pending | — |
+| #step-1 | Selector layer: per-cell derivations | done | `25ce0e67c` |
+| #step-2 | Popup layer: Tasks and Jobs rewritten | done | `66f304e13` |
+| #step-3 | Status row swap: lineup, placards, routing, CSS | done | `163252002` |
+| #step-4 | App-test updates and selective run | done | `22786c285` |
+| #step-5 | Durable record: retire [D107], restore [D100]/[D102] | done | `be026f5ae` |
+| #step-6 | Integration Checkpoint | done | `b4bac527d` |
 
 #### Step 1: Selector layer: per-cell derivations {#step-1}
 

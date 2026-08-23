@@ -3,7 +3,7 @@
  *
  * ## Why this exists
  *
- * Z2's TOKENS / CONTEXT / MODEL readouts must reconstruct from the session
+ * Z2's CONTEXT / MODEL readouts must reconstruct from the session
  * JSONL on a cold replay, independent of any durable side-table (which is
  * empty on a fresh target — see the per-instance-DB finding). The genuine
  * failure surface lives in the *delivery chain*: tugcode
@@ -24,7 +24,7 @@
  * This first case is the **cost-only smoke** — the already-correct path
  * (Steps 1–2 land per-turn cost on `turn_complete.telemetry.cost`). It proves
  * the vehicle itself works through the real chain: a fresh card, no synthetic
- * binding, no injected frame → non-zero TOKENS and non-zero CONTEXT-used from
+ * binding, no injected frame → a non-zero CONTEXT-used from
  * the fixture's `message.usage`. The model/CONTEXT-max + compaction-reset
  * assertions ride this same vehicle in later steps.
  *
@@ -74,8 +74,7 @@ const encodeProjectDir = (absDir: string): string =>
 
 // The cost-only smoke fixture: two clean turns, each carrying `message.usage`
 // and a real `message.model`. The last turn's resident window is
-// 1500 + 80 + 12000 + 200 = 13_780 (CONTEXT-used); the cumulative token sum
-// across both turns is 9_350 + 13_780 = 23_130 (TOKENS). Both non-zero.
+// 1500 + 80 + 12000 + 200 = 13_780 (CONTEXT-used) — non-zero.
 //
 // The lines carry claude's own session-JSONL fields (`uuid` / `parentUuid`
 // chain, `sessionId`, `cwd`, `version`, `gitBranch`, …) — not just the subset
@@ -211,15 +210,14 @@ describe.skipIf(!SHOULD_RUN)(
   "AT0192: Z2 reconstructs from a real cold replay (cost-only smoke)",
   () => {
     test(
-      "real spawn_session(resume) replays the fixture JSONL → non-zero TOKENS + CONTEXT-used",
+      "real spawn_session(resume) replays the fixture JSONL → non-zero CONTEXT-used and the shipped Z2 lineup",
       async () => {
         const app = await launchTugApp({ testName: "at0192-z2-cold-replay" });
 
         // Status-row cell readers. The cells are `TugStatusCell`s keyed by
         // `data-priority`; the CONTEXT value splits into a numerator
         // (resident window = used) and a denominator (`/ <max>` from the
-        // resolved model). TOKENS shows the last committed turn's signed
-        // per-turn window delta.
+        // resolved model).
         const CTX_USED_JS = `(() => {
           const el = document.querySelector('[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="context"] .session-telemetry-status-context-numerator');
           return el ? (el.textContent || '').trim() : '';
@@ -228,9 +226,16 @@ describe.skipIf(!SHOULD_RUN)(
           const el = document.querySelector('[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="context"] .session-telemetry-status-context-denominator');
           return el ? (el.textContent || '').trim() : '';
         })()`;
-        const TOKENS_JS = `(() => {
-          const el = document.querySelector('[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="tokens"] .session-telemetry-status-value');
-          return el ? (el.textContent || '').trim() : '';
+        // The row's shipped lineup, in DOM order, alongside whether each
+        // cell is actually laid out. A cell hidden by a `@container`
+        // collapse rung has no `offsetParent`, so a rung that fires at a
+        // width meant to show everything is caught here rather than by eye.
+        const LINEUP_JS = `(() => {
+          const cells = document.querySelectorAll('[data-card-id="A"] [data-slot="tug-status-cell"]');
+          return Array.from(cells).map((el) => ({
+            priority: el.getAttribute('data-priority'),
+            shown: el.offsetParent !== null,
+          }));
         })()`;
         // The AI chip's ACTIVE composite value (the visible variant; alternates
         // are aria-hidden width sizers), split into its `model · effort · mode`
@@ -268,7 +273,6 @@ describe.skipIf(!SHOULD_RUN)(
 
           const ctxUsed = await app.evalJS<string>(CTX_USED_JS);
           const ctxMax = await app.evalJS<string>(CTX_MAX_JS);
-          const tokensText = await app.evalJS<string>(TOKENS_JS);
 
           // CONTEXT-used = window(last) of the replayed usage — non-zero, not
           // the "0" empty-resident reading. This is the primary proof the
@@ -276,9 +280,20 @@ describe.skipIf(!SHOULD_RUN)(
           expect(ctxUsed).not.toBe("");
           expect(/[1-9]/.test(ctxUsed)).toBe(true);
 
-          // TOKENS = the last committed turn's per-turn window delta — also
-          // reconstructed from the replayed cost, so non-zero here.
-          expect(/[1-9]/.test(tokensText)).toBe(true);
+          // The shipped lineup: five cells, left to right, all laid out.
+          // The retired TOKENS cell and the merged WORK cell are gone;
+          // TASKS and JOBS stand in their place.
+          const lineup = await app.evalJS<
+            Array<{ priority: string; shown: boolean }>
+          >(LINEUP_JS);
+          expect(lineup.map((c) => c.priority)).toEqual([
+            "state",
+            "time",
+            "context",
+            "tasks",
+            "jobs",
+          ]);
+          expect(lineup.every((c) => c.shown)).toBe(true);
 
           // Active-model delivery (#step-7): the replayed `claude-opus-5`
           // reaches the metadata store through the SESSION_SIDEBAND feed and
@@ -312,7 +327,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(aiTokens.length, "model · mode, with no effort token").toBe(2);
 
           process.stdout.write(
-            `[at0192] CONTEXT ${ctxUsed} ${ctxMax} · TOKENS ${tokensText} · AI ${aiTokens.join(" · ")}\n`,
+            `[at0192] CONTEXT ${ctxUsed} ${ctxMax} · CELLS ${lineup.map((c) => c.priority).join("/")} · AI ${aiTokens.join(" · ")}\n`,
           );
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {
@@ -337,7 +352,8 @@ describe.skipIf(!SHOULD_RUN)(
               spawnError: q('[data-testid="session-card-spawn-error-retry"]'),
               ctxUsed: txt('[data-priority="context"] .session-telemetry-status-context-numerator'),
               ctxMax: txt('[data-priority="context"] .session-telemetry-status-context-denominator'),
-              tokens: txt('[data-priority="tokens"] .session-telemetry-status-value'),
+              tasks: txt('[data-priority="tasks"] .tug-progress-indicator-label-active'),
+              jobs: txt('[data-priority="jobs"] .tug-progress-indicator-label-active'),
               ai: txt('[data-slot="ai-chip-value"]'),
               cardHtmlHead: card ? (card.outerHTML || '').slice(0, 1200) : null,
             };

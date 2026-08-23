@@ -158,26 +158,6 @@ export function computeTimeSummary(
 }
 
 /**
- * Per-turn token summary for the `Tokens` status-area popover.
- *
- * `perTurn` is each committed turn's SIGNED window delta — `window(N)
- * - window(N-1)` from the transcript window-walk, the same figure Z1B
- * shows. `totalTokens` is their sum, which telescopes to `window(latest)
- * - sessionInit` — the conversation's message tokens. NOT a sum of raw
- * `TurnCost` fields: summing `cache_read` across turns re-counts the
- * resident context once per turn, a meaningless inflated number.
- */
-export interface TurnTokensSummary {
-  count: number;
-  /** Each committed turn's signed `perTurn` delta, transcript order. */
-  perTurn: ReadonlyArray<number>;
-  /** Sum of `perTurn` = `window(latest) - sessionInit`. */
-  totalTokens: number;
-  /** Arithmetic mean of `perTurn`, rounded; `0` for an empty transcript. */
-  avgTokensPerTurn: number;
-}
-
-/**
  * Categorical tone for {@link computeRichContextBreakdown} segments.
  * Structurally compatible with `TugArcGaugeSegmentTone` (the gauge
  * primitive's segments-mode tone enum) — the popover hands a
@@ -441,41 +421,6 @@ export function computeRichContextBreakdown(
   });
 
   return { segments, totalUsed, contextMax: safeContextMax };
-}
-
-/**
- * Compute the `Tokens` popover's summary block from the committed
- * transcript.
- *
- * Each turn's figure is its signed `perTurn` window delta (the
- * transcript window-walk, `deriveContextWindows`) — the same number
- * Z1B shows, never a sum of raw `TurnCost`. `totalTokens` telescopes
- * to `window(latest) - sessionInit` (the conversation's messages).
- *
- * Same in-flight contract as {@link computeTimeSummary}: the row log
- * and this summary cover committed turns only; the renderer adds the
- * live in-flight contribution to the footer separately.
- */
-export function computeTokensSummary(
-  transcript: ReadonlyArray<TurnEntry>,
-  sessionInitTokens: number | null,
-): TurnTokensSummary {
-  const steps = deriveContextWindows(
-    transcript.map((t) => t.cost),
-    sessionInitTokens ?? 0,
-    transcript.map((t) => t.compactionPostTotal ?? null),
-  );
-  const perTurn = steps.map((s) => s.perTurn);
-  const totalTokens = perTurn.reduce((acc, v) => acc + v, 0);
-  return {
-    count: transcript.length,
-    perTurn,
-    totalTokens,
-    avgTokensPerTurn:
-      transcript.length === 0
-        ? 0
-        : Math.round(totalTokens / transcript.length),
-  };
 }
 
 /**
