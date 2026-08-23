@@ -174,7 +174,7 @@ const placeMark = (key: string): string =>
 /** Which slots the drawing currently marks, low to high. */
 function markedSlots(app: App): Promise<number[]> {
   return app.evalJS<number[]>(
-    `Array.from(document.querySelectorAll('.layout-places-mark[data-place^="col-"]'))
+    `Array.from(document.querySelectorAll('[data-testid="lens-layouts-places"] .layout-places-mark[data-place^="col-"]'))
       .map(function (el) {
         return parseInt(el.getAttribute("data-place").replace("col-", ""), 10);
       })
@@ -576,7 +576,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         ).toEqual([0, 1]);
         const survivor = await app.evalJS<{ mode: string | null; dim: boolean }>(
           `(function () {
-            var el = document.querySelector('.layout-places-mark[data-place="col-0"]');
+            var el = document.querySelector('[data-testid="lens-layouts-places"] .layout-places-mark[data-place="col-0"]');
             return el === null
               ? { mode: null, dim: false }
               : { mode: el.getAttribute("data-mode"), dim: el.hasAttribute("data-dim") };

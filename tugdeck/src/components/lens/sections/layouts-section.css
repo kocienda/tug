@@ -39,8 +39,9 @@
 
      Sized so a six-up arrangement's blocks still read as separate cards — the
      drawing's densest case — and so a place's mark has a pressable target at
-     the foot of a block rather than a speck. */
-  --tugx-layouts-plan-mini-width: 260px;
+     the foot of a block rather than a speck. 300 fits the Lens at its
+     `MIN_LENS_WIDTH_PX` floor (320) inside this section's own padding. */
+  --tugx-layouts-plan-mini-width: 300px;
 }
 
 .layouts-plan {
@@ -60,6 +61,10 @@
   flex-direction: column;
   align-items: center;
   gap: var(--tug-space-lg);
+  /* Each layer is the containing block for its own ghost marks — the inert
+     copy of the places overlay drawn at THIS layer's geometry, which shows
+     and hides with the layer for free. */
+  position: relative;
 }
 
 /* Caption and note, as one block — the AI mixer's readout-over-scope-line,
@@ -141,9 +146,11 @@
    each caption sits against the control it names rather than across the section
    from it.
 
-   Three rows, and the count no longer moves: the per-place rows that used to
-   grow and shrink with the deck are marks on the drawing now, so the section's
-   height is a constant and nothing below it jumps as cards move. */
+   The deck-wide rows plus one per registered sidebar card, and the count no
+   longer moves at runtime: the per-place rows that used to grow and shrink
+   with the deck are marks on the drawing now, and the registry is fixed at
+   boot — so the section's height is a constant and nothing below it jumps as
+   cards move. */
 .layouts-section-rows {
   display: grid;
   grid-template-columns: max-content max-content;

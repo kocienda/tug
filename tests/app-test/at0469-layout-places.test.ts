@@ -274,12 +274,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
 
         // ── The rail is a place too, wearing the same vocabulary. ──
         //
-        // A side's membership is REGISTRATION-derived, not a live read of what
-        // is standing (`railsOf` in `layouts-section.tsx`), so the count here is
-        // however many sidebar cards resolve to this edge whether or not they
-        // are open — the same count the drawing above it uses. The mark's
-        // weight follows that count, so it is read from the drawing rather than
-        // predicted.
+        // A side's membership is a live read of what is standing: `railsFor`
+        // in `layouts-section.tsx` counts the OPEN sidebar cards, so a card
+        // that is registered but hidden is not drawn and not counted — the
+        // same count the drawing above it uses. The mark's weight follows
+        // that count, so it is read from the drawing rather than predicted.
         const railMembers = await app.evalJS<number>(
           `document.querySelectorAll('.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-rail .layout-mini-rail-member').length`,
         );
@@ -290,12 +289,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "the rail's mark dims exactly when the side holds one card",
         ).toBe(railMembers < 2);
 
-        // ── Three rows, and the count does not move. ──
+        // ── The rows are fixed, and the count does not move. ──
         //
-        // The per-place rows are gone: the section asks the three deck-wide
-        // questions in words and every per-place question on the drawing. What
-        // this pins is not tidiness but a height — a section whose row count
-        // tracked the deck made everything below it jump as cards moved.
+        // The per-place rows are gone: the section asks the deck-wide
+        // questions in words — plus one boot-fixed row per registered sidebar
+        // card — and every per-place question on the drawing. What this pins
+        // is not tidiness but a height: a section whose row count tracked the
+        // deck made everything below it jump as cards moved.
         const rows = await app.evalJS<string[]>(
           `Array.prototype.map.call(
             document.querySelectorAll('[data-testid="lens-layouts-section"] [data-slot="tug-choice-group"]'),
@@ -303,11 +303,27 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           )`,
         );
         note(`rows: ${rows.join(", ")}`);
-        expect(rows, "three deck-wide rows, and only three").toEqual([
+        expect(
+          rows.slice(0, 3),
+          "the three deck-wide rows lead, in a fixed order",
+        ).toEqual([
           "lens-layouts-kind",
           "lens-layouts-layout",
           "lens-layouts-width",
         ]);
+        // Under them, one row per REGISTERED sidebar card — the show/hide +
+        // side question the picture cannot ask, because a hidden card is
+        // exactly what the picture does not draw. The registry is a boot
+        // step, so this count is fixed too.
+        const sidebarRows = rows.slice(3);
+        expect(
+          sidebarRows.length,
+          "every remaining row is a sidebar card's",
+        ).toBeGreaterThanOrEqual(1);
+        for (const id of sidebarRows) {
+          expect(id).toMatch(/^lens-layouts-sidebar-/);
+        }
+        expect(sidebarRows).toContain("lens-layouts-sidebar-lens");
         const retired = await app.evalJS<number>(
           `document.querySelectorAll(
             '[data-testid^="lens-layouts-side-"], [data-testid^="lens-layouts-rail-"], [data-testid^="lens-layouts-column-"]'
@@ -667,6 +683,220 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
             `(${committedKey} → ${proposed})`,
         ).toBe(proposed);
         note(`Space committed ${committedKey} = ${proposed}`);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a sidebar row shows, moves, and hides the real card",
+    async () => {
+      const app = await launchTugApp();
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+        );
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('[data-testid="lens-layouts-sidebar-jots"]') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        const activeOf = (id: string): Promise<string | null> =>
+          app.evalJS<string | null>(
+            `(function () {
+              var el = document.querySelector('[data-testid="${id}"] [data-choice-value][data-state="active"]');
+              return el === null ? null : el.getAttribute("data-choice-value");
+            })()`,
+          );
+
+        // ── The rows read what stands: the Lens open on the right, Jots off. ──
+        expect(
+          await activeOf("lens-layouts-sidebar-lens"),
+          "the Lens's row reads the side it holds",
+        ).toBe("right");
+        expect(
+          await activeOf("lens-layouts-sidebar-jots"),
+          "a hidden card's row reads Off",
+        ).toBe("off");
+
+        // ── And the drawing draws what stands: no mark for a hidden card. ──
+        //
+        // Membership is a live read of the OPEN cards. A registered-but-hidden
+        // Jots is not on the deck, so it is neither drawn nor marked — the row
+        // above is its one door.
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector('${mark("side-jots")}') !== null`,
+          ),
+          "a hidden card has no member arrow on the drawing",
+        ).toBe(false);
+
+        // ── Pressing a side on a hidden card's row shows it THERE. ──
+        await app.click(
+          `[data-testid="lens-layouts-sidebar-jots"] [data-choice-value="left"]`,
+        );
+        await wait(AFTER_LAND_MS);
+        expect(
+          await activeOf("lens-layouts-sidebar-jots"),
+          "the row now reads the side it was shown on",
+        ).toBe("left");
+        const jotsLeft = await app.evalJS<number>(
+          `document.querySelectorAll('.tug-pane[data-lens="left"]').length`,
+        );
+        expect(jotsLeft, "the real Jots card stands on the left edge").toBe(1);
+        // The drawing follows: a left rail, a member arrow, and a rail mark.
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${mark("side-jots")}') !== null`,
+          { timeoutMs: 4_000 },
+        );
+        const railMarksNow = await app.evalJS<string[]>(
+          `Array.prototype.map.call(
+            document.querySelectorAll('${PLACES} .layout-places-mark[data-place^="rail-"]'),
+            function (el) { return el.getAttribute("data-place"); }
+          ).sort()`,
+        );
+        expect(
+          railMarksNow,
+          "both edges now carry a rail, and both are marked",
+        ).toEqual(["rail-left", "rail-right"]);
+
+        // ── Off hides it again, and everything retracts together. ──
+        await app.click(
+          `[data-testid="lens-layouts-sidebar-jots"] [data-choice-value="off"]`,
+        );
+        await wait(AFTER_LAND_MS);
+        expect(await activeOf("lens-layouts-sidebar-jots")).toBe("off");
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll('.tug-pane[data-lens="left"]').length`,
+          ),
+          "the real card left the deck",
+        ).toBe(0);
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector('${mark("side-jots")}') !== null`,
+          ),
+          "and its member arrow left the drawing",
+        ).toBe(false);
+        note("jots: off → left → off, with the deck and the drawing in step");
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a preview carries the marks with it",
+    async () => {
+      const app = await launchTugApp();
+      try {
+        await app.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.tugtool.lens", "widthPx", { kind: "i64", value: ${LENS_WIDTH} }), null)`,
+        );
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `document.querySelector('${PLACES}') !== null`,
+          { timeoutMs: 8_000 },
+        );
+        await wait(AFTER_LAND_MS);
+
+        // ── Hovering a mark: the ghost states the PROPOSED arrangement. ──
+        await hover(app, mark("col-0"));
+        await wait(300);
+        const ghostFacts = await app.evalJS<{
+          previewing: boolean;
+          ghostMode: string | null;
+          ghostSubject: boolean;
+          liveOpacity: string;
+        } | null>(
+          `(function () {
+            var plan = document.querySelector('[data-testid="lens-layouts-plan"]');
+            var layer = document.querySelector('.layouts-plan-layer[data-plan-active]');
+            if (plan === null || layer === null) return null;
+            var ghostMark = layer.querySelector('[data-testid="lens-layouts-places-ghost"] .layout-places-mark[data-place="col-0"]');
+            var live = document.querySelector('${PLACES} .layout-places-mark[data-place="col-1"]');
+            return {
+              previewing: plan.hasAttribute("data-previewing"),
+              ghostMode: ghostMark === null ? null : ghostMark.getAttribute("data-mode"),
+              ghostSubject: ghostMark !== null && ghostMark.hasAttribute("data-subject"),
+              liveOpacity: live === null ? "" : getComputedStyle(live).opacity,
+            };
+          })()`,
+        );
+        expect(ghostFacts, "an active layer is showing").not.toBeNull();
+        expect(
+          ghostFacts!.ghostMode,
+          "the ghost's mark wears the PROPOSED mode — the one the press would set",
+        ).toBe("split");
+        expect(
+          ghostFacts!.ghostSubject,
+          "and it is the subject: the one place this preview is about",
+        ).toBe(true);
+        // The live overlay steps back while the ghost speaks — otherwise two
+        // mark sets overlap, one of them at the wrong geometry.
+        expect(
+          Number(ghostFacts!.liveOpacity),
+          "the live marks step back while a preview shows",
+        ).toBe(0);
+        note(
+          `hover col-0: ghost says split (subject), live marks at opacity ${ghostFacts!.liveOpacity}`,
+        );
+
+        // ── Hovering a deck-wide row: the ghost's marks land on the layer's
+        //    own blocks, not the committed ones. ──
+        await hover(
+          app,
+          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
+        );
+        await wait(300);
+        const carried = await app.evalJS<{
+          layerId: string | null;
+          inside: boolean;
+        }>(
+          `(function () {
+            var layer = document.querySelector('.layouts-plan-layer[data-plan-active]');
+            if (layer === null) return { layerId: null, inside: false };
+            var block = layer.querySelectorAll(".layout-mini-field .layout-mini-block")[0];
+            var ghostMark = layer.querySelector('[data-testid="lens-layouts-places-ghost"] .layout-places-mark[data-place="col-0"]');
+            if (!block || ghostMark === null) return { layerId: layer.getAttribute("data-plan-preview-id"), inside: false };
+            var b = block.getBoundingClientRect();
+            var m = ghostMark.getBoundingClientRect();
+            var c = (m.left + m.right) / 2;
+            return {
+              layerId: layer.getAttribute("data-plan-preview-id"),
+              inside: c >= b.left && c <= b.right && m.bottom <= b.bottom + 2,
+            };
+          })()`,
+        );
+        expect(carried.layerId).toBe("width:wide");
+        expect(
+          carried.inside,
+          "the ghost's mark stands inside the PREVIEWED drawing's block",
+        ).toBe(true);
+
+        // ── Clearing the hover brings the live marks back. ──
+        await hover(app, ".layouts-figure");
+        await wait(300);
+        const after = await app.evalJS<{ previewing: boolean; liveOpacity: string }>(
+          `(function () {
+            var plan = document.querySelector('[data-testid="lens-layouts-plan"]');
+            var live = document.querySelector('${PLACES} .layout-places-mark[data-place="col-0"]');
+            return {
+              previewing: plan !== null && plan.hasAttribute("data-previewing"),
+              liveOpacity: live === null ? "" : getComputedStyle(live).opacity,
+            };
+          })()`,
+        );
+        expect(after.previewing, "the preview cleared").toBe(false);
+        expect(
+          Number(after.liveOpacity),
+          "and the live marks stand again",
+        ).toBe(1);
       } finally {
         await app.close();
       }

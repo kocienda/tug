@@ -981,11 +981,11 @@ describe.skipIf(!SHOULD_RUN)(
             // drawing is not there either.
             await app.dispatchControlAction("focus-lens");
             await app.waitForCondition<boolean>(
-              `document.querySelector('.layout-places-mark[data-place^="rail-"]') !== null`,
+              `document.querySelector('[data-testid="lens-layouts-places"] .layout-places-mark[data-place^="rail-"]') !== null`,
               { timeoutMs: 5_000 },
             );
             const railMarks = await app.evalJS<string[]>(
-              `Array.from(document.querySelectorAll('.layout-places-mark[data-place^="rail-"]'))
+              `Array.from(document.querySelectorAll('[data-testid="lens-layouts-places"] .layout-places-mark[data-place^="rail-"]'))
                 .map(function (el) { return el.getAttribute("data-place"); })
                 .sort()`,
             );
@@ -997,7 +997,7 @@ describe.skipIf(!SHOULD_RUN)(
             // test has just spent its length driving.
             expect(
               await app.getElementAttribute(
-                '.layout-places-mark[data-place="rail-right"]',
+                '[data-testid="lens-layouts-places"] .layout-places-mark[data-place="rail-right"]',
                 "data-mode",
               ),
               "the mark says what the right rail is set to",

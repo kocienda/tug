@@ -7,7 +7,7 @@
  * "Column 3" to the third block in the picture on every read, and the row count
  * grew with the deck. This is the other half of that trade: the picture states
  * every per-place fact and takes every per-place gesture, and the rows below it
- * keep only the three questions that are about the deck as a whole.
+ * keep the questions that are about the deck as a whole.
  *
  * **A place wears what it is SET to, not what it is showing.** A slot's glyph
  * reads `columnModeOf` and a side's reads `railModeOf` — the stored
@@ -21,6 +21,12 @@
  * its glyph, dimmed to say there is nothing to arrange right now, and stays
  * pressable so the arrangement can be put back.
  *
+ * **A mark's words state what is, then what the press does.** The glyph names
+ * the stored arrangement to the eye; the tooltip names it in words and then
+ * says what clicking changes — because a control whose label only names its
+ * consequence leaves the reader to infer the present, and the present is the
+ * harder half to read off a ten-pixel glyph.
+ *
  * **The geometry is not this component's opinion.** It replicates the drawing's
  * own flex row — the same padding, the same gap, the same rail flex-basis — and
  * places its parts from `miniatureGeometry`, the arithmetic the drawing itself
@@ -32,6 +38,15 @@
  * instant its own hover raised a preview, un-hover itself, come back, and
  * oscillate. Anchored to the plan's box it stays under the pointer while the
  * drawing beneath it auditions the change.
+ *
+ * **Ghost mode is the preview's copy of this readout.** A preview layer passes
+ * `ghost`, and the overlay renders the same marks with no buttons, no focus
+ * stop, and no pointer: it shows where the marks WOULD stand and what each
+ * place WOULD be set to under that layer's arrangement, and `ghost.subject`
+ * names the one place the preview is about so it can carry the accent. The
+ * ghost takes no events at all — the live overlay beneath keeps the hover that
+ * raised the preview, which is what stops the show/hide oscillation a hoverable
+ * ghost would reintroduce.
  *
  * Presentational: props in, CSS out, no store reads and no state ([L06]). The
  * section resolves every fact from its own subscription and hands them down.
@@ -139,11 +154,24 @@ export interface LayoutPlacesProps {
   focusGroup?: string;
   /** Order within {@link focusGroup} — the picture's place in the walk. */
   focusOrder?: number;
+  /**
+   * Render as a preview layer's inert readout instead of the live instrument:
+   * plain glyphs, no buttons, no focus stop, no pointer. `subject` is the key
+   * of the one place this preview proposes to change (`col-2`, `rail-left`,
+   * `side-<componentId>`), which the ghost accents; `null` for a deck-wide
+   * preview that changes no single place.
+   */
+  ghost?: { subject: string | null };
 }
 
 /** The other of the two edges — where pressing this member would send it. */
 function otherSide(side: SidebarSide): SidebarSide {
   return side === "left" ? "right" : "left";
+}
+
+/** A member's whole story: where the card is, then what the press does. */
+function describeMember(member: LayoutRailMember): string {
+  return `${member.title} is on the ${member.side} edge — click to move it to the ${otherSide(member.side)}`;
 }
 
 /**
@@ -155,38 +183,50 @@ function otherSide(side: SidebarSide): SidebarSide {
  */
 function RailMembers({
   members,
+  ghost,
 }: {
   members: readonly LayoutRailMember[];
+  ghost?: { subject: string | null };
 }): React.ReactElement | null {
   if (members.length === 0) return null;
   return (
     <span className="layout-places-rail-members">
       {members.map((member) => {
         const destination = otherSide(member.side);
+        const placeKey = `side-${member.componentId}`;
         return (
           <span
             key={member.componentId}
             className="layout-places-rail-member"
-            data-place={`side-${member.componentId}`}
+            data-place={placeKey}
             data-preview-axis={member.previewAxis}
+            data-subject={
+              ghost !== undefined && ghost.subject === placeKey ? "" : undefined
+            }
           >
-            <TugIconButton
-              icon={<ArrowLeftRight />}
-              aria-label={`${member.title} — move to the ${destination} edge`}
-              title={`${member.title} — move to the ${destination} edge`}
-              size="2xs"
-              emphasis="ghost"
-              senderId={member.senderId}
-              dispatch={{
-                action: TUG_ACTIONS.SELECT_VALUE,
-                sender: member.senderId,
-                value: destination,
-                phase: "discrete",
-              }}
-              data-testid={`lens-layouts-place-side-${member.componentId}`}
-              data-choice-value={destination}
-              data-sender={member.senderId}
-            />
+            {ghost !== undefined ? (
+              <span className="layout-places-ghost-glyph" aria-hidden="true">
+                <ArrowLeftRight />
+              </span>
+            ) : (
+              <TugIconButton
+                icon={<ArrowLeftRight />}
+                aria-label={describeMember(member)}
+                title={describeMember(member)}
+                size="xs"
+                emphasis="ghost"
+                senderId={member.senderId}
+                dispatch={{
+                  action: TUG_ACTIONS.SELECT_VALUE,
+                  sender: member.senderId,
+                  value: destination,
+                  phase: "discrete",
+                }}
+                data-testid={`lens-layouts-place-side-${member.componentId}`}
+                data-choice-value={destination}
+                data-sender={member.senderId}
+              />
+            )}
           </span>
         );
       })}
@@ -203,6 +243,19 @@ function PlaceGlyph({ mode }: { mode: ColumnMode | RailMode }): React.ReactEleme
 /** The other of the two arrangements — what pressing this mark would set. */
 function otherMode(mode: ColumnMode | RailMode): ColumnMode | RailMode {
   return mode === "split" ? "stack" : "split";
+}
+
+/**
+ * A place's whole story, for its tooltip: what it is set to now, whether
+ * anything stands under that arrangement yet, then what the press does. The
+ * one-card clause is what keeps a dimmed mark honest — the arrangement is
+ * real, and the same sentence says why the picture is not showing it.
+ */
+function describePlace(place: LayoutPlace): string {
+  const now = place.mode === "split" ? "split" : "stacked";
+  const alone = place.members > 1 ? "" : " (one card here)";
+  const does = place.mode === "split" ? "stack" : "split";
+  return `${place.label} is ${now}${alone} — click to ${does}`;
 }
 
 /**
@@ -224,10 +277,12 @@ function otherMode(mode: ColumnMode | RailMode): ColumnMode | RailMode {
 function PlaceMark({
   place,
   senderId,
+  ghost,
 }: {
   place: LayoutPlace;
   /** The sender the section's responder routes this place by. */
   senderId: string;
+  ghost?: { subject: string | null };
 }): React.ReactElement {
   const proposed = otherMode(place.mode);
   return (
@@ -241,24 +296,33 @@ function PlaceMark({
       // back.
       data-dim={place.members > 1 ? undefined : ""}
       data-preview-axis={place.previewAxis}
+      data-subject={
+        ghost !== undefined && ghost.subject === place.key ? "" : undefined
+      }
     >
-      <TugIconButton
-        icon={<PlaceGlyph mode={place.mode} />}
-        aria-label={`${place.label} — ${proposed}`}
-        title={`${place.label} — ${proposed}`}
-        size="2xs"
-        emphasis="ghost"
-        senderId={senderId}
-        dispatch={{
-          action: TUG_ACTIONS.SELECT_VALUE,
-          sender: senderId,
-          value: proposed,
-          phase: "discrete",
-        }}
-        data-testid={`lens-layouts-place-${place.key}`}
-        data-choice-value={proposed}
-        data-sender={senderId}
-      />
+      {ghost !== undefined ? (
+        <span className="layout-places-ghost-glyph" aria-hidden="true">
+          <PlaceGlyph mode={place.mode} />
+        </span>
+      ) : (
+        <TugIconButton
+          icon={<PlaceGlyph mode={place.mode} />}
+          aria-label={describePlace(place)}
+          title={describePlace(place)}
+          size="xs"
+          emphasis="ghost"
+          senderId={senderId}
+          dispatch={{
+            action: TUG_ACTIONS.SELECT_VALUE,
+            sender: senderId,
+            value: proposed,
+            phase: "discrete",
+          }}
+          data-testid={`lens-layouts-place-${place.key}`}
+          data-choice-value={proposed}
+          data-sender={senderId}
+        />
+      )}
     </span>
   );
 }
@@ -277,6 +341,7 @@ export function LayoutPlaces({
   railMembers,
   focusGroup,
   focusOrder = 0,
+  ghost,
 }: LayoutPlacesProps): React.ReactElement {
   const geometry = miniatureGeometry({ kind, rails, width, layout, flow });
 
@@ -290,6 +355,8 @@ export function LayoutPlaces({
   // arrangement NOT in force, an arrow that lands on one raises that
   // arrangement's preview through the section's existing switch, so the
   // keyboard auditions exactly the way the pointer does.
+  //
+  // A ghost registers nothing: it is a drawing of marks, not marks.
   const rootId = useId();
   const rootRef = useRef<HTMLSpanElement | null>(null);
   const { dispatch } = useControlDispatch();
@@ -332,7 +399,7 @@ export function LayoutPlaces({
     id: rootId,
     group: focusGroup ?? "",
     order: focusOrder,
-    register: focusGroup !== undefined,
+    register: ghost === undefined && focusGroup !== undefined,
     collectItems: affordances,
     initialIndex: () => 0,
     onSelect: (element) => commitAt(element),
@@ -370,19 +437,24 @@ export function LayoutPlaces({
       >
         <RailMembers
           members={railMembers.filter((member) => member.side === side)}
+          ghost={ghost}
         />
-        <PlaceMark place={place} senderId={place.senderId} />
+        <PlaceMark place={place} senderId={place.senderId} ghost={ghost} />
       </span>
     );
   };
 
   return (
     <span
-      className="layout-places"
-      data-testid="lens-layouts-places"
-      ref={setRootRef}
-      tabIndex={focusGroup !== undefined ? 0 : undefined}
-      onKeyDown={onKeyDown}
+      className={
+        ghost !== undefined ? "layout-places layout-places-ghost" : "layout-places"
+      }
+      data-testid={
+        ghost !== undefined ? "lens-layouts-places-ghost" : "lens-layouts-places"
+      }
+      ref={ghost !== undefined ? undefined : setRootRef}
+      tabIndex={ghost === undefined && focusGroup !== undefined ? 0 : undefined}
+      onKeyDown={ghost !== undefined ? undefined : onKeyDown}
     >
       {rail("left")}
       <span className="layout-places-field">
@@ -398,7 +470,7 @@ export function LayoutPlaces({
                 width: `${block.widthPct}%`,
               }}
             >
-              <PlaceMark place={place} senderId={place.senderId} />
+              <PlaceMark place={place} senderId={place.senderId} ghost={ghost} />
             </span>
           );
         })}

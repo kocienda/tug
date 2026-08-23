@@ -374,9 +374,11 @@ export function miniatureGeometry({
   // off the edge and the deck scrolls). When it is longer the WHOLE strip is
   // scaled into the frame and a window marks the part that is on screen.
   //
-  // Live, the blocks are the OCCUPIED slots, in strip order. An empty slot
-  // contributes nothing to a real strip — not even a gap — so drawing one would
-  // be drawing a place the deck does not hold.
+  // Live, the blocks are the deck's own extents, in strip order — one per
+  // slot the kind defines, because every slot holds its place in the strip
+  // (an empty one carries the placeholder width the real strip gives it).
+  // The drawing does not decide this; `deckFlowStrip` is the one resolution
+  // ([P09]) and what it says is what is drawn.
   const flowLive =
     layout === "flow" &&
     kind !== null &&

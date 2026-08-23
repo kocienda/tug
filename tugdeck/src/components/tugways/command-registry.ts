@@ -1627,6 +1627,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its door is the Lens Layouts section's per-card row: Off hides the
+    // card, a side segment shows a hidden one. The componentId set is the
+    // registry's, so the payload set is runtime.
+    id: TUG_ACTIONS.SET_SIDEBAR_OPEN,
+    title: "Set Sidebar Open",
+    routing: "registry",
+    internal: true,
+  },
+  {
     // Its doors are the title bar's stack badge menu and the Lens Layouts
     // section's per-side rail row; the side set is the deck's, so the payload
     // set is runtime.

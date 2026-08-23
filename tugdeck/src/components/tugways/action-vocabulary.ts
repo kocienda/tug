@@ -902,6 +902,14 @@ export const TUG_ACTIONS = {
   //                   group, which draws one control per registered sidebar
   //                   card.
   SET_SIDEBAR_SIDE:       "set-sidebar-side",
+  // SET_SIDEBAR_OPEN: payload — `{ componentId, open }`. Show or hide a
+  //                   sidebar card outright, with no activation dance: the
+  //                   three-state View-menu toggles (TOGGLE_LENS et al.) are a
+  //                   summons, this is a placement fact. Its door is the Lens
+  //                   Layouts section's per-card row, whose Off segment is the
+  //                   hide and whose side segments show a hidden card where
+  //                   they say.
+  SET_SIDEBAR_OPEN:       "set-sidebar-open",
   // SET_RAIL_MODE: payload — `{ side, mode }`. Stack or split one side's rail:
   //                stacked, its sidebar cards stand front-to-back and z-order
   //                decides which you see; split, the side's run is divided

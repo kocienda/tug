@@ -674,6 +674,28 @@ export function initActionDispatch(
     deckManager.setSidebarSide(componentId, side);
   });
 
+  // set-sidebar-open: show or hide a sidebar card outright. Dispatched by the
+  // Lens Layouts section's per-card row. Deliberately NOT the three-state
+  // toggle: that one is a summons and moves the keyboard; this one states
+  // where things stand, and a settings row that stole focus on every press
+  // would make the section unusable from the keyboard.
+  registerAction(TUG_ACTIONS.SET_SIDEBAR_OPEN, (payload) => {
+    const componentId = payload.componentId;
+    const open = payload.open;
+    if (typeof componentId !== "string" || typeof open !== "boolean") {
+      console.warn(
+        "set-sidebar-open: missing or invalid componentId/open",
+        payload,
+      );
+      return;
+    }
+    if (open) {
+      deckManager.showSidebarPane(componentId);
+    } else {
+      deckManager.hideSidebarPane(componentId);
+    }
+  });
+
   // set-rail-mode: stack or split one side's rail. Dispatched by the title
   // bar's stack badge menu and by the Lens Layouts section's per-side rail row.
   // A side is a stack or a split — all of its visible members participate,

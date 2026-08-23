@@ -218,7 +218,11 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
             .map((b) => b.toFixed(2))
             .join(", ")}`,
         );
-        expect(committed.blocks.length).toBe(widths.length);
+        // Every slot of the kind holds its place in the strip, occupied or
+        // not — the sixth block here is six-up's empty slot, drawn as the
+        // placeholder the real strip carries for it. The occupied blocks are
+        // the first five, in slot order, and their proportions are the claim.
+        expect(committed.blocks.length).toBe(6);
         for (let i = 1; i < widths.length; i += 1) {
           expect(
             committed.blocks[i] / committed.blocks[0],

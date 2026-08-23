@@ -4,12 +4,17 @@
  * Every layout decision the deck has is made here, and the section asks them in
  * the two kinds they actually come in.
  *
- * **Deck-wide questions are rows.** Three of them, and only three: **Cards**
- * says how many the arrangement holds; **Layout** says how a slot resolves into
- * a place — `Fit`, where the cards share the band and crowd when it is narrow,
- * or `Flow`, where they keep their width and the deck runs past the edge; and
- * **Card Width** says how wide they read. They are enumerable and they are
- * about the whole deck, which is what the segmented-row idiom is good at.
+ * **Deck-wide questions are rows.** **Cards** says how many the arrangement
+ * holds; **Layout** says how a slot resolves into a place — `Fit`, where the
+ * cards share the band and crowd when it is narrow, or `Flow`, where they keep
+ * their width and the deck runs past the edge; and **Card Width** says how
+ * wide they read. Under them, one row per REGISTERED sidebar card answers the
+ * one question the picture cannot: `Off · Left · Right` — whether the card is
+ * on the deck at all, and where. It cannot live on the drawing because the
+ * drawing draws what is on screen, and a hidden card is exactly what is not;
+ * its row is the one door that shows it. These row counts are fixed at boot
+ * (the axes are enumerable, the registry is a boot step), so the section's
+ * height never moves as cards do.
  *
  * **Per-place questions are asked on the drawing.** Which edge a sidebar card
  * holds, and whether a slot or a rail stacks or splits, are facts about a place
@@ -177,6 +182,12 @@ const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 1;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 2;
 
+/** The first sidebar row's order; each further registered card takes the next.
+ *  These rows are the registry's size, which is fixed at boot — they list every
+ *  sidebar card the deck HAS, open or not, because a hidden card's row is the
+ *  one door that shows it. The deck-wide rows above never move. */
+const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 3;
+
 /** The picture's own stop. One stop for the whole drawing rather than one per
  *  mark: a stop per affordance would make Tab crawl the picture, and the marks
  *  are items within it exactly as a segmented group's segments are items within
@@ -272,20 +283,32 @@ function sidebarEntries(): SidebarEntry[] {
   return entries;
 }
 
-/** How many sidebar cards stand on each side. `override` places one card on a
- *  stated side regardless of the imposition — the rails a side preview draws. */
-function railsOf(
+/**
+ * How many sidebar cards stand on each side, counted from `entries` — which
+ * the caller filters to the OPEN cards, so the picture draws what is actually
+ * on screen. An earlier version counted every registered card, which drew a
+ * closed Jots standing on the rail: a resting lie, and one that got worse the
+ * moment show/hide controls stood next to it.
+ *
+ * `override` adjusts one card for a preview's sake: a stated side places it
+ * there whether or not it is in `entries` (the drawing of "show it here" /
+ * "move it here"), and `side: null` removes it (the drawing of "hide it").
+ */
+function railsFor(
   imposition: DeckImposition,
-  sidebars: readonly SidebarEntry[],
-  override?: { componentId: string; side: SidebarSide },
+  entries: readonly SidebarEntry[],
+  override?: { componentId: string; side: SidebarSide | null },
 ): MiniatureRails {
   const rails: MiniatureRails = {};
-  for (const entry of sidebars) {
-    const side =
-      override !== undefined && override.componentId === entry.componentId
-        ? override.side
-        : sidebarSide(imposition, entry.componentId);
+  for (const entry of entries) {
+    if (override !== undefined && override.componentId === entry.componentId) {
+      continue;
+    }
+    const side = sidebarSide(imposition, entry.componentId);
     rails[side] = (rails[side] ?? 0) + 1;
+  }
+  if (override !== undefined && override.side !== null) {
+    rails[override.side] = (rails[override.side] ?? 0) + 1;
   }
   return rails;
 }
@@ -297,6 +320,16 @@ function useDeck(): DeckState | null {
     deckStore?.subscribe ?? (() => () => {}),
     deckStore !== null ? deckStore.getSnapshot : () => null,
     () => null,
+  );
+}
+
+/** The componentIds of the sidebar cards that are OPEN — presence is the open
+ *  state ([P02]), so this is a read of the deck's card list ([L02]). */
+function useOpenSidebarIds(): ReadonlySet<string> {
+  const deck = useDeck();
+  return useMemo(
+    () => new Set((deck?.cards ?? []).map((card) => card.componentId)),
+    [deck],
   );
 }
 
@@ -460,6 +493,20 @@ interface PlanLayer {
   layout: ImpositionLayout;
   /** Which slots this drawing divides, and into how many shares. */
   columnSplits: Record<number, number>;
+  /**
+   * The marks this layer's drawing wears — the places overlay again, inert,
+   * at THIS arrangement's geometry and modes. Without it a preview moved the
+   * deck under a set of marks that stayed at the committed positions, so the
+   * picture auditioned a change while its own legend flatly contradicted it.
+   * `subject` names the one place the preview proposes to change, for the
+   * accent; deck-wide layers carry `null`.
+   */
+  ghost: {
+    columns: readonly LayoutPlace[];
+    railPlaces: readonly LayoutPlace[];
+    railMembers: readonly LayoutRailMember[];
+    subject: string | null;
+  };
 }
 
 /** The caption's values, with a muted separator between them and the first
@@ -512,7 +559,14 @@ function LayoutsSectionBody({
   const contentWidth = imposition.contentWidth ?? DEFAULT_CONTENT_WIDTH;
   const layout = impositionLayout(imposition);
   const sidebars = sidebarEntries();
-  const rails = railsOf(imposition, sidebars);
+  // The open ones are what the picture draws and what the overlay marks;
+  // the full registry is what the sidebar rows list, because a hidden card's
+  // row is the door that shows it.
+  const openSidebarIds = useOpenSidebarIds();
+  const openSidebars = sidebars.filter((entry) =>
+    openSidebarIds.has(entry.componentId),
+  );
+  const rails = railsFor(imposition, openSidebars);
   const railModes: Partial<Record<SidebarSide, RailMode>> = {
     left: railModeOf(imposition, "left"),
     right: railModeOf(imposition, "right"),
@@ -525,9 +579,8 @@ function LayoutsSectionBody({
   // both of its proposals drawn: a side holding one card can still be SET to
   // split, and the picture has to be able to state what pressing it would do.
   const occupiedSides = SIDES.filter((side) => (rails[side] ?? 0) > 0);
-  // The slots that can be arranged at all: two or more cards standing in one
-  // place. A slot with one card is already unsplit, so it gets no row (see
-  // `useDeckColumns`).
+  // Every occupied slot, whatever its membership (see `useDeckColumns` for
+  // why one card deep still counts).
   const columns = useDeckColumns();
   // The committed drawing alone gets the live strip; every preview layer below
   // draws at rest ([P06]).
@@ -547,27 +600,40 @@ function LayoutsSectionBody({
     previewAxis: `columnmode:${column.slot}`,
     senderId: `${COLUMN_SENDER_PREFIX}${column.slot}`,
   }));
-  const railPlaces: LayoutPlace[] = SIDES.filter(
-    (side) => (rails[side] ?? 0) > 0,
-  ).map((side) => ({
-    key: `rail-${side}`,
-    side,
-    mode: railModes[side] ?? "stack",
-    members: rails[side] ?? 0,
-    label: RAIL_CAPTIONS[side],
-    previewAxis: `railmode:${side}`,
-    senderId: `${RAIL_SENDER_PREFIX}${side}`,
-  }));
-  // The sidebar cards themselves, with the edge each currently holds. The
-  // drawing's rails are counts, which is all a picture needs; a control needs
-  // to know WHICH card it would move.
-  const railMembers: LayoutRailMember[] = sidebars.map((entry) => ({
+  /** The rail places a given pair of rail counts and modes comes to — used for
+   *  the live overlay and again for every preview layer's ghost, so the two
+   *  cannot disagree about what an occupied side is. */
+  const railPlacesFor = (
+    counts: MiniatureRails,
+    modes: Partial<Record<SidebarSide, RailMode>>,
+  ): LayoutPlace[] =>
+    SIDES.filter((side) => (counts[side] ?? 0) > 0).map((side) => ({
+      key: `rail-${side}`,
+      side,
+      mode: modes[side] ?? "stack",
+      members: counts[side] ?? 0,
+      label: RAIL_CAPTIONS[side],
+      previewAxis: `railmode:${side}`,
+      senderId: `${RAIL_SENDER_PREFIX}${side}`,
+    }));
+  const railPlaces: LayoutPlace[] = railPlacesFor(rails, railModes);
+  // The sidebar cards themselves, with the edge each currently holds — the
+  // OPEN ones, because these are the arrows standing on the drawing and the
+  // drawing draws what is on screen. The drawing's rails are counts, which is
+  // all a picture needs; a control needs to know WHICH card it would move.
+  const memberOf = (
+    entry: SidebarEntry,
+    side: SidebarSide,
+  ): LayoutRailMember => ({
     componentId: entry.componentId,
     title: entry.title,
-    side: sidebarSide(imposition, entry.componentId),
+    side,
     senderId: `${SIDE_SENDER_PREFIX}${entry.componentId}`,
     previewAxis: `side:${entry.componentId}`,
-  }));
+  });
+  const railMembers: LayoutRailMember[] = openSidebars.map((entry) =>
+    memberOf(entry, sidebarSide(imposition, entry.componentId)),
+  );
   /** Which slots the miniature draws divided, and into how many shares. */
   const columnSplits: Record<number, number> = {};
   for (const column of columns) {
@@ -604,11 +670,27 @@ function LayoutsSectionBody({
           return;
         }
         if (typeof sender === "string" && sender.startsWith(SIDE_SENDER_PREFIX)) {
-          if (isSidebarSide(value)) {
+          const componentId = sender.slice(SIDE_SENDER_PREFIX.length);
+          // One sender, three answers: the sidebar rows say Off / Left /
+          // Right, and the drawing's arrows say the other side. A side on a
+          // hidden card sets the side FIRST and then shows it, so the card
+          // appears where the press said rather than appearing and hopping.
+          if (value === "off") {
+            dispatchCommand(TUG_ACTIONS.SET_SIDEBAR_OPEN, {
+              componentId,
+              open: false,
+            });
+          } else if (isSidebarSide(value)) {
             dispatchCommand(TUG_ACTIONS.SET_SIDEBAR_SIDE, {
-              componentId: sender.slice(SIDE_SENDER_PREFIX.length),
+              componentId,
               side: value,
             });
+            if (!openSidebarIds.has(componentId)) {
+              dispatchCommand(TUG_ACTIONS.SET_SIDEBAR_OPEN, {
+                componentId,
+                open: true,
+              });
+            }
           }
           return;
         }
@@ -718,6 +800,17 @@ function LayoutsSectionBody({
   // itself a column proposal — a preview changes one axis and states what the
   // others would keep. Folded in once, after the list, rather than repeated in
   // each literal.
+  // The base ghost: the committed marks restated. Deck-wide previews (layout,
+  // width) change no place, so their ghosts are the marks as they stand — at
+  // the LAYER's geometry, which is the whole point: the marks travel with the
+  // blocks they annotate.
+  const baseGhost = {
+    columns: columnPlaces,
+    railPlaces,
+    railMembers,
+    subject: null,
+  };
+
   const layers: PlanLayer[] = [
     ...IMPOSITION_KINDS.map((k) => ({
       previewId: `kind:${k}`,
@@ -728,6 +821,11 @@ function LayoutsSectionBody({
       railModes,
       width: contentWidth,
       layout,
+      // A different kind reshuffles which cards share which slot, and that
+      // redistribution is the imposer's to make — so the ghost claims nothing
+      // about columns and keeps only the rails, which a kind change leaves
+      // alone.
+      ghost: { columns: [], railPlaces, railMembers, subject: null },
     })),
     ...LAYOUTS.map((mode) => ({
       previewId: `layout:${mode}`,
@@ -738,6 +836,7 @@ function LayoutsSectionBody({
       railModes,
       width: contentWidth,
       layout: mode,
+      ghost: baseGhost,
     })),
     ...CONTENT_WIDTH_PRESETS.map((preset) => ({
       previewId: `width:${preset}`,
@@ -748,7 +847,12 @@ function LayoutsSectionBody({
       railModes,
       width: preset,
       layout,
+      ghost: baseGhost,
     })),
+    // One per registered sidebar card and side — registered, not open,
+    // because the sidebar rows preview showing a hidden card. The layer's
+    // rails place that card on the stated side whether or not it is open now,
+    // and its ghost members do the same.
     ...sidebars.flatMap((entry) =>
       SIDES.map((side) => ({
         previewId: `side:${entry.componentId}:${side}`,
@@ -758,15 +862,68 @@ function LayoutsSectionBody({
         // the note what it would leave alone.
         note: planNote(kind, contentWidth, layout),
         kind,
-        rails: railsOf(imposition, sidebars, {
+        rails: railsFor(imposition, openSidebars, {
           componentId: entry.componentId,
           side,
         }),
         railModes,
         width: contentWidth,
         layout,
+        ghost: (() => {
+          const counts = railsFor(imposition, openSidebars, {
+            componentId: entry.componentId,
+            side,
+          });
+          return {
+            columns: columnPlaces,
+            railPlaces: railPlacesFor(counts, railModes),
+            railMembers: sidebars
+              .filter(
+                (e) =>
+                  openSidebarIds.has(e.componentId) ||
+                  e.componentId === entry.componentId,
+              )
+              .map((e) =>
+                memberOf(
+                  e,
+                  e.componentId === entry.componentId
+                    ? side
+                    : sidebarSide(imposition, e.componentId),
+                ),
+              ),
+            subject: `side-${entry.componentId}`,
+          };
+        })(),
       })),
     ),
+    // And one per card for Off: the deck without it. For a card already
+    // hidden this layer never shows — Off is then the active segment, and the
+    // active answer previews as the committed plan — but building it
+    // unconditionally keeps the list one shape.
+    ...sidebars.map((entry) => {
+      const counts = railsFor(imposition, openSidebars, {
+        componentId: entry.componentId,
+        side: null,
+      });
+      return {
+        previewId: `side:${entry.componentId}:off`,
+        caption: [`${entry.title} Off`],
+        note: planNote(kind, contentWidth, layout),
+        kind,
+        rails: counts,
+        railModes,
+        width: contentWidth,
+        layout,
+        ghost: {
+          columns: columnPlaces,
+          railPlaces: railPlacesFor(counts, railModes),
+          railMembers: railMembers.filter(
+            (member) => member.componentId !== entry.componentId,
+          ),
+          subject: null,
+        },
+      };
+    }),
     ...occupiedSides.flatMap((side) =>
       RAIL_MODES.map((mode) => ({
         previewId: `railmode:${side}:${mode}`,
@@ -779,6 +936,12 @@ function LayoutsSectionBody({
         railModes: { ...railModes, [side]: mode },
         width: contentWidth,
         layout,
+        ghost: {
+          columns: columnPlaces,
+          railPlaces: railPlacesFor(rails, { ...railModes, [side]: mode }),
+          railMembers,
+          subject: `rail-${side}`,
+        },
       })),
     ),
   ].map((layer) => ({ ...layer, columnSplits }));
@@ -809,6 +972,17 @@ function LayoutsSectionBody({
             ? { [column.slot]: column.members.length }
             : { [column.slot]: 1 }),
         },
+        ghost: {
+          // The ghost wears the PROPOSED mode on the slot in question — the
+          // preview is the one moment the mark states what would be rather
+          // than what is.
+          columns: columnPlaces.map((place) =>
+            place.slot === column.slot ? { ...place, mode } : place,
+          ),
+          railPlaces,
+          railMembers,
+          subject: `col-${column.slot}`,
+        },
       });
     }
   }
@@ -831,6 +1005,31 @@ function LayoutsSectionBody({
     value: preset,
     label: CONTENT_WIDTH_LABELS[preset],
   }));
+
+  // One row per registered sidebar card: Off, or a side — show/hide and
+  // placement as one question, because "where is it" and "is it there at all"
+  // are the same axis with a zero. Tooltips state what is before what the
+  // press would do.
+  const sidebarRowItems = (entry: SidebarEntry): TugChoiceItem[] => {
+    const open = openSidebarIds.has(entry.componentId);
+    const side = sidebarSide(imposition, entry.componentId);
+    return [
+      {
+        value: "off",
+        label: "Off",
+        tooltip: open ? `Hide ${entry.title}` : `${entry.title} is hidden`,
+      },
+      ...SIDES.map((s) => ({
+        value: s,
+        label: SIDE_LABELS[s],
+        tooltip: !open
+          ? `Show ${entry.title} on the ${s} edge`
+          : side === s
+            ? `${entry.title} is on the ${s} edge`
+            : `Move ${entry.title} to the ${s} edge`,
+      })),
+    ];
+  };
 
   return (
     <ResponderScope>
@@ -902,6 +1101,19 @@ function LayoutsSectionBody({
                 width={layer.width}
                 layout={layer.layout}
                 columnSplits={layer.columnSplits}
+              />
+              {/* The layer's own marks, inert, at the layer's geometry — the
+                  live overlay steps back while a preview shows, so the ghost
+                  is the only legend on the auditioned drawing. */}
+              <LayoutPlaces
+                kind={layer.kind}
+                rails={layer.rails}
+                width={layer.width}
+                layout={layer.layout}
+                columns={layer.ghost.columns}
+                railPlaces={layer.ghost.railPlaces}
+                railMembers={layer.ghost.railMembers}
+                ghost={{ subject: layer.ghost.subject }}
               />
             </div>
           ))}
@@ -1011,6 +1223,40 @@ function LayoutsSectionBody({
             />
           </div>
 
+          {sidebars.map((entry, index) => {
+            const captionId = `lens-layouts-sidebar-caption-${entry.componentId}`;
+            const open = openSidebarIds.has(entry.componentId);
+            return (
+              <div
+                className="layouts-section-row"
+                data-preview-axis={`side:${entry.componentId}`}
+                key={entry.componentId}
+              >
+                <TugLabel
+                  id={captionId}
+                  size="md"
+                  emphasis="proposal"
+                  className="layouts-section-caption"
+                >
+                  {entry.title}
+                </TugLabel>
+                <TugChoiceGroup
+                  items={sidebarRowItems(entry)}
+                  value={
+                    open ? sidebarSide(imposition, entry.componentId) : "off"
+                  }
+                  senderId={`${SIDE_SENDER_PREFIX}${entry.componentId}`}
+                  size="xs"
+                  sidePadding="xs"
+                  reselect
+                  focusGroup={host.focusGroup}
+                  focusOrder={LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER + index}
+                  aria-labelledby={captionId}
+                  data-testid={`lens-layouts-sidebar-${entry.componentId}`}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
     </ResponderScope>

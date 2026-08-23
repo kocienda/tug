@@ -89,7 +89,7 @@
   position: absolute;
   inset-inline: 0;
   inset-block-start: 0;
-  inset-block-end: var(--tugx-layout-places-mark-room, 22px);
+  inset-block-end: var(--tugx-layout-places-mark-room, 28px);
   display: flex;
   flex-direction: column;
 }
@@ -169,8 +169,72 @@
    one specificity step above a bare class, and enough to blow the drawing up to
    sixteen pixels inside a picture two hundred wide. */
 .layout-places-mark .tug-column-badge-glyph {
-  inline-size: var(--tugx-layout-places-glyph-width, 10px);
-  block-size: var(--tugx-layout-places-glyph-height, 12px);
+  inline-size: var(--tugx-layout-places-glyph-width, 14px);
+  block-size: var(--tugx-layout-places-glyph-height, 17px);
   flex: none;
   overflow: visible;
+}
+
+/* ---- The ghost: a preview layer's copy of this readout ---- */
+
+/* The whole ghost is inert, children included — every `pointer-events: auto`
+   above is for the live instrument, and a ghost that took the pointer would
+   steal the very hover that raised its layer, un-hover it, and oscillate. The
+   live overlay beneath keeps the hover; this one only shows where the marks
+   would stand. */
+.layout-places-ghost,
+.layout-places-ghost * {
+  pointer-events: none;
+}
+
+/* A ghost glyph sits where the live mark's button would: same footprint, so a
+   place that does not move between committed and preview reads as the same
+   mark restated rather than as a second one appearing beside the first. */
+.layout-places-ghost-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--tug-button-xs-height);
+  block-size: var(--tug-button-xs-height);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.layout-places-ghost-glyph svg {
+  width: var(--tug-button-xs-icon-size);
+  height: var(--tug-button-xs-icon-size);
+}
+
+.layout-places-ghost-glyph .tug-column-badge-glyph {
+  inline-size: var(--tugx-layout-places-glyph-width, 14px);
+  block-size: var(--tugx-layout-places-glyph-height, 17px);
+  flex: none;
+  overflow: visible;
+}
+
+/* The subject — the one place this preview proposes to change — carries the
+   accent and full weight; every other ghost mark is context. The accent that
+   the live overlay spends only on hover is exactly right here: a preview IS a
+   reach in progress. */
+.layout-places-ghost [data-subject] {
+  opacity: 1;
+}
+
+.layout-places-ghost [data-subject] .layout-places-ghost-glyph {
+  color: var(--tug7-element-control-border-outlined-action-rest);
+  --tugx-column-badge-stroke: var(
+    --tug7-element-control-border-outlined-action-rest
+  );
+  --tugx-column-badge-accent: var(
+    --tug7-element-control-border-outlined-action-rest
+  );
+}
+
+/* While a preview shows, the live marks step back: the ghost standing in the
+   active layer is the honest statement of where every mark would be, and two
+   overlapping mark sets — one at the committed geometry, one at the preview's —
+   would be noise. Opacity rather than display, because the hidden marks must
+   keep their hit areas: the hovered one is what is HOLDING the preview up. */
+.layouts-plan[data-previewing] + .layout-places .layout-places-mark,
+.layouts-plan[data-previewing] + .layout-places .layout-places-rail-member {
+  opacity: 0;
 }
