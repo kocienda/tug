@@ -457,12 +457,35 @@ export class ChangesetJoinStore {
   }
 
   /**
-   * Forget a dash's join narration — what a *new* press does to the last one.
+   * Open a dash's join narration at the press ([P01], Spec S02).
+   *
+   * The first beat is written by the client, before the request leaves it, so
+   * that no frame between the press and the server's first word can fall
+   * through to the standing-candidate arm and rest on "Ready to join" over a
+   * running join. It is a placeholder and nothing more: every server frame for
+   * the dash overwrites it, and a wire drop deletes it like any other
+   * non-terminal beat.
+   *
+   * This is also what a *new* press does to the last one — seeding the new
+   * narration and retiring the previous run's settled word in one write. See
+   * {@link clearLand}, which stays the retraction verb for a press that was
+   * refused after it was accepted.
+   */
+  beginLand(workspaceKey: string, dash: string): void {
+    this._land.set(key(workspaceKey, dash), { beat: "requested", status: "start" });
+    this._emit();
+  }
+
+  /**
+   * Forget a dash's join narration — what retracts an accepted press.
    *
    * A settled beat rests until something replaces it, so the press that starts
-   * the next join is what retires the previous one's last word. Nothing else
+   * the next join is what retires the previous one's last word ({@link
+   * beginLand} does that, in the same write that seeds its own). Nothing else
    * should: a settled state that vanished on its own would be a progress line
-   * that erases its own result.
+   * that erases its own result. What remains for this verb is the press that
+   * announced itself and was then refused — a register saying "Joining" about
+   * a join nobody is running is the same lie in the other direction.
    */
   clearLand(workspaceKey: string, dash: string): void {
     if (this._land.delete(key(workspaceKey, dash))) this._emit();

@@ -37,6 +37,7 @@ import {
   _ingestJoinFrameForTest,
   _resetChangesetJoinStoreForTest,
   attachChangesetJoinStore,
+  getChangesetJoinStore,
 } from "@/lib/changeset-join-store";
 import { CHANGES_SERVICE_DISCONNECTED } from "@/lib/landing-mode";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
@@ -718,6 +719,82 @@ describe("JoinModeController", () => {
     expect(lands).toHaveLength(1);
     expect(lands[0]?.body).toMatchObject({ dash: "join-lane", message: "land it" });
     expect(controller.getSnapshot().landRefusal).toBe(null);
+    controller.dispose();
+  });
+
+  it("the press narrates itself, before the server has heard about it", () => {
+    // The gap this closes: the staged press exits the mode, which clears the
+    // register's first-choice target, and the narration used to be aimed only
+    // once `performJoin` ran a beat later. Between the two the register either
+    // did not mount or fell through to "Ready to join" — a green resting
+    // sentence over a running join ([L31]).
+    const { controller } = build();
+    controller.enter(TARGET);
+    controller.setLandHook(() => {
+      controller.exit();
+    });
+    controller.land("land it");
+
+    const snapshot = controller.getSnapshot();
+    expect(snapshot.active).toBe(false);
+    expect(snapshot.register).toMatchObject({
+      phase: "in_flight",
+      line: "Joining join-lane into main — starting",
+      word: "joining",
+    });
+    // Keyed by the workspace key the wire echoes, never the card's raw
+    // binding path ([L29]) — the beat and the frames must meet in one cell.
+    expect(getChangesetJoinStore()?.landProgress(WORKSPACE_KEY, "join-lane")).toEqual({
+      beat: "requested",
+      status: "start",
+    });
+    expect(getChangesetJoinStore()?.landProgress(RAW_DIR, "join-lane")).toBeNull();
+    controller.dispose();
+  });
+
+  it("the server's front beat takes over the press's placeholder", () => {
+    const { controller } = build();
+    controller.enter(TARGET);
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+      controller.exit();
+    });
+    controller.land("land it");
+    (staged as unknown as () => void)();
+
+    _ingestJoinFrameForTest({
+      action: "changeset_join_land_delta",
+      project_dir: WORKSPACE_KEY,
+      dash: "join-lane",
+      beat: "preflight",
+      status: "start",
+    });
+    expect(controller.getSnapshot().register?.line).toBe(
+      "Joining join-lane into main — checking the base",
+    );
+    controller.dispose();
+  });
+
+  it("a refused staged press unsays what it announced", () => {
+    // The press writes its own first beat, so a press refused on the live
+    // re-check has to take it back. A register reporting a join nobody is
+    // running is the same resting lie pointed the other way.
+    const { controller, codeSessionStore } = build();
+    controller.enter(TARGET);
+    let staged: (() => void) | null = null;
+    controller.setLandHook((run) => {
+      staged = run;
+      controller.exit();
+    });
+    controller.land("land it");
+    expect(controller.getSnapshot().register?.phase).toBe("in_flight");
+
+    codeSessionStore._setTurn(true);
+    (staged as unknown as () => void)();
+
+    expect(getChangesetJoinStore()?.landProgress(WORKSPACE_KEY, "join-lane")).toBeNull();
+    expect(controller.getSnapshot().register?.word).not.toBe("joining");
     controller.dispose();
   });
 

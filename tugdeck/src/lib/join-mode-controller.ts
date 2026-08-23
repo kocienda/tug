@@ -712,6 +712,15 @@ export class JoinModeController implements LandingMode {
     }
     this.clearRefusal();
     sendLandingReceipt({ kind: "join", verdict: "ok", gate: joinGateFacts(input) });
+    // The press is the first beat ([P01], [P02]). The staged path exits the
+    // mode before the join fires — which clears `target`, the register's first
+    // choice of subject — so aiming the narration here is what keeps the
+    // register mounted across the shade's dismissal, and seeding the store's
+    // beat here is what gives it something true to say while the server is
+    // still deciding. Both are retracted by {@link performJoin} if the
+    // re-check refuses.
+    getChangesetJoinStore()?.beginLand(this.deps.changesController.workspaceKey, target.name);
+    this.narration = target;
     const runJoin = () => this.performJoin(text, target);
     if (this.landHook !== null) {
       this.landHook(runJoin);
@@ -793,6 +802,7 @@ export class JoinModeController implements LandingMode {
     const input = this.liveGateInput(text, target);
     const gate = evaluateJoinGate(input);
     if (!gate.ok) {
+      this.retractNarration(target);
       if (!this.active) this.enter(target);
       this.refuse(
         "gate",
@@ -804,14 +814,11 @@ export class JoinModeController implements LandingMode {
     }
     const verbStore = getChangesetVerbStore();
     if (verbStore === null) {
+      this.retractNarration(target);
       if (!this.active) this.enter(target);
       this.refuse("fault", CHANGES_SERVICE_DISCONNECTED, "no-verb-store", input);
       return;
     }
-    // This press is what retires the previous one's last word, and the only
-    // thing that may: a settled narration rests until it is replaced ([P03]).
-    getChangesetJoinStore()?.clearLand(changesController.workspaceKey, target.name);
-    this.narration = target;
     verbStore.join(changesController.entryKey, changesController.workspaceKey, target.name, {
       preview: false,
       message: text,
@@ -835,6 +842,19 @@ export class JoinModeController implements LandingMode {
   }
 
   /**
+   * Take back the narration an accepted press announced ([P02]).
+   *
+   * The press writes its own first beat, so a press that is then refused on
+   * the live re-check has to unsay it — otherwise the register reports a join
+   * that nobody is running, which is the resting lie this whole path exists to
+   * remove, pointed the other way.
+   */
+  private retractNarration(target: JoinTarget): void {
+    getChangesetJoinStore()?.clearLand(this.deps.changesController.workspaceKey, target.name);
+    this.narration = null;
+  }
+
+  /**
    * Narrate a join **this composer did not fire** — the one a prompt-sheet
    * "Join now" starts on the server.
    *
@@ -845,7 +865,10 @@ export class JoinModeController implements LandingMode {
    * beats and rests on the settled sentence, exactly as it does for a press.
    *
    * The previous run's last word is retired here for the same reason
-   * {@link performJoin} retires it: a new join is the only thing that may.
+   * {@link land} retires it: a new join is the only thing that may. This path
+   * has no production caller today; one that wires it should seed the store's
+   * own first beat (`beginLand`) rather than only clearing, since a
+   * server-started join has no press to write one.
    */
   narrateServerJoin(target: JoinTarget): void {
     const { changesController } = this.deps;

@@ -101,6 +101,12 @@ export const SETTLED_REST_MS = 1600;
  * moment one of them gains a beat.
  */
 export const BEAT_WORDS: Record<string, string> = {
+  // The front of the run: `requested` is written by the press itself and
+  // `preflight` by the server the moment it accepts one, so the span before
+  // the squash — occupancy, the identity reads, the join's own preflight —
+  // has words of its own instead of resting on "Ready to join" ([P01], [P03]).
+  requested: "starting",
+  preflight: "checking the base",
   squash: "squashing",
   teardown: "tearing down the workshop",
   release: "releasing the branch",

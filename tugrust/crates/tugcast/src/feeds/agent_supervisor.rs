@@ -5106,6 +5106,22 @@ impl AgentSupervisor {
             return false;
         }
 
+        // The first word of the run, spoken the moment the handler accepts the
+        // press (Spec S01). Everything between here and `join_in`'s own
+        // `squash` beat — two synchronous git reads, occupancy, and the whole
+        // of the join's preflight inside `spawn_blocking` — took real seconds
+        // and narrated none of them. A preview narrates nothing at all, which
+        // is the contract `join_in_with_progress` already keeps.
+        if !request.preview {
+            Self::send_changeset_join_land_delta(
+                &self.control_tx,
+                project_dir,
+                &request.dash,
+                "preflight",
+                "start",
+            );
+        }
+
         // Resolve the dash's identity BEFORE the join runs. `join_in` ends in
         // `git branch -D`, which deletes `branch.tugdash/<name>.tugid` along
         // with the branch — a key read afterwards is the legacy one and names
@@ -5168,20 +5184,13 @@ impl AgentSupervisor {
         let beat_dash = request.dash.clone();
         let result = tokio::task::spawn_blocking(move || {
             tugdash_core::join_in_with_progress(&dir_owned, &dash, opts, |beat, status| {
-                let body = serde_json::json!({
-                    "action": "changeset_join_land_delta",
-                    // Echoed verbatim as the request sent it, which is what
-                    // keeps the frame correlated to the cell the press opened
-                    // with no spelling to reconcile ([L29]).
-                    "project_dir": beat_project_dir,
-                    "dash": beat_dash,
-                    "beat": beat,
-                    "status": status,
-                });
-                let _ = beat_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_join_land_delta serializes"),
-                ));
+                Self::send_changeset_join_land_delta(
+                    &beat_tx,
+                    &beat_project_dir,
+                    &beat_dash,
+                    beat,
+                    status,
+                );
             })
         })
         .await;
@@ -5363,6 +5372,32 @@ impl AgentSupervisor {
         let _ = control_tx.send(Frame::new(
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("changeset_join_err serializes"),
+        ));
+    }
+
+    /// Broadcast one join progress beat. A liveness hint only: the
+    /// `changeset_all_bump()` a landing ends with stays the carrier of truth,
+    /// so a dropped beat costs the progress line and nothing else. The
+    /// `project_dir` is echoed verbatim as the request sent it, which is what
+    /// keeps the frame correlated to the cell the press opened with no
+    /// spelling to reconcile ([L29]).
+    fn send_changeset_join_land_delta(
+        control_tx: &broadcast::Sender<Frame>,
+        project_dir: &str,
+        dash: &str,
+        beat: &str,
+        status: &str,
+    ) {
+        let body = serde_json::json!({
+            "action": "changeset_join_land_delta",
+            "project_dir": project_dir,
+            "dash": dash,
+            "beat": beat,
+            "status": status,
+        });
+        let _ = control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("changeset_join_land_delta serializes"),
         ));
     }
 
@@ -9305,6 +9340,36 @@ mod tests {
         let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
         let root_str = root.to_string_lossy().to_string();
 
+        // A preview narrates nothing: it touches no tree, so there is no work
+        // to report on and no press waiting to hear about it.
+        let preview_payload = serde_json::to_vec(&serde_json::json!({
+            "action": "changeset_join",
+            "project_dir": root_str,
+            "dash": "demo",
+            "preview": true,
+        }))
+        .unwrap();
+        sup.handle_control("changeset_join", &preview_payload, 1)
+            .await;
+        loop {
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(10), control_rx.recv())
+                .await
+                .expect("a control frame")
+                .expect("sender alive");
+            let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            match body["action"].as_str() {
+                Some("changeset_join_land_delta") => {
+                    panic!("a preview emitted a beat: {body}")
+                }
+                Some("changeset_join_ok") => {
+                    assert_eq!(body["previewed"], true, "{body}");
+                    break;
+                }
+                Some("changeset_join_err") => panic!("the preview was refused: {body}"),
+                _ => {}
+            }
+        }
+
         let payload = serde_json::to_vec(&serde_json::json!({
             "action": "changeset_join",
             "project_dir": root_str,
@@ -9349,7 +9414,10 @@ mod tests {
         );
         for (beat, status) in &beats {
             assert!(
-                matches!(beat.as_str(), "squash" | "record" | "teardown" | "release"),
+                matches!(
+                    beat.as_str(),
+                    "preflight" | "squash" | "record" | "teardown" | "release"
+                ),
                 "unknown beat {beat}"
             );
             assert!(
@@ -9359,8 +9427,21 @@ mod tests {
         }
         assert_eq!(
             beats.first().map(|(b, s)| (b.as_str(), s.as_str())),
-            Some(("squash", "start")),
-            "the first thing said is that the squash has begun: {beats:?}"
+            Some(("preflight", "start")),
+            "the first thing said is that the handler took the press: {beats:?}"
+        );
+        let first_squash = beats
+            .iter()
+            .position(|(b, _)| b == "squash")
+            .expect("the squash is narrated");
+        assert!(
+            first_squash > 0,
+            "every squash beat comes after the front beat: {beats:?}"
+        );
+        assert_eq!(
+            beats.iter().filter(|(b, _)| b == "preflight").count(),
+            1,
+            "the front beat is said once and has no paired done: {beats:?}"
         );
 
         cancel.cancel();

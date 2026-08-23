@@ -349,6 +349,51 @@ describe("the join narrates itself ([P03])", () => {
     expect(store.landProgress("/p", "demo")).toBeNull();
   });
 
+  test("the press opens the narration before the server has said anything", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    // The silent span this closes is real: between the press and the server's
+    // first word the register had no beat at all and fell through to the
+    // standing-candidate arm, reading "Ready to join" over a running join.
+    store.beginLand("/p", "demo");
+    expect(store.landProgress("/p", "demo")).toEqual({ beat: "requested", status: "start" });
+    expect(store.landProgress("/p", "other")).toBeNull();
+
+    // A placeholder and nothing more — the server's own front beat replaces it.
+    beat("demo", "preflight", "start");
+    expect(store.landProgress("/p", "demo")).toEqual({ beat: "preflight", status: "start" });
+  });
+
+  test("the press's own beat settles and drops like any other", () => {
+    const store = attachChangesetJoinStore(fakeConn);
+    store.beginLand("/p", "demo");
+    _ingestJoinFrameForTest({
+      action: "changeset_join_ok",
+      ...K,
+      previewed: false,
+      commit_hash: "cafe1234",
+    });
+    expect(store.landProgress("/p", "demo")?.terminal).toBe(true);
+
+    // And a new press retires that settled word in the same write that opens
+    // its own narration.
+    store.beginLand("/p", "demo");
+    expect(store.landProgress("/p", "demo")).toEqual({ beat: "requested", status: "start" });
+  });
+
+  test("a press the wire outlives leaves no line behind", () => {
+    try {
+      const lifecycle = liveLifecycle();
+      const store = attachChangesetJoinStore(fakeConn);
+      store.beginLand("/p", "demo");
+      // Non-terminal, so it goes with the wire — the optimistic beat inherits
+      // the drop handling every other in-flight beat already had.
+      lifecycle.notifyConnectionDidClose();
+      expect(store.landProgress("/p", "demo")).toBeNull();
+    } finally {
+      registerConnectionLifecycle(null);
+    }
+  });
+
   test("a beat with no name is not a beat", () => {
     const store = attachChangesetJoinStore(fakeConn);
     beat("demo", "", "start");

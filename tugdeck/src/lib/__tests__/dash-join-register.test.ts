@@ -79,6 +79,23 @@ describe("what the register says", () => {
     expect(unknown?.line).toBe("Joining imposer2 into main — polishing");
   });
 
+  test("the front of the run has words too, and they outrank the standing offer", () => {
+    // Both beats describe the span before the squash: `requested` is written
+    // by the press itself, `preflight` by the server the moment it accepts
+    // one. Without them this same input rests on the standing candidate and
+    // reads "Ready to join" while the join is running.
+    const pressed = reg(reconciled(), {
+      landBeat: { beat: "requested", status: "start" },
+    });
+    expect(pressed?.phase).toBe("in_flight");
+    expect(pressed?.line).toBe("Joining imposer2 into main — starting");
+
+    const accepted = reg(reconciled(), {
+      landBeat: { beat: "preflight", status: "start" },
+    });
+    expect(accepted?.line).toBe("Joining imposer2 into main — checking the base");
+  });
+
   test("blocked speaks the blocker's own sentence", () => {
     // Composing a sentence here would be a second, worse copy of one the
     // server already wrote — and the server's names the act that clears it.

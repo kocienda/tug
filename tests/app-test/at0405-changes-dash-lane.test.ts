@@ -12,6 +12,14 @@
  * there a claim, disclaim, or hunk-election affordance — the whole point of
  * not reusing `TugChangesList`'s rows.
  *
+ * The draft has two grammars and the server decides which one stands: a dash
+ * the join arc has armed shows what the join would land, under `lands as`
+ * ([D152]); one it has not shows the draft plainly. This fixture's dash is
+ * join-ready the moment its round lands — one round, no plan, a clean
+ * worktree — so the arc arms it with nobody asking ([D147]) and `lands as` is
+ * what a reader sees. The assertions below therefore wait for the draft's
+ * **words** and then read whichever grammar carried them.
+ *
  * Every dash in the project is a visible row, with no fold to open first. The
  * fold's absence is asserted directly, not merely relied upon.
  *
@@ -463,34 +471,78 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         const nudge = join(projectDir(), "at0405-nudge.txt");
         writeFileSync(nudge, "at0405 recompose nudge\n");
         try {
+          // Waited for by its **words**, not by its slot. The fold has two
+          // grammars for the same maintained draft and which one stands is the
+          // server's call, not the fixture's: a dash the join arc has armed
+          // shows what the join would land (`lands as`), and one it has not
+          // shows the draft plainly. This dash is join-ready — one round, no
+          // plan, a clean worktree — so the arc arms it unbidden ([D147]) and
+          // `lands as` is what a reader sees. Waiting on the plain slot waited
+          // for a grammar that could not appear.
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(`${ROW} [data-slot="session-changes-dash-draft"]`)}) !== null`,
+            `(() => {
+               const row = document.querySelector(${JSON.stringify(ROW)});
+               const body = row?.querySelector(".session-changes-dash-draft-message");
+               return (body?.textContent ?? "").includes("at0405 join draft");
+             })()`,
             { timeoutMs: 25000 },
           );
+        } catch (err) {
+          const shape = await app.evalJS<Record<string, unknown>>(
+            `(() => {
+               const row = document.querySelector(${JSON.stringify(ROW)});
+               if (row === null) return { row: "absent" };
+               const slots = [...row.querySelectorAll("[data-slot]")].map((el) => el.getAttribute("data-slot"));
+               return {
+                 expanded: row.getAttribute("data-expanded"),
+                 stage: row.querySelector('[data-slot="tug-dash-stage-mark"]')?.getAttribute("data-stage") ?? null,
+                 slots: [...new Set(slots)].join(","),
+               };
+             })()`,
+          );
+          note(`at0405 draft never reached the fold: ${JSON.stringify(shape)}`);
+          throw err;
         } finally {
           rmSync(nudge, { force: true });
         }
 
         const detail = await app.evalJS<{
-          draft: string;
+          landsAs: string | null;
+          plainDraft: string | null;
+          provenance: number;
           files: string;
           subjects: string;
           editors: number;
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
+             const text = (sel) => {
+               const el = row.querySelector(sel);
+               return el === null ? null : el.textContent.trim();
+             };
              return {
-               draft: (row.querySelector('[data-slot="session-changes-dash-draft"]')?.textContent ?? "").trim(),
+               landsAs: text('[data-slot="session-changes-dash-lands-as"]'),
+               plainDraft: text('[data-slot="session-changes-dash-draft"]'),
+               provenance: row.querySelectorAll('[data-slot="session-changes-dash-lands-as-note"]').length,
                files: (row.querySelector('[data-slot="session-changes-dash-files"]')?.textContent ?? "").trim(),
                subjects: (row.querySelector('[data-slot="session-changes-dash-subjects"]')?.textContent ?? "").trim(),
                editors: row.querySelectorAll('[data-slot="tug-text-editor"], textarea, input').length,
              };
            })()`,
         );
-        // The draft under its own `TugSectionLabel` eyebrow — the fold's
-        // third section, after report and rounds.
-        expect(detail.draft.toLowerCase()).toContain("draft");
-        expect(detail.draft).toContain("at0405 join draft");
+        // One grammar at a time, under its own `TugSectionLabel` eyebrow —
+        // the fold's third section, after report and rounds.
+        const standing = detail.landsAs ?? detail.plainDraft;
+        expect(detail.landsAs === null || detail.plainDraft === null).toBe(true);
+        expect(standing).not.toBe(null);
+        expect((standing ?? "").toLowerCase()).toContain(
+          detail.landsAs === null ? "draft" : "lands as",
+        );
+        expect(standing).toContain("at0405 join draft");
+        // The offer's provenance note names the *substitutes* — a branch
+        // description, or the generic stand-in. Its absence is how the offer
+        // says these are the draft's own words.
+        if (detail.landsAs !== null) expect(detail.provenance).toBe(0);
         expect(detail.subjects).toContain(ROUND_SUBJECT);
         expect(detail.files).toContain(ROUND_FILE);
         // Read-only means read-only: no editor, anywhere in the row.
