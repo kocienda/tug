@@ -883,6 +883,48 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "the ghost's mark stands inside the PREVIEWED drawing's block",
         ).toBe(true);
 
+        // ── A proposal draws a stacked rail as ONE silhouette. ──
+        //
+        // The stack peek is a solid-paint idiom: hollow members cannot occlude
+        // each other, so the offsets that read as a paper stack in the
+        // committed drawing read as spurious slivers at the strip's top and
+        // bottom in a proposal. Stand two cards on the right rail, raise any
+        // preview, and count.
+        await app.click(
+          `[data-testid="lens-layouts-sidebar-jots"] [data-choice-value="right"]`,
+        );
+        await wait(AFTER_LAND_MS);
+        await hover(app, mark("col-0"));
+        await wait(300);
+        const railDrawing = await app.evalJS<{
+          committed: number;
+          preview: number;
+        }>(
+          `(function () {
+            var count = function (scope) {
+              var layer = document.querySelector(scope);
+              return layer === null
+                ? -1
+                : layer.querySelectorAll('.layout-mini-rail[data-rail-mode="stack"] .layout-mini-rail-member').length;
+            };
+            return {
+              committed: count('.layouts-plan-layer[data-plan-layer="committed"]'),
+              preview: count('.layouts-plan-layer[data-plan-active]'),
+            };
+          })()`,
+        );
+        note(
+          `stacked rail members: committed ${railDrawing.committed}, preview ${railDrawing.preview}`,
+        );
+        expect(
+          railDrawing.committed,
+          "the committed drawing peeks the buried card",
+        ).toBe(2);
+        expect(
+          railDrawing.preview,
+          "a proposal draws the stacked rail as one silhouette",
+        ).toBe(1);
+
         // ── Clearing the hover brings the live marks back. ──
         await hover(app, ".layouts-figure");
         await wait(300);

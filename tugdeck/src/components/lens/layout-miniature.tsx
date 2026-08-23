@@ -225,6 +225,13 @@ function slideExpression(
  * equal segments with a seam between them, because the whole point of that
  * arrangement is that every member has its own share of the run.
  *
+ * The peek is a SOLID-paint idiom, so only the committed drawing draws it. A
+ * proposal's members are hollow, and a hollow rect cannot occlude the one
+ * behind it — both outlines paint whole, and the offsets that read as a paper
+ * stack in solid ink read as spurious slivers at the strip's top and bottom.
+ * A proposal therefore draws a stacked rail as ONE silhouette; the overlay's
+ * mark is what states the stack there.
+ *
  * The split drawing is the equal division rather than the side's actual
  * heights. The picture answers "how is this side arranged", and a miniature
  * faithful to a hand-dragged ratio would make the two answers to that question
@@ -234,12 +241,14 @@ function Rail({
   count,
   widthPct,
   mode = "stack",
+  committed = false,
 }: {
   count: number;
   widthPct: number;
   mode?: RailMode;
+  committed?: boolean;
 }): React.ReactElement {
-  const depth = Math.min(count - 1, 2);
+  const depth = mode !== "split" && committed ? Math.min(count - 1, 2) : 0;
   const members = mode === "split" ? Math.min(count, 3) : depth + 1;
   return (
     <span
@@ -555,7 +564,12 @@ export function LayoutMiniature({
       aria-hidden="true"
     >
       {left > 0 ? (
-        <Rail count={left} widthPct={railPct} mode={railModes?.left} />
+        <Rail
+          count={left}
+          widthPct={railPct}
+          mode={railModes?.left}
+          committed={committed}
+        />
       ) : null}
       <span className="layout-mini-field">
         {blocks.map((block) => {
@@ -642,7 +656,12 @@ export function LayoutMiniature({
         ) : null}
       </span>
       {right > 0 ? (
-        <Rail count={right} widthPct={railPct} mode={railModes?.right} />
+        <Rail
+          count={right}
+          widthPct={railPct}
+          mode={railModes?.right}
+          committed={committed}
+        />
       ) : null}
       {/*
         * The drag, drawn. Both stand over the WHOLE drawing rather than inside
