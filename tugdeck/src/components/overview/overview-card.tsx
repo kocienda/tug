@@ -889,17 +889,50 @@ export function OverviewContent({
   // count that growth a second time.
   const prevScrollHeightRef = useRef(0);
   const prevFirstKeyRef = useRef<string | null>(null);
+  // The `scrollTop` this card last WROTE while pinning to the live edge, so a
+  // scroll event can be read for whose act it was. Every pin goes through
+  // `pinToBottom`, which is the only place this moves. Infinite until the
+  // first pin: before this card has written a position, no scroll event can
+  // be this card's, and one that arrives (the cold-boot restore's) must be
+  // free to say the reader is not at the bottom.
+  const pinTopRef = useRef(Number.POSITIVE_INFINITY);
 
   /**
    * The one writer of follow-state. Every place that decides the reader is or
    * is not at the live edge goes through here, so the intent and the
    * affordance can never disagree — the button's `data-visible` is written in
    * the same statement that moves the ref, straight onto the DOM node ([L06]).
+   *
+   * The scroller's `data-tug-scroll-state` moves in the same statement, for
+   * the same reason one step out: `captureRegionScrolls` reads that attribute
+   * at every save moment, and `{atBottom: true}` is what tells the restore
+   * path to re-pin to the LIVE edge rather than replay the saved pixel. A
+   * column that was following when the bag was taken has grown by the time the
+   * bag comes back, so the saved pixel names a place in the middle of it.
    */
   const setFollowing = useCallback((next: boolean): void => {
     followingRef.current = next;
     const btn = jumpButtonRef.current;
     if (btn !== null) btn.dataset.visible = String(!next);
+    const el = scrollRef.current;
+    if (el === null) return;
+    // Omitted rather than written false when the reader is up in history:
+    // absent meta is exactly the raw-pixel restore, which is the right
+    // restore for a position the reader chose.
+    if (next) el.dataset.tugScrollState = JSON.stringify({ atBottom: true });
+    else delete el.dataset.tugScrollState;
+  }, []);
+
+  /**
+   * Pin to the live edge, and remember where that put us.
+   *
+   * Every write of `scrollTop` that means "follow the newest post" goes
+   * through here, because `onScroll` has to be able to tell this card's own
+   * write apart from the reader's gesture — see the handler.
+   */
+  const pinToBottom = useCallback((el: HTMLDivElement): void => {
+    el.scrollTop = el.scrollHeight;
+    pinTopRef.current = el.scrollTop;
   }, []);
 
   /** Is the live edge under the eye? The one geometric reading, spelled once. */
@@ -935,7 +968,7 @@ export function OverviewContent({
     if (el === null) return;
     const observer = new ResizeObserver(() => {
       if (followingRef.current) {
-        el.scrollTop = el.scrollHeight;
+        pinToBottom(el);
       } else {
         // The other direction, and the one a resize is the only cause of: a
         // geometry change can put the live edge back under the eye without
@@ -953,7 +986,7 @@ export function OverviewContent({
         // 24px of it.
         const back = atBottom(el);
         setFollowing(back);
-        if (back) el.scrollTop = el.scrollHeight;
+        if (back) pinToBottom(el);
       }
       prevScrollHeightRef.current = el.scrollHeight;
     });
@@ -976,6 +1009,48 @@ export function OverviewContent({
     };
   }, [setFollowing, atBottom]);
 
+  // Cold-boot restore, the half `captureRegionScrolls` cannot do alone.
+  //
+  // `CardHost` saves this scroller by key and replays the saved `scrollTop`
+  // on every path that rebuilds the card — Maker ▸ Reload, a cross-pane move,
+  // an HMR remount — and it RETRIES that write on every subtree mutation
+  // until the position sticks. For a column that was resting on the live edge
+  // the saved pixel is the bottom AS IT WAS: the Overview keeps growing while
+  // the bag sits, so replaying it lands the reader in the middle of history
+  // with the jump button up, and the retry loop re-lands them there each time
+  // a post arrives. That is the same trap `TugListView` documents, and this
+  // takes the same way out — the at-bottom case is claimed here and answered
+  // by re-pinning to the edge that exists now.
+  //
+  // Only that case. A reader parked in history saves no `atBottom` meta, and
+  // the un-preventDefaulted event falls through to the host's raw write,
+  // which is the correct restore for a position the reader chose. [L03] — the
+  // listener must be live before the first restore beat, which arrives in the
+  // same commit as the mount.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    // Publish the state the card is CONSTRUCTED in. `followingRef` starts
+    // true, and a column that is never scrolled would otherwise be saved with
+    // no meta at all — the one case this whole path exists for.
+    setFollowing(followingRef.current);
+    const onRegionScrollSet = (event: Event): void => {
+      const meta = (event as CustomEvent<{ meta?: unknown }>).detail.meta;
+      const savedAtBottom =
+        typeof meta === "object" &&
+        meta !== null &&
+        (meta as { atBottom?: unknown }).atBottom === true;
+      if (!savedAtBottom) return;
+      event.preventDefault();
+      setFollowing(true);
+      pinToBottom(el);
+    };
+    el.addEventListener("tug-region-scroll-set", onRegionScrollSet);
+    return () => {
+      el.removeEventListener("tug-region-scroll-set", onRegionScrollSet);
+    };
+  }, [setFollowing, pinToBottom]);
+
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el === null) return;
@@ -986,7 +1061,7 @@ export function OverviewContent({
       firstKey !== prevFirstKeyRef.current;
     if (followingRef.current) {
       // [L06]: following the newest post is a scroll write, not React state.
-      el.scrollTop = el.scrollHeight;
+      pinToBottom(el);
     } else if (prepended) {
       // Older history arrived above the reader. Push the viewport down by
       // exactly what was inserted, so the line being read stays under the
@@ -1002,7 +1077,7 @@ export function OverviewContent({
     // it mounts under the last post and pushes the live edge down exactly as
     // an arriving post does. Without it the placeholder for the answer the
     // reader just asked for could appear below the fold.
-  }, [posts, pendingRequestId]);
+  }, [posts, pendingRequestId, pinToBottom]);
 
   // Annotation gestures — the Session transcript's own delegated layer,
   // verbatim in shape: one listener on the transcript root, the registry
@@ -1047,7 +1122,23 @@ export function OverviewContent({
   const onScroll = (): void => {
     const el = scrollRef.current;
     if (el === null) return;
-    setFollowing(atBottom(el));
+    // A scroll EVENT is not a scroll GESTURE. Pinning writes `scrollTop`, and
+    // the event that write queues is delivered on a later frame, against
+    // whatever the column has become in the meantime — one post taller, one
+    // settled paragraph taller — so the position it carries reads as "away
+    // from the bottom" when nobody moved anything. Reading that back as the
+    // reader leaving is how a following column silently stopped following,
+    // permanently: the re-engage branch of the resize observer only fires on
+    // a geometry change that brings the edge back, and growth never does.
+    //
+    // So only a scroll that went UP from where this card last pinned can
+    // disengage. Content growing under a pin leaves `scrollTop` exactly where
+    // the pin put it — the pin is the reference, not the bottom, and the
+    // bottom has already moved. A reader's wheel-up is below it by however
+    // far they scrolled, which is the one thing that means they left.
+    if (!followingRef.current || el.scrollTop < pinTopRef.current) {
+      setFollowing(atBottom(el));
+    }
     // Near the top, ask for the page before this one. The store owns every
     // guard — nothing to ask for, nothing to anchor on, a request already
     // out — because this fires many times per scroll gesture.
@@ -1068,8 +1159,8 @@ export function OverviewContent({
     const el = scrollRef.current;
     if (el === null) return;
     setFollowing(true);
-    el.scrollTop = el.scrollHeight;
-  }, [setFollowing]);
+    pinToBottom(el);
+  }, [setFollowing, pinToBottom]);
 
   /**
    * Step the column one POST — the Session transcript's ⌥⌘↑ / ⌥⌘↓, read here.
@@ -1088,9 +1179,10 @@ export function OverviewContent({
    *
    * The scroll is a plain `scrollTop` write ([L06]) — the Overview's column is
    * an ordinary scroller, not a `SmartScroll`-driven list view — and the
-   * follow-bottom intent is this card's `followingRef`, which `onScroll`
-   * re-reads from the landing position either way; setting it here states the
-   * intent the press carries rather than waiting to infer it.
+   * follow-bottom intent is this card's follow-state, set through its one
+   * writer so the affordance and the saved scroll-state move with it. The
+   * press states its intent rather than leaving `onScroll` to infer it from
+   * where the write happened to land.
    */
   const pageByPost = useCallback((direction: "up" | "down"): void => {
     const el = scrollRef.current;
@@ -1105,15 +1197,15 @@ export function OverviewContent({
     });
     if (result.kind === "none") return;
     if (result.kind === "bottom") {
-      followingRef.current = true;
-      el.scrollTop = el.scrollHeight;
+      setFollowing(true);
+      pinToBottom(el);
       return;
     }
     const target = cells[result.index];
     if (target === undefined) return;
-    followingRef.current = false;
+    setFollowing(false);
     el.scrollTop += target.getBoundingClientRect().top - portTop;
-  }, []);
+  }, [setFollowing, pinToBottom]);
 
   // ⌥⌘↑ / ⌥⌘↓ — the Session card's transcript chord, on this card's column.
   //
