@@ -5234,12 +5234,29 @@ impl AgentSupervisor {
                 let mut receipt_id: Option<i64> = None;
                 let summary = match (&outcome.commit_hash, outcome.previewed) {
                     (Some(sha), false) => {
+                        // The file list is the landing commit against its first
+                        // parent, which is only the whole join under `squash`.
+                        // A merge landing sha is a merge commit (git suppresses
+                        // its diff) and a rebase landing sha is the tip of a
+                        // replayed chain — one round. Either would put a list
+                        // on the receipt that reads as complete while being
+                        // partial, so those strategies carry no list at all.
+                        let files = if outcome.strategy == "squash" {
+                            crate::feeds::changeset::landing_file_stats(
+                                std::path::Path::new(project_dir),
+                                sha,
+                            )
+                            .await
+                        } else {
+                            Vec::new()
+                        };
                         let summary = crate::feeds::changeset::format_join_summary(
                             sha,
                             &outcome.name,
                             &outcome.base_branch,
                             rounds,
                             outcome.message.as_deref().unwrap_or(""),
+                            &files,
                         );
                         receipt_id = Self::record_landing_receipt(
                             self.shell_ledger.as_ref(),

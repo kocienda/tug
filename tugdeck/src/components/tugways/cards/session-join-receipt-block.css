@@ -6,7 +6,8 @@
 /* Plain inline text in the detail column, for the reason the commit receipt's
    header states: a flex container establishes its own vertical alignment and
    would float the sha off the header's line box. The hanging indent lines
-   wrapped identity text under the dash name — 8 sha characters plus a space. */
+   wrapped subject text under the subject's first character — 8 sha characters
+   plus a space, measured in the mono column. */
 .join-receipt-header {
   display: block;
   min-width: 0;
@@ -24,11 +25,30 @@
   min-width: 0;
 }
 
-/* Override the header's `code { color: inherit }`, which would drain the dash
-   name to the muted command tone. The dash is the subject of this row, not an
-   incidental command. */
+/* Override the header's `code { color: inherit }`, which would drain the
+   subject to the muted command tone. The squash subject is primary content,
+   not an incidental command. */
 .join-receipt-header .join-receipt-summary {
   color: var(--tugx-block-text-color);
+}
+
+/* The join's own line — `dash → base`, the identity a plain commit receipt has
+   no room for. It sits above the message body at the same inline inset the
+   shared `.tugx-commit-message` establishes, so the three body regions
+   (identity, message, file rows) share one left edge. Muted: it is the row's
+   provenance, not its content. */
+.join-receipt-identity {
+  padding-block-start: var(--tug-space-sm);
+  /* The same inset the message and the file rows take, read from the row's own
+     tokens rather than copied as a number — the identical calc
+     `.tugx-commit-message` uses, so the three body regions share one left
+     edge instead of agreeing by coincidence. */
+  padding-inline-start: calc(
+    var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
+  );
+  color: var(--tugx-block-text-color-muted);
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
 }
 
 /* The chrome's body region carries no padding of its own — each body kind owns

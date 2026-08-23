@@ -906,13 +906,7 @@ pub fn list() -> Result<Vec<DashListItem>, String> {
     for branch in branches.lines().filter(|l| !l.trim().is_empty()) {
         let name = branch.trim_start_matches("tugdash/").to_string();
         let base = dash_base(&repo_root, &name)?;
-        let round_count = git_stdout(
-            &repo_root,
-            &["rev-list", "--count", &format!("{}..{}", base, branch)],
-        )
-        .ok()
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(0);
+        let round_count = dash_rounds(&repo_root, &base, branch).len() as i64;
         let worktree = worktree_path(&repo_root, &name);
         let description = config_get(&repo_root, &format!("branch.{}.description", branch));
 
@@ -946,25 +940,15 @@ pub fn show(name: &str) -> Result<ShowOutcome, String> {
     let description = config_get(&repo_root, &format!("branch.{}.description", branch));
     let worktree = worktree_path(&repo_root, name);
 
-    // Commits ahead of base are this dash's rounds ([P02]).
-    let log = git_stdout(
-        &repo_root,
-        &[
-            "log",
-            "--format=%h%x1f%s%x1f%cI",
-            &format!("{}..{}", base, branch),
-        ],
-    )?;
-    let rounds: Vec<RoundItem> = log
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|line| {
-            let mut parts = line.split('\u{1f}');
-            RoundItem {
-                commit_hash: parts.next().unwrap_or("").to_string(),
-                summary: parts.next().unwrap_or("").to_string(),
-                started_at: parts.next().unwrap_or("").to_string(),
-            }
+    // Commits ahead of base are this dash's rounds ([P02]) — minus the join
+    // arc's preflight sweeps, which are plumbing rather than authored work
+    // (Spec S03).
+    let rounds: Vec<RoundItem> = dash_rounds(&repo_root, &base, &branch)
+        .into_iter()
+        .map(|r| RoundItem {
+            commit_hash: r.hash,
+            summary: r.subject,
+            started_at: r.committed_at,
         })
         .collect();
 
@@ -1164,13 +1148,10 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             continue;
         };
 
-        let rounds = git_stdout(
-            repo_root,
-            &["rev-list", "--count", &format!("{base}..{branch}")],
-        )
-        .ok()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(0);
+        // One read serves both the count and the subjects, so the two cannot
+        // disagree about what a round is (Spec S03).
+        let authored = dash_rounds(repo_root, &base, &branch);
+        let rounds = authored.len() as u32;
 
         let worktree_abs = worktree_path(repo_root, name);
         let worktree_rel = worktree_abs
@@ -1198,21 +1179,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
 
         // Round subjects, newest first — what the discard preflight
         // lists ([P14]). Empty when the dash has no rounds.
-        let round_subjects = if rounds > 0 {
-            git_stdout(
-                repo_root,
-                &["log", "--format=%s", &format!("{base}..{branch}")],
-            )
-            .map(|out| {
-                out.lines()
-                    .filter(|l| !l.trim().is_empty())
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let round_subjects: Vec<String> = authored.into_iter().map(|r| r.subject).collect();
 
         // How far the base has run ahead of this dash, and which of the base
         // checkout's uncommitted edits land on files the dash also changed —
@@ -1430,17 +1397,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
 
     let base_branch = dash_base(repo_root, name)?;
     let id = dash_owner_key(repo_root, name);
-    let rounds = git_stdout(
-        repo_root,
-        &[
-            "rev-list",
-            "--count",
-            &format!("{}..{}", base_branch, branch),
-        ],
-    )
-    .ok()
-    .and_then(|s| s.parse::<i64>().ok())
-    .unwrap_or(0);
+    let rounds = dash_rounds(repo_root, &base_branch, &branch).len() as i64;
 
     let worktree = worktree_path(repo_root, name);
     let worktree_dirty = worktree.exists()
@@ -2284,46 +2241,71 @@ pub fn commit(
     // backfills its creation id here ([P02]).
     let _ = ensure_dash_id(&repo_root, name);
 
-    // Stage all changes.
-    let stage = git_output(&worktree, &["add", "-A"])?;
-    if !stage.status.success() {
-        return Err(format!(
-            "git add failed: {}",
-            String::from_utf8_lossy(&stage.stderr).trim()
-        ));
-    }
+    // `--message` is the conventional-commit subject; a longer `summary`
+    // (if any) enriches the body. Byte-safe: no slicing on a char boundary.
+    let summary = round_meta
+        .as_ref()
+        .and_then(|m| m.summary.as_deref())
+        .unwrap_or("");
+    let commit_message = if summary.is_empty() || summary == message {
+        message.to_string()
+    } else {
+        format!("{}\n\n{}", message, summary)
+    };
+    // Machine-parseable trailers ([P08], Spec S02): `Tug-Session:` when the
+    // committing session resolves + `Tug-Dash: <branch> onto <base>`.
+    let commit_message = with_dash_trailers(&repo_root, name, &branch, &commit_message);
 
-    // Anything staged?
-    let diff = git_output(&worktree, &["diff", "--cached", "--quiet"])?;
-    let has_changes = !diff.status.success(); // exits 1 when there are changes
+    // Stage and commit, re-attempting past a held `index.lock` (Spec S02) —
+    // the join arc's preflight sweep commits into this same worktree, and
+    // whichever writer lost the race used to die outright.
+    let mut last_error = String::new();
+    let mut result: Option<Option<String>> = None;
+    for attempt in 0..INDEX_LOCK_ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(INDEX_LOCK_BACKOFF);
+        }
+        let stage = git_output(&worktree, &["add", "-A"])?;
+        if !stage.status.success() {
+            let stderr = String::from_utf8_lossy(&stage.stderr).trim().to_string();
+            last_error = format!("git add failed: {stderr}");
+            if index_lock_blocked(&stderr) {
+                continue;
+            }
+            return Err(last_error);
+        }
 
-    let commit_hash = if has_changes {
-        // `--message` is the conventional-commit subject; a longer `summary`
-        // (if any) enriches the body. Byte-safe: no slicing on a char boundary.
-        let summary = round_meta
-            .as_ref()
-            .and_then(|m| m.summary.as_deref())
-            .unwrap_or("");
-        let commit_message = if summary.is_empty() || summary == message {
-            message.to_string()
-        } else {
-            format!("{}\n\n{}", message, summary)
-        };
-        // Machine-parseable trailers ([P08], Spec S02): `Tug-Session:` when the
-        // committing session resolves + `Tug-Dash: <branch> onto <base>`.
-        let commit_message = with_dash_trailers(&repo_root, name, &branch, &commit_message);
+        // Anything staged? Re-asked on every attempt, which is what makes a
+        // concurrent sweep a graceful outcome rather than an error: it took
+        // these changes, so this round has nothing left to commit and reports
+        // `committed: false` — already a legal outcome for a clean worktree.
+        let diff = git_output(&worktree, &["diff", "--cached", "--quiet"])?;
+        let has_changes = !diff.status.success(); // exits 1 when there are changes
+        if !has_changes {
+            result = Some(None);
+            break;
+        }
 
         let commit = git_output(&worktree, &["commit", "-m", &commit_message])?;
         if !commit.status.success() {
-            return Err(format!(
-                "git commit failed: {}",
-                String::from_utf8_lossy(&commit.stderr).trim()
-            ));
+            let stderr = String::from_utf8_lossy(&commit.stderr).trim().to_string();
+            last_error = format!("git commit failed: {stderr}");
+            if index_lock_blocked(&stderr) {
+                continue;
+            }
+            return Err(last_error);
         }
-        Some(git_stdout(&worktree, &["rev-parse", "--short", "HEAD"])?)
-    } else {
-        None
+        result = Some(Some(git_stdout(
+            &worktree,
+            &["rev-parse", "--short", "HEAD"],
+        )?));
+        break;
+    }
+    // The window closed with the lock still held — the original error, verbatim.
+    let Some(commit_hash) = result else {
+        return Err(last_error);
     };
+    let has_changes = commit_hash.is_some();
 
     // Append a dash-log line ([P04]): the verbatim instruction is git's one gap.
     let instruction = round_meta
@@ -2853,32 +2835,146 @@ fn strip_dash_scope(body: &str) -> &str {
 /// ([P14]). A no-op when the worktree is absent or clean. Shared by `join_in`
 /// (before integrating) and the resolution ladder (before computing a candidate
 /// against the branch tip) so the tip always reflects the dash's real state.
-pub(crate) fn commit_worktree_dirt(worktree: &Path) -> Result<(), String> {
+pub(crate) fn commit_worktree_dirt(worktree: &Path, name: &str) -> Result<(), String> {
     if !worktree.exists() {
         return Ok(());
     }
-    let dash_status = git_stdout(worktree, &["status", "--porcelain"])?;
-    if dash_status.is_empty() {
+    // The subject speaks in the same scope-colon voice the engine's own dash
+    // commits wear, so `tug log` on the branch reads as one voice wherever
+    // this commit does surface. The trailer is what keeps it from being
+    // *counted* as a round: the two are separate jobs, and both are needed.
+    let message = tugchanges_core::append_trailers(
+        &format!("tugdash({name}): commit outstanding changes"),
+        &[(SWEEP_TRAILER_KEY, "1")],
+    );
+    let mut last_error = String::new();
+    for attempt in 0..INDEX_LOCK_ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(INDEX_LOCK_BACKOFF);
+        }
+        // Re-read the status on every attempt, not once before the loop. This
+        // is what makes losing the race a graceful yield rather than an error:
+        // if the other writer swept the dirt while we waited, there is nothing
+        // left to commit, and the act this call exists to produce has already
+        // happened ([L31] — the act, not a swallowed failure).
+        let dash_status = git_stdout(worktree, &["status", "--porcelain"])?;
+        if dash_status.is_empty() {
+            return Ok(());
+        }
+        let add = git_output(worktree, &["add", "-A"])?;
+        if !add.status.success() {
+            let stderr = String::from_utf8_lossy(&add.stderr).trim().to_string();
+            last_error = format!("join: git add in the dash worktree failed: {stderr}");
+            if index_lock_blocked(&stderr) {
+                continue;
+            }
+            return Err(last_error);
+        }
+        let c = git_output(worktree, &["commit", "-m", &message])?;
+        if !c.status.success() {
+            let stderr = String::from_utf8_lossy(&c.stderr).trim().to_string();
+            last_error = format!("join: auto-commit in the dash worktree failed: {stderr}");
+            if index_lock_blocked(&stderr) {
+                continue;
+            }
+            return Err(last_error);
+        }
         return Ok(());
     }
-    let add = git_output(worktree, &["add", "-A"])?;
-    if !add.status.success() {
-        return Err(format!(
-            "join: git add in the dash worktree failed: {}",
-            String::from_utf8_lossy(&add.stderr).trim()
-        ));
-    }
-    let c = git_output(
-        worktree,
-        &["commit", "-m", "join: commit outstanding changes"],
-    )?;
-    if !c.status.success() {
-        return Err(format!(
-            "join: auto-commit in the dash worktree failed: {}",
-            String::from_utf8_lossy(&c.stderr).trim()
-        ));
-    }
-    Ok(())
+    // The window closed with the lock still held. The original message goes
+    // back verbatim — a retry that rewrote the error would cost the reader the
+    // one word (`index.lock`) that says what actually happened.
+    Err(last_error)
+}
+
+/// The trailer that marks a commit as the join arc's preflight sweep rather
+/// than authored work (Spec S03).
+///
+/// Written at exactly one site — [`commit_worktree_dirt`] — and read as an
+/// exact key match, never as a subject-string pattern. A trailer is a fact the
+/// commit carries; a subject is prose, and prose that a rename or a user's own
+/// commit could collide with is not an identity.
+const SWEEP_TRAILER_KEY: &str = "Tug-Sweep";
+
+/// One authored round on a dash branch.
+#[derive(Debug, Clone)]
+pub(crate) struct DashRound {
+    pub hash: String,
+    pub subject: String,
+    pub committed_at: String,
+}
+
+/// A dash's rounds — every commit ahead of its base **except** the join arc's
+/// preflight sweeps (Spec S03). Newest first, as git logs them.
+///
+/// This is the one reader. `rounds` was four separate `rev-list --count`s
+/// before, which meant the sweep counted as authored work in four places at
+/// once — including the round count this phase's own join receipt prints, and
+/// the number `join_ready` and `derive_stage` read to decide whether a dash
+/// has done anything worth joining. A dash whose only commit is a sweep now
+/// reports zero rounds, which is the truth: nothing was authored.
+///
+/// Sweeps written before the trailer existed carry no mark and still count.
+/// They are not rewritten — history is not edited to make a count prettier —
+/// and they age out as their dashes join or are discarded.
+pub(crate) fn dash_rounds(repo_root: &Path, base: &str, branch: &str) -> Vec<DashRound> {
+    // One read for all four fields. `%x1f` (unit separator) divides fields and
+    // `%x1e` (record separator) divides commits, because a subject cannot
+    // contain either and a trailer value spans to end of line — a plain
+    // newline-per-commit format could not tell a two-line record from two.
+    let format = format!(
+        "--format=%h%x1f%s%x1f%cI%x1f%(trailers:key={SWEEP_TRAILER_KEY},valueonly)%x1e"
+    );
+    let Ok(out) = git_stdout(repo_root, &["log", &format, &format!("{base}..{branch}")]) else {
+        return Vec::new();
+    };
+    out.split('\u{1e}')
+        .filter_map(|record| {
+            let record = record.trim_start_matches(['\n', '\r']);
+            if record.trim().is_empty() {
+                return None;
+            }
+            let mut parts = record.split('\u{1f}');
+            let hash = parts.next().unwrap_or("").to_string();
+            let subject = parts.next().unwrap_or("").to_string();
+            let committed_at = parts.next().unwrap_or("").to_string();
+            let sweep_mark = parts.next().unwrap_or("");
+            // A non-empty trailer field means this commit marked itself.
+            if !sweep_mark.trim().is_empty() {
+                return None;
+            }
+            Some(DashRound {
+                hash,
+                subject,
+                committed_at,
+            })
+        })
+        .collect()
+}
+
+/// How many times a commit path re-attempts past a held `index.lock`, and how
+/// long it waits between attempts — a ~1.5s ceiling (Spec S02).
+///
+/// The bound is what keeps this a retry rather than a wait: a lock still held
+/// after a second and a half is not the other writer finishing its commit, it
+/// is a crashed process leaving a file behind, and that wants the error.
+const INDEX_LOCK_ATTEMPTS: u32 = 10;
+const INDEX_LOCK_BACKOFF: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Whether a failed git invocation lost the race for the worktree's index
+/// rather than failing on its merits.
+///
+/// Two writers commit into the same dash worktree at the same moment: the join
+/// arc's preflight sweep, and a live `tugutil dash commit` closing the run's
+/// final step. They want the same dirt, and the loser used to die on
+/// `index.lock: File exists` — killing either a join the user had just
+/// accepted or the round that ends the run.
+///
+/// Matched on the lock file's name, which git spells the same way in every
+/// message that reports it. One predicate for both sites, so they can never
+/// disagree about what is transient.
+fn index_lock_blocked(stderr: &str) -> bool {
+    stderr.contains("index.lock")
 }
 
 fn stale_journal_detail(name: &str) -> String {
@@ -3330,7 +3426,7 @@ pub fn join_in_with_progress(
     // that either applies or does not.
 
     // Auto-commit outstanding dash-worktree changes — FATAL on error now ([P14]).
-    commit_worktree_dirt(&worktree)?;
+    commit_worktree_dirt(&worktree, name)?;
 
     // Nothing to integrate (no commits past base) — discard, don't join.
     let ahead = git_stdout(
@@ -4083,6 +4179,335 @@ Some context.
 
     /// Stand up a repo with a dash whose worktree holds [`TWO_STEP_PLAN`].
     /// Returns the temp dir and the canonical repo root the verbs resolve to.
+    // -----------------------------------------------------------------------
+    // index.lock contention (Spec S02)
+    //
+    // The race is real and symmetric: the join arc's preflight sweep and a
+    // live `tugutil dash commit` both commit the same worktree's dirt at the
+    // same moment, and the loser used to die on `index.lock: File exists`.
+    // These hold the lock deterministically and release it from a helper
+    // thread — racing two real processes would be flake by construction.
+    // -----------------------------------------------------------------------
+
+    /// The index lock's real path for a worktree, which is inside the
+    /// worktree's own git dir — for a linked worktree that is
+    /// `…/.git/worktrees/<name>/`, not a `.git` directory beside the files.
+    fn index_lock_path(worktree: &Path) -> std::path::PathBuf {
+        let git_dir = Command::new("git")
+            .arg("-C")
+            .arg(worktree)
+            .args(["rev-parse", "--absolute-git-dir"])
+            .output()
+            .unwrap();
+        let dir = String::from_utf8_lossy(&git_dir.stdout).trim().to_string();
+        Path::new(&dir).join("index.lock")
+    }
+
+    /// Take the index lock and release it after `hold`.
+    ///
+    /// The releasing thread does nothing else — it is a clock, not a second
+    /// writer — so the call under test is the only process touching the index
+    /// and the outcome cannot depend on an interleaving.
+    fn hold_index_lock(worktree: &Path, hold: std::time::Duration) -> std::thread::JoinHandle<()> {
+        let lock = index_lock_path(worktree);
+        fs::write(&lock, b"").unwrap();
+        std::thread::spawn(move || {
+            std::thread::sleep(hold);
+            let _ = fs::remove_file(&lock);
+        })
+    }
+
+    fn head_sha(dir: &Path) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// A plain repo with one commit and one uncommitted change — the shape
+    /// `commit_worktree_dirt` is handed at join time.
+    fn dirty_repo(temp: &TempDir) -> std::path::PathBuf {
+        let repo = temp.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        init_git_repo(&repo);
+        fs::write(repo.join("a.txt"), "base\n").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["commit", "-q", "-m", "base"])
+            .output()
+            .unwrap();
+        fs::write(repo.join("a.txt"), "dirty\n").unwrap();
+        repo
+    }
+
+    #[test]
+    fn commit_worktree_dirt_survives_a_lock_released_mid_call() {
+        let temp = TempDir::new().unwrap();
+        let repo = dirty_repo(&temp);
+        let before = head_sha(&repo);
+        let releaser = hold_index_lock(&repo, std::time::Duration::from_millis(300));
+        commit_worktree_dirt(&repo, "sweeper").expect("the sweep waits out a transient lock");
+        releaser.join().unwrap();
+        assert_ne!(head_sha(&repo), before, "the dirt was committed");
+    }
+
+    /// The losing side's outcome, asserted without racing anything.
+    ///
+    /// The other writer having already taken the dirt is the *state* a loser
+    /// wakes up to, so the test produces that state directly instead of
+    /// starting a second writer and hoping the interleaving lands. Two live
+    /// writers is flake by construction: git reports contention with more than
+    /// one message, and one of them is not the `index.lock` this retries on.
+    #[test]
+    fn commit_worktree_dirt_yields_when_the_other_writer_took_the_dirt() {
+        let temp = TempDir::new().unwrap();
+        let repo = dirty_repo(&temp);
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["commit", "-q", "-m", "the other writer got there first"])
+            .output()
+            .unwrap();
+
+        commit_worktree_dirt(&repo, "sweeper").expect("losing the race is not an error");
+
+        let subject = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(["log", "-1", "--format=%s"])
+            .output()
+            .unwrap();
+        // The yield is a no-op: nothing stacked on top of the winner's commit,
+        // because the status re-read found the worktree already clean.
+        assert_eq!(
+            String::from_utf8_lossy(&subject.stdout).trim(),
+            "the other writer got there first"
+        );
+    }
+
+    #[test]
+    fn commit_worktree_dirt_surfaces_a_lock_that_never_clears() {
+        let temp = TempDir::new().unwrap();
+        let repo = dirty_repo(&temp);
+        fs::write(index_lock_path(&repo), b"").unwrap();
+        let err = commit_worktree_dirt(&repo, "sweeper").expect_err("a stuck lock is an error");
+        // Verbatim: the retry must not cost the reader the one word that says
+        // what happened.
+        assert!(err.contains("index.lock"), "error was: {err}");
+    }
+
+    #[serial]
+    #[test]
+    fn dash_commit_survives_a_lock_released_mid_call() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("locked", None, None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "locked");
+        fs::write(worktree.join("round.txt"), "work\n").unwrap();
+        let releaser = hold_index_lock(&worktree, std::time::Duration::from_millis(300));
+        let outcome = commit("locked", "tugdash(locked): a round", None)
+            .expect("the round waits out a transient lock");
+        releaser.join().unwrap();
+        assert!(outcome.committed, "the round landed");
+    }
+
+    /// The round's side of the same yield, produced directly for the same
+    /// reason: the sweep having already taken the changes is a state, not a
+    /// timing.
+    #[serial]
+    #[test]
+    fn dash_commit_reports_uncommitted_when_a_sweep_took_its_changes() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("swept", None, None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "swept");
+        fs::write(worktree.join("round.txt"), "work\n").unwrap();
+        commit_worktree_dirt(&worktree, "swept").unwrap();
+
+        let outcome = commit("swept", "tugdash(swept): a round", None)
+            .expect("losing the race is not an error");
+        // The sweep committed these bytes, so the round has nothing of its own
+        // left — the same outcome a clean worktree has always produced.
+        assert!(!outcome.committed);
+        assert!(outcome.commit_hash.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // The sweep is marked, and is not a round (Spec S03)
+    // -----------------------------------------------------------------------
+
+    /// Commit one authored round in a dash worktree, the way a run does.
+    fn author_round(worktree: &Path, n: u32) {
+        fs::write(worktree.join(format!("round{n}.txt")), format!("work {n}\n")).unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(worktree)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(worktree)
+            .args(["commit", "-q", "-m", &format!("tugdash(d): round {n}")])
+            .output()
+            .unwrap();
+    }
+
+    #[serial]
+    #[test]
+    fn a_sweep_does_not_inflate_the_round_count_or_the_subject_list() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("swept-count", None, None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "swept-count");
+        author_round(&worktree, 1);
+        author_round(&worktree, 2);
+
+        // Dirt, then the join arc's preflight sweep over it.
+        fs::write(worktree.join("late.txt"), "uncommitted\n").unwrap();
+        commit_worktree_dirt(&worktree, "swept-count").unwrap();
+
+        let detail = dash_detail_entries_in(&repo)
+            .into_iter()
+            .find(|d| d.name == "swept-count")
+            .expect("the dash is listed");
+        assert_eq!(detail.rounds, 2, "the sweep is not authored work");
+        assert_eq!(detail.round_subjects.len(), 2);
+        assert!(
+            !detail
+                .round_subjects
+                .iter()
+                .any(|s| s.contains("commit outstanding changes")),
+            "subjects were: {:?}",
+            detail.round_subjects
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn the_sweep_wears_the_round_voice_and_marks_itself() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("voiced", None, None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "voiced");
+        fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
+        commit_worktree_dirt(&worktree, "voiced").unwrap();
+
+        let message = Command::new("git")
+            .arg("-C")
+            .arg(&worktree)
+            .args(["log", "-1", "--format=%B"])
+            .output()
+            .unwrap();
+        let message = String::from_utf8_lossy(&message.stdout);
+        assert!(
+            message.starts_with("tugdash(voiced): commit outstanding changes"),
+            "message was: {message}"
+        );
+        assert!(message.contains("Tug-Sweep: 1"), "message was: {message}");
+    }
+
+    #[serial]
+    #[test]
+    fn a_dash_whose_only_commit_is_a_sweep_has_no_rounds() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("sweep-only", None, None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "sweep-only");
+        fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
+        commit_worktree_dirt(&worktree, "sweep-only").unwrap();
+
+        let detail = dash_detail_entries_in(&repo)
+            .into_iter()
+            .find(|d| d.name == "sweep-only")
+            .expect("the dash is listed");
+        // Nothing was authored, so there is nothing to join — and `join_ready`
+        // refuses on `rounds < 1` even with the run declared complete.
+        assert_eq!(detail.rounds, 0);
+        let decls = crate::dash::DashDeclarations {
+            run_complete: true,
+            ..Default::default()
+        };
+        assert!(!crate::dash::join_ready(detail.rounds, false, false, &decls));
+    }
+
+    #[serial]
+    #[test]
+    fn a_sweep_from_before_the_marker_still_counts() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("legacy-sweep", None, None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "legacy-sweep");
+        // Exactly what the sweep used to write: the old subject, no trailer.
+        fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&worktree)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&worktree)
+            .args(["commit", "-q", "-m", "join: commit outstanding changes"])
+            .output()
+            .unwrap();
+
+        let detail = dash_detail_entries_in(&repo)
+            .into_iter()
+            .find(|d| d.name == "legacy-sweep")
+            .expect("the dash is listed");
+        // The filter keys on the trailer, never on the subject. A sweep written
+        // before the marker existed keeps counting rather than having its
+        // history rewritten under it.
+        assert_eq!(detail.rounds, 1);
+    }
+
+    #[serial]
+    #[test]
+    fn every_round_reader_agrees_about_a_swept_dash() {
+        let temp = TempDir::new().unwrap();
+        let repo = repo_beside_state(&temp);
+        create("agreeing", None, None, false, None).unwrap();
+        let worktree = worktree_path(&repo, "agreeing");
+        author_round(&worktree, 1);
+        fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
+        commit_worktree_dirt(&worktree, "agreeing").unwrap();
+
+        let detail = dash_detail_entries_in(&repo)
+            .into_iter()
+            .find(|d| d.name == "agreeing")
+            .expect("the dash is listed");
+        let status = status_in(&repo, "agreeing").unwrap();
+        let shown = show("agreeing").unwrap();
+        let listed = list()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.name == "agreeing")
+            .expect("the dash is listed");
+        // Four readers, one definition of a round.
+        assert_eq!(detail.rounds, 1);
+        assert_eq!(status.rounds, 1);
+        assert_eq!(shown.rounds.len(), 1);
+        assert_eq!(listed.round_count, 1);
+    }
+
     fn stepped_dash(name: &str) -> (TempDir, std::path::PathBuf) {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);

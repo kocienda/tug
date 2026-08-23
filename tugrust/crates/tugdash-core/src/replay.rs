@@ -459,9 +459,11 @@ fn abbreviate(repo: &Path, commit: &str, width: usize) -> String {
 
 /// Commit the rewritten plan as an ordinary round.
 ///
-/// `commit_worktree_dirt` cannot stand in for this: its subject is the join's,
-/// hardcoded. A clean worktree here means the rewrite changed no bytes, which is
-/// not an error — there is simply no round to make.
+/// `commit_worktree_dirt` cannot stand in for this: it writes the join arc's
+/// preflight sweep, which carries a `Tug-Sweep` trailer and is therefore
+/// excluded from the dash's rounds. A remap IS a round. A clean worktree here
+/// means the rewrite changed no bytes, which is not an error — there is simply
+/// no round to make.
 fn commit_remap(worktree: &Path, name: &str) -> Result<String, String> {
     let dirt = git_stdout(worktree, &["status", "--porcelain"])?;
     if dirt.trim().is_empty() {

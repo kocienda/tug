@@ -1331,6 +1331,35 @@ pub(crate) async fn run_changeset_commit(
     .map_err(|e| format!("commit task panicked: {e}"))?
 }
 
+/// The `files:` line both landing receipts carry — the per-file stats as
+/// compact JSON, which the deck's receipt blocks parse back into their
+/// expandable row list.
+///
+/// A local Serialize struct fixes the key order (declaration order) so the
+/// durable string is stable and readable; `serde_json::json!` would sort the
+/// keys alphabetically. One writer for the one line format, so the commit and
+/// join receipts cannot drift apart in their bytes.
+pub(crate) fn receipt_files_line(files: &[tugchanges_core::FileStat]) -> String {
+    #[derive(serde::Serialize)]
+    struct ReceiptFile<'a> {
+        path: &'a str,
+        status: &'a str,
+        added: u32,
+        removed: u32,
+    }
+    let entries: Vec<ReceiptFile> = files
+        .iter()
+        .map(|f| ReceiptFile {
+            path: &f.path,
+            status: &f.status,
+            added: f.added.unwrap_or(0),
+            removed: f.deleted.unwrap_or(0),
+        })
+        .collect();
+    let files_json = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string());
+    format!("files: {files_json}")
+}
+
 /// The standard post-commit summary (Spec S02), formatted server-side so the
 /// live ink row and the row restored from the shell ledger are byte-identical.
 ///
@@ -1355,28 +1384,9 @@ pub(crate) fn format_commit_summary(
     let count = files.len();
     let added: u64 = files.iter().map(|f| f.added.unwrap_or(0) as u64).sum();
     let removed: u64 = files.iter().map(|f| f.deleted.unwrap_or(0) as u64).sum();
-    // A local Serialize struct fixes the key order (declaration order) so the
-    // durable string is stable and readable; `serde_json::json!` would sort the
-    // keys alphabetically.
-    #[derive(serde::Serialize)]
-    struct ReceiptFile<'a> {
-        path: &'a str,
-        status: &'a str,
-        added: u32,
-        removed: u32,
-    }
-    let entries: Vec<ReceiptFile> = files
-        .iter()
-        .map(|f| ReceiptFile {
-            path: &f.path,
-            status: &f.status,
-            added: f.added.unwrap_or(0),
-            removed: f.deleted.unwrap_or(0),
-        })
-        .collect();
-    let files_json = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string());
+    let files_line = receipt_files_line(files);
     format!(
-        "committed {short} · {count} file(s) · +{added} −{removed}\nfiles: {files_json}\n{message}"
+        "committed {short} · {count} file(s) · +{added} −{removed}\n{files_line}\n{message}"
     )
 }
 
@@ -1386,16 +1396,90 @@ pub(crate) fn format_commit_summary(
 /// fixed so the deck's parser can claim it, `·` is U+00B7, and the message is
 /// the one the join actually landed with — trimmed, never truncated, so the
 /// receipt is the squash message rather than a description of it.
+///
+/// ```text
+/// joined <sha[0..10]> · <dash> → <base> · <N> round(s)
+/// files: [{"path":"…","status":"modified","added":16,"removed":1}, …]
+/// <full message>
+/// ```
+///
+/// The `files:` line is **omitted entirely** when `files` is empty, which is
+/// also the shape every receipt written before the line existed carries. One
+/// degradation, not two: the deck decides by the `files: ` prefix, so a legacy
+/// row and a join with no readable file list take the same path.
 pub(crate) fn format_join_summary(
     sha: &str,
     dash: &str,
     base: &str,
     rounds: u32,
     message: &str,
+    files: &[tugchanges_core::FileStat],
 ) -> String {
     let short = &sha[..sha.len().min(10)];
     let message = message.trim();
-    format!("joined {short} · {dash} → {base} · {rounds} round(s)\n{message}")
+    let header = format!("joined {short} · {dash} → {base} · {rounds} round(s)");
+    if files.is_empty() {
+        return format!("{header}\n{message}");
+    }
+    let files_line = receipt_files_line(files);
+    format!("{header}\n{files_line}\n{message}")
+}
+
+/// The per-file stats for a landing commit — the receipt's file list.
+///
+/// Read with the **same flags the row expansion fetches with** — the
+/// `diff-tree --no-commit-id --root -M` of [`super::git::build_commit_diff_snapshot`],
+/// which `git-diff-store.ts` documents as its `commit` flavor: "one commit
+/// against its first parent". Every flag is load-bearing for that parity:
+/// `-M` makes a rename one row here and one row there rather than two here and
+/// one there, `--root` covers a root commit by diffing it against the empty
+/// tree, and `core.quotepath=false` keeps a non-ASCII path spelled the same in
+/// the list as in the fetch behind it. Matching them makes the summary's list
+/// and the rows it expands into the same object by construction.
+///
+/// `-r` is explicit because `diff-tree` does not recurse by default: `-p` and
+/// `--numstat` imply it, but `--name-status` does not, so without it the
+/// status read reports top-level directories (`M  tugrust`) and every file
+/// falls through to the "modified" default — a created or deleted file in a
+/// join would be labelled wrong.
+///
+/// Either read failing yields an empty vec, which omits the `files:` line
+/// rather than asserting a commit changed nothing.
+pub(crate) async fn landing_file_stats(dir: &Path, sha: &str) -> Vec<tugchanges_core::FileStat> {
+    let numstat = git_stdout(
+        dir,
+        &[
+            "-c",
+            "core.quotepath=false",
+            "diff-tree",
+            "--no-commit-id",
+            "--root",
+            "-r",
+            "-M",
+            "--numstat",
+            sha,
+        ],
+    )
+    .await;
+    let name_status = git_stdout(
+        dir,
+        &[
+            "-c",
+            "core.quotepath=false",
+            "diff-tree",
+            "--no-commit-id",
+            "--root",
+            "-r",
+            "-M",
+            "--name-status",
+            sha,
+        ],
+    )
+    .await;
+    match (numstat, name_status) {
+        (Some(numstat), Some(name_status)) => tugchanges_core::file_stats(&numstat, &name_status),
+        _ => Vec::new(),
+    }
 }
 
 /// The `/dash-discard` receipt's durable summary (Spec S02).
@@ -3370,12 +3454,79 @@ Some context.
             "main",
             5,
             "tugdash(join-lane): land the join surface",
+            &[],
         );
         assert_eq!(
             s,
             "joined 0123456789 · join-lane → main · 5 round(s)\n\
              tugdash(join-lane): land the join surface"
         );
+    }
+
+    /// Over a real repository, because the bug this pins is one only git can
+    /// show: `diff-tree` does not recurse by default. `--numstat` implies it
+    /// and `--name-status` does not, so without an explicit `-r` the status
+    /// read returns `M<TAB>src` for a whole directory, no path in it matches,
+    /// and every file silently takes the "modified" default — a created file
+    /// in a nested directory would be labelled modified in a durable receipt.
+    #[tokio::test]
+    async fn landing_file_stats_reads_nested_paths_and_their_real_statuses() {
+        let (_temp, repo) = init_repo();
+        std::fs::create_dir_all(repo.join("src/deep")).unwrap();
+        std::fs::write(repo.join("src/deep/created.txt"), "new\n").unwrap();
+        std::fs::write(repo.join("committed.txt"), "base\nmore\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-q", "-m", "second"]);
+        let sha = git_stdout(&repo, &["rev-parse", "HEAD"])
+            .await
+            .expect("HEAD resolves");
+        let stats = landing_file_stats(&repo, &sha).await;
+        let by_path: std::collections::HashMap<&str, &tugchanges_core::FileStat> =
+            stats.iter().map(|f| (f.path.as_str(), f)).collect();
+        // The nested path arrives whole, not as its top directory.
+        let created = by_path
+            .get("src/deep/created.txt")
+            .expect("the nested file is listed by its full path");
+        assert_eq!(created.status, "created");
+        assert_eq!(created.added, Some(1));
+        let modified = by_path
+            .get("committed.txt")
+            .expect("the touched file is listed");
+        assert_eq!(modified.status, "modified");
+    }
+
+    /// The v2 shape, and the literal the deck's tests copy verbatim — the same
+    /// pinning discipline the commit receipt already runs on.
+    #[test]
+    fn format_join_summary_carries_the_files_line() {
+        let s = format_join_summary(
+            "0123456789abcdef",
+            "join-lane",
+            "main",
+            5,
+            "tugdash(join-lane): land the join surface",
+            &[
+                file_stat("src/a.rs", "modified", Some(16), Some(1)),
+                file_stat("src/b.rs", "created", Some(4), Some(0)),
+            ],
+        );
+        assert_eq!(
+            s,
+            "joined 0123456789 · join-lane → main · 5 round(s)\n\
+             files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":16,\"removed\":1},\
+             {\"path\":\"src/b.rs\",\"status\":\"created\",\"added\":4,\"removed\":0}]\n\
+             tugdash(join-lane): land the join surface"
+        );
+    }
+
+    /// An empty file list omits the line entirely rather than writing an empty
+    /// array — which is byte-for-byte the shape every receipt written before
+    /// the line existed carries, so legacy and no-list are one code path.
+    #[test]
+    fn format_join_summary_omits_the_files_line_when_there_are_none() {
+        let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject line", &[]);
+        assert_eq!(s, "joined abc1234567 · d → trunk · 1 round(s)\nSubject line");
+        assert!(!s.contains("files:"));
     }
 
     #[test]
@@ -3386,6 +3537,7 @@ Some context.
             "trunk",
             1,
             "  Subject line\n\nA longer body paragraph.\n",
+            &[],
         );
         assert_eq!(
             s,

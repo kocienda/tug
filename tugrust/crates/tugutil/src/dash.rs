@@ -522,12 +522,34 @@ fn run_mark(
 
 // --- replay ----------------------------------------------------------------
 
-/// `dash replay` owns its exit code rather than borrowing the dispatcher's.
+/// The exit status for a replay outcome — `0` for everything except a
+/// conflict.
 ///
-/// A conflict and a deferral are not errors — nothing went wrong, and both
-/// print a full report — but they are also not success: the dash is still
-/// behind, and a caller (a script, an agent finishing a rebase) needs to know
-/// that without parsing prose. So they exit 1 with their report on stdout.
+/// A **deferral** is the command declining to act and saying why: the worktree
+/// was dirty, a join was in flight, a bound session was mid-turn. Its own JSON
+/// reports `status: ok` / `outcome: deferred`, and nothing failed, so exiting
+/// non-zero beside that made one command give two verdicts about whether
+/// anything went wrong. The JSON was the truthful one.
+///
+/// A **conflict** is different in kind. The replay stopped mid-application and
+/// the dash cannot move until a person resolves the round it named, so the
+/// non-zero exit is a script's one cheap signal that work is required.
+///
+/// Returns `u8` rather than `ExitCode` so a test can compare it:
+/// `std::process::ExitCode` implements neither `PartialEq` nor a stable
+/// `Debug` (its `Debug` is the platform internal `ExitCode(unix_exit_status(0))`).
+fn replay_exit_status(outcome: &ReplayOutcome) -> u8 {
+    match outcome {
+        ReplayOutcome::Replayed { .. }
+        | ReplayOutcome::Recorded { .. }
+        | ReplayOutcome::Current
+        | ReplayOutcome::Deferred { .. } => 0,
+        ReplayOutcome::Conflicted { .. } => 1,
+    }
+}
+
+/// `dash replay` owns its exit code rather than borrowing the dispatcher's;
+/// [`replay_exit_status`] states which outcome means what.
 fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
     let outcome = match replay::replay(name) {
         Ok(o) => o,
@@ -541,12 +563,7 @@ fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
     } else if !quiet {
         print_replay(name, &outcome);
     }
-    match outcome {
-        ReplayOutcome::Replayed { .. }
-        | ReplayOutcome::Recorded { .. }
-        | ReplayOutcome::Current => ExitCode::SUCCESS,
-        ReplayOutcome::Conflicted { .. } | ReplayOutcome::Deferred { .. } => ExitCode::from(1),
-    }
+    ExitCode::from(replay_exit_status(&outcome))
 }
 
 fn short(sha: &str) -> &str {
@@ -933,6 +950,48 @@ fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// All five outcomes, so the one that means "work is required" cannot be
+    /// widened by accident: a deferral that exited 1 was the command
+    /// contradicting its own `status: ok` JSON.
+    #[test]
+    fn only_a_conflicted_replay_exits_non_zero() {
+        assert_eq!(
+            replay_exit_status(&ReplayOutcome::Replayed {
+                base_head: "abc".into(),
+                mapping: Vec::new(),
+                bookkeeping_commit: None,
+            }),
+            0
+        );
+        assert_eq!(
+            replay_exit_status(&ReplayOutcome::Recorded {
+                base_head: "abc".into(),
+                remapped: Vec::new(),
+                unmapped: Vec::new(),
+            }),
+            0
+        );
+        assert_eq!(replay_exit_status(&ReplayOutcome::Current), 0);
+        assert_eq!(
+            replay_exit_status(&ReplayOutcome::Deferred {
+                reason: "worktree-dirty".into(),
+                detail: "the dash worktree has uncommitted changes".into(),
+            }),
+            0,
+            "a deferral is the command declining to act, not a failure"
+        );
+        assert_eq!(
+            replay_exit_status(&ReplayOutcome::Conflicted {
+                base_head: "abc".into(),
+                round: "def".into(),
+                round_subject: "a round".into(),
+                paths: vec!["src/a.rs".into()],
+            }),
+            1,
+            "a conflict stops mid-application and demands a person"
+        );
+    }
 
     #[test]
     fn step_start_refuses_without_through() {

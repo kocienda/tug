@@ -238,7 +238,7 @@ fn resolve_ladder(
     let mut warnings = Vec::new();
 
     // Preamble: the tip must reflect the dash's real state before we resolve.
-    commit_worktree_dirt(&worktree)?;
+    commit_worktree_dirt(&worktree, name)?;
 
     let base_head = git_stdout(repo, &["rev-parse", &base_branch])?;
 

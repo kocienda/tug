@@ -4,9 +4,15 @@
  *
  * A landed join and a discarded dash each leave one shell-exchange row whose
  * `output` is the server-formatted summary (Specs S01 / S02). These renderers
- * parse that string and present it as a receipt — the landing sha and the dash
- * it came from, the message it landed with; or the dash and exactly what the
- * discard destroyed — instead of the generic fenced `ShellExchangeBlock`.
+ * parse that string and present it as a receipt — instead of the generic
+ * fenced `ShellExchangeBlock`.
+ *
+ * The two receipts are deliberately different shapes, because the two acts
+ * are. A join lands a commit on the base, so its receipt IS the commit
+ * receipt: the same sha-led header, the same badges, the same expandable file
+ * rows, plus the one line a plain commit cannot carry (`dash → base`). A
+ * discard lands nothing, so it keeps the bespoke shape — its identity is the
+ * dash that stopped existing and its body is what went with it.
  *
  * Everything on screen is parsed from the row itself, so the live append and
  * the ledger restore render byte-identically; a parse miss falls back to the
@@ -21,6 +27,8 @@ import type React from "react";
 
 import { CommitShaText } from "@/components/tugways/commit-sha-text";
 import { CommitMessage } from "@/components/tugways/commit-presentation";
+import { CommitChangesList } from "@/components/tugways/tug-changes-list";
+import { useAnnotatedElement } from "@/components/tugways/annotation-scope";
 import { BlockChrome } from "../blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "../blocks/collapse-context";
 import "@/components/tugways/commit-presentation.css";
@@ -28,6 +36,11 @@ import {
   registerCommandBlock,
   type CommandBlockProps,
 } from "./session-command-block-registry";
+import {
+  FILES_PREFIX,
+  parseFilesLine,
+  type CommitReceiptFile,
+} from "./session-commit-receipt-block";
 import { ShellExchangeBlock } from "./shell-exchange-block";
 import "./session-join-receipt-block.css";
 
@@ -40,6 +53,13 @@ export interface ParsedJoinReceipt {
   rounds: number;
   /** The squash message the join landed with, verbatim. */
   message: string;
+  /**
+   * The files the join landed (from the `files:` line). Empty for a receipt
+   * written before the line existed, and for a non-squash join — the server
+   * omits the line rather than writing a partial list, so both arrive here as
+   * the same absence and render the same way.
+   */
+  files: CommitReceiptFile[];
 }
 
 /** The display facts parsed from an S02 discard summary. */
@@ -70,18 +90,31 @@ const HISTORICAL_DISCARD_HEAD_RE =
  * Parse a `/dash-join` receipt from its `output` string, or `null` when the
  * output is not an S01 summary — a truncated row, or one written before the
  * format existed. The caller then renders the raw output rather than nothing.
+ *
+ * Line 1 is the file list only when it carries the `files: ` prefix, which is
+ * exactly `parseCommitReceipt`'s discipline. That one test is what makes every
+ * join receipt already in JSONL keep parsing forever: a transcript replays
+ * from its record on every card reload, so a format change that orphaned the
+ * old shape would turn every recorded join back into a raw shell row.
  */
 export function parseJoinReceipt(output: string): ParsedJoinReceipt | null {
   const lines = output.split("\n");
   const head = JOIN_HEAD_RE.exec(lines[0] ?? "");
   if (head === null) return null;
+  let messageStart = 1;
+  let files: CommitReceiptFile[] = [];
+  if (lines[1]?.startsWith(FILES_PREFIX) === true) {
+    files = parseFilesLine(lines[1]);
+    messageStart = 2;
+  }
   return {
     sha: head[1],
     dash: head[2],
     base: head[3],
     rounds: Number.parseInt(head[4], 10),
     // A trailing blank line would paint as an empty row under `pre-wrap`.
-    message: lines.slice(1).join("\n").replace(/\s+$/, ""),
+    message: lines.slice(messageStart).join("\n").replace(/\s+$/, ""),
+    files,
   };
 }
 
@@ -113,33 +146,97 @@ export function parseDiscardReceipt(output: string): ParsedDiscardReceipt | null
 export function SessionJoinReceiptBlock(props: CommandBlockProps): React.ReactElement {
   const parsed = parseJoinReceipt(props.message.output);
   if (parsed === null) return <ShellExchangeBlock {...props} />;
-  const { sha, dash, base, rounds, message } = parsed;
-  // The landing sha leads, exactly where the commit receipt puts it — a join
-  // IS a commit on the base, and the reader should not have to learn a second
-  // skeleton for it. The dash and its base follow as the identity that commit
-  // alone could not carry.
+  return (
+    <JoinReceipt
+      parsed={parsed}
+      cwd={props.message.cwd}
+      exchangeId={props.message.exchangeId}
+    />
+  );
+}
+
+/**
+ * The parsed join receipt, on the commit receipt's skeleton — a join IS a
+ * commit on the base, and the reader should not have to learn a second shape
+ * for the same kind of fact. So the sha and the squash subject lead the header
+ * exactly as they do on a `/commit`, the file and ± badges ride the header's
+ * trailing summaries, and the landed files are the same expandable
+ * `CommitChangesList` rows.
+ *
+ * One line is the join's own: `dash → base`, the identity a plain commit has
+ * no room for. It sits above the message body rather than in the header,
+ * because the header seat belongs to the subject under commit parity.
+ *
+ * Composition, not re-implementation ([L19], [L20]): every part here is the
+ * commit presentation's own component, and this block adds no rule that
+ * reaches inside their slots.
+ */
+function JoinReceipt({
+  parsed,
+  cwd,
+  exchangeId,
+}: {
+  parsed: ParsedJoinReceipt;
+  cwd: string;
+  exchangeId: string;
+}): React.ReactElement {
+  const { sha, dash, base, rounds, message, files } = parsed;
+  const subject = message.split("\n", 1)[0];
+  // A squash subject names what it touched and the scope tag is often a path —
+  // annotated like the commit receipt's subject, whose `<code>` this mirrors.
+  // The sha beside it is deliberately not annotated: `CommitShaText` owns every
+  // pointer gesture on it for its own copy menu.
+  const subjectRef = useAnnotatedElement<HTMLElement>([subject]);
+  const body = message.slice(subject.length).replace(/^\n+/, "").replace(/\s+$/, "");
+  const added = files.reduce((sum, f) => sum + f.added, 0);
+  const removed = files.reduce((sum, f) => sum + f.removed, 0);
+  // A receipt with no file list (legacy, or a non-squash join) falls back to
+  // the identity in the header seat, so the header is never a bare sha.
+  const headline = subject.length > 0 ? subject : `${dash} → ${base}`;
   const identity = (
     <span className="join-receipt-header">
       <CommitShaText sha={sha} />
       {" "}
-      <code className="join-receipt-summary">
-        {dash} → {base}
-      </code>
+      <code ref={subjectRef} className="join-receipt-summary">{headline}</code>
     </span>
   );
   return (
-    <ToolBlockHistoryCollapse toolUseId={props.message.exchangeId} defaultCollapsed={false}>
+    <ToolBlockHistoryCollapse toolUseId={exchangeId} defaultCollapsed={false}>
       <BlockChrome
         rootSlot="join-receipt-block"
         variant="receipt"
         identity={identity}
-        resultSummary={[{ kind: "count", count: rounds, noun: "round" }]}
+        // The file and ± badges only when there is a list behind them; the
+        // round count is the join's own fact and always rides last.
+        resultSummary={[
+          ...(files.length > 0
+            ? [
+                { kind: "count" as const, count: files.length, noun: "file" },
+                { kind: "diff" as const, added, removed },
+              ]
+            : []),
+          { kind: "count" as const, count: rounds, noun: "round" },
+        ]}
         phase="success"
         status="ready"
         copyText={`${sha} ${message}`.trim()}
       >
-        {message.length > 0 ? (
-          <CommitMessage body={message} dataSlot="join-receipt-detail" />
+        {subject.length > 0 ? (
+          <div className="join-receipt-identity" data-slot="join-receipt-identity">
+            <code>
+              {dash} → {base}
+            </code>
+          </div>
+        ) : null}
+        {body.length > 0 ? (
+          <CommitMessage body={body} dataSlot="join-receipt-detail" />
+        ) : null}
+        {/* The landed files as sha-backed rows, each expanding into the join
+            commit's own hunks. `cwd` is the base repo dir the join ran in,
+            persisted in the ledger by the same writer the commit receipt
+            already resolves against ([L29] — passed through verbatim). */}
+        {files.length > 0 ? (
+          <CommitChangesList root={cwd} sha={sha} files={files} />
         ) : null}
       </BlockChrome>
     </ToolBlockHistoryCollapse>

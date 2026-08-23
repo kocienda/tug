@@ -68,9 +68,16 @@ export interface ParsedCommitReceipt {
 // (`·` is U+00B7, `−` U+2212 — matched exactly so a hand-typed dash never
 // false-parses.)
 const HEAD_RE = /^committed (\S+) · (\d+) file\(s\) · \+(\d+) −(\d+)$/;
-const FILES_PREFIX = "files: ";
 
-function parseFilesLine(line: string): CommitReceiptFile[] {
+/**
+ * The `files:` line's prefix — the one marker that decides whether line 1 is a
+ * file list or the start of the message. Exported with {@link parseFilesLine}
+ * because the join receipt carries the identical line (Spec S01) and the two
+ * receipts must read it with one parser, not two that could drift.
+ */
+export const FILES_PREFIX = "files: ";
+
+export function parseFilesLine(line: string): CommitReceiptFile[] {
   try {
     const raw = JSON.parse(line.slice(FILES_PREFIX.length)) as unknown;
     if (!Array.isArray(raw)) return [];

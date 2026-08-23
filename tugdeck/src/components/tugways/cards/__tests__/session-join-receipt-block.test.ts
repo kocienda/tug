@@ -1,14 +1,15 @@
 /**
  * The join and discard receipts' parsers, against the exact strings the Rust
  * formatters assert. The literals are copied verbatim from
- * `format_join_summary_names_the_dash_the_base_and_the_rounds` and
+ * `format_join_summary_carries_the_files_line` and
  * `format_discard_summary_lists_the_round_subjects` — that copy is the point:
  * it is what keeps the two ends pinned to one format, and it fails loudly if
  * either end drifts.
  *
- * The historical discard header has no Rust formatter left to copy from, which
- * is exactly why its literal is spelled out here: it is the only remaining
- * record of a shape the app must keep reading and will never write again.
+ * Two literals here have no Rust formatter left to copy from, and that is
+ * exactly why they are spelled out: the historical discard header, and a join
+ * receipt written before the `files:` line existed. Both are shapes the app
+ * must keep reading and will never write again.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -42,6 +43,31 @@ describe("matchesJoinReceipt / matchesDiscardReceipt", () => {
 
 describe("parseJoinReceipt", () => {
   it("round-trips the exact S01 summary the server writes", () => {
+    // Copied verbatim from `format_join_summary_carries_the_files_line`.
+    const out =
+      "joined 0123456789 · join-lane → main · 5 round(s)\n" +
+      'files: [{"path":"src/a.rs","status":"modified","added":16,"removed":1},' +
+      '{"path":"src/b.rs","status":"created","added":4,"removed":0}]\n' +
+      "tugdash(join-lane): land the join surface";
+    expect(parseJoinReceipt(out)).toEqual({
+      sha: "0123456789",
+      dash: "join-lane",
+      base: "main",
+      rounds: 5,
+      message: "tugdash(join-lane): land the join surface",
+      files: [
+        { path: "src/a.rs", status: "modified", added: 16, removed: 1 },
+        { path: "src/b.rs", status: "created", added: 4, removed: 0 },
+      ],
+    });
+  });
+
+  it("still parses a receipt written before the files line existed", () => {
+    // The parse-forever pin. Transcripts replay from JSONL on every card
+    // reload, so every join receipt already recorded arrives here forever;
+    // this literal is read and never written. A non-squash join reaches the
+    // same path, because the server omits the line rather than writing a
+    // partial list.
     const out =
       "joined 0123456789 · join-lane → main · 5 round(s)\n" +
       "tugdash(join-lane): land the join surface";
@@ -51,6 +77,7 @@ describe("parseJoinReceipt", () => {
       base: "main",
       rounds: 5,
       message: "tugdash(join-lane): land the join surface",
+      files: [],
     });
   });
 
@@ -61,6 +88,17 @@ describe("parseJoinReceipt", () => {
     expect(parseJoinReceipt(out)?.message).toBe(
       "Subject line\n\nA longer body paragraph.",
     );
+  });
+
+  it("does not mistake a message whose first line merely mentions files", () => {
+    // The prefix test is exact: only a line that STARTS `files: ` is the file
+    // list, so a squash message opening with the word survives as message.
+    const out =
+      "joined abcdef0123 · d → trunk · 1 round(s)\n" +
+      "the files: they moved";
+    const parsed = parseJoinReceipt(out);
+    expect(parsed?.files).toEqual([]);
+    expect(parsed?.message).toBe("the files: they moved");
   });
 
   it("returns null for a legacy or truncated row", () => {
