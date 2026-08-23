@@ -16,15 +16,18 @@
  * (the axes are enumerable, the registry is a boot step), so the section's
  * height never moves as cards do.
  *
- * **Per-place questions are asked on the drawing.** Which edge a sidebar card
- * holds, and whether a slot or a rail stacks or splits, are facts about a place
- * the picture is already drawing — so they are stated and changed there, by
- * {@link LayoutPlaces}. This section used to re-describe each of them in a row
- * of its own: one per registered sidebar card, one per side, one per shared
- * slot, up to thirteen rows under a picture that had just drawn every one of
- * them. The reader's eye joined "Column 3" to the third block on every read,
- * the count grew with the deck, and the panel's height moved as cards did. The
- * marks cost none of that and scale sideways for free.
+ * **Arrangement questions are asked on the drawing.** Whether a slot or a rail
+ * stacks or splits is a fact about a place the picture is already drawing — so
+ * it is stated and changed there, by {@link LayoutPlaces}, and the schematic's
+ * whole vocabulary is stack versus split. Placement is not the picture's
+ * question: which side a card holds is asked once, in words, by its row above,
+ * because the row can also say "not on the deck at all" and the picture cannot
+ * press what it does not draw. This section used to re-describe every per-place
+ * fact in a row of its own — one per side, one per shared slot, up to thirteen
+ * rows under a picture that had just drawn every one of them — so the reader's
+ * eye joined "Column 3" to the third block on every read, the count grew with
+ * the deck, and the panel's height moved as cards did. The marks cost none of
+ * that and scale sideways for free.
  *
  * The trade also closed a trap. The column rows were gated on a slot holding
  * two or more cards, on the argument that a column of one is already unsplit —
@@ -100,10 +103,7 @@ import { setSectionContent } from "@/components/lens/lens-section-content";
 import { LayoutMiniature } from "@/components/lens/layout-miniature";
 import type { MiniatureRails } from "@/components/lens/layout-miniature";
 import { LayoutPlaces } from "@/components/lens/layout-places";
-import type {
-  LayoutPlace,
-  LayoutRailMember,
-} from "@/components/lens/layout-places";
+import type { LayoutPlace } from "@/components/lens/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
 import { getAllRegistrations } from "@/card-registry";
 import { getDeckStore } from "@/lib/deck-store-registry";
@@ -504,7 +504,6 @@ interface PlanLayer {
   ghost: {
     columns: readonly LayoutPlace[];
     railPlaces: readonly LayoutPlace[];
-    railMembers: readonly LayoutRailMember[];
     subject: string | null;
   };
 }
@@ -617,23 +616,6 @@ function LayoutsSectionBody({
       senderId: `${RAIL_SENDER_PREFIX}${side}`,
     }));
   const railPlaces: LayoutPlace[] = railPlacesFor(rails, railModes);
-  // The sidebar cards themselves, with the edge each currently holds — the
-  // OPEN ones, because these are the arrows standing on the drawing and the
-  // drawing draws what is on screen. The drawing's rails are counts, which is
-  // all a picture needs; a control needs to know WHICH card it would move.
-  const memberOf = (
-    entry: SidebarEntry,
-    side: SidebarSide,
-  ): LayoutRailMember => ({
-    componentId: entry.componentId,
-    title: entry.title,
-    side,
-    senderId: `${SIDE_SENDER_PREFIX}${entry.componentId}`,
-    previewAxis: `side:${entry.componentId}`,
-  });
-  const railMembers: LayoutRailMember[] = openSidebars.map((entry) =>
-    memberOf(entry, sidebarSide(imposition, entry.componentId)),
-  );
   /** Which slots the miniature draws divided, and into how many shares. */
   const columnSplits: Record<number, number> = {};
   for (const column of columns) {
@@ -671,10 +653,9 @@ function LayoutsSectionBody({
         }
         if (typeof sender === "string" && sender.startsWith(SIDE_SENDER_PREFIX)) {
           const componentId = sender.slice(SIDE_SENDER_PREFIX.length);
-          // One sender, three answers: the sidebar rows say Off / Left /
-          // Right, and the drawing's arrows say the other side. A side on a
-          // hidden card sets the side FIRST and then shows it, so the card
-          // appears where the press said rather than appearing and hopping.
+          // The sidebar rows say Off / Left / Right. A side on a hidden card
+          // sets the side FIRST and then shows it, so the card appears where
+          // the press said rather than appearing and hopping.
           if (value === "off") {
             dispatchCommand(TUG_ACTIONS.SET_SIDEBAR_OPEN, {
               componentId,
@@ -807,7 +788,6 @@ function LayoutsSectionBody({
   const baseGhost = {
     columns: columnPlaces,
     railPlaces,
-    railMembers,
     subject: null,
   };
 
@@ -825,7 +805,7 @@ function LayoutsSectionBody({
       // redistribution is the imposer's to make — so the ghost claims nothing
       // about columns and keeps only the rails, which a kind change leaves
       // alone.
-      ghost: { columns: [], railPlaces, railMembers, subject: null },
+      ghost: { columns: [], railPlaces, subject: null },
     })),
     ...LAYOUTS.map((mode) => ({
       previewId: `layout:${mode}`,
@@ -869,31 +849,21 @@ function LayoutsSectionBody({
         railModes,
         width: contentWidth,
         layout,
-        ghost: (() => {
-          const counts = railsFor(imposition, openSidebars, {
-            componentId: entry.componentId,
-            side,
-          });
-          return {
-            columns: columnPlaces,
-            railPlaces: railPlacesFor(counts, railModes),
-            railMembers: sidebars
-              .filter(
-                (e) =>
-                  openSidebarIds.has(e.componentId) ||
-                  e.componentId === entry.componentId,
-              )
-              .map((e) =>
-                memberOf(
-                  e,
-                  e.componentId === entry.componentId
-                    ? side
-                    : sidebarSide(imposition, e.componentId),
-                ),
-              ),
-            subject: `side-${entry.componentId}`,
-          };
-        })(),
+        // The card's placement changes, which the drawing itself shows; no
+        // single MARK changes, so there is no subject to accent. The rail
+        // marks still travel: the destination side gains one and the origin
+        // may lose its rail outright.
+        ghost: {
+          columns: columnPlaces,
+          railPlaces: railPlacesFor(
+            railsFor(imposition, openSidebars, {
+              componentId: entry.componentId,
+              side,
+            }),
+            railModes,
+          ),
+          subject: null,
+        },
       })),
     ),
     // And one per card for Off: the deck without it. For a card already
@@ -917,9 +887,6 @@ function LayoutsSectionBody({
         ghost: {
           columns: columnPlaces,
           railPlaces: railPlacesFor(counts, railModes),
-          railMembers: railMembers.filter(
-            (member) => member.componentId !== entry.componentId,
-          ),
           subject: null,
         },
       };
@@ -939,7 +906,6 @@ function LayoutsSectionBody({
         ghost: {
           columns: columnPlaces,
           railPlaces: railPlacesFor(rails, { ...railModes, [side]: mode }),
-          railMembers,
           subject: `rail-${side}`,
         },
       })),
@@ -980,7 +946,6 @@ function LayoutsSectionBody({
             place.slot === column.slot ? { ...place, mode } : place,
           ),
           railPlaces,
-          railMembers,
           subject: `col-${column.slot}`,
         },
       });
@@ -1112,7 +1077,6 @@ function LayoutsSectionBody({
                 layout={layer.layout}
                 columns={layer.ghost.columns}
                 railPlaces={layer.ghost.railPlaces}
-                railMembers={layer.ghost.railMembers}
                 ghost={{ subject: layer.ghost.subject }}
               />
             </div>
@@ -1139,7 +1103,6 @@ function LayoutsSectionBody({
           }
           columns={columnPlaces}
           railPlaces={railPlaces}
-          railMembers={railMembers}
           focusGroup={host.focusGroup}
           focusOrder={LAYOUTS_PLACES_FOCUS_ORDER}
         />

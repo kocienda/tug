@@ -2,12 +2,14 @@
  * layout-places.tsx — the drawing's places, as things you can read and press.
  *
  * The Layout section draws the deck once, at scale, and used to re-describe it
- * underneath in a row per place: a Left/Right group per sidebar card, a rail
- * row per side, a Stack/Split row per shared slot. The reader's eye joined
- * "Column 3" to the third block in the picture on every read, and the row count
- * grew with the deck. This is the other half of that trade: the picture states
- * every per-place fact and takes every per-place gesture, and the rows below it
- * keep the questions that are about the deck as a whole.
+ * underneath in a row per place: a rail row per side, a Stack/Split row per
+ * shared slot. The reader's eye joined "Column 3" to the third block in the
+ * picture on every read, and the row count grew with the deck. This is the
+ * other half of that trade: the picture states every per-place ARRANGEMENT
+ * fact and takes every arrangement gesture, and the rows below it keep the
+ * questions the picture cannot ask — the deck-wide axes, and each sidebar
+ * card's presence and side. The schematic is about stack versus split;
+ * placement is the rows' question, asked once, in words.
  *
  * **A place wears what it is SET to, not what it is showing.** A slot's glyph
  * reads `columnModeOf` and a side's reads `railModeOf` — the stored
@@ -25,7 +27,7 @@
  * the stored arrangement to the eye; the tooltip names it in words and then
  * says what clicking changes — because a control whose label only names its
  * consequence leaves the reader to infer the present, and the present is the
- * harder half to read off a ten-pixel glyph.
+ * harder half to read off a small glyph.
  *
  * **The geometry is not this component's opinion.** It replicates the drawing's
  * own flex row — the same padding, the same gap, the same rail flex-basis — and
@@ -62,7 +64,6 @@ import React, {
   useLayoutEffect,
   useRef,
 } from "react";
-import { ArrowLeftRight } from "lucide-react";
 
 import {
   miniatureGeometry,
@@ -112,30 +113,6 @@ export interface LayoutPlace {
   senderId: string;
 }
 
-/**
- * One sidebar card standing on an edge — a place of a different kind: what is
- * arrangeable about it is not how it stacks but which side it holds.
- *
- * The drawing's rails are counts (`MiniatureRails`), which is all a picture
- * needs and less than a control needs, so the overlay is given the cards
- * themselves. The affordances are laid out as EQUAL shares of the strip
- * whatever the rail is drawing beneath: a stacked rail's members are
- * near-congruent slivers offset by a three-percent peek, which is a fine
- * picture of a stack and an impossible press target.
- */
-export interface LayoutRailMember {
-  /** Which registered sidebar card this is. */
-  componentId: string;
-  /** Its own name — what the affordance is called out loud. */
-  title: string;
-  /** The edge it holds now. Pressing sends it to the other one. */
-  side: SidebarSide;
-  /** The sender id the section's responder routes this card's press by. */
-  senderId: string;
-  /** The preview axis its proposals are drawn under. */
-  previewAxis: string;
-}
-
 export interface LayoutPlacesProps {
   /** The arrangement to place against — the same props the drawing was given. */
   kind: ImpositionKind | null;
@@ -148,8 +125,6 @@ export interface LayoutPlacesProps {
   columns: readonly LayoutPlace[];
   /** Every occupied side. */
   railPlaces: readonly LayoutPlace[];
-  /** Every sidebar card, with the edge it currently holds. */
-  railMembers: readonly LayoutRailMember[];
   /** The focus group the section authors this stop into. */
   focusGroup?: string;
   /** Order within {@link focusGroup} — the picture's place in the walk. */
@@ -157,81 +132,11 @@ export interface LayoutPlacesProps {
   /**
    * Render as a preview layer's inert readout instead of the live instrument:
    * plain glyphs, no buttons, no focus stop, no pointer. `subject` is the key
-   * of the one place this preview proposes to change (`col-2`, `rail-left`,
-   * `side-<componentId>`), which the ghost accents; `null` for a deck-wide
-   * preview that changes no single place.
+   * of the one place this preview proposes to change (`col-2`, `rail-left`),
+   * which the ghost accents; `null` for a preview that changes no single
+   * place.
    */
   ghost?: { subject: string | null };
-}
-
-/** The other of the two edges — where pressing this member would send it. */
-function otherSide(side: SidebarSide): SidebarSide {
-  return side === "left" ? "right" : "left";
-}
-
-/** A member's whole story: where the card is, then what the press does. */
-function describeMember(member: LayoutRailMember): string {
-  return `${member.title} is on the ${member.side} edge — click to move it to the ${otherSide(member.side)}`;
-}
-
-/**
- * The cards on one side, each a press that sends it to the other edge.
- *
- * Equal shares of the strip's height, top to bottom in registration order —
- * see {@link LayoutRailMember} for why the drawing's own member geometry is not
- * reused. The mode mark keeps the strip's foot, so the members leave it room.
- */
-function RailMembers({
-  members,
-  ghost,
-}: {
-  members: readonly LayoutRailMember[];
-  ghost?: { subject: string | null };
-}): React.ReactElement | null {
-  if (members.length === 0) return null;
-  return (
-    <span className="layout-places-rail-members">
-      {members.map((member) => {
-        const destination = otherSide(member.side);
-        const placeKey = `side-${member.componentId}`;
-        return (
-          <span
-            key={member.componentId}
-            className="layout-places-rail-member"
-            data-place={placeKey}
-            data-preview-axis={member.previewAxis}
-            data-subject={
-              ghost !== undefined && ghost.subject === placeKey ? "" : undefined
-            }
-          >
-            {ghost !== undefined ? (
-              <span className="layout-places-ghost-glyph" aria-hidden="true">
-                <ArrowLeftRight />
-              </span>
-            ) : (
-              <TugIconButton
-                icon={<ArrowLeftRight />}
-                aria-label={describeMember(member)}
-                title={describeMember(member)}
-                size="xs"
-                emphasis="ghost"
-                senderId={member.senderId}
-                dispatch={{
-                  action: TUG_ACTIONS.SELECT_VALUE,
-                  sender: member.senderId,
-                  value: destination,
-                  phase: "discrete",
-                }}
-                data-testid={`lens-layouts-place-side-${member.componentId}`}
-                data-choice-value={destination}
-                data-sender={member.senderId}
-              />
-            )}
-          </span>
-        );
-      })}
-    </span>
-  );
 }
 
 /** The glyph a place's stored arrangement wears. Nothing is ever marked lit:
@@ -246,16 +151,15 @@ function otherMode(mode: ColumnMode | RailMode): ColumnMode | RailMode {
 }
 
 /**
- * A place's whole story, for its tooltip: what it is set to now, whether
- * anything stands under that arrangement yet, then what the press does. The
- * one-card clause is what keeps a dimmed mark honest — the arrangement is
- * real, and the same sentence says why the picture is not showing it.
+ * A place's whole story, for its tooltip: what it is set to now, then what the
+ * press does. Membership stays out of it — the dimmed weight already carries
+ * "nothing standing under this yet", and a count in the sentence reads as an
+ * apology for the arrangement rather than a statement of it.
  */
 function describePlace(place: LayoutPlace): string {
   const now = place.mode === "split" ? "split" : "stacked";
-  const alone = place.members > 1 ? "" : " (one card here)";
   const does = place.mode === "split" ? "stack" : "split";
-  return `${place.label} is ${now}${alone} — click to ${does}`;
+  return `${place.label} is ${now} — click to ${does}`;
 }
 
 /**
@@ -338,7 +242,6 @@ export function LayoutPlaces({
   flow = null,
   columns,
   railPlaces,
-  railMembers,
   focusGroup,
   focusOrder = 0,
   ghost,
@@ -362,7 +265,7 @@ export function LayoutPlaces({
   const { dispatch } = useControlDispatch();
 
   /** Every affordance, in reading order — which is DOM order: the left rail's
-   *  cards then its arrangement, the slots left to right, then the right rail's. */
+   *  arrangement, the slots left to right, then the right rail's. */
   const affordances = useCallback((): Element[] => {
     const root = rootRef.current;
     if (root === null) return [];
@@ -405,11 +308,11 @@ export function LayoutPlaces({
     onSelect: (element) => commitAt(element),
   });
 
-  // The mark set changes with the deck — a slot gains a card, a sidebar moves
-  // edges — so the cursor's range is re-read whenever the drawing does.
+  // The mark set changes with the deck — a slot gains a card, a side empties —
+  // so the cursor's range is re-read whenever the drawing does.
   const marksSignature = `${columns.map((c) => `${c.key}:${c.mode}`).join(",")}|${railPlaces
     .map((r) => `${r.key}:${r.mode}`)
-    .join(",")}|${railMembers.map((m) => `${m.componentId}:${m.side}`).join(",")}`;
+    .join(",")}`;
   useLayoutEffect(() => {
     syncItems();
   }, [marksSignature, syncItems]);
@@ -435,10 +338,6 @@ export function LayoutPlaces({
         className="layout-places-rail"
         style={{ flexBasis: `${basis.basisPct}%` }}
       >
-        <RailMembers
-          members={railMembers.filter((member) => member.side === side)}
-          ghost={ghost}
-        />
         <PlaceMark place={place} senderId={place.senderId} ghost={ghost} />
       </span>
     );

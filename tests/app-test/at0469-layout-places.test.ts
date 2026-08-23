@@ -509,7 +509,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
   );
 
   test(
-    "pressing a sidebar member sends that card to the other edge",
+    "a sidebar's row moves the real card; the picture carries no side arrows",
     async () => {
       const app = await launchTugApp();
       try {
@@ -518,21 +518,22 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
-          `document.querySelector('${mark("side-lens")}') !== null`,
+          `document.querySelector('[data-testid="lens-layouts-sidebar-lens"]') !== null`,
           { timeoutMs: 8_000 },
         );
         await wait(AFTER_LAND_MS);
 
-        // The Lens starts on the right, so its member affordance offers the
-        // left edge — the only other destination there is, which is why a press
-        // reaches it and a drag would only arrive at the same place slower.
-        const offered = await app.getElementAttribute(
-          mark("side-lens"),
-          "data-choice-value",
+        // Placement is the ROW's question, not the picture's: the schematic's
+        // marks say only stack versus split, and the picture carries no
+        // side-move affordance at all. The row can also say Off, which is the
+        // answer no mark on a drawing of the open deck could offer.
+        const arrows = await app.evalJS<number>(
+          `document.querySelectorAll('[data-testid^="lens-layouts-place-side-"]').length`,
         );
-        expect(offered, "the Lens is on the right, so the offer is left").toBe(
-          "left",
-        );
+        expect(
+          arrows,
+          "the picture carries no side-move affordance — the rows own placement",
+        ).toBe(0);
 
         const lensBefore = await app.evalJS<number>(
           `document.querySelector('.tug-pane[data-pane-id="pLens"]').getBoundingClientRect().left`,
@@ -545,7 +546,9 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "the Lens starts to the right of the content cards",
         ).toBeGreaterThan(cardBefore);
 
-        await app.click(mark("side-lens"));
+        await app.click(
+          `[data-testid="lens-layouts-sidebar-lens"] [data-choice-value="left"]`,
+        );
         await wait(AFTER_LAND_MS);
 
         const lensAfter = await app.evalJS<number>(
@@ -554,24 +557,25 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         const cardAfter = await app.evalJS<number>(
           `document.querySelector('.tug-pane[data-pane-id="p1"]').getBoundingClientRect().left`,
         );
-        // The real card moved, not just the drawing: the press went through the
-        // section's own `set-sidebar-side` route, the same one the deleted row
-        // used.
+        // The real card moved, not just the row: the press went through the
+        // section's own `set-sidebar-side` route.
         expect(
           lensAfter,
-          "pressing the Lens's member moved the real Lens card to the left edge",
+          "pressing Left on the Lens's row moved the real Lens card to the left edge",
         ).toBeLessThan(cardAfter);
         note(
           `lens ${Math.round(lensBefore)} → ${Math.round(lensAfter)}, ` +
             `card ${Math.round(cardBefore)} → ${Math.round(cardAfter)}`,
         );
 
-        // And the affordance now offers the way back.
-        const offeredBack = await app.getElementAttribute(
-          mark("side-lens"),
-          "data-choice-value",
+        // And the row now reads the side it holds.
+        const activeNow = await app.evalJS<string | null>(
+          `(function () {
+            var el = document.querySelector('[data-testid="lens-layouts-sidebar-lens"] [data-choice-value][data-state="active"]');
+            return el === null ? null : el.getAttribute("data-choice-value");
+          })()`,
         );
-        expect(offeredBack, "the offer reverses with the card").toBe("right");
+        expect(activeNow, "the row reads the move").toBe("left");
       } finally {
         await app.close();
       }
@@ -723,16 +727,16 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "a hidden card's row reads Off",
         ).toBe("off");
 
-        // ── And the drawing draws what stands: no mark for a hidden card. ──
+        // ── And the drawing draws what stands: no rail for a hidden card. ──
         //
         // Membership is a live read of the OPEN cards. A registered-but-hidden
-        // Jots is not on the deck, so it is neither drawn nor marked — the row
-        // above is its one door.
+        // Jots is not on the deck, so its side is neither drawn nor marked —
+        // the row above is its one door.
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector('${mark("side-jots")}') !== null`,
+            `document.querySelector('${PLACES} .layout-places-mark[data-place="rail-left"]') !== null`,
           ),
-          "a hidden card has no member arrow on the drawing",
+          "an empty side has no rail to mark",
         ).toBe(false);
 
         // ── Pressing a side on a hidden card's row shows it THERE. ──
@@ -748,9 +752,9 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           `document.querySelectorAll('.tug-pane[data-lens="left"]').length`,
         );
         expect(jotsLeft, "the real Jots card stands on the left edge").toBe(1);
-        // The drawing follows: a left rail, a member arrow, and a rail mark.
+        // The drawing follows: a left rail appears, wearing its own mark.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${mark("side-jots")}') !== null`,
+          `document.querySelector('${PLACES} .layout-places-mark[data-place="rail-left"]') !== null`,
           { timeoutMs: 4_000 },
         );
         const railMarksNow = await app.evalJS<string[]>(
@@ -778,9 +782,9 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
         ).toBe(0);
         expect(
           await app.evalJS<boolean>(
-            `document.querySelector('${mark("side-jots")}') !== null`,
+            `document.querySelector('${PLACES} .layout-places-mark[data-place="rail-left"]') !== null`,
           ),
-          "and its member arrow left the drawing",
+          "and its rail left the drawing",
         ).toBe(false);
         note("jots: off → left → off, with the deck and the drawing in step");
       } finally {

@@ -78,31 +78,6 @@
   flex: 0 0 auto;
 }
 
-/* The cards on one side, each pressable, stacked down the strip in equal
-   shares — deliberately NOT the drawing's own member geometry, where a stacked
-   rail's members are near-congruent slivers three percent apart. That is a good
-   picture of a stack and an impossible thing to press.
-
-   The run stops short of the strip's foot, which belongs to the side's own
-   arrangement mark. */
-.layout-places-rail-members {
-  position: absolute;
-  inset-inline: 0;
-  inset-block-start: 0;
-  inset-block-end: var(--tugx-layout-places-mark-room, 28px);
-  display: flex;
-  flex-direction: column;
-}
-
-.layout-places-rail-member {
-  flex: 1 1 0;
-  min-block-size: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: auto;
-}
-
 /* The run the cards stand across — everything the rails have not taken, exactly
    as in the drawing. */
 .layout-places-field {
@@ -199,11 +174,6 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-.layout-places-ghost-glyph svg {
-  width: var(--tug-button-xs-icon-size);
-  height: var(--tug-button-xs-icon-size);
-}
-
 .layout-places-ghost-glyph .tug-column-badge-glyph {
   inline-size: var(--tugx-layout-places-glyph-width, 14px);
   block-size: var(--tugx-layout-places-glyph-height, 17px);
@@ -234,7 +204,6 @@
    overlapping mark sets — one at the committed geometry, one at the preview's —
    would be noise. Opacity rather than display, because the hidden marks must
    keep their hit areas: the hovered one is what is HOLDING the preview up. */
-.layouts-plan[data-previewing] + .layout-places .layout-places-mark,
-.layouts-plan[data-previewing] + .layout-places .layout-places-rail-member {
+.layouts-plan[data-previewing] + .layout-places .layout-places-mark {
   opacity: 0;
 }
