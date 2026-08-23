@@ -206,14 +206,19 @@ pub struct ConflictMessage<'a> {
     /// subjects, so the agent knows what the work it is rescuing is for.
     pub intent: &'a str,
     pub worktree_abs: &'a str,
+    /// The project's declared fit check (`[tugtool.dash].verify`), verbatim
+    /// with its `{base}`/`{head}` placeholders intact. `None` when the project
+    /// declares none, and then the turn names no fit check at all.
+    pub verify: Option<&'a str>,
 }
 
 /// The turn a conflicted replay becomes.
 ///
 /// It carries what moved, where the replay stopped, what this dash is trying to
 /// do, and the exact sequence that finishes the job — including the
-/// bookkeeping verb, without which the moved rounds go unrecorded. It also says
-/// what to do when the conflict is a real design collision rather than a
+/// bookkeeping verb, without which the moved rounds go unrecorded, and the
+/// project's declared fit check over the range the replay recorded. It also
+/// says what to do when the conflict is a real design collision rather than a
 /// mechanical one, because "resolve this" is not always the right answer.
 pub fn compose_conflict_message(m: &ConflictMessage<'_>) -> String {
     let mut out = String::new();
@@ -236,10 +241,22 @@ pub fn compose_conflict_message(m: &ConflictMessage<'_>) -> String {
         "\nResolve it on the dash's own worktree:\n  \
          git -C {} rebase {}\n\
          Fix each conflict with both sides in view, then `git rebase --continue`. When the\n\
-         rebase is done, run `tugutil dash replay {} --json` to record the moved rounds.\n\
-         If the conflict reveals a real design collision instead, `git rebase --abort` and say so.\n",
+         rebase is done, run `tugutil dash replay {} --json` to record the moved rounds.\n",
         m.worktree_abs, m.base_branch, m.dash,
     ));
+    if let Some(verify) = m.verify {
+        out.push_str(&format!(
+            "After the replay records, verify the fit from the worktree:\n  \
+             {}\n\
+             substituting {{base}} and {{head}} from the replay's JSON — the base it replayed\n\
+             onto and the dash's new tip. If it comes back red, fix it in the worktree as\n\
+             ordinary work and re-run it.\n",
+            verify,
+        ));
+    }
+    out.push_str(
+        "If the conflict reveals a real design collision instead, `git rebase --abort` and say so.\n",
+    );
     out
 }
 
@@ -771,6 +788,14 @@ fn compose_for(
                 return String::new();
             };
             let intent = tugdash_core::resolve_intent(&job.repo_dir, &job.base_branch, &job.branch);
+            // The composer is IO-free by contract, so the config read happens
+            // here, where git IO already does. The worktree carries its own
+            // committed `.tugtool/config.toml` — the copy this run is about.
+            let verify = tugutil_core::config::Config::load_from_project(Path::new(
+                &job.worktree_abs,
+            ))
+            .ok()
+            .and_then(|config| config.tugtool.dash.verify);
             compose_conflict_message(&ConflictMessage {
                 dash: &job.name,
                 base_branch: &job.base_branch,
@@ -780,6 +805,7 @@ fn compose_for(
                 paths: &record.paths,
                 intent: &intent,
                 worktree_abs: &job.worktree_abs,
+                verify: verify.as_deref(),
             })
         }
         Speak::Notice {
@@ -1167,6 +1193,7 @@ mod tests {
             paths: &["src/a.rs".to_string(), "src/b.rs".to_string()],
             intent: "Land the divergence marks.\n\nRound subjects:\nadd the marks",
             worktree_abs: "/repo/.tug/worktrees/demo",
+            verify: Some("sh scripts/verify-fit.sh {base} {head}"),
         })
     }
 
@@ -1192,6 +1219,45 @@ mod tests {
             text.contains("Land the divergence marks."),
             "the intent rides along"
         );
+        assert!(
+            text.contains("sh scripts/verify-fit.sh {base} {head}"),
+            "the declared fit check rides verbatim, placeholders intact",
+        );
+        assert!(
+            text.contains("from the replay's JSON"),
+            "the turn names where the substitutions come from",
+        );
+        assert!(
+            text.contains("comes back red"),
+            "a red verify is ordinary work, and the turn says so",
+        );
+        let replay_at = text.find("tugutil dash replay demo").expect("replay named");
+        let verify_at = text.find("verify the fit").expect("verify named");
+        assert!(
+            replay_at < verify_at,
+            "the fit is checked over what the replay recorded, so it comes after",
+        );
+    }
+
+    #[test]
+    fn a_conflict_turn_names_no_fit_check_when_the_project_declares_none() {
+        let text = compose_conflict_message(&ConflictMessage {
+            dash: "demo",
+            base_branch: "main",
+            base_head: "abcdef0123456789",
+            round: "0123456789abcdef",
+            round_subject: "s",
+            paths: &["f.txt".to_string()],
+            intent: "   ",
+            worktree_abs: "/repo/wt",
+            verify: None,
+        });
+        assert!(!text.contains("verify the fit"));
+        assert!(
+            text.contains("tugutil dash replay demo"),
+            "the bookkeeping verb stands with or without a declaration",
+        );
+        assert!(text.contains("git rebase --abort"));
     }
 
     #[test]
@@ -1205,6 +1271,7 @@ mod tests {
             paths: &["f.txt".to_string()],
             intent: "   ",
             worktree_abs: "/repo/wt",
+            verify: Some("sh scripts/verify-fit.sh {base} {head}"),
         });
         assert!(!text.contains("This dash's intent"));
         assert!(text.contains("tugutil dash replay demo"));

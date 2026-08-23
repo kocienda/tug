@@ -431,7 +431,21 @@ fn resolve_ladder(
 
 /// How much of one file's diff rides the resolve frame. A review needs the shape
 /// of what changed, not an unbounded payload on a CONTROL broadcast.
-const DIFF_LINE_CAP: usize = 400;
+///
+/// The budget is spent from both ends: an over-cap patch keeps its first
+/// [`DIFF_HEAD_LINES`] and its last [`DIFF_TAIL_LINES`] with a marker between
+/// them saying how many lines were elided. A head-only cap drops the end of the
+/// patch, and the end is where a rewrite's outcome lives — git emits deletions
+/// before additions, so the line the resolution actually added is the first
+/// thing a head-only cap throws away.
+const DIFF_LINE_CAP: usize = DIFF_HEAD_LINES + DIFF_TAIL_LINES;
+
+/// The opening of an over-cap patch: enough to orient a reader, since hunk
+/// headers and context front-load.
+const DIFF_HEAD_LINES: usize = 300;
+
+/// The ending of an over-cap patch: how the change comes out.
+const DIFF_TAIL_LINES: usize = 100;
 
 /// The per-file report, each entry carrying the diff its resolution would land.
 fn resolution_report(
@@ -457,7 +471,8 @@ fn resolution_report(
 
 /// One path's diff and the counts that describe it, from a single `git diff`.
 struct ResolutionDiff {
-    /// The patch body, capped at [`DIFF_LINE_CAP`] lines.
+    /// The patch body, capped at [`DIFF_LINE_CAP`] lines — head and tail, with
+    /// an elision marker between them when the cap bites.
     text: String,
     added: Option<u32>,
     removed: Option<u32>,
@@ -526,17 +541,17 @@ fn resolution_diff(
     if body.is_empty() {
         return None;
     }
-    let mut lines = body.lines();
-    let head: Vec<&str> = lines.by_ref().take(DIFF_LINE_CAP).collect();
-    let rest = lines.count();
-    let text = if rest == 0 {
-        head.join("\n")
+    let lines: Vec<&str> = body.lines().collect();
+    let text = if lines.len() <= DIFF_LINE_CAP {
+        lines.join("\n")
     } else {
+        let elided = lines.len() - DIFF_LINE_CAP;
         format!(
-            "{}\n… {} more line{}",
-            head.join("\n"),
-            rest,
-            if rest == 1 { "" } else { "s" }
+            "{}\n… {} line{} elided …\n{}",
+            lines[..DIFF_HEAD_LINES].join("\n"),
+            elided,
+            if elided == 1 { "" } else { "s" },
+            lines[lines.len() - DIFF_TAIL_LINES..].join("\n"),
         )
     };
     Some(ResolutionDiff {
@@ -1974,6 +1989,10 @@ mod tests {
         assert!(diff.contains("-C"), "the base's line leaving: {diff}");
         assert!(diff.contains("+DRIVER"), "the resolution joining: {diff}");
         assert!(diff.contains("f.txt"), "the path in the header: {diff}");
+        assert!(
+            !diff.contains("elided"),
+            "a patch inside the budget rides verbatim: {diff}"
+        );
         // One line out, one line in — git's count, beside the text it describes.
         assert_eq!((resolution.added, resolution.removed), (Some(1), Some(1)));
 
@@ -2014,16 +2033,25 @@ mod tests {
         assert_eq!(resolution.resolved_by, ResolvedBy::Driver);
         let diff = resolution.diff.as_deref().expect("a resolution to review");
 
-        // The text really is truncated — the premise of the whole test.
+        // The text really is capped — the premise of the whole test.
         assert!(
-            diff.contains("more lines"),
+            diff.contains("lines elided …"),
             "the cap should have bitten: {}",
             &diff[..diff.len().min(200)]
         );
         assert!(
-            !diff.contains("+DRIVER"),
-            "the addition falls past the cap — if it does not, this test no \
-             longer covers the case it was written for"
+            diff.contains("+DRIVER"),
+            "the resolution's own addition is the last line of the patch, and \
+             the tail is what the split cap keeps"
+        );
+        assert!(
+            diff.contains("-line 1\n"),
+            "the head is kept too — a reader still gets the patch's opening"
+        );
+        assert_eq!(
+            diff.lines().count(),
+            DIFF_LINE_CAP + 1,
+            "head + marker + tail, inside the same budget"
         );
 
         // …and the counts are still git's, over the whole diff. This is the
