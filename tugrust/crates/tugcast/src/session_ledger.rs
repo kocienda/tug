@@ -2070,6 +2070,9 @@ impl SessionLedger {
         // After the batch, because it repoints rows in `minted_tags`, which
         // the batch creates and seeds.
         Self::migrate_collapse_lineage_chains(conn)?;
+        // After the collapse, because it repairs what an earlier build's
+        // collapse left behind and must not race the one running now.
+        Self::migrate_release_superseded_fork_names(conn)?;
         // After the batch, because it needs the FTS tables to exist.
         Self::backfill_search_tokens(conn, facts_fts_dropped, posts_fts_dropped)?;
         let changes_write_ok = Self::bootstrap_changes_schema(conn, may_write_changes)?;
@@ -2444,6 +2447,7 @@ impl SessionLedger {
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()?;
+            let mut root_wearer: Option<String> = None;
             match wearer {
                 Some((_, state)) if state == "live" => {
                     // The root spelling is worn by a LIVE session: a genuine
@@ -2465,6 +2469,7 @@ impl SessionLedger {
                         "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
                         params![sid],
                     )?;
+                    root_wearer = Some(sid);
                 }
                 None => {}
             }
@@ -2500,6 +2505,50 @@ impl SessionLedger {
                 "UPDATE sessions SET tag = ?1 WHERE session_id = ?2",
                 params![root, head],
             )?;
+            // The user's name is worn the same way the spelling is, so it
+            // moves the same way ([D154]): the head takes it when it has none
+            // of its own, and every superseded copy gives it up. A copy left
+            // wearing the name would collide with the head's, which is exactly
+            // what puts a callsign back into a title [D145] says shows a name
+            // alone. An auto title is not a worn name and stays where it is.
+            let head_named: bool = conn
+                .query_row(
+                    "SELECT 1 FROM sessions
+                     WHERE session_id = ?1 AND name_user_set = 1
+                       AND COALESCE(name, '') != ''",
+                    params![head],
+                    |_| Ok(true),
+                )
+                .optional()?
+                .unwrap_or(false);
+            if !head_named {
+                let inherited: Option<String> = conn
+                    .query_row(
+                        "SELECT name FROM sessions
+                         WHERE (root_tag = ?1 OR session_id = ?3)
+                           AND session_id != ?2
+                           AND name_user_set = 1 AND COALESCE(name, '') != ''
+                         ORDER BY LENGTH(COALESCE(tag_lineage, '')) DESC,
+                                  last_used_at DESC
+                         LIMIT 1",
+                        params![root, head, root_wearer],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if let Some(name) = inherited {
+                    conn.execute(
+                        "UPDATE sessions SET name = ?2, name_user_set = 1
+                         WHERE session_id = ?1",
+                        params![head, name],
+                    )?;
+                }
+            }
+            conn.execute(
+                "UPDATE sessions SET name = NULL, name_user_set = 0
+                 WHERE (root_tag = ?1 OR session_id = ?3)
+                   AND session_id != ?2 AND name_user_set = 1",
+                params![root, head, root_wearer],
+            )?;
             conn.execute(
                 "UPDATE sessions SET root_tag = NULL, tag_lineage = NULL
                  WHERE root_tag = ?1",
@@ -2507,6 +2556,51 @@ impl SessionLedger {
             )?;
         }
         conn.execute("DROP TABLE IF EXISTS tag_lineage_points", [])?;
+        Ok(())
+    }
+
+    /// Take the user's name off the superseded fork copies an earlier
+    /// collapse left wearing one.
+    ///
+    /// [D154] hands a custom name down to the fork with the callsign, so a
+    /// superseded copy wears neither.
+    /// [`Self::migrate_collapse_lineage_chains`] moves the name now, but a
+    /// ledger collapsed before it did is past the point where `root_tag`
+    /// still says which rows were a chain — those columns are gone. The
+    /// evidence that survives is in the arbiter: a suffixed `<tag>-A1`
+    /// spelling exists only for a callsign whose line was forked under the
+    /// retired grammar, and it points at the row heading that line. Another
+    /// row wearing that head's exact name with no callsign of its own is a
+    /// copy the chain left behind — and the duplicate is read as a name
+    /// collision, which puts the head's callsign back into a title [D145]
+    /// says shows a name alone.
+    ///
+    /// Self-healing by shape rather than by version stamp, like every other
+    /// instance migration here: one pass leaves nothing matching, and a
+    /// ledger that never ran the retired grammar has no suffixed spelling to
+    /// match on at all.
+    fn migrate_release_superseded_fork_names(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if !cols.iter().any(|(n, _)| n == "name_user_set") {
+            return Ok(());
+        }
+        conn.execute(
+            "UPDATE sessions SET name = NULL, name_user_set = 0
+             WHERE name_user_set = 1
+               AND COALESCE(name, '') != ''
+               AND COALESCE(tag, '') = ''
+               AND state != 'live'
+               AND EXISTS (
+                     SELECT 1 FROM sessions head
+                     JOIN minted_tags alias
+                       ON alias.tag LIKE head.tag || '-%'
+                     WHERE head.session_id != sessions.session_id
+                       AND COALESCE(head.tag, '') != ''
+                       AND head.name_user_set = 1
+                       AND head.name = sessions.name
+               )",
+            [],
+        )?;
         Ok(())
     }
 
@@ -8005,6 +8099,141 @@ mod tests {
         let tag = l.get("s-new").unwrap().unwrap().tag.expect("rerolled");
         assert_ne!(tag, "stocky-pixie");
         assert_is_lexicon_pair(&tag);
+    }
+
+    #[test]
+    fn a_collapse_hands_the_user_name_down_with_the_spelling() {
+        let l = fresh();
+        {
+            let conn = l.db.lock().unwrap();
+            // The pre-[D154] fork COPIED the name onto every row of the
+            // chain; only the head may keep it.
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN root_tag TEXT;
+                 ALTER TABLE sessions ADD COLUMN tag_lineage TEXT;
+                 INSERT INTO sessions (
+                     session_id, workspace_key, project_dir, created_at,
+                     last_used_at, state, tag, root_tag, tag_lineage,
+                     name, name_user_set
+                 ) VALUES
+                     ('root', 'ws', '/p', 0, 0, 'closed',
+                      'juicy-roach', NULL, NULL, 'dash+join-xp', 1),
+                     ('mid',  'ws', '/p', 0, 1, 'closed',
+                      'juicy-roach-A1', 'juicy-roach', 'A1',
+                      'dash+join-xp', 1),
+                     ('head', 'ws', '/p', 0, 2, 'live',
+                      'juicy-roach-A1-B1', 'juicy-roach', 'A1-B1',
+                      'dash+join-xp', 1);",
+            )
+            .unwrap();
+            SessionLedger::migrate_collapse_lineage_chains(&conn).unwrap();
+        }
+        let head = l.get("head").unwrap().unwrap();
+        assert_eq!(head.tag.as_deref(), Some("juicy-roach"));
+        assert_eq!(head.name.as_deref(), Some("dash+join-xp"));
+        for copy in ["root", "mid"] {
+            let row = l.get(copy).unwrap().unwrap();
+            assert_eq!(row.tag, None, "{copy} kept a spelling");
+            assert_eq!(row.name, None, "{copy} kept the name");
+            assert!(!row.name_user_set, "{copy} kept the name flag");
+        }
+    }
+
+    #[test]
+    fn a_collapse_lifts_the_name_onto_an_unnamed_head() {
+        let l = fresh();
+        {
+            let conn = l.db.lock().unwrap();
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN root_tag TEXT;
+                 ALTER TABLE sessions ADD COLUMN tag_lineage TEXT;
+                 INSERT INTO sessions (
+                     session_id, workspace_key, project_dir, created_at,
+                     last_used_at, state, tag, root_tag, tag_lineage,
+                     name, name_user_set
+                 ) VALUES
+                     ('mid',  'ws', '/p', 0, 1, 'closed',
+                      'juicy-roach-A1', 'juicy-roach', 'A1',
+                      'the mint work', 1),
+                     ('head', 'ws', '/p', 0, 2, 'closed',
+                      'juicy-roach-A1-B1', 'juicy-roach', 'A1-B1',
+                      'Auto title', 0);",
+            )
+            .unwrap();
+            SessionLedger::migrate_collapse_lineage_chains(&conn).unwrap();
+        }
+        // The name is not dropped on the floor: it follows the spelling onto
+        // the row that now heads the line, over an auto title.
+        let head = l.get("head").unwrap().unwrap();
+        assert_eq!(head.name.as_deref(), Some("the mint work"));
+        assert!(head.name_user_set);
+        assert_eq!(l.get("mid").unwrap().unwrap().name, None);
+    }
+
+    #[test]
+    fn a_stale_copys_name_is_released_after_the_columns_are_gone() {
+        let l = fresh();
+        {
+            let conn = l.db.lock().unwrap();
+            // An already-collapsed ledger: no `root_tag` to say what was a
+            // chain, only the arbiter's suffixed spellings.
+            conn.execute_batch(
+                "INSERT INTO sessions (
+                     session_id, workspace_key, project_dir, created_at,
+                     last_used_at, state, tag, name, name_user_set
+                 ) VALUES
+                     ('copy', 'ws', '/p', 0, 1, 'closed',
+                      NULL, 'dash+join-xp', 1),
+                     ('head', 'ws', '/p', 0, 2, 'live',
+                      'juicy-roach', 'dash+join-xp', 1),
+                     ('other', 'ws', '/p', 0, 3, 'closed',
+                      NULL, 'unrelated work', 1);
+                 INSERT OR IGNORE INTO minted_tags (tag, session_id, minted_at)
+                 VALUES ('juicy-roach', 'head', 0),
+                        ('juicy-roach-A1', 'head', 0);",
+            )
+            .unwrap();
+            SessionLedger::migrate_release_superseded_fork_names(&conn).unwrap();
+        }
+        assert_eq!(l.get("copy").unwrap().unwrap().name, None);
+        assert!(!l.get("copy").unwrap().unwrap().name_user_set);
+        // The head keeps everything, and a row that is merely tagless is not
+        // touched — only one sharing a forked head's name is.
+        let head = l.get("head").unwrap().unwrap();
+        assert_eq!(head.name.as_deref(), Some("dash+join-xp"));
+        assert_eq!(head.tag.as_deref(), Some("juicy-roach"));
+        assert_eq!(
+            l.get("other").unwrap().unwrap().name.as_deref(),
+            Some("unrelated work")
+        );
+    }
+
+    #[test]
+    fn an_unforked_namesake_keeps_its_name() {
+        let l = fresh();
+        {
+            let conn = l.db.lock().unwrap();
+            // Two sessions named alike with no fork behind either: a genuine
+            // collision, and the callsign is supposed to come back ([D145]).
+            conn.execute_batch(
+                "INSERT INTO sessions (
+                     session_id, workspace_key, project_dir, created_at,
+                     last_used_at, state, tag, name, name_user_set
+                 ) VALUES
+                     ('old', 'ws', '/p', 0, 1, 'closed',
+                      NULL, 'the mint work', 1),
+                     ('new', 'ws', '/p', 0, 2, 'live',
+                      'juicy-roach', 'the mint work', 1);
+                 INSERT OR IGNORE INTO minted_tags (tag, session_id, minted_at)
+                 VALUES ('juicy-roach', 'new', 0);",
+            )
+            .unwrap();
+            SessionLedger::migrate_release_superseded_fork_names(&conn).unwrap();
+        }
+        assert_eq!(
+            l.get("old").unwrap().unwrap().name.as_deref(),
+            Some("the mint work")
+        );
     }
 
     #[test]
