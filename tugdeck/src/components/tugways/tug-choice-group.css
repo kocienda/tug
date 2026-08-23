@@ -214,9 +214,26 @@
 /* Pointer hover only. The keyboard movement cursor is the role-resolved RING on
  * the cursor segment (the global `[data-key-cursor]` rule in `focus-ring.css`),
  * not a background wash — [P02]: a ring survives atop the selection pill where
- * the former neutral tint could not. */
+ * the former neutral tint could not.
+ *
+ * The wash is the segment's OWN, not the cursor's. A cursor mark has to be
+ * findable from across the control — the reader is hunting for where the
+ * keyboard is — so it is loud on purpose. A hover only confirms the pointer is
+ * on a target the reader is already looking at. Borrowing the loud one for the
+ * quiet job is what made a sweep across a mixer's segments read as a row of
+ * flashbulbs, each one lifting its ground most of the way to its ink and back.
+ *
+ * So the default is a whisper mixed from the segment's own ink, which is also
+ * what keeps its DIRECTION honest across themes: it lifts toward light on a
+ * dark theme and toward dark on a light one, where a fixed white wash goes
+ * invisible on the light half. The ink brightens with it, so both halves of the
+ * hover move the same way and the figure never inverts against its ground.
+ * `--tugx-choice-group-hover-surface` overrides it for a host wanting more. */
 .tug-choice-group-segment:hover:not(:disabled):not([aria-disabled="true"]):not([data-state="active"]) {
-  background-color: var(--tugx-key-cursor-surface);
+  background-color: var(
+    --tugx-choice-group-hover-surface,
+    color-mix(in oklab, currentcolor 7%, transparent)
+  );
   color: var(--tug7-element-segment-text-normal-plain-hover);
 }
 
@@ -565,13 +582,15 @@ html[data-kbf] .tug-choice-group-segment + .tug-choice-group-segment[data-key-cu
   color: var(--tug7-element-control-text-ghost-action-hover);
 }
 
-/* Hover on an inactive segment — preview the active treatment without
- * actually flipping the indicator. Same surface/text pair as the active
- * state, so the user gets a clear "this is what selecting feels like."
- * Match the default-emphasis hover exclusion list (don't fire on
- * disabled / active segments). */
+/* Hover on an inactive segment — the same whisper the fielded form wears, for
+ * the same reason: one hover language, whatever the emphasis. Match the
+ * default-emphasis hover exclusion list (don't fire on disabled / active
+ * segments). */
 .tug-choice-group[data-emphasis="ghost"] .tug-choice-group-segment:hover:not(:disabled):not([aria-disabled="true"]):not([data-state="active"]) {
-  background-color: var(--tugx-key-cursor-surface);
+  background-color: var(
+    --tugx-choice-group-hover-surface,
+    color-mix(in oklab, currentcolor 7%, transparent)
+  );
   color: var(--tug7-element-segment-text-normal-plain-hover);
 }
 
