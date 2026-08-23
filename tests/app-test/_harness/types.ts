@@ -445,6 +445,18 @@ export interface LedgerSeedSession {
   dash_id?: string;
   /** The dash's short name; defaults to `dash_id` when omitted. */
   dash_name?: string;
+  /**
+   * The session this one was rewind-forked from, written through the same
+   * `set_fork_provenance` the fork arc uses.
+   *
+   * Seed it to stand up the post-fork ledger state a relaunch binds to: the
+   * fork is the live row a card resumes onto, and every durable ink read
+   * resolves along this edge to find the line of work's receipts. A real fork
+   * needs a live `claude` process, which an app-test has no way to drive.
+   */
+  forked_from_session_id?: string;
+  /** The rewind point's prompt uuid; a placeholder is fine. */
+  fork_point?: string;
 }
 
 /**

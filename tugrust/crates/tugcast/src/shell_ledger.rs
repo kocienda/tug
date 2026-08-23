@@ -15,18 +15,41 @@
 //! exchange in flight at a crash is lost, which matches the "record of what
 //! happened" doctrine — it never settled. Per session the table is capped at
 //! [`MAX_EXCHANGES_PER_SESSION`]; the oldest rows past the cap are evicted on
-//! insert (logged, not silent).
+//! insert (logged, not silent). The cap bounds chatter only — a landing
+//! receipt ([`LANDING_RECEIPT_COMMANDS`]) is never evicted.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use rusqlite::{Connection, params};
 use serde::Serialize;
 use tracing::warn;
 
-/// Per-session row cap. Human-typed command volume is modest; the tail is what
-/// the transcript needs, so old exchanges age out.
+/// Per-session row cap on **chatter**. Human-typed command volume is modest;
+/// the tail is what the transcript needs, so old `$` exchanges age out.
+///
+/// Landing receipts are exempt and are neither counted against the cap nor
+/// evicted by it — see [`LANDING_RECEIPT_COMMANDS`].
 pub const MAX_EXCHANGES_PER_SESSION: usize = 500;
+
+/// The `command` values a landing writes: a `/commit`, `/dash-join`, or
+/// `/dash-discard` receipt.
+///
+/// A receipt is the user's act rather than session chatter ([D111]), and it is
+/// the only record of that act the transcript will ever hold — Claude's JSONL
+/// never sees one. So the cap above does not apply to it: a line of work whose
+/// ink was merged from a fork could otherwise cross the cap on its next `$`
+/// command and evict, oldest-first, exactly the historical receipts that merge
+/// existed to rescue.
+pub const LANDING_RECEIPT_COMMANDS: [&str; 3] = ["/commit", "/dash-join", "/dash-discard"];
+
+/// `LANDING_RECEIPT_COMMANDS` as a SQL value list, so the eviction predicate
+/// and the constant above cannot drift apart.
+static RECEIPT_COMMANDS_SQL: LazyLock<String> = LazyLock::new(|| {
+    LANDING_RECEIPT_COMMANDS
+        .map(|command| format!("'{command}'"))
+        .join(", ")
+});
 
 #[derive(Debug, thiserror::Error)]
 pub enum ShellLedgerError {
@@ -178,15 +201,23 @@ impl ShellLedger {
             ],
         )?;
         let id = conn.last_insert_rowid();
-        // Cap eviction: delete the oldest rows beyond the cap for this session.
+        // Cap eviction: delete the oldest chatter rows beyond the cap for this
+        // session. Landing receipts sit outside the predicate on both sides —
+        // they neither fill the retained window nor become eviction
+        // candidates.
+        let receipts = &*RECEIPT_COMMANDS_SQL;
         let evicted = conn.execute(
-            "DELETE FROM shell_exchanges
-             WHERE tug_session_id = ?1
-               AND id NOT IN (
-                   SELECT id FROM shell_exchanges
-                   WHERE tug_session_id = ?1
-                   ORDER BY id DESC LIMIT ?2
-               )",
+            &format!(
+                "DELETE FROM shell_exchanges
+                 WHERE tug_session_id = ?1
+                   AND command NOT IN ({receipts})
+                   AND id NOT IN (
+                       SELECT id FROM shell_exchanges
+                       WHERE tug_session_id = ?1
+                         AND command NOT IN ({receipts})
+                       ORDER BY id DESC LIMIT ?2
+                   )"
+            ),
             params![ex.tug_session_id, MAX_EXCHANGES_PER_SESSION as i64],
         )?;
         if evicted > 0 {
@@ -212,10 +243,23 @@ impl ShellLedger {
         Ok(ids)
     }
 
-    /// Move every exchange from `from` onto `to`, preserving `seq` (the caller
-    /// only re-keys onto an empty target, so seqs stay unique). Returns the
-    /// number of rows moved.
+    /// Move every exchange from `from` onto `to`, preserving `seq`.
+    ///
+    /// The target need not be empty: a fork's ink is merged onto the line's
+    /// head, and both sides may already hold rows. Interleaved `seq` values
+    /// are safe here because nothing reads `seq` as a key — the table
+    /// declares uniqueness on neither `(tug_session_id, seq)` nor `seq`
+    /// alone (only `idx_shell_exchanges_session ON (tug_session_id, id)`),
+    /// the restore orders by `id ASC`, the deck seats each row at its own
+    /// timestamp, and the client's completeness census reads `total` rather
+    /// than `max_seq`.
+    ///
+    /// Idempotent: `from == to` is a no-op, and a second run finds `from`
+    /// already empty. Returns the number of rows moved.
     pub fn rekey_session(&self, from: &str, to: &str) -> Result<usize, ShellLedgerError> {
+        if from == to {
+            return Ok(0);
+        }
         let conn = self.db.lock().expect("shell ledger mutex");
         let moved = conn.execute(
             "UPDATE shell_exchanges SET tug_session_id = ?2 WHERE tug_session_id = ?1",
@@ -715,5 +759,43 @@ mod tests {
             format!("cmd{}", MAX_EXCHANGES_PER_SESSION + 4)
         );
         assert_eq!(rows.first().unwrap().command, "cmd5");
+    }
+
+    #[test]
+    fn the_cap_never_evicts_a_landing_receipt() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        // The receipts go in first, where oldest-first eviction would reach
+        // them, and the chatter that follows pushes the session well past the
+        // cap.
+        for command in LANDING_RECEIPT_COMMANDS {
+            led.record_exchange(&ex("s1", command, Some(0))).unwrap();
+        }
+        for i in 0..(MAX_EXCHANGES_PER_SESSION + 20) {
+            led.record_exchange(&ex("s1", &format!("cmd{i}"), Some(0)))
+                .unwrap();
+        }
+        let rows = led.list_exchanges_since("s1", None).unwrap();
+        for command in LANDING_RECEIPT_COMMANDS {
+            assert!(
+                rows.iter().any(|r| r.command == command),
+                "receipt evicted: {command}"
+            );
+        }
+        // The cap counts chatter alone, so the receipts are retained *beside*
+        // a full window rather than inside it.
+        let chatter = rows.iter().filter(|r| r.command.starts_with("cmd")).count();
+        assert_eq!(chatter, MAX_EXCHANGES_PER_SESSION);
+        assert_eq!(rows.len(), MAX_EXCHANGES_PER_SESSION + LANDING_RECEIPT_COMMANDS.len());
+    }
+
+    #[test]
+    fn a_session_of_receipts_alone_never_evicts() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        let total = MAX_EXCHANGES_PER_SESSION + 10;
+        for i in 0..total {
+            let command = LANDING_RECEIPT_COMMANDS[i % LANDING_RECEIPT_COMMANDS.len()];
+            led.record_exchange(&ex("s1", command, Some(0))).unwrap();
+        }
+        assert_eq!(led.list_exchanges_since("s1", None).unwrap().len(), total);
     }
 }

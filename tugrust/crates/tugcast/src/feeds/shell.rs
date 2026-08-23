@@ -944,8 +944,14 @@ async fn shell_session_task(
         // Persist the settled exchange for restore ([P07]). Insert-on-settle
         // only: an exchange in flight at a crash never lands (it never settled).
         if let Some(ledger) = ledger.as_ref() {
+            // Key the row to the line of work, not to a session id a rewind
+            // fork may already have superseded.
+            let ink_session = match sessions_ledger.as_ref() {
+                Some(sessions) => sessions.resolve_to_lineage_head(&tug_session_id),
+                None => tug_session_id.clone(),
+            };
             let row = NewShellExchange {
-                tug_session_id: tug_session_id.clone(),
+                tug_session_id: ink_session,
                 command: command.clone(),
                 output: out.clone(),
                 exit_code,

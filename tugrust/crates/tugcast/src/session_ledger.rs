@@ -1536,6 +1536,13 @@ impl SessionLedger {
             CREATE INDEX IF NOT EXISTS sessions_workspace_recent
                 ON sessions(workspace_key, last_used_at DESC);
 
+            -- The fork edge, read child-ward: given a session id, which
+            -- session (if any) was forked from it. `resolve_to_lineage_head`
+            -- walks this index once per hop, on every durable ink write and
+            -- read, so it is a hot lookup rather than a reporting one.
+            CREATE INDEX IF NOT EXISTS sessions_forked_from
+                ON sessions(forked_from_session_id);
+
             -- Per-ledger uniqueness for the mnemonic tag. NULLs are distinct
             -- in a SQLite unique index, so every legacy tagless row coexists
             -- (essential for lazy backfill). A UNIQUE column can't be added via
@@ -3089,6 +3096,26 @@ impl SessionLedger {
         rows.into_iter().collect()
     }
 
+    /// Every session row, newest-first, with nothing filtered out.
+    ///
+    /// Unlike `list_sessions_recent` this includes private sessions: it backs
+    /// ink adoption, which repairs where a session's own receipts are stored
+    /// and must not skip a line of work because it is out of the channel.
+    pub fn list_all_sessions(&self) -> Result<Vec<SessionRow>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT session_id, workspace_key, project_dir, created_at, last_used_at,
+                    turn_count, last_user_prompt, state, card_id, name, name_user_set, tag,
+                    synopsis, private, dash_id, dash_name
+             FROM sessions
+             ORDER BY last_used_at DESC",
+        )?;
+        let rows = stmt
+            .query_map([], row_from_query)?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().collect()
+    }
+
     /// Look up a single row by session id.
     pub fn get(&self, session_id: &str) -> Result<Option<SessionRow>, LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
@@ -3694,6 +3721,79 @@ impl SessionLedger {
         drop(conn);
         self.notify_sessions_changed();
         Ok(())
+    }
+
+    /// Follow the fork edges child-ward from `session_id` and return the id
+    /// of the line of work's head — the session at the tip, which is the one
+    /// a relaunched deck binds to and therefore the one durable ink must be
+    /// keyed under.
+    ///
+    /// A rewind-fork supersedes its parent: the parent row goes closed and
+    /// tagless while the fork carries the callsign on ([D154]). The ink
+    /// ledgers key their rows by tug session id, so without this resolution a
+    /// receipt written before — or during — a fork becomes unreachable to
+    /// every read that arrives after the next relaunch.
+    ///
+    /// Total by construction: an id with no child, an unknown id, a query
+    /// error, an edge cycle, and a chain past the depth cap all return the
+    /// input unchanged. Resolution sits in front of every durable ink write,
+    /// and a failed resolution must never turn a working write into a lost
+    /// one.
+    ///
+    /// When two children claim the same parent — a sibling fork, where the
+    /// callsign already moved on to an earlier branch — the child wearing a
+    /// tag is the continuation and wins; two tagless children tie-break on
+    /// the newer `last_used_at`.
+    pub fn resolve_to_lineage_head(&self, session_id: &str) -> String {
+        /// Chains are linear and short in practice; the cap is a guard
+        /// against a corrupt edge set, not a real depth.
+        const MAX_HOPS: usize = 16;
+
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut current = session_id.to_owned();
+        let mut visited = HashSet::new();
+        visited.insert(current.clone());
+        for _ in 0..MAX_HOPS {
+            let child: Option<String> = match conn
+                .query_row(
+                    "SELECT session_id FROM sessions
+                     WHERE forked_from_session_id = ?1
+                     ORDER BY (tag IS NULL) ASC, last_used_at DESC
+                     LIMIT 1",
+                    params![current],
+                    |row| row.get(0),
+                )
+                .optional()
+            {
+                Ok(child) => child,
+                Err(err) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        error = %err,
+                        "lineage head resolution failed; using the id as given"
+                    );
+                    return session_id.to_owned();
+                }
+            };
+            let Some(child) = child else {
+                return current;
+            };
+            if !visited.insert(child.clone()) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    revisited = %child,
+                    "fork edges form a cycle; using the id as given"
+                );
+                return session_id.to_owned();
+            }
+            current = child;
+        }
+        tracing::warn!(
+            session_id = %session_id,
+            max_hops = MAX_HOPS,
+            "fork chain exceeds the depth cap; using the id as given"
+        );
+        session_id.to_owned()
     }
 
     /// Record an auto-generated `aiTitle` for a session, live.
@@ -7960,6 +8060,88 @@ mod tests {
             )
             .unwrap();
         assert_eq!(points, 0);
+    }
+
+    // ── the lineage head: where durable ink belongs ──────────────────────────
+
+    #[test]
+    fn an_unforked_id_resolves_to_itself() {
+        let l = fresh();
+        l.record_spawn("root", WS_A, "/proj", "card-1", millis(0), None)
+            .unwrap();
+        assert_eq!(l.resolve_to_lineage_head("root"), "root");
+        // An id the ledger has never heard of is answered, not refused.
+        assert_eq!(l.resolve_to_lineage_head("no-such"), "no-such");
+    }
+
+    #[test]
+    fn every_id_on_a_chain_resolves_to_its_tip() {
+        let l = fresh();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
+        spawn_fork(&l, "root", "point-1", "f-1");
+        spawn_fork(&l, "f-1", "point-2", "f-2");
+        for id in ["root", "f-1", "f-2"] {
+            assert_eq!(l.resolve_to_lineage_head(id), "f-2", "from {id}");
+        }
+    }
+
+    #[test]
+    fn a_sibling_fork_yields_to_the_child_wearing_the_callsign() {
+        let l = fresh();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
+        // `f-1` takes the callsign; `f-2` forks the same superseded parent
+        // later and spawns as its own line.
+        spawn_fork(&l, "root", "point-1", "f-1");
+        l.record_spawn("f-2", WS_A, "/proj", "card-2", millis(0) + 60_000, None)
+            .unwrap();
+        l.set_fork_provenance("f-2", "root", "point-2").unwrap();
+        assert_eq!(
+            l.resolve_to_lineage_head("root"),
+            "f-1",
+            "the tagged child is the continuation, even though the sibling is newer"
+        );
+    }
+
+    #[test]
+    fn two_tagless_children_tie_break_on_recency() {
+        let l = fresh();
+        // `millis` counts days *ago*, so the larger argument is the older row.
+        for (id, days_ago) in [("root", 0), ("old", 5), ("new", 1)] {
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(days_ago), None)
+                .unwrap();
+        }
+        l.set_fork_provenance("old", "root", "point-1").unwrap();
+        l.set_fork_provenance("new", "root", "point-2").unwrap();
+        assert_eq!(l.resolve_to_lineage_head("root"), "new");
+    }
+
+    #[test]
+    fn a_cycle_in_the_edges_answers_rather_than_hanging() {
+        let l = fresh();
+        for id in ["a", "b"] {
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), None)
+                .unwrap();
+        }
+        l.set_fork_provenance("a", "b", "point-1").unwrap();
+        l.set_fork_provenance("b", "a", "point-2").unwrap();
+        assert_eq!(l.resolve_to_lineage_head("a"), "a");
+        assert_eq!(l.resolve_to_lineage_head("b"), "b");
     }
 
     // ── sessions.name: the live auto-title write ─────────────────────────────

@@ -34,6 +34,7 @@ use crate::feeds::text_ref::{ColumnSpan, LinePreview, PreviewSegment, TextRef};
 use crate::feeds::walk::{WalkOptions, walk_workspace};
 use crate::fs_read::MAX_READ_BYTES;
 use crate::refs_ledger::{NewRefsRun, RefsLedger};
+use crate::session_ledger::SessionLedger;
 
 /// Broadcast capacity for `REFS_OUTPUT`. Matches the shell feed's — a
 /// streaming run is bursty and a slow client must not stall the producer.
@@ -598,6 +599,7 @@ pub fn execute_run(
     cancel: CancellationToken,
     superseded: Arc<AtomicBool>,
     ledger: Option<Arc<RefsLedger>>,
+    sessions: Option<Arc<SessionLedger>>,
 ) {
     let session = request.tug_session_id.as_str();
     emit(
@@ -695,8 +697,14 @@ pub fn execute_run(
     // A partial list is not the session's refs — restoring one would make
     // `/ref N` resolve against a list the user never saw finish.
     if !cancelled && let Some(ledger) = ledger {
+        // Key the run to the line of work, not to a session id a rewind fork
+        // may already have superseded.
+        let ink_session = match sessions.as_ref() {
+            Some(sessions) => sessions.resolve_to_lineage_head(&request.tug_session_id),
+            None => request.tug_session_id.clone(),
+        };
         let record = NewRefsRun {
-            tug_session_id: request.tug_session_id.clone(),
+            tug_session_id: ink_session,
             run_id: request.run_id.clone(),
             op_kind: request.kind.as_str().to_string(),
             command: request.command.clone(),
@@ -744,6 +752,7 @@ pub async fn refs_dispatcher_task(
     mut input_rx: mpsc::Receiver<Frame>,
     output: SessionScopedFeed,
     ledger: Option<Arc<RefsLedger>>,
+    sessions: Option<Arc<SessionLedger>>,
     cancel: CancellationToken,
 ) {
     let mut runs: HashMap<String, RunHandle> = HashMap::new();
@@ -832,8 +841,16 @@ pub async fn refs_dispatcher_task(
 
         let run_output = output.clone();
         let run_ledger = ledger.clone();
+        let run_sessions = sessions.clone();
         tokio::task::spawn_blocking(move || {
-            execute_run(request, run_output, run_cancel, superseded, run_ledger);
+            execute_run(
+                request,
+                run_output,
+                run_cancel,
+                superseded,
+                run_ledger,
+                run_sessions,
+            );
         });
     }
 }
@@ -1498,6 +1515,7 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AtomicBool::new(false)),
             None,
+            None,
         );
 
         let frames = drain(&mut rx);
@@ -1537,6 +1555,7 @@ mod tests {
             cancel,
             Arc::new(AtomicBool::new(false)),
             None,
+            None,
         );
 
         let frames = drain(&mut rx);
@@ -1559,6 +1578,7 @@ mod tests {
             feed,
             cancel,
             Arc::new(AtomicBool::new(true)),
+            None,
             None,
         );
 
@@ -1587,6 +1607,7 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AtomicBool::new(false)),
             None,
+            None,
         );
 
         let frames = drain(&mut rx);
@@ -1609,6 +1630,7 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AtomicBool::new(false)),
             Some(Arc::clone(&ledger)),
+            None,
         );
         let stored = ledger.list_refs("session-a").unwrap().unwrap();
         assert_eq!(stored.run_id, "run-1");
@@ -1628,6 +1650,7 @@ mod tests {
             cancel,
             Arc::new(AtomicBool::new(false)),
             Some(Arc::clone(&ledger)),
+            None,
         );
         assert_eq!(
             ledger.list_refs("session-a").unwrap().unwrap().run_id,
@@ -1643,7 +1666,7 @@ mod tests {
         let mut rx = feed.subscribe();
         let (tx, input_rx) = mpsc::channel(8);
         let cancel = CancellationToken::new();
-        let task = tokio::spawn(refs_dispatcher_task(input_rx, feed, None, cancel.clone()));
+        let task = tokio::spawn(refs_dispatcher_task(input_rx, feed, None, None, cancel.clone()));
 
         let payload = json!({
             "type": "match",

@@ -3438,9 +3438,15 @@ impl AgentSupervisor {
         // alert for a session that never held a conversation. Those rows are
         // the same ones `build_listed_union` drops as empty, so spawn them
         // fresh instead, under the SAME id: the card opens on its project and
-        // the id keeps keying the session's durable non-JSONL content (shell
-        // ledger, `/btw` history, staged context), exactly as the client's own
-        // zero-turn restore path does.
+        // the id keeps keying the session's durable non-JSONL content — the
+        // shell ledger's receipts and the refs ledger's last run — exactly as
+        // the client's own zero-turn restore path does.
+        //
+        // That invariant is enforced rather than assumed: a rewind-fork moves
+        // the id out from under those rows, so every durable ink write and
+        // read resolves through `SessionLedger::resolve_to_lineage_head` first,
+        // the fork arc transfers the rows, and `ink_adoption` repairs whatever
+        // slipped at the next ledger open ([D155]).
         //
         // `spawn_mode` is what the entry gets stamped with; `session_mode`
         // stays the mode the client asked for, so the ownership gates below
@@ -4822,6 +4828,7 @@ impl AgentSupervisor {
                 // `_ok`; other decks converge on their next restore.
                 let receipt_id = Self::record_landing_receipt(
                     self.shell_ledger.as_ref(),
+                    self.session_ledger.as_ref(),
                     request.session_id.as_deref(),
                     "/commit",
                     &summary,
@@ -5277,6 +5284,7 @@ impl AgentSupervisor {
                         );
                         receipt_id = Self::record_landing_receipt(
                             self.shell_ledger.as_ref(),
+                            self.session_ledger.as_ref(),
                             request.session_id.as_deref(),
                             "/dash-join",
                             &summary,
@@ -5358,8 +5366,14 @@ impl AgentSupervisor {
     /// restore replays are the same transcript turn, not two copies of one
     /// landing. `None` means nothing was persisted and the deck falls back to
     /// a local identity.
+    /// `sessions` is what keys the row to the *line of work* rather than to a
+    /// session id that a later rewind-fork will supersede. The deck stays bound
+    /// to a forked session's parent until the next relaunch, so without this
+    /// resolution a landing recorded in that window lands under an id nothing
+    /// will ever ask about again.
     fn record_landing_receipt(
         ledger: Option<&Arc<crate::shell_ledger::ShellLedger>>,
+        sessions: Option<&Arc<crate::session_ledger::SessionLedger>>,
         session_id: Option<&str>,
         command: &str,
         summary: &str,
@@ -5369,12 +5383,16 @@ impl AgentSupervisor {
         else {
             return None;
         };
+        let session_id = match sessions {
+            Some(sessions) => sessions.resolve_to_lineage_head(session_id),
+            None => session_id.to_string(),
+        };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
         match ledger.record_exchange(&crate::shell_ledger::NewShellExchange {
-            tug_session_id: session_id.to_string(),
+            tug_session_id: session_id.clone(),
             command: command.to_string(),
             output: summary.to_string(),
             exit_code: Some(0),
@@ -5898,6 +5916,7 @@ impl AgentSupervisor {
                 );
                 let receipt_id = Self::record_landing_receipt(
                     self.shell_ledger.as_ref(),
+                    self.session_ledger.as_ref(),
                     request.session_id.as_deref(),
                     "/dash-discard",
                     &summary,
@@ -6875,15 +6894,19 @@ impl AgentSupervisor {
     /// "no rows".
     async fn do_list_shell_exchanges(&self, tug_session_id: &str, since_ms: Option<i64>) {
         let started = std::time::Instant::now();
+        // Read the line of work, answer the asker. The deck routes a response
+        // back to the store that asked by matching the echoed
+        // `tug_session_id`, so the query resolves and the echo does not.
+        let head = self.resolve_ink_session(tug_session_id);
         let read = self.shell_ledger.as_ref().map(|ledger| {
             let rows = ledger
-                .list_exchanges_since(tug_session_id, since_ms)
+                .list_exchanges_since(&head, since_ms)
                 .unwrap_or_else(|err| {
                     warn!(error = %err, %tug_session_id, "list_shell_exchanges failed");
                     Vec::new()
                 });
             let (total, max_seq) = ledger
-                .exchange_census(tug_session_id, since_ms)
+                .exchange_census(&head, since_ms)
                 .unwrap_or_else(|err| {
                     warn!(error = %err, %tug_session_id, "shell exchange census failed");
                     (rows.len() as i64, 0)
@@ -6918,13 +6941,32 @@ impl AgentSupervisor {
         ));
     }
 
+    /// The session id durable ink for `tug_session_id` is keyed under: its
+    /// lineage head, or the id itself when nothing has forked it (or no
+    /// session ledger is configured).
+    ///
+    /// A rewind-fork supersedes the session it forked from, and the deck stays
+    /// bound to that superseded parent until the next relaunch. Routing both
+    /// ink writes and ink reads through the head keeps all three epochs
+    /// coherent: rows written before the fork, rows written in the
+    /// still-parent-bound window after it, and reads issued once the relaunch
+    /// has rebound the card to the fork.
+    fn resolve_ink_session(&self, tug_session_id: &str) -> String {
+        match self.session_ledger.as_ref() {
+            Some(sessions) => sessions.resolve_to_lineage_head(tug_session_id),
+            None => tug_session_id.to_string(),
+        }
+    }
+
     /// Handle a `list_refs { tug_session_id }` CONTROL request — the deck's
     /// refs-restore read. Broadcasts `list_refs_ok { tug_session_id, run }`,
     /// where `run` is the session's latest completed run or `null` (a missing
     /// ledger, or a session that has never searched).
     async fn do_list_refs(&self, tug_session_id: &str) {
+        // Resolved query, unresolved echo — see `do_list_shell_exchanges`.
+        let head = self.resolve_ink_session(tug_session_id);
         let run = self.refs_ledger.as_ref().and_then(|ledger| {
-            ledger.list_refs(tug_session_id).unwrap_or_else(|err| {
+            ledger.list_refs(&head).unwrap_or_else(|err| {
                 warn!(error = %err, %tug_session_id, "list_refs failed");
                 None
             })
@@ -8112,6 +8154,10 @@ impl AgentSupervisor {
         };
         let sessions_recorder = self.sessions_recorder.clone();
         let session_ledger_for_bridge = self.session_ledger.clone();
+        let ink_ledgers_for_bridge = crate::feeds::agent_bridge::InkLedgers {
+            shell: self.shell_ledger.clone(),
+            refs: self.refs_ledger.clone(),
+        };
         let changeset_bumper_for_bridge =
             crate::feeds::changeset::ChangesetBumper::new(Arc::clone(&self.registry));
         tokio::spawn(async move {
@@ -8127,6 +8173,7 @@ impl AgentSupervisor {
                 permission_mode,
                 sessions_recorder,
                 session_ledger_for_bridge,
+                ink_ledgers_for_bridge,
                 changeset_bumper_for_bridge,
                 cancel_for_bridge,
                 DEFAULT_RETRY_DELAY,
@@ -9955,7 +10002,14 @@ mod tests {
         let ledger =
             Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("in-memory ledger"));
 
-        AgentSupervisor::record_landing_receipt(Some(&ledger), None, "/dash-join", "landed", "/p");
+        AgentSupervisor::record_landing_receipt(
+            Some(&ledger),
+            None,
+            None,
+            "/dash-join",
+            "landed",
+            "/p",
+        );
         assert!(
             ledger.session_ids_with_rows().unwrap().is_empty(),
             "a sessionless landing writes no row"
@@ -9963,6 +10017,7 @@ mod tests {
 
         AgentSupervisor::record_landing_receipt(
             Some(&ledger),
+            None,
             Some("f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f"),
             "/dash-join",
             "landed",
@@ -9973,6 +10028,179 @@ mod tests {
             1,
             "a named session gets its receipt"
         );
+    }
+
+    // ── durable ink follows the line of work ────────────────────────────────
+
+    /// A sessions ledger holding `parent` superseded by `fork`, exactly as a
+    /// rewind-fork leaves it ([D154]): the fork carries the callsign, the
+    /// parent row keeps only the edge pointing at its successor.
+    fn forked_pair() -> Arc<crate::session_ledger::SessionLedger> {
+        let sessions = Arc::new(
+            crate::session_ledger::SessionLedger::open_in_memory().expect("sessions ledger"),
+        );
+        sessions
+            .record_spawn("parent", "ws", "/proj", "card-1", 1_000, None)
+            .expect("parent spawn");
+        sessions
+            .record_spawn("fork", "ws", "/proj", "card-1", 2_000, Some("stocky-pixie"))
+            .expect("fork spawn");
+        sessions
+            .set_fork_provenance("fork", "parent", "point-1")
+            .expect("provenance");
+        sessions
+    }
+
+    #[test]
+    fn a_landing_receipt_written_under_a_superseded_id_lands_on_the_head() {
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let sessions = forked_pair();
+
+        // The proven failure window: the deck stays bound to `parent` until
+        // the next relaunch, so this is the id a join receipt arrives under.
+        AgentSupervisor::record_landing_receipt(
+            Some(&shell),
+            Some(&sessions),
+            Some("parent"),
+            "/dash-join",
+            "landed",
+            "/proj",
+        );
+
+        assert_eq!(
+            shell.session_ids_with_rows().unwrap(),
+            std::collections::HashSet::from(["fork".to_string()]),
+            "the receipt is keyed to the line of work, not to the superseded id"
+        );
+    }
+
+    #[test]
+    fn a_landing_receipt_on_an_unforked_session_is_untouched() {
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let sessions = Arc::new(
+            crate::session_ledger::SessionLedger::open_in_memory().expect("sessions ledger"),
+        );
+        sessions
+            .record_spawn("solo", "ws", "/proj", "card-1", 1_000, None)
+            .expect("spawn");
+
+        AgentSupervisor::record_landing_receipt(
+            Some(&shell),
+            Some(&sessions),
+            Some("solo"),
+            "/commit",
+            "landed",
+            "/proj",
+        );
+
+        assert_eq!(
+            shell.session_ids_with_rows().unwrap(),
+            std::collections::HashSet::from(["solo".to_string()]),
+        );
+    }
+
+    /// A supervisor wired with a forked sessions ledger and a shell ledger
+    /// whose ink already sits on the head, plus the CONTROL receiver the
+    /// restore answer arrives on.
+    fn supervisor_over_forked_ink() -> (
+        AgentSupervisor,
+        broadcast::Receiver<Frame>,
+        Arc<crate::shell_ledger::ShellLedger>,
+    ) {
+        let (state_tx, _state_rx) = broadcast::channel(512);
+        let (meta_tx, _meta_rx) = broadcast::channel(32);
+        let (code_tx, _code_rx) = broadcast::channel(32);
+        let (control_tx, control_rx) = broadcast::channel(512);
+        let sessions = forked_pair();
+        let recorder: Arc<dyn SessionsRecorder> =
+            Arc::new(LedgerSessionsRecorder::new(Arc::clone(&sessions)));
+        let (mut sup, mut register_rx) = AgentSupervisor::new_with_ledger(
+            SessionScopedFeed::from_sender(FeedId::SESSION_STATE, state_tx, LagPolicy::Warn),
+            SessionScopedFeed::from_sender(FeedId::SESSION_SIDEBAND, meta_tx, LagPolicy::Warn),
+            SessionScopedFeed::from_sender(FeedId::CODE_OUTPUT, code_tx, LagPolicy::Warn),
+            SessionScopedFeed::new(FeedId::ACTIVITY, 64, LagPolicy::Warn),
+            control_tx,
+            recorder,
+            Some(Arc::clone(&sessions)),
+            stall_spawner_factory(),
+            AgentSupervisorConfig::default(),
+            Arc::new(WorkspaceRegistry::new_for_test()),
+            CancellationToken::new(),
+        );
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        sup.set_shell_ledger(Arc::clone(&shell));
+        tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+        (sup, control_rx, shell)
+    }
+
+    #[tokio::test]
+    async fn a_restore_read_for_a_superseded_id_returns_the_lines_ink() {
+        let (sup, mut control_rx, shell) = supervisor_over_forked_ink();
+        for command in ["ls", "/commit"] {
+            shell
+                .record_exchange(&crate::shell_ledger::NewShellExchange {
+                    tug_session_id: "fork".to_string(),
+                    command: command.to_string(),
+                    output: "out\n".to_string(),
+                    exit_code: Some(0),
+                    cwd: "/proj".to_string(),
+                    cwd_after: None,
+                    started_at_ms: 1,
+                    settled_at_ms: 2,
+                })
+                .expect("record");
+        }
+
+        // The still-parent-bound deck asks under the superseded id.
+        sup.do_list_shell_exchanges("parent", None).await;
+
+        let frame = control_rx.recv().await.expect("a control frame");
+        let body: serde_json::Value =
+            serde_json::from_slice(&frame.payload).expect("control body is JSON");
+        assert_eq!(body["action"], "list_shell_exchanges_ok");
+        assert_eq!(
+            body["tug_session_id"], "parent",
+            "the response echoes the requested id — the deck routes on it"
+        );
+        assert_eq!(body["answered"], true);
+        assert_eq!(
+            body["exchanges"].as_array().unwrap().len(),
+            2,
+            "the line's ink, read through the head"
+        );
+        assert_eq!(
+            body["total"], 2,
+            "the census counts the same set the rows came from"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restore_read_for_the_head_is_unchanged() {
+        let (sup, mut control_rx, shell) = supervisor_over_forked_ink();
+        shell
+            .record_exchange(&crate::shell_ledger::NewShellExchange {
+                tug_session_id: "fork".to_string(),
+                command: "ls".to_string(),
+                output: "out\n".to_string(),
+                exit_code: Some(0),
+                cwd: "/proj".to_string(),
+                cwd_after: None,
+                started_at_ms: 1,
+                settled_at_ms: 2,
+            })
+            .expect("record");
+
+        sup.do_list_shell_exchanges("fork", None).await;
+
+        let frame = control_rx.recv().await.expect("a control frame");
+        let body: serde_json::Value =
+            serde_json::from_slice(&frame.payload).expect("control body is JSON");
+        assert_eq!(body["tug_session_id"], "fork");
+        assert_eq!(body["exchanges"].as_array().unwrap().len(), 1);
+        assert_eq!(body["total"], 1);
     }
 
     /// Correctness must not ride a droppable channel.
@@ -12812,6 +13040,7 @@ mod tests {
             "/tmp/test-relay-project",
             &recorder,
             None,
+            &crate::feeds::agent_bridge::InkLedgers::default(),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -12922,6 +13151,7 @@ mod tests {
             "/tmp/test-relay-resume-fail",
             &recorder,
             None,
+            &crate::feeds::agent_bridge::InkLedgers::default(),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -13095,6 +13325,7 @@ mod tests {
             "/tmp/test-meta-e2e",
             &recorder,
             Some(ledger.as_ref()),
+            &crate::feeds::agent_bridge::InkLedgers::default(),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -13250,6 +13481,7 @@ mod tests {
             "/tmp/test-title-fork",
             &recorder,
             Some(ledger.as_ref()),
+            &crate::feeds::agent_bridge::InkLedgers::default(),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )

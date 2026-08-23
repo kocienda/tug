@@ -15,6 +15,7 @@
 //! or superseded holds a partial list, and restoring a partial list would
 //! silently renumber what `/ref N` resolves to.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -135,6 +136,72 @@ impl RefsLedger {
         Ok(())
     }
 
+    /// Distinct session ids that currently own a run.
+    pub fn session_ids_with_rows(&self) -> Result<HashSet<String>, RefsLedgerError> {
+        let conn = self.db.lock().expect("refs ledger mutex");
+        let mut stmt = conn.prepare("SELECT tug_session_id FROM refs_runs")?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<HashSet<_>, _>>()?;
+        Ok(ids)
+    }
+
+    /// Move `from`'s run onto `to`, so a fork's search history follows the
+    /// line of work its ink belongs to.
+    ///
+    /// `tug_session_id` is this table's `PRIMARY KEY`, so a bare `UPDATE`
+    /// would raise a constraint violation whenever `to` already holds a run.
+    /// The two are reconciled instead: the newer `settled_at_ms` survives and
+    /// the older is dropped. That is the table's existing semantics rather
+    /// than a new kind of loss — `record_run` already replaces a session's
+    /// previous run outright, because one run per session is what makes
+    /// `/ref N` mean something definite.
+    ///
+    /// Idempotent: `from == to` is a no-op, and afterwards `from` holds
+    /// nothing. Returns how many rows left `from` (0 or 1).
+    pub fn rekey_session(&self, from: &str, to: &str) -> Result<usize, RefsLedgerError> {
+        if from == to {
+            return Ok(0);
+        }
+        let mut conn = self.db.lock().expect("refs ledger mutex");
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let (source_settled, dest_settled) = {
+            let settled_at = |session: &str| -> Result<Option<i64>, rusqlite::Error> {
+                tx.query_row(
+                    "SELECT settled_at_ms FROM refs_runs WHERE tug_session_id = ?1",
+                    params![session],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+            };
+            (settled_at(from)?, settled_at(to)?)
+        };
+        let Some(source_settled) = source_settled else {
+            return Ok(0);
+        };
+        match dest_settled {
+            // The destination's run is the newer one: the mover loses.
+            Some(dest_settled) if dest_settled >= source_settled => {
+                tx.execute(
+                    "DELETE FROM refs_runs WHERE tug_session_id = ?1",
+                    params![from],
+                )?;
+            }
+            _ => {
+                tx.execute(
+                    "DELETE FROM refs_runs WHERE tug_session_id = ?1",
+                    params![to],
+                )?;
+                tx.execute(
+                    "UPDATE refs_runs SET tug_session_id = ?2 WHERE tug_session_id = ?1",
+                    params![from, to],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(1)
+    }
+
     /// The session's latest run, or `None` if it has never completed one.
     pub fn list_refs(&self, tug_session_id: &str) -> Result<Option<RefsRunRow>, RefsLedgerError> {
         let conn = self.db.lock().expect("refs ledger mutex");
@@ -252,5 +319,69 @@ mod tests {
         assert_eq!(latest.refs, stored.refs);
         assert_eq!(latest.op_kind, "search");
         assert_eq!(latest.settled_at_ms, 42);
+    }
+
+    // ── re-key: a fork's run follows the line of work ────────────────────────
+
+    fn run_settled(session: &str, run_id: &str, settled_at_ms: i64) -> NewRefsRun {
+        NewRefsRun {
+            settled_at_ms,
+            ..run(session, run_id, &["src/a.ts"])
+        }
+    }
+
+    #[test]
+    fn a_rekey_onto_an_empty_session_is_a_plain_move() {
+        let ledger = RefsLedger::open_in_memory().unwrap();
+        ledger.record_run(&run("parent", "run-1", &["src/a.ts"])).unwrap();
+
+        assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
+        assert_eq!(ledger.list_refs("parent").unwrap(), None);
+        assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "run-1");
+    }
+
+    #[test]
+    fn a_rekey_onto_an_occupied_session_keeps_the_newer_run() {
+        // `tug_session_id` is the primary key, so this is the case a bare
+        // UPDATE would fail on.
+        let ledger = RefsLedger::open_in_memory().unwrap();
+        ledger.record_run(&run_settled("parent", "older", 100)).unwrap();
+        ledger.record_run(&run_settled("fork", "newer", 200)).unwrap();
+
+        assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
+        assert_eq!(ledger.list_refs("parent").unwrap(), None);
+        assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "newer");
+    }
+
+    #[test]
+    fn a_rekey_carrying_the_newer_run_displaces_the_destination() {
+        let ledger = RefsLedger::open_in_memory().unwrap();
+        ledger.record_run(&run_settled("parent", "newer", 200)).unwrap();
+        ledger.record_run(&run_settled("fork", "older", 100)).unwrap();
+
+        assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
+        assert_eq!(ledger.list_refs("parent").unwrap(), None);
+        assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "newer");
+    }
+
+    #[test]
+    fn a_rekey_is_idempotent_and_never_self_collides() {
+        let ledger = RefsLedger::open_in_memory().unwrap();
+        ledger.record_run(&run("parent", "run-1", &["src/a.ts"])).unwrap();
+
+        assert_eq!(
+            ledger.rekey_session("parent", "parent").unwrap(),
+            0,
+            "a session is never re-keyed onto itself"
+        );
+        assert_eq!(ledger.list_refs("parent").unwrap().unwrap().run_id, "run-1");
+
+        ledger.rekey_session("parent", "fork").unwrap();
+        assert_eq!(
+            ledger.rekey_session("parent", "fork").unwrap(),
+            0,
+            "a second run finds nothing left to move"
+        );
+        assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "run-1");
     }
 }

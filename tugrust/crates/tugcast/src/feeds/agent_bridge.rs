@@ -515,6 +515,42 @@ pub const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(1);
 /// `retry_delay` is the backoff between crash-loop iterations. Production
 /// uses [`DEFAULT_RETRY_DELAY`]; tests pass a sub-millisecond value so the
 /// crash-loop completes synchronously.
+/// The two durable ink ledgers, as the fork arc needs them.
+///
+/// A rewind-fork is the conversation continued, so the receipts and search
+/// history of that conversation move to the fork alongside its callsign
+/// ([D154]). The two are separate sqlite files with no shared transaction, so
+/// the transfer is best-effort here and the open-time sweep in `ink_adoption`
+/// is what makes it eventually true.
+#[derive(Clone, Default)]
+pub struct InkLedgers {
+    pub shell: Option<Arc<crate::shell_ledger::ShellLedger>>,
+    pub refs: Option<Arc<crate::refs_ledger::RefsLedger>>,
+}
+
+impl InkLedgers {
+    /// Move every durable ink row keyed to `from` onto `to`. Each ledger
+    /// warns on failure rather than propagating: a bookkeeping write must
+    /// never fail a spawn, and the boot sweep re-runs the same idempotent
+    /// re-key.
+    pub fn transfer(&self, from: &str, to: &str) {
+        if let Some(shell) = self.shell.as_ref() {
+            match shell.rekey_session(from, to) {
+                Ok(0) => {}
+                Ok(moved) => info!(from, to, moved, "shell ink transferred to the fork"),
+                Err(err) => warn!(from, to, error = %err, "shell ink transfer failed"),
+            }
+        }
+        if let Some(refs) = self.refs.as_ref() {
+            match refs.rekey_session(from, to) {
+                Ok(0) => {}
+                Ok(moved) => info!(from, to, moved, "refs ink transferred to the fork"),
+                Err(err) => warn!(from, to, error = %err, "refs ink transfer failed"),
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_session_bridge(
     tug_session_id: TugSessionId,
@@ -539,6 +575,9 @@ pub async fn run_session_bridge(
     // unchanged and the client reducer's merge falls back to its
     // zero-telemetry derived block — correct behavior, no crash.
     session_ledger: Option<Arc<crate::session_ledger::SessionLedger>>,
+    // The durable ink ledgers, so a rewind-fork can carry its line of work's
+    // receipts and search history across with its callsign.
+    ink_ledgers: InkLedgers,
     // Recompute signal for the workspace's ChangesetFeed, fired after
     // each file-event write so the changeset card updates without
     // waiting for the poll.
@@ -727,6 +766,7 @@ pub async fn run_session_bridge(
             &canonical_project_dir_str,
             sessions_recorder.as_ref(),
             session_ledger.as_deref(),
+            &ink_ledgers,
             &changeset_bumper,
             &cancel,
         )
@@ -1345,6 +1385,9 @@ pub async fn relay_session_io(
     // during the replay window. `None` in tests that don't wire a
     // ledger — replayed `turn_complete` frames pass through unchanged.
     session_ledger: Option<&crate::session_ledger::SessionLedger>,
+    // The durable ink ledgers — see `InkLedgers::transfer`, called when a
+    // fork's provenance lands.
+    ink_ledgers: &InkLedgers,
     // Fired after each file-event write so the workspace's ChangesetFeed
     // recomputes immediately. Disconnected in harnesses without a
     // workspace registry.
@@ -1696,6 +1739,14 @@ pub async fn relay_session_io(
                                         "set_fork_provenance failed; the fork keeps its callsign but loses its parentage record"
                                     );
                                 }
+                                // The receipts and search history of this
+                                // conversation belong with the line of work,
+                                // exactly as its callsign does. Done here
+                                // rather than at the fork announcement so the
+                                // provenance edge already exists: a write
+                                // racing this transfer resolves through the
+                                // edge and lands on the fork anyway.
+                                ink_ledgers.transfer(&fork.parent_session_id, record_id);
                                 if let Some(name) = fork.user_name.as_deref() {
                                     if let Err(err) = ledger.rename(record_id, Some(name)) {
                                         warn!(
@@ -3461,6 +3512,18 @@ mod tests {
         project_dir: &str,
         frames: &[&str],
     ) -> Vec<ForwardedFrame> {
+        drive_relay_with_ink(ledger, InkLedgers::default(), tug_id, project_dir, frames).await
+    }
+
+    /// `drive_relay`, with the durable ink ledgers wired in — what the fork
+    /// arc's transfer needs to be observable.
+    async fn drive_relay_with_ink(
+        ledger: Arc<crate::session_ledger::SessionLedger>,
+        ink: InkLedgers,
+        tug_id: &str,
+        project_dir: &str,
+        frames: &[&str],
+    ) -> Vec<ForwardedFrame> {
         use crate::feeds::agent_supervisor::NoopSessionsRecorder;
         use crate::feeds::workspace_registry::WorkspaceKey;
 
@@ -3503,6 +3566,7 @@ mod tests {
                 &project_dir_owned,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
+                &ink,
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -3529,6 +3593,149 @@ mod tests {
             });
         }
         out
+    }
+
+    // ---- the fork carries its line of work's durable ink ([D154]) ----------
+
+    /// Drive a rewind-fork through the real relay: tugcode announces the fork,
+    /// then the forked session's `session_init` consumes the staged identity.
+    /// Returns the two ink ledgers so the caller can read where the rows sat
+    /// afterwards.
+    async fn drive_fork(
+        parent: &str,
+        fork: &str,
+        seed_ink: impl Fn(&crate::shell_ledger::ShellLedger, &crate::refs_ledger::RefsLedger),
+    ) -> InkLedgers {
+        let sessions =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("sessions"));
+        for id in [parent, fork] {
+            sessions
+                .record_spawn(id, "ws-test", "/proj", "card-1", 1, None)
+                .expect("spawn");
+        }
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let refs = Arc::new(crate::refs_ledger::RefsLedger::open_in_memory().expect("refs ledger"));
+        seed_ink(&shell, &refs);
+        let ink = InkLedgers {
+            shell: Some(Arc::clone(&shell)),
+            refs: Some(Arc::clone(&refs)),
+        };
+
+        let announcement = format!(
+            r#"{{"type":"session_fork","parentSessionId":"{parent}","newSessionId":"{fork}","forkPoint":"prompt-uuid"}}"#
+        );
+        let init = format!(r#"{{"type":"session_init","session_id":"{fork}"}}"#);
+        drive_relay_with_ink(
+            Arc::clone(&sessions),
+            ink.clone(),
+            parent,
+            "/proj",
+            &[&announcement, &init],
+        )
+        .await;
+        ink
+    }
+
+    fn shell_row(session: &str, command: &str) -> crate::shell_ledger::NewShellExchange {
+        crate::shell_ledger::NewShellExchange {
+            tug_session_id: session.to_string(),
+            command: command.to_string(),
+            output: "out\n".to_string(),
+            exit_code: Some(0),
+            cwd: "/proj".to_string(),
+            cwd_after: None,
+            started_at_ms: 1,
+            settled_at_ms: 2,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_fork_carries_the_parents_durable_ink_across() {
+        let ink = drive_fork("parent-ink", "fork-ink", |shell, refs| {
+            for command in ["ls", "/commit"] {
+                shell
+                    .record_exchange(&shell_row("parent-ink", command))
+                    .expect("record");
+            }
+            refs.record_run(&crate::refs_ledger::NewRefsRun {
+                tug_session_id: "parent-ink".to_string(),
+                run_id: "run-1".to_string(),
+                op_kind: "match".to_string(),
+                command: "/match foo".to_string(),
+                refs: Vec::new(),
+                settled_at_ms: 10,
+            })
+            .expect("record run");
+        })
+        .await;
+
+        let shell = ink.shell.expect("shell ledger");
+        assert_eq!(
+            shell.session_ids_with_rows().unwrap(),
+            std::collections::HashSet::from(["fork-ink".to_string()]),
+            "the parent's receipts moved to the line's head"
+        );
+        assert_eq!(shell.list_exchanges_since("fork-ink", None).unwrap().len(), 2);
+        let refs = ink.refs.expect("refs ledger");
+        assert_eq!(refs.list_refs("parent-ink").unwrap(), None);
+        assert_eq!(refs.list_refs("fork-ink").unwrap().unwrap().run_id, "run-1");
+    }
+
+    #[tokio::test]
+    async fn a_fork_of_an_inkless_parent_transfers_nothing() {
+        let ink = drive_fork("parent-bare", "fork-bare", |_, _| {}).await;
+        assert!(
+            ink.shell
+                .expect("shell ledger")
+                .session_ids_with_rows()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            ink.refs.expect("refs ledger").list_refs("fork-bare").unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn a_fork_transfers_each_ledger_independently() {
+        // The two ink stores are separate sqlite files with no shared
+        // transaction, so a relay wired with only one of them must still move
+        // what it has.
+        let sessions =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("sessions"));
+        for id in ["parent-solo", "fork-solo"] {
+            sessions
+                .record_spawn(id, "ws-test", "/proj", "card-1", 1, None)
+                .expect("spawn");
+        }
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        shell
+            .record_exchange(&shell_row("parent-solo", "/dash-join"))
+            .expect("record");
+        let ink = InkLedgers {
+            shell: Some(Arc::clone(&shell)),
+            refs: None,
+        };
+
+        drive_relay_with_ink(
+            sessions,
+            ink,
+            "parent-solo",
+            "/proj",
+            &[
+                r#"{"type":"session_fork","parentSessionId":"parent-solo","newSessionId":"fork-solo","forkPoint":"prompt-uuid"}"#,
+                r#"{"type":"session_init","session_id":"fork-solo"}"#,
+            ],
+        )
+        .await;
+
+        assert_eq!(
+            shell.session_ids_with_rows().unwrap(),
+            std::collections::HashSet::from(["fork-solo".to_string()]),
+        );
     }
 
     // ---- the facts library, driven through the real relay ([P06], [P07]) ----
@@ -4168,6 +4375,7 @@ mod tests {
                 &project_dir,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
+                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -4578,6 +4786,7 @@ mod tests {
                 &project_dir,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
+                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -4701,6 +4910,7 @@ mod tests {
                 &project_dir,
                 &recorder,
                 Some(ledger_for_relay.as_ref()),
+                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -4859,6 +5069,7 @@ mod tests {
                 &project_a,
                 &recorder,
                 Some(ledger_a_for_relay.as_ref()),
+                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel_a,
             )
@@ -4914,6 +5125,7 @@ mod tests {
                 &project_b,
                 &recorder,
                 Some(ledger_b_for_relay.as_ref()),
+                &InkLedgers::default(),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel_b,
             )

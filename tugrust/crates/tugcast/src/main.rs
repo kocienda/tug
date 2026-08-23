@@ -30,6 +30,7 @@ mod path_resolver;
 mod permissions;
 mod prompt_history_api;
 mod prompt_ledger;
+mod ink_adoption;
 mod refs_ledger;
 mod resources;
 mod router;
@@ -1212,6 +1213,44 @@ async fn main() {
             }
         });
 
+    // Ink adoption, ahead of the card-shaped reconciler below. A fork's ink
+    // transfer spans two databases with no shared transaction, so anything an
+    // interruption or a race left under a superseded id is repaired here,
+    // before the supervisor serves its first restore read.
+    //
+    // The order matters: `reconcile_orphaned_rows` moves rows onto whichever
+    // session a card currently holds, which is a heuristic predating fork
+    // provenance. A provenance edge is direct evidence, so it decides first.
+    {
+        let ink = ink_adoption::InkStores {
+            shell: shell_ledger.as_deref(),
+            refs: refs_ledger.as_deref(),
+        };
+        ink_adoption::adopt_by_lineage(&ledger, ink);
+    }
+
+    // The pre-provenance backfill: the forks that happened before the
+    // provenance columns existed left no edge for the sweep above to follow,
+    // so their ink is adopted on transcript evidence instead. In the
+    // background, because a large corpus must never delay serving, and at
+    // most once per machine — the watermark it writes ends it.
+    {
+        let backfill_sessions = Arc::clone(&ledger);
+        let backfill_shell = shell_ledger.clone();
+        let backfill_refs = refs_ledger.clone();
+        let backfill_bank = bank_client.clone();
+        tokio::task::spawn_blocking(move || {
+            ink_adoption::adopt_pre_provenance_orphans(
+                &backfill_sessions,
+                ink_adoption::InkStores {
+                    shell: backfill_shell.as_deref(),
+                    refs: backfill_refs.as_deref(),
+                },
+                backfill_bank.as_deref(),
+            );
+        });
+    }
+
     // Recover shell rows orphaned by the pre-F1 fresh-spawn bug: move a lost
     // zero-turn session's exchanges onto the card's current (empty) session so
     // shell-only sessions that were re-spawned under a fresh id before the fix
@@ -1597,12 +1636,14 @@ async fn main() {
     // their numbered result rows back on REFS_OUTPUT.
     let refs_dispatch_feed = refs_output_feed.clone();
     let refs_dispatch_ledger = refs_ledger.clone();
+    let refs_dispatch_sessions = Some(Arc::clone(&ledger));
     let refs_dispatch_cancel = cancel.clone();
     tokio::spawn(async move {
         feeds::refs::refs_dispatcher_task(
             refs_input_rx,
             refs_dispatch_feed,
             refs_dispatch_ledger,
+            refs_dispatch_sessions,
             refs_dispatch_cancel,
         )
         .await;
@@ -2155,6 +2196,18 @@ struct SeedSession {
     dash_id: Option<String>,
     #[serde(default)]
     dash_name: Option<String>,
+    /// The session this one was rewind-forked from, written through the same
+    /// `set_fork_provenance` the fork arc uses. This is the edge every durable
+    /// ink read resolves along, so seeding it is how a test can stand up the
+    /// post-fork ledger state a relaunch actually binds to — without needing a
+    /// live `claude` to perform a real fork.
+    #[serde(default)]
+    forked_from_session_id: Option<String>,
+    /// The prompt uuid of the rewind point. Only meaningful alongside
+    /// `forked_from_session_id`; a placeholder is fine, since nothing reads it
+    /// except a human looking at the row.
+    #[serde(default)]
+    fork_point: Option<String>,
 }
 
 /// One file event to seed, with the sub-file evidence that decides whether
@@ -2267,6 +2320,13 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
         if let Some(name) = session.name.as_deref() {
             if let Err(e) = ledger.rename(&session.session_id, Some(name)) {
                 eprintln!("tugcast: error: rename failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        if let Some(parent) = session.forked_from_session_id.as_deref() {
+            let fork_point = session.fork_point.as_deref().unwrap_or("seeded-fork-point");
+            if let Err(e) = ledger.set_fork_provenance(&session.session_id, parent, fork_point) {
+                eprintln!("tugcast: error: set_fork_provenance failed: {e}");
                 std::process::exit(1);
             }
         }

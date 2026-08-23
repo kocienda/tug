@@ -397,15 +397,15 @@ Empty by verification rather than by omission: this phase introduces **no client
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The lineage-head resolver | pending | — |
-| #step-2 | Receipts survive the eviction cap | pending | — |
-| #step-3 | Head resolution at every ink gateway | pending | — |
-| #step-4 | Re-key, including the refs collision | pending | — |
-| #step-5 | Ink transfers at fork time | pending | — |
-| #step-6 | The startup sweeps | pending | — |
-| #step-7 | The relaunch contract, pinned | pending | — |
-| #step-8 | Doctrine and the invariant comment | pending | — |
-| #step-9 | Integration checkpoint | pending | — |
+| #step-1 | The lineage-head resolver | done | `31db0e1da` |
+| #step-2 | Receipts survive the eviction cap | done | `0c3d56002` |
+| #step-3 | Head resolution at every ink gateway | done | `31db0e1da` |
+| #step-4 | Re-key, including the refs collision | done | `b02bc449e` |
+| #step-5 | Ink transfers at fork time | done | `b02bc449e` |
+| #step-6 | The startup sweeps | done | `0ef173ea7` |
+| #step-7 | The relaunch contract, pinned | done | `76262eb3e` |
+| #step-8 | Doctrine and the invariant comment | done | `40f7efecf` |
+| #step-9 | Integration checkpoint | done | `08e4a3590` |
 
 #### Step 1: The lineage-head resolver {#step-1}
 
