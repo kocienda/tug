@@ -16,20 +16,21 @@
  *      draws three positions per row at the default, and five when the reader
  *      asks for five — and the count of drawn positions does not move when the
  *      imposition grows.
- *   2. **The held slot is the CENTRE, on every row.** Not "somewhere in the
- *      window": the middle position exactly, so a column of rows puts every
- *      answer on one vertical. That is the whole reason the window does not
- *      slide to stay full.
- *   3. **The overhang is a stub, and the stub holds its ground.** A card in
- *      slot 1 has no left neighbour, and the position where one would be is
- *      drawn as an inert stub rather than collapsed — collapsing it would
- *      slide the centre by a chip and break the vertical for that row alone.
- *   4. **A neighbour is a one-place move.** Pressing the chip right of centre
- *      moves the card there, and the window follows it.
- *   5. **The centre is the door to the rest.** Pressing the held chip opens
- *      the whole run as a popup — the surface a reader reaches a place the
- *      window does not show through, and the same one the card's own masthead
- *      badge opens.
+ *   2. **Every chip names a real place.** The window prefers to centre on the
+ *      card's own slot and SLIDES off centre at the ends of the run rather
+ *      than reaching past it — a card in the first place draws the first N
+ *      slots with its own at the left. An earlier cut held the centre and drew
+ *      the overhang as a dashed stub; the stubs read as damage.
+ *   3. **The run still ends on one vertical.** Which is the alignment that
+ *      actually matters, and it survives the slide for a reason worth pinning:
+ *      the count is the DECK's, so every row draws the same number of chips
+ *      and the coordinate ends at one offset whether or not the lit chip does.
+ *   4. **A chip that is not the card's own is a one-place move.** Pressing it
+ *      moves the card there, and the window follows.
+ *   5. **The card's own chip is the door to the rest.** Pressing where a card
+ *      already stands is not a move, so the press opens the whole run as a
+ *      popup — how a reader reaches a place the window does not show, and the
+ *      same surface the card's own masthead badge opens.
  *
  * Read from live geometry and `data-` attributes. Nothing here reads back a
  * declared style value.
@@ -61,12 +62,12 @@ const WINDOW_ROW = '[data-testid="lens-layouts-slot-window"]';
 
 /** What one row's window is drawing, left to right. */
 interface WindowFacts {
-  /** Every drawn position: a slot's numeral, or `null` for a stub. */
-  positions: (string | null)[];
+  /** Every drawn chip's numeral. */
+  positions: string[];
   /** Which position carries the lit chip, or -1 when none does. */
   litAt: number;
-  /** The centre chip's horizontal midpoint, for the vertical claim. */
-  centreX: number;
+  /** The run's own trailing edge — the vertical the coordinate ends on. */
+  runRight: number;
 }
 
 /**
@@ -146,19 +147,15 @@ async function windows(app: App): Promise<WindowFacts[]> {
        function (run) {
          var drawn = Array.prototype.slice.call(run.children);
          var litAt = -1;
-         var centre = null;
          var positions = drawn.map(function (el, i) {
-           var isStub = el.classList.contains("tug-slot-layout-stub");
            var state = el.getAttribute("data-state");
            if (state === "filled" || state === "outlined") litAt = i;
-           if (i === Math.floor(drawn.length / 2)) centre = el;
-           return isStub ? null : el.textContent.trim();
+           return el.textContent.trim();
          });
-         var box = centre.getBoundingClientRect();
          return {
            positions: positions,
            litAt: litAt,
-           centreX: Math.round(box.left + box.width / 2),
+           runRight: Math.round(run.getBoundingClientRect().right),
          };
        },
      )`,
@@ -180,7 +177,7 @@ async function pressPosition(
 
 describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
   test(
-    "three positions per row, the held slot centred, the overhang stubbed",
+    "three real places per row, centred where it can be and slid where it cannot",
     async () => {
       const app = await launchTugApp({ testName: "at0470-slot-window" });
       try {
@@ -188,7 +185,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
         const rows = await windows(app);
         note(
           `windows: ${rows
-            .map((r) => `[${r.positions.map((p) => p ?? "·").join(" ")}]@${r.centreX}`)
+            .map((r) => `[${r.positions.join(" ")}]lit@${r.litAt} right=${r.runRight}`)
             .join(" ")}`,
         );
 
@@ -201,45 +198,54 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
           ).toBe(3);
         }
 
-        // The centre is the answer, on every row without exception.
+        // Every drawn position is a place a card can actually be put. The
+        // window reaches past neither end of the run.
         for (const row of rows) {
+          for (const chip of row.positions) {
+            expect(chip, "every chip names a real slot").toMatch(/^[1-6]$/);
+          }
           expect(
             row.litAt,
-            "the held slot is the middle position",
-          ).toBe(1);
+            "and each row's own place is one of them",
+          ).toBeGreaterThanOrEqual(0);
         }
 
-        // ...which means one vertical serves the whole column. This is the
-        // claim a sliding window would break, and it is checked as geometry
-        // rather than as index arithmetic because alignment is what the reader
-        // actually gets.
-        const xs = new Set(rows.map((r) => r.centreX));
-        expect(
-          xs.size,
-          `every row's centre chip stands on one vertical (saw ${[...xs].join(", ")})`,
-        ).toBe(1);
+        // Card B holds slot 3, with room either side, so its window centres.
+        const middle = rows.find((r) => r.litAt === 1);
+        expect(middle?.positions, "a card with room either side is centred").toEqual([
+          "2",
+          "3",
+          "4",
+        ]);
 
-        // Card A holds slot 1 of 6, so its left neighbour does not exist. The
-        // position is drawn and empty rather than absent — that is what keeps
-        // its centre on the vertical above.
-        const head = rows.find((r) => r.positions[1] === "1");
+        // Card A holds slot 1 — no left neighbour to draw, so the window
+        // slides rather than overhanging, and its own chip sits at the left.
+        const head = rows.find((r) => r.positions[0] === "1");
         expect(head, "a row for the card in slot 1").toBeDefined();
         expect(
-          head?.positions[0],
-          "the position past the head of the run is a stub, not a missing chip",
-        ).toBeNull();
-        expect(
-          head?.positions[2],
-          "and the real neighbour is still drawn beside it",
-        ).toBe("2");
+          head?.positions,
+          "at the head the window slides right rather than reaching past the run",
+        ).toEqual(["1", "2", "3"]);
+        expect(head?.litAt, "with the card's own place at the left").toBe(0);
 
         // The same at the far end: card C holds slot 6 of 6.
-        const tail = rows.find((r) => r.positions[1] === "6");
+        const tail = rows.find((r) => r.positions[2] === "6");
         expect(tail, "a row for the card in slot 6").toBeDefined();
         expect(
-          tail?.positions[2],
-          "the position past the tail is a stub too",
-        ).toBeNull();
+          tail?.positions,
+          "at the tail it slides left, for the same reason",
+        ).toEqual(["4", "5", "6"]);
+        expect(tail?.litAt, "with the card's own place at the right").toBe(2);
+
+        // The alignment that survives the slide, and the one that matters: the
+        // run's own trailing edge, which is where the coordinate ends. It holds
+        // because the count is the DECK's — every row draws the same number of
+        // chips — so the eye still lands on one vertical down the column.
+        const edges = new Set(rows.map((r) => r.runRight));
+        expect(
+          edges.size,
+          `every row's run ends on one vertical (saw ${[...edges].join(", ")})`,
+        ).toBe(1);
       } finally {
         await app.close();
       }
@@ -248,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
   );
 
   test(
-    "a neighbour moves the card one place, and the window follows",
+    "a chip that is not the card's own moves it there, and the window follows",
     async () => {
       const app = await launchTugApp({ testName: "at0470-slot-window" });
       try {
@@ -263,17 +269,17 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
         const after = await windows(app);
         note(
           `after the nudge: ${after
-            .map((r) => `[${r.positions.map((p) => p ?? "·").join(" ")}]`)
+            .map((r) => `[${r.positions.join(" ")}]lit@${r.litAt}`)
             .join(" ")}`,
         );
         const moved = after[row];
         expect(
-          moved?.positions[1],
+          moved?.positions[moved.litAt],
           "the card is one place along",
         ).toBe("4");
         expect(
           moved?.litAt,
-          "and the window has followed it, so the answer is still centred",
+          "and the window followed it, so it is centred again",
         ).toBe(1);
         expect(
           moved?.positions,
@@ -287,7 +293,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
   );
 
   test(
-    "the centre opens the whole run, and a place the window cannot show is reachable there",
+    "the card's own chip opens the whole run, and a place the window cannot show is reachable there",
     async () => {
       const app = await launchTugApp({ testName: "at0470-slot-window" });
       try {
@@ -296,14 +302,15 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
           await app.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(JUMP)}).length`,
           ),
-          "nothing is open until the centre is pressed",
+          "nothing is open until the card's own chip is pressed",
         ).toBe(0);
 
         const rows = await windows(app);
-        const row = rows.findIndex((r) => r.positions[1] === "1");
-        // The card is in slot 1 and its window reaches slot 2. Slot 5 is the
+        const row = rows.findIndex((r) => r.positions[0] === "1" && r.litAt === 0);
+        expect(row, "a row for the card in slot 1").toBeGreaterThanOrEqual(0);
+        // The card is in slot 1 and its window reaches slot 3. Slot 5 is the
         // case the door exists for.
-        await pressPosition(app, row, 1);
+        await pressPosition(app, row, 0);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JUMP)}) !== null`,
           { timeoutMs: 8_000 },
@@ -337,11 +344,12 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
         const after = await windows(app);
         note(
           `after the jump: ${after
-            .map((r) => `[${r.positions.map((p) => p ?? "·").join(" ")}]`)
+            .map((r) => `[${r.positions.join(" ")}]lit@${r.litAt}`)
             .join(" ")}`,
         );
+        const landed = after[row];
         expect(
-          after[row]?.positions[1],
+          landed === undefined ? undefined : landed.positions[landed.litAt],
           "the card landed where the popup said, four places from where it stood",
         ).toBe("5");
         expect(
@@ -385,25 +393,23 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
         const wide = await windows(app);
         note(
           `at five: ${wide
-            .map((r) => `[${r.positions.map((p) => p ?? "·").join(" ")}]`)
+            .map((r) => `[${r.positions.join(" ")}]lit@${r.litAt}`)
             .join(" ")}`,
         );
         for (const row of wide) {
           expect(row.positions.length, "every row widened together").toBe(5);
-          expect(row.litAt, "and the held slot is still the middle").toBe(2);
+          for (const chip of row.positions) {
+            expect(chip, "and every chip still names a real slot").toMatch(/^[1-6]$/);
+          }
         }
 
-        // Card A holds slot 1, so a five-wide window overhangs the head by two
-        // — both drawn, both empty.
-        const head = wide.find((r) => r.positions[2] === "1");
+        // Card A holds slot 1, so a five-wide window on a six-up deck slides
+        // all the way to the head rather than reaching two places past it.
+        const head = wide.find((r) => r.litAt === 0);
         expect(
-          head?.positions.slice(0, 2),
-          "a five-wide window stubs both positions past the head",
-        ).toEqual([null, null]);
-        expect(
-          head?.positions.slice(3),
-          "and draws the two real neighbours after it",
-        ).toEqual(["2", "3"]);
+          head?.positions,
+          "at the head a five-wide window shows the run's first five places",
+        ).toEqual(["1", "2", "3", "4", "5"]);
 
         // Put it back. The preference is machine-global and outlives the app,
         // so a file that widens it and walks away sets the starting width for

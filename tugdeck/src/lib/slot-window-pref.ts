@@ -41,13 +41,8 @@ export const SLOT_WINDOW_SIZES = [3, 5] as const;
 
 export type SlotWindowSize = (typeof SLOT_WINDOW_SIZES)[number];
 
-/**
- * What a reader who has never chosen gets. Three, because the window's whole
- * argument is that a row states one place and its neighbourhood — five on a
- * six-up deck is very nearly the whole run again, which is the thing being
- * left behind.
- */
-export const DEFAULT_SLOT_WINDOW: SlotWindowSize = 3;
+/** What a reader who has never chosen gets. */
+export const DEFAULT_SLOT_WINDOW: SlotWindowSize = 5;
 
 /** Narrow an unknown — a parsed blob field, an action payload — to a size. */
 export function isSlotWindowSize(value: unknown): value is SlotWindowSize {

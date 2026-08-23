@@ -14,11 +14,16 @@
  * NUMERAL instead, with the neighbours giving the local run, and costs the
  * same at three places as at ten.
  *
- * **The centre does not move.** The window is not slid to stay full at the
- * ends of the run — slot 1 keeps its chip in the middle and the position that
- * would sit left of it is drawn as an inert stub. A sliding window would put
- * the answer at a different offset per row, and a column of rows read at a
- * glance is exactly what the alignment is for.
+ * **Every chip names a real place.** The window prefers to centre on the card's
+ * own slot and slides off centre at the ends of the run rather than reaching
+ * past it, so a card in the first place draws the first N slots with its own at
+ * the left. An earlier cut held the centre instead and drew the overhang as a
+ * dashed stub, to put the lit chip at one offset down the whole column; the
+ * stubs read as damage rather than as an edge, and the alignment they bought
+ * was not the alignment that matters. What a column of these rows is actually
+ * ruled on is the run's own box — every row draws the same number of chips,
+ * because the count is the deck's — so the coordinate still ends on one
+ * vertical whether or not the lit chip does.
  *
  * The three looks say where the row's card stands:
  *
@@ -26,15 +31,15 @@
  *  - **outlined** — the card holds this slot but another card is over it.
  *  - **rest** — the card is not at this position.
  *
- * A card holds at most one slot, so at most one chip in a row is ever lit, and
- * with a window that chip is always the middle one.
+ * A card holds at most one slot, so at most one chip in a row is ever lit.
  *
- * **Two gestures, and the difference is the distance.** Pressing a NEIGHBOUR
- * moves the card one place that way — the common move, at the cost of one
- * press. Pressing the CENTRE opens the whole run as a popup with the card's
- * own slot filled, which is how the reader reaches a place the window does not
- * show. That popup is the same surface the card's own masthead badge opens, so
- * the gesture is learned once and works from either end.
+ * **Two gestures, and the difference is the distance.** Pressing any chip but
+ * the card's own moves it there — one press for anywhere the window shows.
+ * Pressing the card's OWN chip opens the whole run as a popup with that slot
+ * filled, which is how the reader reaches a place the window does not show:
+ * pressing where a card already stands is not a move, so the press is spent on
+ * the run instead. That popup is the same surface the card's own masthead
+ * badge opens, so the gesture is learned once and works from either end.
  *
  * Assigning always assigns *and* raises, even when another pane already holds
  * that slot: a slot is a vertical stack, and the Lens list is the switching
@@ -104,17 +109,12 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
   // fight `TugPopoverAnchor` was written to avoid. The rect is re-read on
   // every Popper update, so it tracks the row through a Lens scroll.
   const anchor = React.useRef<TugPopoverMeasurable>({
-    getBoundingClientRect: () => {
-      const root = layout.current?.element;
-      // The middle DRAWN POSITION, which is where the held slot always
-      // stands. Counting chips instead would find the wrong element the
-      // moment the window overhangs the run: a stub is a position and not a
-      // chip, so at the head of a six-up the two chips drawn are positions 1
-      // and 2, and the middle chip is not the middle position.
-      const positions = root?.children;
-      const centre = positions?.[Math.floor((positions.length - 1) / 2)];
-      return (centre ?? root)?.getBoundingClientRect() ?? new DOMRect();
-    },
+    // The RUN's own box, so the popup opens centred under it and reads as the
+    // window expanding into the whole arrangement. Anchoring to the card's own
+    // chip would put the bubble somewhere different per row, since that chip
+    // is wherever the window's slide left it.
+    getBoundingClientRect: () =>
+      layout.current?.element?.getBoundingClientRect() ?? new DOMRect(),
   });
 
   const kind = deck?.imposition.kind;
@@ -149,14 +149,15 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
   // run's head. Every chip rests, which is the same nothing-is-lit reading the
   // exhaustive run gave that card.
   const centre = held ?? 0;
-  // **The centre is always the door**, whether or not the card has a place.
-  // For a card that has one, pressing where it already stands is not a move,
-  // so the press spends itself on the run instead. For a card that has none —
-  // a Jots or Overview row — the door is what makes the far end of the
-  // arrangement reachable at all: nothing is lit, so every chip is a
-  // destination, and without a door a three-wide window on a six-up deck could
-  // only offer the first two places.
-  const doorAt = centre;
+  // **The card's own chip is the door** — and only it. Pressing where a card
+  // already stands is not a move, so the press spends itself on the whole run
+  // instead, which is how a place the window does not reach is reached. A card
+  // standing nowhere has no such chip and gets no door: every chip in its
+  // window is a real destination, and the window it is shown starts at the
+  // head of the run, so the only places out of its reach are past the window's
+  // width on a deck deeper than that. `undefined` never equals a slot, so this
+  // needs no guard of its own.
+  const doorAt = held;
 
   const assign = (slot: number): void => {
     dispatchCommand("assign-slot", { cardId, slot });
@@ -204,7 +205,7 @@ export function SlotPicker({ cardId }: { cardId: string }): React.ReactElement |
            pointer does not focus — so the default opens the popup onto nothing
            holding the key view, and a keyboard inside it has no stop to move
            from. That matters more here than it does on the card's own badge,
-           because the row's centre chip is reachable by ArrowRight and answers
+           because the row's chips are reachable by ArrowRight and answer
            Space: the keyboard can OPEN this popup, so the keyboard has to be
            able to use it. The landing is the card's own place, which is where
            a reader's next key should start. */

@@ -135,13 +135,14 @@ export interface TugSlotLayoutProps
    * fourth form, and the one that unpins a row's width from the deck's slot
    * count.
    *
-   * `size` positions are drawn, `centre` sits in the middle of them, and the
-   * positions the arrangement does not reach are inert STUBS. The window does
-   * not slide to stay full: a slot at either end of the run keeps its place in
-   * the middle of the window and the stub takes the overhang, so the answer
-   * lands at the same offset on every row in a column of them. A window that
-   * slid would put the lit chip somewhere different per row, which is the one
-   * thing a column of runs is read for.
+   * `size` positions are drawn and **every one of them is a real slot**. The
+   * slice prefers to centre on `centre` and slides off it at the ends rather
+   * than overhanging — a card in the first place draws the first `size` slots
+   * with its own at the left — and a window wider than the arrangement simply
+   * draws the arrangement. Alignment down a column of rows survives this,
+   * because the count is the deck's: every row draws the same number of chips
+   * and the run ends on one vertical. What varies per row is which chip is
+   * lit, which is the fact being read anyway.
    *
    * Everything stays addressed by ABSOLUTE slot: `states`, `slotLabel`, and
    * `onSelectSlot` all speak the arrangement's own indices, so a windowed run
@@ -233,15 +234,21 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
     // second answer to where a slot goes. The map wins; the window stands down.
     const window = spans === undefined ? windowProp : undefined;
     // Which slots this run DRAWS, left to right. Without a window that is the
-    // whole arrangement; with one it is a fixed-width slice centred on
-    // `centre`, whose out-of-range positions are the stubs.
-    const drawn: number[] =
-      window === undefined
-        ? Array.from({ length: count }, (_, slot) => slot)
-        : Array.from(
-            { length: window.size },
-            (_, i) => window.centre - Math.floor(window.size / 2) + i,
-          );
+    // whole arrangement; with one it is a slice of it, and **every position in
+    // the slice is a real slot**. The slice prefers to centre on `centre` and
+    // slides off it at the ends of the run rather than overhanging: a window
+    // wider than the arrangement draws the arrangement.
+    const drawn: number[] = (() => {
+      if (window === undefined) {
+        return Array.from({ length: count }, (_, slot) => slot);
+      }
+      const size = Math.min(window.size, count);
+      const start = Math.max(
+        0,
+        Math.min(window.centre - Math.floor(size / 2), count - size),
+      );
+      return Array.from({ length: size }, (_, i) => start + i);
+    })();
 
     return (
       <span
@@ -254,21 +261,7 @@ export const TugSlotLayout = React.forwardRef<TugSlotLayoutHandle, TugSlotLayout
         className={cn("tug-slot-layout", `tug-slot-layout-size-${size}`, className)}
         {...rest}
       >
-        {drawn.map((slot, i) => {
-          // Where the window overhangs the arrangement. A stub rather than
-          // nothing, because the window's whole argument is that the centre
-          // lands at the same offset on every row — and it only does while
-          // the positions either side of it are still occupying space.
-          if (slot < 0 || slot >= count) {
-            return (
-              <span
-                key={`stub-${i}`}
-                className="tug-slot-layout-stub"
-                data-slot="tug-slot-layout-stub"
-                aria-hidden="true"
-              />
-            );
-          }
+        {drawn.map((slot) => {
           const label = slotLabel?.(slot) ?? `Position ${slot + 1}`;
           // Percentages of the layout, so the map redraws on a resize with
           // nothing measuring itself. A slot the caller placed nowhere is
