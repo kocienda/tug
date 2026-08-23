@@ -55,9 +55,12 @@
  * (`TugChoiceGroup`) that writes the plan. The picture-per-option idiom this
  * replaced spent a full deck drawing on every option and asked the eye to
  * diff them; here the options are words and numerals, and the *plan* is where
- * an option shows what it would do — resting a pointer on a segment, or
- * standing the movement cursor on it, swaps the plan for that option's
- * arrangement, drawn tentative (hollow blocks) rather than committed (filled).
+ * an option shows what it would do — standing the movement CURSOR on a segment
+ * swaps the plan for that option's arrangement, drawn tentative (hollow
+ * blocks) rather than committed (filled). A pointer asks for nothing: it moves
+ * across controls on its way to the one it means, and a drawing that answered
+ * every control it passed over restated the section's largest element while
+ * the reader was only travelling. Pressing is how a hand changes the plan.
  *
  * The drawing itself is a readout and takes no pointer (`pointer-events: none`)
  * — it is drawn in chrome neutrals rather than the control palette, and the
@@ -68,13 +71,10 @@
  *
  * The previews are pre-rendered: React renders one hidden plan layer per
  * offerable option from the same store read as the committed layer, and the
- * hover/cursor handlers only toggle DOM attributes to choose which layer
- * shows. A preview is ephemeral appearance, so no React state is involved in
- * showing one ([L06]); the layers themselves are semantic data — drawings of
- * the store's candidate arrangements — and re-render when the store moves.
- * Which layer shows is on a hover-intent clock rather than on the raw pointer
- * — see `hoverPreview` for why a switch answering instantly made the section
- * strobe.
+ * cursor observer only toggles DOM attributes to choose which layer shows. A
+ * preview is ephemeral appearance, so no React state is involved in showing
+ * one ([L06]); the layers themselves are semantic data — drawings of the
+ * store's candidate arrangements — and re-render when the store moves.
  *
  * Laws: [L02] the imposition record enters React through `useSyncExternalStore`
  * on the deck store; [L03] the section's content declaration is a
@@ -217,18 +217,6 @@ const LAYOUTS_FIRST_SIDEBAR_ROW_FOCUS_ORDER = 4;
  *  ([Q12]) and the engine resolves a key to exactly one stop, leaving the other
  *  unreachable by any addressed placement. */
 const LAYOUTS_PLACES_FOCUS_ORDER = 20;
-
-/** How long a pointer must rest before the plan answers it, raising a preview
- *  from the committed layer. Long enough that a pointer crossing the section
- *  on its way elsewhere asks for nothing; short enough that a reader who meant
- *  it does not notice waiting. */
-const PREVIEW_INTENT_MS = 110;
-
-/** How long a raised preview stands after the pointer stops resolving to one.
- *  Longer than the intent beat, and longer than any traverse of the air
- *  between two affordances, so crossing that air cannot show the committed
- *  layer for an instant on the way past. */
-const PREVIEW_HOLD_MS = 180;
 
 /** User-facing label for each kind. */
 const KIND_LABELS: Record<ImpositionKind, string> = {
@@ -749,68 +737,24 @@ function LayoutsSectionBody({
     plan.toggleAttribute("data-previewing", matched);
   }, []);
 
-  // ---- Hover intent: the pointer asks, the plan waits to be sure ----
+  // ---- The pointer does not preview ----
   //
-  // A hover that switched the plan the instant it resolved made the section
-  // strobe, and the reason is geometry rather than speed. The affordances have
-  // air between them — marks at the foot of adjacent blocks, segments inside a
-  // group — and every crossing of that air resolves to no preview at all. A
-  // pointer travelling from one mark to the next therefore raised a layer,
-  // dropped back to the committed one for the width of a gap, and raised the
-  // next: a flicker per traverse, which reads as the picture panicking rather
-  // than as an instrument answering.
+  // Hovering a segment once raised that answer's layer in the drawing, on a
+  // hover-intent clock — a beat before raising, a hold before dropping — to
+  // keep a pointer crossing the rows from strobing the picture. The clock did
+  // stop the strobe; it could not stop the thing underneath it, which is that
+  // a pointer travelling to the control it means to press passes over three or
+  // four others on the way, and the drawing answered every one of them. The
+  // section's biggest, most detailed element restated itself repeatedly while
+  // the reader was doing nothing but moving their hand toward a target.
   //
-  // So the two edges are treated differently, the way a menu treats them.
+  // So the pointer states nothing. The drawing shows the deck as committed,
+  // and a pointer changes it by pressing — which is the same rule the drawing
+  // itself already obeys ("a statement of what the deck is doing"). The
+  // KEYBOARD still auditions, because a movement cursor is not travel: it is
+  // always ON a mark, it arrives one deliberate key at a time, and the arrows
+  // are how a reader compares arrangements before Space makes one real ([P24]).
   //
-  //  - **Raising from rest costs a beat.** A pointer merely crossing the
-  //    section on its way somewhere else never asks for anything, and the beat
-  //    is what tells the difference between crossing and stopping.
-  //  - **Swapping while a preview stands is immediate.** The reader is already
-  //    auditioning; making them wait again per mark would be the opposite
-  //    mistake, and there is no ambiguity left to resolve.
-  //  - **Clearing is held.** The gap between two marks is not a decision to
-  //    stop previewing, so the committed layer is never shown for the width of
-  //    one. A hold longer than any traverse makes the flicker impossible
-  //    rather than merely unlikely.
-  //
-  // The keyboard does not go through here: a movement cursor is always ON a
-  // mark, so it has no gaps to cross and no ambiguity to wait out. It calls
-  // `setPreview` directly and answers instantly.
-  const previewTimerRef = useRef<number | null>(null);
-  const cancelPendingPreview = useCallback(() => {
-    if (previewTimerRef.current === null) return;
-    window.clearTimeout(previewTimerRef.current);
-    previewTimerRef.current = null;
-  }, []);
-  const hoverPreview = useCallback(
-    (id: string | null) => {
-      const plan = planRef.current;
-      if (plan === null) return;
-      const showing = plan.hasAttribute("data-previewing");
-      cancelPendingPreview();
-      if (id !== null && showing) {
-        setPreview(id);
-        return;
-      }
-      if (id === null && !showing) return;
-      previewTimerRef.current = window.setTimeout(
-        () => {
-          previewTimerRef.current = null;
-          setPreview(id);
-        },
-        id === null ? PREVIEW_HOLD_MS : PREVIEW_INTENT_MS,
-      );
-    },
-    [cancelPendingPreview, setPreview],
-  );
-  /** A press answers the question the audition was asking, so the audition
-   *  ends with it — immediately, and with nothing scheduled behind it. */
-  const commitPreview = useCallback(() => {
-    cancelPendingPreview();
-    setPreview(null);
-  }, [cancelPendingPreview, setPreview]);
-  useEffect(() => cancelPendingPreview, [cancelPendingPreview]);
-
   // The keyboard cursor previews the same way the pointer does: the engine
   // marks the ringed group `data-key-view-kbd` and the cursor segment
   // `data-key-cursor`, so an observer on those attributes resolves the
@@ -1127,15 +1071,7 @@ function LayoutsSectionBody({
         />
         </div>
 
-        <div
-          className="layouts-section-rows"
-          ref={rowsRef}
-          onPointerOver={(event) =>
-            hoverPreview(previewIdOf(event.target as Element))
-          }
-          onPointerLeave={() => hoverPreview(null)}
-          onClick={commitPreview}
-        >
+        <div className="layouts-section-rows" ref={rowsRef}>
           <div className="layouts-section-row" data-preview-axis="kind">
             <TugLabel
               id={KIND_CAPTION_ID}

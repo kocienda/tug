@@ -264,16 +264,28 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
           "the committed window is NOT flush left — the two layers differ",
         ).toBeGreaterThan(TOL);
 
-        // The preview path the pointer drives, for the second shot.
-        await app.evalJS(
-          `(function () {
-             var seg = document.querySelector(
-               '[data-testid="lens-layouts-width"] [data-choice-value="wide"]'
-             );
-             seg.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
-             return true;
-           })()`,
-        );
+        // Raise the layer for the second shot the one way it can be raised:
+        // the KEYBOARD cursor standing on the segment. A pointer auditions
+        // nothing — it travels across controls on its way to the one it means,
+        // and the drawing does not answer travel.
+        await app.dispatchControlAction("focus-lens");
+        await wait(300);
+        for (let i = 0; i < 24; i += 1) {
+          const on = await app.evalJS<boolean>(
+            `document.querySelector('[data-testid="lens-layouts-width"][data-key-view-kbd]') !== null`,
+          );
+          if (on) break;
+          await app.nativeKey("Tab");
+          await wait(200);
+        }
+        for (let i = 0; i < 8; i += 1) {
+          const on = await app.evalJS<boolean>(
+            `document.querySelector('[data-testid="lens-layouts-width"] [data-key-cursor][data-choice-value="wide"]') !== null`,
+          );
+          if (on) break;
+          await app.nativeKey("ArrowRight");
+          await wait(150);
+        }
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-testid="lens-layouts-plan"]')
              .hasAttribute("data-previewing")`,

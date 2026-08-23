@@ -127,13 +127,12 @@ function deckShape() {
 }
 
 /**
- * Rest a pointer on an element the way the section hears one.
+ * Rest a pointer on an element the way the section would hear one.
  *
- * The preview switch listens for React's `onPointerOver`, which is a bubbling
- * `pointerover` — so the hover has to be dispatched on the element itself and
- * allowed to rise to the figure, exactly as a real pointer's would. The harness
- * has no hover verb; `revealPaneControls` dispatches its own `PointerEvent` for
- * the same reason.
+ * The harness has no hover verb, and a `pointerover` bubbles — so dispatching
+ * it on the element itself and letting it rise is exactly what a real pointer
+ * produces (`revealPaneControls` does the same). Every use of this below is
+ * asking the section to answer a pointer and expecting it not to.
  */
 async function hover(app: App, selector: string): Promise<void> {
   await app.evalJS<null>(
@@ -160,6 +159,40 @@ async function tabUntilKbd(app: App, selector: string): Promise<void> {
   }
   if (await reached()) return;
   throw new Error(`Tab never reached ${selector}`);
+}
+
+/**
+ * Stand the KEYBOARD CURSOR on one segment of one of the section's rows — the
+ * only gesture that raises an audition in the plan.
+ *
+ * Tab carries the ring to the row; the arrows move the cursor within it, which
+ * is what a segmented group's walk is. The loop is direction-agnostic because
+ * where the cursor starts is the row's committed answer, which the deck's
+ * state decides rather than this test.
+ */
+async function cursorOnto(app: App, row: string, value: string): Promise<void> {
+  const target = `[data-testid="${row}"] [data-key-cursor][data-choice-value="${value}"]`;
+  const there = (): Promise<boolean> =>
+    app.evalJS<boolean>(
+      `document.querySelector(${JSON.stringify(target)}) !== null`,
+    );
+  await app.dispatchControlAction("focus-lens");
+  await wait(300);
+  await tabUntilKbd(app, `[data-testid="${row}"]`);
+  for (let i = 0; i < 8; i += 1) {
+    if (await there()) return;
+    await app.nativeKey("ArrowRight");
+    await wait(150);
+  }
+  if (await there()) return;
+  throw new Error(`the cursor never reached ${row}/${value}`);
+}
+
+/** Take the ring off the rows and put it on the picture, whose marks audition
+ *  nothing — the keyboard's way of ending an audition without pressing. */
+async function cursorOffTheRows(app: App): Promise<void> {
+  await tabUntilKbd(app, `[data-testid="lens-layouts-places"]`);
+  await wait(300);
 }
 
 /**
@@ -854,16 +887,14 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
 
         // ── A row's preview restates the marks, at the LAYER's geometry. ──
         //
-        // The rows audition; the marks do not. So a preview moves the deck out
-        // from under a legend that would otherwise stay at the committed
-        // positions, and the ghost is what keeps the two together: it draws
-        // every mark again, inert, on the arrangement being auditioned. The
-        // live overlay steps back while it speaks, or two mark sets overlap —
-        // one of them at the wrong geometry.
-        await hover(
-          app,
-          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
-        );
+        // The rows audition under the KEYBOARD cursor; the marks do not, and
+        // neither does a pointer. So a preview moves the deck out from under a
+        // legend that would otherwise stay at the committed positions, and the
+        // ghost is what keeps the two together: it draws every mark again,
+        // inert, on the arrangement being auditioned. The live overlay steps
+        // back while it speaks, or two mark sets overlap — one of them at the
+        // wrong geometry.
+        await cursorOnto(app, "lens-layouts-width", "wide");
         await wait(400);
         const ghostFacts = await app.evalJS<{
           ghostMode: string | null;
@@ -931,10 +962,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           `[data-testid="lens-layouts-sidebar-jots"] [data-choice-value="right"]`,
         );
         await wait(AFTER_LAND_MS);
-        await hover(
-          app,
-          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
-        );
+        await cursorOnto(app, "lens-layouts-width", "wide");
         await wait(400);
         const railDrawing = await app.evalJS<{
           committed: number;
@@ -965,64 +993,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           "a proposal draws the stacked rail as one silhouette",
         ).toBe(1);
 
-        // ── A pointer merely CROSSING a row raises nothing. ──
+        // ── Taking the cursor off the rows brings the live marks back. ──
         //
-        // The rows have air between them, and every crossing of that air
-        // resolves to no preview — so a switch that answered the raw pointer
-        // raised a layer, dropped to committed for the width of a gap, and
-        // raised the next: a flicker per traverse. Raising from rest is on an
-        // intent beat, and this is the claim that says so. Both events are
-        // dispatched in ONE round trip, so the crossing is genuinely faster
-        // than the beat rather than merely usually faster — no timing race in
-        // the assertion, which comes after everything has settled.
-        await hover(app, ".layouts-section-rows");
-        await wait(400);
-        await app.evalJS<null>(
-          `(function () {
-            var over = function (sel) {
-              var el = document.querySelector(sel);
-              if (el === null) throw new Error("nothing at " + sel);
-              el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
-            };
-            over('[data-testid="lens-layouts-width"] [data-choice-value="wide"]');
-            over(".layouts-section-rows");
-            return null;
-          })()`,
-        );
-        await wait(400);
-        expect(
-          await app.evalJS<boolean>(
-            `document.querySelector('[data-testid="lens-layouts-plan"]').hasAttribute("data-previewing")`,
-          ),
-          "a pointer that crossed a segment without stopping asked for nothing",
-        ).toBe(false);
-
-        // ── And the gap between two segments does not drop the plan. ──
-        //
-        // A raised preview is HELD when the pointer stops resolving to one, for
-        // longer than any traverse of the air between affordances, so the
-        // committed layer is never shown for an instant on the way past. Read
-        // immediately after the crossing — the hold is the point.
-        await hover(
-          app,
-          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
-        );
-        await wait(400);
-        const heldThrough = await app.evalJS<boolean>(
-          `(function () {
-            document.querySelector(".layouts-section-rows")
-              .dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
-            return document.querySelector('[data-testid="lens-layouts-plan"]').hasAttribute("data-previewing");
-          })()`,
-        );
-        expect(
-          heldThrough,
-          "crossing the air between segments holds the audition rather than dropping it",
-        ).toBe(true);
-        note("hover intent: a crossing raises nothing, a gap drops nothing");
-
-        // ── Clearing the hover brings the live marks back. ──
-        await hover(app, ".layouts-section-rows");
+        // The audition raised for the silhouette count is still standing, so
+        // this reads the drop rather than staging one.
+        await cursorOffTheRows(app);
         await wait(400);
         const after = await app.evalJS<{ previewing: boolean; liveOpacity: string }>(
           `(function () {
@@ -1039,6 +1014,29 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           Number(after.liveOpacity),
           "and the live marks stand again",
         ).toBe(1);
+
+        // ── A POINTER auditions nothing, wherever it rests. ──
+        //
+        // A hover once raised the segment's layer, on an intent clock meant to
+        // keep a pointer crossing the rows from strobing the picture. The clock
+        // could not fix what was under it: a hand travelling to the control it
+        // means to press passes over three or four others on the way, and the
+        // drawing answered every one — the section's largest element restating
+        // itself while the reader was only moving their hand. So the pointer
+        // states nothing and presses instead, and this is the claim that keeps
+        // it that way. Rest on a segment for longer than any clock and read.
+        await hover(
+          app,
+          `[data-testid="lens-layouts-width"] [data-choice-value="wide"]`,
+        );
+        await wait(600);
+        expect(
+          await app.evalJS<boolean>(
+            `document.querySelector('[data-testid="lens-layouts-plan"]').hasAttribute("data-previewing")`,
+          ),
+          "a pointer resting on a segment does not swap the drawing",
+        ).toBe(false);
+        note("pointer rests on a segment: the drawing does not move");
       } finally {
         await app.close();
       }
