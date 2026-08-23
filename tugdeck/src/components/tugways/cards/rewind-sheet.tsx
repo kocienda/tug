@@ -34,6 +34,21 @@
  * The sheet dismisses on a successful `rewind_result` ack and surfaces the
  * error otherwise (the local L26-safe truncation runs in the store on the ack).
  *
+ * **Rewinding is a run, and the sheet holds the card for it.** Pressing Rewind
+ * is not a dismissal: the picker freezes over the cut it is applying and an
+ * indeterminate bar takes the actions row's place until the ack lands — the
+ * same pane-modal shape `/compact` uses, for the same reason. The window is
+ * long and wholly opaque (tugcode chops the JSONL, copies the fork, tears the
+ * subprocess down, and resumes it), and tugcode holds the ack until the
+ * respawned claude has proven it loaded, so the bar runs for exactly as long
+ * as the session is unable to answer. Nothing here can be canceled — by the
+ * time the bar is up the cut is committed on disk — so the run offers no
+ * Cancel, unlike the compaction sheet.
+ *
+ * Dismissing early (Escape / Cmd-.) closes this surface and leaves the run
+ * alone; the store still truncates on the ack, so the rewind completes either
+ * way. Nothing may read the sheet's close as an abort.
+ *
  * Compositional — composes `TugSheet`, `TugListView`, `TugChoiceGroup`,
  * `TugPushButton`; composed children keep their own tokens ([L20]). The
  * `TugChoiceGroup` is a control: it emits `selectValue` through the responder
@@ -61,6 +76,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 
+import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
 import { TugLabel } from "@/components/tugways/tug-label";
@@ -308,6 +324,13 @@ function RewindSheetBody({
   const [applyingUuid, setApplyingUuid] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // The rewind is in flight: the frame was sent and its ack has not landed.
+  // tugcode holds that ack until the respawned claude has loaded the rewound
+  // conversation, so this covers the whole opaque window — the JSONL chop, the
+  // fork copy, the subprocess swap, and the resume's read-back — rather than
+  // just the round-trip.
+  const applying = applyingUuid !== null;
+
   const cutIndex = rewindPointIndex + 1;
   const discardCount = rows.length - cutIndex;
   // The `session_rewind` anchor: the FIRST discarded message. `null` while the
@@ -360,13 +383,15 @@ function RewindSheetBody({
 
   const delegate = useMemo<TugListViewDelegate>(
     () => ({
-      // Selecting a row IS placing the line below it.
+      // Selecting a row IS placing the line below it. Frozen once the rewind
+      // is applying: the cut it is running is the one that was pressed.
       onSelect: (index) => {
+        if (applying) return;
         if (index < 0 || index >= rows.length) return;
         setRewindPointIndex(index);
       },
     }),
-    [rows.length],
+    [rows.length, applying],
   );
 
   // Fetch every cut's diff-stat once, when the sheet opens, so moving the line
@@ -473,6 +498,7 @@ function RewindSheetBody({
     <ResponderScope>
       <div
         className="rewind-sheet"
+        data-applying={applying ? "true" : "false"}
         ref={responderRef as (el: HTMLDivElement | null) => void}
       >
         <RewindCellContext.Provider
@@ -508,13 +534,13 @@ function RewindSheetBody({
             value={effectiveScope}
             senderId={scopeGroupId}
             size="sm"
-            disabled={anchor === null}
+            disabled={anchor === null || applying}
             aria-label="Restore scope"
             data-testid="rewind-scope"
           />
         </div>
 
-        {!isIdle ? (
+        {!isIdle && !applying ? (
           <p className="rewind-busy" role="status">
             Claude is busy — wait for the current turn to finish.
           </p>
@@ -525,31 +551,51 @@ function RewindSheetBody({
           </p>
         ) : null}
 
-        <div className="tug-sheet-actions">
-          <TugPushButton
-            size="sm"
-            emphasis="outlined"
-            role="action"
-            onClick={() => onClose()}
-            data-testid="rewind-cancel"
-            focusGroup={focusGroup}
-            focusOrder={CANCEL_ORDER}
-          >
-            Cancel
-          </TugPushButton>
-          <TugPushButton
-            size="sm"
-            emphasis="primary"
-            disabled={!canApply}
-            onClick={apply}
-            data-testid="rewind-apply"
-            focusGroup={focusGroup}
-            focusOrder={REWIND_ORDER}
-            persistentDefaultRing
-          >
-            Rewind
-          </TugPushButton>
-        </div>
+        {applying ? (
+          /* The run has replaced the gesture. Nothing here is a control: the
+             cut is committed on disk and the respawn is unstoppable, so the
+             actions row gives way to an indeterminate bar for the duration —
+             the sheet holds the card until the ack says the session is back
+             ([P07]'s shape, borrowed from `/compact`). */
+          <div className="rewind-progress" data-testid="rewind-progress">
+            <TugProgressIndicator
+              variant="bar"
+              size={8}
+              state="running"
+              className="rewind-progress-bar"
+              aria-label="Rewinding"
+            />
+            <p className="rewind-progress-note" role="status">
+              Rewinding — restoring the session…
+            </p>
+          </div>
+        ) : (
+          <div className="tug-sheet-actions">
+            <TugPushButton
+              size="sm"
+              emphasis="outlined"
+              role="action"
+              onClick={() => onClose()}
+              data-testid="rewind-cancel"
+              focusGroup={focusGroup}
+              focusOrder={CANCEL_ORDER}
+            >
+              Cancel
+            </TugPushButton>
+            <TugPushButton
+              size="sm"
+              emphasis="primary"
+              disabled={!canApply}
+              onClick={apply}
+              data-testid="rewind-apply"
+              focusGroup={focusGroup}
+              focusOrder={REWIND_ORDER}
+              persistentDefaultRing
+            >
+              Rewind
+            </TugPushButton>
+          </div>
+        )}
       </div>
     </ResponderScope>
   );

@@ -90,3 +90,39 @@
 .rewind-busy {
   opacity: 0.6;
 }
+
+/* ------------------------------------------------------------------------ */
+/* Applying — the sheet stops being a picker and becomes a progress surface  */
+/* ------------------------------------------------------------------------ */
+
+/* The picker stays on screen while the rewind runs, showing the cut that is
+   being applied, but it is no longer a control: it takes no pointer and reads
+   as spent. Appearance only ([L06]); the list's own selection is frozen in the
+   delegate. */
+.rewind-sheet[data-applying="true"] .session-card-picker-section,
+.rewind-sheet[data-applying="true"] .rewind-scope-row {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Sits where the actions row was: a full-width indeterminate bar over a line
+   of status text. The bar's own layout (track, barber-pole motion) is the
+   TugProgressIndicator's `variant="bar"` behavior — this owns placement. */
+.rewind-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  padding-block: var(--tug-space-xs);
+}
+
+.rewind-progress-bar {
+  width: 100%;
+}
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.rewind-progress-note {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}

@@ -155,6 +155,26 @@ export function parseClaudeVersion(output: string): string | null {
 }
 
 /**
+ * The `request_id` a raw `control_response` line answers, or `null` when the
+ * line is not a control response or carries no id.
+ *
+ * Correlation only — deliberately blind to `subtype` and to the payload. A
+ * response proves claude read our request and replied, which is what a caller
+ * waiting on "has this spawn loaded?" needs to know
+ * ({@link SessionManager.awaitSpawnReady}); whether the payload also parsed as
+ * capabilities is a separate question, asked by
+ * {@link parseInitializeControlResponse}.
+ */
+export function readControlResponseRequestId(
+  event: Record<string, unknown>,
+): string | null {
+  if (event.type !== "control_response") return null;
+  const response = asObject(event.response);
+  if (response === null) return null;
+  return readString(response, "request_id");
+}
+
+/**
  * Extract the nested capability object from a raw `control_response`
  * event (the line claude writes to stdout answering our `initialize`
  * request). The shape is

@@ -16,6 +16,7 @@
 import { describe, test, expect } from "bun:test";
 import { ActiveTurn, SessionManager } from "../session.ts";
 import type { JsonlReadResult } from "../session.ts";
+import { respondingProcess } from "./responding-process.ts";
 
 async function captureIpcOutput(fn: () => void | Promise<void>): Promise<any[]> {
   const captured: any[] = [];
@@ -101,7 +102,7 @@ function retractManager(jsonl: string | null) {
   (manager as any).claudeProcess = { stdin: { write: () => {}, flush: () => {} } };
   (manager as any).spawnClaude = (id: string | null, mode: string) => {
     spawns.push({ id, mode });
-    return { stdin: { write: () => {}, flush: () => {} } };
+    return respondingProcess(manager);
   };
   (manager as any).startStdoutDrain = () => {};
   (manager as any).killAndCleanup = async () => {

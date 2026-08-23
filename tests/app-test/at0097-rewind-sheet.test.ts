@@ -11,7 +11,11 @@
  *      line opens at the end — nothing discarded, Rewind disabled.
  *   3. Click message 2 → the line lands below it, message 3 reads as
  *      discarded, and Rewind enables.
- *   4. Inject the `rewind_result` ack (the backend round-trip, simulated) and
+ *   4. Press Rewind and assert the sheet does NOT dismiss: it turns into a
+ *      progress surface (indeterminate bar in place of the actions row) and
+ *      holds the card, because the ack it waits on means "the rewound session
+ *      has loaded", not "the frame was sent".
+ *   5. Inject the `rewind_result` ack (the backend round-trip, simulated) and
  *      assert the transcript truncated locally (the discarded turn dropped,
  *      the kept turns kept) and the sheet dismissed.
  *
@@ -41,6 +45,7 @@ const USER_ROWS = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 const PICKER_ROWS = `${SHEET} [data-prompt-uuid]`;
 const REWIND_APPLY = `${SHEET} [data-testid="rewind-apply"]`;
 const CUT = `${SHEET} [data-testid="rewind-cut"]`;
+const PROGRESS = `${SHEET} [data-testid="rewind-progress"]`;
 
 function deckShape() {
   return {
@@ -158,6 +163,21 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation 
         // Rewind → the sheet sends `session_rewind` (conversation by default);
         // simulate the backend ack so the local L26-safe truncation runs.
         await app.nativeClickAtElement(REWIND_APPLY);
+
+        // The press starts a run, it does not close the sheet: the picker
+        // stays up over the cut it is applying, the actions row gives way to
+        // the indeterminate bar, and the card is held until the ack — which
+        // tugcode withholds until the respawned session has loaded.
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
+          { timeoutMs: 4000 },
+        );
+        expect(
+          await app.evalJS<number>(
+            `document.querySelectorAll(${JSON.stringify(REWIND_APPLY)}).length`,
+          ),
+        ).toBe(0);
+
         await app.driveSession("A", {
           op: "ingestFrame",
           feedId: FEED_CODE_OUTPUT,

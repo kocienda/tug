@@ -12,6 +12,7 @@ import {
 } from "./control.ts";
 import {
   parseInitializeControlResponse,
+  readControlResponseRequestId,
   parseClaudeVersion,
   enumeratePluginCommands,
   mergePluginCommands,
@@ -190,6 +191,18 @@ export const REPLAY_HARD_TIMEOUT_MS = 10_000;
  * a failing spawn. See `sendInitializeHandshake`.
  */
 export const RESUME_INITIALIZE_DELAY_MS = 2_000;
+
+/**
+ * Cap on how long a `/rewind` respawn waits for its `initialize` handshake
+ * ack before the `rewind_result` goes out anyway ([#step-7-2]). The ack is
+ * what makes the sheet's progress state honest: it means "rewound AND the
+ * resumed claude has loaded", so the sheet stays up — indeterminate — for the
+ * whole opaque window rather than dismissing onto a session that cannot yet
+ * answer. A claude that never acks (crashed on the respawn) must not strand
+ * the sheet, so the wait is bounded; the rewind itself already succeeded on
+ * disk by then, and the ack reports that truthfully.
+ */
+export const REWIND_READY_TIMEOUT_MS = 20_000;
 
 /**
  * Soft cap on the number of raw lines captured from claude's stdout
@@ -3386,6 +3399,13 @@ export class SessionManager {
    */
   private initializeHandshakeAcked: boolean = false;
   /**
+   * Resolvers parked on {@link awaitSpawnReady} — callers that need to know
+   * the CURRENT spawn has loaded, not merely that it was launched. Drained
+   * when the handshake acks and again in {@link killAndCleanup}, so a waiter
+   * whose process died never hangs. Empty when nobody is waiting.
+   */
+  private initializeAckWaiters: Array<() => void> = [];
+  /**
    * Pending cancel-escalation timer. Armed by {@link handleInterrupt} after the
    * in-band interrupt control-request; fires {@link forceTerminateAndRespawn}
    * if a wedged claude doesn't end the turn within {@link INTERRUPT_ACK_GRACE_MS}.
@@ -3860,6 +3880,9 @@ export class SessionManager {
     this.initializeRequestId = null;
     // The next spawn must re-prove itself before its exit is read as a crash.
     this.initializeHandshakeAcked = false;
+    // Nobody may wait on a handshake from a process that is gone; the next
+    // spawn parks its own waiters.
+    this.drainInitializeAckWaiters();
   }
 
   /** Clear the armed cancel-escalation timer, if any. */
@@ -4234,6 +4257,48 @@ export class SessionManager {
     } catch {
       this.initializeRequestId = null;
     }
+  }
+
+  /** Release everyone parked on {@link awaitSpawnReady}. */
+  private drainInitializeAckWaiters(): void {
+    if (this.initializeAckWaiters.length === 0) return;
+    const waiters = this.initializeAckWaiters;
+    this.initializeAckWaiters = [];
+    for (const resolve of waiters) resolve();
+  }
+
+  /**
+   * Resolve once the live spawn has proven it loaded — its `initialize`
+   * handshake acked ({@link initializeHandshakeAcked}) — or once waiting is
+   * pointless: the subprocess exited, or `timeoutMs` elapsed.
+   *
+   * Spawned is not ready. `--resume` against a real conversation takes seconds
+   * to read the JSONL back in, and claude in stream-json mode is silent for
+   * all of it, so the only observable proof that it is answering is a
+   * control-response. `/rewind` awaits this before acking, so the sheet's
+   * progress state covers the whole window ([#step-7-2]).
+   *
+   * Never rejects: every path here means stop waiting, and the caller decides
+   * what an unproven spawn is worth.
+   */
+  private awaitSpawnReady(
+    child: ClaudeSubprocess,
+    timeoutMs: number,
+  ): Promise<void> {
+    if (this.initializeHandshakeAcked) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const settle = (): void => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        resolve();
+      };
+      timer = setTimeout(settle, timeoutMs);
+      this.initializeAckWaiters.push(settle);
+      void child.exited.then(settle, settle);
+    });
   }
 
   /**
@@ -5417,17 +5482,26 @@ export class SessionManager {
     // sent at spawn; emit the capabilities as `session_capabilities` and
     // consume the line. Any other `control_response` falls through to the
     // normal path.
-    if (this.initializeRequestId !== null && event.type === "control_response") {
+    if (
+      this.initializeRequestId !== null &&
+      readControlResponseRequestId(event) === this.initializeRequestId
+    ) {
+      this.initializeRequestId = null;
+      // The handshake ack proves claude launched and (for a resume) opened
+      // its JSONL. A later exit is now a runtime crash, not a resume failure.
+      // Correlated on the id alone: claude answered, which is the proof —
+      // a response whose payload doesn't parse as capabilities still proves
+      // the process is up and reading, and anyone awaiting readiness
+      // ({@link awaitSpawnReady}) must not be left hanging on the shape of a
+      // payload they never look at.
+      this.initializeHandshakeAcked = true;
+      this.drainInitializeAckWaiters();
       const parsed = parseInitializeControlResponse(
         event,
         this.currentEffort,
         this.claudeCodeVersion,
       );
-      if (parsed !== null && parsed.requestId === this.initializeRequestId) {
-        this.initializeRequestId = null;
-        // The handshake ack proves claude launched and (for a resume) opened
-        // its JSONL. A later exit is now a runtime crash, not a resume failure.
-        this.initializeHandshakeAcked = true;
+      if (parsed !== null) {
         // claude's turn-free handshake omits `--plugin-dir` plugin commands
         // (they load lazily, surfacing only with the first turn's system
         // init). Merge the bundled plugin's commands from disk so a fresh
@@ -5437,8 +5511,8 @@ export class SessionManager {
           enumeratePluginCommands(this.getPluginDir()),
         );
         writeLine(withPlugins);
-        return;
       }
+      return;
     }
     // `rewind_files` control-response correlation ([#step-7-1]). Like the
     // `initialize` handshake, a rewind response arrives turn-free (we only
@@ -7299,9 +7373,42 @@ export class SessionManager {
   }
 
   /**
+   * Hold the rewind open until its respawned claude has loaded ([#step-7-2]).
+   *
+   * The rewind ack is the client's whole signal: the `/rewind` sheet stays
+   * modal, showing indeterminate progress, from the Rewind press until the
+   * ack lands. So the ack has to mean "the session is ready", not "a process
+   * was launched" — a `--resume` against a rewound conversation reads its
+   * JSONL back in for seconds after `spawnClaude` returns, and dismissing the
+   * sheet into that window hands the card back before it can answer.
+   *
+   * The proof is the `initialize` handshake ack, the same one every other
+   * spawn path uses. It is dispatched here directly rather than through
+   * {@link sendInitializeHandshake}: that path's {@link
+   * RESUME_INITIALIZE_DELAY_MS} health gate exists to avoid writing into a
+   * `--resume` that is about to die on a stale id, and this id is not stale —
+   * we just wrote the file ourselves. Waiting out the gate would only add two
+   * seconds of barber pole. The wait itself is bounded ({@link
+   * REWIND_READY_TIMEOUT_MS}), and an unproven spawn still acks: the rewind
+   * landed on disk either way.
+   */
+  private async provePostRewindSpawnReady(
+    child: ClaudeSubprocess,
+  ): Promise<void> {
+    // `killAndCleanup` latched the teardown flag; the fresh spawn is not
+    // shutting down (same clearing as `forceTerminateAndRespawn`).
+    this.isShuttingDown = false;
+    this.dispatchInitializeHandshake(child);
+    await this.awaitSpawnReady(child, REWIND_READY_TIMEOUT_MS);
+  }
+
+  /**
    * Conversation rewind ([#step-7-2]): truncate the session JSONL at the
    * `promptUuid` anchor and silent-respawn `--resume` to reload the rewound
-   * context for the next turn. NOT a replay rebuild — the respawn emits no
+   * context for the next turn — resolving only once that respawn has proven
+   * it loaded ({@link provePostRewindSpawnReady}), so the ack the client
+   * waits on says "ready" rather than merely "launched". NOT a replay
+   * rebuild — the respawn emits no
    * transcript (the session-card truncates its own store locally, [#step-7-3]),
    * so survivors keep their mount identity ([L26]).
    *
@@ -7429,9 +7536,11 @@ export class SessionManager {
       // and tell tugcast so the card→session binding is rebound + persisted
       // (a cold-boot then resumes the truncated fork, not the original).
       this.resumeSessionId = newId;
-      this.claudeProcess = this.spawnClaude(newId, "resume");
-      this.startStdoutDrain(this.claudeProcess);
+      const forked = this.spawnClaude(newId, "resume");
+      this.claudeProcess = forked;
+      this.startStdoutDrain(forked);
       this.writeSyntheticSessionInit(newId);
+      await this.provePostRewindSpawnReady(forked);
       return { canRewind: true, newSessionId: newId };
     }
 
@@ -7446,8 +7555,10 @@ export class SessionManager {
       };
     }
     try {
-      this.claudeProcess = this.spawnClaude(liveId, "resume");
-      this.startStdoutDrain(this.claudeProcess);
+      const respawned = this.spawnClaude(liveId, "resume");
+      this.claudeProcess = respawned;
+      this.startStdoutDrain(respawned);
+      await this.provePostRewindSpawnReady(respawned);
     } catch (err) {
       // Roll back the truncation so the session isn't left half-rewound.
       try {

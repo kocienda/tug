@@ -19,6 +19,7 @@ import {
   computeConversationTruncation,
 } from "../session.ts";
 import type { EventMappingContext, JsonlReadResult } from "../session.ts";
+import { respondingProcess } from "./responding-process.ts";
 
 // Capture writeLine() output (it routes through Bun.write(Bun.stdout)).
 // Mirrors session.test.ts's helper.
@@ -585,7 +586,12 @@ describe("computeConversationTruncation against duplicate-uuid anchors", () => {
 // Build a manager wired for conversation-rewind integration tests: canned
 // JSONL in, captured writes out, and the spawn/kill primitives stubbed so no
 // real claude is launched and no real file is touched.
-function convManager(jsonl: string | null) {
+function convManager(
+  jsonl: string | null,
+  // How a respawn's subprocess behaves; defaults to one that answers its
+  // handshake immediately (see `respondingProcess`).
+  spawnStub: (manager: SessionManager) => unknown = respondingProcess,
+) {
   const writes: { path: string; content: string }[] = [];
   const spawns: { id: string | null; mode: string }[] = [];
   let killCalls = 0;
@@ -609,7 +615,7 @@ function convManager(jsonl: string | null) {
   (manager as any).claudeProcess = { stdin: { write: () => {}, flush: () => {} } };
   (manager as any).spawnClaude = (id: string | null, mode: string) => {
     spawns.push({ id, mode });
-    return { stdin: { write: () => {}, flush: () => {} } };
+    return spawnStub(manager);
   };
   (manager as any).startStdoutDrain = () => {};
   (manager as any).killAndCleanup = async () => {
@@ -618,6 +624,73 @@ function convManager(jsonl: string | null) {
   };
   return { manager, writes, spawns, killCalls: () => killCalls };
 }
+
+describe("conversation rewind — the ack waits for the respawn to load", () => {
+  // The `/rewind` sheet stays modal, running an indeterminate bar, from the
+  // Rewind press until the ack lands. That is only honest if the ack means the
+  // rewound session can answer — so the manager holds it until the respawn's
+  // `initialize` handshake is acked, not merely until `spawnClaude` returns.
+  test("no rewind_result until the respawned claude answers its handshake", async () => {
+    const { jsonl, anchors } = buildSessionJsonl();
+    // A spawn stub that holds the handshake open: it captures the reply and
+    // sends it only when this test says so.
+    let answer: (() => void) | null = null;
+    const { manager, spawns } = convManager(jsonl, (mgr) => ({
+      stdin: {
+        write: (data: unknown) => {
+          const request = JSON.parse(String(data).replace(/\n$/, ""));
+          answer = (): void => {
+            (mgr as any).handleClaudeLine(
+              JSON.stringify({
+                type: "control_response",
+                response: {
+                  subtype: "success",
+                  request_id: request.request_id,
+                  response: {},
+                },
+              }),
+            );
+          };
+        },
+        flush: () => {},
+        end: () => {},
+      },
+      exited: new Promise<number>(() => {}),
+    }));
+
+    const out = await captureIpcOutput(async () => {
+      let settled = false;
+      const rewound = manager
+        .handleSessionRewind({
+          type: "session_rewind",
+          promptUuid: anchors[1],
+          scope: "conversation",
+          fork: true,
+        })
+        .then(() => {
+          settled = true;
+        });
+
+      // Give the chop + fork copy + respawn every chance to complete.
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+
+      // The process is up and was handshaked — and the rewind is still
+      // waiting on the answer, so no ack has gone out.
+      expect(spawns.length).toBe(1);
+      expect(answer).not.toBeNull();
+      expect(settled).toBe(false);
+
+      answer!();
+      await rewound;
+      expect(settled).toBe(true);
+    });
+
+    // Answering releases the ack.
+    const ack = out.find((m) => m.type === "rewind_result");
+    expect(ack.canRewind).toBe(true);
+  });
+});
 
 describe("conversation rewind — fork (default)", () => {
   test("forks: writes a truncated COPY under a new id, respawns it, acks newSessionId, leaves the original untouched", async () => {
