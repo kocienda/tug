@@ -60,15 +60,29 @@ export function startDashPrompt(idea: string, name?: string | null): string {
  * on its own model, deliberately, so the user can choose one. A reviewed plan
  * wants implementing. `stale` is the same answer as `never-reviewed`: a review
  * that predates an edit vouches for a document that no longer exists.
+ *
+ * **Begun outranks all of it.** A document with work already on its ledger
+ * wants resuming whatever its review says, and the same `dash-implement` line
+ * carries it: the skill resumes at the first row that is not `done`, and its
+ * own setup gate re-checks the review and raises the ask if the plan went
+ * stale — so a deck that sent the reader to a review first would pre-empt a
+ * decision the skill already owns. What puts a plan in that state is a run
+ * that stopped short of its own plan and joined: `dash-implement` takes a step
+ * selector, so steps 1–3 can land `done` with 4–5 still `pending`.
  */
-export function planNextGesturePrompt(review: string, path: string): string {
-  return review === "reviewed"
+export function planNextGesturePrompt(
+  review: string,
+  path: string,
+  begun: boolean,
+): string {
+  return begun || review === "reviewed"
     ? `/tugplug:dash-implement ${path}`
     : `/tugplug:plan-review ${path}`;
 }
 
-/** What a plan row's affordance says, given its review state. */
-export function planNextGestureLabel(review: string): string {
+/** What a plan row's affordance says, given its review state and its ledger. */
+export function planNextGestureLabel(review: string, begun: boolean): string {
+  if (begun) return "Resume";
   return review === "reviewed" ? "Implement" : "Review";
 }
 

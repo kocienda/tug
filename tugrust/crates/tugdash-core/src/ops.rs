@@ -3340,6 +3340,97 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
     join_in_with_progress(repo_root, name, opts, |_, _| {})
 }
 
+/// Move the dash's adopted plan into `<docs>/archive/` as part of the landing.
+///
+/// The docs directory's top level means *live paperwork*, and this is what
+/// keeps that true by construction rather than by anybody remembering to tidy
+/// up: the moment a dash's work is on the base, its plan is history. The name
+/// `archive/` is a fixed convention inside whatever home the project declared,
+/// not a second config key — it automates exactly what a repository that has
+/// been doing this by hand already does, and the changeset scan's
+/// top-level-only walk never descends into it, so an archived plan leaves the
+/// wire for free.
+///
+/// Returns `Some((source_rel, dest_rel))` when it moved the file, having staged
+/// the move — the caller either folds that into the landing commit it is about
+/// to make, or commits it immediately after one it already made. Every miss
+/// returns `None` and is a no-op, in this order: the dash recorded no plan; the
+/// project declares no docs directory; the source is not in the base working
+/// tree; the destination already exists.
+///
+/// **It never clobbers.** A destination that exists is somebody else's file —
+/// a hand-archived copy, or a re-run of a same-named plan — so the sweep skips
+/// and says so in `warnings`, and the join succeeds with the plan still at the
+/// top level. The display filter hides a finished plan there anyway, so the
+/// section stays truthful; archiving the stray is the user's act.
+///
+/// The plan path is read from branch config, which teardown's `git branch -D`
+/// takes with the rest of the section — so this runs while the branch is still
+/// standing, which the integrate-then-teardown ordering already guarantees.
+fn archive_adopted_plan(
+    repo_root: &Path,
+    name: &str,
+    warnings: &mut Vec<String>,
+) -> Option<(String, String)> {
+    let rel = dash_plan_path(repo_root, name)?;
+    let config = Config::load_from_project(repo_root).ok()?;
+    let docs_dir = config.docs_dir(repo_root)?;
+    let source = repo_root.join(&rel);
+    if !source.is_file() {
+        return None;
+    }
+    let file_name = source.file_name()?.to_owned();
+    let archive_dir = docs_dir.join("archive");
+    let dest = archive_dir.join(&file_name);
+    if dest.exists() {
+        warnings.push(format!(
+            "left {} in place: {} already exists",
+            rel,
+            dest.strip_prefix(repo_root).unwrap_or(&dest).display()
+        ));
+        return None;
+    }
+    if std::fs::create_dir_all(&archive_dir).is_err() {
+        return None;
+    }
+    let dest_rel = dest.strip_prefix(repo_root).ok()?.to_string_lossy().into_owned();
+    let moved = git_output(repo_root, &["mv", &rel, &dest_rel]).ok()?;
+    if !moved.status.success() {
+        warnings.push(format!(
+            "could not archive {}: {}",
+            rel,
+            String::from_utf8_lossy(&moved.stderr).trim()
+        ));
+        return None;
+    }
+    Some((rel, dest_rel))
+}
+
+/// Commit a sweep that landed after its integrate — the merge and rebase
+/// shapes, which commit atomically and so have no pre-commit seam to fold the
+/// move into. Both already land multi-commit shapes on the base, so one more
+/// small commit is congruent with what the caller asked for.
+fn commit_archived_plan(repo_root: &Path, name: &str, warnings: &mut Vec<String>) {
+    let Some((_, dest_rel)) = archive_adopted_plan(repo_root, name, warnings) else {
+        return;
+    };
+    let message = format!("tugdash({}): archive the plan", name);
+    let commit = match git_output(repo_root, &["commit", "-m", &message]) {
+        Ok(commit) => commit,
+        Err(err) => {
+            warnings.push(format!("could not commit the plan archive: {err}"));
+            return;
+        }
+    };
+    if !commit.status.success() {
+        warnings.push(format!(
+            "could not commit the plan archive at {}: {}",
+            dest_rel,
+            String::from_utf8_lossy(&commit.stderr).trim()
+        ));
+    }
+}
+
 /// [`join_in`], narrating itself as it goes.
 ///
 /// `on_beat(beat, status)` fires around each of the join's real boundaries,
@@ -3560,6 +3651,13 @@ pub fn join_in_with_progress(
                         String::from_utf8_lossy(&merge.stderr).trim()
                     ));
                 }
+                // The squash is what materialized the plan's landed bytes in
+                // the working tree, and the commit below has not happened yet
+                // — so the sweep rides the landing commit itself, and the docs
+                // directory is never dirty between the two. A commit failure
+                // below runs `reset --hard`, which owns index and worktree
+                // together and so takes the staged move with it.
+                archive_adopted_plan(&repo_root, name, &mut warnings);
                 let commit = git_output(&repo_root, &["commit", "-m", &final_msg])?;
                 if !commit.status.success() {
                     let _ = git_output(&repo_root, &["reset", "--hard"]);
@@ -3582,7 +3680,11 @@ pub fn join_in_with_progress(
                         String::from_utf8_lossy(&merge.stderr).trim()
                     ));
                 }
-                git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+                // The receipt names the integrate, so it is read before the
+                // archive commit lands on top of it.
+                let integrated = git_stdout(&repo_root, &["rev-parse", "HEAD"])?;
+                commit_archived_plan(&repo_root, name, &mut warnings);
+                integrated
             }
             // The one strategy that asks for the candidate's own history on the
             // base, and therefore the one that keeps its own messages.
@@ -3595,7 +3697,9 @@ pub fn join_in_with_progress(
                         String::from_utf8_lossy(&ff.stderr).trim()
                     ));
                 }
-                git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+                let integrated = git_stdout(&repo_root, &["rev-parse", "HEAD"])?;
+                commit_archived_plan(&repo_root, name, &mut warnings);
+                integrated
             }
         };
         // A rebase landed the candidate's own commits, so the receipt reports
@@ -3660,6 +3764,10 @@ pub fn join_in_with_progress(
                 let _ = git_output(&repo_root, &["reset", "--hard"]);
                 return Ok(conflict_outcome(conflicts, warnings));
             }
+            // Between a successful staging and the commit: the sweep rides the
+            // landing commit itself, so the default join still lands exactly
+            // one commit and the docs directory is never dirty between them.
+            archive_adopted_plan(&repo_root, name, &mut warnings);
             let commit = git_output(&repo_root, &["commit", "-m", &final_msg])?;
             if !commit.status.success() {
                 let _ = git_output(&repo_root, &["reset", "--hard"]);
@@ -3677,13 +3785,17 @@ pub fn join_in_with_progress(
                 let _ = git_output(&repo_root, &["merge", "--abort"]);
                 return Ok(conflict_outcome(conflicts, warnings));
             }
-            git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+            // The receipt names the integrate, so it is read before the archive
+            // commit lands on top of it.
+            let integrated = git_stdout(&repo_root, &["rev-parse", "HEAD"])?;
+            commit_archived_plan(&repo_root, name, &mut warnings);
+            integrated
         }
         JoinStrategy::Rebase => {
             // Fast-forward when base is unchanged (linear); else replay the
             // dash's commits onto the current base with cherry-pick.
             let ff = git_output(&repo_root, &["merge", "--ff-only", &branch])?;
-            if ff.status.success() {
+            let integrated = if ff.status.success() {
                 git_stdout(&repo_root, &["rev-parse", "HEAD"])?
             } else {
                 let pick = git_output(
@@ -3696,7 +3808,9 @@ pub fn join_in_with_progress(
                     return Ok(conflict_outcome(conflicts, warnings));
                 }
                 git_stdout(&repo_root, &["rev-parse", "HEAD"])?
-            }
+            };
+            commit_archived_plan(&repo_root, name, &mut warnings);
+            integrated
         }
     };
 
@@ -9435,6 +9549,242 @@ Some context.
         fs::write(worktree.join("f.txt"), "dash\n").unwrap();
         commit(name, &format!("{name}-only"), None).unwrap();
         (temp, repo)
+    }
+
+    // --- the join's plan sweep ---------------------------------------------
+
+    /// A repo declaring `docs = "paperwork"`, holding a committed plan there,
+    /// with a dash that has adopted it and carries one round.
+    ///
+    /// The base copy is committed and clean, which is the ordinary shape and
+    /// the one that matters: adoption deliberately leaves it alone, so it is
+    /// still sitting at the docs top level when the join arrives.
+    fn repo_with_adopted_plan(name: &str) -> (TempDir, std::path::PathBuf, String) {
+        let temp = TempDir::new().unwrap();
+        let repo = fs::canonicalize(temp.path()).unwrap();
+        init_git_repo(&repo);
+        redirect_state_dir(&temp.path().join("state"));
+        std::env::set_current_dir(&repo).unwrap();
+        fs::write(
+            repo.join(".tugtool/config.toml"),
+            "[tugtool.dash]\ndocs = \"paperwork\"\n",
+        )
+        .unwrap();
+        let rel = format!("paperwork/{name}-plan.md");
+        fs::create_dir_all(repo.join("paperwork")).unwrap();
+        fs::write(repo.join(&rel), "## A Plan\n\nThe paperwork.\n").unwrap();
+        git_output(&repo, &["add", "-A"]).unwrap();
+        git_output(&repo, &["commit", "-m", "the paperwork"]).unwrap();
+
+        create(name, None, None, false, None).unwrap();
+        set_dash_plan_path(&repo, name, &rel).unwrap();
+        let worktree = repo.join(format!(".tug/worktrees/{name}"));
+        fs::write(worktree.join("f.txt"), "dash\n").unwrap();
+        commit(name, &format!("{name}-only"), None).unwrap();
+        (temp, repo, rel)
+    }
+
+    /// The default landing, and the shape every Tug surface asks for: the move
+    /// rides the squash commit itself, so the base gains exactly one commit and
+    /// the docs top level is never dirty between two.
+    #[serial]
+    #[test]
+    fn test_join_squash_archives_the_plan_in_the_landing_commit() {
+        let (_temp, repo, rel) = repo_with_adopted_plan("swp");
+        let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
+
+        let out = join("swp", mechanics()).unwrap();
+        assert!(out.commit_hash.is_some());
+
+        let landed =
+            git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")]).unwrap();
+        assert_eq!(landed, "1", "the sweep rides the landing commit");
+        assert!(!repo.join(&rel).exists(), "the plan left the docs top level");
+        assert!(
+            repo.join("paperwork/archive/swp-plan.md").is_file(),
+            "and arrived in the archive"
+        );
+        assert!(out.warnings.is_empty(), "a clean sweep says nothing");
+    }
+
+    /// The same, through a resolved candidate — the path a conflicted join
+    /// takes once the ladder has produced a tree.
+    #[serial]
+    #[test]
+    fn test_join_candidate_squash_archives_the_plan() {
+        let (_temp, repo, rel) = repo_with_adopted_plan("cnd");
+        let candidate = git_stdout(&repo, &["rev-parse", "tugdash/cnd"]).unwrap();
+        let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
+
+        join(
+            "cnd",
+            JoinOptions {
+                candidate: Some(candidate),
+                ..mechanics()
+            },
+        )
+        .unwrap();
+
+        let landed =
+            git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")]).unwrap();
+        assert_eq!(landed, "1");
+        assert!(!repo.join(&rel).exists());
+        assert!(repo.join("paperwork/archive/cnd-plan.md").is_file());
+    }
+
+    /// Merge and rebase commit atomically, so they have no pre-commit seam to
+    /// fold the move into and take a follow-up commit instead. The receipt
+    /// still names the integrate, never the archive commit sitting on top of
+    /// it.
+    #[serial]
+    #[test]
+    fn test_join_merge_archives_the_plan_in_a_follow_up_commit() {
+        let (_temp, repo, rel) = repo_with_adopted_plan("mga");
+        let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
+
+        let out = join(
+            "mga",
+            JoinOptions {
+                strategy: JoinStrategy::Merge,
+                ..mechanics()
+            },
+        )
+        .unwrap();
+
+        // First-parent: the base gained the merge, then the archive. The
+        // dash's own round is reachable through the merge's second parent,
+        // which is what `--no-ff` is for.
+        let landed = git_stdout(
+            &repo,
+            &["rev-list", "--count", "--first-parent", &format!("{before}..HEAD")],
+        )
+        .unwrap();
+        assert_eq!(landed, "2", "the merge, then the archive");
+        assert!(!repo.join(&rel).exists());
+        assert!(repo.join("paperwork/archive/mga-plan.md").is_file());
+        let subject = git_stdout(&repo, &["log", "-1", "--format=%s"]).unwrap();
+        assert_eq!(subject, "tugdash(mga): archive the plan");
+        // The receipt is the integrate's, which is now HEAD's parent.
+        let parent = git_stdout(&repo, &["rev-parse", "HEAD^"]).unwrap();
+        assert_eq!(out.commit_hash.as_deref(), Some(parent.as_str()));
+    }
+
+    #[serial]
+    #[test]
+    fn test_join_rebase_archives_the_plan_in_a_follow_up_commit() {
+        let (_temp, repo, rel) = repo_with_adopted_plan("rba");
+
+        join(
+            "rba",
+            JoinOptions {
+                strategy: JoinStrategy::Rebase,
+                ..mechanics()
+            },
+        )
+        .unwrap();
+
+        assert!(!repo.join(&rel).exists());
+        assert!(repo.join("paperwork/archive/rba-plan.md").is_file());
+        let subject = git_stdout(&repo, &["log", "-1", "--format=%s"]).unwrap();
+        assert_eq!(subject, "tugdash(rba): archive the plan");
+    }
+
+    /// The sweep never clobbers. A destination that already exists is somebody
+    /// else's file, so the move is skipped, the join still lands, and the
+    /// warning names both paths rather than leaving the skip silent.
+    #[serial]
+    #[test]
+    fn test_join_skips_the_sweep_on_a_collision_and_says_so() {
+        let (_temp, repo, rel) = repo_with_adopted_plan("col");
+        fs::create_dir_all(repo.join("paperwork/archive")).unwrap();
+        fs::write(
+            repo.join("paperwork/archive/col-plan.md"),
+            "## Someone else's\n",
+        )
+        .unwrap();
+        git_output(&repo, &["add", "-A"]).unwrap();
+        git_output(&repo, &["commit", "-m", "a hand-archived file"]).unwrap();
+
+        let out = join("col", mechanics()).unwrap();
+        assert!(out.commit_hash.is_some(), "the join still lands");
+        assert!(repo.join(&rel).is_file(), "the plan stayed put");
+        assert_eq!(
+            fs::read_to_string(repo.join("paperwork/archive/col-plan.md")).unwrap(),
+            "## Someone else's\n",
+            "and nothing was overwritten"
+        );
+        assert_eq!(out.warnings.len(), 1);
+        assert!(out.warnings[0].contains(&rel), "{:?}", out.warnings);
+        assert!(
+            out.warnings[0].contains("paperwork/archive/col-plan.md"),
+            "{:?}",
+            out.warnings
+        );
+    }
+
+    /// A dash that adopted no plan, and a project that declares no paperwork
+    /// home, both join exactly as they did before the sweep existed.
+    #[serial]
+    #[test]
+    fn test_join_without_an_adopted_plan_is_unchanged() {
+        let (_temp, repo) = repo_with_committed_dash("nop");
+        let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
+        let out = join("nop", mechanics()).unwrap();
+        assert!(out.commit_hash.is_some());
+        assert!(out.warnings.is_empty());
+        let landed =
+            git_stdout(&repo, &["rev-list", "--count", &format!("{before}..HEAD")]).unwrap();
+        assert_eq!(landed, "1");
+        assert!(!repo.join("paperwork").exists(), "no archive was invented");
+    }
+
+    #[serial]
+    #[test]
+    fn test_join_without_a_declared_docs_dir_is_unchanged() {
+        let (_temp, repo) = repo_with_committed_dash("und");
+        fs::create_dir_all(repo.join("paperwork")).unwrap();
+        fs::write(repo.join("paperwork/p.md"), "## A Plan\n").unwrap();
+        git_output(&repo, &["add", "-A"]).unwrap();
+        git_output(&repo, &["commit", "-m", "paperwork, undeclared"]).unwrap();
+        set_dash_plan_path(&repo, "und", "paperwork/p.md").unwrap();
+
+        let out = join("und", mechanics()).unwrap();
+        assert!(out.commit_hash.is_some());
+        assert!(
+            repo.join("paperwork/p.md").is_file(),
+            "no declaration, no archive home, no move"
+        );
+        assert!(!repo.join("paperwork/archive").exists());
+    }
+
+    /// A commit failure after the staging leaves the tree exactly as it was —
+    /// the `reset --hard` those paths already run owns index and worktree
+    /// together, so it takes the staged move with it.
+    #[serial]
+    #[test]
+    fn test_a_failed_landing_commit_leaves_the_plan_where_it_was() {
+        let (_temp, repo, rel) = repo_with_adopted_plan("abt");
+        // A refusing pre-commit hook is the one lever that fails the landing
+        // commit *after* the staging succeeded — which is the only window in
+        // which the staged move could survive a failure.
+        let hooks = repo.join(".tug/hooks");
+        fs::create_dir_all(&hooks).unwrap();
+        let hook = hooks.join("pre-commit");
+        fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git_output(&repo, &["config", "core.hooksPath", ".tug/hooks"]).unwrap();
+
+        let err = join("abt", mechanics()).unwrap_err();
+        assert!(err.contains("git commit failed"), "{err}");
+        assert!(repo.join(&rel).is_file(), "the plan is back where it was");
+        // Scoped to the paperwork: the fixture's own redirected state dir sits
+        // untracked at the repo root and is not what this is about.
+        let status = git_stdout(&repo, &["status", "--porcelain", "--", "paperwork"]).unwrap();
+        assert!(status.is_empty(), "and the paperwork is clean: {status}");
     }
 
     #[serial]

@@ -36,6 +36,8 @@ What will bite during implementation? Name the edge cases, failure modes, migrat
 
 Ask specifically: what happens on error, on interrupt, on unmount, on a crash mid-operation? What does a second invocation do? What does the user come back to?
 
+**A plan that projects repository files must trace the file's whole lifecycle, and must be verified once over the real repository's data.** A surface built for the state a file is in on the day it is written will be wrong about every later state — and the plan's own description of those states is not evidence, because the misreading that produced the surface is usually the misreading the plan repeats. Walk the file from written to adopted to landed to archived, and say what the surface shows at each; then read the code that moves it, not the decision that describes it. Fixtures alone cannot catch this: a fixture is written by whoever holds the wrong model, so it agrees with them. One render over what the repository actually contains is what disagrees ([D159]).
+
 ### 5. Test plan sanity
 
 Does each step's Tests block name a test that could actually fail for the right reason, at the right layer?

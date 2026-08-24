@@ -295,7 +295,19 @@ pub(crate) async fn compose_aggregate(
         // directory, which the Lens's Dashes section lists alongside live
         // dashes. A property of the project rather than of the changeset, so it
         // is composed here, where `ProjectChangeset` is built.
-        let plans = super::changeset::plan_doc_entries(&project_dir).await;
+        //
+        // The dashes are composed first, and their adopted plan paths are what
+        // keeps a document from being listed twice — once as the dash doing the
+        // work and again as paperwork waiting for somebody to start it.
+        let adopted: std::collections::HashSet<String> = snapshot
+            .changesets
+            .iter()
+            .filter_map(|entry| match entry {
+                tugcast_core::types::ChangesetEntry::Dash { plan_path, .. } => plan_path.clone(),
+                _ => None,
+            })
+            .collect();
+        let plans = super::changeset::plan_doc_entries(&project_dir, adopted).await;
 
         projects.push(ProjectChangeset {
             project_dir: dir_str,

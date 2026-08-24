@@ -398,16 +398,43 @@ describe("planRowsFromSnapshot — the waiting paperwork", () => {
 });
 
 describe("comparePlanRows — nearest to starting work first", () => {
-  const row = (review: string, name: string): PlanRow => ({
+  const row = (
+    review: string,
+    name: string,
+    progress?: { done: number; begun: number },
+  ): PlanRow => ({
     key: `/p:${name}.md`,
     entry: {
       path: `dash/${name}.md`,
       display_name: name,
       review,
       step_total: 3,
+      steps_done: progress?.done ?? 0,
+      steps_begun: progress?.begun ?? 0,
     },
     projectDir: "/p",
     projectLabel: "p",
+  });
+
+  // Work in flight is nearer done than work not started — the same
+  // nearest-to-done principle the dash rows encode. A begun plan whose review
+  // went stale still outranks a freshly reviewed one nobody has touched.
+  test("a begun plan outranks every unstarted one", () => {
+    const rows = [
+      row("reviewed", "a"),
+      row("stale", "b", { done: 1, begun: 2 }),
+      row("never-reviewed", "c"),
+    ].sort(comparePlanRows);
+    expect(rows.map((r) => r.entry.display_name)).toEqual(["b", "a", "c"]);
+  });
+
+  test("among begun plans, review rank then name still decide", () => {
+    const rows = [
+      row("stale", "z", { done: 1, begun: 1 }),
+      row("reviewed", "y", { done: 2, begun: 3 }),
+      row("stale", "a", { done: 0, begun: 1 }),
+    ].sort(comparePlanRows);
+    expect(rows.map((r) => r.entry.display_name)).toEqual(["y", "a", "z"]);
   });
 
   test("reviewed outranks stale outranks never-reviewed", () => {

@@ -258,10 +258,14 @@ export function dashRowsFromSnapshot(
  * One plan document waiting in a project's docs directory — the front half of
  * the arc, which was invisible to every surface until now.
  *
- * A plan already adopted onto a dash is never here: adoption commits it on the
- * dash branch and cleans the base copy, so a document still in the docs
- * directory is by construction unadopted, and the two kinds of row cannot name
- * the same work.
+ * A plan row is waiting paperwork **by filter, not by construction**. Presence
+ * in the docs directory says nothing about ownership: adoption leaves a
+ * committed, clean base copy exactly where it was, so a plan a dash is
+ * implementing right now sits there for the dash's whole life with its ledger
+ * frozen at all-`pending` — the run's progress goes to the worktree copy. What
+ * keeps the two kinds of row from naming the same work is the producer, which
+ * lists a document only when no dash has adopted it and its ledger is not
+ * wholly `done`.
  */
 export interface PlanRow {
   /** Project dir plus repo-relative path — unique across every open project. */
@@ -286,14 +290,23 @@ function reviewRank(review: string): number {
   return PLAN_REVIEW_RANK[review] ?? -1;
 }
 
+/** Work already on the ledger — done or in progress. */
+export function planIsBegun(entry: PlanDocEntry): boolean {
+  return entry.steps_begun > 0;
+}
+
 /**
- * The plan rows' total order: review rank descending, then by name.
+ * The plan rows' total order: begun first, then review rank descending, then
+ * by name.
  *
  * The same nearest-to-done principle {@link compareDashRows} encodes, applied
- * to the front half: a reviewed plan is one press from becoming a dash, while
+ * to the front half: work in flight is nearer done than work not started, and
+ * among the unstarted a reviewed plan is one press from becoming a dash while
  * an unreviewed one still needs a turn spent on it.
  */
 export function comparePlanRows(a: PlanRow, b: PlanRow): number {
+  const byBegun = Number(planIsBegun(b.entry)) - Number(planIsBegun(a.entry));
+  if (byBegun !== 0) return byBegun;
   const byReview = reviewRank(b.entry.review) - reviewRank(a.entry.review);
   if (byReview !== 0) return byReview;
   return a.entry.display_name.localeCompare(b.entry.display_name);
@@ -732,9 +745,10 @@ function DashJoinRow({ row }: { row: DashRow }): React.ReactElement | null {
  *
  * The affordance is an explicit control, never row activation ([D142]): a plan
  * row has no room to open, and pressing anywhere on it must not submit a
- * prompt. Its label is the next gesture — Review for a plan nothing vouches
- * for, Implement for one a review covers — and a press that cannot land is
- * disabled wearing the ladder's own sentence ([L31]).
+ * prompt. Its label is the next gesture — Resume for a plan with work already
+ * on its ledger, Review for a plan nothing vouches for, Implement for one a
+ * review covers — and a press that cannot land is disabled wearing the
+ * ladder's own sentence ([L31]).
  */
 const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   index,
@@ -747,9 +761,17 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   });
   if (row === undefined) return null;
   const entry = row.entry;
-  const label = planNextGestureLabel(entry.review);
-  const prompt = planNextGesturePrompt(entry.review, entry.path);
-  const steps = entry.step_total === 1 ? "1 step" : `${entry.step_total} steps`;
+  const begun = planIsBegun(entry);
+  const label = planNextGestureLabel(entry.review, begun);
+  const prompt = planNextGesturePrompt(entry.review, entry.path, begun);
+  // A begun plan states how far it got; an unstarted one states how far it
+  // goes. The same cell, two readings, because a fraction on a plan nobody has
+  // touched is a zero pretending to be progress.
+  const steps = begun
+    ? `${entry.steps_done} of ${entry.step_total} done`
+    : entry.step_total === 1
+      ? "1 step"
+      : `${entry.step_total} steps`;
   return (
     <TugListRow
       className="lens-dashes-row lens-plans-row"
@@ -758,6 +780,7 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       data-slot="lens-plans-row"
       data-plan={entry.path}
       data-review={entry.review}
+      data-begun={begun ? "true" : "false"}
     >
       <span className="lens-dashes-block">
         <span className="lens-dashes-eyebrow">

@@ -678,9 +678,11 @@ export interface ProjectChangeset extends ChangesetSnapshot {
  * One plan document waiting in a project's configured docs directory — the
  * front half of the dash arc, made machine-visible.
  *
- * Only documents the plan parser accepts, at the docs directory's top level.
- * A plan adopted onto a dash never appears: adoption commits it on the dash
- * branch and cleans the base copy.
+ * Only documents the plan parser accepts, at the docs directory's top level,
+ * and only those still waiting: the producer drops a plan whose ledger is
+ * wholly `done` and a plan a live dash has adopted. Both filters live at the
+ * scan, so this list *is* the actionable paperwork and no reader subtracts
+ * anything from it.
  */
 export interface PlanDocEntry {
   /** Repo-relative path, e.g. `dash/dash-cockpit.md`. */
@@ -691,6 +693,14 @@ export interface PlanDocEntry {
   review: string;
   /** How many execution steps the document declares. */
   step_total: number;
+  /** Ledger rows marked `done` — the fraction a begun row shows. */
+  steps_done: number;
+  /**
+   * Ledger rows marked anything but `pending`. The gesture keys off this,
+   * never off `steps_done`: a plan whose first row is in progress with nothing
+   * finished has begun, and Resume is what it wants.
+   */
+  steps_begun: number;
 }
 
 export function isPlanDocEntry(value: unknown): value is PlanDocEntry {
@@ -699,7 +709,9 @@ export function isPlanDocEntry(value: unknown): value is PlanDocEntry {
     typeof value.path === "string" &&
     typeof value.display_name === "string" &&
     typeof value.review === "string" &&
-    typeof value.step_total === "number"
+    typeof value.step_total === "number" &&
+    typeof value.steps_done === "number" &&
+    typeof value.steps_begun === "number"
   );
 }
 

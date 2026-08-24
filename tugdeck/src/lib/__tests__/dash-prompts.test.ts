@@ -43,25 +43,37 @@ describe("startDashPrompt", () => {
 
 describe("planNextGesturePrompt — the next gesture ladder (Table T01)", () => {
   test("a reviewed plan is one press from a dash", () => {
-    expect(planNextGesturePrompt("reviewed", "dash/x.md")).toBe(
+    expect(planNextGesturePrompt("reviewed", "dash/x.md", false)).toBe(
       "/tugplug:dash-implement dash/x.md",
     );
-    expect(planNextGestureLabel("reviewed")).toBe("Implement");
+    expect(planNextGestureLabel("reviewed", false)).toBe("Implement");
   });
 
   // Stale and never-reviewed get the same answer: a review that predates an
   // edit vouches for a document that no longer exists.
   test("anything short of reviewed wants the review turn", () => {
     for (const review of ["never-reviewed", "stale"]) {
-      expect(planNextGesturePrompt(review, "dash/x.md")).toBe(
+      expect(planNextGesturePrompt(review, "dash/x.md", false)).toBe(
         "/tugplug:plan-review dash/x.md",
       );
-      expect(planNextGestureLabel(review)).toBe("Review");
+      expect(planNextGestureLabel(review, false)).toBe("Review");
+    }
+  });
+
+  // Work already on the ledger outranks every review state: `dash-implement`
+  // resumes at the first row that is not done, and its own setup gate re-asks
+  // about a review that went stale.
+  test("a begun plan wants resuming, whatever its review says", () => {
+    for (const review of ["reviewed", "stale", "never-reviewed"]) {
+      expect(planNextGesturePrompt(review, "dash/x.md", true)).toBe(
+        "/tugplug:dash-implement dash/x.md",
+      );
+      expect(planNextGestureLabel(review, true)).toBe("Resume");
     }
   });
 
   test("the path is cited verbatim", () => {
-    expect(planNextGesturePrompt("reviewed", "docs/plans/a b.md")).toBe(
+    expect(planNextGesturePrompt("reviewed", "docs/plans/a b.md", false)).toBe(
       "/tugplug:dash-implement docs/plans/a b.md",
     );
   });

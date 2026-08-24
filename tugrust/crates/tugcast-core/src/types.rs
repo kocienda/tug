@@ -884,6 +884,14 @@ pub struct PlanDocEntry {
     /// How many execution steps the document declares — the cockpit row's
     /// size cue. 0 for a plan whose steps failed to enumerate.
     pub step_total: u32,
+    /// Ledger rows whose status is `done`. The numerator of the fraction a
+    /// begun row shows.
+    pub steps_done: u32,
+    /// Ledger rows whose status is anything but `pending` — done *or* in
+    /// progress. Two facts, two fields: a plan whose first row is `in
+    /// progress` with nothing finished is begun (`0` done) rather than
+    /// unstarted, and the gesture keys off this one.
+    pub steps_begun: u32,
 }
 
 /// One project's slice of the account-global aggregate changeset snapshot.
@@ -1864,7 +1872,12 @@ mod tests {
         assert_eq!(repo.plans[0].display_name, "dash-cockpit");
         assert_eq!(repo.plans[0].review, "reviewed");
         assert_eq!(repo.plans[0].step_total, 5);
+        // Begun, not finished: the fraction's numerator and the gesture's
+        // trigger are separate fields, so a row can read "1 of 5 done" while
+        // two rows have been opened.
+        assert_eq!((repo.plans[0].steps_done, repo.plans[0].steps_begun), (1, 2));
         assert_eq!(repo.plans[1].review, "never-reviewed");
+        assert_eq!((repo.plans[1].steps_done, repo.plans[1].steps_begun), (0, 0));
         // The non-repo project declares no docs home, so the key is absent and
         // decodes as empty rather than as missing data.
         assert!(snapshot.projects[1].plans.is_empty());

@@ -516,10 +516,11 @@ export function markDashBuilt(
  * of the dash's recorded plan path, and it refuses unless the document parses
  * and carries a `#step-1` ledger row.
  */
-function fixturePlan(rows: number): string {
+function fixturePlan(rows: number, statuses: readonly string[] = []): string {
   const ledger = Array.from(
     { length: rows },
-    (_, i) => `| #step-${i + 1} | ${STEP_TITLES[i]} | pending | — |`,
+    (_, i) =>
+      `| #step-${i + 1} | ${STEP_TITLES[i]} | ${statuses[i] ?? "pending"} | — |`,
   ).join("\n");
   const steps = Array.from(
     { length: rows },
@@ -549,9 +550,16 @@ function fixturePlan(rows: number): string {
  * A parseable plan document with `rows` execution steps — the same document
  * {@link recordStampedPlan} writes into a dash worktree, for fixtures that
  * want one sitting in a project's *docs directory* instead.
+ *
+ * `statuses` sets the ledger's status cells from the first row forward,
+ * `pending` for anything it does not reach — which is what lets a fixture ask
+ * for a plan that has begun, or one that has finished.
  */
-export function fixturePlanDocument(rows = 1): string {
-  return fixturePlan(rows);
+export function fixturePlanDocument(
+  rows = 1,
+  statuses: readonly string[] = [],
+): string {
+  return fixturePlan(rows, statuses);
 }
 
 /** Titles for a generated plan's rows. A run's step title reaches the Lens and

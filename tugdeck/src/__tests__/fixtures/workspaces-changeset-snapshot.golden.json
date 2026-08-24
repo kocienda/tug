@@ -135,13 +135,17 @@
           "path": "dash/dash-cockpit.md",
           "display_name": "dash-cockpit",
           "review": "reviewed",
-          "step_total": 5
+          "step_total": 5,
+          "steps_done": 1,
+          "steps_begun": 2
         },
         {
           "path": "dash/dash-hardening.md",
           "display_name": "dash-hardening",
           "review": "never-reviewed",
-          "step_total": 3
+          "step_total": 3,
+          "steps_done": 0,
+          "steps_begun": 0
         }
       ]
     },

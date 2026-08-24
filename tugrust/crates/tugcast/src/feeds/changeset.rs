@@ -1194,18 +1194,37 @@ fn dashes_hidden_for(repo_root: &Path) -> bool {
 
 /// The plan documents waiting in `project_dir`'s configured docs directory.
 ///
-/// Membership is by parse ([P01]): every immediate `*.md` child the plan
-/// parser accepts is an entry, with no filename convention and no recursion, so
-/// `archive/` stays filed without being named. A project that declares no docs
-/// directory has no paperwork home, which reads as an empty list rather than an
-/// error.
+/// Membership is by parse: every immediate `*.md` child the plan parser accepts
+/// is a candidate, with no filename convention and no recursion, so `archive/`
+/// stays filed without being named. A project that declares no docs directory
+/// has no paperwork home, which reads as an empty list rather than an error.
+///
+/// Three filters then decide what is *waiting*, and they all live here so the
+/// wire's `plans` list means exactly one thing and no reader needs a filter of
+/// its own:
+///
+/// - a document whose ledger is non-empty and wholly `done` is finished work,
+///   and drops;
+/// - a document whose path is in `adopted` belongs to a live dash, and drops —
+///   presence in the docs directory says nothing about ownership, because
+///   adoption deliberately leaves a *committed, clean* base copy in place
+///   ([D139]), so only a dash's own recorded plan path can answer it;
+/// - everything else carries its ledger progress, so a run that stopped short
+///   can be told from one that never started.
+///
+/// `adopted` holds repo-relative paths, matched exactly — the same spelling a
+/// dash entry's `plan_path` carries, since a linked worktree is a full checkout
+/// and both sides name the file from their own root ([L29]).
 ///
 /// `project_dir` is whatever the workspace registry holds, which need not be
 /// the repo root — the declaration lives at the root and the entries' paths are
 /// root-relative, so the root is resolved first. The whole scan (a directory
 /// read plus a parse per candidate) runs in one `spawn_blocking` hop: it is
 /// called once per project per recompute, on the feed's async thread.
-pub(crate) async fn plan_doc_entries(project_dir: &Path) -> Vec<PlanDocEntry> {
+pub(crate) async fn plan_doc_entries(
+    project_dir: &Path,
+    adopted: HashSet<String>,
+) -> Vec<PlanDocEntry> {
     let Some(root) = repo_root_for(project_dir).await else {
         return Vec::new();
     };
@@ -1215,14 +1234,14 @@ pub(crate) async fn plan_doc_entries(project_dir: &Path) -> Vec<PlanDocEntry> {
     if dashes_hidden_for(&root) {
         return Vec::new();
     }
-    tokio::task::spawn_blocking(move || plan_doc_entries_in(&root))
+    tokio::task::spawn_blocking(move || plan_doc_entries_in(&root, &adopted))
         .await
         .unwrap_or_default()
 }
 
 /// The synchronous body of [`plan_doc_entries`], split out so the scan is
 /// testable without a runtime hop.
-fn plan_doc_entries_in(root: &Path) -> Vec<PlanDocEntry> {
+fn plan_doc_entries_in(root: &Path, adopted: &HashSet<String>) -> Vec<PlanDocEntry> {
     let Ok(config) = tugutil_core::config::Config::load_from_project(root) else {
         return Vec::new();
     };
@@ -1257,16 +1276,40 @@ fn plan_doc_entries_in(root: &Path) -> Vec<PlanDocEntry> {
         let Ok(rel) = path.strip_prefix(root) else {
             continue;
         };
+        let rel = rel.to_string_lossy().into_owned();
+        if adopted.contains(&rel) {
+            continue;
+        }
         let Some(display_name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
             continue;
         };
+        // Counted over the ledger rather than the step headings, because the
+        // ledger is what the machinery itself drives — `tugdash_core`'s step
+        // verbs take their total from `ledger_rows`. An unrecognised status
+        // spelling counts as `pending`: the conservative reading, and one the
+        // plan linter rejects before it can reach a real document.
+        let steps_done = doc
+            .ledger_rows
+            .iter()
+            .filter(|r| r.status == "done")
+            .count() as u32;
+        let steps_begun = doc
+            .ledger_rows
+            .iter()
+            .filter(|r| r.status == "done" || r.status == "in progress")
+            .count() as u32;
+        if !doc.ledger_rows.is_empty() && steps_done as usize == doc.ledger_rows.len() {
+            continue;
+        }
         entries.push(PlanDocEntry {
-            path: rel.to_string_lossy().into_owned(),
+            path: rel,
             display_name,
             review: tugutil_core::plan::review_state(&doc, &source)
                 .as_str()
                 .to_string(),
             step_total: doc.steps.len() as u32,
+            steps_done,
+            steps_begun,
         });
     }
     // Directory order is not stable across filesystems; the snapshot's
@@ -2615,6 +2658,49 @@ Some context.
         std::fs::write(abs, source).unwrap();
     }
 
+    /// Write a plan at `root/rel` carrying one ledger row and one step section
+    /// per entry of `statuses`, so the scan's progress counting and its
+    /// fully-done drop have documents to read.
+    fn write_plan_with_statuses(root: &Path, rel: &str, statuses: &[&str]) {
+        let mut ledger = String::new();
+        let mut steps = String::new();
+        for (i, status) in statuses.iter().enumerate() {
+            let n = i + 1;
+            ledger.push_str(&format!("| #step-{n} | Step {n} | {status} | — |\n"));
+            steps.push_str(&format!(
+                "#### Step {n}: Step {n} {{#step-{n}}}\n\n\
+                 **Commit:** `thing(scope): do it`\n\n\
+                 **References:** (#phase-overview)\n\n\
+                 **Tasks:**\n- [ ] Do the thing.\n\n\
+                 **Tests:**\n- [ ] Unit: the thing works.\n\n\
+                 **Checkpoint:**\n- [ ] `cargo nextest run`\n\n"
+            ));
+        }
+        let source = format!(
+            "## A Minimal Plan {{#minimal-plan}}\n\n\
+             ### Plan Metadata {{#plan-metadata}}\n\n\
+             | Field | Value |\n|---|---|\n| Owner | Someone |\n\n\
+             ### Review Record {{#review-record}}\n\n\
+             **Round 1 — 2026-08-14, opus.** Lint: 0 errors, 0 warnings.\n\n\
+             ### Phase Overview {{#phase-overview}}\n\n\
+             Some context.\n\n\
+             ### Execution Steps {{#execution-steps}}\n\n\
+             #### Step Status Ledger {{#step-status-ledger}}\n\n\
+             | Step | Title | Status | Commit |\n|---|---|---|---|\n{ledger}\n\
+             {steps}\
+             ### Deliverables and Checkpoints {{#deliverables}}\n"
+        );
+        let abs = root.join(rel);
+        std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+        std::fs::write(abs, source).unwrap();
+    }
+
+    /// The scan with nothing adopted — what every test that is not about the
+    /// dedup wants.
+    fn plan_entries(root: &Path) -> Vec<PlanDocEntry> {
+        plan_doc_entries_in(root, &HashSet::new())
+    }
+
     #[test]
     fn plan_doc_entries_read_each_document_review_state() {
         let tmp = plan_docs_project(Some("dash"));
@@ -2626,7 +2712,7 @@ Some context.
         let source = format!("{}\nOne more line.\n", std::fs::read_to_string(&moved).unwrap());
         std::fs::write(&moved, source).unwrap();
 
-        let entries = plan_doc_entries_in(root);
+        let entries = plan_entries(root);
         let by_name: HashMap<&str, &PlanDocEntry> = entries
             .iter()
             .map(|e| (e.display_name.as_str(), e))
@@ -2648,7 +2734,7 @@ Some context.
         for name in ["zulu", "alpha", "mike"] {
             write_plan_at(root, &format!("dash/{name}.md"), false);
         }
-        let paths: Vec<String> = plan_doc_entries_in(root)
+        let paths: Vec<String> = plan_entries(root)
             .into_iter()
             .map(|e| e.path)
             .collect();
@@ -2659,8 +2745,8 @@ Some context.
         );
     }
 
-    /// Membership is by parse and by being an immediate child ([P01]): prose
-    /// is not a plan, and archived paperwork is filed rather than waiting.
+    /// Membership is by parse and by being an immediate child: prose is not a
+    /// plan, and archived paperwork is filed rather than waiting.
     #[test]
     fn plan_doc_entries_skip_non_plans_and_subdirectories() {
         let tmp = plan_docs_project(Some("dash"));
@@ -2670,9 +2756,83 @@ Some context.
         std::fs::write(root.join("dash/notes.md"), "# Notes\n\nJust prose.\n").unwrap();
         std::fs::write(root.join("dash/readme.txt"), "not markdown").unwrap();
 
-        let entries = plan_doc_entries_in(root);
+        let entries = plan_entries(root);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "dash/live.md");
+    }
+
+    /// The section lists paperwork somebody can act on. A plan whose every
+    /// ledger row is `done` is finished work, and a row offering to implement
+    /// it is an invitation to redo what already landed.
+    #[test]
+    fn plan_doc_entries_drop_a_fully_done_plan() {
+        let tmp = plan_docs_project(Some("dash"));
+        let root = tmp.path();
+        write_plan_with_statuses(root, "dash/finished.md", &["done", "done"]);
+        write_plan_with_statuses(root, "dash/nearly.md", &["done", "in progress"]);
+
+        let paths: Vec<String> = plan_entries(root).into_iter().map(|e| e.path).collect();
+        assert_eq!(paths, vec!["dash/nearly.md"]);
+    }
+
+    /// Done-ness and begun-ness are two facts. A plan whose first row is `in
+    /// progress` with nothing finished has begun — the fraction reads `0`, and
+    /// the gesture keys off `steps_begun` rather than off the fraction.
+    #[test]
+    fn plan_doc_entries_count_done_and_begun_separately() {
+        let tmp = plan_docs_project(Some("dash"));
+        let root = tmp.path();
+        write_plan_with_statuses(root, "dash/started.md", &["in progress", "pending", "pending"]);
+        write_plan_with_statuses(root, "dash/partway.md", &["done", "in progress", "pending"]);
+        write_plan_with_statuses(root, "dash/waiting.md", &["pending", "pending"]);
+
+        let by_name: HashMap<String, PlanDocEntry> = plan_entries(root)
+            .into_iter()
+            .map(|e| (e.display_name.clone(), e))
+            .collect();
+        assert_eq!((by_name["started"].steps_done, by_name["started"].steps_begun), (0, 1));
+        assert_eq!((by_name["partway"].steps_done, by_name["partway"].steps_begun), (1, 2));
+        assert_eq!((by_name["waiting"].steps_done, by_name["waiting"].steps_begun), (0, 0));
+    }
+
+    /// An unrecognised status spelling counts as `pending`: the row reads as
+    /// unstarted, which is the conservative answer, and the plan linter rejects
+    /// the document long before a real one can reach here. An empty ledger is
+    /// unstarted too — never "every row is done, vacuously".
+    #[test]
+    fn plan_doc_entries_read_an_odd_ledger_conservatively() {
+        let tmp = plan_docs_project(Some("dash"));
+        let root = tmp.path();
+        write_plan_with_statuses(root, "dash/odd.md", &["shipped", "pending"]);
+        write_plan_with_statuses(root, "dash/empty.md", &[]);
+
+        let by_name: HashMap<String, PlanDocEntry> = plan_entries(root)
+            .into_iter()
+            .map(|e| (e.display_name.clone(), e))
+            .collect();
+        assert_eq!(by_name.len(), 2, "neither document drops");
+        assert_eq!((by_name["odd"].steps_done, by_name["odd"].steps_begun), (0, 0));
+        assert_eq!((by_name["empty"].steps_done, by_name["empty"].steps_begun), (0, 0));
+    }
+
+    /// The act the cockpit's first cut missed: adoption leaves a committed,
+    /// clean base copy exactly where it was ([D139]), so the plan a dash is
+    /// implementing right now sits in the docs directory for the dash's whole
+    /// life with its ledger frozen at all-`pending`. Only the dash's own
+    /// recorded plan path can say who owns it.
+    #[test]
+    fn plan_doc_entries_drop_a_plan_a_dash_has_adopted() {
+        let tmp = plan_docs_project(Some("dash"));
+        let root = tmp.path();
+        write_plan_at(root, "dash/adopted.md", true);
+        write_plan_at(root, "dash/waiting.md", true);
+
+        let adopted = HashSet::from(["dash/adopted.md".to_string()]);
+        let paths: Vec<String> = plan_doc_entries_in(root, &adopted)
+            .into_iter()
+            .map(|e| e.path)
+            .collect();
+        assert_eq!(paths, vec!["dash/waiting.md"]);
     }
 
     /// A project that has declared no paperwork home has no paperwork to show;
@@ -2680,11 +2840,11 @@ Some context.
     #[test]
     fn plan_doc_entries_are_empty_without_a_declaration() {
         let tmp = plan_docs_project(None);
-        assert!(plan_doc_entries_in(tmp.path()).is_empty());
+        assert!(plan_entries(tmp.path()).is_empty());
 
         let tmp = plan_docs_project(Some("dash"));
         std::fs::remove_dir(tmp.path().join("dash")).unwrap();
-        assert!(plan_doc_entries_in(tmp.path()).is_empty());
+        assert!(plan_entries(tmp.path()).is_empty());
     }
 
     /// The workspace registry hands a project directory that need not be the
@@ -2699,7 +2859,7 @@ Some context.
         let nested = root.join("tugdeck/src");
         std::fs::create_dir_all(&nested).unwrap();
 
-        let entries = plan_doc_entries(&nested).await;
+        let entries = plan_doc_entries(&nested, HashSet::new()).await;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "dash/live.md");
         assert_eq!(entries[0].review, "reviewed");
@@ -2708,7 +2868,7 @@ Some context.
     #[tokio::test]
     async fn plan_doc_entries_are_empty_outside_a_repository() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(plan_doc_entries(tmp.path()).await.is_empty());
+        assert!(plan_doc_entries(tmp.path(), HashSet::new()).await.is_empty());
     }
 
     /// The composition asked from a *linked worktree* — the shape a card whose
