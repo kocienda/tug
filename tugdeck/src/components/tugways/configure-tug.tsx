@@ -629,7 +629,7 @@ export function ConfigureTug(): ReactElement {
           status: "active",
           label: "Start a session",
           detail: "Start working in a new session.",
-          cta: { label: "Open a Session", onClick: handleOpenSession },
+          cta: { label: "Start", onClick: handleOpenSession },
         };
 
   const probingSteps: Step[] = [
