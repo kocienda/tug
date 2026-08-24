@@ -1,4 +1,4 @@
-// Mid-turn-replay [Step 5.6](roadmap/tugplan-session-mid-turn-replay.md#step-5-6):
+// Mid-turn-replay [Step 5.6](dash/tugplan-session-mid-turn-replay.md#step-5-6):
 // pending-row replay. The load-bearing implementation of the never-drop
 // guarantee from [DM08]. tugcode's `runReplay` queries the submission
 // journal (via the cross-process bun:sqlite handle) and emits a

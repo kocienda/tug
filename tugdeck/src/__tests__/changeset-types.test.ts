@@ -93,7 +93,7 @@ describe("changeset wire contract", () => {
     expect(isChangesetEntry({ ...base, run_length: null })).toBe(false);
     // `plan_path` is optional both ways: absent on every dash no run has
     // stepped, a worktree-relative string once one has.
-    expect(isChangesetEntry({ ...base, plan_path: "roadmap/plan.md" })).toBe(true);
+    expect(isChangesetEntry({ ...base, plan_path: "dash/plan.md" })).toBe(true);
     expect(isChangesetEntry({ ...base, plan_path: 7 })).toBe(false);
     expect(isChangesetEntry({ ...base, plan_path: null })).toBe(false);
     // `last_activity` is an ISO-8601 string or nothing. A number — an epoch

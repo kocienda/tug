@@ -2,7 +2,7 @@
 
 `imara-diff` bindings compiled to WebAssembly for use in tugdeck. Powers the
 `DiffBlock` body kind in the Dev assistant renderer (see
-[D09](../../../roadmap/tide-assistant-rendering.md#d09-imara-diff-backbone)).
+[D09](../../../dash/tide-assistant-rendering.md#d09-imara-diff-backbone)).
 
 ## Why a WASM crate?
 
@@ -12,7 +12,7 @@
 - Diffing is the one renderer-stage workload where the speed/correctness win is
   large enough to justify a WASM crate. Other parsers (ANSI, JSON tree, inline
   math) stay in JS — see
-  [D06](../../../roadmap/tide-assistant-rendering.md#d06-wasm-where-earns).
+  [D06](../../../dash/tide-assistant-rendering.md#d06-wasm-where-earns).
 
 ## API
 

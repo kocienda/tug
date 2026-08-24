@@ -1,4 +1,4 @@
-# Steering wire-behavior spike (Step 1 of roadmap/message-architecture.md)
+# Steering wire-behavior spike (Step 1 of dash/message-architecture.md)
 
 How a message typed while the assistant is busy ("steering") gets picked up.
 

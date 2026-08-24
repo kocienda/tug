@@ -211,7 +211,7 @@ describe("word-savvy query derivation", () => {
 
 describe("trailing punctuation is trimmed from the query", () => {
   test("only a trailing run is shed", () => {
-    expect(trimTrailingPunctuation("roadmap/plan.md;")).toBe("roadmap/plan.md");
+    expect(trimTrailingPunctuation("dash/plan.md;")).toBe("dash/plan.md");
     expect(trimTrailingPunctuation("plan.md).")).toBe("plan.md");
     expect(trimTrailingPunctuation('plan.md,"')).toBe("plan.md");
     expect(trimTrailingPunctuation("")).toBe("");
@@ -225,29 +225,29 @@ describe("trailing punctuation is trimmed from the query", () => {
   });
 
   test("a mention written mid-sentence queries the path, not the clause", () => {
-    // The reported flow: "@roadmap/overview-plan.md; Phase F …". The token
+    // The reported flow: "@dash/overview-plan.md; Phase F …". The token
     // ends at whitespace, so without the trim the query carries the
     // semicolon and matches no file.
-    const typed = makeState("roadmap/overview-plan.md; Phase F", 0).update({
+    const typed = makeState("dash/overview-plan.md; Phase F", 0).update({
       changes: { from: 0, insert: "@" },
       selection: EditorSelection.cursor(1),
       userEvent: "input.type",
     }).state;
     const field = typed.field(completionField);
     expect(field.active).toBe(true);
-    expect(field.query).toBe("roadmap/overview-plan.md");
+    expect(field.query).toBe("dash/overview-plan.md");
   });
 
   test("the session stays open with the caret parked after the punctuation", () => {
     // Liveness is judged against the raw token end, so a caret resting on
     // the far side of the semicolon is still inside its token.
-    const typed = makeState("@roadmap/plan.md; rest", 22).update({
-      selection: EditorSelection.cursor(17),
+    const typed = makeState("@dash/plan.md; rest", 19).update({
+      selection: EditorSelection.cursor(14),
       userEvent: "select.pointer",
     }).state;
     const field = typed.field(completionField);
     expect(field.active).toBe(true);
-    expect(field.query).toBe("roadmap/plan.md");
+    expect(field.query).toBe("dash/plan.md");
   });
 
   test("typing past the punctuation makes it interior again", () => {
@@ -336,7 +336,7 @@ describe("prepending a slash command in front of another one", () => {
 
   function prependState(): EditorState {
     return EditorState.create({
-      doc: "/tugplug:implement roadmap/restore-remediation.md",
+      doc: "/tugplug:implement dash/restore-remediation.md",
       selection: EditorSelection.cursor(0),
       extensions: [tugCompletionExt(() => ({ "/": compactProvider }))],
     });

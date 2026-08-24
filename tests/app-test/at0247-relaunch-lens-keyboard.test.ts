@@ -38,7 +38,7 @@
  *
  * ## Reproduction attempt receipt (main @ 5de3693e0, pre-rework)
  *
- * The plan for this pin (`roadmap/keyboard-as-engine-state.md` [P11])
+ * The plan for this pin (`dash/keyboard-as-engine-state.md` [P11])
  * expected it to FAIL against the shipped focus-by-construction
  * engine. It does not: driven exactly as above, Phase B settles with
  * the ring on the jots list, `violations: 0`, ArrowDown moving the

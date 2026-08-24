@@ -89,7 +89,7 @@ export interface SendActionEvent {
    * entry so the transcript chip renderer can walk `text` looking
    * for `U+FFFC` and read the corresponding atom for chip placement.
    *
-   * Per [Step 5c](../../../roadmap/dev-atoms.md#step-5c).
+   * Per [Step 5c](../../../dash/dev-atoms.md#step-5c).
    */
   text: string;
   /**
@@ -106,8 +106,8 @@ export interface SendActionEvent {
    * forwarded verbatim on the `user_message` IPC frame; the reducer
    * just hands it to the `send-frame` effect.
    *
-   * Per [Step 5c](../../../roadmap/dev-atoms.md#step-5c) and
-   * [Spec S03](../../../roadmap/dev-atoms.md#s03-build-wire-payload).
+   * Per [Step 5c](../../../dash/dev-atoms.md#step-5c) and
+   * [Spec S03](../../../dash/dev-atoms.md#s03-build-wire-payload).
    */
   content: ContentBlock[];
   /**
@@ -885,7 +885,7 @@ export interface ResumeFailedEvent {
  * reducer drops it in any other phase so a stray frame on a live
  * session can't corrupt `pendingTurn`.
  *
- * See `roadmap/tugplan-session-wake.md` [D14] (activeMsgId
+ * See `dash/tugplan-session-wake.md` [D14] (activeMsgId
  * tracking), [D15] (add_<kind> naming), and `#spec-wire-frames` for
  * the canonical wire-shape definition.
  */
@@ -1054,7 +1054,7 @@ export interface SessionRewindActionEvent {
  * claude actively polling rather than going idle, so there is no
  * wake to bracket.
  *
- * See `roadmap/tugplan-session-wake.md` [D01], [D02] for the
+ * See `dash/tugplan-session-wake.md` [D01], [D02] for the
  * bracket pattern and detection rationale.
  */
 export interface WakeStartedEvent {

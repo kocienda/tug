@@ -1,6 +1,6 @@
 # How mid-turn steering actually works — the `queued_command` mechanism
 
-Authoritative finding for Step 1 of `roadmap/message-architecture.md`, from a
+Authoritative finding for Step 1 of `dash/message-architecture.md`, from a
 corpus survey of real session JSONL (no synthetic probes). Supersedes the earlier
 single-run raw probe and the (wrong) "buffers to turn boundary, never merges"
 reading.

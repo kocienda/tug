@@ -37,7 +37,7 @@ Give your honest assessment of:
 - **Implementation strategy** — is the work structured well, or are there seams, duplication, or leaks across layers that will cost later?
 - **Holes, pitfalls, weaknesses, limitations** — bugs, unhandled edge cases, race conditions, missing tests, stale comments, warnings (warnings are errors here).
 - **Test discipline (flag violations as findings):** the shapes banned in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) — any fake-DOM/RTL test (`happy-dom`, `jsdom` render tests, `@testing-library/react`) or mock-store assertion test — and any real-app behavior tested outside the project's real-app harness (`tests/app-test/` here). Call each one out for deletion or rewrite. These bans are Tugtool doctrine, and they bind where that document exists. On a project that never signed them, audit the tests against the plan's own Test Plan instead, note that the project has no real-app harness so its real-app claims are verified only as far as its own tests reach, and say so — do not impose a doctrine the project never adopted.
-- **Plan numbers in durable artifacts** — any step identifier ("Step 4.5", "4i", "roadmap step X") written into code, comments, docstrings, test names, or commit messages. Flag each one; they should describe the behavior directly instead.
+- **Plan numbers in durable artifacts** — any step identifier ("Step 4.5", "4i", "plan step X") written into code, comments, docstrings, test names, or commit messages. Flag each one; they should describe the behavior directly instead.
 
 Look holistically. Determine whether the changes are *actually good*, not just whether they match the plan in the abstract. A plan-faithful implementation can still be wrong.
 

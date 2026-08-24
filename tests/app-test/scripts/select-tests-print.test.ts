@@ -61,7 +61,7 @@ describe("--print writes the selection to stdout", () => {
     });
 
     test("a selection that matches nothing prints nothing and exits 0", () => {
-        const r = run(["--print", "roadmap/no-such-plan.md"]);
+        const r = run(["--print", "dash/no-such-plan.md"]);
         expect(r.code).toBe(0);
         expect(lines(r.out)).toEqual([]);
     });

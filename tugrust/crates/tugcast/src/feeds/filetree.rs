@@ -69,7 +69,7 @@ pub struct FileTreeFeed {
     /// `new` from the workspace root; rebuilt whenever a
     /// `.tugattachignore` event arrives in the watcher batch (analogous
     /// to the existing `.gitignore` re-walk). Per
-    /// `roadmap/dev-atoms.md#step-4` and [D06].
+    /// `dash/dev-atoms.md#step-4` and [D06].
     secret_filter: SecretFilter,
     /// Shared FILETREE-response broadcast channel. Every workspace's
     /// `FileTreeFeed` publishes its response frames here; the router
@@ -82,7 +82,7 @@ pub struct FileTreeFeed {
     /// `watch_tx` (the `watch_tx` argument to `run`) is still written
     /// for back-compat / test introspection, but the router no longer
     /// consumes it — see `main.rs`'s FILETREE wiring and
-    /// `roadmap/dev-atoms.md#step-pre-4`.
+    /// `dash/dev-atoms.md#step-pre-4`.
     ft_response_tx: broadcast::Sender<Frame>,
 }
 
@@ -224,7 +224,7 @@ impl FileTreeFeed {
     /// Check if an FsEvent touches the workspace-root `.tugattachignore`.
     /// Per [D06], only the root-level file is honored (no nested
     /// support); a nested path like `subdir/.tugattachignore` is
-    /// ignored. Per Step 4 in `roadmap/dev-atoms.md`.
+    /// ignored. Per Step 4 in `dash/dev-atoms.md`.
     fn is_tugattachignore_change(event: &FsEvent) -> bool {
         let path = match event {
             FsEvent::Created { path } | FsEvent::Modified { path } | FsEvent::Removed { path } => {
@@ -389,7 +389,7 @@ impl FileTreeFeed {
                         // against the bare filename so a secret file
                         // in `~/projects/other-repo/.env` doesn't leak
                         // into completion. Per Step 4 in
-                        // `roadmap/dev-atoms.md`.
+                        // `dash/dev-atoms.md`.
                         if self.secret_filter.is_secret(name) {
                             continue;
                         }
@@ -626,7 +626,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Secret-file filtering (Step 4: roadmap/dev-atoms.md#step-4)
+    // Secret-file filtering (Step 4: dash/dev-atoms.md#step-4)
     // -----------------------------------------------------------------------
 
     /// Construct a feed rooted at `workspace_root` with `initial_files`
@@ -816,15 +816,15 @@ mod tests {
     fn scored_query_matches_directories_by_basename() {
         let tmp = tempfile::tempdir().unwrap();
         let mut files = BTreeSet::new();
-        files.insert("roadmap/".to_string());
-        files.insert("roadmap/dev-atoms.md".to_string());
+        files.insert("dash/".to_string());
+        files.insert("dash/dev-atoms.md".to_string());
 
         let feed = test_feed_rooted(tmp.path().to_path_buf(), files);
-        let response = feed.scored_query("roadmap");
+        let response = feed.scored_query("dash");
         let dir = response
             .results
             .iter()
-            .find(|r| r.path == "roadmap/")
+            .find(|r| r.path == "dash/")
             .expect("directory should match its own name");
         assert!(dir.is_dir);
     }
@@ -905,7 +905,7 @@ mod tests {
         // Root the feed at the symlinked spelling, the way a tugcast
         // launched with `--source-tree /u/src/tugtool` is rooted.
         let mut feed = test_feed_rooted(link.clone(), BTreeSet::new());
-        feed.files.insert("roadmap/plan.md".to_string());
+        feed.files.insert("dash/plan.md".to_string());
         assert!(feed.watcher_aligned);
 
         // The card sends the canonical spelling the server handed it.
@@ -919,7 +919,7 @@ mod tests {
             "same directory under two spellings must stay watcher-aligned",
         );
         assert!(
-            feed.files.contains("roadmap/plan.md"),
+            feed.files.contains("dash/plan.md"),
             "index must survive — a retarget would re-walk the empty dir",
         );
     }

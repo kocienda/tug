@@ -106,7 +106,7 @@ const MENTION_SPAN_RE = /`@([^`]+)`/g;
 
 /**
  * Parse a wire text block into alternating text + mention segments.
- * Used by the substrate synthesizer ([Step 5c](roadmap/dev-atoms.md#step-5c))
+ * Used by the substrate synthesizer ([Step 5c](dash/dev-atoms.md#step-5c))
  * to recover atom positions from a JSONL-honest wire text.
  *
  * Empty input returns an empty array. Text with no marker matches

@@ -4,7 +4,7 @@
  *
  * Two command families are recognized:
  *
- *  - **Slash commands** — `/tugplug:implement roadmap/x.md`. The grammar
+ *  - **Slash commands** — `/tugplug:implement dash/x.md`. The grammar
  *    is necessary but not sufficient: the caller's known-command
  *    predicate is the authoritative gate. Matching the grammar first
  *    rejects the overwhelming majority of candidates cheaply, and splits

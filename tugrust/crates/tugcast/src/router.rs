@@ -151,7 +151,7 @@ pub struct FeedRouter {
     /// (which carry "latest value" with collision risk under concurrent
     /// producers), this list holds event streams safe to fan in from
     /// many producers. Used by the FILETREE multi-workspace response
-    /// path per `roadmap/dev-atoms.md#step-pre-4`.
+    /// path per `dash/dev-atoms.md#step-pre-4`.
     snapshot_broadcast_senders: Vec<broadcast::Sender<Frame>>,
 
     /// Tracks which client owns each `(input FeedId, tug_session_id?)` key

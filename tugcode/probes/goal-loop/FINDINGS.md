@@ -1,6 +1,6 @@
 # goal-loop probe findings
 
-Probes for `roadmap/slash-command-plan.md` — the `/goal`, `/loop`, and `/btw`
+Probes for `dash/slash-command-plan.md` — the `/goal`, `/loop`, and `/btw`
 wire behavior on the CLI version in `capabilities/LATEST`. Each section names
 its capture files; the captures are the contract, this file is the summary.
 
@@ -98,7 +98,7 @@ goal probe.
 
 A wake arrives as a **fresh `system/init` in the same process** — Cohort B
 exactly as the wake plan's [D05] re-init detector expects
-(`roadmap/archive/tugplan-tide-session-wake.md#d05-reinit-detector`) —
+(`dash/archive/tugplan-tide-session-wake.md#d05-reinit-detector`) —
 followed by the loop prompt re-injected as a
 `<command-name>/loop</command-name>` envelope `user` event and a normal
 result cycle. No `system/task_notification` was observed in either mode
@@ -113,7 +113,7 @@ respawn with `--resume <session>`:
 > marker observed; fresh init + wake cycle in the phase-2 capture).
 
 This reverses the archived finding in
-`roadmap/archive/wake-investigation-findings.md` (2.1.150: "metadata
+`dash/archive/wake-investigation-findings.md` (2.1.150: "metadata
 restored, fire never happened"). **Consequence for the plan: tugcode
 respawns claude with `--resume`, so a live loop now survives model/effort
 changes, Reload, and app restarts** — the durability step shrinks to

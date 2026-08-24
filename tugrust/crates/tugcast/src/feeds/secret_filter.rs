@@ -2,7 +2,7 @@
 //!
 //! Filters secret-file paths out of `@`-completion suggestions before they
 //! reach the prompt-entry popup. Combines a built-in denylist (per
-//! `roadmap/dev-atoms.md#l01-secret-file-denylist`) with an optional
+//! `dash/dev-atoms.md#l01-secret-file-denylist`) with an optional
 //! workspace-root `.tugattachignore` file (gitignore syntax, parsed via
 //! the `ignore` crate).
 //!
@@ -20,7 +20,7 @@
 //!
 //! Parse-error policy: a malformed `.tugattachignore` line is dropped and
 //! logged via `warn!` (the existing tugcast telemetry channel — see
-//! `roadmap/dev-atoms.md#t01-failure-modes`). The remaining well-formed
+//! `dash/dev-atoms.md#t01-failure-modes`). The remaining well-formed
 //! patterns still apply; one bad line never disables the whole filter.
 
 use std::path::Path;
@@ -29,7 +29,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use tracing::warn;
 
 /// Built-in denylist patterns per
-/// [List L01](../../../../roadmap/dev-atoms.md#l01-secret-file-denylist).
+/// [List L01](../../../../dash/dev-atoms.md#l01-secret-file-denylist).
 ///
 /// Compiled into the matcher at `SecretFilter::new`. Patterns use
 /// gitignore syntax — anchored to the workspace root unless they

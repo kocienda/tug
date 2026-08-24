@@ -14,7 +14,7 @@
  * The transform tween must be transform-only, or it is not the cheap kind: a
  * keyframe touching a layout property puts the effect back on the main thread
  * and the whole point is lost
- * (`roadmap/jul30-perf-brief.md#i1-sparkline-exception`). A width change past
+ * (`dash/jul30-perf-brief.md#i1-sparkline-exception`). A width change past
  * the smear cap rides a SECOND effect of its own — real `width` keyframes,
  * main-thread by design ([D135]) — and the two must never merge.
  *

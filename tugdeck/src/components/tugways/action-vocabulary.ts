@@ -997,7 +997,7 @@ export const TUG_ACTIONS = {
   //                         emitting `TugIconButton`; rarely matters
   //                         because the `sessionId` payload disambiguates.
   //                         See [tugplan-session-picker-redesign §D14](
-  //                         ../../../roadmap/tugplan-session-picker-redesign.md#d14-no-per-cell-popovers).
+  //                         ../../../dash/tugplan-session-picker-redesign.md#d14-no-per-cell-popovers).
   REQUEST_TRASH_SESSION: "request-trash-session",
 
   // SHOW_SESSION:           payload — none. Raise the card already showing the

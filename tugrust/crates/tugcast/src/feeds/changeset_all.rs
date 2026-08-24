@@ -576,13 +576,13 @@ mod tests {
         let repo_dir = tempfile::tempdir().unwrap();
         let root = repo_dir.path().canonicalize().unwrap();
         init_repo(&root);
-        // Track roadmap/x.md, then modify it — git then reports the individual
-        // file (a wholly-untracked dir would collapse to `roadmap/`).
-        std::fs::create_dir(root.join("roadmap")).unwrap();
-        std::fs::write(root.join("roadmap/x.md"), "base\n").unwrap();
+        // Track dash/x.md, then modify it — git then reports the individual
+        // file (a wholly-untracked dir would collapse to `dash/`).
+        std::fs::create_dir(root.join("dash")).unwrap();
+        std::fs::write(root.join("dash/x.md"), "base\n").unwrap();
         git(&root, &["add", "."]);
-        git(&root, &["commit", "-q", "-m", "add roadmap"]);
-        std::fs::write(root.join("roadmap/x.md"), "edited\n").unwrap();
+        git(&root, &["commit", "-q", "-m", "add dash"]);
+        std::fs::write(root.join("dash/x.md"), "edited\n").unwrap();
 
         // A symlink to the repo — the "other spelling" the session opens under.
         let link_home = tempfile::tempdir().unwrap();
@@ -615,7 +615,7 @@ mod tests {
         );
         let pending = PendingCall {
             tool_name: "Write".to_owned(),
-            file_path: link.join("roadmap/x.md").to_string_lossy().into_owned(),
+            file_path: link.join("dash/x.md").to_string_lossy().into_owned(),
             op: "write",
             parent_tool_use_id: None,
             timestamp: None,
@@ -633,7 +633,7 @@ mod tests {
             )
             .expect("the symlink-spelled path canonicalizes into the repo");
         assert_eq!(
-            row.file_path, "roadmap/x.md",
+            row.file_path, "dash/x.md",
             "recorded repo-relative despite the split"
         );
         ledger.record_file_event(&row).unwrap();
@@ -657,7 +657,7 @@ mod tests {
             .collect();
         assert_eq!(
             owned,
-            ["roadmap/x.md"],
+            ["dash/x.md"],
             "the split edit is owned, not unattributed"
         );
         assert!(

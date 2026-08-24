@@ -13,7 +13,7 @@
  *   2. `goal_feedback` frames while the run is live,
  *   3. the goal cycle's terminal `turn_complete` (achieved).
  *
- * Lifetime rules (plan S04, `roadmap/slash-command-plan.md`):
+ * Lifetime rules (plan S04, `dash/slash-command-plan.md`):
  *   - live-only — replay never populates goal state (`add_user_message`
  *     frames are not reduced here, and tugcode's replay translator skips
  *     `isSynthetic` entries), so a reloaded card starts with `goal: null`;

@@ -4,9 +4,9 @@
 //! `{schema_version, command, status, data, issues}` envelope) or a plain
 //! read-out.
 //!
-//! The path is explicit. There is no `resolve_plan` cascade here and no
-//! `PLAN_SEARCH_DIRS` — a linter that guesses which document you meant is worse
-//! than one that asks.
+//! The path is explicit. There is no `resolve_plan` cascade here and no search
+//! across the project's plan directories — a linter that guesses which document
+//! you meant is worse than one that asks.
 
 use std::path::Path;
 use std::process::ExitCode;

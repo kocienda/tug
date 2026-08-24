@@ -10,7 +10,7 @@ import Foundation
 ///   3. Collapse runs of `-` into a single `-`.
 ///   4. Trim leading and trailing `-`.
 ///
-/// Reference: roadmap/tug-multi-instance.md #terminology gives the
+/// Reference: dash/tug-multi-instance.md #terminology gives the
 /// short summary ("lowercased, `/` → `-`, non-`[a-z0-9-]` stripped");
 /// the plan task's worked examples (`feat/foo` → `feat-foo`,
 /// `wip/foo bar` → `wip-foo-bar`) are authoritative and require the

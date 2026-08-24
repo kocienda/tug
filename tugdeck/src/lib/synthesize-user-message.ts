@@ -58,7 +58,7 @@
  * the JSONL content blocks. So the live editor, the live transcript, and
  * a cold replay all render the same label, with no render-time address
  * decoration (see [Step 5c — submit boundary]
- * (roadmap/dev-atoms.md#step-5c-submit-boundary)). Non-image `@`-mention
+ * (dash/dev-atoms.md#step-5c-submit-boundary)). Non-image `@`-mention
  * atoms keep their path / URL value verbatim.
  *
  * Laws:
@@ -68,8 +68,8 @@
  *  - [L19] file structure / docstring discipline.
  *
  * References:
- *  - [Step 5c](roadmap/dev-atoms.md#step-5c)
- *  - [Spec S03](roadmap/dev-atoms.md#s03-build-wire-payload) (revised)
+ *  - [Step 5c](dash/dev-atoms.md#step-5c)
+ *  - [Spec S03](dash/dev-atoms.md#s03-build-wire-payload) (revised)
  */
 
 import type { ContentBlock } from "@/protocol";

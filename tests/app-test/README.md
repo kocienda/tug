@@ -13,13 +13,13 @@ For the harness **architecture** — what it is, the trusted-event problem, life
   the Apple Developer ID signing pipeline that keeps the macOS
   Accessibility grant stable across rebuilds. Read this when AX is
   broken.
-- [`roadmap/tugplan-in-app-bridge.md`](../../roadmap/tugplan-in-app-bridge.md)
+- [`dash/tugplan-in-app-bridge.md`](../../dash/tugplan-in-app-bridge.md)
   — design rationale, decisions ([D01]–[D14]), and transport / boot
   choreography.
-- [`roadmap/tugplan-harness-extensions.md`](../../roadmap/tugplan-harness-extensions.md)
+- [`dash/tugplan-harness-extensions.md`](../../dash/tugplan-harness-extensions.md)
   — Phase A native-event family (CGEvent-backed gestures, keyboard,
   app-lifecycle), tugcode subprocess control.
-- [`roadmap/tugplan-app-test-cleanup.md`](../../roadmap/tugplan-app-test-cleanup.md)
+- [`dash/tugplan-app-test-cleanup.md`](../../dash/tugplan-app-test-cleanup.md)
   — the 2026-04-27 cleanup that produced the current naming.
 
 ## Running
@@ -114,7 +114,7 @@ just app-test 2>/dev/null | tail -n 1   # → VERDICT: PASS  (47/47 ...)
 The summary also lists every file with `[PASS]` / `[FAIL]` / `[SKIP]`
 / `[ERR]` and per-file `(passed/total)` counts, plus a `Failures:`
 block when any file fails. See
-[`roadmap/tugplan-app-test-cleanup.md#s01-summary-format`](../../roadmap/tugplan-app-test-cleanup.md#s01-summary-format)
+[`dash/tugplan-app-test-cleanup.md#s01-summary-format`](../../dash/tugplan-app-test-cleanup.md#s01-summary-format)
 for the contract.
 
 ### Concurrency: one invocation at a time
@@ -607,5 +607,5 @@ The Swift-side gate env var is still named `TUGAPP_APP_TEST=1`
 even though the directory is now `tests/app-test/`. Renaming the env
 var requires a coordinated Swift change with code-signing
 implications — deferred. See
-[`roadmap/tugplan-app-test-cleanup.md`](../../roadmap/tugplan-app-test-cleanup.md)
+[`dash/tugplan-app-test-cleanup.md`](../../dash/tugplan-app-test-cleanup.md)
 [D06].

@@ -790,7 +790,7 @@ export type PastedCommandResolver = (token: string) => AtomSegment | null;
  * When pasted plain text begins with `/<command>` and the paste lands at the
  * document's very first position, replace that `/<command>` with a command chip
  * and keep the remaining pasted text as its argument — e.g. pasting
- * `/tugplug:implement roadmap/foo.md` yields `[chip] roadmap/foo.md`. The
+ * `/tugplug:implement dash/foo.md` yields `[chip] dash/foo.md`. The
  * insert and the atom decoration go out in one transaction.
  *
  * Returns true (and dispatches) on a recognized leading command; returns false
@@ -851,7 +851,7 @@ export function planLeadingCommandPaste(
 
 /**
  * Build the clipboard extension. Optional thunks unlock the
- * image-paste branch ([Step 2] of `roadmap/dev-atoms.md`):
+ * image-paste branch ([Step 2] of `dash/dev-atoms.md`):
  *
  *  - `getBytesStore`: per-card bytes-store; when present, image
  *    clipboard items route through the async downsample pipeline.

@@ -17,7 +17,7 @@
  * misses that bar is resolved on the main thread instead, and every frame of it
  * commits a style change that walks the page again. The difference is the whole
  * reason this module exists rather than a `transition` in a stylesheet; it is
- * measured and written up in `roadmap/jul30-perf-brief.md#i1-sparkline-exception`.
+ * measured and written up in `dash/jul30-perf-brief.md#i1-sparkline-exception`.
  *
  * Clearing the bar means: keyframes touching **only** transform-family
  * properties, transforms that are strictly 2D, a **keyword** easing, playback

@@ -21,9 +21,28 @@ disallowed-tools: Task
 
 `/tugplug:plan-devise <idea> [→ <output-path>]` — a free-text description of what to build, and **where to write the plan**.
 
-## Where the plan goes (no assumed directory)
+## Where the plan goes (declared, never assumed)
 
-A plan is just a markdown file at an **explicit path**. There is **no default directory** — never assume `roadmap/`, `.tugtool/`, or any other home. If the invocation doesn't name an output path, **ask the user for it** (one question) before writing; propose a filename (from the slug) but let them supply the location. Write the plan exactly there and report the path you wrote. Whether and where it's committed to git is the user's call.
+A plan is just a markdown file at an **explicit path**, and **an explicit path in the invocation always wins** — write it exactly there, report the path you wrote, and skip the rest of this section.
+
+When the invocation names none, the project's own config answers:
+
+```bash
+tugutil dash docs-dir --json
+```
+
+- **Declared** (`declared: true`) — propose `<docs>/<slug>.md` and proceed. **Do not ask.** The project already said where its paperwork lives.
+- **Undeclared** (`declared: false`, exit 0 — a state, not an error) — ask the user **once** where dash paperwork should live, proposing a name, then record the answer:
+
+  ```bash
+  tugutil dash docs-dir --set <answer>
+  ```
+
+  The verb writes the key into `.tugtool/config.toml` (preserving the file's comments) and creates the directory. Then write the plan there.
+
+The question is asked **once per project, ever** — the answer is committed config from then on, so no later run pays the toll. Never hand-edit the config to record it; the verb prints a receipt and validates the value, and a skill editing TOML by hand is a shell-edit-discipline violation waiting to happen.
+
+There is still **no blessed directory name**. `roadmap/`, `docs/`, `.tugtool/` — none of them is assumed, and the machinery no longer treats any name specially. Whether and where the plan is committed to git remains the user's call.
 
 ## The flow
 
@@ -74,7 +93,7 @@ The plan is not ready when you finish writing it; it is ready when it has been r
 
 **If you are running on anything else, stop.** Do not review — the review is where judgment lands, and it is worth the better model. Say the plan is written and unreviewed, and print the review command on its own line and inside backticks so it arrives as a clickable chip:
 
-`` `/tugplug:plan-review roadmap/my-plan.md` ``
+`` `/tugplug:plan-review dash/my-plan.md` ``
 
 Then say plainly that clicking it reviews the plan **on whatever model is selected at that moment**, so switching models first is the user's call and their opportunity to make it. Nothing switches models on their behalf, before or after.
 
@@ -91,7 +110,7 @@ Don't start implementing from the devise skill — authoring and implementing ar
 ## Guardrails
 
 - **No sub-agents.** Research and write in-thread.
-- **Explicit path, no assumed directory.** The plan goes exactly where the user says. Never hardcode or default to `roadmap/`, `.tugtool/`, or any other location — ask if the path wasn't given.
+- **Explicit path wins; otherwise the declaration answers.** The plan goes exactly where the user says. Never hardcode or default to a directory name — resolve through `tugutil dash docs-dir`, and ask only when the project has declared nothing yet, recording the answer with `--set` so nobody is asked twice.
 - **Conform to the skeleton.** `tuglaws/devise-skeleton.md` is the format contract, upheld by authorship and review.
 - **Ground the plan in the real code.** Read before you design.
 - **Standalone always.** The plan must be implementable from any session with zero conversation context — bake every investigation finding into the document.

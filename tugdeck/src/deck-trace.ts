@@ -527,7 +527,7 @@ export type DeckTraceEvent = {
       // it cannot dip mid-mutation. The floor only lowers when the
       // content genuinely got shorter (a collapsed block, a re-wrap, a
       // cleared session), so this is the declared, attributed shrink
-      // Case A of `roadmap/scroll-height-floor.md` requires: every
+      // Case A of `dash/scroll-height-floor.md` requires: every
       // extent decrease leaves exactly one of these records. `clamped`
       // reports whether the lowering moved `scrollTop` (the browser
       // clamping to the now-shorter maximum) — that move is machine-

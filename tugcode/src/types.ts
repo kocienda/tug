@@ -590,7 +590,7 @@ export interface CostUpdate {
    * `permission_denials` (`{ tool_name, tool_use_id, tool_input }` each).
    * Empty/omitted for a turn with no denials. The session card accumulates these
    * per session for its `/permissions` Recently-denied tab. Captured shape:
-   * `roadmap/transport-exploration.md`.
+   * `dash/transport-exploration.md`.
    */
   permission_denials?: unknown[];
   ipc_version: number;
@@ -1041,7 +1041,7 @@ export interface ResumeFailed {
  * holds whatever synthesized opener id it minted ([D13]); that id is
  * translator-internal and never reaches the wire on this frame.
  *
- * See `roadmap/tugplan-session-wake.md` [D14] (activeMsgId
+ * See `dash/tugplan-session-wake.md` [D14] (activeMsgId
  * tracking), [D15] (add_<kind> naming), and `#spec-wire-frames` for
  * the canonical wire-shape definition.
  */
@@ -1121,7 +1121,7 @@ export interface AddUserMessage {
  * (`frameToEvent`) mints it on frame receipt, mirroring the
  * `add_user_message` pattern.
  *
- * See `roadmap/tugplan-session-wake.md` [D02] for the detector
+ * See `dash/tugplan-session-wake.md` [D02] for the detector
  * rationale and [Q01] for the empirical capture this contract is
  * pinned against.
  */

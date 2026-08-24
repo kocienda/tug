@@ -43,7 +43,7 @@
  *      Slice 2 work — so the replay-path scenario asserts text/turn
  *      survival without asserting on `wakeTrigger`.)
  *
- * See `roadmap/tugplan-session-wake.md` Step 5 + [PPF-01].
+ * See `dash/tugplan-session-wake.md` Step 5 + [PPF-01].
  */
 
 import { describe, it, expect, beforeAll } from "bun:test";

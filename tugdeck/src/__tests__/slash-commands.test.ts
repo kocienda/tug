@@ -283,26 +283,26 @@ describe("buildSlashCommandLine", () => {
     const { text, atoms } = mkDraft([
       { type: "command", value: "compact" },
       " prepare ",
-      { type: "file", value: "roadmap/message-architecture.md" },
+      { type: "file", value: "dash/message-architecture.md" },
       " plan",
     ]);
     const line = buildSlashCommandLine(text, atoms);
     expect(line).toBe(
-      "/compact prepare roadmap/message-architecture.md plan",
+      "/compact prepare dash/message-architecture.md plan",
     );
     expect(matchLocalSlashCommand(line)).toEqual({
       name: "compact",
-      args: "prepare roadmap/message-architecture.md plan",
+      args: "prepare dash/message-architecture.md plan",
     });
   });
 
   test("typed /compact with a trailing file mention expands the path", () => {
     const { text, atoms } = mkDraft([
       "/compact prepare ",
-      { type: "doc", value: "roadmap/x.md" },
+      { type: "doc", value: "dash/x.md" },
     ]);
     expect(buildSlashCommandLine(text, atoms)).toBe(
-      "/compact prepare roadmap/x.md",
+      "/compact prepare dash/x.md",
     );
   });
 
@@ -406,9 +406,9 @@ describe("buildCommandSubmission", () => {
     const draft = mkSubstrate([
       { type: "command", value: "compact" },
       " prepare ",
-      { type: "file", value: "roadmap/plan.md" },
+      { type: "file", value: "dash/plan.md" },
       " and ",
-      { type: "file", value: "roadmap/next.md" },
+      { type: "file", value: "dash/next.md" },
     ]);
     const built = buildCommandSubmission("compact", "prepare …", draft);
     expect(built.text).toBe(
@@ -416,8 +416,8 @@ describe("buildCommandSubmission", () => {
     );
     expect(built.atoms.map((a) => a.value)).toEqual([
       "compact",
-      "roadmap/plan.md",
-      "roadmap/next.md",
+      "dash/plan.md",
+      "dash/next.md",
     ]);
   });
 

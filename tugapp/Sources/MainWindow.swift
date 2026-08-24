@@ -17,7 +17,7 @@ private let tugAtomsPasteboardType = NSPasteboard.PasteboardType("dev.tug.prompt
 /// `WKPreferences._features`). Cohort retention holds just-scrolled-past
 /// tiles for a grace period; disabling it cuts the flick-scroll graphics
 /// transient by ~67MB mean / ~92MB max with rest coverage unchanged
-/// (measured, roadmap/scrolling-memory-diet.md#g4-ab).
+/// (measured, dash/scrolling-memory-diet.md#g4-ab).
 private let defaultWebKitFeatureSpec = "TemporaryTileCohortRetentionEnabled=0"
 
 /// Applies `defaultWebKitFeatureSpec`, or the `TUG_WK_FEATURES`

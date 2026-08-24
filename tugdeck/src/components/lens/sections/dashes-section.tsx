@@ -701,17 +701,20 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   //
   // An empty Cards section is self-evident and self-correcting: the reader has
   // no cards and knows how to open one. An empty Dashes band is the one place
-  // a reader may not know the verb at all, and a section whose whole argument
+  // a reader may not know the way in at all, and a section whose whole argument
   // is that it holds a fixed address is worth one sentence that earns it.
+  //
+  // The sentence names a gesture the reader can make, never a command they are
+  // expected to type: `tugutil` is machinery for the engine and the models, and
+  // a graphical surface that spells it is telling a human to do the machine's
+  // job. A real affordance replaces this copy.
   if (!populated) {
     return (
       <div
         className="lens-section-empty lens-dashes-empty"
         data-slot="lens-dashes-empty"
       >
-        <span>
-          No dashes. <code>tugutil dash create</code> starts one.
-        </span>
+        <span>No dashes. Ask a session to start one.</span>
       </div>
     );
   }

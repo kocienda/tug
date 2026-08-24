@@ -1,12 +1,12 @@
 /**
  * spike-session-identity.tsx — the session-reference design surface.
  *
- * **SHIPPED.** The brief was `roadmap/session-reference-brief.md`: one identity
+ * **SHIPPED.** The brief was `dash/session-reference-brief.md`: one identity
  * model, one resolver, one component family. Earlier rounds settled the two
  * registers (presence vs citation), the session atom's shape, the flat-text
  * citation, and the fork-lineage grammar. The seventh round settled the
  * CONTENT — what the surfaces actually say, and in what order — and
- * `roadmap/session-identity.md` carried all of it into the app. Every decision
+ * `dash/session-identity.md` carried all of it into the app. Every decision
  * below is now the shipped behavior, and `[D132]` is where it is durable; this
  * card is the bench the identity app-tests drive and the place the vocabulary is
  * discussed.

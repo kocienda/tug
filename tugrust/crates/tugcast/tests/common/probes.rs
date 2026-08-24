@@ -655,7 +655,7 @@ pub static PROBES: &[ProbeRecord] = &[
     ProbeRecord {
         name: "test-21-glob-tool",
         input_script: &[ProbeMsg::UserMessage {
-            text: "Use the Glob tool to find all .md files in the roadmap/ directory.",
+            text: "Use the Glob tool to find all .md files in the dash/ directory.",
         }],
         required_events: &[
             "system_metadata",

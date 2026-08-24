@@ -2,8 +2,8 @@
 
 | Field | Value |
 |------|-------|
-| Roadmap step | [Step 6: IME validation gate](../../../../../roadmap/text-editing-base.md#step-6) |
-| Risk being validated | [R01: IME composition with atomic widgets](../../../../../roadmap/text-editing-base.md#r01-ime-atoms) |
+| Roadmap step | [Step 6: IME validation gate](../../../../../dash/text-editing-base.md#step-6) |
+| Risk being validated | [R01: IME composition with atomic widgets](../../../../../dash/text-editing-base.md#r01-ime-atoms) |
 | Substrate | CodeMirror 6 |
 | Spike branch | `text-editing-base` |
 | Validation method | Manual, in real WebKit (Tug.app or Safari) |
@@ -15,7 +15,7 @@
 
 ## Why this gate exists
 
-CM6's interaction with `atomicRanges` near IME composition is a known soft spot in upstream forum reports. Adopting CM6 as the `tug-text-editor` substrate is a [decided risk](../../../../../roadmap/text-editing-base.md#d01-spike-cm6); this report is the dedicated validation gate where that risk is checked against actual user-visible behavior.
+CM6's interaction with `atomicRanges` near IME composition is a known soft spot in upstream forum reports. Adopting CM6 as the `tug-text-editor` substrate is a [decided risk](../../../../../dash/text-editing-base.md#d01-spike-cm6); this report is the dedicated validation gate where that risk is checked against actual user-visible behavior.
 
 A failure in any scenario below — character drops, selection collapse, or visible glyph corruption — halts the spike pending discussion. A clean pass commits the substrate decision and unblocks Step 7.
 
@@ -243,7 +243,7 @@ _(record exact undo count from "prefix ありがとう!" to empty, and from empt
 
 ## Halt conditions
 
-Per the [Step 6 plan](../../../../../roadmap/text-editing-base.md#step-6), the spike halts pending discussion if **any** scenario produces:
+Per the [Step 6 plan](../../../../../dash/text-editing-base.md#step-6), the spike halts pending discussion if **any** scenario produces:
 
 - **Character drops** — a CJK character appears mid-compose but vanishes on commit, or the committed string is shorter than the candidate the user picked.
 - **Selection collapse** — the editor's selection jumps to a position the user did not place it during or after compose (e.g. caret leaves the compose region; selection range loses its anchor).
@@ -269,7 +269,7 @@ _(one to three sentences describing why the decision above was reached, especial
 
 ## Follow-ups
 
-If the spike continues, capture any non-halting defects observed during validation here so they're not lost. These belong in a small follow-up commit on `text-editing-base` before Step 7 begins or, if scoped, in a tracking item on the [follow-on roadmap](../../../../../roadmap/text-editing-base.md#roadmap).
+If the spike continues, capture any non-halting defects observed during validation here so they're not lost. These belong in a small follow-up commit on `text-editing-base` before Step 7 begins or, if scoped, in a tracking item on the [follow-on roadmap](../../../../../dash/text-editing-base.md#roadmap).
 
 - [ ] _e.g. compose-end Enter quirk on WebKit not currently guarded in `tug-text-editor/keymap.ts` (parallels `_compositionJustEnded` in `tug-text-engine.ts`)._
 - [ ] _e.g. typeahead trigger detector runs during compose intermediate transactions; consider gating on `view.composing` in `completion-extension.ts`._

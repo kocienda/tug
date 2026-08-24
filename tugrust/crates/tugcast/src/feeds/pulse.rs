@@ -3,7 +3,7 @@
 //! the frames it narrates from, and turns its stdout lines into
 //! ledger rows + `PULSE` feed broadcasts.
 //!
-//! Topology (`roadmap/pulse-2.md`):
+//! Topology (`dash/pulse-2.md`):
 //!
 //!   CODE_OUTPUT broadcast ──allowlist tap──▶ daemon stdin
 //!   daemon stdout ──pulse line──▶ ledger (capped) + PULSE broadcast ─▶ decks

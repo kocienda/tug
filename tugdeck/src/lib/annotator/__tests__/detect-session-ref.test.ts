@@ -47,7 +47,7 @@ describe("what is a session reference", () => {
     // One word, so no pair.
     expect(isSessionRef("tugdeck/src")).toBe(false);
     // An extension is not a lineage segment.
-    expect(isSessionRef("roadmap/overview-errata.md")).toBe(false);
+    expect(isSessionRef("dash/overview-errata.md")).toBe(false);
     // Two slashes is a path, whatever the last segment looks like.
     expect(isSessionRef("tugdeck/src/kind-floor")).toBe(false);
     // The lineage suffix is capital-then-digits; a third word is not one.

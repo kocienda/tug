@@ -196,7 +196,7 @@ impl<T> BoundedQueue<T> {
     /// "rehydrate the freshly-mounted store" semantics precede any
     /// user input arriving in the same window — relevant for the
     /// Smoke D mid-turn case where the user types instantly after
-    /// rebind. See [Phase A-R3](roadmap/tugplan-dev-transcript-resume.md#phase-a-r3)
+    /// rebind. See [Phase A-R3](dash/tugplan-dev-transcript-resume.md#phase-a-r3)
     /// for the broader coordination story; R4's front-push is the
     /// minimum needed to keep cold-boot Spawning-window ordering
     /// sane without solving Smoke D end-to-end.
@@ -375,7 +375,7 @@ pub struct LedgerEntry {
     /// `turn_complete` frames (from `translateJsonlSession`'s
     /// committed-turn output) don't get treated as live `turn_complete`s
     /// and don't pop the user's still-pending journal row. Mid-turn-replay
-    /// [Step 5.10](roadmap/tugplan-dev-mid-turn-replay.md#step-5) is the
+    /// [Step 5.10](dash/tugplan-dev-mid-turn-replay.md#step-5) is the
     /// post-Step-5.9 fix for the HMR-mid-stream regression.
     ///
     /// Counter (not bool) because a bridge that dies between emitting
@@ -6343,7 +6343,7 @@ impl AgentSupervisor {
     /// CODE_INPUT into the same per-session queue. FIFO drain would
     /// deliver the user_message first, putting tugcode in an
     /// in-flight turn that races with the request_replay — exactly
-    /// the Smoke D shape that [Phase A-R3](roadmap/tugplan-dev-transcript-resume.md#phase-a-r3)
+    /// the Smoke D shape that [Phase A-R3](dash/tugplan-dev-transcript-resume.md#phase-a-r3)
     /// owns. Front-push ensures replay always precedes user input
     /// from the same Spawning window — the natural ordering since
     /// the verb is "rehydrate the freshly-mounted store" and the
@@ -7871,7 +7871,7 @@ impl AgentSupervisor {
     /// and gates the FIFO journal-pop intercept on the counter being zero.
     ///
     /// Why this gate exists (mid-turn-replay
-    /// [Step 5.10](roadmap/tugplan-dev-mid-turn-replay.md#step-5)):
+    /// [Step 5.10](dash/tugplan-dev-mid-turn-replay.md#step-5)):
     /// `runReplay`'s `translateJsonlSession` emits `turn_complete` frames
     /// for every committed turn in the JSONL. Those frames flow through
     /// the merger task on the same path live `turn_complete`s do.
@@ -16224,7 +16224,7 @@ mod tests {
     // and skips `apply_outbound_turn_intercept` while the counter is non-zero.
     // Without the gate, replay-emitted committed-turn `turn_complete`s pop
     // the user's still-pending journal row (the HMR-mid-stream regression
-    // surfaced in the [Step 5](roadmap/tugplan-dev-mid-turn-replay.md#step-5)
+    // surfaced in the [Step 5](dash/tugplan-dev-mid-turn-replay.md#step-5)
     // close-out manual smoke).
     //
     // Counter (not bool) is defense-in-depth: a stray `replay_complete` on

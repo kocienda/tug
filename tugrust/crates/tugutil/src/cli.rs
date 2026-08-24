@@ -514,6 +514,20 @@ pub enum DashCommands {
     /// project that declares nothing (or has no config file at all) is not an
     /// error: every key reports as undeclared and the verb exits 0.
     Config,
+    /// Report where this project keeps its dash paperwork — briefs and plans —
+    /// or record it.
+    ///
+    /// The directory is the project's to choose: there is no blessed name.
+    /// Undeclared is not an error; the report says so and exits 0, which is
+    /// what lets an authoring skill ask once and record the answer with
+    /// `--set` instead of asking on every invocation.
+    DocsDir {
+        /// Record the declaration (a project-root-relative directory),
+        /// creating the directory if it does not exist. Without this flag the
+        /// verb only reports.
+        #[arg(long)]
+        set: Option<String>,
+    },
     /// List every active dash, derived from git.
     List,
     /// Show one dash's metadata, rounds, and worktree dirt.

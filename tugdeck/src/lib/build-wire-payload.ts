@@ -24,8 +24,8 @@
  * sequence reconstitutes which slots in the message were image atoms
  * without any side-channel substrate journaling.
  *
- * Per [Step 5c](roadmap/dev-atoms.md#step-5c) and
- * [Spec S03](roadmap/dev-atoms.md#s03-build-wire-payload) (revised).
+ * Per [Step 5c](dash/dev-atoms.md#step-5c) and
+ * [Spec S03](dash/dev-atoms.md#s03-build-wire-payload) (revised).
  *
  * ## Atom-to-wire mapping
  *

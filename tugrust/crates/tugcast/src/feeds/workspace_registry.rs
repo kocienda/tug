@@ -302,7 +302,7 @@ pub struct WorkspaceRegistry {
     /// Shared FILETREE-response broadcast channel. Cloned into each
     /// `WorkspaceEntry::new` call so every workspace's `FileTreeFeed`
     /// publishes responses to one place. The router subscribes once
-    /// at the process level. Per `roadmap/dev-atoms.md#step-pre-4`.
+    /// at the process level. Per `dash/dev-atoms.md#step-pre-4`.
     ft_response_tx: tokio::sync::broadcast::Sender<Frame>,
     /// Process-global recompute signal for the account-global CHANGESET_ALL
     /// feed. Pinged whenever the open-project set changes (`get_or_create`
@@ -533,7 +533,7 @@ impl WorkspaceRegistry {
     ///
     /// Bumps no refcounts; the returned `Arc` carries its own reference
     /// for the duration of the caller's use. Per
-    /// `roadmap/dev-atoms.md#step-pre-4` and the routing fix that
+    /// `dash/dev-atoms.md#step-pre-4` and the routing fix that
     /// unblocks Step 4's manual smoke.
     pub fn find_entry_by_path(&self, project_dir: &Path) -> Option<Arc<WorkspaceEntry>> {
         let canonical: String = PathResolver::new(project_dir.to_path_buf())
@@ -547,7 +547,7 @@ impl WorkspaceRegistry {
 
     /// Route a single `FileTreeQuery` to the workspace whose canonical
     /// key matches `ftq.root`, falling back to `bootstrap_tx` when the
-    /// root is unset or unknown. Per `roadmap/dev-atoms.md#step-pre-4`
+    /// root is unset or unknown. Per `dash/dev-atoms.md#step-pre-4`
     /// — the FILETREE_QUERY adapter calls this once per inbound frame
     /// after JSON parsing, so the routing decision lives in one
     /// testable place rather than buried in `main.rs`'s spawned task.

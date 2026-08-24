@@ -325,20 +325,20 @@ describe("planLeadingCommandPaste", () => {
 
   it("chips a full-name command and keeps the rest as argument text", () => {
     const plan = planLeadingCommandPaste(
-      "/tugplug:implement roadmap/foo.md",
+      "/tugplug:implement dash/foo.md",
       0,
       resolve,
     );
     expect(plan).not.toBeNull();
-    expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} roadmap/foo.md`);
+    expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} dash/foo.md`);
     expect(plan!.segment).toEqual(atomFor("tugplug:implement"));
   });
 
   it("resolves an unqualified leaf to the full command atom", () => {
-    const plan = planLeadingCommandPaste("/implement roadmap/foo.md", 0, resolve);
+    const plan = planLeadingCommandPaste("/implement dash/foo.md", 0, resolve);
     expect(plan).not.toBeNull();
     expect(plan!.segment).toEqual(atomFor("tugplug:implement"));
-    expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} roadmap/foo.md`);
+    expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} dash/foo.md`);
   });
 
   it("inserts a separating space when the command stands alone", () => {

@@ -3,7 +3,7 @@
  * Component Gallery.
  *
  * Seven sections, each demonstrating one knob of the primitive's
- * surface — see [#step-18-6](roadmap/session-assistant-rendering.md#step-18-6):
+ * surface — see [#step-18-6](dash/session-assistant-rendering.md#step-18-6):
  *
  *   1. Bare label — single button, label-only, action mode.
  *   2. Label + description — same as 1, plus a multi-line description.

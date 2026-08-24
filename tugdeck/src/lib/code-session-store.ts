@@ -310,7 +310,7 @@ const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   // (Monitor / CronCreate / ScheduleWakeup / …). The reducer
   // transitions `idle → waking` and accepts the wake's content
   // events; the bracket closes implicitly on the next `turn_complete`.
-  // See `roadmap/tugplan-session-wake.md` [D01].
+  // See `dash/tugplan-session-wake.md` [D01].
   "wake_started",
   // Neutral assistant-originated turn opener (`tuglaws/turn-metric.md`
   // S02): opens an assistant-only turn for orphan assistant content
@@ -430,7 +430,7 @@ export class CodeSessionStore {
    * Exposed via {@link getAtomBytesStore} so non-React consumers
    * (the drop / paste extensions inside CodeMirror) can reach it
    * through a thunk read at fire time ([L07]). Per
-   * [D03](roadmap/dev-atoms.md#d03-atom-bytes-store).
+   * [D03](dash/dev-atoms.md#d03-atom-bytes-store).
    */
   private readonly atomBytesStore: AtomBytesStore;
 
@@ -532,7 +532,7 @@ export class CodeSessionStore {
     // at `clear()` on dispose. Snapshot rides
     // `useCardStatePreservation` so attachment bytes survive cold
     // boot and pane restore alongside the rest of the prompt-entry
-    // draft. Per [D03](roadmap/dev-atoms.md#d03-atom-bytes-store).
+    // draft. Per [D03](dash/dev-atoms.md#d03-atom-bytes-store).
     this.atomBytesStore = createAtomBytesStore();
 
     // The streaming document holds per-turn streaming paths only,
@@ -719,7 +719,7 @@ export class CodeSessionStore {
         (this.state.phase === "idle" || this.state.phase === "errored") &&
         this.state.transportState === "online",
       // `waking` is included per [Q03] resolution in
-      // `roadmap/tugplan-session-wake.md`: the user can stop a
+      // `dash/tugplan-session-wake.md`: the user can stop a
       // runaway wake turn just like a user-initiated one. The
       // interrupt frame uses the same wire shape regardless — the
       // server doesn't need to distinguish.
@@ -1011,7 +1011,7 @@ export class CodeSessionStore {
    * wire-flattening at submit reads from it; the
    * `useCardStatePreservation` snapshot round-trips it across pane
    * restore and cold boot. See {@link AtomBytesStore} and
-   * [D03](roadmap/dev-atoms.md#d03-atom-bytes-store).
+   * [D03](dash/dev-atoms.md#d03-atom-bytes-store).
    *
    * Returns the live instance — callers should not snapshot or
    * memoize the reference across disposal. Survives until
@@ -1875,7 +1875,7 @@ export class CodeSessionStore {
         // tugcode does not mint it (tugcode is a Node subprocess; it
         // has no React); the store wrapper mints it on receipt and
         // threads it onto the dispatched event so the reducer stays
-        // pure. See `roadmap/tugplan-session-wake.md` [D02].
+        // pure. See `dash/tugplan-session-wake.md` [D02].
         return { ...ev, turnKey: mintTurnKey() } as unknown as CodeSessionEvent;
       }
       if (ev.type === "assistant_opener") {
@@ -2178,7 +2178,7 @@ export class CodeSessionStore {
    * outside it — measured 1809 walk samples for settle-plus-commits
    * against 343 and 654 for each alone, so 81% above what the two cost
    * added together, with median frame delivery going 17ms to 20ms
-   * (`roadmap/jul30-perf-brief.md#s5-imposer`). A commit during a
+   * (`dash/jul30-perf-brief.md#s5-imposer`). A commit during a
    * running transform animation dirties compositing while the
    * animation's extent is reserved, which forces exactly the recompute
    * the reservation exists to avoid.

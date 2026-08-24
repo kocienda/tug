@@ -25,7 +25,7 @@ The `/tugplug:draft` skill **never commits** — it authors the session's landin
 | `tugapp/` | Swift macOS app (Tug.app host) |
 | `tugplug/` | Claude Code plugin (agentless skills: plan-devise/plan-review/dash-implement/dash-on/dash-join/dash-audit/draft) |
 | `tuglaws/` | Architecture laws + design decisions — the curated durable doc surface |
-| `roadmap/` | Implementation plans (recipes) |
+| `dash/` | Implementation plans (recipes) |
 | `tests/` | App-test harness that drives the real Tug.app |
 
 ## Build Policy

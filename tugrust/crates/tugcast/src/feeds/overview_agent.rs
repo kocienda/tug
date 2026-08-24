@@ -327,7 +327,7 @@ SETTLED FACTS SINCE YOUR LAST POST: is the durable record of what actually happe
 
 REFS are the clickable provenance on your post. Include one for each file, commit, plan, brief, or session that the post is genuinely about — not everything mentioned. Every ref target MUST be copied EXACTLY as it appears in the activity you were shown: a path spelled differently, or a commit sha you shortened or reconstructed, cannot be linked and will be discarded. If you cannot copy it exactly, leave it out.
 
-Spell a path the way the activity spells it. If the activity says roadmap/overview-plan.md, the target is roadmap/overview-plan.md — do not expand it to a full path from the root of the disk, and do not shorten a full path the activity gave you. Copy the characters you were shown. Ref kinds are: session, file, commit, plan, brief.
+Spell a path the way the activity spells it. If the activity says dash/overview-plan.md, the target is dash/overview-plan.md — do not expand it to a full path from the root of the disk, and do not shorten a full path the activity gave you. Copy the characters you were shown. Ref kinds are: session, file, commit, plan, brief.
 
 Answer with JSON and nothing else — no prose before it, no code fence around it.
 

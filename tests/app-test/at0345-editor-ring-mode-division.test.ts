@@ -8,7 +8,7 @@
  * ring", on the reasoning that the blinking caret is a complete carrier of
  * keyboard focus and a ring beside it is an illegal redundancy. That rule was
  * right about the state it could see and wrong as an axiom, and KBF mode
- * ([roadmap/kbf-mode.md]) traces it as the root of the whole compensation
+ * ([dash/kbf-mode.md]) traces it as the root of the whole compensation
  * network the mode deletes: with no parked state available, "an editor always
  * has the caret" forced every arrow that reached an editor to either grant it
  * or be pushed back out, which is what the boundary latch, the empty-input

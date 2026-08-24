@@ -1,7 +1,7 @@
 /**
  * at0211-btw-side-question-overlay.test.ts — `/btw` opens the side-question
  * placard and the exchange leaves the transcript untouched ([P02]/[P05],
- * roadmap/add-btw.md).
+ * dash/add-btw.md).
  *
  * A side question is answered from the live conversation with no tools and
  * MUST NOT enter the transcript. Tug renders it as the `/btw` body inside the

@@ -1,6 +1,6 @@
 /**
  * spike-configure-tug.tsx — design spike for the ConfigureTug happy-path polish
- * (roadmap/onboarding-and-install.md).
+ * (dash/onboarding-and-install.md).
  *
  * ConfigureTug's real states only exist on a clean machine (Claude missing, signed
  * out, no cards) — states that are awkward to reach on a dev box. This card

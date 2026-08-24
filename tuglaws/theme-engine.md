@@ -17,7 +17,7 @@ Theme data lives in checked-in CSS files:
 
 Shipped themes (registered in `SHIPPED_THEME_NAMES`, `tugdeck/src/action-dispatch.ts`):
 
-Each theme carries a **Key + Accent duet** ([`color-refactor`](../roadmap/archive/color-refactor.md)):
+Each theme carries a **Key + Accent duet** ([`color-refactor`](../dash/archive/color-refactor.md)):
 **Key** is the selection / primary-action hue (list & menu selection, toggle/radio/checkbox/choice
 "on", tabs, links, the primary CTA, text selection); **Accent** is the affordance hue (keyboard caret
 bar, focus ring, drag-drop stroke, flash). The chroma column notes each axis's relative saturation —

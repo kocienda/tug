@@ -667,7 +667,7 @@ async fn main() {
     // response to the right card. Buffer of 64 frames is comfortable
     // for FILETREE traffic (one frame per typed character, deduplicated
     // by JS) — a Lagged slow client drops some completions but doesn't
-    // crash. Per `roadmap/dev-atoms.md#step-pre-4`.
+    // crash. Per `dash/dev-atoms.md#step-pre-4`.
     let (ft_response_tx, _) = broadcast::channel::<Frame>(64);
 
     // Shared GIT_DIFF-response broadcast channel ([#step-10a]). The
@@ -734,7 +734,7 @@ async fn main() {
     // Adapter: router sends raw Frames on FILETREE_QUERY; parse JSON into
     // FileTreeQuery and forward to the workspace's FileTreeFeed.
     //
-    // Routing strategy (`roadmap/dev-atoms.md#step-pre-4`): if the JS payload
+    // Routing strategy (`dash/dev-atoms.md#step-pre-4`): if the JS payload
     // carries a `root` field that resolves to a registered workspace, send
     // to that workspace's `ft_query_tx`. Otherwise fall back to the
     // bootstrap (the `--source-tree` workspace) — preserves single-workspace
@@ -1952,7 +1952,7 @@ async fn main() {
     // connected client subscribes its own broadcast receiver in
     // `ClientState::Live` and forwards every frame to the socket. JS
     // filters by `workspace_key` to dispatch responses to the right
-    // card. Per `roadmap/dev-atoms.md#step-pre-4`.
+    // card. Per `dash/dev-atoms.md#step-pre-4`.
     feed_router.add_broadcast_senders(vec![
         ft_response_tx,
         gd_response_tx,

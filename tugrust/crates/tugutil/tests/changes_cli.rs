@@ -1207,9 +1207,9 @@ fn dash_replay_records_a_rebase_the_agent_already_made() {
         .output()
         .unwrap();
     let round = String::from_utf8_lossy(&round.stdout).trim().to_string();
-    std::fs::create_dir_all(worktree.join("roadmap")).unwrap();
+    std::fs::create_dir_all(worktree.join("dash")).unwrap();
     std::fs::write(
-        worktree.join("roadmap/p.md"),
+        worktree.join("dash/p.md"),
         format!(
             "## Fixture {{#fixture}}\n\n### Execution Steps {{#execution-steps}}\n\n\
              #### Step Status Ledger {{#step-status-ledger}}\n\n\
@@ -1222,7 +1222,7 @@ fn dash_replay_records_a_rebase_the_agent_already_made() {
     git(&worktree, &["commit", "-q", "-m", "record the plan"]);
     git(
         &root,
-        &["config", "branch.tugdash/demo.tugplan", "roadmap/p.md"],
+        &["config", "branch.tugdash/demo.tugplan", "dash/p.md"],
     );
 
     advance_main(&root, "moved\n");
@@ -1236,7 +1236,7 @@ fn dash_replay_records_a_rebase_the_agent_already_made() {
     assert_eq!(v["data"]["outcome"], "recorded");
     assert_eq!(v["data"]["remapped"][0], "step-1");
 
-    let plan = std::fs::read_to_string(worktree.join("roadmap/p.md")).unwrap();
+    let plan = std::fs::read_to_string(worktree.join("dash/p.md")).unwrap();
     assert!(
         !plan.contains(&round),
         "the cell no longer names the pre-rebase round: {plan}"

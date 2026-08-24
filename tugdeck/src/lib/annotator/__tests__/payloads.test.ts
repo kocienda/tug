@@ -30,7 +30,7 @@ const PAYLOADS: ReadonlyArray<[string, AnnotationPayload]> = [
   ["email", { kind: "email", address: "kocienda@pobox.com" }],
   [
     "slash command with args",
-    { kind: "slash-command", name: "tugplug:implement", args: "roadmap/x.md" },
+    { kind: "slash-command", name: "tugplug:implement", args: "dash/x.md" },
   ],
   ["slash command, no args", { kind: "slash-command", name: "diff", args: "" }],
   ["shell command", { kind: "shell-command", command: "just launch-debug" }],
@@ -113,9 +113,9 @@ describe("annotationValue — what Copy and Insert carry", () => {
       annotationValue({
         kind: "slash-command",
         name: "tugplug:implement",
-        args: "roadmap/x.md",
+        args: "dash/x.md",
       }),
-    ).toBe("/tugplug:implement roadmap/x.md");
+    ).toBe("/tugplug:implement dash/x.md");
   });
 
   test("a shell command is its line verbatim", () => {

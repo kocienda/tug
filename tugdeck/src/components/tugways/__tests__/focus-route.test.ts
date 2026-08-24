@@ -1,6 +1,6 @@
 /**
  * FocusManager — pure-logic tests for the keyboard-route classification
- * (Spec S02 of `roadmap/keyboard-as-engine-state.md`).
+ * (Spec S02 of `dash/keyboard-as-engine-state.md`).
  *
  * Every placement classifies into exactly one of two routes, derived from the
  * `FocusTarget` kind plus the responder registry's focus-contract declaration —

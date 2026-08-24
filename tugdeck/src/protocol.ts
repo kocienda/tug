@@ -452,8 +452,8 @@ export function encodeCodeInput(msg: object, tugSessionId: string): ArrayBuffer 
  * original atom positions in the substrate; tugcode forwards the array
  * straight to the Anthropic SDK with no construction step.
  *
- * Per [Spec S01](roadmap/dev-atoms.md#s01-attachment-wire-type)
- * (retired wire-shape `Attachment`) and [Step 5c](roadmap/dev-atoms.md#step-5c).
+ * Per [Spec S01](dash/dev-atoms.md#s01-attachment-wire-type)
+ * (retired wire-shape `Attachment`) and [Step 5c](dash/dev-atoms.md#step-5c).
  */
 // Content-block wire shapes now live in the shared client→tugcode contract
 // ([#step-13c1]); re-exported so tugdeck call sites keep importing them from

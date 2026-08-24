@@ -667,7 +667,7 @@ export interface TugTextEditorProps
   /**
    * Resolver that recognizes a slash command at the start of pasted text and
    * returns the atom segment to chip it as (e.g. pasting `/tugplug:implement
-   * roadmap/foo.md` at offset 0 chips the command and keeps the path as its
+   * dash/foo.md` at offset 0 chips the command and keeps the path as its
    * argument). Matches a full name or its unqualified leaf, like the typed
    * `/command ` accept. Omitted (gallery / standalone) ⇒ paste stays plain text.
    */
@@ -734,7 +734,7 @@ export interface TugTextEditorProps
    * through to the substrate's text-paste path. Gallery cards and
    * stand-alone harnesses leave this absent;
    * session-card prompt-entry instances wire it through from their
-   * `CodeSessionStore`. Per [D03](roadmap/dev-atoms.md#d03-atom-bytes-store).
+   * `CodeSessionStore`. Per [D03](dash/dev-atoms.md#d03-atom-bytes-store).
    *
    * The prop is a controlled reference — pass the same store
    * instance on every render. A late-arriving store (mounted as
@@ -750,7 +750,7 @@ export interface TugTextEditorProps
    * Defaults to a no-op. The prompt entry forwards this to its own
    * `onAttachmentError` host handler, which surfaces the message as a
    * card-scoped bulletin (never the session-error banner). Per
-   * [Table T01](roadmap/dev-atoms.md#t01-failure-modes).
+   * [Table T01](dash/dev-atoms.md#t01-failure-modes).
    */
   onAttachmentError?: (message: string) => void;
   /**
@@ -2114,7 +2114,7 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
         const value = img.getAttribute("data-atom-value");
         if (type !== "file" || value === null || value === "") return [];
         // An `@` mention's value is whatever the file index handed it —
-        // `roadmap/kbf-mode.md`, relative to the project root — and the
+        // `dash/kbf-mode.md`, relative to the project root — and the
         // open handler resolves nothing: a relative path reaches the file
         // service as written and comes back `bad_path`. The host's
         // resolver knows the root the mention was written against, so the

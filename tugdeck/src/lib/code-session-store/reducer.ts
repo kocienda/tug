@@ -503,7 +503,7 @@ export interface CodeSessionState {
    * through without reshaping — preserves `Object.is` stability for
    * `useSyncExternalStore` consumers ([L02]).
    *
-   * Per [Step 5c](../../../roadmap/dev-atoms.md#step-5c).
+   * Per [Step 5c](../../../dash/dev-atoms.md#step-5c).
    */
   queuedSends: Array<{
     content: ContentBlock[];
@@ -3471,7 +3471,7 @@ function handleRespondApproval(
   // The decision is sent out on the wire below and the SDK's
   // tool_use/tool_result for the gated tool IS the durable transcript
   // artifact — there is no client-side record kept here. See
-  // `#step-3-5` in `roadmap/archive/dev-interactive-dialogs.md` for why
+  // `#step-3-5` in `dash/archive/dev-interactive-dialogs.md` for why
   // JSONL cannot durably reconstruct a separate permission record.
   //
   // The phase restores only when this was the LAST dialog up. A question can
@@ -5155,7 +5155,7 @@ function handleAssistantOpener(
  * `isInWake` and gates re-emission until the next `result`); a stray
  * frame from a busy phase would be a tugcode bug.
  *
- * See `roadmap/tugplan-session-wake.md` [D01] [D02]
+ * See `dash/tugplan-session-wake.md` [D01] [D02]
  * [#spec-wake-started-state-reset].
  */
 function handleWakeStarted(

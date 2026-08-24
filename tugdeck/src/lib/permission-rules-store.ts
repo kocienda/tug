@@ -8,7 +8,7 @@
  * immediately so the list reflects the change without waiting on the round
  * trip — then reconciled against a fresh `GET` (the authority). Claude Code
  * reloads `permissions` live, so a successful write is in effect for the
- * running session with no respawn (`roadmap/transport-exploration.md`).
+ * running session with no respawn (`dash/transport-exploration.md`).
  *
  * The store is created per editor-open, seeded with the session's `cwd` (the
  * project root the project/local scopes resolve under). A companion

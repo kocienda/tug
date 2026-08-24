@@ -67,7 +67,7 @@ import { BESPOKE_TOOL_NAMES } from "../session-assistant-renderer-registrations"
  *
  * **Out of scope.** The `mcp__*` namespace is variable, user-installed,
  * and explicitly deferred per the project's MCP non-goal policy
- * (`roadmap/session-assistant-rendering.md` §Open Questions). It is not
+ * (`dash/session-assistant-rendering.md` §Open Questions). It is not
  * listed here.
  */
 const V2_1_148_CANONICAL_TOOL_NAMES: ReadonlyArray<string> = [

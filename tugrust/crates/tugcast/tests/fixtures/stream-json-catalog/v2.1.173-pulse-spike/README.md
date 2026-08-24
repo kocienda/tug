@@ -2,7 +2,7 @@
 
 Raw upstream `claude` stream-json capture (unnormalized, single-run, no schema)
 taken to pin the PULSE commentator's posture, prompt, digest format, and latency
-envelope (`roadmap/pulse.md`). Same conventions as `../v2.1.173-jobs-spike/`:
+envelope (`dash/pulse.md`). Same conventions as `../v2.1.173-jobs-spike/`:
 this is the **raw claude layer**. The findings here are constants in the
 `tugpulse` daemon; re-run the probe on a future claude release to re-verify.
 
@@ -149,7 +149,7 @@ observed beat across both runs is 3.5s; typical is sub-second. (For contrast:
 with thinking leaking in, beats ran 6–14s; with plan-mode tool use, 9–19s and a
 30s timeout.)
 
-## Question resolutions (for `roadmap/pulse.md`)
+## Question resolutions (for `dash/pulse.md`)
 
 - **[Q01] multi-scope beats — RESOLVED: one digest, scope-tag grouping, no
   per-scope beats needed.** Haiku wove the two-scope arc coherently and
@@ -167,7 +167,7 @@ with thinking leaking in, beats ran 6–14s; with plan-mode tool use, 9–19s an
 
 ---
 
-## v6 — the watch-the-wire rework (`roadmap/pulse-2.md`)
+## v6 — the watch-the-wire rework (`dash/pulse-2.md`)
 
 The producer layer was deleted (it hand-phrased note-card facts and silently
 starved the model — see the plan's context); the daemon now digests
@@ -284,7 +284,7 @@ hitting upstream service exhaustion").
 | v6.3 | 574ms | 826ms | 1129ms | 1410ms | 0 |
 | v6.2 | 724ms | 870ms | 1362ms | 1691ms | 0 |
 
-### Question resolution (for `roadmap/pulse-2.md`)
+### Question resolution (for `dash/pulse-2.md`)
 
 - **[Q01] digest v6 + prompt v6 — RESOLVED.** The format above and the v6
   prompt produce short, truthful, non-repeating lines; per-thread separation
@@ -292,7 +292,7 @@ hitting upstream service exhaustion").
   echoed; clip budget pinned at 240. Zero control traffic, zero tool use,
   `claude-haiku-4-5-20251001` confirmed on every run.
 
-### v7 — the live-walk corrections (first walk of `roadmap/pulse-2.md`)
+### v7 — the live-walk corrections (first walk of `dash/pulse-2.md`)
 
 The first live walk surfaced four voice/liveness defects; v7 fixes them with
 **digest material + prompt** changes (and daemon trigger changes outside this
@@ -319,7 +319,7 @@ Final v7 run (19 beats): p50 948ms, max 1586ms, 0 over-4s, PASS 2/2 on
 expected, 0 over-length, 0 repeats, retry beat narrated. The capture file
 carries this run.
 
-### v8 — color, not play-by-play (second walk of `roadmap/pulse-2.md`)
+### v8 — color, not play-by-play (second walk of `dash/pulse-2.md`)
 
 The second walk's verdict: v7 lines restated the transcript ("Haiku
 summarized a 294k-line codebase…") — well-phrased play-by-play, worthless

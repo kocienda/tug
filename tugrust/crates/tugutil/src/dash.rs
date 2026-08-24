@@ -69,6 +69,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         DashCommands::Replay { name } => return run_replay(&name, json, quiet),
         DashCommands::Discard { name } => run_discard(&name, json, quiet),
         DashCommands::Config => run_config(json, quiet),
+        DashCommands::DocsDir { set } => run_docs_dir(set, json, quiet),
         DashCommands::List => run_list(json, quiet),
         DashCommands::Show { name } => run_show(&name, json, quiet),
         DashCommands::Status { name } => run_status(&name, json, quiet),
@@ -857,6 +858,26 @@ struct ConfigPayload {
     verify: Option<String>,
     build: Option<String>,
     post_create: Vec<String>,
+    docs: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DocsDirPayload {
+    /// The declared value, verbatim, or null when the project declares none.
+    docs: Option<String>,
+    /// The absolute directory the declaration names, or null.
+    path: Option<String>,
+    /// False when the project declares nothing — a state, not an error.
+    declared: bool,
+}
+
+#[derive(Serialize)]
+struct DocsDirSetPayload {
+    docs: String,
+    path: String,
+    config_path: String,
+    /// True when the directory did not exist and this write created it.
+    created_dir: bool,
 }
 
 /// Read the declarations the run's ending and the build offer consume.
@@ -873,6 +894,7 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
         verify: dash.verify,
         build: dash.build,
         post_create: dash.post_create,
+        docs: dash.docs,
     };
 
     if json {
@@ -891,6 +913,58 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
             println!("post_create:  {}", undeclared);
         } else {
             println!("post_create:  {}", payload.post_create.join("; "));
+        }
+        println!(
+            "docs:         {}",
+            payload.docs.as_deref().unwrap_or(undeclared)
+        );
+    }
+    Ok(())
+}
+
+/// Report the project's dash paperwork directory, or record it.
+///
+/// Undeclared reports as such and exits 0: a project that has not chosen a
+/// paperwork home is in a state, not in error, and the ask-once contract in
+/// the authoring skills is built on being able to read that state cheaply.
+fn run_docs_dir(set: Option<String>, json: bool, quiet: bool) -> Result<(), String> {
+    let root = tugutil_core::config::find_project_root().map_err(|e| e.to_string())?;
+
+    if let Some(value) = set {
+        let write = tugutil_core::config::set_docs_dir(&root, &value).map_err(|e| e.to_string())?;
+        let payload = DocsDirSetPayload {
+            docs: write.docs,
+            path: write.path.display().to_string(),
+            config_path: write.config_path.display().to_string(),
+            created_dir: write.created_dir,
+        };
+        if json {
+            print_ok("dash docs-dir", payload);
+        } else if !quiet {
+            println!("docs: {} ({})", payload.docs, payload.path);
+            println!("recorded in {}", payload.config_path);
+            if payload.created_dir {
+                println!("created {}", payload.path);
+            }
+        }
+        return Ok(());
+    }
+
+    let config =
+        tugutil_core::config::Config::load_from_project(&root).map_err(|e| e.to_string())?;
+    let path = config.docs_dir(&root);
+    let payload = DocsDirPayload {
+        docs: config.tugtool.dash.docs.clone(),
+        path: path.as_ref().map(|p| p.display().to_string()),
+        declared: path.is_some(),
+    };
+
+    if json {
+        print_ok("dash docs-dir", payload);
+    } else if !quiet {
+        match (&payload.docs, &payload.path) {
+            (Some(docs), Some(path)) => println!("docs: {} ({})", docs, path),
+            _ => println!("docs: (not declared)"),
         }
     }
     Ok(())

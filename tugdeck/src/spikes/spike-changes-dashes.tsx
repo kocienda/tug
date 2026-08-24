@@ -155,7 +155,7 @@ const HEAD_ENTRIES: TugChangesListEntry[] = [
     id: "gallery:unattributed",
     project: PROJECT,
     files: [
-      { path: "roadmap/assets/dash-notes.md", git_status: " M" },
+      { path: "dash/assets/dash-notes.md", git_status: " M" },
       { path: "tuglaws/theme-engine.md", git_status: " M", hinted_by: ["Lens redesign"] },
     ],
   },
@@ -205,7 +205,7 @@ const FRONTED = dash("changes-and-dashes", {
   step_current: 2,
   step_total: 5,
   step_title: "The header treatments, side by side",
-  plan_path: "roadmap/changes-and-dashes.md",
+  plan_path: "dash/changes-and-dashes.md",
   rounds: 4,
 });
 

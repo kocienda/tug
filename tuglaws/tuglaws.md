@@ -221,7 +221,7 @@ Three shapes are violations, and they are violations even when the surrounding c
 
 A comment blessing any of these is a defect in the comment as much as in the code, because it converts an oversight into a decision and tells the next reader not to look. Types are the structural half of the enforcement: an action that can refuse returns its verdict rather than `void`, so a caller cannot ignore the refusal without the compiler seeing it, and the control's own surfacing means no caller has to remember.
 
-This law was written from an incident, and the incident is its grounding: a landing button that did nothing when pressed was unreproducible for days purely because its failure mode was silence — two silent `return`s with no error, no log line, and no rendered state, so every investigation had nothing to read. The record is in [../roadmap/continuing-dash-join-failures.md](../roadmap/continuing-dash-join-failures.md). Silence is not a neutral outcome; it is the one outcome that cannot be diagnosed. [L22, L28]
+This law was written from an incident, and the incident is its grounding: a landing button that did nothing when pressed was unreproducible for days purely because its failure mode was silence — two silent `return`s with no error, no log line, and no rendered state, so every investigation had nothing to read. The record is in [../dash/continuing-dash-join-failures.md](../dash/continuing-dash-join-failures.md). Silence is not a neutral outcome; it is the one outcome that cannot be diagnosed. [L22, L28]
 
 ---
 

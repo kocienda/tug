@@ -253,7 +253,7 @@ const LABEL_LETTERS: &[char] = &['P', 'Q', 'S', 'T', 'L', 'R', 'M'];
 /// Parse a plan document.
 ///
 /// Detection is positive: a document is a plan when it declares an
-/// `{#execution-steps}` section. `roadmap/` also holds briefs, notes, and a
+/// `{#execution-steps}` section. `dash/` also holds briefs, notes, and a
 /// program plan that carries ratified decisions and phases but no steps —
 /// none of those are plans, and none of them should be linted as one.
 pub fn parse(source: &str) -> Result<PlanDoc, NotAPlan> {
@@ -1980,17 +1980,25 @@ Some context.
     }
 
     /// The rules must stay honest against the documents people actually write.
-    /// Resolve `roadmap/` from the crate manifest and skip cleanly when it is
-    /// absent, so the crate stays testable outside this repository.
+    /// The corpus is wherever this project declared its paperwork lives, read
+    /// from the config the same way every other consumer reads it — so the
+    /// test follows a project that renames its directory, and skips cleanly
+    /// when there is no declaration at all.
     #[test]
     fn the_real_corpus_carries_no_errors() {
-        let roadmap = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../roadmap")
-            .canonicalize();
-        let Ok(roadmap) = roadmap else {
+        let Ok(project_root) = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+        else {
             return;
         };
-        let Ok(entries) = std::fs::read_dir(&roadmap) else {
+        let Some(docs) = crate::config::Config::load_from_project(&project_root)
+            .ok()
+            .and_then(|c| c.docs_dir(&project_root))
+        else {
+            return;
+        };
+        let Ok(entries) = std::fs::read_dir(&docs) else {
             return;
         };
         let mut linted = 0usize;
@@ -2031,12 +2039,12 @@ Some context.
             );
         }
         // The live corpus shrinks to nothing as programs land and their plans
-        // move to `roadmap/archive/` — an empty corpus is nothing to check,
-        // not a failure. What must hold is that every document *claiming* to
-        // be a plan was parsed as one.
+        // move to the archive — an empty corpus is nothing to check, not a
+        // failure. What must hold is that every document *claiming* to be a
+        // plan was parsed as one.
         assert_eq!(
             linted, claimed,
-            "{claimed} roadmap document(s) declare {{#execution-steps}} but only {linted} parsed"
+            "{claimed} paperwork document(s) declare {{#execution-steps}} but only {linted} parsed"
         );
     }
 

@@ -1,7 +1,7 @@
 /**
  * at0282 — the `tug-quiesce` canary: a normal teardown fires no SIGKILL.
  *
- * The shutdown contract (roadmap/graceful-termination-plan.md, grounds in
+ * The shutdown contract (dash/graceful-termination-plan.md, grounds in
  * [LR3]/[LR4]) says every Tug service gets a flush window before anything
  * forceful happens: on quiesce it stops accepting work, checkpoints its
  * ledgers, and exits 0 inside its own 2 s budget; the conductor (Tug.app)

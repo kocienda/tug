@@ -109,7 +109,7 @@ Progress does **not** invalidate a stamp: ledger status cells, commit cells, and
 
 Report what changed, in a few lines. Then give the next move as a literal command on its own line, **inside backticks**, command and path together in one span:
 
-`` `/tugplug:dash-implement roadmap/my-plan.md` ``
+`` `/tugplug:dash-implement dash/my-plan.md` ``
 
 The Session card only turns a command line into a clickable chip when it arrives as its own inline code span; written as bare prose it is dead text.
 

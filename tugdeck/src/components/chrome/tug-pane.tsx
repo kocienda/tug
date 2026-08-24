@@ -1646,7 +1646,7 @@ const SNAP_GUIDE_LINE_PX = 2;
  * motion at the release, in milliseconds.
  *
  * A drop inherits the hand's velocity ([P05] of
- * `roadmap/layout-imposer-polish.md`), and the question that answers is "how
+ * `dash/layout-imposer-polish.md`), and the question that answers is "how
  * fast was the hand going as it opened" — not "how fast was it going at some
  * point during the drag". Four display frames is long enough to survive a
  * dropped frame and short enough that a hand which paused before letting go
@@ -2515,7 +2515,7 @@ export function TugPane({
    * release velocity is made of.
    *
    * A drop's landing inherits the hand ([P05] of
-   * `roadmap/layout-imposer-polish.md`): a card let go while still moving
+   * `dash/layout-imposer-polish.md`): a card let go while still moving
    * toward its zone arrives carrying that motion instead of stopping dead and
    * starting again. Two samples are enough — the estimate only has to know how
    * fast the hand was going at the instant it opened, and a longer window

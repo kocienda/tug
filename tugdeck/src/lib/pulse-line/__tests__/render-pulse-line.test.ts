@@ -62,10 +62,10 @@ describe("renderPulseLine — the lines that broke previous approaches", () => {
 
   test("plain markdown renders: bold, italics, code", () => {
     const { html } = renderPulseLine(
-      "Reading **the devise skeleton** first, then `roadmap/pulse.md` gets *the fix*.",
+      "Reading **the devise skeleton** first, then `dash/pulse.md` gets *the fix*.",
     );
     expect(html).toContain("<strong>the devise skeleton</strong>");
-    expect(html).toContain("<code>roadmap/pulse.md</code>");
+    expect(html).toContain("<code>dash/pulse.md</code>");
     expect(html).toContain("<em>the fix</em>");
   });
 

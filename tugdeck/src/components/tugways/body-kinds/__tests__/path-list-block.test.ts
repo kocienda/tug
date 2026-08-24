@@ -83,7 +83,7 @@ describe("iconKindForPath", () => {
   });
 
   test("document extensions classify as doc", () => {
-    for (const p of ["roadmap/x.md", "notes.txt", "README.markdown"]) {
+    for (const p of ["dash/x.md", "notes.txt", "README.markdown"]) {
       expect(iconKindForPath(p)).toBe("doc");
     }
   });

@@ -24,7 +24,7 @@
  * collapses didn't clamp) but the spacer was always-visible empty
  * space in every transcript — a constant cost paid for a rare
  * benefit. The spacer was retired (Step 20.3.5 of
- * `roadmap/session-assistant-turns.md`) and the natural clamp is the
+ * `dash/session-assistant-turns.md`) and the natural clamp is the
  * current contract.
  *
  * The fix is purely imperative and lives entirely on the call-stack

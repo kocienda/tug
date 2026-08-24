@@ -3233,7 +3233,7 @@ export function SessionCardBody({
   // future overlay that sets `inert` without emitting `didHide`
   // breaks at0051; the test exists exactly so the contract isn't
   // re-discovered the hard way. See
-  // `roadmap/tugplan-session-init-orchestration.md` [V03] for
+  // `dash/tugplan-session-init-orchestration.md` [V03] for
   // the bug history.
   //
   // [L11] the banner / sheet are status surfaces that emit lifecycle

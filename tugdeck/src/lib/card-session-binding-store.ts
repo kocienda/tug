@@ -100,7 +100,7 @@ export class CardSessionBindingStore {
    * after a WebSocket re-open: bindings without a live server peer are
    * worse than no bindings, so the new resume frames go out against an
    * empty store. Per [D04] in
-   * `roadmap/tugplan-session-connection-health.md`, the clear-then-restore
+   * `dash/tugplan-session-connection-health.md`, the clear-then-restore
    * order is part of the contract. A no-op when the store is already
    * empty so the first reconnect after a fresh boot does not emit a
    * spurious notify.

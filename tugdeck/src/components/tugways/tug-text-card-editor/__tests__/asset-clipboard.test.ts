@@ -91,7 +91,7 @@ describe("buildAssetSidecar", () => {
     // An ordinary relative link between documents is not an attachment, and a
     // roadmap full of them must not produce a sidecar at all.
     expect(
-      buildAssetSidecar("see [the plan](../roadmap/plan.md) and [x](#anchor)", BASE),
+      buildAssetSidecar("see [the plan](../dash/plan.md) and [x](#anchor)", BASE),
     ).toBeNull();
     expect(buildAssetSidecar("no links here", BASE)).toBeNull();
     expect(buildAssetSidecar("![p](assets/p.png)", null)).toBeNull();

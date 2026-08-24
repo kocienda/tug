@@ -34,7 +34,7 @@ import Foundation
 /// `open --env`). The tugcast integration-test harness scrubs the same
 /// vars on its side (`tugcast/tests/common/mod.rs`).
 ///
-/// References: roadmap/tug-multi-instance.md [D04] [D05] [D12].
+/// References: dash/tug-multi-instance.md [D04] [D05] [D12].
 enum InstanceConfig {
     /// Environment variable name carrying the runtime instance ID.
     /// Kept in sync with `tugcore::instance::ENV_INSTANCE_ID`.

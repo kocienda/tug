@@ -214,7 +214,7 @@ connectionLifecycle.observeConnectionDidReconnect(() => {
 
 // Feed the app-wide transport-state store from the same lifecycle pipe. This is
 // the channel ConfigureTug reads to show a calm "Reconnecting…" body instead of a
-// dead wizard when the wire drops mid-setup ([L02]; roadmap/archive/onboarding-and-install.md#tugsetup-states).
+// dead wizard when the wire drops mid-setup ([L02]; dash/archive/onboarding-and-install.md#tugsetup-states).
 connectionLifecycle.observeConnectionDidOpen(() => {
   transportStateStore.set("online");
 });
@@ -581,7 +581,7 @@ if (!container) {
   // Reconnect path: every WebSocket recovery from a close re-runs the
   // restore loop so cards rebind without a page reload after a tugcast
   // restart. The order — clearAll, then re-restore — is per [D04] in
-  // roadmap/tugplan-session-connection-health.md: bindings the client
+  // dash/tugplan-session-connection-health.md: bindings the client
   // still holds against a now-dead server are worse than no bindings,
   // because they would route frames the new server is not emitting.
   //

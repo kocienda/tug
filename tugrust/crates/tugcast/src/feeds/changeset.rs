@@ -3574,9 +3574,9 @@ Some context.
     #[test]
     fn format_discard_summary_says_where_the_plan_went() {
         assert_eq!(
-            format_discard_summary("spike", 0, 0, &[], Some("roadmap/x.md")),
+            format_discard_summary("spike", 0, 0, &[], Some("dash/x.md")),
             "discarded spike · 0 round(s)\n\
-             Restored roadmap/x.md to the base checkout."
+             Restored dash/x.md to the base checkout."
         );
     }
 
@@ -3810,8 +3810,8 @@ Some context.
     fn bridge_passes_through_relative_and_strips_absolute() {
         let any = Path::new("/any/repo");
         assert_eq!(
-            repo_relative(&CanonicalPath::from_raw(any), any, "roadmap/x.md"),
-            "roadmap/x.md"
+            repo_relative(&CanonicalPath::from_raw(any), any, "dash/x.md"),
+            "dash/x.md"
         );
 
         let tmp = tempfile::tempdir().unwrap();

@@ -1,6 +1,6 @@
 # `side_question` control-request probe — FINDINGS
 
-Probe for `roadmap/add-btw.md` [Q01] (does Claude service a `side_question`
+Probe for `dash/add-btw.md` [Q01] (does Claude service a `side_question`
 control-request over stream-json, idle **and** mid-turn?) and [Q02] (what does
 the response look like on the wire?).
 

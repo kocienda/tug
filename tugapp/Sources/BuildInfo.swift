@@ -4,7 +4,7 @@ import Foundation
 /// `tugrust/scripts/capture-build-info.sh` (Xcode Run Script build
 /// phase). Read-once on first access; freezes for the process lifetime.
 ///
-/// References: roadmap/tug-multi-instance.md [D01] [D02] [D03].
+/// References: dash/tug-multi-instance.md [D01] [D02] [D03].
 enum BuildInfo {
     /// Build profile, derived from xcodebuild's `$CONFIGURATION`:
     /// "debug" (Debug) or "release" (Release), per [D19].

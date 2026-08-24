@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::config::{PLAN_SEARCH_DIRS, find_tugplans, tugplan_name_from_path};
+use crate::config::{find_tugplans, plan_search_dirs, tugplan_name_from_path};
 use crate::error::TugError;
 
 /// Which cascade stage produced the match
@@ -68,6 +68,9 @@ pub fn resolve_plan(input: &str, project_root: &Path) -> Result<ResolveResult, T
         }
     }
 
+    // Where this project keeps plans: `.tugtool/` plus whatever it declared.
+    let search_dirs = plan_search_dirs(project_root);
+
     // Stage 2: Bare filename (starts with tugplan-)
     if input.starts_with("tugplan-") {
         let filename = if input.ends_with(".md") {
@@ -75,7 +78,7 @@ pub fn resolve_plan(input: &str, project_root: &Path) -> Result<ResolveResult, T
         } else {
             format!("{}.md", input)
         };
-        for search_dir in PLAN_SEARCH_DIRS {
+        for search_dir in &search_dirs {
             let path = project_root.join(search_dir).join(&filename);
             if path.exists() {
                 return Ok(ResolveResult::Found {
@@ -90,7 +93,7 @@ pub fn resolve_plan(input: &str, project_root: &Path) -> Result<ResolveResult, T
     // Stage 3: Slug (tugplan-{input}.md)
     if !input.is_empty() {
         let filename = format!("tugplan-{}.md", input);
-        for search_dir in PLAN_SEARCH_DIRS {
+        for search_dir in &search_dirs {
             let path = project_root.join(search_dir).join(&filename);
             if path.exists() {
                 return Ok(ResolveResult::Found {
@@ -172,11 +175,22 @@ mod tests {
         tmp
     }
 
-    /// Helper: write plan files into roadmap/ (creating it if needed)
-    fn add_roadmap_plans(tmp: &TempDir, plans: &[&str]) {
-        let roadmap_dir = tmp.path().join("roadmap");
-        if !roadmap_dir.exists() {
-            fs::create_dir(&roadmap_dir).unwrap();
+    /// The name these tests use for a declared paperwork directory. It is
+    /// deliberately not `roadmap` — nothing in the search is keyed to a
+    /// particular word any more.
+    const DOCS: &str = "paperwork";
+
+    /// Helper: declare a paperwork directory and write plan files into it.
+    fn add_docs_plans(tmp: &TempDir, plans: &[&str]) {
+        fs::write(
+            tmp.path().join(".tugtool").join("config.toml"),
+            format!("[tugtool.dash]\ndocs = \"{DOCS}\"\n"),
+        )
+        .unwrap();
+
+        let docs_dir = tmp.path().join(DOCS);
+        if !docs_dir.exists() {
+            fs::create_dir(&docs_dir).unwrap();
         }
         for plan in plans {
             let filename = if plan.starts_with("tugplan-") {
@@ -184,8 +198,8 @@ mod tests {
             } else {
                 format!("tugplan-{}.md", plan)
             };
-            let path = roadmap_dir.join(&filename);
-            fs::write(&path, "# Roadmap Plan\n").unwrap();
+            let path = docs_dir.join(&filename);
+            fs::write(&path, "# Paperwork Plan\n").unwrap();
         }
     }
 
@@ -392,39 +406,59 @@ mod tests {
     }
 
     #[test]
-    fn test_slug_resolves_from_roadmap() {
+    fn test_slug_resolves_from_declared_docs_dir() {
         let tmp = setup_project(&[]);
-        add_roadmap_plans(&tmp, &["dev"]);
+        add_docs_plans(&tmp, &["dev"]);
 
         let result = resolve_plan("dev", tmp.path()).unwrap();
         match result {
             ResolveResult::Found { path, stage } => {
                 assert_eq!(stage, ResolveStage::Slug);
-                assert!(path.ends_with("roadmap/tugplan-dev.md"));
+                assert!(path.ends_with(format!("{DOCS}/tugplan-dev.md")));
             }
-            _ => panic!("Expected Found with Slug stage from roadmap/"),
+            _ => panic!("Expected Found with Slug stage from the declared docs dir"),
         }
     }
 
+    /// The old hardcoded `roadmap` entry is gone: an undeclared project is
+    /// searched in `.tugtool/` alone, whatever it happens to have lying around.
     #[test]
-    fn test_bare_filename_resolves_from_roadmap() {
+    fn test_undeclared_project_does_not_search_roadmap() {
         let tmp = setup_project(&[]);
-        add_roadmap_plans(&tmp, &["dev"]);
+        let roadmap = tmp.path().join("roadmap");
+        fs::create_dir(&roadmap).unwrap();
+        fs::write(roadmap.join("tugplan-dev.md"), "# Not searched\n").unwrap();
+
+        assert_eq!(
+            resolve_plan("dev", tmp.path()).unwrap(),
+            ResolveResult::NotFound
+        );
+        assert_eq!(
+            resolve_plan("tugplan-dev", tmp.path()).unwrap(),
+            ResolveResult::NotFound
+        );
+        assert!(find_tugplans(tmp.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_bare_filename_resolves_from_declared_docs_dir() {
+        let tmp = setup_project(&[]);
+        add_docs_plans(&tmp, &["dev"]);
 
         let result = resolve_plan("tugplan-dev", tmp.path()).unwrap();
         match result {
             ResolveResult::Found { path, stage } => {
                 assert_eq!(stage, ResolveStage::Filename);
-                assert!(path.ends_with("roadmap/tugplan-dev.md"));
+                assert!(path.ends_with(format!("{DOCS}/tugplan-dev.md")));
             }
-            _ => panic!("Expected Found with Filename stage from roadmap/"),
+            _ => panic!("Expected Found with Filename stage from the declared docs dir"),
         }
     }
 
     #[test]
-    fn test_tugtool_wins_over_roadmap_for_same_slug() {
+    fn test_tugtool_wins_over_docs_dir_for_same_slug() {
         let tmp = setup_project(&["shared"]);
-        add_roadmap_plans(&tmp, &["shared"]);
+        add_docs_plans(&tmp, &["shared"]);
 
         let result = resolve_plan("shared", tmp.path()).unwrap();
         match result {
@@ -432,7 +466,7 @@ mod tests {
                 assert_eq!(stage, ResolveStage::Slug);
                 // .tugtool/ is searched first, so it wins
                 assert!(path.to_string_lossy().contains(".tugtool"));
-                assert!(!path.to_string_lossy().contains("roadmap"));
+                assert!(!path.to_string_lossy().contains(DOCS));
             }
             _ => panic!("Expected Found preferring .tugtool/"),
         }
@@ -441,7 +475,7 @@ mod tests {
     #[test]
     fn test_prefix_match_across_dirs() {
         let tmp = setup_project(&["active-work"]);
-        add_roadmap_plans(&tmp, &["future-idea"]);
+        add_docs_plans(&tmp, &["future-idea"]);
 
         let result = resolve_plan("active", tmp.path()).unwrap();
         match result {
@@ -458,51 +492,57 @@ mod tests {
                 assert_eq!(stage, ResolveStage::Prefix);
                 assert!(path.ends_with("tugplan-future-idea.md"));
             }
-            _ => panic!("Expected Found with Prefix from roadmap/"),
+            _ => panic!("Expected Found with Prefix from the declared docs dir"),
         }
     }
 
     #[test]
     fn test_ambiguous_across_dirs() {
         let tmp = setup_project(&["user-auth"]);
-        add_roadmap_plans(&tmp, &["user-roles"]);
+        add_docs_plans(&tmp, &["user-roles"]);
 
         let result = resolve_plan("user", tmp.path()).unwrap();
         match result {
             ResolveResult::Ambiguous(candidates) => {
                 assert_eq!(candidates.len(), 2);
-                // Sorted by full path: .tugtool/... < roadmap/...
+                // Sorted by full path: .tugtool/... < paperwork/...
                 assert!(candidates[0].ends_with(".tugtool/tugplan-user-auth.md"));
-                assert!(candidates[1].ends_with("roadmap/tugplan-user-roles.md"));
+                assert!(candidates[1].ends_with(format!("{DOCS}/tugplan-user-roles.md")));
             }
             _ => panic!("Expected Ambiguous across dirs"),
         }
     }
 
     #[test]
-    fn test_auto_select_picks_only_roadmap_plan() {
+    fn test_auto_select_picks_only_docs_dir_plan() {
         let tmp = setup_project(&[]);
-        add_roadmap_plans(&tmp, &["lonely"]);
+        add_docs_plans(&tmp, &["lonely"]);
 
         let result = resolve_plan("", tmp.path()).unwrap();
         match result {
             ResolveResult::Found { path, stage } => {
                 assert_eq!(stage, ResolveStage::Auto);
-                assert!(path.ends_with("roadmap/tugplan-lonely.md"));
+                assert!(path.ends_with(format!("{DOCS}/tugplan-lonely.md")));
             }
-            _ => panic!("Expected Found with Auto stage from roadmap/"),
+            _ => panic!("Expected Found with Auto stage from the declared docs dir"),
         }
     }
 
     #[test]
-    fn test_missing_roadmap_dir_is_ok() {
-        // Only .tugtool/ exists; roadmap/ is absent — should still resolve normally.
+    fn test_declared_but_absent_docs_dir_is_ok() {
+        // The project declares a paperwork home it has not created yet;
+        // resolution still works out of .tugtool/.
         let tmp = setup_project(&["only-plan"]);
+        fs::write(
+            tmp.path().join(".tugtool").join("config.toml"),
+            format!("[tugtool.dash]\ndocs = \"{DOCS}\"\n"),
+        )
+        .unwrap();
 
         let result = resolve_plan("only-plan", tmp.path()).unwrap();
         match result {
             ResolveResult::Found { stage, .. } => assert_eq!(stage, ResolveStage::Slug),
-            _ => panic!("Expected Found with Slug stage when roadmap/ is absent"),
+            _ => panic!("Expected Found with Slug stage when the docs dir is absent"),
         }
     }
 }

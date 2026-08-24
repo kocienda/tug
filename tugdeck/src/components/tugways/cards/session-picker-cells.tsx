@@ -6,7 +6,7 @@
  * typed row payload from `dataSource.rowAt(p.index)` and paints the
  * visual treatment. **Cells are pure render functions** per
  * [tugplan-session-picker-redesign §D17](
- * ../../../roadmap/tugplan-session-picker-redesign.md#d17-pure-renderer-rule):
+ * ../../../dash/tugplan-session-picker-redesign.md#d17-pure-renderer-rule):
  * no `useState`, no `useRef`, no `useEffect` / `useLayoutEffect`, no
  * `useImperativeHandle`. Selection state and the confirmation flow live above
  * the list — in `SessionProjectPickerForm`, the chain responder. The cells read

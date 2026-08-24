@@ -13,7 +13,7 @@
 //! does not parse the ID; downstream readers treat it as an opaque
 //! filesystem-safe token.
 //!
-//! [D12]: roadmap/tug-multi-instance.md#d12-instance-env-var
+//! [D12]: dash/tug-multi-instance.md#d12-instance-env-var
 
 use std::env;
 use std::path::PathBuf;

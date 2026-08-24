@@ -61,7 +61,7 @@ const FILE_NAME = "notes.md";
 const FILE_BODY = ["alpha", "bravo", "charlie"].join("\n");
 
 const KNOWN_CMD = "tugplug:implement";
-const ARG = "roadmap/find-route.md";
+const ARG = "dash/find-route.md";
 const UNKNOWN_CMD = "definitely-not-a-command";
 
 const PROMPT_INPUT = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';

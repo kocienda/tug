@@ -10,3 +10,6 @@ verify = "sh scripts/verify-fit.sh {base} {head}"
 
 # The build offered at the end of a run with a face.
 build = "just app-debug"
+
+# Where this project's dash paperwork — briefs and plans — lives.
+docs = "dash"

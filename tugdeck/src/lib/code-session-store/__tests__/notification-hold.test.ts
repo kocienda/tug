@@ -12,7 +12,7 @@
  * Its first caller is the imposer's arrangement settle, where a React
  * commit landing inside the gesture window measured 81% more expensive
  * than the same commit landing outside it
- * (`roadmap/jul30-perf-brief.md#s5-imposer`).
+ * (`dash/jul30-perf-brief.md#s5-imposer`).
  *
  * The rules with teeth, each pinned below: nothing is dropped (a held
  * run ends state-equal to an unheld one); the user's own gestures are

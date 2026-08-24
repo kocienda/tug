@@ -21,7 +21,7 @@
  * ## Pipeline shape
  *
  * Source MIME drives the branch. The decision matrix lives in
- * [`roadmap/dev-atoms.md`](../../../roadmap/dev-atoms.md#t03-downsample-decisions)
+ * [`dash/dev-atoms.md`](../../../dash/dev-atoms.md#t03-downsample-decisions)
  * Table T03; this implementation is its executable form. In summary:
  *
  *  - `image/png` / `image/jpeg` / `image/webp` → canvas resize +
@@ -79,12 +79,12 @@
  *       React state, no DOM rendering, no responder participation.
  *
  * References:
- *  - [Spec S04] image-downsample contract — `roadmap/dev-atoms.md#s04-image-downsample`
- *  - [D05] client-side downsample at insert — `roadmap/dev-atoms.md#d05-client-downsample`
- *  - [Table T03] downsample decision matrix — `roadmap/dev-atoms.md#t03-downsample-decisions`
- *  - [Q02] HEIC / AVIF empirical findings — `roadmap/dev-atoms.md#q02-heic-avif`
- *  - [Q04] animated GIF policy — `roadmap/dev-atoms.md#q04-animated-gif`
- *  - [Risk R01] canvas blocking — `roadmap/dev-atoms.md#r01-canvas-blocking`
+ *  - [Spec S04] image-downsample contract — `dash/dev-atoms.md#s04-image-downsample`
+ *  - [D05] client-side downsample at insert — `dash/dev-atoms.md#d05-client-downsample`
+ *  - [Table T03] downsample decision matrix — `dash/dev-atoms.md#t03-downsample-decisions`
+ *  - [Q02] HEIC / AVIF empirical findings — `dash/dev-atoms.md#q02-heic-avif`
+ *  - [Q04] animated GIF policy — `dash/dev-atoms.md#q04-animated-gif`
+ *  - [Risk R01] canvas blocking — `dash/dev-atoms.md#r01-canvas-blocking`
  *  - GIF89a specification (W3C). Image Descriptor sentinel `0x2C`,
  *    Extension Introducer `0x21`, Trailer `0x3B`.
  *  - Anthropic Vision docs: 5 MB per image, 2576 px Opus 4.7 long-edge.
@@ -461,7 +461,7 @@ export function fitWithinLongEdge(
 // its own `OffscreenCanvas`, so all the heavy paint / encode work
 // runs off the main event loop — keystrokes, scrolls, and the
 // pending-atom pulse continue normally even during a 25 MB image
-// drop. See Step 3.5.3 in `roadmap/dev-atoms.md`.
+// drop. See Step 3.5.3 in `dash/dev-atoms.md`.
 //
 // Pure helpers (`isAnimatedGif`, `classifySourceMime`,
 // `fitWithinLongEdge`) and constants remain in this module because
@@ -553,10 +553,10 @@ export async function downsampleImage(
  * `THUMBNAIL_MAX_EDGE_PX` constant). The output mediaType matches
  * the worker's bake — JPEG for opaque sources, PNG for transparent.
  *
- * Called by `synthesizeUserMessageFromBlocks` ([Step 5c](roadmap/dev-atoms.md#step-5c))
+ * Called by `synthesizeUserMessageFromBlocks` ([Step 5c](dash/dev-atoms.md#step-5c))
  * per image content block to populate the bytes-store entry's
  * `thumbnailDataUrl`. The synthesizer fires the bake fire-and-forget;
- * the per-message attachment strip ([Step 6](roadmap/dev-atoms.md#step-6))
+ * the per-message attachment strip ([Step 6](dash/dev-atoms.md#step-6))
  * re-renders when the bytes-store's subscriber pushes the update.
  *
  * Returns `null` on decode failure rather than the discriminated-

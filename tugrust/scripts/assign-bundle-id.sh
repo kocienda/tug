@@ -4,7 +4,7 @@ set -euo pipefail
 # assign-bundle-id.sh — xcodebuild build-phase script
 #
 # Assigns the bundle's CFBundleIdentifier per (BuildProfile, BuildBranch)
-# according to roadmap/tug-multi-instance.md [D10] (suffix scheme as
+# according to dash/tug-multi-instance.md [D10] (suffix scheme as
 # amended by [D19]):
 #
 #   (release, main)       → dev.tugtool.app

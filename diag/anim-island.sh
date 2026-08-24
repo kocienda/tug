@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# anim-island.sh — the animation-island meter (roadmap/animation-islands.md, Phase 0).
+# anim-island.sh — the animation-island meter (dash/animation-islands.md, Phase 0).
 #
 # Counts animation EVENTS, not animations: on a healthy deck the running glyphs
 # are free and the standing counters read zero growth. Nonzero readings name the
@@ -23,7 +23,7 @@
 #                        (computeCompositingRequirements), updateRendering,
 #                        and resolveStyle leading-sample counts
 #
-# Method rules (roadmap/animation-islands.md#artifact, jul30 D5): never probe
+# Method rules (dash/animation-islands.md#artifact, jul30 D5): never probe
 # through `!important` overlays — suppression sheets take a `:not(.probe-x)`
 # exemption hole; an occluded window voids a walk run (check the rAF heartbeat
 # in `read` output before trusting one).

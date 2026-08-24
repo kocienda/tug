@@ -252,7 +252,7 @@ export interface JsonlEntry {
    * injected mid-cycle to keep the assistant working toward the goal.
    * Not a user submission: the translator skips it so replay never paints
    * evaluator feedback as user prose (and never resurrects goal state —
-   * goal tracking is live-only, per `roadmap/slash-command-plan.md` S04).
+   * goal tracking is live-only, per `dash/slash-command-plan.md` S04).
    */
   isSynthetic?: boolean;
   /**
@@ -671,7 +671,7 @@ const DEFAULT_TELEMETRY: ReplayTelemetry = {
  * added to cycle pairing) cannot recur — adding a new opener kind is
  * a one-line addition (mint a new prefix), not a structural change.
  *
- * See `roadmap/tugplan-session-wake.md` [D13] (replay direct
+ * See `dash/tugplan-session-wake.md` [D13] (replay direct
  * emission), [D14] (activeMsgId tracking), and `#spec-translate-context`
  * for the normative state-rules table.
  */
@@ -906,7 +906,7 @@ function emitOrphanIfOpen(
  * Match Claude Code's `<task-notification>` envelope — the synthetic
  * `user` JSONL entry the runtime injects when a between-turn Monitor /
  * Bash-runbg / Task-runbg notification (Cohort A wake source per
- * `roadmap/tugplan-session-wake.md` [Q01]) closes a wait. The
+ * `dash/tugplan-session-wake.md` [Q01]) closes a wait. The
  * envelope shape, from a captured Monitor wake:
  *
  *     <task-notification>
@@ -1285,7 +1285,7 @@ export function translateJsonlEntry(
  *     while a permission/question was pending; the SDK appends
  *     `" for tool use"` so the AI can distinguish the two cases.
  *
- * Surveyed in `roadmap/archive/tugtalk-protocol.txt` §2b ("control_request
+ * Surveyed in `dash/archive/tugtalk-protocol.txt` §2b ("control_request
  * interrupt sends on stdin, CLI acknowledges, injects
  * `[Request interrupted by user]`, emits a proper `result` event") and
  * verified across the SDK v2.1.x JSONL corpus (31 markers, both forms
@@ -1454,7 +1454,7 @@ function handleUserEntry(
   // Submitted content blocks for the `add_user_message` frame —
   // preserves interleaving (text / image / text / image …) verbatim
   // from JSONL, which is Anthropic's canonical storage format. Per
-  // [Step 5c](roadmap/dev-atoms.md#step-5c).
+  // [Step 5c](dash/dev-atoms.md#step-5c).
   const submittedContent: ContentBlock[] = [];
   const textParts: string[] = [];
   let hasImage = false;

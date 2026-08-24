@@ -166,7 +166,7 @@ describe("buildDashSessionIndex", () => {
 
     const planned: DashChangesetEntry = {
       ...planless,
-      plan_path: "roadmap/some-plan.md",
+      plan_path: "dash/some-plan.md",
     };
     expect(
       buildDashSessionIndex({ projects: [projectWith([planned])] }).get(

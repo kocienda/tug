@@ -102,7 +102,7 @@ export class FileTreeStore {
    * lands at the card's own filetree feed (with its `.tugattachignore`
    * and built-in secret filter applied). When undefined, queries fall
    * through to the bootstrap workspace (the tugtool repo, legacy
-   * behavior). Per `roadmap/dev-atoms.md#step-pre-4`.
+   * behavior). Per `dash/dev-atoms.md#step-pre-4`.
    */
   private _projectDir: string | undefined;
 

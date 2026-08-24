@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const N = Number(process.argv[2] ?? 10);
-const tracesDir = resolve("roadmap/tugplan-tide-mid-turn-replay-traces");
+const tracesDir = resolve("dash/tugplan-tide-mid-turn-replay-traces");
 const harnessPath = resolve("tugcode/scripts/investigate-jsonl-flush-timing.ts");
 mkdirSync(tracesDir, { recursive: true });
 

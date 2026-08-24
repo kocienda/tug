@@ -2,7 +2,7 @@
  * gallery-tug-linear-gauge.tsx — `TugLinearGauge` demo tab for the
  * Component Gallery.
  *
- * Three sections — see [#step-20-1](roadmap/session-assistant-rendering.md#step-20-1):
+ * Three sections — see [#step-20-1](dash/session-assistant-rendering.md#step-20-1):
  *
  *   1. Interactive sandbox — slider for `value`, numeric inputs for
  *      `min` / `max`, toggle for `density`, toggle for `fillRole`,

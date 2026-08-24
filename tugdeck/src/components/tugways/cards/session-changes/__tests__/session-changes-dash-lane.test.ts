@@ -188,7 +188,7 @@ describe("discardConfirmMessage", () => {
   test("a dash driving a plan says where the plan goes", () => {
     // `restore_plan_to_base` runs before teardown precisely so discarding a
     // dash can never destroy the authored plan document.
-    const planned: DashChangesetEntry = { ...base, plan_path: "roadmap/x.md" };
+    const planned: DashChangesetEntry = { ...base, plan_path: "dash/x.md" };
     expect(discardConfirmMessage(planned)).toContain(
       "The plan is restored to main.",
     );

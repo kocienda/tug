@@ -10,7 +10,7 @@
  * chrome — JSONL has no durable record to reconstruct one from on
  * cold boot, so the tool block that follows is the only post-decision
  * artifact (output on allow; `is_error` band + SDK rejection text on
- * deny). See `#step-3-5` in `roadmap/archive/dev-interactive-dialogs.md`.
+ * deny). See `#step-3-5` in `dash/archive/dev-interactive-dialogs.md`.
  *
  * The single rendered state composes the `TugInlineDialog`
  * header-bar primitive with `iconRole="caution"` and a per-tool rich

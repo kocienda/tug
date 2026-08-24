@@ -25,7 +25,7 @@
 //! "Live" means `kill(pid, 0) == 0`. A `ESRCH` reply means the PID is
 //! gone (process exited, system rebooted, …) and the entry is pruned.
 //!
-//! See [`#registry-format`](roadmap/tug-multi-instance.md#registry-format)
+//! See [`#registry-format`](dash/tug-multi-instance.md#registry-format)
 //! for the on-disk schema.
 
 use std::fs::{File, OpenOptions};

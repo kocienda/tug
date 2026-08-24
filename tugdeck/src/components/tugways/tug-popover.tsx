@@ -592,7 +592,7 @@ export interface TugPopoverAnchorProps {
  *    This is the shape `TugConfirmPopover`'s controlled-mode API uses
  *    to point at whichever in-list row owns the current confirmation
  *    request — see [tugplan-session-picker-redesign §D14](
- *    ../../roadmap/tugplan-session-picker-redesign.md#d14-no-per-cell-popovers).
+ *    ../../dash/tugplan-session-picker-redesign.md#d14-no-per-cell-popovers).
  *
  * Why this exists: composing `Popover.Trigger` onto an element that
  * already participates in pointerdown / pointerup / click event

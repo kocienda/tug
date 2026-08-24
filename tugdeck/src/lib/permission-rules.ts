@@ -13,7 +13,7 @@
  *
  * Scope precedence (Managed > CLI > Local > Project > User) and the merge-not-
  * override semantics are Claude Code's, captured in
- * `roadmap/transport-exploration.md`. The session card edits the three writable
+ * `dash/transport-exploration.md`. The session card edits the three writable
  * scopes; Managed is admin-only and never surfaced here.
  *
  * Pure: no React, no DOM, no fetch — just types and total functions.

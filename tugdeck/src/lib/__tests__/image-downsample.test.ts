@@ -10,7 +10,7 @@
  * The canvas-execution surface of `downsampleImage` (resize, encode,
  * JPEG quality ladder, real PNG / JPEG / HEIC decode) is verified in
  * the real-app harness — those branches inherently require a browser
- * engine. See Step 1 manual checkpoints in `roadmap/dev-atoms.md`
+ * engine. See Step 1 manual checkpoints in `dash/dev-atoms.md`
  * and the drop / paste integration tests that arrive with Step 2.
  */
 

@@ -13,7 +13,7 @@
 //!   collaborators, and reverses by deleting a line. Writing the project's
 //!   `.gitignore` would create an uncommitted diff in the very act of avoiding
 //!   uncommitted noise, in a file the user owns.
-//! - **An anchored exact path (`/roadmap/assets/`), never a bare `assets/`.** A
+//! - **An anchored exact path (`/dash/assets/`), never a bare `assets/`.** A
 //!   bare pattern would hide a load-bearing source directory in an arbitrary
 //!   repo. An anchored path cannot collide with anything.
 //! - **The file is found through `git rev-parse --git-common-dir`, never by
@@ -252,12 +252,12 @@ mod tests {
         let dir = repo();
         let path = std::fs::canonicalize(dir.path()).unwrap();
         attach(&path, "assets");
-        attach(&path, "roadmap/assets");
+        attach(&path, "dash/assets");
 
         let exclude =
             std::fs::read_to_string(path.join(".git").join("info").join("exclude")).unwrap();
         assert!(exclude.contains("/assets/"), "{exclude}");
-        assert!(exclude.contains("/roadmap/assets/"), "{exclude}");
+        assert!(exclude.contains("/dash/assets/"), "{exclude}");
         assert_eq!(exclude.matches(BLOCK_START).count(), 1, "{exclude}");
         assert_eq!(exclude.matches(BLOCK_END).count(), 1, "{exclude}");
         assert_eq!(porcelain(&path), "");
@@ -359,10 +359,10 @@ mod tests {
         assert!(updated.contains("/assets/"), "{updated}");
 
         // A second line joins the existing block rather than starting another.
-        let twice = exclude_contents_with(&updated, "/roadmap/assets/").unwrap();
+        let twice = exclude_contents_with(&updated, "/dash/assets/").unwrap();
         assert_eq!(twice.matches(BLOCK_START).count(), 1, "{twice}");
         assert!(
-            twice.contains("/assets/") && twice.contains("/roadmap/assets/"),
+            twice.contains("/assets/") && twice.contains("/dash/assets/"),
             "{twice}"
         );
 

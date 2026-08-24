@@ -41,7 +41,7 @@ export type { CardSessionMode } from "../card-session-binding-store";
  * by the `handleTextDelta` / `handleTurnComplete` guards. The bracket
  * mirrors the replay pattern but uses claude's existing `turn_complete`
  * as the implicit close (no `wake_complete` frame on the wire).
- * See `roadmap/tugplan-session-wake.md` [D01].
+ * See `dash/tugplan-session-wake.md` [D01].
  */
 export type CodeSessionPhase =
   | "idle"
@@ -641,7 +641,7 @@ export interface ControlRequestForward {
    * forwards), and `extractForward` keeps it on the stored record. The
    * tool-call header id-joins this against a `ToolUseMessage.toolUseId`
    * to paint that row's lifecycle dot `awaiting` ([Q01] of
-   * roadmap/block-header.md). Typed here (previously reachable only
+   * dash/block-header.md). Typed here (previously reachable only
    * via the index signature).
    */
   tool_use_id?: string;

@@ -7,7 +7,7 @@
  * Pins TWO related contracts:
  *
  *   1. **Editor focus contract** (Spec [S02] in
- *      `roadmap/tugplan-session-init-orchestration.md`): every
+ *      `dash/tugplan-session-init-orchestration.md`): every
  *      overlay that sets `inert` on `.tug-pane-body` MUST emit a
  *      per-card `xxxDidHide` lifecycle event after `inert` clears,
  *      and `SessionCardBody` MUST subscribe with an idempotent focus

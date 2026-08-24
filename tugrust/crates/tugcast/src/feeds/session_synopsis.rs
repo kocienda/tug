@@ -1355,7 +1355,7 @@ pub fn ground_synopsis(line: &str, digest: &str) -> GroundingVerdict {
         // many subjects by accident, and letting it match refuses good lines:
         // `Investigate local model roadmap` is a fair description for a session
         // whose activity includes `Bash(tugutil commit --message "plan(new):
-        // roadmap/local-model-inv)`, and nothing about it restates that command.
+        // dash/local-model-inv)`, and nothing about it restates that command.
         if line_words.len() > subject.len() + RESTATEMENT_SLACK {
             continue;
         }

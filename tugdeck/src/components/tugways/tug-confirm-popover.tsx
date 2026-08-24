@@ -14,7 +14,7 @@
  *    via `<TugPopoverAnchor virtualRef>`. One instance can serve N
  *    distinct anchor targets — the canonical "in-list confirmation"
  *    shape (see [tugplan-session-picker-redesign §D15](
- *    ../../roadmap/tugplan-session-picker-redesign.md#d15-tug-confirm-popover-controlled)).
+ *    ../../dash/tugplan-session-picker-redesign.md#d15-tug-confirm-popover-controlled)).
  *    Anchor to the ROW rather than to a row's hover-revealed button: the
  *    popover covers the row it opened from, the pointer leaves, and a button
  *    anchor unmounts under its own popover, which then re-resolves and hops.

@@ -17,7 +17,7 @@
  * of turn state — and `handleClaudeLine` is the only place that sees
  * every event.
  *
- * See `roadmap/wake-investigation-findings.md` and design decision
+ * See `dash/wake-investigation-findings.md` and design decision
  * [D07].
  */
 

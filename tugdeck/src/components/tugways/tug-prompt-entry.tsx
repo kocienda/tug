@@ -329,7 +329,7 @@ interface TugPromptEntryState {
    * because `capDurableCardState` persists no image data. Rehydration reads
    * the bytes back after the restore.
    *
-   * Per [D03](roadmap/dev-atoms.md#d03-atom-bytes-store) and
+   * Per [D03](dash/dev-atoms.md#d03-atom-bytes-store) and
    * [L23](../../tuglaws/tuglaws.md#l23).
    */
   attachmentBytes?: Record<string, RestoredAttachmentEntry>;
@@ -1246,8 +1246,8 @@ export const TugPromptEntry = React.forwardRef<
   // callback flow through to `TugTextEditor` so the drop / paste
   // extensions can populate the side-table at insert time and surface
   // downsample-rejection messages via the existing banner channel.
-  // Per [D03](roadmap/dev-atoms.md#d03-atom-bytes-store) and
-  // [Table T01](roadmap/dev-atoms.md#t01-failure-modes).
+  // Per [D03](dash/dev-atoms.md#d03-atom-bytes-store) and
+  // [Table T01](dash/dev-atoms.md#t01-failure-modes).
   const attachmentBytesStore = useMemo(
     () => codeSessionStore.getAtomBytesStore(),
     [codeSessionStore],
@@ -2781,7 +2781,7 @@ export const TugPromptEntry = React.forwardRef<
     // silently — confusing UX. Surface a banner via the existing
     // attachment-error channel and bail; the user retries once the
     // pulsing pending chips settle. Per
-    // [D02](roadmap/dev-atoms.md#d02-image-attach-text-rest)'s
+    // [D02](dash/dev-atoms.md#d02-image-attach-text-rest)'s
     // pending-atom contract.
     const pendingAttachmentCount = positionedAtoms.filter(
       (a) =>

@@ -2045,7 +2045,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // the motion. A transform tween in the accelerated form (`lib/pane-flip.ts`
   // holds the rules) costs one compositing walk when it starts, one when it
   // ends, and nothing in between — see
-  // `roadmap/jul30-perf-brief.md#i1-sparkline-exception`.
+  // `dash/jul30-perf-brief.md#i1-sparkline-exception`.
   //
   // The trigger is a signature over exactly what the imposer reads — the
   // record, plus which pane holds which slot. Watching the record alone would
@@ -2162,7 +2162,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
   // and a commit stream alone 654, but the two together cost 1809 —
   // 81% above their sum, with median frame delivery going 17ms to 20ms
   // and four times the dropped frames
-  // (`roadmap/jul30-perf-brief.md#s5-imposer`). A commit while a
+  // (`dash/jul30-perf-brief.md#s5-imposer`). A commit while a
   // transform animation is running dirties compositing with the
   // animation's extent already reserved, which forces exactly the
   // recompute that reservation exists to avoid.
@@ -2496,7 +2496,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
     // travels or resizes; `divide-join` is the shorter window a mode flip's
     // fade runs on. Both are stated relative to `duration` — the one tunable —
     // in `lib/imposer-motion.ts`, and no call site here picks a curve of its
-    // own ([P02] of roadmap/layout-imposer-polish.md).
+    // own ([P02] of dash/layout-imposer-polish.md).
     //
     // A retarget hands the crossing the velocity the interrupted tween had, so
     // a frame caught mid-settle carries on rather than stopping and restarting.

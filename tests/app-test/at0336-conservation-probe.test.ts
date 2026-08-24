@@ -11,7 +11,7 @@
  * mid-mutation. The diagnosis this suite produced — WebKit clamps the
  * scroll offset synchronously at renderer removal, inside React's
  * mutation phase, where no scroll API can witness it — is recorded in
- * `roadmap/scroll-height-floor.md`; the floor is that diagnosis
+ * `dash/scroll-height-floor.md`; the floor is that diagnosis
  * productized, and the driving sequences here (the at0335 swap cycle,
  * the mid-history→max hop) are the ones that deterministically
  * reproduced a ~2,368px displacement before it existed. They now

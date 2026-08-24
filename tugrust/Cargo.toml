@@ -19,6 +19,9 @@ serde = { version = "1", features = ["derive"] }
 # inspects, instead of fully parsing every (often multi-MB) line.
 serde_json = { version = "1", features = ["raw_value"] }
 toml = "0.8"
+# The editing companion to `toml`: a config write that must not destroy the
+# comments the file is mostly made of goes through the document model.
+toml_edit = "0.22"
 
 # Time utilities
 chrono = "0.4"

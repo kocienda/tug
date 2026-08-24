@@ -64,10 +64,10 @@
  *    state survives cold boot / pane restore / HMR.
  *
  * References:
- *  - [Spec S02] AtomBytesStore interface — `roadmap/dev-atoms.md#s02-atom-bytes-store`
- *  - [D03] per-card bytes-store keyed by UUID — `roadmap/dev-atoms.md#d03-atom-bytes-store`
- *  - [D04] no raw bytes on the React snapshot — `roadmap/dev-atoms.md#d04-no-bytes-on-snapshot`
- *  - [Table T02] persistence tiers — `roadmap/dev-atoms.md#t02-persistence-tiers`
+ *  - [Spec S02] AtomBytesStore interface — `dash/dev-atoms.md#s02-atom-bytes-store`
+ *  - [D03] per-card bytes-store keyed by UUID — `dash/dev-atoms.md#d03-atom-bytes-store`
+ *  - [D04] no raw bytes on the React snapshot — `dash/dev-atoms.md#d04-no-bytes-on-snapshot`
+ *  - [Table T02] persistence tiers — `dash/dev-atoms.md#t02-persistence-tiers`
  */
 
 // ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ export interface AtomBytesEntry {
    * as fully populated and does not re-bake — this preserves the
    * drop-time bake across the submit boundary.
    *
-   * Per [Step 5c](roadmap/dev-atoms.md#step-5c) and the
+   * Per [Step 5c](dash/dev-atoms.md#step-5c) and the
    * thumbnail-at-synthesis design.
    */
   thumbnailDataUrl?: string;

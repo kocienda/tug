@@ -326,7 +326,7 @@ wasm:
 #
 # Signing: after xcodebuild's ad-hoc signing, the recipe re-signs via
 # tugrust/scripts/sign-bundle.sh — inside-out, per [D16] of
-# roadmap/tug-multi-instance.md. This gives the dev bundle a stable
+# dash/tug-multi-instance.md. This gives the dev bundle a stable
 # designated requirement (signed by Apple Developer ID) so the AX
 # grant persists across rebuilds. Without it, every rebuild would
 # invalidate the grant.
@@ -336,7 +336,7 @@ wasm:
 # debug loop.)
 # ── Multi-instance recipe surface ────────────────────────────────────────────
 #
-# The debug/release axis (per [D17] of roadmap/tug-multi-instance.md,
+# The debug/release axis (per [D17] of dash/tug-multi-instance.md,
 # tokens renamed per [D19]): `app-debug` / `app-release` build +
 # relaunch a per-(profile, branch) instance. Running `app-release`
 # from a worktree branch produces a `(release, <branch>)` instance,
@@ -615,7 +615,7 @@ worktree-remove WORKTREE *FLAGS:
     echo "==> Removed worktree $WORKTREE and its instance state ($INSTANCE_ID)."
 
 # Use this during smoke runs (see archived
-# `roadmap/archive/tugplan-tide-transcript-resume-smoke.md`) so
+# `dash/archive/tugplan-tide-transcript-resume-smoke.md`) so
 # the relevant `[dev::replay::started|progress|complete|error]`
 # and `[dev::session-lifecycle event=...]` lines stand out without
 # the full firehose. `--line-buffered` keeps grep's output flowing

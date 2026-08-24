@@ -13,7 +13,7 @@ A dash *is* a git branch (`tugdash/<name>`) plus a worktree. `tugutil dash creat
 - A stray write to the base root also *blocks* the join — the join preflight requires the base clean where it intersects the dash's files.
 - If the document a run is driving lives on the base branch, a **verb** moves it into the worktree — `tugutil dash create <name> --plan <path>`, or `tugutil dash adopt-plan <name>` for a dash that already exists. Never copy it by hand: the dash owns its plan and there is exactly one live copy ([D139], [dash-lifecycle.md](dash-lifecycle.md#plan-adoption)).
 
-There is no canonical directory for anything. `roadmap/`, `.tugtool/`, and every other home are derived from what you were handed, never assumed.
+There is no canonical directory for anything, and no blessed name. Where a project keeps its dash paperwork is something the project declares for itself — `[tugtool.dash].docs`, read through `tugutil dash docs-dir` — so a home is resolved or handed to you, never assumed from a name you recognize.
 
 ## Starting from a dirty base
 
@@ -202,7 +202,7 @@ Join's other stops — a conflict, a missing draft, a named blocker — stay sto
 
 ## No plan numbers in durable artifacts
 
-Never write step identifiers — "Step 4.5", "4i", "roadmap step X" — into code, comments, docstrings, test names, or commit messages. Describe the behavior or the reason directly.
+Never write step identifiers — "Step 4.5", "4i", "plan step X" — into code, comments, docstrings, test names, or commit messages. Describe the behavior or the reason directly.
 
 A plan document carries step numbers because it *is* the bookkeeping; so does the dash-log's `instruction` field, for the same reason. Nothing that outlives the run does.
 

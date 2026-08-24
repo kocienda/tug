@@ -1123,10 +1123,10 @@ mod tests {
     fn into_row_stores_repo_relative() {
         let project_dir = CanonicalPath::from_test_str("/repo");
         let repo_root = CanonicalPath::from_test_str("/repo");
-        let row = call("/repo/roadmap/lens-frame.md")
+        let row = call("/repo/dash/lens-frame.md")
             .into_row("tug-1", "tu-1", &project_dir, Some(&repo_root), "exact", 1)
             .expect("in-repo file records");
-        assert_eq!(row.file_path, "roadmap/lens-frame.md");
+        assert_eq!(row.file_path, "dash/lens-frame.md");
         assert_eq!(row.project_dir, "/repo");
     }
 

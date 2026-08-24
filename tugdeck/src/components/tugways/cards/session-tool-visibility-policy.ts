@@ -86,7 +86,7 @@
  * # Scope — MCP is intentionally excluded
  *
  * The `mcp__*` namespace is a variable, user-installed surface. Per the
- * project policy in `roadmap/session-assistant-rendering.md` (the MCP
+ * project policy in `dash/session-assistant-rendering.md` (the MCP
  * non-goal in Open Questions, the deferred-stub Step 24.3.5), MCP
  * tools are **not** classified here. `mcp__*` names continue to route
  * through `DefaultToolBlock` and produce `unknown_tool` cautions; the
