@@ -4212,8 +4212,9 @@ export function SessionCardBody({
     // makes the outcome legible.
     //
     // Bare form picks ([P01]): several dashes open the picker sheet, exactly
-    // one binds directly, none cautions. The retired `/dash` spelling reaches
-    // this handler through `runRetiredVerb` and gets the picker with it.
+    // one binds directly, none cautions. `/dash` no longer arrives here — the
+    // bare name was surrendered to the `tugplug:dash` orchestrator skill, and
+    // `/dash-bind` is the only spelling that reaches this handler.
     "dash-bind": (args) => {
       const notify = paneBulletinRef.current;
       // The `/diff` precedent: a surface that needs a binding returns silently
@@ -4363,7 +4364,6 @@ export function SessionCardBody({
     // The retired spellings ([P08]). They run the new handler and say the new
     // name once — deleting them would send the user's line to Claude as a
     // prompt, which is worse than either.
-    dash: (args, draft) => runRetiredVerb("dash", "dash-bind", args, draft),
     join: (args, draft) => runRetiredVerb("join", "dash-join", args, draft),
     // `/shell <command>` — the deliberate override under the shell
     // auto-router: the classifier decides by default, and a user who knows

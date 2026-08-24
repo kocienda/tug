@@ -53,9 +53,18 @@ export interface LocalSlashCommandSpec {
    * bulletin naming the new one. Aliases are deliberately excluded from the
    * command picker — an alias is for muscle memory, not for discovery.
    *
-   * They cannot simply be deleted: a `/verb` that stops matching the registry
-   * is submitted to Claude as a prompt, which is the one outcome worse than a
-   * rename.
+   * Deleting one is normally the wrong move: a `/verb` that stops matching the
+   * registry is submitted to Claude as a prompt, which is the one outcome worse
+   * than a rename.
+   *
+   * The carve-out is when something in Claude's own catalog is *reclaiming* the
+   * bare name — as `tugplug:dash` did for `/dash`. There, falling through to
+   * Claude is the intent rather than the accident: the three-tier classifier
+   * makes the name a pass-through, `resolveRemoteCommand` finds the qualified
+   * entry by unique namespace suffix, and `canonicalizeBareCommandLine` rewrites
+   * the wire form, so no unknown-command alert can fire. Delete the alias then,
+   * and only then — the test is whether a catalog entry answers to the bare
+   * name, not whether the alias has outlived its usefulness.
    */
   readonly deprecatedFor?: string;
 }
@@ -227,7 +236,8 @@ export const LOCAL_SLASH_COMMANDS = [
   // `/dash-bind`, `tugutil dash join` ⇒ `/dash-join`. `/commit` above keeps its
   // bare name because it rides `tugutil commit` — and `/dash-commit` is
   // reserved for `tugutil dash commit`, the round verb, which ships no card
-  // verb yet.
+  // verb yet. The bare `/dash` is not a local command at all: it belongs to the
+  // `tugplug:dash` orchestrator skill, and reaches it as a pass-through.
   {
     name: "dash-bind",
     description: "Work on a dash — bind this card to it, creating it if needed",
@@ -237,12 +247,6 @@ export const LOCAL_SLASH_COMMANDS = [
     name: "dash-join",
     description: "Land a dash — opens the join editor over a previewed merge",
     takesArgs: true,
-  },
-  {
-    name: "dash",
-    description: "Retired spelling of /dash-bind",
-    takesArgs: true,
-    deprecatedFor: "dash-bind",
   },
   {
     name: "join",

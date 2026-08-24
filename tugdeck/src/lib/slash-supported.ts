@@ -247,6 +247,37 @@ export function canonicalizeBareCommandLine(
 }
 
 /**
+ * Whether a `/name` names something the card can actually run — the gate the
+ * transcript uses to decide which inline `` `/code` `` spans become clickable
+ * command chips.
+ *
+ * True for a local command, and for any name that resolves against claude's
+ * catalog **namespace-aware** ({@link resolveRemoteCommand}): a bare `/dash`
+ * is known because the catalog holds `tugplug:dash`. Testing the catalog for
+ * literal membership instead would answer no to every bare plugin-skill name,
+ * which is why skills historically printed the qualified `/tugplug:<leaf>`
+ * form in their own prose.
+ *
+ * Resolution is the *same* function the submit path runs, deliberately: what
+ * is clickable and what is sendable then agree by construction rather than by
+ * two implementations kept in step. Ambiguity stays safe — a leaf two
+ * namespaces expose resolves to `null`, so it simply is not a chip, matching
+ * the conservative answer submit gives.
+ *
+ * Clicking a chip seeds the composer draft rather than submitting, and submit
+ * canonicalizes, so a bare name resolved here still reaches claude qualified.
+ *
+ * Pure lookup.
+ */
+export function isKnownSlashCommandName(
+  name: string,
+  catalogNames: readonly string[],
+): boolean {
+  if (SUPPORTED_LOCAL.has(name)) return true;
+  return resolveRemoteCommand(name, catalogNames) !== null;
+}
+
+/**
  * Whether a typed `/name` is a *genuine unknown* — a command claude does not
  * recognize — given the names claude reports in its command catalog
  * (`slash_commands` ∪ `skills` ∪ `agents`). True only when:

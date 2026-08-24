@@ -13,6 +13,7 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { isKnownSlashCommandName } from "@/lib/slash-supported";
 import type { PathReference } from "../detect-path-reference";
 import type { PathVerdict } from "../path-resolution";
 import {
@@ -312,6 +313,58 @@ describe("classifyInlineCode — one kind per span, by precedence", () => {
     expect(classifyInlineCode("just launch-debug", knowsNothing, lookup)).toEqual({
       kind: "shell-command",
       command: "just launch-debug",
+    });
+  });
+});
+
+describe("classifyInlineCode — a bare plugin-skill name is a chip", () => {
+  const noPaths = (): PathVerdict => ({ state: "unknown" });
+  /**
+   * The gate built the way the transcript builds it — `isKnownSlashCommandName`
+   * over the card's live catalog. Claude namespaces plugin skills, so the
+   * catalog entry is `tugplug:dash` while what a skill writes in its prose is
+   * the bare `` `/dash` ``. Testing membership literally would answer no to
+   * every one of those, which is why skills used to print the qualified form.
+   */
+  const gate =
+    (...catalog: string[]) =>
+    (name: string): boolean =>
+      isKnownSlashCommandName(name, catalog);
+
+  test("a bare name resolves through its namespace", () => {
+    expect(
+      classifyInlineCode("/dash sharpen the idea", gate("tugplug:dash"), noPaths),
+    ).toEqual({
+      kind: "slash-command",
+      name: "dash",
+      args: "sharpen the idea",
+    });
+  });
+
+  test("the qualified form a skill may still print is a chip too", () => {
+    expect(
+      classifyInlineCode("/tugplug:plan-review plan.md", gate("tugplug:plan-review"), noPaths),
+    ).toEqual({
+      kind: "slash-command",
+      name: "tugplug:plan-review",
+      args: "plan.md",
+    });
+  });
+
+  test("an ambiguous leaf is not a chip", () => {
+    // Two namespaces exposing the same leaf resolve to null rather than being
+    // guessed — the same conservative answer the submit path gives, so what is
+    // clickable and what is sendable cannot disagree.
+    expect(
+      classifyInlineCode("/dash go", gate("tugplug:dash", "other:dash"), noPaths),
+    ).toBeNull();
+  });
+
+  test("a local command needs no catalog at all", () => {
+    expect(classifyInlineCode("/dash-bind fix-join", gate(), noPaths)).toEqual({
+      kind: "slash-command",
+      name: "dash-bind",
+      args: "fix-join",
     });
   });
 });

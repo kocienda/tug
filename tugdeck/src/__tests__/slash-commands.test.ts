@@ -202,6 +202,29 @@ describe("mergeCommandProviders", () => {
     // The non-colliding claude entry survives the merge.
     expect(items.some((i) => i.label === "tugplug:devise")).toBe(true);
   });
+
+  test("typing /dash offers the orchestrator skill above the dash-* verbs", () => {
+    // Load-bearing for the on-ramp: `dash-bind` and `dash-join` are local
+    // commands that both *start* with the query, so all three are offered. If
+    // they outranked the skill, the front door would be steering users away
+    // from itself at the moment of use. They cannot: `scoreCommandMatch` is
+    // namespace-aware, so the query scores against `tugplug:dash`'s leaf as an
+    // EXACT hit while the local verbs can only reach PREFIX.
+    const merged = mergeCommandProviders(
+      localCommandCompletionProvider(),
+      namesProvider("tugplug:dash", "tugplug:dash-on"),
+    );
+    const ranked = labels(merged, "dash");
+    expect(ranked[0]).toBe("tugplug:dash");
+    expect(ranked).toContain("dash-bind");
+    expect(ranked).toContain("dash-join");
+    expect(ranked.indexOf("tugplug:dash")).toBeLessThan(
+      ranked.indexOf("dash-bind"),
+    );
+    // And the surrendered alias is not in the popup at all — it never was
+    // (aliases are excluded), and now it is not in the registry either.
+    expect(ranked).not.toContain("dash");
+  });
 });
 
 describe("slashCommandName", () => {

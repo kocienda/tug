@@ -1,5 +1,5 @@
 /**
- * The `/dash` create path's name check, and the registry entry it guards.
+ * The `/dash-bind` create path's name check, and the registry entry it guards.
  *
  * The check exists because the name is concatenated onto a shell command line,
  * so what it must guarantee is not "this is a valid dash name" — `tugutil` is
@@ -49,9 +49,9 @@ describe("isShellSafeDashName", () => {
   });
 });
 
-describe("/dash in the local registry", () => {
+describe("/dash-bind in the local registry", () => {
   test("is registered and takes args", () => {
-    const spec = LOCAL_SLASH_COMMANDS.find((cmd) => cmd.name === "dash");
+    const spec = LOCAL_SLASH_COMMANDS.find((cmd) => cmd.name === "dash-bind");
     expect(spec).toBeDefined();
     expect(spec!.takesArgs).toBe(true);
     // The description is authored once here and the /help row derives from it.
@@ -59,15 +59,18 @@ describe("/dash in the local registry", () => {
   });
 
   test("both forms match, and the argument form carries the name", () => {
-    expect(matchLocalSlashCommand("/dash")).toEqual({ name: "dash", args: "" });
-    expect(matchLocalSlashCommand("/dash fix-join")).toEqual({
-      name: "dash",
+    expect(matchLocalSlashCommand("/dash-bind")).toEqual({
+      name: "dash-bind",
+      args: "",
+    });
+    expect(matchLocalSlashCommand("/dash-bind fix-join")).toEqual({
+      name: "dash-bind",
       args: "fix-join",
     });
   });
 
   test("classifies as supported-local with no second edit", () => {
-    expect(classifySlashCommand("dash")).toBe("supported-local");
+    expect(classifySlashCommand("dash-bind")).toBe("supported-local");
   });
 
   test("does not shadow /join", () => {

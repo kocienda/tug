@@ -5,7 +5,13 @@
  */
 
 import { describe, expect, test, afterAll } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -80,6 +86,27 @@ describe("enumeratePluginCommands", () => {
 
   test("returns [] for a missing plugin dir (never throws)", () => {
     expect(enumeratePluginCommands("/no/such/plugin")).toEqual([]);
+  });
+
+  // The rest of this describe block builds its own plugins in a temp dir. This
+  // one reads the repository's real `tugplug/`, because the fact worth pinning
+  // is that the shipped skill is catalogued at all: the bare `/dash` a user
+  // types resolves to `tugplug:dash` by unique namespace-suffix match
+  // (`resolveRemoteCommand`, tugdeck), and a second catalog entry whose leaf is
+  // also `dash` would make that resolution ambiguous — which reads to the user
+  // as "Unknown command" rather than as anything nameable.
+  test("the repository's own plugin catalogues tugplug:dash, unambiguously", () => {
+    const pluginDir = join(import.meta.dir, "..", "..", "..", "tugplug");
+    if (!existsSync(join(pluginDir, "skills"))) return; // not a full checkout.
+
+    const cmds = enumeratePluginCommands(pluginDir);
+    const dash = cmds.find((c) => c.name === "tugplug:dash");
+    expect(dash).toBeDefined();
+    expect(dash!.description).toContain("conversational entry point");
+    expect(dash!.argumentHint).toBe("[idea…]");
+
+    const dashLeaves = cmds.filter((c) => c.name.split(":").pop() === "dash");
+    expect(dashLeaves.map((c) => c.name)).toEqual(["tugplug:dash"]);
   });
 });
 

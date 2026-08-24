@@ -17,7 +17,12 @@
 
 ### Review Record {#review-record}
 
-<!-- Appended by /tugplug:plan-review; absent until the first round. -->
+**Round 1 — 2026-08-24, opus.** Reviewed `plan:13968d6e872fd85f`. Lint: 0 errors, 0 warnings.
+Oriented on: the whole document — a first round on a never-reviewed plan.
+Verified against the code before judging: the hidden tier carries no `dash` entry (`slash-supported.ts`), so the classifier really does fall through; the `/` popup already skips any spec carrying `deprecatedFor` (`localCommandCompletionProvider`), so deleting the alias removes nothing a user could see; `/help` derives from the same registry (`projectHelpCommands`); `slash-supported.test.ts` already imports both the registry and all four resolver functions, so the plan's pins need no new imports; and `tugutil dash list --json` exists as the new stage-1 check cites it. The plan's reading of `enumeratePluginCommands` is accurate — a new `skills/<name>/SKILL.md` is catalogued with no tugcode change. One scare checked and dismissed: the `capture-capabilities` recipe's dirty-tugplug guard names `system-metadata-fixture.test.ts` as a consumer that a skill change can desync, but that test reads the committed `capabilities/<LATEST>/system-metadata.jsonl` snapshot rather than the live plugin directory, so its 58/30/23/5 counts are unaffected by adding a skill; nothing in this plan requires a recapture.
+Applied: **a hole the plan did not see** — the transcript's clickable-command gate (`classifyInlineCode` → `isKnownSlashCommand`, built in `useKnownSlashCommand`) tests membership *literally*, so surrendering the local `dash` entry would have left a bare `` `/dash` `` printed in prose no longer clickable while typing it still worked, half-landing the plan's own "one name" goal; raised as a scope call, the user chose to fix the gate, so the plan gains [P07], a new Step 3 making the gate namespace-aware via the same `resolveRemoteCommand` the submit path uses, a `payloads.test.ts` pin, and a `#chip-gate` deep dive — with the click path verified safe first (`primaryClick: seedCommand` seeds the composer draft rather than submitting, and both the text and leading-atom submit paths canonicalize). **A load-bearing assumption made falsifiable** — the plan asserted the skill would be offered in the popup but never checked it would be offered *first*, against two local commands that share its prefix; `scoreCommandMatch` is namespace-aware and scores the leaf `dash` as EXACT (10,000) against `dash-bind`'s PREFIX (8,000), so `tugplug:dash` does rank first, and that 2,000-point margin is now a `#popup-ranking` deep dive plus a Success Criteria pin rather than an assumption. **A failure path** — a lone `/dash <name>` argument is exactly the shape of a dash slug and was the retired spelling's own grammar, so Spec S01 now checks a short argument against `tugutil dash list` before reading it as a new idea, and the muscle-memory risk row was rewritten from a vague reassurance to that mitigation with its impact raised to medium. **A factual correction** — the Step 2 checkpoint claimed both app-tests derive from `@covers` on `session-card.tsx`; at0408 actually derives from `@covers tugdeck/src/lib/slash-commands.ts`, and the line now names each test's real covering path. Also renumbered the doctrine and integration steps to 4 and 5 with the ledger and `**Depends on:**` chain updated, and added an implementation note steering Step 3 away from a hand-rolled leaf map that would reintroduce the second matching implementation [P07] exists to prevent.
+Laws cross-checked: [L02] is the only law with real purchase here — `useKnownSlashCommand` reads the catalog through `useSyncExternalStore`, and [P07] changes the membership test inside the existing `useMemo` without touching that read, so the law is honored and the plan says so. The plan introduces **no new client state**, which is why it correctly declines to fill the State Zone Mapping rather than filling it with nothing; no component is authored, so [L20] and [L15] have no surface to bind to. The governing doctrine for this work is `tuglaws/slash-commands.md`'s three-tier model, which Step 4 updates in the same pass — the plan changes the rules and records them together rather than leaving the doctrine describing a classifier that no longer behaves that way.
+Deferred: nothing. [Q01] was already asked and decided as [P02] during authoring, and the one judgment call this round found was put to the user rather than parked.
 
 ---
 
@@ -45,6 +50,8 @@ This is phase 3 of the dash-visibility arc: phase 1 (dash-docs-home) made the pa
 - `tugplug/skills/dash/SKILL.md` exists with `name: dash` frontmatter, and `enumeratePluginCommands("tugplug")` run against the repo's plugin dir includes `tugplug:dash` (pinned by a bun test).
 - `matchLocalSlashCommand("/dash fix the thing")` returns `null`, and `LOCAL_SLASH_COMMANDS` carries no `dash` entry (pinned by a bun test).
 - `resolveRemoteCommand("dash", catalog)` returns `"tugplug:dash"` and `canonicalizeBareCommandLine("/dash fix the thing", catalog)` returns `"/tugplug:dash fix the thing"` for a catalog containing the plugin's real enumerated names — proving the suffix match is unique (pinned by a bun test).
+- Typing `/dash` in the composer ranks `tugplug:dash` **above** `dash-bind` and `dash-join` in the merged completion popup (pinned by a bun test over `mergeCommandProviders`).
+- `classifyInlineCode("/dash sharpen the idea", …)` returns a `slash-command` payload — a bare `` `/dash` `` written in transcript prose is a clickable chip (pinned by a bun test in `annotator/__tests__/payloads.test.ts`).
 - The at0421 test "the retired /dash spelling reaches the same picker" is deleted; `at0408` and the rest of the dash-gesture suite still pass (`/dash-bind` untouched).
 - `bunx tsc --noEmit` and `bunx vite build` exit 0 — the `LocalCommandName` union shrink is absorbed everywhere the exhaustive `slashCommandSurfaces` record keys on it.
 - `tuglaws/slash-commands.md` documents the reclamation path (a local alias retired in favor of a catalogued pass-through), and the `deprecatedFor` doc comment in `slash-commands.ts` no longer claims deletion is impossible without stating the carve-out.
@@ -53,7 +60,8 @@ This is phase 3 of the dash-visibility arc: phase 1 (dash-docs-home) made the pa
 
 1. The new skill: `tugplug/skills/dash/SKILL.md` (full orchestrator text), plus `plugin.json` and `tugplug/CLAUDE.md` roster/flow updates.
 2. Name reclamation in tugdeck: registry entry, surfaces map entry, doc comment, unit pins, app-test deletion.
-3. Doctrine: the local-to-pass-through migration path in `tuglaws/slash-commands.md`; the on-ramp named in `tugplug/CLAUDE.md`'s flow paragraph.
+3. The transcript's clickable-command gate becomes namespace-aware, so a bare `` `/dash` `` in prose is a chip ([P07]).
+4. Doctrine: the local-to-pass-through migration path in `tuglaws/slash-commands.md`; the on-ramp named in `tugplug/CLAUDE.md`'s flow paragraph.
 
 #### Non-goals (Explicitly out of scope) {#non-goals}
 
@@ -96,7 +104,7 @@ This is phase 3 of the dash-visibility arc: phase 1 (dash-docs-home) made the pa
 
 | Risk | Impact | Likelihood | Mitigation | Trigger to revisit |
 |------|--------|------------|------------|--------------------|
-| Muscle-memory `/dash <name>` users expect the picker | low | med | The bulletin already taught `/dash-bind` for a while; `/dash <name>` now starts a conversation about a dash rather than failing | User reports confusion |
+| Muscle-memory `/dash <name>` users expect the picker | med | med | Spec S01 stage 1: a lone argument is checked against `tugutil dash list` before being read as an idea, so `/dash <existing-name>` continues that dash instead of starting a second one beside it | User reports a duplicate dash, or confusion about where their work went |
 | Orchestrator drift from delegated contracts | med | med | [P01]: `/dash` never restates a sibling's mechanics — it reads the sibling's `SKILL.md` at delegation time, so an edited expert skill is picked up automatically | An expert skill gains a step `/dash` narration contradicts |
 | A second `dash`-leaf catalog entry appears later, breaking suffix resolution | med | low | The Step 2 unit pin resolves against the real enumerated plugin list, so the collision fails a test rather than silently alerting "Unknown command" | The pin fails |
 
@@ -167,6 +175,20 @@ This is phase 3 of the dash-visibility arc: phase 1 (dash-docs-home) made the pa
 **Implications:**
 - Orientation is cheap and bounded: one `docs-dir` call, one `status` call, and `plan status` over the handful of markdown files in the docs directory.
 
+#### [P07] The clickable-command gate resolves the same way the submit path does (DECIDED) {#p07-namespace-aware-gate}
+
+**Decision:** `useKnownSlashCommand` in `tugdeck/src/components/tugways/cards/transcript-host-helpers.ts` stops testing the typed name for literal membership and instead resolves it through `resolveRemoteCommand` (`tugdeck/src/lib/slash-supported.ts`) against the catalog, falling back to literal membership for local commands. A bare `` `/dash` `` — and equally `` `/plan-devise` ``, `` `/dash-on` `` — written in transcript prose therefore becomes a clickable chip.
+
+**Rationale:**
+- Without this the reclamation half-lands: typing `/dash` works, but *printing* `` `/dash` `` does not, because the gate at `classifyInlineCode` (`tugdeck/src/lib/annotator/payloads.ts`) asks `isKnownSlashCommand("dash")` while the catalog holds `tugplug:dash` and the local registry has just given the name up. Every skill today works around this by printing the qualified form; the workaround is what this decision retires.
+- It costs no new machinery. `resolveRemoteCommand` is the *same* unique-suffix resolver the submit path already runs, so the gate and the send agree by construction rather than by two implementations that must be kept in step.
+- The click path is already safe for a bare name: `registerAnnotationKind("slash-command", { primaryClick: seedCommand })` in `tugdeck/src/lib/annotator/registry.ts` calls `store.insertCommandDraft(name, args)`, which **seeds the composer draft rather than submitting**. Submission then runs `performSubmit`'s canonicalization — `canonicalizeBareCommandLine` for typed text, `resolveRemoteCommand` for the leading-atom form (`tug-prompt-entry.tsx`) — so a clicked bare chip reaches claude qualified. No new dispatch path is introduced and no unresolvable bare name can be sent.
+
+**Implications:**
+- The fix is uniform: every plugin skill gains bare-name chips, not just `dash`. That is the point — the plan is fixing a gate, not special-casing a name.
+- Ambiguity stays safe. `resolveRemoteCommand` returns `null` on a leaf exposed by two namespaces, so an ambiguous bare name simply is not a chip — the same conservative answer the submit path gives.
+- The predicate is still memoized on the catalog array and read through `useSyncExternalStore` ([L02]); this decision changes the membership test inside the `useMemo`, not the way the catalog is read.
+
 #### [P06] Liveness rides the bundle, and the plan says so (DECIDED) {#p06-bundle-liveness}
 
 **Decision:** The plan's verification of live behavior uses the dash's debug build (`just app-debug`), whose bundle carries the worktree's `tugplug/`. No attempt is made to hot-load the skill into the user's release instance.
@@ -198,6 +220,22 @@ Submit-time dispatch order lives in `performSubmit` in `tugdeck/src/components/t
 
 Claude's `initialize` handshake answers before `--plugin-dir` plugins load, so `buildSessionCapabilities` alone would omit every plugin skill on a fresh card. `enumeratePluginCommands(pluginDir)` in `tugcode/src/capabilities.ts` walks `skills/*/SKILL.md`, reads `name` / `description` / `argument-hint` from frontmatter, and emits `tugplug:<name>` entries; `mergePluginCommands` folds them into the turn-free catalog, dropping any bare-leaf twin claude reported. A new `skills/dash/` directory is therefore picked up with zero tugcode changes — the `/` popup offers `tugplug:dash` from the drop, and the unknown-command check passes for the bare form. The popup side needs nothing either: `filterCommandProvider` passes catalogued commands through, and the local provider no longer competes for the name.
 
+#### The popup ranks the reclaimed name first, for a reason worth pinning {#popup-ranking}
+
+A concern the reclamation raises on its face: `dash-bind` and `dash-join` are local commands that both *start* with `dash`, so typing `/dash` shows all three. If the two local verbs outranked the skill, the on-ramp would be steering users away from itself at the exact moment of use.
+
+They do not, and the mechanism is specific. `mergeCommandProviders` (`completion-providers/local-commands.ts`) dedups by label, then sorts by `scoreCommandMatch(query, label)` descending. `scoreCommandMatch` (`tugdeck/src/lib/text-match.ts`) is **namespace-aware**: for a label containing `:` it also scores the leaf and takes the better of the two. So the query `dash` scores against the leaf `dash` of `tugplug:dash` as `t === q` — `EXACT`, 10,000 plus the full ratio bonus — while `dash-bind` and `dash-join` can only reach `t.startsWith(q)` — `PREFIX`, 8,000. `tugplug:dash` sorts first by a 2,000-point margin.
+
+This is load-bearing for the plan's whole purpose and it is a property of a shared scorer that nothing here owns, so Step 2 pins it rather than assuming it.
+
+Two related facts, both already true and neither needing a change: the `/` popup never offered the retired `dash` alias in the first place (`localCommandCompletionProvider` skips any spec with `deprecatedFor`), so deleting the entry removes nothing a user could see; and `projectHelpCommands` (`tugdeck/src/lib/help-content.ts`) builds `/help` from the same registry, so the retired spelling leaves the help listing with it.
+
+#### The chip gate, and why a bare name is not clickable today {#chip-gate}
+
+`classifyInlineCode` (`tugdeck/src/lib/annotator/payloads.ts`) turns an inline `<code>` span into a `slash-command` payload only when `isKnownSlashCommand(slash.name)` says yes. That predicate is built in `useKnownSlashCommand` (`transcript-host-helpers.ts`) as a plain `Set` of the catalog's names unioned with every `LOCAL_SLASH_COMMANDS` name, and membership is tested literally.
+
+The consequence is easy to miss and is why [P07] exists: the catalog's entry is `tugplug:dash`, so once the local `dash` entry is gone, `set.has("dash")` is false and a bare `` `/dash` `` in prose renders as ordinary code rather than a chip. This is not new to `dash` — it is why every skill's text prints `` `/tugplug:plan-review <path>` `` rather than the bare name. [P07] fixes the gate once, for all of them.
+
 #### What the reclamation touches in tugdeck {#reclamation-touches}
 
 - `tugdeck/src/lib/slash-commands.ts` — delete the `dash` entry (the `join` alias entry stays); amend the `deprecatedFor` doc comment per [P03]. The comment block above the dash-family entries (the [P08] spelling-rule note) keeps `/dash-bind` ⇒ `tugutil dash bind` but should note the bare name now belongs to the `tugplug:dash` skill.
@@ -225,6 +263,8 @@ disallowed-tools: Task
 Body, by stage:
 
 1. **Orient.** Resolve the docs directory (`tugutil dash docs-dir --json`; the undeclared case asks once and records with `--set`, exactly as `plan-devise` specifies). If invoked bare or the arc may be mid-flight, check `tugutil dash status` and scan the docs directory for a reviewed-but-unadopted plan ([P05]). Offer to continue anything found; otherwise ask what to work on.
+
+   **A lone argument that names an existing dash is a continuation, not a new idea.** `/dash <name>` was the retired spelling of `/dash-bind` for long enough to be muscle memory, and the words a user types there — a bare slug, no verb, no sentence — are exactly what an existing dash is called. Before treating a short argument as an idea, check it against `tugutil dash list`; on a hit, say which dash it is and offer to continue it (resuming its plan through `dash-implement`, or binding this card to it via `/dash-bind` when the user only wants the binding). Guessing "new idea" here would start a second dash beside the one the user meant.
 2. **Sharpen.** Converse about the idea. A few design questions at most, bounded by the doctrine's never-ask list; an already-specific idea passes straight through.
 3. **Route.** One `AskUserQuestion` with the four paths ([P02]), the recommended one first: quick dash (no plan) / plan arc / brief first, then plan / design spike. Skip the question when the invocation already names the shape.
 4. **Delegate.** Read the chosen sibling's `SKILL.md` and carry out its contract in-thread ([P01]): `../dash-on/SKILL.md` for quick, `../spike-card/SKILL.md` for a spike, `../plan-devise/SKILL.md` for the plan (brief-first routes write the brief against `tuglaws/brief-skeleton.md` into the docs directory, then continue into plan-devise, with the plan citing the brief's `[B##]` decisions).
@@ -271,10 +311,11 @@ No new client state anywhere in this plan — the tugdeck change is a registry s
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The `/dash` skill joins the plugin | pending | — |
-| #step-2 | The bare name reaches the skill | pending | — |
-| #step-3 | The doctrine records the door | pending | — |
-| #step-4 | Integration checkpoint | pending | — |
+| #step-1 | The `/dash` skill joins the plugin | done | `d8700793b` |
+| #step-2 | The bare name reaches the skill | done | `c895a9591` |
+| #step-3 | A bare skill name is a clickable chip | done | `1f2a2fc18` |
+| #step-4 | The doctrine records the door | done | `49c66e9e9` |
+| #step-5 | Integration checkpoint | done | `01484f904` |
 
 #### Step 1: The `/dash` skill joins the plugin {#step-1}
 
@@ -320,29 +361,57 @@ No new client state anywhere in this plan — the tugdeck change is a registry s
 - [ ] Delete the registry entry and the surfaces entry; let `tsc` confirm the exhaustive record absorbed the union shrink.
 - [ ] Amend the two comments per [P03] — the carve-out states *when* deletion is right (a catalogued pass-through reclaims the name, so falling through to claude is the intent), not just that it happened here.
 - [ ] Delete the at0421 alias test; leave the rest of the file untouched.
-- [ ] Add the unit pins: `matchLocalSlashCommand("/dash fix the thing")` is `null`; no registry entry named `dash`; `resolveRemoteCommand("dash", REAL_PLUGIN_CATALOG)` is `"tugplug:dash"`; `canonicalizeBareCommandLine("/dash fix the thing", REAL_PLUGIN_CATALOG)` is `"/tugplug:dash fix the thing"`; `isUnknownRemoteCommand("dash", REAL_PLUGIN_CATALOG)` is `false` — where `REAL_PLUGIN_CATALOG` is the literal list of the plugin's nine-plus-one qualified skill names with a comment naming `tugplug/skills/` as its source.
+- [ ] Add the unit pins: `matchLocalSlashCommand("/dash fix the thing")` is `null`; no registry entry named `dash`; `resolveRemoteCommand("dash", REAL_PLUGIN_CATALOG)` is `"tugplug:dash"`; `canonicalizeBareCommandLine("/dash fix the thing", REAL_PLUGIN_CATALOG)` is `"/tugplug:dash fix the thing"`; `isUnknownRemoteCommand("dash", REAL_PLUGIN_CATALOG)` is `false` — where `REAL_PLUGIN_CATALOG` is the literal list of the plugin's qualified skill names with a comment naming `tugplug/skills/` as its source. `slash-supported.test.ts` already imports both `LOCAL_SLASH_COMMANDS` and the four resolver functions, so the pins need no new imports.
+- [ ] Add the popup-ranking pin (#popup-ranking): build the merged provider over the local registry and a catalog containing `tugplug:dash`, query `"dash"`, and assert `tugplug:dash` is the first item — ahead of `dash-bind` and `dash-join`.
 
 **Tests:**
 - [ ] `cd tugdeck && bun test src/lib/__tests__/slash-supported.test.ts`
+- [ ] `cd tugdeck && bun test src/components/tugways/cards/completion-providers` — the popup-ranking pin.
 
 **Checkpoint:**
 - [ ] `cd tugdeck && bunx tsc --noEmit` exits 0.
 - [ ] `cd tugdeck && bunx vite build` exits 0.
 - [ ] `cd tugdeck && bun test` exits 0.
-- [ ] `just app-test-changed` (selection derives at0421 and at0408 via `@covers` on `session-card.tsx`) is green.
+- [ ] `just app-test-changed` is green — the selection derives at0408 via `@covers tugdeck/src/lib/slash-commands.ts` and at0421 via `@covers tugdeck/src/components/tugways/cards/session-card.tsx`, both of which this step edits.
 
 ---
 
-#### Step 3: The doctrine records the door {#step-3}
+#### Step 3: A bare skill name is a clickable chip {#step-3}
 
 **Depends on:** #step-2
 
-**Commit:** `tuglaws: record the local-to-pass-through reclamation path`
+**Commit:** `tugdeck: resolve chip commands namespace-aware`
 
-**References:** [P03] reclamation carve-out, [P04] review gate, (#classifier-walk)
+**References:** [P07] namespace-aware gate, (#chip-gate, #classifier-walk)
 
 **Artifacts:**
-- `tuglaws/slash-commands.md` — the decision procedure gains the reclamation move as a worked example: a locally-registered name (here, a retired-spelling alias) retired in favor of a catalogued pass-through, with the two deletion sites and the safety argument (unique suffix resolution is what keeps the fall-through from alerting).
+- `tugdeck/src/components/tugways/cards/transcript-host-helpers.ts` — `useKnownSlashCommand` resolves through `resolveRemoteCommand` instead of testing literal `Set` membership.
+- `tugdeck/src/lib/annotator/__tests__/payloads.test.ts` — a pin that a bare plugin-skill name classifies as a `slash-command` payload.
+
+**Tasks:**
+- [ ] Rewrite the `useMemo` body in `useKnownSlashCommand`: keep the local-command names as a literal `Set` (they have no namespace), and resolve anything else through `resolveRemoteCommand(name, catalogNames)` where `catalogNames` is the catalog's names. Keep the memo keyed on the catalog array so the predicate identity stays stable between store changes — the existing [L02] comment on that memo still describes the read, and stays. Call the shared resolver per lookup rather than precomputing a leaf map: the catalog is tens of entries, and a hand-rolled map would reintroduce exactly the second implementation of the matching rule that [P07] exists to avoid.
+- [ ] Add the payload pin: `classifyInlineCode("/dash sharpen the idea", isKnown, resolvePath)` returns `{ kind: "slash-command", name: "dash", args: "sharpen the idea" }` for an `isKnown` built the same way the hook builds it, over a catalog holding `tugplug:dash`. Add the negative case too — an ambiguous leaf exposed by two namespaces resolves to `null` and is therefore not a chip.
+
+**Tests:**
+- [ ] `cd tugdeck && bun test src/lib/annotator/__tests__/payloads.test.ts`
+
+**Checkpoint:**
+- [ ] `cd tugdeck && bunx tsc --noEmit` exits 0.
+- [ ] `cd tugdeck && bun test` exits 0.
+- [ ] `cd tugdeck && bunx vite build` exits 0.
+
+---
+
+#### Step 4: The doctrine records the door {#step-4}
+
+**Depends on:** #step-3
+
+**Commit:** `tuglaws: record the local-to-pass-through reclamation path`
+
+**References:** [P03] reclamation carve-out, [P04] review gate, [P07] namespace-aware gate, (#classifier-walk, #chip-gate)
+
+**Artifacts:**
+- `tuglaws/slash-commands.md` — the decision procedure gains the reclamation move as a worked example: a locally-registered name (here, a retired-spelling alias) retired in favor of a catalogued pass-through, with the two deletion sites and the safety argument (unique suffix resolution is what keeps the fall-through from alerting). The namespace-resolution paragraph also gains the third consumer: the gate is now resolved the same way in the popup, at submit, and in the transcript's chip gate ([P07]).
 - `tuglaws/dash-work-doctrine.md` — one sentence in the opening naming `/dash` as the lane's conversational entry point, with the expert skills as the direct path.
 
 **Tasks:**
@@ -358,9 +427,9 @@ No new client state anywhere in this plan — the tugdeck change is a registry s
 
 ---
 
-#### Step 4: Integration checkpoint {#step-4}
+#### Step 5: Integration checkpoint {#step-5}
 
-**Depends on:** #step-3
+**Depends on:** #step-4
 
 **Commit:** `dash-on-ramp: integration checkpoint`
 
@@ -389,6 +458,7 @@ No new client state anywhere in this plan — the tugdeck change is a registry s
 - `tugplug/.claude-plugin/plugin.json`, `tugplug/CLAUDE.md` — roster and flow updated.
 - `tugcode/src/__tests__/plugin-commands.test.ts` — real-plugin enumeration pin.
 - `tugdeck/src/lib/slash-commands.ts`, `tugdeck/src/components/tugways/cards/session-card.tsx` — the bare name surrendered.
-- `tugdeck/src/lib/__tests__/slash-supported.test.ts` — resolution pins.
+- `tugdeck/src/lib/__tests__/slash-supported.test.ts` — resolution pins; a popup-ranking pin beside the completion providers.
+- `tugdeck/src/components/tugways/cards/transcript-host-helpers.ts`, `tugdeck/src/lib/annotator/__tests__/payloads.test.ts` — the namespace-aware chip gate and its pin ([P07]).
 - `tests/app-test/at0421-dash-picker.test.ts` — retired-spelling test removed.
 - `tuglaws/slash-commands.md`, `tuglaws/dash-work-doctrine.md` — the reclamation path and the on-ramp recorded.

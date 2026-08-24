@@ -230,28 +230,4 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
     TEST_TIMEOUT_MS,
   );
 
-  test(
-    "the retired /dash spelling reaches the same picker",
-    async () => {
-      const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
-      const app = await launchTugApp({
-        testName: "at0421-dash-picker-alias",
-        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
-      });
-      try {
-        await openCard(app);
-        await runCommand(app, "/dash");
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
-          { timeoutMs: 10000 },
-        );
-        expect((await namesIn(app)).length).toBeGreaterThan(1);
-      } finally {
-        await app.close();
-        rmTempTugbank(tugbankPath);
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
 });

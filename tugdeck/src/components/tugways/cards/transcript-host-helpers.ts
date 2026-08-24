@@ -20,7 +20,7 @@
 
 import React, { useCallback, useId, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { LOCAL_SLASH_COMMANDS } from "@/lib/slash-commands";
+import { isKnownSlashCommandName } from "@/lib/slash-supported";
 import { formatContextualStamp } from "@/lib/contextual-stamp";
 import {
   HighlightSelectionAdapter,
@@ -87,15 +87,20 @@ export function useSessionModelName(
 
 /**
  * Build a predicate over the *known* slash-command set: claude's live
- * catalog (`SessionMetadataStore.slashCommands`) unioned with the dev
- * card's locally-handled commands (`LOCAL_SLASH_COMMANDS`). The transcript
- * transcript feeds this to the annotator to gate which inline `<code>`
- * command spans become clickable — the strict known-list gate, not a
- * loose regex.
+ * catalog (`SessionMetadataStore.slashCommands`) plus the card's
+ * locally-handled commands. The transcript feeds this to the annotator to
+ * gate which inline `<code>` command spans become clickable — the strict
+ * known-list gate, not a loose regex.
+ *
+ * The membership test is {@link isKnownSlashCommandName}, which resolves a
+ * bare name against the catalog **namespace-aware** — so `` `/dash` `` written
+ * in prose is a chip even though the catalog entry is `tugplug:dash`. It is
+ * the same resolver the submit path runs, so clickable and sendable agree by
+ * construction.
  *
  * [L02] — the catalog is read through `useSyncExternalStore`. The predicate
  * identity is memoized on the catalog array (stable between store changes,
- * so unrelated metadata updates don't rebuild the set); a catalog change
+ * so unrelated metadata updates don't rebuild it); a catalog change
  * yields a fresh predicate, which newly-mounting turn cells pick up.
  */
 export function useKnownSlashCommand(
@@ -113,10 +118,8 @@ export function useKnownSlashCommand(
     ),
   );
   return useMemo(() => {
-    const set = new Set<string>();
-    for (const cmd of catalog) set.add(cmd.name);
-    for (const cmd of LOCAL_SLASH_COMMANDS) set.add(cmd.name);
-    return (name: string) => set.has(name);
+    const catalogNames = catalog.map((cmd) => cmd.name);
+    return (name: string) => isKnownSlashCommandName(name, catalogNames);
   }, [catalog]);
 }
 

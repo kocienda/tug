@@ -72,6 +72,18 @@ into the catalog in qualified `<plugin>:<name>` form, dropping claude's bare twi
 (consumed in `tug-prompt-entry.tsx`) resolve bare names against namespaced catalog
 entries so both forms work and neither trips the unknown-command alert.
 
+The same resolver answers in **three** places, and that is deliberate: the `/`
+popup ranks a bare query against the namespace leaf (`scoreCommandMatch` scores
+the leaf and takes the better, so `dash` hits `tugplug:dash` as an exact match);
+submit canonicalizes; and the transcript's clickable-command gate
+(`isKnownSlashCommandName` in `slash-supported.ts`, built in
+`useKnownSlashCommand`) decides whether an inline `` `/code` `` span becomes a
+chip. That gate used to test literal membership, which answered no to every bare
+plugin-skill name and is why skills wrote the qualified `/tugplug:<leaf>` form in
+their own prose. Routing all three through one function is what keeps *offered*,
+*clickable*, and *sendable* from disagreeing — an ambiguous leaf resolves to
+`null` everywhere at once rather than being a chip that submit then refuses.
+
 **The popup.** `localCommandCompletionProvider()` offers the local registry;
 `filterCommandProvider()` drops the hidden tier from claude's reported commands;
 `mergeCommandProviders()` merges local + remote with local-first-wins dedup
@@ -161,8 +173,32 @@ deleting it. An unmatched `/verb` is not an error — it is submitted to claude 
 a prompt, which spends a turn on a line the user meant as a command, and that is
 worse than a rename. An alias runs the new handler, raises a one-time bulletin
 naming the new spelling, and carries `deprecatedFor` so the `/` picker offers
-only the name the operation actually has. `/join` → `/dash-join` and `/dash` →
-`/dash-bind` are the first two.
+only the name the operation actually has. `/join` → `/dash-join` is the exemplar.
+
+**Reclaim a bare name for a catalogued command**: the one case where deleting a
+local entry is right, because falling through to claude is the *intent* rather
+than the accident the rule above guards against. `/dash` is the worked example.
+It was a retired-spelling alias for `/dash-bind`, so a typed `/dash` was
+intercepted at tier 1 and never left the client; the bare name is now the
+`tugplug:dash` orchestrator skill's. Two deletions do it — the descriptor in
+`LOCAL_SLASH_COMMANDS` and its `slashCommandSurfaces` handler, which the
+exhaustive `Record<LocalCommandName, …>` forces you to make in the same edit.
+
+What makes the fall-through safe is that **every hop after the local miss
+resolves**: the name is in no hidden group, so it classifies as pass-through;
+`resolveRemoteCommand` finds `tugplug:dash` by *unique* namespace suffix, so
+`isUnknownRemoteCommand` says no and the alert never fires; and
+`canonicalizeBareCommandLine` rewrites the line to `/tugplug:dash …` so the wire
+and the transcript carry the name claude expands. The test to run before
+deleting is therefore not "has this alias outlived its usefulness" but **"does a
+catalog entry answer to the bare name, and only one?"** A second entry sharing
+the leaf makes resolution ambiguous, which reads to the user as an unknown
+command — so pin the leaf's uniqueness against the real enumerated list rather
+than assuming it (`tugdeck/src/lib/__tests__/slash-dash-reclamation.test.ts`,
+`tugcode/src/__tests__/plugin-commands.test.ts`).
+
+Ordering matters for bisectability: ship the skill first, surrender the name
+second, so no commit exists at which the name resolves to nothing.
 
 **Hide a command**:
 1. Add the bare name (no leading slash) to `HIDDEN_SLASH_COMMANDS` in
