@@ -923,7 +923,7 @@ function isCardBinding(value: unknown): value is CardBinding {
  * any Claude turns (so there's no JSONL to resume), but the card was
  * bound to a session whose id keys durable non-JSONL content — the
  * shell ledger, the `/btw` history, the staged-context queue. Also used
- * by ConfigureTug's "Open a Session card", which hands the wizard's
+ * by ConfigureTug's "Start" gesture, which hands the wizard's
  * projects folder straight to a freshly-added card (a minted session id)
  * rather than dropping the user into the picker to say it again.
  *

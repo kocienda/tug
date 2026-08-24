@@ -113,7 +113,7 @@ export function isLoginOnlyWizard(
  * those cards. A zero-card deck keeps the first-run wording. [P04]/[D106]
  *
  * Pure so the branch is unit-testable without the CSS-bearing `.tsx`. Only the
- * pending (logged-out) copy varies here; the logged-in "Open a Session" active
+ * pending (logged-out) copy varies here; the logged-in "Start" active
  * step is owned by the component.
  */
 export function pendingOpenStepCopy(cardCount: number): {

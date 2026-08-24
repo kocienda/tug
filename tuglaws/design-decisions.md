@@ -381,7 +381,7 @@ A zone's *location* is contract; its *occupant* is not — every zone is a gener
                    └─▶ error (Retry) ─┘
                           │ done
    STEP 4 ── Start a session   (success/transition button)
-     active (Open a Session) ─▶ opens first card ─▶ wizard dismisses
+     active (Start) ─▶ opens first card ─▶ wizard dismisses
 
    Transport down (replaces body): a "Reconnecting…" step row
    Sibling app-modal (wins):       VERSION TOO OLD → TugVersionGate ([#step-7])
@@ -414,7 +414,7 @@ A zone's *location* is contract; its *occupant* is not — every zone is a gener
 | 3 | done | success / completed | Default project directory | \<path\> | ✓ |
 | 4 | pending (no dir yet) | inherit / stopped | Start a session | "Waiting for a default project directory." | — |
 | 4 | pending (cards open) | inherit / stopped | Continue working | "You'll return to your \<N\> open cards." | — |
-| 4 | active | action / running | Start a session | "Start working in a new session." | **Open a Session** |
+| 4 | active | action / running | Start a session | "Start working in a new session." | **Start** |
 | 4 | done | success / completed | Start a session | "Opening Session card…" | ✓ |
 | — | transport down | agent / running | Reconnecting… | "Lost the connection to Tug. Setup will resume automatically." | — |
 

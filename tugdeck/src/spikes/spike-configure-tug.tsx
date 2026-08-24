@@ -371,7 +371,7 @@ function buildFlow(
           open({
             status: "active",
             detail: "Start working in a new session.",
-            cta: { label: "Open a Session", onClick: () => go("complete") },
+            cta: { label: "Start", onClick: () => go("complete") },
           }),
         ],
       };
@@ -500,7 +500,7 @@ function buildFlow(
           open({
             status: "active",
             detail: "Start working in a new session.",
-            cta: { label: "Open a Session", onClick: () => go("complete") },
+            cta: { label: "Start", onClick: () => go("complete") },
           }),
         ],
       };
