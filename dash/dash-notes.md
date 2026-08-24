@@ -12,6 +12,10 @@
 
 
 
+Join tool call block is not indented correctly. Tends to flash as it does its work. 
+
+Durable commit message after a dash is *still not* a `Git Commit` message like *regular* commits. It's just a `Shell` message and I don't want that. It must be more clearly a commit operation.
+
 
 
 
@@ -29,7 +33,7 @@ There are quite a few issues here I would like to address:
 - Should *both* of these directories be renamed to something like `dash` or `.dash` or go in a directory whose parent is a *dash* name of some sort?
 - The *brief* file format is unspecified. We should write something down and formalize more than we have.
 - The *plan* file format/example was last audited a couple of months ago (as I recall). We should give it a solid once-over again.
-- Most importantly, the creation of a dash is a *manual process* that requires too much built-in knowledge of these skills. We need to think about how we could better prompt and expose the notion of a *dash* as a great way to actually use git worktrees well in Tug, while avoiding many of the usability pitfalls and complications that result from using worktrees *by hand*. We must do better than this. ![CleanShot 2026-08-23 at 14.34.30@2x](<assets/CleanShot 2026-08-23 at 14.34.30@2x.png>). I will never expect a user to type a `tugutil` command themselves—this is an internal tool for the machinery and the models, not for human devs.
+- Most importantly, the creation of a dash is a *manual process* that requires too much built-in knowledge of these skills. We need to think about how we could better prompt and expose the notion of a *dash* as a great way to actually use git worktrees well in Tug, while avoiding many of the usability pitfalls and complications that result from using worktrees *by hand*. We must do better than this. . I will never expect a user to type a `tugutil` command themselves—this is an internal tool for the machinery and the models, not for human devs.
 
 Now, in addition to these naming and architectural cleanup jobs, I want to think about creating a set of user interface affordances that expose dashes, and help users to create them. Maybe a new bar somewhere? Maybe a new DASH Z4A route tab? We have made some progress over the past few days by improving the pulsing-dot indicator to show plan steps, and we now do better at displaying the plan steps in the session masthead and in the Lens. We have to be even more and do it all better. One area we should consider is the TASKS tab that I just simplified down so that it *only shows* plan steps (as separate from JOBS). This seems like an area that could be supplemented to show more information about dashes.... maybe? Maybe the label could swap to DASH when we're on a dash? Something like that?  
 
