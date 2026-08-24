@@ -1252,6 +1252,7 @@ export function translateJsonlEntry(
         trigger: entry.compactMetadata?.trigger,
         pre_tokens: entry.compactMetadata?.preTokens,
         post_tokens: entry.compactMetadata?.postTokens,
+        timestamp: parseEntryTimestamp(entry),
         ipc_version: IPC_VERSION,
       },
     ];

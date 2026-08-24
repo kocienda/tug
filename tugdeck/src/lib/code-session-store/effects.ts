@@ -218,6 +218,13 @@ export interface TruncateTranscriptEffect {
 export interface AppendCompactNoteEffect {
   kind: "append-compact-note";
   text: string;
+  /**
+   * The boundary record's own time (epoch ms), present on the replay path.
+   * The wrapper mints the divider note's `createdAt` from it so a replayed
+   * compaction never wears the relaunch clock; absent on the live path,
+   * where `Date.now()` is honest.
+   */
+  timestamp?: number;
   compactionPostTotal?: number;
 }
 

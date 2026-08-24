@@ -3988,6 +3988,7 @@ function handleCompactBoundary(
         {
           kind: "append-compact-note",
           text: compactionNoteText(event.preTokens),
+          ...(typeof event.timestamp === "number" ? { timestamp: event.timestamp } : {}),
           ...(honestTotal !== undefined ? { compactionPostTotal: honestTotal } : {}),
         },
       ],
@@ -4005,6 +4006,7 @@ function handleCompactBoundary(
         {
           kind: "append-compact-note",
           text: compactionNoteText(event.preTokens),
+          ...(typeof event.timestamp === "number" ? { timestamp: event.timestamp } : {}),
           ...(honestTotal !== undefined ? { compactionPostTotal: honestTotal } : {}),
         },
       ],
@@ -4013,7 +4015,11 @@ function handleCompactBoundary(
   const note: SystemNote = {
     kind: "system_note",
     messageKey: systemNoteKey(turnKey, entry.systemNoteSeq),
-    createdAt: Date.now(),
+    // The boundary can beat the turn's first content block, making this
+    // note `messages[0]` — the turn's sort key. A replayed boundary carries
+    // the entry's own time; fabricating one here dates a historical turn to
+    // the relaunch and walls every later replayed turn behind it.
+    createdAt: event.timestamp ?? Date.now(),
     text: compactionNoteText(event.preTokens),
     source: "compact",
   };

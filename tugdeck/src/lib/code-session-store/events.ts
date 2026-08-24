@@ -708,6 +708,14 @@ export interface CompactBoundaryEvent {
   trigger?: string;
   preTokens?: number;
   postTokens?: number;
+  /**
+   * Original JSONL entry time (epoch ms) of the boundary record. Present only
+   * on the resume/replay path (tugcode's translator stamps it); live frames
+   * omit it, where the reducer's own clock is honest. The divider note this
+   * event mints can open a turn's Message list, making its `createdAt` the
+   * turn's sort key — so the mint must never fabricate it.
+   */
+  timestamp?: number;
 }
 
 /**

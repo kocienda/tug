@@ -1949,6 +1949,7 @@ export class CodeSessionStore {
           ...(typeof ev.post_tokens === "number"
             ? { postTokens: ev.post_tokens }
             : {}),
+          ...(typeof ev.timestamp === "number" ? { timestamp: ev.timestamp } : {}),
         } as unknown as CodeSessionEvent;
       }
       if (ev.type === "compact_summary") {
@@ -2520,7 +2521,7 @@ export class CodeSessionStore {
             const note: SystemNote = {
               kind: "system_note",
               messageKey: systemNoteKey(turn.turnKey, turn.messages.length),
-              createdAt: Date.now(),
+              createdAt: effect.timestamp ?? Date.now(),
               text: effect.text,
               source: "compact",
             };

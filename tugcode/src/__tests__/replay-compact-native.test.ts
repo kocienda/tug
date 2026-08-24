@@ -80,6 +80,18 @@ describe("translateJsonlSession — native compaction replay", () => {
     expect(boundaries[0].pre_tokens).toBe(26239);
     expect(boundaries[0].post_tokens).toBe(1442);
 
+    // The boundary carries the record's own time. The divider note it mints
+    // can open a turn's Message list — the transcript's sort key — and a
+    // fabricated time there walls every later replayed turn behind it.
+    const boundaryRecord = jsonl
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l) as { subtype?: string; timestamp?: string })
+      .find((e) => e.subtype === "compact_boundary");
+    expect(boundaryRecord?.timestamp).toBeDefined();
+    expect(boundaries[0].timestamp).toBe(Date.parse(boundaryRecord!.timestamp!));
+
     // Summary verbatim — Claude Code's own continuation framing included.
     expect(summaries[0].summary).toBe(readSummaryFromFixture(jsonl));
     expect(summaries[0].summary).toStartWith(

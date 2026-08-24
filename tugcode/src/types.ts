@@ -676,6 +676,15 @@ export interface CompactBoundary {
   type: "compact_boundary";
   /** `"auto"` (capacity) | `"manual"` (/compact); absent if claude omits it. */
   trigger?: string;
+  /**
+   * Original JSONL entry time (epoch ms) of the boundary record. Set only on
+   * the resume/replay path; live frames omit it, where the reducer's own
+   * clock is honest. The divider note this event mints can open a turn's
+   * Message list, making its `createdAt` the turn's sort key — a fabricated
+   * value there walls every later replayed turn behind it (the incident-seven
+   * shape).
+   */
+  timestamp?: number;
   /** Context token count just before compaction, when claude reports it. */
   pre_tokens?: number;
   /**
