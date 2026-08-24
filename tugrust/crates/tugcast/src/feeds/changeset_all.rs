@@ -291,12 +291,19 @@ pub(crate) async fn compose_aggregate(
             "changeset compose"
         );
 
+        // The waiting paperwork: plan documents in the project's declared docs
+        // directory, which the Lens's Dashes section lists alongside live
+        // dashes. A property of the project rather than of the changeset, so it
+        // is composed here, where `ProjectChangeset` is built.
+        let plans = super::changeset::plan_doc_entries(&project_dir).await;
+
         projects.push(ProjectChangeset {
             project_dir: dir_str,
             display_name,
             no_repo,
             snapshot,
             unattributed_draft,
+            plans,
         });
     }
 

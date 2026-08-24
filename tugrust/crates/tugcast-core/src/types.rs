@@ -862,6 +862,30 @@ pub struct ChangesetSnapshot {
     pub orphaned: Vec<OrphanedFile>,
 }
 
+/// One plan document waiting in the project's configured docs directory — the
+/// front half of the dash arc, made machine-visible.
+///
+/// Present only for documents `tugutil_core::plan::parse` accepts, found at the
+/// docs directory's top level: there is no filename convention and no recursion,
+/// so archived paperwork in a subdirectory stays filed ([P01]). A plan already
+/// adopted onto a dash never appears, because adoption commits the document on
+/// the dash branch and cleans the base copy ([D139]) — so the listing needs no
+/// dedup against dash entries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlanDocEntry {
+    /// Repo-relative path, e.g. "dash/dash-cockpit.md" — what the next
+    /// gesture's prompt cites verbatim.
+    pub path: String,
+    /// The file stem, e.g. "dash-cockpit" — the row's display identity.
+    pub display_name: String,
+    /// `reviewed` | `stale` | `never-reviewed` — `plan::review_state`'s
+    /// spellings, the same vocabulary `DashChangesetEntry.review` wears.
+    pub review: String,
+    /// How many execution steps the document declares — the cockpit row's
+    /// size cue. 0 for a plan whose steps failed to enumerate.
+    pub step_total: u32,
+}
+
 /// One project's slice of the account-global aggregate changeset snapshot.
 ///
 /// Carries the project's identity (`project_dir` — the absolute checkout root,
@@ -890,6 +914,10 @@ pub struct ProjectChangeset {
     /// S10), when one exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattributed_draft: Option<ChangesetDraft>,
+    /// Plan documents waiting in the project's configured docs directory,
+    /// sorted by path. Empty when the project declares no docs directory.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plans: Vec<PlanDocEntry>,
 }
 
 /// The account-global aggregate changeset snapshot, delivered process-level on
@@ -1813,6 +1841,7 @@ mod tests {
                 orphaned: vec![],
             },
             unattributed_draft: None,
+            plans: vec![],
         };
         let json = serde_json::to_string(&project).unwrap();
         assert!(json.contains(r#""project_dir":"/tmp/proj""#));
@@ -1820,5 +1849,24 @@ mod tests {
         assert!(json.contains(r#""branch":"main""#));
         // Exactly one workspace_key in the flattened output.
         assert_eq!(json.matches("workspace_key").count(), 1);
+        // A project with no waiting paperwork carries no `plans` key at all,
+        // so older readers see the payload they already understand.
+        assert!(!json.contains("plans"));
+    }
+
+    #[test]
+    fn test_project_changeset_carries_plan_docs() {
+        let snapshot: WorkspacesChangesetSnapshot =
+            serde_json::from_str(WORKSPACES_CHANGESET_GOLDEN).unwrap();
+        let repo = &snapshot.projects[0];
+        assert_eq!(repo.plans.len(), 2);
+        assert_eq!(repo.plans[0].path, "dash/dash-cockpit.md");
+        assert_eq!(repo.plans[0].display_name, "dash-cockpit");
+        assert_eq!(repo.plans[0].review, "reviewed");
+        assert_eq!(repo.plans[0].step_total, 5);
+        assert_eq!(repo.plans[1].review, "never-reviewed");
+        // The non-repo project declares no docs home, so the key is absent and
+        // decodes as empty rather than as missing data.
+        assert!(snapshot.projects[1].plans.is_empty());
     }
 }

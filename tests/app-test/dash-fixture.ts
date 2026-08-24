@@ -545,6 +545,15 @@ function fixturePlan(rows: number): string {
   );
 }
 
+/**
+ * A parseable plan document with `rows` execution steps — the same document
+ * {@link recordStampedPlan} writes into a dash worktree, for fixtures that
+ * want one sitting in a project's *docs directory* instead.
+ */
+export function fixturePlanDocument(rows = 1): string {
+  return fixturePlan(rows);
+}
+
 /** Titles for a generated plan's rows. A run's step title reaches the Lens and
  *  the shade as the metadata line's note, so they have to differ to be worth
  *  asserting on. Long enough for any row count a fixture asks for. */

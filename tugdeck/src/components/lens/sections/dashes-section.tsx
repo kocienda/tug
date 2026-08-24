@@ -45,6 +45,25 @@
  * landing; freshness is the tiebreak a person actually wants; name is the
  * final tiebreak rather than snapshot order, which is git-enumeration order.
  *
+ * Beneath the dashes the section lists the **waiting paperwork**: plan
+ * documents sitting in each project's configured docs directory, which the
+ * aggregate now carries. The back half of the arc was already machine-visible —
+ * a dash reads `implementing (i/N)`, the join arms itself, the shade summons —
+ * while the front half was a file only `ls` could find. A plan row is the same
+ * two-line block one tone quieter, and its trailing button is its next gesture:
+ * Review for a plan nothing vouches for, Implement for one a review covers.
+ *
+ * That button, like every affordance this section grows, **produces a prompt**.
+ * It submits a `/tugplug:…` line into the followed card's session and fronts
+ * that card; it never calls machinery. `tugutil` is the engine's tool and the
+ * models', so a graphical control that ran one would be doing the machine's job
+ * behind the reader's back — and the model, not this surface, is what runs the
+ * arc. The templates and the target ladder live in `lib/dash-prompts.ts`.
+ *
+ * Live work outranks waiting paperwork, so dashes come first and plans follow;
+ * plans are listed for every open project, exactly as dashes are, and a plan
+ * whose project is not the followed one wears its refusal on its own button.
+ *
  * The section's `kind` stays `"dashes"` whatever the title says: the kind is
  * the registry key that `sectionOrder` and `collapsedSections` persist under
  * in tugbank, so renaming it would silently reset every saved Lens order.
@@ -67,7 +86,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { EllipsisVertical, GitBranch } from "lucide-react";
+import { EllipsisVertical, FileText, GitBranch } from "lucide-react";
 
 import { LENS_LIST_PRESENTATION } from "@/components/lens/lens-list-presentation";
 import { setSectionContent } from "@/components/lens/lens-section-content";
@@ -93,6 +112,13 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { usePromptTarget } from "./dash-prompt-target";
+import { DashesStartControl } from "./dashes-start-sheet";
+import {
+  planNextGestureLabel,
+  planNextGesturePrompt,
+  submitPromptToCard,
+} from "@/lib/dash-prompts";
 import { getConnection } from "@/lib/connection-singleton";
 import { useChangesetAll } from "@/lib/changeset-all-store";
 import { useChangesetDiscard, useChangesetReplay } from "@/lib/changeset-verb-store";
@@ -103,11 +129,15 @@ import {
 import { useSessionIdentity } from "@/lib/session-identity";
 import type {
   DashChangesetEntry,
+  PlanDocEntry,
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
 
 const SECTION_KIND = "dashes";
+
+/** A stable subscribe for a card that has no session store yet ([L02]). */
+const NOOP_SUBSCRIBE = (): (() => void) => () => {};
 
 // ---------------------------------------------------------------------------
 // Projection
@@ -224,34 +254,136 @@ export function dashRowsFromSnapshot(
   return rows.sort(compareDashRows);
 }
 
-/** The band's one-line reading when the section is collapsed. */
-export function dashesCollapsedSummary(rows: readonly DashRow[]): string {
-  if (rows.length === 0) return "No dashes";
-  return rows.length === 1 ? "1 dash" : `${rows.length} dashes`;
+/**
+ * One plan document waiting in a project's docs directory — the front half of
+ * the arc, which was invisible to every surface until now.
+ *
+ * A plan already adopted onto a dash is never here: adoption commits it on the
+ * dash branch and cleans the base copy, so a document still in the docs
+ * directory is by construction unadopted, and the two kinds of row cannot name
+ * the same work.
+ */
+export interface PlanRow {
+  /** Project dir plus repo-relative path — unique across every open project. */
+  key: string;
+  /** The wire entry: the row reads it directly. */
+  entry: PlanDocEntry;
+  /** The project the path is relative to — what the prompt's target must match. */
+  projectDir: string;
+  /** That project's name, for the cross-project refusal sentence. */
+  projectLabel: string;
+}
+
+/** Nearest-to-work-starting first: a reviewed plan is one gesture from a dash. */
+const PLAN_REVIEW_RANK: Record<string, number> = {
+  reviewed: 2,
+  stale: 1,
+  "never-reviewed": 0,
+};
+
+/** An unrecognized review spelling sorts last and never throws. */
+function reviewRank(review: string): number {
+  return PLAN_REVIEW_RANK[review] ?? -1;
+}
+
+/**
+ * The plan rows' total order: review rank descending, then by name.
+ *
+ * The same nearest-to-done principle {@link compareDashRows} encodes, applied
+ * to the front half: a reviewed plan is one press from becoming a dash, while
+ * an unreviewed one still needs a turn spent on it.
+ */
+export function comparePlanRows(a: PlanRow, b: PlanRow): number {
+  const byReview = reviewRank(b.entry.review) - reviewRank(a.entry.review);
+  if (byReview !== 0) return byReview;
+  return a.entry.display_name.localeCompare(b.entry.display_name);
+}
+
+/**
+ * Every waiting plan document across every open project, ordered by
+ * {@link comparePlanRows}.
+ *
+ * Every project, not the followed one — the same choice
+ * {@link dashRowsFromSnapshot} makes, for the same reason: a listing that
+ * changed as the reader moved between cards would be the coming-and-going wart
+ * this section already retired. A plan whose project is not the followed one is
+ * inert now and actionable the moment a card in that project is followed, and
+ * its affordance says exactly that ([L31]).
+ */
+export function planRowsFromSnapshot(
+  snapshot: WorkspacesChangesetSnapshot,
+): PlanRow[] {
+  const rows = snapshot.projects.flatMap((project) =>
+    (project.plans ?? []).map((entry) => ({
+      key: `${project.project_dir}:${entry.path}`,
+      entry,
+      projectDir: project.project_dir,
+      projectLabel: project.display_name,
+    })),
+  );
+  return rows.sort(comparePlanRows);
+}
+
+/**
+ * The band's one-line reading when the section is collapsed.
+ *
+ * Counts both kinds, because counting only dashes would hide the front half of
+ * the arc exactly when the band is folded — which is the state a reader leaves
+ * it in. A zero bucket drops rather than reading "0 plans".
+ */
+export function dashesCollapsedSummary(
+  rows: readonly DashRow[],
+  plans: readonly PlanRow[] = [],
+): string {
+  const parts: string[] = [];
+  if (rows.length > 0) {
+    parts.push(rows.length === 1 ? "1 dash" : `${rows.length} dashes`);
+  }
+  if (plans.length > 0) {
+    parts.push(plans.length === 1 ? "1 plan" : `${plans.length} plans`);
+  }
+  return parts.length === 0 ? "No dashes" : parts.join(" · ");
 }
 
 // ---------------------------------------------------------------------------
 // The list
 // ---------------------------------------------------------------------------
 
-/** A flat, immutable list over one projection pass. A new projection makes a
- *  new source; there is no mutation to subscribe to. */
-class DashRowsDataSource implements TugListViewDataSource {
-  constructor(readonly rows: readonly DashRow[]) {}
+/**
+ * A flat, immutable list over one projection pass, carrying both kinds of row.
+ * A new projection makes a new source; there is no mutation to subscribe to.
+ *
+ * Dashes first, then plans: live work outranks waiting paperwork, so the index
+ * split is the ordering — no interleaving and no comparator across kinds.
+ */
+class CockpitRowsDataSource implements TugListViewDataSource {
+  constructor(
+    readonly rows: readonly DashRow[],
+    readonly plans: readonly PlanRow[],
+  ) {}
   numberOfItems(): number {
-    return this.rows.length;
+    return this.rows.length + this.plans.length;
   }
   idForIndex(index: number): string {
-    return this.rows[index]!.ownerId;
+    const dash = this.rows[index];
+    if (dash !== undefined) return dash.ownerId;
+    // Namespaced so an owner key and a plan path can never collide.
+    return `plan:${this.plans[index - this.rows.length]!.key}`;
   }
-  kindForIndex(): string {
-    return "dash";
+  kindForIndex(index: number): string {
+    return index < this.rows.length ? "dash" : "plan";
+  }
+  /** The plan at a list index, or undefined for a dash index. */
+  planAt(index: number): PlanRow | undefined {
+    return this.plans[index - this.rows.length];
   }
   subscribe(): () => void {
     return () => {};
   }
   getVersion(): unknown {
-    return this.rows;
+    // The source itself: one instance per projection pass, so identity is
+    // exactly the version the list needs.
+    return this;
   }
 }
 
@@ -506,10 +638,10 @@ function WorkerAtom({ sessionId }: { sessionId: string }): React.ReactElement {
   );
 }
 
-const DashCell: TugListViewCellRenderer<DashRowsDataSource> = ({
+const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   index,
   dataSource,
-}: TugListViewCellProps<DashRowsDataSource>) => {
+}: TugListViewCellProps<CockpitRowsDataSource>) => {
   const row = dataSource.rows[index];
   if (row === undefined) return null;
   const entry = row.entry;
@@ -593,15 +725,94 @@ function DashJoinRow({ row }: { row: DashRow }): React.ReactElement | null {
   );
 }
 
-const DASH_CELL_RENDERERS = { dash: DashCell };
+/**
+ * A waiting plan document, in the section's own two-line grammar: an eyebrow
+ * naming the document and carrying its one affordance, over a meta line saying
+ * what it is and how far it goes.
+ *
+ * The affordance is an explicit control, never row activation ([D142]): a plan
+ * row has no room to open, and pressing anywhere on it must not submit a
+ * prompt. Its label is the next gesture — Review for a plan nothing vouches
+ * for, Implement for one a review covers — and a press that cannot land is
+ * disabled wearing the ladder's own sentence ([L31]).
+ */
+const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
+  index,
+  dataSource,
+}: TugListViewCellProps<CockpitRowsDataSource>) => {
+  const row = dataSource.planAt(index);
+  const target = usePromptTarget({
+    requireProjectDir: row?.projectDir ?? null,
+    projectLabel: row?.projectLabel,
+  });
+  if (row === undefined) return null;
+  const entry = row.entry;
+  const label = planNextGestureLabel(entry.review);
+  const prompt = planNextGesturePrompt(entry.review, entry.path);
+  const steps = entry.step_total === 1 ? "1 step" : `${entry.step_total} steps`;
+  return (
+    <TugListRow
+      className="lens-dashes-row lens-plans-row"
+      variant="flush"
+      density="compact"
+      data-slot="lens-plans-row"
+      data-plan={entry.path}
+      data-review={entry.review}
+    >
+      <span className="lens-dashes-block">
+        <span className="lens-dashes-eyebrow">
+          <FileText size={13} className="lens-plans-glyph" aria-hidden />
+          <span className="lens-plans-name" data-slot="lens-plans-name">
+            {entry.display_name}
+          </span>
+          <span className="lens-dashes-eyebrow-rule" />
+          <span className="lens-dashes-verbs">
+            <TugPushButton
+              size="2xs"
+              emphasis="ghost"
+              data-slot="lens-plans-gesture"
+              // The exact line a press submits, carried on the control rather
+              // than composed at press time — one string, rendered once, so
+              // what the button says it will do and what it does cannot drift.
+              data-prompt={prompt}
+              disabled={target.cardId === null}
+              title={target.reason ?? undefined}
+              aria-label={
+                target.reason ?? `${label} the plan ${entry.display_name}`
+              }
+              onClick={() => {
+                if (target.cardId === null) return;
+                submitPromptToCard(target.cardId, prompt);
+              }}
+            >
+              {label}
+            </TugPushButton>
+          </span>
+        </span>
+        <span className="lens-dashes-meta-line lens-plans-meta">
+          <span data-slot="lens-plans-facts">
+            {`plan · ${entry.review} · ${steps}`}
+          </span>
+        </span>
+      </span>
+    </TugListRow>
+  );
+};
+
+const DASH_CELL_RENDERERS = { dash: DashCell, plan: PlanCell };
 
 function useDashRows(): DashRow[] {
   const snapshot = useChangesetAll();
   return useMemo(() => dashRowsFromSnapshot(snapshot), [snapshot]);
 }
 
+function usePlanRows(): PlanRow[] {
+  const snapshot = useChangesetAll();
+  return useMemo(() => planRowsFromSnapshot(snapshot), [snapshot]);
+}
+
 function DashesCollapsedSummary(): React.ReactElement {
-  return <>{dashesCollapsedSummary(useDashRows())}</>;
+  return <>{dashesCollapsedSummary(useDashRows(), usePlanRows())}</>;
 }
 
 /**
@@ -613,8 +824,16 @@ const DASHES_VERB_KEY = "lens-unbound-dashes";
 
 function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElement {
   const rows = useDashRows();
-  const dataSource = useMemo(() => new DashRowsDataSource(rows), [rows]);
-  const populated = rows.length > 0;
+  const plans = usePlanRows();
+  const dataSource = useMemo(
+    () => new CockpitRowsDataSource(rows, plans),
+    [rows, plans],
+  );
+  // Both kinds, not the dash count. This one value decides two things — whether
+  // the band's arrow walk has anything to walk onto, and whether the body is
+  // the empty state — so a project with plans and no dashes would otherwise
+  // render "No dashes" over rows that never mounted.
+  const populated = rows.length + plans.length > 0;
 
   const discardVerb = useChangesetDiscard(DASHES_VERB_KEY);
   // One replay round trip for the section, for the reason the discard has one:
@@ -707,14 +926,16 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   // The sentence names a gesture the reader can make, never a command they are
   // expected to type: `tugutil` is machinery for the engine and the models, and
   // a graphical surface that spells it is telling a human to do the machine's
-  // job. A real affordance replaces this copy.
+  // job. So the line is a real affordance — the same act the band's `+` carries,
+  // put where a reader with nothing to look at cannot miss it.
   if (!populated) {
     return (
       <div
-        className="lens-section-empty lens-dashes-empty"
+        className="lens-section-empty lens-dashes-empty lens-dashes-empty-start"
         data-slot="lens-dashes-empty"
       >
-        <span>No dashes. Ask a session to start one.</span>
+        <span>No dashes yet.</span>
+        <DashesStartControl placement="empty" />
       </div>
     );
   }
@@ -722,7 +943,7 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
   return (
     <DashVerbsContext value={verbs}>
       <div className="lens-dashes-section" data-slot="lens-dashes-section">
-        <TugListView<DashRowsDataSource>
+        <TugListView<CockpitRowsDataSource>
           dataSource={dataSource}
           delegate={delegate}
           cellRenderers={DASH_CELL_RENDERERS}
@@ -778,6 +999,11 @@ export function registerDashesSection(): void {
     title: "Dashes",
     collapsedSummary: () => <DashesCollapsedSummary />,
     body: (host) => <DashesSectionBody host={host} />,
+    // The way in, on the band itself — the registry's own answer to "a section
+    // contributes a control", and this hook's first consumer. The band renders
+    // it only while the section is expanded, which is why the empty state
+    // carries the same act rather than relying on this one alone.
+    headerActions: () => <DashesStartControl placement="band" />,
     // No `presence`: the section is always on. A band that comes and goes has
     // no fixed address, and no other Lens section works that way.
   });

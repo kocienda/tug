@@ -113,6 +113,30 @@
   gap: var(--tug-space-2xs);
 }
 
+/* A waiting plan document, in the dash row's grammar and one tone quieter:
+   paperwork is not work in progress, and the section's live rows should still
+   read first. A plan row opens nothing, so it never takes the pointer or the
+   hover wash — the `data-activatable` rule above already covers that, since a
+   plan row never carries the attribute. */
+.lens-plans-glyph {
+  flex: 0 0 auto;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+.lens-plans-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-sm);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.lens-plans-meta {
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
 /* The empty state: the band stays, at the shared `.lens-section-empty`'s
    height and tone (lens-content.css). What this section adds is where the
    line sits — flush left on the section's own margin rather than centered,

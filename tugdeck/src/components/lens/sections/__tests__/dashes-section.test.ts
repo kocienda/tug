@@ -21,9 +21,12 @@ import {
   compareDashRows,
   dashRowsFromSnapshot,
   dashesCollapsedSummary,
+  comparePlanRows,
+  planRowsFromSnapshot,
   resolveBindTarget,
   resolveWorkerCard,
   type DashRow,
+  type PlanRow,
 } from "../dashes-section";
 
 const DATA = golden as WorkspacesChangesetSnapshot;
@@ -353,5 +356,87 @@ describe("dashesCollapsedSummary", () => {
   // must say the honest zero.
   test("an empty list still reads as a sentence", () => {
     expect(dashesCollapsedSummary([])).toBe("No dashes");
+  });
+
+  test("waiting plans count too, so a folded band still shows the front half", () => {
+    const plans = planRowsFromSnapshot(DATA);
+    expect(plans).toHaveLength(2);
+    expect(dashesCollapsedSummary([], plans)).toBe("2 plans");
+    expect(dashesCollapsedSummary([], [plans[0]!])).toBe("1 plan");
+  });
+
+  test("both kinds read as one line, and a zero bucket drops", () => {
+    const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
+    const plans = planRowsFromSnapshot(DATA);
+    expect(dashesCollapsedSummary(rows, plans)).toBe("1 dash · 2 plans");
+    // No plans at all is the old sentence, unchanged.
+    expect(dashesCollapsedSummary(rows, [])).toBe("1 dash");
+  });
+});
+
+describe("planRowsFromSnapshot — the waiting paperwork", () => {
+  test("every project's plans are rows, keyed uniquely across projects", () => {
+    const rows = planRowsFromSnapshot(DATA);
+    expect(rows.map((r) => r.entry.path)).toEqual([
+      "dash/dash-cockpit.md",
+      "dash/dash-hardening.md",
+    ]);
+    // The key namespaces the path under its project: two projects may both
+    // carry `dash/plan.md`, and they are different rows.
+    expect(rows[0]!.key).toBe(`${DATA.projects[0]!.project_dir}:dash/dash-cockpit.md`);
+    expect(rows[0]!.projectDir).toBe(DATA.projects[0]!.project_dir);
+    expect(rows[0]!.projectLabel).toBe(DATA.projects[0]!.display_name);
+  });
+
+  test("a project that declares no docs directory contributes nothing", () => {
+    // The golden's second project carries no `plans` key at all — the shape an
+    // older sender or an undeclared docs home produces.
+    expect(DATA.projects[1]!.plans).toBeUndefined();
+    const rows = planRowsFromSnapshot({ projects: [DATA.projects[1]!] });
+    expect(rows).toEqual([]);
+  });
+});
+
+describe("comparePlanRows — nearest to starting work first", () => {
+  const row = (review: string, name: string): PlanRow => ({
+    key: `/p:${name}.md`,
+    entry: {
+      path: `dash/${name}.md`,
+      display_name: name,
+      review,
+      step_total: 3,
+    },
+    projectDir: "/p",
+    projectLabel: "p",
+  });
+
+  test("reviewed outranks stale outranks never-reviewed", () => {
+    const rows = [
+      row("never-reviewed", "c"),
+      row("reviewed", "a"),
+      row("stale", "b"),
+    ].sort(comparePlanRows);
+    expect(rows.map((r) => r.entry.review)).toEqual([
+      "reviewed",
+      "stale",
+      "never-reviewed",
+    ]);
+  });
+
+  test("within a review state, by name", () => {
+    const rows = [row("reviewed", "zulu"), row("reviewed", "alpha")].sort(
+      comparePlanRows,
+    );
+    expect(rows.map((r) => r.entry.display_name)).toEqual(["alpha", "zulu"]);
+  });
+
+  test("an unrecognized review spelling sorts last and never throws", () => {
+    const rows = [row("who-knows", "a"), row("never-reviewed", "b")].sort(
+      comparePlanRows,
+    );
+    expect(rows.map((r) => r.entry.review)).toEqual([
+      "never-reviewed",
+      "who-knows",
+    ]);
   });
 });

@@ -129,7 +129,21 @@
         "fingerprint": "7c0f",
         "message": "Add scratch notes",
         "updated_at": 1752264090000
-      }
+      },
+      "plans": [
+        {
+          "path": "dash/dash-cockpit.md",
+          "display_name": "dash-cockpit",
+          "review": "reviewed",
+          "step_total": 5
+        },
+        {
+          "path": "dash/dash-hardening.md",
+          "display_name": "dash-hardening",
+          "review": "never-reviewed",
+          "step_total": 3
+        }
+      ]
     },
     {
       "project_dir": "/Users/dev/src/scratchpad",

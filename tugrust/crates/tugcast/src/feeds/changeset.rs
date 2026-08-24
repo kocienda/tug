@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, OrphanedFile, SharedOwner,
-    UnattributedFile,
+    ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, OrphanedFile, PlanDocEntry,
+    SharedOwner, UnattributedFile,
 };
 
 use super::attribution::{parse_worktree_states, repo_root_for};
@@ -1190,6 +1190,89 @@ fn dashes_hidden_for(repo_root: &Path) -> bool {
         .watch_path()
         .to_path_buf();
     root == universe
+}
+
+/// The plan documents waiting in `project_dir`'s configured docs directory.
+///
+/// Membership is by parse ([P01]): every immediate `*.md` child the plan
+/// parser accepts is an entry, with no filename convention and no recursion, so
+/// `archive/` stays filed without being named. A project that declares no docs
+/// directory has no paperwork home, which reads as an empty list rather than an
+/// error.
+///
+/// `project_dir` is whatever the workspace registry holds, which need not be
+/// the repo root — the declaration lives at the root and the entries' paths are
+/// root-relative, so the root is resolved first. The whole scan (a directory
+/// read plus a parse per candidate) runs in one `spawn_blocking` hop: it is
+/// called once per project per recompute, on the feed's async thread.
+pub(crate) async fn plan_doc_entries(project_dir: &Path) -> Vec<PlanDocEntry> {
+    let Some(root) = repo_root_for(project_dir).await else {
+        return Vec::new();
+    };
+    // The same argument `dashes_hidden_for` makes about dash entries, verbatim
+    // for paperwork: an app-test's aggregate must not list the plans the
+    // developer happens to be carrying in the checkout under test.
+    if dashes_hidden_for(&root) {
+        return Vec::new();
+    }
+    tokio::task::spawn_blocking(move || plan_doc_entries_in(&root))
+        .await
+        .unwrap_or_default()
+}
+
+/// The synchronous body of [`plan_doc_entries`], split out so the scan is
+/// testable without a runtime hop.
+fn plan_doc_entries_in(root: &Path) -> Vec<PlanDocEntry> {
+    let Ok(config) = tugutil_core::config::Config::load_from_project(root) else {
+        return Vec::new();
+    };
+    let Some(docs_dir) = config.docs_dir(root) else {
+        return Vec::new();
+    };
+    let Ok(read_dir) = std::fs::read_dir(&docs_dir) else {
+        return Vec::new();
+    };
+
+    let mut entries: Vec<PlanDocEntry> = Vec::new();
+    for child in read_dir.flatten() {
+        let path = child.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        if !child.file_type().is_ok_and(|t| t.is_file()) {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        // The cheap half of the membership test first: a document with no
+        // execution-steps anchor cannot parse as a plan, so notes files and
+        // briefs cost one read and one substring scan rather than a parse.
+        if !source.contains("{#execution-steps}") {
+            continue;
+        }
+        let Ok(doc) = tugutil_core::plan::parse(&source) else {
+            continue;
+        };
+        let Ok(rel) = path.strip_prefix(root) else {
+            continue;
+        };
+        let Some(display_name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        entries.push(PlanDocEntry {
+            path: rel.to_string_lossy().into_owned(),
+            display_name,
+            review: tugutil_core::plan::review_state(&doc, &source)
+                .as_str()
+                .to_string(),
+            step_total: doc.steps.len() as u32,
+        });
+    }
+    // Directory order is not stable across filesystems; the snapshot's
+    // diff-suppression compares composed bytes, so the producer sorts.
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    entries
 }
 
 async fn dash_entries(
@@ -2498,6 +2581,134 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("plan.md"), "# Notes\n\nJust prose.\n").unwrap();
         assert!(dash_review_state(dir.path(), "plan.md").is_none());
+    }
+
+    /// A project root declaring `docs = "<docs>"`, with a `.git` marker so the
+    /// root walk lands on it. No commits — nothing in the scan reads history.
+    fn plan_docs_project(docs: Option<&str>) -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+        if let Some(docs) = docs {
+            std::fs::write(
+                root.join(".tugtool/config.toml"),
+                format!("[tugtool.dash]\ndocs = \"{docs}\"\n"),
+            )
+            .unwrap();
+            std::fs::create_dir_all(root.join(docs)).unwrap();
+        } else {
+            std::fs::write(root.join(".tugtool/config.toml"), "[tugtool.dash]\n").unwrap();
+        }
+        tmp
+    }
+
+    /// Write `UNSTAMPED_PLAN` at `root/rel`, stamped or not.
+    fn write_plan_at(root: &Path, rel: &str, stamped: bool) {
+        let abs = root.join(rel);
+        std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+        let source = if stamped {
+            tugutil_core::plan::set_review_stamp(UNSTAMPED_PLAN).expect("stampable")
+        } else {
+            UNSTAMPED_PLAN.to_string()
+        };
+        std::fs::write(abs, source).unwrap();
+    }
+
+    #[test]
+    fn plan_doc_entries_read_each_document_review_state() {
+        let tmp = plan_docs_project(Some("dash"));
+        let root = tmp.path();
+        write_plan_at(root, "dash/reviewed.md", true);
+        write_plan_at(root, "dash/fresh.md", false);
+        write_plan_at(root, "dash/moved.md", true);
+        let moved = root.join("dash/moved.md");
+        let source = format!("{}\nOne more line.\n", std::fs::read_to_string(&moved).unwrap());
+        std::fs::write(&moved, source).unwrap();
+
+        let entries = plan_doc_entries_in(root);
+        let by_name: HashMap<&str, &PlanDocEntry> = entries
+            .iter()
+            .map(|e| (e.display_name.as_str(), e))
+            .collect();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(by_name["reviewed"].review, "reviewed");
+        assert_eq!(by_name["fresh"].review, "never-reviewed");
+        assert_eq!(by_name["moved"].review, "stale");
+        // The path is what the next gesture's prompt cites, so it is
+        // root-relative and the step count is the document's own.
+        assert_eq!(by_name["fresh"].path, "dash/fresh.md");
+        assert_eq!(by_name["fresh"].step_total, 1);
+    }
+
+    #[test]
+    fn plan_doc_entries_are_sorted_by_path() {
+        let tmp = plan_docs_project(Some("dash"));
+        let root = tmp.path();
+        for name in ["zulu", "alpha", "mike"] {
+            write_plan_at(root, &format!("dash/{name}.md"), false);
+        }
+        let paths: Vec<String> = plan_doc_entries_in(root)
+            .into_iter()
+            .map(|e| e.path)
+            .collect();
+        assert_eq!(
+            paths,
+            vec!["dash/alpha.md", "dash/mike.md", "dash/zulu.md"],
+            "directory order is not stable, so the producer sorts"
+        );
+    }
+
+    /// Membership is by parse and by being an immediate child ([P01]): prose
+    /// is not a plan, and archived paperwork is filed rather than waiting.
+    #[test]
+    fn plan_doc_entries_skip_non_plans_and_subdirectories() {
+        let tmp = plan_docs_project(Some("dash"));
+        let root = tmp.path();
+        write_plan_at(root, "dash/live.md", false);
+        write_plan_at(root, "dash/archive/old.md", false);
+        std::fs::write(root.join("dash/notes.md"), "# Notes\n\nJust prose.\n").unwrap();
+        std::fs::write(root.join("dash/readme.txt"), "not markdown").unwrap();
+
+        let entries = plan_doc_entries_in(root);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "dash/live.md");
+    }
+
+    /// A project that has declared no paperwork home has no paperwork to show;
+    /// so does one whose declared directory does not exist yet.
+    #[test]
+    fn plan_doc_entries_are_empty_without_a_declaration() {
+        let tmp = plan_docs_project(None);
+        assert!(plan_doc_entries_in(tmp.path()).is_empty());
+
+        let tmp = plan_docs_project(Some("dash"));
+        std::fs::remove_dir(tmp.path().join("dash")).unwrap();
+        assert!(plan_doc_entries_in(tmp.path()).is_empty());
+    }
+
+    /// The workspace registry hands a project directory that need not be the
+    /// repo root. The declaration lives at the root and the entries' paths are
+    /// root-relative, so a card opened on a subdirectory must still list the
+    /// project's plans — silently listing nothing is the failure mode here.
+    #[tokio::test]
+    async fn plan_doc_entries_resolve_the_repo_root_from_a_subdirectory() {
+        let tmp = plan_docs_project(Some("dash"));
+        let root = tmp.path();
+        write_plan_at(root, "dash/live.md", true);
+        let nested = root.join("tugdeck/src");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let entries = plan_doc_entries(&nested).await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "dash/live.md");
+        assert_eq!(entries[0].review, "reviewed");
+    }
+
+    #[tokio::test]
+    async fn plan_doc_entries_are_empty_outside_a_repository() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(plan_doc_entries(tmp.path()).await.is_empty());
     }
 
     /// The composition asked from a *linked worktree* — the shape a card whose

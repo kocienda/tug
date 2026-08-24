@@ -86,12 +86,17 @@ import { useSessionStateChanges } from "@/lib/session-state-changes-store";
 
 import {
   ContextPopoverContent,
+  DashPopoverContent,
   JobsPopoverContent,
   StateChangeLogPopoverContent,
   TasksPopoverContent,
   TimePopoverContent,
   type ScrollToRowHandler,
 } from "./session-card-telemetry-popovers";
+import { dashGlanceFraction } from "@/components/tugways/dash-meta-line";
+import { useDashForSession } from "@/lib/dash-session-index";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { useTaskListState } from "@/lib/code-session-store/hooks/use-task-list-state";
 import { useJobsState } from "@/lib/code-session-store/hooks/use-jobs-state";
 import {
@@ -356,8 +361,22 @@ export type PlacardKind =
   | "time"
   | "context"
   | "tasks"
+  | "dash"
   | "jobs"
   | "btw";
+
+/**
+ * The cell a placard anchors under, when that is not the cell its own key
+ * names.
+ *
+ * `dash` is the one entry: the DASH reading is the TASKS cell wearing a
+ * different label, so it keeps `data-priority="tasks"` — the width table and
+ * the anchor query are both keyed on that attribute, and moving it would cost
+ * the cell its measured box as well as its anchor.
+ */
+const PLACARD_ANCHOR_PRIORITY: Partial<Record<PlacardKind, string>> = {
+  dash: "tasks",
+};
 
 /** Placard header title per surface — the placard header carries these now
  *  that the composed `TugPopupList` frames render headerless. */
@@ -366,6 +385,9 @@ const PLACARD_TITLES: Record<PlacardKind, string> = {
   time: "Time",
   context: "Context",
   tasks: "Tasks",
+  // The dash's own name rides inside the body: these are static strings, and
+  // the placard header is the surface's legend rather than its subject.
+  dash: "Dash",
   jobs: "Jobs",
   btw: "/btw",
 };
@@ -673,8 +695,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     );
     if (statusBar === null) return 0;
     if (key === "btw") return statusBar.clientWidth;
+    const priority = PLACARD_ANCHOR_PRIORITY[key] ?? key;
     const cell = row.querySelector<HTMLElement>(
-      `[data-slot="tug-status-cell"][data-priority="${key}"]`,
+      `[data-slot="tug-status-cell"][data-priority="${priority}"]`,
     );
     if (cell === null) return 0;
     const cellRect = cell.getBoundingClientRect();
@@ -784,6 +807,47 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   // when no card has bound to a session id, so the subscription is
   // cheap even before the popover opens.
   const stateChangeSnap = useSessionStateChanges(snap.tugSessionId);
+
+  // ── The DASH reading ──────────────────────────────────────────────────
+  // While the bound session is driving a dash, the fourth cell reads DASH
+  // instead of TASKS: the dash is what the session IS doing, and during a plan
+  // run the checklist the TASKS reading showed *is* the dash's step list, so
+  // nothing is lost by promoting the dash to the label. The cell keeps its box
+  // and its `data-priority`, so the row's geometry is untouched.
+  const dashFact = useDashForSession(snap.tugSessionId);
+  // The same call, in the same argument order, the masthead's identity row
+  // already makes — so Z1 and Z2 cannot disagree about the numerals. Null for
+  // a dash that declared no counters, which reads as the name alone.
+  const dashGlance =
+    dashFact !== null
+      ? dashGlanceFraction(
+          dashFact.runPosition,
+          dashFact.runLength,
+          dashFact.stepCurrent,
+          dashFact.stepTotal,
+        )
+      : null;
+  // The cell elides the name to fit its fixed box; the label does not, so a
+  // screen reader hears the whole identity the eye may only see a prefix of.
+  const dashCellLabel =
+    dashFact === null
+      ? ""
+      : dashGlance === null
+        ? `dash ${dashFact.name}`
+        : `dash ${dashFact.name}, step ${dashGlance.current} of ${dashGlance.total}`;
+  // The placard's one exit: this card's own Changes shade, where every decision
+  // about a dash already lives ([D152]). The content scope, not the bare card
+  // id — `sendToTarget` walks upward from its target and the session card's
+  // handlers live one scope beneath `card-host`.
+  const chain = useResponderChain();
+  const revealChanges = useCallback(() => {
+    const target = `${cardId}-card-content`;
+    if (chain === null || !chain.hasResponder(target)) return;
+    chain.sendToTarget(target, {
+      action: TUG_ACTIONS.REVEAL_CHANGES,
+      phase: "discrete",
+    });
+  }, [chain, cardId]);
 
   // TIME cell: live in-flight clock when a turn is in flight; after
   // commit, the last turn's activeMs extended across its background
@@ -1003,6 +1067,15 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const tasksPopover = (
     <TasksPopoverContent state={taskListState} idle={isIdle} />
   );
+  const dashPopover =
+    dashFact === null ? null : (
+      <DashPopoverContent
+        fact={dashFact}
+        tasks={taskListState.tasks}
+        idle={isIdle}
+        onShowInChanges={revealChanges}
+      />
+    );
   const jobsPopover = (
     <JobsPopoverContent
       goal={goal}
@@ -1034,7 +1107,9 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             ? contextPopover
             : placard.key === "tasks"
               ? tasksPopover
-              : placard.key === "jobs"
+              : placard.key === "dash"
+                ? dashPopover
+                : placard.key === "jobs"
                 ? jobsPopover
                 : sideQuestionStore !== undefined
                   ? <SideQuestionBody store={sideQuestionStore} annotation={annotation} pendingContextStore={pendingContextStore} />
@@ -1133,15 +1208,36 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       </TugStatusCell>
       <TugStatusCell
         priority="tasks"
-        label="TASKS"
-        onActivate={() => togglePlacard("tasks")}
-        valueEmpty={!hasTasks}
+        label={dashFact === null ? "TASKS" : "DASH"}
+        onActivate={() => togglePlacard(dashFact === null ? "tasks" : "dash")}
+        valueEmpty={dashFact === null && !hasTasks}
         focusGroup={focusGroup}
         focusOrder={cellOrder(3)}
         focusPolicy={focusPolicy}
       >
         {replayInert ? (
           <span className="session-telemetry-status-value">—</span>
+        ) : dashFact !== null ? (
+          // The dash's name and its run fraction, inside the box TASKS already
+          // held: `data-priority` is unchanged, so the measured width table and
+          // the placard's anchor query both keep working, and the row's
+          // geometry does not move when a session picks a dash up. The name
+          // elides and the fraction does not — a truncated numeral would be a
+          // lie, and the full name is on the placard and the cell's label.
+          <span
+            className="session-telemetry-status-value session-telemetry-status-value-dash"
+            data-slot="session-telemetry-dash-value"
+            aria-label={dashCellLabel}
+          >
+            <span className="session-telemetry-status-dash-name">
+              {dashFact.name}
+            </span>
+            {dashGlance !== null && (
+              <span className="session-telemetry-status-dash-fraction">
+                {`${dashGlance.current}/${dashGlance.total}`}
+              </span>
+            )}
+          </span>
         ) : (
           <TugProgressIndicator
             variant="pulsing-dot"

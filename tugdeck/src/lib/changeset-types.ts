@@ -666,6 +666,41 @@ export interface ProjectChangeset extends ChangesetSnapshot {
   no_repo: boolean;
   /** The maintained draft for this project's unattributed bucket (Spec S10). */
   unattributed_draft?: ChangesetDraft;
+  /**
+   * Plan documents waiting in the project's configured docs directory, sorted
+   * by path. Absent when the project declares no docs directory or none of its
+   * documents parse as plans.
+   */
+  plans?: PlanDocEntry[];
+}
+
+/**
+ * One plan document waiting in a project's configured docs directory — the
+ * front half of the dash arc, made machine-visible.
+ *
+ * Only documents the plan parser accepts, at the docs directory's top level.
+ * A plan adopted onto a dash never appears: adoption commits it on the dash
+ * branch and cleans the base copy.
+ */
+export interface PlanDocEntry {
+  /** Repo-relative path, e.g. `dash/dash-cockpit.md`. */
+  path: string;
+  /** The file stem — the row's display identity. */
+  display_name: string;
+  /** `reviewed` | `stale` | `never-reviewed`. */
+  review: string;
+  /** How many execution steps the document declares. */
+  step_total: number;
+}
+
+export function isPlanDocEntry(value: unknown): value is PlanDocEntry {
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    typeof value.display_name === "string" &&
+    typeof value.review === "string" &&
+    typeof value.step_total === "number"
+  );
 }
 
 /** The account-global aggregate changeset snapshot (CHANGESET_ALL feed, 0x24). */
@@ -688,6 +723,8 @@ export function isProjectChangeset(value: unknown): value is ProjectChangeset {
     typeof value.display_name === "string" &&
     typeof value.no_repo === "boolean" &&
     isOptionalChangesetDraft(value.unattributed_draft) &&
+    (value.plans === undefined ||
+      (Array.isArray(value.plans) && value.plans.every(isPlanDocEntry))) &&
     isChangesetSnapshot(value)
   );
 }

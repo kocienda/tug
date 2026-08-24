@@ -10353,6 +10353,7 @@ mod tests {
                     orphaned: vec![],
                 },
                 unattributed_draft: None,
+                plans: vec![],
             }],
         }
     }

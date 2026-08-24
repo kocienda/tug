@@ -18,7 +18,10 @@
 import { useMemo } from "react";
 
 import { useChangesetAll } from "./changeset-all-store";
-import type { WorkspacesChangesetSnapshot } from "./changeset-types";
+import type {
+  DashChangesetEntry,
+  WorkspacesChangesetSnapshot,
+} from "./changeset-types";
 
 /** What one session's dash binding looks like to an identity surface. */
 export interface DashSessionFact {
@@ -46,6 +49,16 @@ export interface DashSessionFact {
   readonly stepTitle: string | null;
   /** Whether the dash drives a plan at all — what makes a missing step loud. */
   readonly hasPlan: boolean;
+  /**
+   * The whole wire entry this fact was projected from.
+   *
+   * Carried so a surface wanting the *detail* — the divergence facts, the
+   * base, the join arc — reads the same object the row surfaces read rather
+   * than a second projection that could disagree with this one. Reference
+   * identity comes from the snapshot, so exposing it costs no stability: a
+   * beat that does not move this dash hands back the same entry.
+   */
+  readonly entry: DashChangesetEntry;
 }
 
 /**
@@ -77,6 +90,7 @@ export function buildDashSessionIndex(
         runLength: entry.run_length ?? null,
         stepTitle: entry.step_title ?? null,
         hasPlan: entry.plan_path !== undefined,
+        entry,
       };
       for (const sessionId of sessions) {
         if (index.has(sessionId)) continue;

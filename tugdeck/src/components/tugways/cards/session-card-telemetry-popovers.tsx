@@ -129,6 +129,9 @@ import {
   type GoalState,
 } from "@/lib/code-session-store/select-goal";
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
+import { DashMetaLine } from "@/components/tugways/dash-meta-line";
+import { DashSigil } from "@/components/tugways/dash-sigil";
+import type { DashSessionFact } from "@/lib/dash-session-index";
 
 // ---------------------------------------------------------------------------
 // Cross-popover callback contract
@@ -719,6 +722,73 @@ export function StateChangeLogPopoverContent({
  *
  * An empty `tasks` array renders the standard popup empty message.
  */
+/**
+ * The [D100] task list as numbered popup-list items.
+ *
+ * Its own component because two placards render it: TASKS, whose whole body it
+ * is, and DASH, where the same list *is* the dash's step list — a plan run
+ * creates one task per step, so the checklist and the ledger are the same walk
+ * seen from two sides. Composed rather than copied, so the two readings cannot
+ * drift into two vocabularies.
+ */
+export function TaskListItems({
+  tasks,
+  idle,
+}: {
+  tasks: TaskListState["tasks"];
+  idle: boolean;
+}): React.ReactElement {
+  return (
+    <>
+      {tasks.map((task, index) => {
+        // Always the `subject` — it carries the task's stable identity.
+        // The present-continuous `activeForm` reads nicely inline but
+        // drops that identity, so the popup keeps every row reading
+        // the same way regardless of status.
+        //
+        // The ordinal is the list's source position, which is the
+        // order the assistant wrote it in and the order the rows
+        // render in.
+        const text = (
+          <TugPopupListItemText
+            primary={
+              <>
+                <span className="session-tasks-popover-ordinal">
+                  {index + 1}.
+                </span>
+                {task.subject}
+              </>
+            }
+          />
+        );
+        return (
+          <TugPopupListItem
+            key={task.taskId}
+            className="session-tasks-popover-item"
+            data-status={task.status}
+            indicator={
+              <TugProgressIndicator
+                variant="pulsing-dot"
+                size={14}
+                state={taskRowState(task.status, idle)}
+                aria-label={`task ${task.status}`}
+              />
+            }
+          >
+            {task.description === undefined ? (
+              text
+            ) : (
+              <TugTooltip content={task.description} side="top" align="start">
+                {text}
+              </TugTooltip>
+            )}
+          </TugPopupListItem>
+        );
+      })}
+    </>
+  );
+}
+
 export function TasksPopoverContent({
   state,
   idle,
@@ -750,51 +820,7 @@ export function TasksPopoverContent({
       }
     >
       <TugPopupListScroller data-slot="session-tasks-popover-body">
-        {state.tasks.map((task, index) => {
-          // Always the `subject` — it carries the task's stable identity.
-          // The present-continuous `activeForm` reads nicely inline but
-          // drops that identity, so the popup keeps every row reading
-          // the same way regardless of status.
-          //
-          // The ordinal is the list's source position, which is the
-          // order the assistant wrote it in and the order the rows
-          // render in.
-          const text = (
-            <TugPopupListItemText
-              primary={
-                <>
-                  <span className="session-tasks-popover-ordinal">
-                    {index + 1}.
-                  </span>
-                  {task.subject}
-                </>
-              }
-            />
-          );
-          return (
-            <TugPopupListItem
-              key={task.taskId}
-              className="session-tasks-popover-item"
-              data-status={task.status}
-              indicator={
-                <TugProgressIndicator
-                  variant="pulsing-dot"
-                  size={14}
-                  state={taskRowState(task.status, idle)}
-                  aria-label={`task ${task.status}`}
-                />
-              }
-            >
-              {task.description === undefined ? (
-                text
-              ) : (
-                <TugTooltip content={task.description} side="top" align="start">
-                  {text}
-                </TugTooltip>
-              )}
-            </TugPopupListItem>
-          );
-        })}
+        <TaskListItems tasks={state.tasks} idle={idle} />
       </TugPopupListScroller>
     </TugPopupListFrame>
   );
@@ -1234,6 +1260,78 @@ export function JobsPopoverContent({
           "Finished",
           jobs.filter((j) => isTerminalJobStatus(j.status)).map(renderRow),
           counts.finished === 0,
+        )}
+      </TugPopupListScroller>
+    </TugPopupListFrame>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dash popover
+// ---------------------------------------------------------------------------
+
+/**
+ * `DASH` popup — opened from the status row's fourth cell while the session is
+ * driving a dash, in place of the `TASKS` reading.
+ *
+ * The cockpit detail for one dash, in the vocabulary the Lens and the Changes
+ * shade already speak: the dash's own atom, then `DashMetaLine` at the reading
+ * scale (the step ring with its run band, the stage glyph, the round count, the
+ * current step's title, the age, and every divergence fact the dash carries),
+ * then the [D100] checklist that is a plan run's step list seen from the task
+ * side. Composed, not restated — every mark here is the same component the row
+ * surfaces render, so the three readings of one dash cannot disagree.
+ *
+ * The one exit is `Show in Changes`, which reveals this card's own Changes
+ * shade. That is where every decision about a dash lives, and a placard is a
+ * reading rather than a room.
+ *
+ * `/tasks` still opens the TASKS placard while this one is reachable by click.
+ * Two readings from one cell is intended: the click asks what the dash is
+ * doing, the command asks what the checklist says.
+ */
+export function DashPopoverContent({
+  fact,
+  tasks,
+  idle,
+  onShowInChanges,
+}: {
+  fact: DashSessionFact;
+  tasks: TaskListState["tasks"];
+  idle: boolean;
+  onShowInChanges: () => void;
+}): React.ReactElement {
+  return (
+    <TugPopupListFrame
+      kind="item"
+      footer={
+        <TugPopupListFooter summary={fact.stage ?? "dash"}>
+          <TugPushButton
+            size="2xs"
+            emphasis="ghost"
+            aria-label="Show this dash in Changes"
+            onClick={onShowInChanges}
+          >
+            Show in Changes
+          </TugPushButton>
+        </TugPopupListFooter>
+      }
+    >
+      <TugPopupListScroller data-slot="session-dash-popover-body">
+        <div className="session-dash-popover-head">
+          <DashSigil
+            name={fact.name}
+            review={null}
+            slot="session-dash-popover-name"
+            atom
+            atomSize="2xs"
+          />
+          <DashMetaLine entry={fact.entry} size="sm" />
+        </div>
+        {tasks.length === 0 ? (
+          <TugPopupListEmpty form="word">None</TugPopupListEmpty>
+        ) : (
+          <TaskListItems tasks={tasks} idle={idle} />
         )}
       </TugPopupListScroller>
     </TugPopupListFrame>

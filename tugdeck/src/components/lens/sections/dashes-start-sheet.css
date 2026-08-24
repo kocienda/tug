@@ -1,0 +1,44 @@
+/* The Start-a-dash sheet's body — appearance only ([L06]).
+
+   Two stacked fields over the sheet's own action row. Stacked rather than
+   side by side because the host pane is the Lens rail: 420px at rest, 320px
+   dragged in, which a two-column field row cannot hold without the labels
+   wrapping into each other. */
+
+.lens-start-dash {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}
+
+.lens-start-dash-label {
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The label already says the field is there; "optional" is the fact that
+   changes what a reader does with it, so it reads quieter than the label
+   rather than louder. */
+.lens-start-dash-optional {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* Where the prompt lands, or why it cannot — the sentence the action row's
+   disabled Start would otherwise have to carry alone. */
+.lens-start-dash-where {
+  margin: 0;
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* The empty state's own line: the sentence sits above its button rather than
+   beside it, so the button keeps the section's left margin instead of
+   floating in the middle of an otherwise empty band. */
+.lens-dashes-empty-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+}

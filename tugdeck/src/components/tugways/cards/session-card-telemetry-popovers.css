@@ -301,3 +301,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ============================================================================
+   Dash — the cockpit detail's header block
+   ========================================================================= */
+
+/* The dash's identity over its metadata line, above the checklist. A block
+   rather than a popup-list item: it is the placard's subject, not one of its
+   rows, and the items beneath it are the run's steps. */
+.session-dash-popover-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  min-width: 0;
+  padding: var(--tug-space-xs) var(--tug-space-sm);
+}

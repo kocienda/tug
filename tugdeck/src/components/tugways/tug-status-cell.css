@@ -200,6 +200,39 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The DASH reading of the work cell — the same box, a different subject.
+
+   While the bound session drives a dash the fourth cell reads DASH rather
+   than TASKS, inside the width the table above already measured for it: the
+   `data-priority` is unchanged, so nothing in this file moves and the row's
+   geometry cannot shift when a session picks a dash up.
+
+   Which half gives way under pressure is the whole design. The name elides;
+   the fraction does not shrink, because a clipped numeral is a lie about how
+   far along the run is, while a clipped name is still recognizable and the
+   whole of it is on the placard and the cell's accessible label. */
+.session-telemetry-status-value-dash {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.session-telemetry-status-dash-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `tabular-nums` for the reason every other ticking figure in this row has
+   it: a fraction that reflowed as its digits changed would jitter the pair. */
+.session-telemetry-status-dash-fraction {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Dim the indicator + label when the cell is empty so it reads as a
    quiet placeholder. */
 /* @tug-renders-on var(--tug7-surface-card-primary-normal-status-rest) */

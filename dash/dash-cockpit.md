@@ -346,11 +346,11 @@ Eligibility ([P04]): followed card exists → card has a session binding → bin
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The docs directory's plans join the wire | pending | — |
-| #step-2 | Plan rows join the Dashes section | pending | — |
-| #step-3 | Start a dash from the Lens | pending | — |
-| #step-4 | The Z2 cell reads DASH | pending | — |
-| #step-5 | Integration Checkpoint | pending | — |
+| #step-1 | The docs directory's plans join the wire | done | `4cdf966db` |
+| #step-2 | Plan rows join the Dashes section | done | `7f078db81` |
+| #step-3 | Start a dash from the Lens | done | `eee200dd0` |
+| #step-4 | The Z2 cell reads DASH | done | `38771b1c6` |
+| #step-5 | Integration Checkpoint | done | `d79c180c5` |
 
 #### Step 1: The docs directory's plans join the wire {#step-1}
 
