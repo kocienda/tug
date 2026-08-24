@@ -222,7 +222,7 @@ fn temp_repo_without_redirect(repo_root: &Path, data_dir: Option<&std::ffi::OsSt
 /// Debug builds only: the shipping app never runs this check, and a user whose
 /// real project genuinely lives under a temp path is not second-guessed.
 #[cfg(debug_assertions)]
-fn refuse_unredirected_temp_repo(repo_root: &Path) {
+pub(crate) fn refuse_unredirected_temp_repo(repo_root: &Path) {
     let data_dir = std::env::var_os(tugcore::instance::ENV_DATA_DIR);
     assert!(
         !temp_repo_without_redirect(repo_root, data_dir.as_deref()),
@@ -236,7 +236,7 @@ fn refuse_unredirected_temp_repo(repo_root: &Path) {
 }
 
 #[cfg(not(debug_assertions))]
-fn refuse_unredirected_temp_repo(_repo_root: &Path) {}
+pub(crate) fn refuse_unredirected_temp_repo(_repo_root: &Path) {}
 
 // --- declarations ----------------------------------------------------------
 

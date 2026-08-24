@@ -510,9 +510,24 @@ fn remove_dash_worktree(repo: &Path, branch: &str, worktree: &Path, warnings: &m
     }
 }
 
+/// The four branch-config keys a dash carries, each spelled in exactly one
+/// place.
+///
+/// Every one of them hangs off `branch.tugdash/<name>.`, built from the **raw**
+/// dash name — not the sanitized spelling `worktree_path` uses for directories.
+/// They were previously composed inline at five call sites in three different
+/// forms, which is one typo away from a dash that silently forgets its base.
+pub(crate) fn base_config_key(name: &str) -> String {
+    format!("branch.{}.tugbase", branch_name(name))
+}
+
+pub(crate) fn description_config_key(name: &str) -> String {
+    format!("branch.{}.description", branch_name(name))
+}
+
 /// Resolve a dash's base branch: git config first ([P03]), else detection.
 pub(crate) fn dash_base(repo: &Path, name: &str) -> Result<String, String> {
-    if let Some(base) = config_get(repo, &format!("branch.tugdash/{}.tugbase", name)) {
+    if let Some(base) = config_get(repo, &base_config_key(name)) {
         return Ok(base);
     }
     detect_default_branch(repo).map_err(|e| e.to_string())
@@ -521,7 +536,7 @@ pub(crate) fn dash_base(repo: &Path, name: &str) -> Result<String, String> {
 // --- dash identity ---------------------------------------------------------
 
 /// A dash's creation id lives in its branch config, beside `tugbase`.
-fn tugid_config_key(name: &str) -> String {
+pub(crate) fn tugid_config_key(name: &str) -> String {
     format!("branch.tugdash/{}.tugid", name)
 }
 
@@ -673,7 +688,7 @@ pub fn create(
     // Idempotent: a fully-present dash returns as-is, with no re-hydration.
     if have_branch && have_worktree {
         let description = description
-            .or_else(|| config_get(&repo_root, &format!("branch.{}.description", branch)));
+            .or_else(|| config_get(&repo_root, &description_config_key(name)));
         let base = dash_base(&repo_root, name).unwrap_or(base_branch);
         // A revisit is a write-path touch, so an id-less dash from an older
         // build gains its id here ([P02]).
@@ -751,16 +766,12 @@ pub fn create(
     // Record the base branch and description in git config.
     let _ = git_output(
         &repo_root,
-        &[
-            "config",
-            &format!("branch.{}.tugbase", branch),
-            &base_branch,
-        ],
+        &["config", &base_config_key(name), &base_branch],
     );
     if let Some(desc) = description.as_deref() {
         let _ = git_output(
             &repo_root,
-            &["config", &format!("branch.{}.description", branch), desc],
+            &["config", &description_config_key(name), desc],
         );
     }
 
@@ -908,7 +919,7 @@ pub fn list() -> Result<Vec<DashListItem>, String> {
         let base = dash_base(&repo_root, &name)?;
         let round_count = dash_rounds(&repo_root, &base, branch).len() as i64;
         let worktree = worktree_path(&repo_root, &name);
-        let description = config_get(&repo_root, &format!("branch.{}.description", branch));
+        let description = config_get(&repo_root, &description_config_key(&name));
 
         items.push(DashListItem {
             id: Some(dash_owner_key(&repo_root, &name)),
@@ -1305,6 +1316,41 @@ pub struct DashStatus {
     /// When this dash was last touched — the newest dash-log line's timestamp
     /// for the current generation, ISO-8601 UTC.
     pub last_activity: Option<String>,
+    /// The standing conflict, when this dash has one.
+    ///
+    /// Derived at read time from `refs/tug/conflict/<name>` and absent — not
+    /// zeroed — when no *valid* chain stands, so the field's presence is the
+    /// answer to "is this dash conflicted" and a stale chain can never
+    /// masquerade as a live one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<ConflictSummary>,
+}
+
+/// What a standing conflict looks like from outside: how many paths it holds
+/// and how many of them are done.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConflictSummary {
+    /// Paths the ladder could not settle.
+    pub paths_total: usize,
+    /// How many of those are marker-free at the chain's tip — the resolver's
+    /// progress, counted from the tree rather than declared anywhere.
+    pub paths_resolved: usize,
+    /// Paths a machine rung settled before the ladder gave up.
+    pub machine_resolved: usize,
+}
+
+/// Summarize a dash's standing conflict, or `None` when none does.
+pub fn conflict_summary(repo_root: &Path, name: &str) -> Option<ConflictSummary> {
+    let chain = crate::resolve::valid_conflict(repo_root, name)?;
+    let paths: Vec<String> = chain.record.paths.iter().map(|p| p.path.clone()).collect();
+    // Progress is read off the tip's tree, never declared: a count somebody
+    // wrote down is a count that can disagree with the files.
+    let still_conflicted = crate::resolve::marker_paths_in_tree(repo_root, &chain.tip, &paths);
+    Some(ConflictSummary {
+        paths_total: paths.len(),
+        paths_resolved: paths.len().saturating_sub(still_conflicted.len()),
+        machine_resolved: chain.record.resolved.len(),
+    })
 }
 
 /// The stage a dash is in, from what git derives and what the dash declared.
@@ -1457,6 +1503,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         step_title: declarations.step_title.clone(),
         plan_path,
         last_activity: declarations.last_activity.clone(),
+        conflict: conflict_summary(repo_root, name),
     })
 }
 
@@ -1471,7 +1518,7 @@ pub fn status(name: &str) -> Result<DashStatus, String> {
 
 /// A dash's plan association lives in its branch config, beside `tugid` ([P08])
 /// — so `git branch -D` at teardown takes it with the rest of the section.
-fn plan_config_key(name: &str) -> String {
+pub(crate) fn plan_config_key(name: &str) -> String {
     format!("branch.tugdash/{}.tugplan", name)
 }
 
@@ -3445,6 +3492,25 @@ pub fn join_in_with_progress(
         return Err(empty_detail(name, &base_branch));
     }
 
+    // Record the operation before the integrate, and after the dirt sweep above
+    // — the sweep's commit is work the dash owns, so a `before` read any
+    // earlier would describe a dash missing it. Every refusal above this line
+    // touched nothing that needs undoing, which is why the record starts here
+    // rather than at the verb's entry.
+    //
+    // The keepalive is what survives the teardown: `branch -D` below would
+    // otherwise leave the dash's rounds reachable only from a reflog on a
+    // clock.
+    let op_before = crate::oplog::capture_before(&repo_root, name)?;
+    let op_tips = crate::oplog::tips_of(&op_before);
+    crate::oplog::record_begin(
+        &repo_root,
+        crate::oplog::OpVerb::Join,
+        name,
+        op_before,
+        &op_tips,
+    )?;
+
     // Land a pre-built candidate from the resolution ladder ([P31]) instead of
     // merging the dash branch. The candidate is the resolved bytes; `strategy`
     // still decides the shape, and the journaled teardown is the same one.
@@ -3732,6 +3798,29 @@ fn finish_join_teardown(
     };
     append_dash_log(repo_root, name, &short, &note).map_err(|e| e.to_string())?;
     clear_join_journal(repo_root, name);
+
+    // Close the op record. This function is also the `--continue` entry point
+    // and receives only the journal, which carries no sequence number — so the
+    // op is found by asking for this dash's newest incomplete join rather than
+    // by being handed one. A completion that cannot find its op is a warning,
+    // never a failure: the join happened, and an op left without an `after` is
+    // exactly the `incomplete-op` state undo refuses honestly.
+    match crate::oplog::newest_incomplete(repo_root, name, crate::oplog::OpVerb::Join) {
+        Some(op) => {
+            let after = crate::oplog::OpAfter {
+                base_tip: git_stdout(repo_root, &["rev-parse", &journal.base_branch]).ok(),
+                landed_commit: Some(journal.commit_hash.clone()),
+                ..Default::default()
+            };
+            if let Err(e) = crate::oplog::record_complete(repo_root, op.seq, after) {
+                warnings.push(format!("Failed to complete the op-log record: {}", e));
+            }
+        }
+        None => warnings.push(format!(
+            "No open op-log record for the join of '{}'; it cannot be undone.",
+            name
+        )),
+    }
     on_beat("record", "done");
 
     Ok(JoinOutcome {
@@ -3794,6 +3883,24 @@ pub fn discard_in(
     // without this, discarding a dash would permanently destroy the user's
     // plan document. A plan is not the work; it is the authored document that
     // predates the dash and outlives it.
+    // Everything above this line refuses without touching anything, so the
+    // record starts here — at the first write, with the branch still standing
+    // and its config still readable.
+    let op_seq = match crate::oplog::capture_before(&repo_root, name) {
+        Ok(before) => {
+            let tips = crate::oplog::tips_of(&before);
+            crate::oplog::record_begin(
+                &repo_root,
+                crate::oplog::OpVerb::Discard,
+                name,
+                before,
+                &tips,
+            )
+            .map_err(|e| format!("cannot record the discard in the op log: {e}"))?
+        }
+        Err(e) => return Err(format!("cannot record the discard in the op log: {e}")),
+    };
+
     let plan_restored = restore_plan_to_base(&repo_root, name, &branch, &mut warnings);
     let work_restored = apply_hand_back(&repo_root, &worktree, &hand, &mut warnings);
 
@@ -3826,6 +3933,20 @@ pub fn discard_in(
         &origin.map_or(String::new(), |o| format!("via {o}")),
     )
     .map_err(|e| e.to_string())?;
+
+    // The handed-back paths are the discard's one irreversible half: they were
+    // copied into the base checkout, and an undo names them rather than
+    // clawing them back.
+    if let Err(e) = crate::oplog::record_complete(
+        &repo_root,
+        op_seq,
+        crate::oplog::OpAfter {
+            handed_back: work_restored.clone(),
+            ..Default::default()
+        },
+    ) {
+        warnings.push(format!("Failed to complete the op-log record: {}", e));
+    }
 
     Ok(DiscardOutcome {
         name: name.to_string(),
@@ -7688,6 +7809,255 @@ Some context.
         let b = blocker(&out, "off-base").expect("off-base blocker");
         assert!(b.detail.contains("Check out"), "{}", b.detail);
         assert!(b.paths.is_empty());
+    }
+
+    #[serial]
+    #[test]
+    fn undo_of_a_join_restores_the_base_the_branch_and_its_config() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "undome");
+        let repo = temp.path();
+        git_output(
+            repo,
+            &["config", "branch.tugdash/undome.description", "a description"],
+        )
+        .unwrap();
+        git_output(
+            repo,
+            &["config", "branch.tugdash/undome.tugplan", "dash/p.md"],
+        )
+        .unwrap();
+        let dash_tip = git_stdout(repo, &["rev-parse", "tugdash/undome"]).unwrap();
+        let base_tip = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        let tugid = config_get(repo, &tugid_config_key("undome"));
+
+        join("undome", mechanics()).unwrap();
+        assert_ne!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_tip);
+
+        let out = crate::oplog::undo_in(repo, None).unwrap();
+
+        assert_eq!(out.verb, crate::oplog::OpVerb::Join);
+        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_tip);
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "tugdash/undome"]).unwrap(),
+            dash_tip,
+            "the branch is back at the tip the join consumed"
+        );
+        assert!(
+            worktree_path(repo, "undome").exists(),
+            "and its worktree with it"
+        );
+        // `branch -D` took the whole config section; the undo puts every fact
+        // back, or the restored dash has forgotten what it is.
+        assert_eq!(dash_base(repo, "undome").unwrap(), "main");
+        assert_eq!(
+            config_get(repo, &description_config_key("undome")).as_deref(),
+            Some("a description")
+        );
+        assert_eq!(config_get(repo, &tugid_config_key("undome")), tugid);
+        assert_eq!(dash_plan_path(repo, "undome").as_deref(), Some("dash/p.md"));
+        assert!(out.restored_unbound, "rebinding is the user's gesture");
+    }
+
+    #[serial]
+    #[test]
+    fn undo_refuses_when_the_base_moved_since_the_join() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "raced");
+        let repo = temp.path();
+        join("raced", mechanics()).unwrap();
+
+        // Somebody committed on the base after the join. Resetting now would
+        // destroy it, so the undo must decline rather than force.
+        fs::write(repo.join("after.txt"), "landed later\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "later work"]).unwrap();
+        let tip_now = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+
+        let err = crate::oplog::undo_in(repo, None).unwrap_err();
+        assert!(err.starts_with("tip-moved:"), "{err}");
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+            tip_now,
+            "a refused undo changes nothing"
+        );
+        assert!(!branch_exists(repo, "tugdash/raced"));
+    }
+
+    #[serial]
+    #[test]
+    fn undo_is_offered_once_and_says_so_the_second_time() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "twice");
+        let repo = temp.path();
+        join("twice", mechanics()).unwrap();
+
+        crate::oplog::undo_in(repo, None).unwrap();
+        let err = crate::oplog::undo_in(repo, Some("twice")).unwrap_err();
+        assert!(err.starts_with("already-undone:"), "{err}");
+    }
+
+    #[serial]
+    #[test]
+    fn undo_refuses_an_operation_that_never_finished() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "halfway");
+        let repo = temp.path();
+        let before = crate::oplog::capture_before(repo, "halfway").unwrap();
+        let tips = crate::oplog::tips_of(&before);
+        crate::oplog::record_begin(repo, crate::oplog::OpVerb::Join, "halfway", before, &tips)
+            .unwrap();
+
+        let err = crate::oplog::undo_in(repo, Some("halfway")).unwrap_err();
+        assert!(err.starts_with("incomplete-op:"), "{err}");
+    }
+
+    #[serial]
+    #[test]
+    fn undo_of_a_discard_rebuilds_the_dash_and_leaves_handed_back_work_alone() {
+        let (_temp, root) = repo_for_create(None);
+        fs::write(root.join("scratch.txt"), "notes\n").unwrap();
+        create("backagain", None, None, true, None).unwrap();
+        let dash_tip = git_stdout(&root, &["rev-parse", "tugdash/backagain"]).unwrap();
+        discard("backagain", None).unwrap();
+        assert_eq!(
+            fs::read_to_string(root.join("scratch.txt")).unwrap(),
+            "notes\n"
+        );
+
+        let out = crate::oplog::undo_in(&root, None).unwrap();
+
+        assert_eq!(out.verb, crate::oplog::OpVerb::Discard);
+        assert_eq!(
+            git_stdout(&root, &["rev-parse", "tugdash/backagain"]).unwrap(),
+            dash_tip
+        );
+        assert!(worktree_path(&root, "backagain").exists());
+        // The hand-back copied the file into the base checkout. Pulling it back
+        // out is what this engine never does, so the undo names it instead.
+        assert_eq!(
+            fs::read_to_string(root.join("scratch.txt")).unwrap(),
+            "notes\n",
+            "the handed-back file stays where the discard put it"
+        );
+        assert_eq!(
+            out.handed_back_left_in_place,
+            vec!["scratch.txt".to_string()]
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn undo_with_nothing_recorded_says_so() {
+        let (_temp, root) = repo_for_create(None);
+        let err = crate::oplog::undo_in(&root, None).unwrap_err();
+        assert!(err.starts_with("nothing-to-undo:"), "{err}");
+    }
+
+    #[serial]
+    #[test]
+    fn a_join_records_an_operation_that_outlives_the_branch_it_deleted() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "recorded");
+        let repo = temp.path();
+        let dash_tip = git_stdout(repo, &["rev-parse", "tugdash/recorded"]).unwrap();
+        let base_tip = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+
+        let landed = join("recorded", mechanics()).unwrap();
+
+        let op = crate::oplog::list_ops(repo)
+            .into_iter()
+            .find(|o| o.verb == crate::oplog::OpVerb::Join)
+            .expect("the join recorded an operation");
+        assert_eq!(op.dash, "recorded");
+        assert_eq!(op.before.dash_tip, dash_tip);
+        assert_eq!(op.before.base_tip, base_tip);
+        assert_eq!(op.before.base_branch, "main");
+        assert_eq!(op.before.config.tugbase.as_deref(), Some("main"));
+        let after = op.after.clone().expect("a completed join has an after");
+        assert_eq!(after.landed_commit, landed.commit_hash);
+        assert!(op.is_undoable());
+
+        // The teardown deleted the branch, and the keepalive is now the only
+        // thing holding its rounds. This is the property the whole log exists
+        // for: without it the rounds are reachable only from a reflog on a
+        // clock.
+        assert!(
+            !branch_exists(repo, "tugdash/recorded"),
+            "the join tore the branch down"
+        );
+        assert!(
+            git_output(repo, &["cat-file", "-e", &format!("{dash_tip}^{{commit}}")])
+                .unwrap()
+                .status
+                .success(),
+            "the pre-join dash head is still reachable"
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn a_join_records_the_dash_tip_including_the_dirt_it_swept() {
+        // The join sweeps outstanding worktree changes into a commit before it
+        // integrates. A `before` captured any earlier would name the commit
+        // below that sweep, and an undo would faithfully restore a dash missing
+        // the swept work.
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "sweeper");
+        let repo = temp.path();
+        let before_sweep = git_stdout(repo, &["rev-parse", "tugdash/sweeper"]).unwrap();
+        let worktree = repo.join(".tug/worktrees/sweeper");
+        fs::write(worktree.join("late.txt"), "typed after the round\n").unwrap();
+
+        join("sweeper", mechanics()).unwrap();
+
+        let op = crate::oplog::list_ops(repo)
+            .into_iter()
+            .find(|o| o.verb == crate::oplog::OpVerb::Join)
+            .expect("the join recorded an operation");
+        assert_ne!(
+            op.before.dash_tip, before_sweep,
+            "the recorded tip is past the round, because the sweep committed"
+        );
+        let swept = git_stdout(
+            repo,
+            &["show", "--name-only", "--format=", &op.before.dash_tip],
+        )
+        .unwrap();
+        assert!(
+            swept.contains("late.txt"),
+            "the recorded tip is the sweep commit itself: {swept}"
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn a_discard_records_what_it_handed_back() {
+        let (_temp, root) = repo_for_create(None);
+        fs::write(root.join("scratch.txt"), "notes\n").unwrap();
+        create("recorder", None, None, true, None).unwrap();
+        let dash_tip = git_stdout(&root, &["rev-parse", "tugdash/recorder"]).unwrap();
+
+        discard("recorder", None).unwrap();
+
+        let op = crate::oplog::list_ops(&root)
+            .into_iter()
+            .find(|o| o.verb == crate::oplog::OpVerb::Discard)
+            .expect("the discard recorded an operation");
+        assert_eq!(op.before.dash_tip, dash_tip);
+        let after = op.after.expect("a completed discard has an after");
+        assert_eq!(
+            after.handed_back,
+            vec!["scratch.txt".to_string()],
+            "the handed-back paths are named, because an undo cannot claw them back"
+        );
+        assert!(
+            git_output(&root, &["cat-file", "-e", &format!("{dash_tip}^{{commit}}")])
+                .unwrap()
+                .status
+                .success(),
+            "the discarded dash's tip survives its branch"
+        );
     }
 
     #[serial]

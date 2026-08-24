@@ -67,6 +67,9 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             quiet,
         ),
         DashCommands::Replay { name } => return run_replay(&name, json, quiet),
+        DashCommands::Undo { name, list } => {
+            return run_undo(name.as_deref(), list, json, quiet);
+        }
         DashCommands::Discard { name } => run_discard(&name, json, quiet),
         DashCommands::Config => run_config(json, quiet),
         DashCommands::DocsDir { set } => run_docs_dir(set, json, quiet),
@@ -565,6 +568,98 @@ fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
         print_replay(name, &outcome);
     }
     ExitCode::from(replay_exit_status(&outcome))
+}
+
+fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
+    let repo = match tugutil_core::find_repo_root() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+
+    if list {
+        let ops: Vec<_> = tugdash_core::list_ops(&repo)
+            .into_iter()
+            .filter(|op| name.is_none_or(|n| op.dash == n))
+            .collect();
+        if json {
+            print_ok("dash undo", &ops);
+        } else if !quiet {
+            print_oplog(&ops);
+        }
+        return ExitCode::from(0);
+    }
+
+    let outcome = match tugdash_core::undo_in(&repo, name) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+    if json {
+        print_ok("dash undo", &outcome);
+    } else if !quiet {
+        print_undo(&outcome);
+    }
+    ExitCode::from(0)
+}
+
+fn print_oplog(ops: &[tugdash_core::OpPayload]) {
+    if ops.is_empty() {
+        println!("No operations recorded.");
+        return;
+    }
+    for op in ops {
+        // Say why an operation cannot be undone, rather than only whether —
+        // "died mid-flight" and "already reversed" are different facts and the
+        // difference is what a reader acts on. The undoable case asks
+        // `is_undoable` rather than re-deriving it, so the list cannot promise
+        // an undo the verb would then decline.
+        let state = match (&op.after, op.undone_by) {
+            (_, Some(by)) => format!("undone by {}", by),
+            (None, _) => "incomplete".to_string(),
+            _ if op.is_undoable() => "undoable".to_string(),
+            _ => "not undoable".to_string(),
+        };
+        println!(
+            "  {:>4}  {:<8} {:<20} {}  ({})",
+            op.seq,
+            op.verb.as_str(),
+            op.dash,
+            op.recorded_at,
+            state
+        );
+    }
+}
+
+fn print_undo(outcome: &tugdash_core::UndoOutcome) {
+    println!(
+        "Undid the {} of {} (operation {})",
+        outcome.verb.as_str(),
+        outcome.dash,
+        outcome.seq
+    );
+    if let Some(base) = &outcome.base_tip {
+        println!("  base back at {}", short(base));
+    }
+    if let Some(tip) = &outcome.dash_tip {
+        println!("  {} restored at {}", outcome.dash, short(tip));
+    }
+    if !outcome.handed_back_left_in_place.is_empty() {
+        println!(
+            "  left in the base checkout (handed back by the discard, not clawed back): {}",
+            outcome.handed_back_left_in_place.join(", ")
+        );
+    }
+    if outcome.restored_unbound {
+        println!("  restored unbound — bind it to resume piloting");
+    }
+    for w in &outcome.warnings {
+        println!("  warning: {}", w);
+    }
 }
 
 fn short(sha: &str) -> &str {

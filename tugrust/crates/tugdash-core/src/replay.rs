@@ -86,6 +86,44 @@ impl ReplayOutcome {
     }
 }
 
+/// A replay's op-log record, open from the moment before the first write.
+///
+/// Replay has two mutating arms and four that touch nothing, so the record is
+/// opened per arm rather than at the verb's entry — and it is opened *before*
+/// the write, so a crash between the write and the record cannot lose the
+/// rounds. An arm that turns out to refuse abandons the record, which removes
+/// it: a replay that declined did not happen, and the log must not claim it
+/// did.
+struct OpenOp {
+    seq: u64,
+}
+
+impl OpenOp {
+    fn begin(repo: &Path, name: &str) -> Result<Self, String> {
+        let before = crate::oplog::capture_before(repo, name)?;
+        let tips = crate::oplog::tips_of(&before);
+        let seq = crate::oplog::record_begin(repo, crate::oplog::OpVerb::Replay, name, before, &tips)?;
+        Ok(OpenOp { seq })
+    }
+
+    /// The branch moved: read the tip back rather than trusting what was
+    /// computed. `reconcile_ledger_cells` can land a remap round *after* the
+    /// swap, so the tip a replay leaves is one commit past the mapping's tail
+    /// whenever the ledger had cells to rewrite.
+    fn complete(&self, repo: &Path, branch: &str, mapping: Vec<(String, String)>) {
+        let after = crate::oplog::OpAfter {
+            dash_tip: git_stdout(repo, &["rev-parse", branch]).ok(),
+            mapping,
+            ..Default::default()
+        };
+        let _ = crate::oplog::record_complete(repo, self.seq, after);
+    }
+
+    fn abandon(&self, repo: &Path) {
+        crate::oplog::abandon(repo, self.seq);
+    }
+}
+
 /// Like [`replay_onto`], but discovering the repo root from the process cwd —
 /// the `tugutil dash replay` entry point. `main_repo_root` normalization inside
 /// means it answers the same from the base checkout and from inside any dash
@@ -147,12 +185,23 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String
     // made by hand leaves the record pointing at commits that are no longer
     // there, and this is where that gets repaired.
     if is_ancestor(repo, &base_head, &branch) {
+        // The bookkeeping arm still commits — `reconcile_ledger_cells` lands a
+        // remap round when the plan ledger had cells to rewrite — so it records
+        // like any other mutation. It is a separate site because this arm
+        // returns before the branch move below ever runs; a record placed only
+        // there would miss every repair of a hand-rebased dash.
+        let op = OpenOp::begin(repo, name)?;
         let reconciled =
             reconcile_ledger_cells(repo, name, &worktree, &branch, &base_branch, None)?;
         if !reconciled.touched_anything() {
+            // Nothing moved, so nothing is recorded: `Current` is the outcome
+            // that leaves the repository exactly as it found it, and an op
+            // record for a no-op is a row the undo list would have to explain.
+            op.abandon(repo);
             return Ok(ReplayOutcome::Current);
         }
         log_replay(repo, name, &recorded_note(repo, &base_head, &reconciled))?;
+        op.complete(repo, &branch, Vec::new());
         return Ok(ReplayOutcome::Recorded {
             base_head,
             remapped: reconciled.remapped,
@@ -177,7 +226,11 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String
             paths,
         }),
         ReplayWalk::Clean(replayed) => {
+            // Before the compare-and-swap, because that is the moment the
+            // pre-replay rounds stop being reachable from any branch.
+            let op = OpenOp::begin(repo, name)?;
             if let Some(refusal) = cas_reset(&worktree, &tip_at_probe, &replayed.head)? {
+                op.abandon(repo);
                 return Ok(refusal);
             }
             log_replay(
@@ -193,6 +246,7 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String
                 &base_branch,
                 Some(&replayed.mapping),
             )?;
+            op.complete(repo, &branch, replayed.mapping.clone());
             Ok(ReplayOutcome::Replayed {
                 base_head,
                 mapping: replayed.mapping,
@@ -661,6 +715,124 @@ mod tests {
             .iter()
             .filter_map(|r| r.commit.clone())
             .collect()
+    }
+
+    #[test]
+    #[serial]
+    fn a_replay_records_the_tip_it_actually_left_not_the_mapping_tail() {
+        // The ledger's cell points at the round, so reconciliation rewrites it
+        // and lands a remap round *after* the branch move. That commit is the
+        // tip a later undo must compare against; the mapping's tail is one
+        // commit short of it, and an undo built on the tail would refuse every
+        // remapped replay as `tip-moved`.
+        let f = init(&[("g.txt", "dash\n", "add g")]);
+        let round = f.tip("tugdash/demo");
+        plan_with_cells(&f, &[("step-1", "One", &round[..9])]);
+        // `plan_with_cells` commits the plan as a further round, so the
+        // pre-replay tip is that commit rather than the round above it.
+        let pre_replay = f.tip("tugdash/demo");
+        f.advance_base("f.txt", "B\n", "base moves");
+
+        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let ReplayOutcome::Replayed {
+            mapping,
+            bookkeeping_commit,
+            ..
+        } = &outcome
+        else {
+            panic!("expected a replay, got {outcome:?}");
+        };
+        let bookkeeping = bookkeeping_commit
+            .clone()
+            .expect("the ledger cell was rewritten, so a remap round landed");
+
+        let op = crate::oplog::list_ops(f.path())
+            .into_iter()
+            .find(|o| o.verb == crate::oplog::OpVerb::Replay)
+            .expect("the replay recorded an operation");
+        let after = op.after.expect("a completed replay has an after");
+        let recorded_tip = after.dash_tip.expect("the tip is recorded");
+
+        assert_eq!(
+            recorded_tip,
+            f.tip("tugdash/demo"),
+            "the record names the branch tip as it actually stands"
+        );
+        assert_eq!(recorded_tip, bookkeeping, "which is the remap round");
+        assert_ne!(
+            recorded_tip,
+            mapping.last().unwrap().1,
+            "and is one commit past the mapping's tail — the case this guards"
+        );
+        assert_eq!(
+            op.before.dash_tip, pre_replay,
+            "the before-tip is the branch as it stood before the replay"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn undo_of_a_remapped_replay_puts_the_branch_back() {
+        // The end-to-end version of the tip question: with a ledger cell to
+        // rewrite, the replay leaves a bookkeeping round on top, and the undo's
+        // compare-and-swap has to expect *that* commit. Built on the mapping's
+        // tail it would refuse here with `tip-moved`.
+        let f = init(&[("g.txt", "dash\n", "add g")]);
+        let round = f.tip("tugdash/demo");
+        plan_with_cells(&f, &[("step-1", "One", &round[..9])]);
+        let pre_replay = f.tip("tugdash/demo");
+        f.advance_base("f.txt", "B\n", "base moves");
+        replay_onto(f.path(), "demo").unwrap();
+        assert_ne!(f.tip("tugdash/demo"), pre_replay);
+
+        let out = crate::oplog::undo_in(f.path(), Some("demo")).unwrap();
+
+        assert_eq!(out.verb, crate::oplog::OpVerb::Replay);
+        assert_eq!(
+            f.tip("tugdash/demo"),
+            pre_replay,
+            "the branch is back where the replay found it"
+        );
+        assert_eq!(
+            git_stdout(&f.worktree(), &["rev-parse", "HEAD"]).unwrap(),
+            pre_replay,
+            "and the worktree came with it, rather than being left behind"
+        );
+        // The ledger cell is back to naming the original round, because the
+        // remap round is no longer reachable from the branch.
+        assert_eq!(cells(&f), vec![round[..9].to_string()]);
+    }
+
+    #[test]
+    #[serial]
+    fn undo_of_a_replay_refuses_when_a_round_landed_since() {
+        let f = init(&[("g.txt", "dash\n", "add g")]);
+        f.advance_base("f.txt", "B\n", "base moves");
+        replay_onto(f.path(), "demo").unwrap();
+        // A round committed after the replay would be silently dropped by a
+        // reset that did not check.
+        let later = f.round("h.txt", "typed later\n", "later round");
+
+        let err = crate::oplog::undo_in(f.path(), Some("demo")).unwrap_err();
+        assert!(err.starts_with("tip-moved:"), "{err}");
+        assert_eq!(f.tip("tugdash/demo"), later, "the later round is untouched");
+    }
+
+    #[test]
+    #[serial]
+    fn a_replay_with_nothing_to_do_records_no_operation() {
+        // `Current` leaves the repository exactly as it found it, so there is
+        // nothing to undo and the log must not grow a row that says otherwise.
+        let f = init(&[("g.txt", "dash\n", "add g")]);
+        let outcome = replay_onto(f.path(), "demo").unwrap();
+        assert!(
+            matches!(outcome, ReplayOutcome::Current),
+            "the base has not moved, got {outcome:?}"
+        );
+        assert!(
+            crate::oplog::list_ops(f.path()).is_empty(),
+            "a no-op replay records nothing"
+        );
     }
 
     #[test]

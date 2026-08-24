@@ -359,14 +359,14 @@ Every refusal is `Err` with one of these stated shapes, never a silent no-op: `n
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Op-log substrate | pending | — |
-| #step-2 | Record join, replay, discard | pending | — |
-| #step-3 | Undo core and CLI | pending | — |
-| #step-4 | Conflict-commit substrate | pending | — |
-| #step-5 | Ladder writes the conflict ref | pending | — |
-| #step-6 | Workshop materializes the ref | pending | — |
-| #step-7 | Resolver checkpoints and resume | pending | — |
-| #step-8 | Integration checkpoint | pending | — |
+| #step-1 | Op-log substrate | done | `f80664f2d` |
+| #step-2 | Record join, replay, discard | done | `0db90b3e8` |
+| #step-3 | Undo core and CLI | done | `86464f12b` |
+| #step-4 | Conflict-commit substrate | done | `285ea996a` |
+| #step-5 | Ladder writes the conflict ref | done | `285ea996a` |
+| #step-6 | Workshop materializes the ref | done | `6e0ca36a0` |
+| #step-7 | Resolver checkpoints and resume | done | `8c4c49259` |
+| #step-8 | Integration checkpoint | done | `00cd6c68f` |
 
 #### Step 1: Op-log substrate {#step-1}
 

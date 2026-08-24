@@ -3,9 +3,18 @@
 //! The ladder ([`crate::resolve`]) works a conflict as three blobs at a time,
 //! off to the side, and that is enough for a re-merge but not for an agent: a
 //! renamed symbol reconciled against a new call site needs the neighbors, and a
-//! build needs a tree. The workshop is that tree — `git merge --no-commit
-//! --no-ff` performed for real, with markers in the files and stages in the
-//! index, in a checkout nobody is looking at.
+//! build needs a tree. The workshop is that tree, in a checkout nobody is
+//! looking at.
+//!
+//! **It materializes a conflict; it does not create one.** What it opens on is
+//! the commit under `refs/tug/conflict/<name>` that the ladder parked — markers
+//! where the rungs gave up, their own resolutions already applied — so opening
+//! is a `reset --hard` and `MERGE_HEAD` never exists in a workshop's life. That
+//! inverts what the checkout is *for*: it used to be the only place an
+//! in-flight conflict lived, which made a crash, a tugcast restart, or a CLI
+//! join tearing the worktree down cost the resolution work. Now the conflict
+//! and every checkpoint on it are committed, and the worktree is a view that
+//! can be rebuilt from the ref at any time.
 //!
 //! **It is one stable worktree per dash, not a nonce per resolve, and that is
 //! economics rather than taste.** A fresh worktree carries no `node_modules`,
@@ -83,17 +92,34 @@ impl Workshop {
         &self.base_head
     }
 
-    /// Materialize the real merge: reset to the base head, then
-    /// `git merge --no-commit --no-ff <dash-branch>`.
+    /// Materialize the dash's standing conflict: reset the workshop to the
+    /// conflict chain's tip.
     ///
-    /// A conflicting merge is the expected case, so the merge's exit status is
-    /// not an error — the conflict markers and index stages it leaves behind
-    /// are the whole product. Only a failure to *reach* that state is an error.
-    pub fn open_merge(repo: &Path, name: &str) -> Result<Self, String> {
-        let ws = Self::ensure(repo, name)?;
-        ws.reset_to(&ws.base_head)?;
-        let dash_branch = branch_name(name);
-        let _ = git_output(&ws.path, &["merge", "--no-commit", "--no-ff", &dash_branch]);
+    /// **This is a checkout of committed data, not a merge.** The conflict —
+    /// markers where the ladder gave up, the rungs' own resolutions already
+    /// applied — is a commit under `refs/tug/conflict/`, so opening it is a
+    /// reset and `MERGE_HEAD` never comes into existence. What that buys is the
+    /// whole point of the ref: the workshop is now a *materialization* of
+    /// durable state rather than the only place the conflict lives, so a crash,
+    /// a tugcast restart, or a CLI join tearing the worktree down costs the
+    /// checkout and not the work.
+    ///
+    /// Refuses a stale chain rather than opening it: a conflict commit encodes
+    /// one merge of two specific tips, and once either has moved the tree it
+    /// holds describes a merge nobody is performing.
+    pub fn open_conflict(repo: &Path, name: &str) -> Result<Self, String> {
+        let repo_root = main_repo_root(repo);
+        let chain = crate::resolve::read_conflict(&repo_root, name).ok_or_else(|| {
+            format!("no conflict is recorded for '{name}' — run the resolve ladder first")
+        })?;
+        if !crate::resolve::conflict_is_valid(&repo_root, name, &chain) {
+            return Err(format!(
+                "the recorded conflict for '{name}' is stale — its base or dash head has moved \
+                 since it was written; resolve again"
+            ));
+        }
+        let ws = Self::ensure(&repo_root, name)?;
+        ws.reset_to(&chain.tip)?;
         Ok(ws)
     }
 
@@ -203,35 +229,21 @@ impl Workshop {
         commit_tree(&self.repo, &tree, &self.base_head, message)
     }
 
-    /// Check the named paths out of a tree the ladder already built, staging
-    /// them — which both writes the reconciled content and clears each path's
-    /// conflict stages from the index.
+    /// The paths the resolver must still finish — those carrying markers at the
+    /// tree the workshop is open on.
     ///
-    /// This is how the ladder's work reaches the resolver instead of being
-    /// thrown away: a `rerere` replay or a driver resolution the machines
-    /// already earned arrives as settled content, and the resolver's job over
-    /// it is the audit ([P10]) rather than the merge.
-    ///
-    /// Paths that are not in the tree are skipped rather than failed — a
-    /// resolution the ladder recorded for a path the merge later dropped is a
-    /// mismatch to leave to the resolver, not a reason to refuse the workshop.
-    pub fn apply_staged(&self, tree: &str, paths: &[String]) -> Result<(), String> {
-        for path in paths {
-            let _ = git_output(&self.path, &["checkout", tree, "--", path]);
-        }
-        Ok(())
-    }
-
-    /// The paths still holding conflict stages — what the resolver must finish.
+    /// This used to read the index for unmerged stages, which only had an
+    /// answer while a live merge was parked in the checkout. A materialized
+    /// conflict has a clean stage-0 index by construction, so the question is
+    /// now asked of the content, which is where it was always really settled:
+    /// the marker scan is what `commit` already refuses on.
     pub fn unresolved(&self) -> Result<Vec<String>, String> {
-        Ok(
-            git_stdout(&self.path, &["diff", "--name-only", "--diff-filter=U"])?
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty())
-                .map(str::to_string)
-                .collect(),
-        )
+        let repo_root = main_repo_root(&self.repo);
+        let Some(chain) = crate::resolve::read_conflict(&repo_root, &self.name) else {
+            return Ok(Vec::new());
+        };
+        let paths: Vec<String> = chain.record.paths.iter().map(|p| p.path.clone()).collect();
+        Ok(self.marker_paths(&paths))
     }
 
     /// Which of the named paths still carry conflict markers in their content.
@@ -247,23 +259,100 @@ impl Workshop {
                 let Ok(bytes) = std::fs::read(self.path.join(path)) else {
                     return false;
                 };
-                String::from_utf8_lossy(&bytes).lines().any(|l| {
-                    l.starts_with("<<<<<<<")
-                        || l.starts_with("=======")
-                        || l.starts_with(">>>>>>>")
-                        || l.starts_with("|||||||")
-                })
+                crate::resolve::has_conflict_markers(&bytes)
             })
             .cloned()
             .collect()
     }
 
-    /// Return the workshop to a clean base checkout and leave it hydrated.
+    /// Let the workshop go, leaving the conflict chain's tip checked out.
     ///
-    /// Best-effort by design: a workshop that fails to reset is reset again by
-    /// the next `open_*`, which is the same code path.
+    /// **It parks rather than wipes, and that is the decision this round made.**
+    /// Release used to reset to the base head, because what it was abandoning
+    /// was a half-merged checkout with a live `MERGE_HEAD` — genuine wreckage,
+    /// blocking anything that might help. Under conflicts-as-data there is no
+    /// merge state, and what a failed resolve leaves behind is a chain of
+    /// committed checkpoints: real work, named, auditable, and safe to resume
+    /// from. Wiping it would throw away every file the run had finished and
+    /// make the next resolve redo them.
+    ///
+    /// Nothing resumed this way can land unexamined: a candidate still has to
+    /// clear the marker, stage, and report refusals in [`Self::commit`], and
+    /// the audit still reads every machine decision.
     pub fn release(&self) {
-        let _ = self.reset_to(&self.base_head);
+        let repo_root = main_repo_root(&self.repo);
+        match crate::resolve::read_conflict(&repo_root, &self.name) {
+            Some(chain) => {
+                let _ = self.reset_to(&chain.tip);
+            }
+            // No chain to park on — the resolve finished, or its conflict was
+            // cleared — so the base head is the right resting place after all.
+            None => {
+                let _ = self.reset_to(&self.base_head);
+            }
+        }
+    }
+
+    /// Commit the workshop's current tree as a checkpoint on the conflict
+    /// chain, and advance the ref to it.
+    ///
+    /// Checkpoints are what make a failed resolve cost only its last turn: each
+    /// one is an ordinary commit whose parent is the chain's previous tip, so
+    /// the chain reads back as the resolution's history and the ref always
+    /// names how far the work got.
+    ///
+    /// Refuses a marker in any path the conflict record does not list. A
+    /// resolver that introduced a conflict marker somewhere nobody asked it to
+    /// touch is not making progress, and a checkpoint is exactly the wrong
+    /// place to find that out later.
+    pub fn checkpoint(&self, message: &str) -> Result<Option<String>, String> {
+        let repo_root = main_repo_root(&self.repo);
+        let chain = crate::resolve::read_conflict(&repo_root, &self.name)
+            .ok_or_else(|| format!("no conflict chain to check point for '{}'", self.name))?;
+
+        let add = git_output(&self.path, &["add", "-A"])?;
+        if !add.status.success() {
+            return Err(format!(
+                "workshop checkpoint: git add failed: {}",
+                String::from_utf8_lossy(&add.stderr).trim()
+            ));
+        }
+
+        // Nothing moved since the tip — a turn that resolved nothing adds no
+        // commit, so the chain stays a record of progress rather than of
+        // attempts.
+        let changed = git_stdout(
+            &self.path,
+            &["diff", "--cached", "--name-only", &chain.tip],
+        )?;
+        if changed.trim().is_empty() {
+            return Ok(None);
+        }
+
+        let known: Vec<String> = chain.record.paths.iter().map(|p| p.path.clone()).collect();
+        let touched: Vec<String> = changed
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect();
+        let stray: Vec<String> = self
+            .marker_paths(&touched)
+            .into_iter()
+            .filter(|p| !known.contains(p))
+            .collect();
+        if !stray.is_empty() {
+            return Err(format!(
+                "workshop checkpoint refused: conflict markers in {}, which the conflict does \
+                 not list",
+                stray.join(", ")
+            ));
+        }
+
+        let tree = git_stdout(&self.path, &["write-tree"])?;
+        let sha = crate::resolve::commit_tree(&repo_root, &tree, &chain.tip, message)?;
+        crate::resolve::advance_conflict_ref(&repo_root, &self.name, &sha)?;
+        Ok(Some(sha))
     }
 
     // -- internals ----------------------------------------------------------
@@ -287,7 +376,18 @@ impl Workshop {
 
         ensure_tug_ignored(&repo_root);
 
+        // A workshop built before conflicts were committed can still be sitting
+        // on a live merge. Nothing in this module creates one any more, so the
+        // sweep runs once here rather than on every reset — and it is a sweep,
+        // not a repair: the merge state is discarded, and the conflict the
+        // caller wants comes from the ref.
         let path = workshop_path(&repo_root, name);
+        if path.join(".git").exists() {
+            let merging = git_stdout(&path, &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok();
+            if merging {
+                let _ = git_output(&path, &["merge", "--abort"]);
+            }
+        }
         let branch = workshop_branch(name);
         let base = dash_base(&repo_root, name)?;
         let base_head = git_stdout(&repo_root, &["rev-parse", &base])?;
@@ -373,9 +473,12 @@ impl Workshop {
     /// left behind — but **not** ignored build outputs, which are the warmth
     /// this whole design exists to keep (`clean -fd`, never `-x`).
     fn reset_to(&self, commitish: &str) -> Result<(), String> {
-        // A merge left mid-flight by an interrupted resolve outlives the
-        // process; `reset --hard` alone would leave `MERGE_HEAD` standing.
-        let _ = git_output(&self.path, &["merge", "--abort"]);
+        // No `merge --abort` precedes this any more, and its absence is the
+        // feature: nothing in a workshop's life starts a merge, so there is
+        // never a `MERGE_HEAD` to abort. The one path that can still find one is
+        // a workshop left by a build that predates conflict commits, and
+        // [`Self::ensure`] sweeps that once rather than making every reset pay
+        // for it.
         let out = git_output(&self.path, &["reset", "--hard", commitish])?;
         if !out.status.success() {
             return Err(format!(
@@ -556,16 +659,27 @@ mod tests {
         git_stdout(dir, &["rev-parse", "HEAD"]).unwrap()
     }
 
-    /// `open_merge` performs the merge for real: markers in the working file,
-    /// unmerged stages in the index, and the dash's non-conflicting file
-    /// present — the tree an agent needs, not three blobs.
+    /// Record the dash's conflict, then open the workshop on it.
+    ///
+    /// A workshop no longer manufactures its own conflict by merging, so every
+    /// fixture needs one on file first. Running the real ladder is what makes
+    /// these tests exercise the shape the resolver actually meets — a tree
+    /// carrying the rungs' resolutions and markers only where they gave up.
+    fn open_conflicted(repo: &Path) -> Workshop {
+        crate::resolve::resolve_conflicts(repo, "demo", None).expect("the ladder runs");
+        Workshop::open_conflict(repo, "demo").expect("a conflict is recorded")
+    }
+
+    /// Opening a recorded conflict gives the agent the same tree a real merge
+    /// did — markers in the conflicted file, the dash's other files present —
+    /// without a merge ever being performed.
     #[test]
-    fn open_merge_leaves_a_real_conflicted_tree() {
+    fn open_conflict_gives_the_agent_a_real_conflicted_tree() {
         let temp = init(true);
         let repo = temp.path();
         let before = head(repo);
 
-        let ws = Workshop::open_merge(repo, "demo").unwrap();
+        let ws = open_conflicted(repo);
         let body = std::fs::read_to_string(ws.path().join("f.txt")).unwrap();
         assert!(
             body.contains("<<<<<<<"),
@@ -573,8 +687,7 @@ mod tests {
         );
         assert!(body.contains("BASE") && body.contains("DASH"));
 
-        let unmerged = git_stdout(ws.path(), &["diff", "--name-only", "--diff-filter=U"]).unwrap();
-        assert_eq!(unmerged.trim(), "f.txt");
+        assert_eq!(ws.unresolved().unwrap(), vec!["f.txt".to_string()]);
         assert!(ws.path().join("only-dash.txt").exists());
 
         // The user's checkouts are untouched throughout ([R01]).
@@ -582,6 +695,139 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(repo.join("f.txt")).unwrap(),
             "BASE\n"
+        );
+    }
+
+    /// The invariant the whole round turns on: no merge is ever started, so
+    /// there is never merge state to be interrupted mid-flight.
+    #[test]
+    fn a_materialized_workshop_never_holds_merge_state() {
+        let temp = init(true);
+        let repo = temp.path();
+        let ws = open_conflicted(repo);
+        let merging =
+            || git_stdout(ws.path(), &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok();
+
+        assert!(!merging(), "not on open");
+        set(ws.path(), "f.txt", "resolved by hand\n");
+        assert!(!merging(), "not after an edit");
+        ws.checkpoint("tugresolve(demo): checkpoint").unwrap();
+        assert!(!merging(), "not after a checkpoint");
+        // And the index is plain stage-0 throughout, which is what lets
+        // `unresolved` be a question about content rather than about stages.
+        let unmerged = git_stdout(ws.path(), &["diff", "--name-only", "--diff-filter=U"]).unwrap();
+        assert!(unmerged.trim().is_empty(), "{unmerged}");
+    }
+
+    /// The recovery property: destroy the checkout entirely and the conflict —
+    /// with every checkpoint on it — comes back from the ref.
+    #[test]
+    fn a_destroyed_workshop_rebuilds_from_the_conflict_ref() {
+        let temp = init(true);
+        let repo = temp.path();
+        let ws = open_conflicted(repo);
+        set(ws.path(), "f.txt", "half done\n");
+        let checkpoint = ws
+            .checkpoint("tugresolve(demo): checkpoint")
+            .unwrap()
+            .expect("the edit is a checkpoint");
+
+        // The CLI-tears-down-the-workshop-mid-resolve case, at its most brutal.
+        let mut warnings = Vec::new();
+        remove(repo, "demo", &mut warnings);
+        assert!(!workshop_path(repo, "demo").exists());
+
+        let reopened = Workshop::open_conflict(repo, "demo").expect("it comes back");
+        assert_eq!(
+            std::fs::read_to_string(reopened.path().join("f.txt")).unwrap(),
+            "half done\n",
+            "the checkpointed work survived the checkout's destruction"
+        );
+        let chain = crate::resolve::read_conflict(repo, "demo").unwrap();
+        assert_eq!(chain.tip, checkpoint);
+        assert!(
+            reopened.unresolved().is_ok_and(|u| u.is_empty()),
+            "and the path reads as resolved, because its markers are gone"
+        );
+    }
+
+    /// A stale chain is refused rather than opened: the tree it holds describes
+    /// a merge of two tips that no longer exist together.
+    #[test]
+    fn open_conflict_refuses_a_stale_chain() {
+        let temp = init(true);
+        let repo = temp.path();
+        open_conflicted(repo);
+
+        set(repo, "unrelated.txt", "the base moved on\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base moves"]);
+
+        let err = match Workshop::open_conflict(repo, "demo") {
+            Err(e) => e,
+            Ok(_) => panic!("a stale conflict refuses to open"),
+        };
+        assert!(err.contains("stale"), "{err}");
+    }
+
+    /// A turn that changed nothing adds no commit, so the chain records
+    /// progress rather than attempts.
+    #[test]
+    fn a_checkpoint_that_changes_nothing_is_not_a_commit() {
+        let temp = init(true);
+        let repo = temp.path();
+        let ws = open_conflicted(repo);
+        let before = crate::resolve::read_conflict(repo, "demo").unwrap().tip;
+
+        assert_eq!(ws.checkpoint("tugresolve(demo): checkpoint").unwrap(), None);
+
+        assert_eq!(
+            crate::resolve::read_conflict(repo, "demo").unwrap().tip,
+            before
+        );
+    }
+
+    /// A marker in a file the conflict never named is drift, not progress.
+    #[test]
+    fn a_checkpoint_refuses_markers_outside_the_conflict_set() {
+        let temp = init(true);
+        let repo = temp.path();
+        let ws = open_conflicted(repo);
+        set(ws.path(), "f.txt", "resolved\n");
+        set(
+            ws.path(),
+            "only-dash.txt",
+            "a\n<<<<<<< ours\nb\n=======\nc\n>>>>>>> theirs\n",
+        );
+
+        let err = ws.checkpoint("tugresolve(demo): checkpoint").unwrap_err();
+        assert!(err.contains("only-dash.txt"), "{err}");
+    }
+
+    /// A workshop left on a live merge by an older build is swept once, rather
+    /// than every reset paying for an abort that can no longer be needed.
+    #[test]
+    fn an_inherited_merge_state_is_swept_on_open() {
+        let temp = init(true);
+        let repo = temp.path();
+        let ws = open_conflicted(repo);
+        // Reproduce what a pre-conflict-commit build would have left behind.
+        // The reset to the base head is part of the reproduction, not
+        // scaffolding: from the conflict tip the dash is already an ancestor, so
+        // git would answer "already up to date" and leave no merge state at all.
+        let base = ws.base_head().to_string();
+        let _ = git_output(ws.path(), &["reset", "--hard", &base]);
+        let _ = git_output(ws.path(), &["merge", "--no-commit", "--no-ff", "tugdash/demo"]);
+        assert!(
+            git_stdout(ws.path(), &["rev-parse", "--verify", "MERGE_HEAD"]).is_ok(),
+            "the fixture is a workshop mid-merge"
+        );
+
+        let reopened = Workshop::open_conflict(repo, "demo").expect("it opens");
+
+        assert!(
+            git_stdout(reopened.path(), &["rev-parse", "--verify", "MERGE_HEAD"]).is_err(),
+            "the inherited merge state is gone"
         );
     }
 
@@ -593,7 +839,7 @@ mod tests {
         let temp = init(true);
         let repo = temp.path();
 
-        let ws = Workshop::open_merge(repo, "demo").unwrap();
+        let ws = open_conflicted(repo);
         // Straight off the merge the file is markers, and no amount of staging
         // changes that — the refusal is about content, not about the index.
         let err = ws.commit("candidate").unwrap_err();
@@ -621,12 +867,25 @@ mod tests {
 
     /// Reset discards the last use's working files but leaves ignored build
     /// outputs standing — the warmth a stable workshop exists for.
+    /// Release parks on the conflict chain rather than wiping back to the base.
+    ///
+    /// The old contract reset to the base head, because what it was abandoning
+    /// was a live `MERGE_HEAD` and a half-merged tree. There is no merge state
+    /// now, and what a failed resolve leaves is committed work — so release
+    /// keeps it and a later resolve resumes from it. What it still does is
+    /// clean up after itself: untracked scratch goes, ignored build warmth
+    /// stays.
     #[test]
-    fn release_cleans_the_tree_and_keeps_ignored_build_outputs() {
+    fn release_parks_on_the_chain_and_keeps_ignored_build_outputs() {
         let temp = init(true);
         let repo = temp.path();
 
-        let ws = Workshop::open_merge(repo, "demo").unwrap();
+        let ws = open_conflicted(repo);
+        set(ws.path(), "f.txt", "half resolved\n");
+        let checkpoint = ws
+            .checkpoint("tugresolve(demo): checkpoint")
+            .unwrap()
+            .expect("the edit is a checkpoint");
         std::fs::create_dir_all(ws.path().join(".tug")).unwrap();
         set(ws.path(), ".tug/warm.bin", "cached\n");
         set(ws.path(), "scratch.txt", "left behind\n");
@@ -638,8 +897,33 @@ mod tests {
             ws.path().join(".tug/warm.bin").exists(),
             "an ignored build output must survive the reset"
         );
-        let body = std::fs::read_to_string(ws.path().join("f.txt")).unwrap();
-        assert_eq!(body, "BASE\n", "the tree is back at the base head");
+        assert_eq!(
+            std::fs::read_to_string(ws.path().join("f.txt")).unwrap(),
+            "half resolved\n",
+            "the checkpointed resolution survives the release"
+        );
+        assert_eq!(
+            crate::resolve::read_conflict(repo, "demo").unwrap().tip,
+            checkpoint
+        );
+    }
+
+    /// With no chain to park on — the resolve finished, or its conflict was
+    /// cleared — the base head is still the right resting place.
+    #[test]
+    fn release_falls_back_to_the_base_head_when_no_conflict_stands() {
+        let temp = init(true);
+        let repo = temp.path();
+
+        let ws = open_conflicted(repo);
+        crate::resolve::clear_conflict(repo, "demo");
+
+        ws.release();
+
+        assert_eq!(
+            std::fs::read_to_string(ws.path().join("f.txt")).unwrap(),
+            "BASE\n"
+        );
         assert!(!ws.path().join("only-dash.txt").exists());
     }
 
@@ -650,11 +934,11 @@ mod tests {
         let temp = init(true);
         let repo = temp.path();
 
-        let first = Workshop::open_merge(repo, "demo").unwrap();
+        let first = open_conflicted(repo);
         let path = first.path().to_path_buf();
         set(first.path(), "marker.txt", "first use\n");
 
-        let second = Workshop::open_merge(repo, "demo").unwrap();
+        let second = open_conflicted(repo);
         assert_eq!(second.path(), path);
         assert_eq!(second.branch(), "tugworkshop/demo");
         assert!(path.exists());
@@ -674,7 +958,7 @@ mod tests {
     fn the_workshop_branch_is_outside_the_dash_namespace() {
         let temp = init(true);
         let repo = temp.path();
-        let ws = Workshop::open_merge(repo, "demo").unwrap();
+        let ws = open_conflicted(repo);
 
         assert_eq!(ws.branch(), "tugworkshop/demo");
         let dash_refs = git_stdout(
@@ -715,7 +999,7 @@ mod tests {
             "the fixture must start with .tug/ unignored"
         );
 
-        let _ws = Workshop::open_merge(repo, "demo").unwrap();
+        let _ws = open_conflicted(repo);
 
         let untracked = git_stdout(repo, &["ls-files", "--others", "--exclude-standard"]).unwrap();
         assert!(

@@ -36,7 +36,8 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use tugutil_core::sanitize_branch_name;
 
 use crate::ops::{
     branch_exists, branch_name, commit_worktree_dirt, config_get, dash_base, git_output,
@@ -145,6 +146,14 @@ pub struct ResolveOutcome {
     /// Never serialized: it is a local git object with no meaning to the card.
     #[serde(skip)]
     pub staged_tree: Option<String>,
+    /// The conflict this run could not settle, composed by the ladder and
+    /// written by [`resolve_conflicts`] — which anchors it after clearing the
+    /// superseded candidate, since the two share one lifecycle.
+    ///
+    /// Never serialized: the card reads `unresolved`, and this is the durable
+    /// record's raw material rather than a report.
+    #[serde(skip)]
+    pub conflict_record: Option<ConflictRecord>,
     /// Every path the one-shot squash conflicts over, computed before the
     /// ladder decides anything.
     ///
@@ -182,7 +191,7 @@ pub fn resolve_conflicts(
     name: &str,
     merger: Option<&dyn FileMerger>,
 ) -> Result<ResolveOutcome, String> {
-    let outcome = resolve_ladder(repo, name, merger)?;
+    let mut outcome = resolve_ladder(repo, name, merger)?;
 
     // Anchor at one site rather than at each of the ladder's four success
     // exits. The dash head is read here — *after* the ladder's
@@ -215,7 +224,29 @@ pub fn resolve_conflicts(
         // A partial outcome lands nothing, so any previously anchored candidate
         // is now describing a resolution this run did not reach. Clearing it
         // keeps a superseded candidate from standing as the current one.
-        None => clear_candidate(repo, name),
+        //
+        // **The order matters and is load-bearing.** `clear_candidate` also
+        // drops the conflict chain — they share one lifecycle — so this run's
+        // own conflict is written *after* the clear, never before it. Writing
+        // it inside the ladder put it a line ahead of the sweep that erased it.
+        None => {
+            clear_candidate(repo, name);
+            let pending = outcome
+                .conflict_record
+                .as_ref()
+                .zip(outcome.staged_tree.as_ref())
+                .map(|(record, tree)| (record.clone(), tree.clone()));
+            if let Some((record, tree)) = pending {
+                if let Err(e) = write_conflict_commit(repo, name, &tree, &record) {
+                    // The resolve still reports what it found; only the
+                    // durability is lost, and saying so beats a silent
+                    // downgrade to the old behaviour.
+                    outcome
+                        .warnings
+                        .push(format!("could not record the conflict: {e}"));
+                }
+            }
+        }
     }
 
     Ok(outcome)
@@ -266,6 +297,7 @@ fn resolve_ladder(
         let msg = integrate_message(repo, name, &branch, None);
         let candidate = commit_tree(repo, &cand_tree, &base_head, &msg)?;
         return Ok(ResolveOutcome {
+            conflict_record: None,
             shape: JoinShape::Squash,
             resolved: Vec::new(),
             unresolved: Vec::new(),
@@ -280,6 +312,7 @@ fn resolve_ladder(
     // Rung 1 — replay probe (in-memory per round; git ≥ 2.40).
     if let Some(replayed) = replay_probe(repo, &base_head, &base_branch, &branch)? {
         return Ok(ResolveOutcome {
+            conflict_record: None,
             shape: JoinShape::Replay,
             // Every path the squash would have conflicted over was decided by
             // replaying the rounds in order. Naming the rung is what puts them
@@ -402,7 +435,25 @@ fn resolve_ladder(
     let staged_tree = patch_tree(repo, scratch.path(), &cand_tree, &resolved)?;
 
     if !unresolved.is_empty() {
+        // Compose the conflict record here, where the stages are in hand, and
+        // let `resolve_conflicts` write it — anchoring happens at one site, and
+        // that site clears the old candidate first.
+        //
+        // The tree it will be written against is `staged_tree`: `cand_tree`
+        // with every blob the rungs resolved patched in. The raw merge-tree
+        // output would hand the resolver conflict markers in files the machine
+        // had already settled.
+        let dash_head = git_stdout(repo, &["rev-parse", &branch])?;
+        let record = conflict_record(
+            repo,
+            &base_head,
+            &dash_head,
+            &stages,
+            &unresolved,
+            &resolved,
+        );
         return Ok(ResolveOutcome {
+            conflict_record: Some(record),
             shape: JoinShape::Squash,
             resolved: resolution_report(repo, &base_head, None, &resolved),
             unresolved,
@@ -414,10 +465,16 @@ fn resolve_ladder(
         });
     }
 
+    // Everything resolved, so no conflict stands. Any chain from an earlier
+    // partial run describes a resolution this one superseded, and a candidate
+    // and a live conflict must never both stand for the same dash.
+    clear_conflict(repo, name);
+
     // Everything resolved — the staged tree is the candidate's tree.
     let candidate = commit_tree(repo, &staged_tree, &base_head, &msg)?;
 
     Ok(ResolveOutcome {
+        conflict_record: None,
         shape: JoinShape::Squash,
         resolved: resolution_report(repo, &base_head, Some(&candidate), &resolved),
         unresolved: Vec::new(),
@@ -621,6 +678,31 @@ impl RawStages {
             .or(self.theirs.as_ref())
             .map(|(m, _)| m.clone())
             .unwrap_or_else(|| "100644".to_string())
+    }
+
+    /// Why this path could not be merged as text.
+    ///
+    /// The classification is [`Self::load`]'s, in the same order and by the
+    /// same tests — a missing stage, then a mode disagreement, then a NUL byte
+    /// — so the kind a conflict record reports can never disagree with the
+    /// reason the text rungs actually skipped it.
+    fn conflict_kind(&self, repo: &Path) -> ConflictKind {
+        let (Some(ours), Some(theirs)) = (self.ours.as_ref(), self.theirs.as_ref()) else {
+            return ConflictKind::DeleteModify;
+        };
+        if ours.0 != theirs.0 {
+            return ConflictKind::Mode;
+        }
+        let is_binary_blob =
+            |oid: &str| cat_blob(repo, oid).is_ok_and(|body| is_binary(&body));
+        let base_binary = self
+            .base
+            .as_ref()
+            .is_some_and(|(_, oid)| is_binary_blob(oid));
+        if is_binary_blob(&ours.1) || is_binary_blob(&theirs.1) || base_binary {
+            return ConflictKind::Binary;
+        }
+        ConflictKind::Content
     }
 
     /// Load the blob bodies, or `None` when this is a **non-content** conflict:
@@ -1229,15 +1311,41 @@ fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(8192).any(|&b| b == 0)
 }
 
-/// Whether merged text is conflict-free — no `git` conflict markers.
-fn is_clean_merge(bytes: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(bytes);
-    !text.lines().any(|l| {
+/// Whether text carries any of git's four conflict markers.
+///
+/// The one predicate — the workshop's marker scan and the ladder's clean-merge
+/// test both ask it, so "does this file still conflict" cannot be answered two
+/// ways by two callers.
+pub(crate) fn has_conflict_markers(bytes: &[u8]) -> bool {
+    String::from_utf8_lossy(bytes).lines().any(|l| {
         l.starts_with("<<<<<<<")
             || l.starts_with("=======")
             || l.starts_with(">>>>>>>")
             || l.starts_with("|||||||")
     })
+}
+
+/// Whether merged text is conflict-free — no `git` conflict markers.
+fn is_clean_merge(bytes: &[u8]) -> bool {
+    !has_conflict_markers(bytes)
+}
+
+/// Which of `paths` still carry conflict markers in `tree`.
+///
+/// Reads the committed objects rather than a checkout, so a conflict chain's
+/// progress can be counted without materializing it anywhere — which is what
+/// lets a status read answer "3 of 5 resolved" from a ref alone.
+pub fn marker_paths_in_tree(repo: &Path, tree: &str, paths: &[String]) -> Vec<String> {
+    paths
+        .iter()
+        .filter(|path| {
+            git_output(repo, &["show", &format!("{tree}:{path}")])
+                .ok()
+                .filter(|o| o.status.success())
+                .is_some_and(|o| has_conflict_markers(&o.stdout))
+        })
+        .cloned()
+        .collect()
 }
 
 // --- candidate anchoring ---------------------------------------------------
@@ -1588,8 +1696,269 @@ fn clear_candidate_marks(repo: &Path, name: &str) {
 /// left one on.
 pub fn clear_candidate(repo: &Path, name: &str) {
     delete_candidate_ref(repo, name);
+    // The conflict chain shares the candidate's lifecycle exactly: both are
+    // `refs/tug/` state describing one join attempt, and both must die with it.
+    // Folded in here rather than wired at the four call sites — the teardown's
+    // release beat, discard, the ladder's partial-outcome cleanup, and the join
+    // board — because a lifecycle each caller has to remember is one a caller
+    // will eventually forget. Deliberately **not** in `clear_candidate_marks`,
+    // which two paths call on its own to reset marks while a conflict still
+    // stands.
+    clear_conflict(repo, name);
     clear_candidate_marks(repo, name);
     crate::verify::clear_verification(repo, name);
+}
+
+// ---------------------------------------------------------------------------
+// Conflicts as data — the conflict commit
+// ---------------------------------------------------------------------------
+
+/// `refs/tug/conflict/<name>` — where an unresolved conflict lives.
+///
+/// Deliberately under `refs/tug/`, never `refs/heads/`: every dash surface
+/// globs `refs/heads/tugdash/`, and the workshop's own doc records what a ref
+/// inside that namespace does to them.
+pub fn conflict_ref_name(name: &str) -> String {
+    format!("refs/tug/conflict/{}", sanitize_branch_name(name))
+}
+
+/// How one conflicted path failed to merge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConflictKind {
+    /// Both sides changed the text.
+    Content,
+    /// One side deleted what the other modified — a missing stage.
+    DeleteModify,
+    /// A NUL byte in some stage.
+    Binary,
+    /// The two sides disagree about the file mode.
+    Mode,
+}
+
+/// One blob stage: the mode and object id git recorded for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflictStage {
+    pub mode: String,
+    pub oid: String,
+}
+
+/// One conflicted path, as the three stages plus how it failed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflictPath {
+    pub path: String,
+    pub kind: ConflictKind,
+    /// The merge base's blob — absent for an add/add.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<ConflictStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ours: Option<ConflictStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theirs: Option<ConflictStage>,
+}
+
+/// A path the ladder's machine rungs settled before it gave up on the rest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflictResolved {
+    pub path: String,
+    pub rung: String,
+}
+
+/// The document a conflict commit's message carries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflictRecord {
+    #[serde(default = "conflict_version")]
+    pub version: u32,
+    pub base_head: String,
+    pub dash_head: String,
+    /// Every path still unresolved, with its three stages.
+    pub paths: Vec<ConflictPath>,
+    /// Every path a machine rung finished, named so a resolver and a later
+    /// audit can tell a machine's decision from their own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolved: Vec<ConflictResolved>,
+}
+
+fn conflict_version() -> u32 {
+    1
+}
+
+/// The subject a conflict chain's root wears — how the root is recognized when
+/// walking first parents back from a checkpoint.
+const CONFLICT_SUBJECT_PREFIX: &str = "tugconflict(";
+
+/// Write a conflict commit and point `refs/tug/conflict/<name>` at it.
+///
+/// **`tree` must already carry the ladder's own resolutions.** It is the
+/// `patch_tree` output the ladder builds on both arms, not the raw
+/// `merge-tree --write-tree` result: rungs 2–4 settle real files before the
+/// ladder gives up on the rest, and a commit carrying the unpatched tree would
+/// hand a resolver conflict markers in files the machine had already finished.
+///
+/// The parents are the base head and the dash head, so the conflict's inputs
+/// stay reachable and its provenance is ancestry rather than bookkeeping.
+pub fn write_conflict_commit(
+    repo: &Path,
+    name: &str,
+    tree: &str,
+    record: &ConflictRecord,
+) -> Result<String, String> {
+    let body = serde_json::to_string_pretty(record)
+        .map_err(|e| format!("conflict record encode: {e}"))?;
+    let message = format!(
+        "{}{}): {} unresolved\n\n{}",
+        CONFLICT_SUBJECT_PREFIX,
+        name,
+        record.paths.len(),
+        body
+    );
+    let out = git_output(
+        repo,
+        &[
+            "commit-tree",
+            tree,
+            "-p",
+            &record.base_head,
+            "-p",
+            &record.dash_head,
+            "-m",
+            &message,
+        ],
+    )?;
+    if !out.status.success() {
+        return Err(format!(
+            "conflict commit-tree failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let set = git_output(repo, &["update-ref", &conflict_ref_name(name), &sha])?;
+    if !set.status.success() {
+        return Err(format!(
+            "cannot write the conflict ref: {}",
+            String::from_utf8_lossy(&set.stderr).trim()
+        ));
+    }
+    Ok(sha)
+}
+
+/// A conflict chain as it stands: its root record and its current tip.
+pub struct ConflictChain {
+    /// The chain's tip — the root, or the newest resolver checkpoint on it.
+    pub tip: String,
+    /// The root conflict commit, which carries the record.
+    pub root: String,
+    pub record: ConflictRecord,
+}
+
+/// Read the conflict chain for `name`, walking first parents back to the root.
+///
+/// Checkpoints are children of the root, so the record lives at the bottom and
+/// the tip is wherever the work has got to.
+pub fn read_conflict(repo: &Path, name: &str) -> Option<ConflictChain> {
+    let tip = git_stdout(repo, &["rev-parse", "--verify", &conflict_ref_name(name)]).ok()?;
+    let mut cursor = tip.clone();
+    for _ in 0..1024 {
+        let subject = git_stdout(repo, &["log", "-1", "--format=%s", &cursor]).ok()?;
+        if subject.starts_with(CONFLICT_SUBJECT_PREFIX) {
+            let body = git_stdout(repo, &["log", "-1", "--format=%b", &cursor]).ok()?;
+            let record: ConflictRecord = serde_json::from_str(body.trim()).ok()?;
+            return Some(ConflictChain {
+                tip,
+                root: cursor,
+                record,
+            });
+        }
+        cursor = git_stdout(repo, &["rev-parse", &format!("{cursor}^1")]).ok()?;
+    }
+    None
+}
+
+/// Whether a conflict chain still describes the current heads.
+///
+/// **Strict equality, not ancestry.** A conflict commit encodes one specific
+/// merge of two specific tips; base motion or a new round invalidates the tree
+/// it holds, and there is no useful sense in which a stale one is partially
+/// right. The candidate machinery needs ancestry because a replay candidate is
+/// a chain built on the base; a conflict is a snapshot, and equality is the
+/// honest test for a snapshot.
+pub fn conflict_is_valid(repo: &Path, name: &str, chain: &ConflictChain) -> bool {
+    let Ok(base_branch) = dash_base(repo, name) else {
+        return false;
+    };
+    let base_now = git_stdout(repo, &["rev-parse", &base_branch]).unwrap_or_default();
+    let dash_now = git_stdout(repo, &["rev-parse", &branch_name(name)]).unwrap_or_default();
+    base_now == chain.record.base_head && dash_now == chain.record.dash_head
+}
+
+/// The valid conflict chain for `name`, if there is one.
+///
+/// Every reader goes through this rather than through [`read_conflict`] alone:
+/// a stale chain answers no question anybody is asking, and the one thing worse
+/// than no conflict record is one that describes a merge that no longer exists.
+pub fn valid_conflict(repo: &Path, name: &str) -> Option<ConflictChain> {
+    let chain = read_conflict(repo, name)?;
+    conflict_is_valid(repo, name, &chain).then_some(chain)
+}
+
+/// Advance the conflict ref to a checkpoint built on the chain.
+pub fn advance_conflict_ref(repo: &Path, name: &str, sha: &str) -> Result<(), String> {
+    let out = git_output(repo, &["update-ref", &conflict_ref_name(name), sha])?;
+    if !out.status.success() {
+        return Err(format!(
+            "cannot advance the conflict ref: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Drop a dash's conflict chain.
+pub fn clear_conflict(repo: &Path, name: &str) {
+    let _ = git_output(repo, &["update-ref", "-d", &conflict_ref_name(name)]);
+}
+
+/// Build the record for a partial ladder run.
+fn conflict_record(
+    repo: &Path,
+    base_head: &str,
+    dash_head: &str,
+    stages: &BTreeMap<String, RawStages>,
+    unresolved: &[String],
+    resolved: &[ResolvedFile],
+) -> ConflictRecord {
+    let stage = |s: &Option<(String, String)>| {
+        s.as_ref().map(|(mode, oid)| ConflictStage {
+            mode: mode.clone(),
+            oid: oid.clone(),
+        })
+    };
+    let paths = unresolved
+        .iter()
+        .filter_map(|path| {
+            let raw = stages.get(path)?;
+            Some(ConflictPath {
+                path: path.clone(),
+                kind: raw.conflict_kind(repo),
+                base: stage(&raw.base),
+                ours: stage(&raw.ours),
+                theirs: stage(&raw.theirs),
+            })
+        })
+        .collect();
+    ConflictRecord {
+        version: conflict_version(),
+        base_head: base_head.to_string(),
+        dash_head: dash_head.to_string(),
+        paths,
+        resolved: resolved
+            .iter()
+            .map(|r| ConflictResolved {
+                path: r.path.clone(),
+                rung: r.by.as_str().to_string(),
+            })
+            .collect(),
+    }
 }
 
 /// Whether the anchored candidate still describes the current heads.
@@ -1712,6 +2081,223 @@ mod tests {
             repo,
             &["config", "tugdash.mergedriver", &stub.to_string_lossy()],
         );
+    }
+
+    // ---- conflicts as data ----
+
+    /// A dash and a base that both edit `f.txt`, so the squash conflicts and no
+    /// text rung can settle it.
+    fn init_conflicted() -> tempfile::TempDir {
+        let temp = init(&[("f.txt", "dash\n", "dash edits f")]);
+        let repo = temp.path();
+        set(repo, "f.txt", "base\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base edits f"]);
+        temp
+    }
+
+    #[test]
+    fn a_partial_ladder_run_parks_the_conflict_as_a_commit() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        let base_head = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        let dash_head = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(!outcome.unresolved.is_empty(), "f.txt cannot be merged");
+
+        let chain = read_conflict(repo, "demo").expect("the conflict is on file");
+        assert_eq!(chain.tip, chain.root, "a fresh conflict is its own tip");
+        assert_eq!(chain.record.base_head, base_head);
+        assert_eq!(chain.record.dash_head, dash_head);
+        assert_eq!(
+            chain.record.paths.iter().map(|p| &p.path).collect::<Vec<_>>(),
+            vec!["f.txt"],
+            "the record names exactly what the ladder could not settle"
+        );
+
+        // The stages round-trip: each is the blob git actually recorded, so a
+        // later process can rebuild the three-way view without re-merging.
+        let path = &chain.record.paths[0];
+        assert_eq!(path.kind, ConflictKind::Content);
+        let ours = path.ours.as_ref().expect("an ours stage");
+        let theirs = path.theirs.as_ref().expect("a theirs stage");
+        assert_eq!(
+            git_stdout(repo, &["cat-file", "-p", &ours.oid]).unwrap(),
+            "base"
+        );
+        assert_eq!(
+            git_stdout(repo, &["cat-file", "-p", &theirs.oid]).unwrap(),
+            "dash"
+        );
+
+        // Both inputs are parents, so the conflict's provenance is ancestry.
+        let parents = git_stdout(repo, &["rev-list", "--parents", "-n", "1", &chain.root]).unwrap();
+        assert!(parents.contains(&base_head), "{parents}");
+        assert!(parents.contains(&dash_head), "{parents}");
+    }
+
+    #[test]
+    fn the_conflict_tree_keeps_what_the_machine_rungs_resolved() {
+        // The regression this guards: with the bare merge-tree output, every
+        // file a rung had already settled would come back to the resolver with
+        // markers in it. `g.txt` is settled by the stub driver; `f.txt` is not.
+        // Both files must exist in the merge base: an add/add has no ancestor
+        // blob, and the driver rung declines those by construction, so a
+        // fixture built on one would prove nothing about the driver.
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        git(repo, &["init", "-b", "main"]);
+        git(repo, &["config", "user.name", "t"]);
+        git(repo, &["config", "user.email", "t@t"]);
+        set(repo, "f.txt", "A\n");
+        set(repo, "g.txt", "g base\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base"]);
+        git(repo, &["branch", "tugdash/demo"]);
+        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+
+        git(repo, &["switch", "-q", "tugdash/demo"]);
+        set(repo, "f.txt", "dash\n");
+        set(repo, "g.txt", "g dash\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "dash edits both"]);
+        git(repo, &["switch", "-q", "main"]);
+        set(repo, "f.txt", "base\n");
+        set(repo, "g.txt", "g main\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base edits both"]);
+
+        // A driver that only knows how to settle g.txt. It keys on content, not
+        // on the filename: the rung hands drivers scratch paths (`d-ours.txt`
+        // and friends), so the original path is not recoverable from the
+        // arguments.
+        let stub = repo.join("only-g.sh");
+        std::fs::write(
+            &stub,
+            "#!/bin/sh\nif grep -q g \"$2\"; then printf 'settled\\n' > \"$4\"; else exit 1; fi\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        git(
+            repo,
+            &["config", "tugdash.mergedriver", &stub.to_string_lossy()],
+        );
+
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(outcome.unresolved, vec!["f.txt".to_string()]);
+
+        let chain = read_conflict(repo, "demo").expect("a conflict stands");
+        let settled = git_stdout(repo, &["show", &format!("{}:g.txt", chain.tip)]).unwrap();
+        assert_eq!(
+            settled, "settled",
+            "the rung's resolution is baked into the conflict tree"
+        );
+        assert!(
+            !has_conflict_markers(settled.as_bytes()),
+            "and carries no markers"
+        );
+        let unsettled = git_stdout(repo, &["show", &format!("{}:f.txt", chain.tip)]).unwrap();
+        assert!(
+            has_conflict_markers(unsettled.as_bytes()),
+            "while the unresolved path still does: {unsettled}"
+        );
+        assert_eq!(
+            chain.record.resolved.iter().map(|r| &r.path).collect::<Vec<_>>(),
+            vec!["g.txt"],
+            "and the record names which rung settled it"
+        );
+    }
+
+    #[test]
+    fn a_conflict_goes_invalid_when_either_head_moves() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(valid_conflict(repo, "demo").is_some(), "valid when written");
+
+        // A new round on the dash: the recorded merge no longer describes the
+        // dash, so the chain is stale wholesale.
+        git(repo, &["switch", "-q", "tugdash/demo"]);
+        set(repo, "h.txt", "later\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "a later round"]);
+        git(repo, &["switch", "-q", "main"]);
+        assert!(
+            read_conflict(repo, "demo").is_some(),
+            "the chain is still on disk"
+        );
+        assert!(
+            valid_conflict(repo, "demo").is_none(),
+            "but no longer describes the current heads"
+        );
+    }
+
+    #[test]
+    fn base_motion_also_invalidates_a_conflict() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        set(repo, "unrelated.txt", "base moved\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base moves"]);
+        assert!(valid_conflict(repo, "demo").is_none());
+    }
+
+    #[test]
+    fn clearing_a_candidate_clears_the_conflict_with_it() {
+        // One lifecycle, not two — folded into `clear_candidate` so the four
+        // existing callers need no change and cannot forget.
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(read_conflict(repo, "demo").is_some());
+
+        clear_candidate(repo, "demo");
+
+        assert!(
+            read_conflict(repo, "demo").is_none(),
+            "the conflict ref dies with the candidate it stood beside"
+        );
+    }
+
+    #[test]
+    fn a_fully_resolved_run_leaves_no_conflict_standing() {
+        // A candidate and a live conflict must never both stand for one dash.
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(read_conflict(repo, "demo").is_some(), "partial run first");
+
+        stub_driver(repo, "resolved by the driver\n");
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+
+        assert!(outcome.unresolved.is_empty(), "the driver settled it");
+        assert!(outcome.candidate_commit.is_some());
+        assert!(
+            read_conflict(repo, "demo").is_none(),
+            "the superseded conflict is cleared"
+        );
+    }
+
+    #[test]
+    fn the_conflict_summary_counts_progress_from_the_tree() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        assert!(
+            crate::ops::conflict_summary(repo, "demo").is_none(),
+            "absent, not zeroed, when nothing conflicts"
+        );
+
+        resolve_conflicts(repo, "demo", None).unwrap();
+
+        let summary = crate::ops::conflict_summary(repo, "demo").expect("a conflict stands");
+        assert_eq!(summary.paths_total, 1);
+        assert_eq!(summary.paths_resolved, 0, "nobody has resolved it yet");
     }
 
     // ---- unit rungs ----

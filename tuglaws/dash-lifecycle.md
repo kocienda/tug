@@ -8,7 +8,7 @@ A dash is four things and no more:
 
 1. **A git branch**, `tugdash/<name>`.
 2. **A worktree**, conventionally `.tug/worktrees/<name>` under the main repository root.
-3. **Branch config** — `branch.tugdash/<name>.{tugbase,description,tugid,tugplan}`.
+3. **Branch config** — `branch.tugdash/<name>.{tugbase,description,tugid,tugplan}`. Each key is spelled in exactly one place (`base_config_key`, `description_config_key`, `tugid_config_key`, `plan_config_key` in `tugdash-core/src/ops.rs`); they hang off the **raw** dash name, not the sanitized spelling worktree directories use.
 4. **A dash-log**, the append-only record of rounds and declarations.
 
 There is no dash database. Every fact any surface renders about a dash is read from one of those four on demand, which is why `tugutil dash list` and the Changes card cannot disagree: both call `dash_detail_entries_in` (`tugdash-core/src/ops.rs`), which is the one composition.
@@ -67,6 +67,25 @@ A dash that implements a plan **owns** that plan: the worktree copy is the only 
 - **Divergence is a refusal, never a silent state.** `dash step` refuses while a base copy is dirty or untracked, and the join preflight names the plan and `tugutil dash adopt-plan <name>` — because the generic "commit or stash it" is wrong here: committing a stale base copy enshrines a fork, and stashing hides it to detonate later.
 - **Progress is never the casualty.** When bodies differ, the base body wins and the worktree's ledger progress is replayed onto it row by row. `content_stamp` excludes status and commit cells, so a plan that was `reviewed` before adoption is `reviewed` after it.
 - **Discard hands the plan back.** Adoption removed the base copy and discard deletes the branch holding the only one, so `discard_in` writes the plan back to the repo root before teardown and the discard receipt says so. The plan comes in when the dash adopts it and goes back out when the dash is discarded — a plan is not the work, it is the authored document that predates the dash and outlives it ([L23]).
+
+## The operation log, and undoing
+
+A dash verb that lands, moves, or deletes a branch used to be a one-way door. `tugutil dash undo` is the way back, and it rests on a log every mutating verb writes **before** it acts.
+
+An operation has two halves, which store different facts and never the same one:
+
+- **A keepalive ref**, `refs/tug/oplog/<seq>`, on a synthetic commit whose parents are every tip the verb is about to move or delete. This is what makes recovery possible at all: once it exists, `branch -D` and `reset` cannot strand the dash's rounds, so they are reachable from a ref rather than from a reflog on a clock.
+- **A payload**, `oplog-<seq>.json` beside the join journal in the project state dir, holding the verb, the dash, and the before/after values. It is a file rather than the keepalive's commit message because it is written twice — once before the verb acts and once when it completes — and a commit message is immutable.
+
+Three verbs record: `join`, `replay`, and `discard`. `create` does not, because a half-made create already rolls itself back. Retention is 50 operations per repository, pruned oldest-first by the writer — no daemon, the same discipline the join journal uses. Pruning drops both halves, and dropping the keepalive is what finally lets `git gc` collect the commits, which is the honest meaning of *no longer undoable*.
+
+Three rules govern the undo itself:
+
+- **It is a compare-and-swap, never a force.** It verifies the world still matches what the operation left — the base tip unmoved, the branch not since rebuilt, the worktree clean where it must be — and refuses by name otherwise: `tip-moved`, `base-dirty`, `branch-exists`, `already-undone`, `incomplete-op`, `nothing-to-undo`. `reset --keep` rather than `--hard` is the mover, so git itself refuses over changes that would be lost. An operation that later work has made un-undoable stays that way, and the refusal names the newer tip so a person can decide by hand.
+- **It restores git state only.** Bindings live in a per-instance ledger and are live-sessions-only by design, so a restored dash reads as **unbound** and rebinding is the user's gesture. The report says so rather than letting it be discovered.
+- **An undo is recorded but never undoable.** It belongs in the log — it moved refs — but offering to reverse it would make the verb a redo on alternate presses. So undo records are skipped when selecting what to reverse, which is what makes a second press report `already-undone` about the real operation rather than complaining about the undo.
+
+A discard's handed-back files are the one half no undo reverses: they were *copied* into the base checkout, and pulling files back out of a user's checkout is what this engine never does. The undo names them and leaves them.
 
 ## Joining — by reference
 

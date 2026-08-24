@@ -14,6 +14,10 @@ pub mod dash;
 /// `list` / `show`, each returning a typed outcome.
 pub mod ops;
 
+/// The operation log — every mutating verb recorded before it acts, with the
+/// keepalive refs that keep an undone operation's commits reachable.
+pub mod oplog;
+
 /// Base-motion replay — keeping a live dash current with a base that moved:
 /// the preconditions, the branch move, and the record of where rounds went.
 pub mod replay;
@@ -42,6 +46,7 @@ pub use ops::{
     join_in_flight, join_in_with_progress, join_preflight_in, list, mark, show, status, status_in,
     step_done, step_start,
 };
+pub use oplog::{OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, UndoOutcome, list_ops, undo_in};
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{
     FileMergeRequest, FileMerger, FileResolution, JoinShape, ResolveOutcome, ResolvedBy,

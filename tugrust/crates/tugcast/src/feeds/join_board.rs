@@ -785,7 +785,7 @@ mod tests {
         let temp = fixture();
         let repo = temp.path();
 
-        tugdash_core::workshop::Workshop::open_merge(repo, "demo").expect("a live dash");
+        tugdash_core::workshop::Workshop::open_existing(repo, "demo").expect("a live dash");
         let workshop = tugdash_core::workshop::workshop_path(repo, "demo");
         assert!(workshop.exists());
 

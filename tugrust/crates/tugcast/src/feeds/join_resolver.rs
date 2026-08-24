@@ -885,6 +885,7 @@ async fn finish_join_inner(
 
     set_phase(phase, "waiting on the resolver");
     let mut turn = run.send(charter).await?;
+    checkpoint_turn(ctx).await;
     let mut asked: Option<tugcast_core::types::DashJoinReportQuestion> = None;
 
     // What the resolver's edits are measured against: the ladder's tree.
@@ -901,6 +902,7 @@ async fn finish_join_inner(
         });
         set_phase(phase, "waiting on the resolver");
         turn = run.send(compose_answer_turn(&answer)).await?;
+        checkpoint_turn(ctx).await;
     }
 
     let report = match turn {
@@ -930,6 +932,31 @@ async fn finish_join_inner(
     record_report(ctx, &candidate, &report).await?;
     ctx.bump.notify_one();
     Ok(())
+}
+
+/// Commit whatever the turn just did as a checkpoint on the conflict chain.
+///
+/// This is what bounds the cost of a failure. A resolve that dies — a deadline
+/// expiring, a wedge, a crash, a CLI join tearing the worktree down — used to
+/// cost every file it had finished, because the only copy was in a checkout
+/// nobody had committed. Now each turn's work is a commit on the chain, so a
+/// later resolve opens at the tip and starts from what remains.
+///
+/// Best-effort by construction: a checkpoint that fails costs the resume, not
+/// the resolve, and the run is mid-flight with a resolver waiting. A turn that
+/// changed nothing commits nothing, so the chain records progress rather than
+/// attempts.
+async fn checkpoint_turn(ctx: &ResolverContext) {
+    let repo = ctx.repo.clone();
+    let dash = ctx.dash.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        let Ok(workshop) = tugdash_core::Workshop::open_existing(&repo, &dash) else {
+            return;
+        };
+        let message = format!("tugresolve({dash}): checkpoint");
+        let _ = workshop.checkpoint(&message);
+    })
+    .await;
 }
 
 /// Raise the resolver's question to the user and wait for the answer.
@@ -1057,7 +1084,7 @@ pub fn audit_set(outcome: &tugdash_core::ResolveOutcome) -> Vec<String> {
     set
 }
 
-/// Materialize the merge and carry the ladder's resolutions into it.
+/// Materialize the conflict the ladder recorded, or the candidate it built.
 async fn open_workshop(
     ctx: &ResolverContext,
     outcome: &tugdash_core::ResolveOutcome,
@@ -1080,19 +1107,35 @@ async fn open_workshop(
         tugdash_core::JoinShape::Replay => outcome.candidate_commit.clone(),
         tugdash_core::JoinShape::Squash => None,
     };
+    // A squash-shaped candidate is not *inherited* — the workshop must not
+    // treat it as a tree to audit in place — but it is still the resolved tree
+    // when the ladder left no conflict behind.
+    let squash_candidate = match outcome.shape {
+        tugdash_core::JoinShape::Squash => outcome.candidate_commit.clone(),
+        tugdash_core::JoinShape::Replay => None,
+    };
 
     tokio::task::spawn_blocking(move || {
         let workshop = match &inherited_candidate {
             Some(sha) => tugdash_core::Workshop::open_candidate(&repo, &dash, sha)?,
-            None => {
-                let workshop = tugdash_core::Workshop::open_merge(&repo, &dash)?;
-                if let Some(tree) = &staged_tree {
-                    let paths: Vec<String> =
-                        ladder_resolved.iter().map(|(p, _)| p.clone()).collect();
-                    workshop.apply_staged(tree, &paths)?;
-                }
-                workshop
-            }
+            None => match tugdash_core::resolve::valid_conflict(&repo, &dash) {
+                // Something is still unresolved, so the ladder parked a
+                // conflict. Its tree already carries the rungs' own
+                // resolutions, so opening it is the whole of the setup.
+                Some(_) => tugdash_core::Workshop::open_conflict(&repo, &dash)?,
+                // No conflict stands, so the ladder settled every path and the
+                // tree to audit is the candidate it built. This arm is not an
+                // edge case: a squash the machines finish completely reaches
+                // the resolver as an audit with nothing left to merge.
+                None => match &squash_candidate {
+                    Some(sha) => tugdash_core::Workshop::open_candidate(&repo, &dash, sha)?,
+                    None => {
+                        return Err(format!(
+                            "the ladder left neither a conflict nor a candidate for '{dash}'"
+                        ));
+                    }
+                },
+            },
         };
         let unresolved = workshop.unresolved()?;
         let mut resolution_set: Vec<String> = ladder_resolved
@@ -1825,14 +1868,80 @@ mod tests {
         );
     }
 
-    /// A failed resolve gives the workshop back ([P07]).
+    /// A resolve that dies mid-flight costs only what it had not committed.
     ///
-    /// The failure leaves a stuck fact behind, which is where the account of it
-    /// belongs. What it must not leave behind is the tree: a half-merged
-    /// checkout with conflict markers in the files and a live `MERGE_HEAD`,
-    /// sitting in `.tug/workshops/` until somebody happens to open it.
+    /// The stub resolves one of the two conflicted files and then reports
+    /// nothing for the other, so the run fails — and what a later resolve
+    /// inherits is the point: the file it finished is settled on the chain, and
+    /// the workshop it reopens has only the remaining one to do.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_failed_resolve_leaves_the_workshop_clean_at_base() {
+    async fn a_failed_resolve_leaves_its_finished_work_on_the_chain() {
+        // Resolve g.txt only, then claim to be done — a report that does not
+        // account for f.txt, which `commit_candidate` refuses.
+        let half = "#!/bin/sh\nread -r _charter\nprintf 'settled by the resolver\\n' > \"$1/g.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"g.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"x\",\"reconciliation\":\"y\"}],\"notes\":\"\"}'\n";
+        let temp = conflicted_repo(half);
+        let repo = temp.path();
+        // A second conflicted file, so there is something left over.
+        git(repo, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(repo.join("g.txt"), "G DASH\n").unwrap();
+        // Add the one file, never `-A`: the fixture's stub-resolver script sits
+        // untracked in the working tree, and sweeping it onto the dash branch
+        // makes it vanish from main's checkout — where the resolver spawn looks
+        // for it.
+        git(repo, &["add", "g.txt"]);
+        git(repo, &["commit", "-m", "the dash adds g"]);
+        git(repo, &["switch", "-q", "main"]);
+        std::fs::write(repo.join("g.txt"), "G BASE\n").unwrap();
+        git(repo, &["add", "g.txt"]);
+        git(repo, &["commit", "-m", "the base adds g"]);
+
+        let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(outcome.unresolved.len(), 2, "both files conflict");
+        let root = tugdash_core::resolve::read_conflict(repo, "demo").unwrap().tip;
+
+        let ctx = context(repo);
+        finish_join(&ctx, &outcome)
+            .await
+            .expect_err("the report omits f.txt");
+
+        // The turn's work was checkpointed before the report was judged.
+        let chain = tugdash_core::resolve::read_conflict(repo, "demo")
+            .expect("the chain outlives the failed resolve");
+        assert_ne!(chain.tip, root, "the chain advanced past its root");
+        let settled = std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["show", &format!("{}:g.txt", chain.tip)])
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&settled.stdout).trim(),
+            "settled by the resolver",
+            "the finished file is committed on the chain"
+        );
+
+        // What a later resolve would be asked to do is only the remainder.
+        let workshop = tugdash_core::Workshop::open_conflict(repo, "demo").unwrap();
+        assert_eq!(
+            workshop.unresolved().unwrap(),
+            vec!["f.txt".to_string()],
+            "the resumed resolve sees only what is left"
+        );
+    }
+
+    /// A failed resolve parks the workshop on the conflict chain.
+    ///
+    /// The contract this replaces reset the tree to the base head, and it was
+    /// right for what it was abandoning: a half-merged checkout with a live
+    /// `MERGE_HEAD`, which blocked anything that might help and read as
+    /// wreckage. Under conflicts-as-data neither is true — there is no merge
+    /// state, and the chain holds committed, named, auditable work — so the
+    /// failure leaves it standing and a later resolve resumes from it rather
+    /// than redoing every file the run had finished.
+    ///
+    /// What must still be true: no merge in flight, and nothing left modified
+    /// on top of the chain's tip.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_resolve_parks_the_workshop_on_the_conflict_chain() {
         let touch_nothing = "#!/bin/sh\nread -r _charter\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"x\",\"reconciliation\":\"y\"}],\"notes\":\"\"}'\n";
         let temp = conflicted_repo(touch_nothing);
         let repo = temp.path();
@@ -1854,8 +1963,20 @@ mod tests {
         );
         let contents = std::fs::read_to_string(workshop.join("f.txt")).unwrap();
         assert!(
-            !contents.contains("<<<<<<<"),
-            "the tree is back at base, markers and all: {contents}"
+            contents.contains("<<<<<<<"),
+            "the unresolved conflict is still there to be resumed: {contents}"
+        );
+        let chain = tugdash_core::resolve::read_conflict(repo, "demo")
+            .expect("the chain outlives the failed resolve");
+        let head = std::process::Command::new("git")
+            .current_dir(&workshop)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&head.stdout).trim(),
+            chain.tip,
+            "and the workshop is parked exactly on it"
         );
         let status = std::process::Command::new("git")
             .current_dir(&workshop)
@@ -1880,14 +2001,14 @@ mod tests {
         let temp = conflicted_repo("#!/bin/sh\nexit 0\n");
         let repo = temp.path();
 
-        tugdash_core::workshop::Workshop::open_merge(repo, "demo")
+        tugdash_core::workshop::Workshop::open_existing(repo, "demo")
             .expect("a live dash has a workshop");
 
         let mut warnings = Vec::new();
         tugdash_core::workshop::remove(repo, "demo", &mut warnings);
         git(repo, &["branch", "-D", "tugdash/demo"]);
 
-        let err = match tugdash_core::workshop::Workshop::open_merge(repo, "demo") {
+        let err = match tugdash_core::workshop::Workshop::open_existing(repo, "demo") {
             Err(e) => e,
             Ok(_) => panic!("a gone dash refuses"),
         };

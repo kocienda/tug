@@ -506,6 +506,19 @@ pub enum DashCommands {
         /// Dash name.
         name: String,
     },
+    /// Reverse the most recent join, replay, or discard.
+    ///
+    /// Every reversal is a compare-and-swap: it verifies the world still
+    /// matches what the operation left, and refuses by name rather than forcing
+    /// if anything landed since. Restores git state only — a restored dash
+    /// reads as unbound until a session binds it again.
+    Undo {
+        /// Dash name; without one, the newest operation on any dash.
+        name: Option<String>,
+        /// Print the operation log and exit, changing nothing.
+        #[arg(long)]
+        list: bool,
+    },
     /// Report the project's `[tugtool.dash]` declarations.
     ///
     /// One reader for the seam a project uses to say how its own tree is
