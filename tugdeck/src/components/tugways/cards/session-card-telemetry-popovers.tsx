@@ -729,7 +729,7 @@ export function TasksPopoverContent({
   if (state.tasks.length === 0) {
     return (
       <TugPopupListFrame kind="item">
-        <TugPopupListEmpty>No tasks for this session.</TugPopupListEmpty>
+        <TugPopupListEmpty form="word">None</TugPopupListEmpty>
       </TugPopupListFrame>
     );
   }
@@ -1123,7 +1123,7 @@ export function JobsPopoverContent({
   if (!hasGoal && !hasJobs) {
     return (
       <TugPopupListFrame kind="item">
-        <TugPopupListEmpty>No background jobs this session.</TugPopupListEmpty>
+        <TugPopupListEmpty form="word">None</TugPopupListEmpty>
       </TugPopupListFrame>
     );
   }

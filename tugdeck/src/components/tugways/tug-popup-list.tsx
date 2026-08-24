@@ -430,16 +430,37 @@ export function TugPopupListFooter({
  * TugPopupListEmpty + TugPopupListToneDot
  * ---------------------------------------------------------------------------*/
 
-/** Muted italic empty-state body shared by every popup list. */
+/**
+ * How an empty body reads. `prose` is a muted italic remark ("No
+ * committed turns yet."); `word` is the bare reading for "nothing
+ * here" — centered and plain on a row-height box, the same treatment
+ * the Lens gives its own empty sections.
+ *
+ * The split is not decoration. A single word is a *reading*, so it
+ * belongs on the axis a value would occupy and italics make it read as
+ * an aside; a sentence is a remark, and centering one turns it into a
+ * caption. The Lens settled the same distinction from the other side —
+ * its `lens-dashes-empty` un-centers itself precisely because that
+ * empty is a sentence naming a command.
+ *
+ * @selector [data-form="<form>"]
+ */
+export type TugPopupListEmptyForm = "prose" | "word";
+
+/** Empty-state body shared by every popup list. */
 export function TugPopupListEmpty({
   className,
+  form = "prose",
   children,
   ...rest
-}: React.ComponentPropsWithoutRef<"div">): React.ReactElement {
+}: React.ComponentPropsWithoutRef<"div"> & {
+  form?: TugPopupListEmptyForm;
+}): React.ReactElement {
   return (
     <div
       className={cn("tug-popup-list-empty", className)}
       data-slot="tug-popup-list-empty"
+      data-form={form}
       {...rest}
     >
       {children}
