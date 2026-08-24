@@ -6030,10 +6030,8 @@ impl AgentSupervisor {
                 // The outcome serializes itself — its own `#[serde(tag =
                 // "outcome")]` supplies the word, and the variant's fields carry
                 // the only text a refusal can be read from.
-                let serialized =
-                    serde_json::to_value(&outcome).expect("replay outcome serializes");
-                if let (Some(target), Some(fields)) =
-                    (body.as_object_mut(), serialized.as_object())
+                let serialized = serde_json::to_value(&outcome).expect("replay outcome serializes");
+                if let (Some(target), Some(fields)) = (body.as_object_mut(), serialized.as_object())
                 {
                     for (key, value) in fields {
                         target.insert(key.clone(), value.clone());

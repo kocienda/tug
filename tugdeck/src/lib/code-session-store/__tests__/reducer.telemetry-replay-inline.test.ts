@@ -34,6 +34,9 @@ import type {
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import type { TurnTelemetry } from "@/lib/code-session-store/telemetry";
 
+/** The wall-clock a replayed JSONL entry carries, held fixed across a turn. */
+const REPLAYED_AT = 1_750_000_000_000;
+
 function fresh(): CodeSessionState {
   return createInitialState(FIXTURE_IDS.TUG_SESSION_ID, "test", "new");
 }
@@ -241,11 +244,17 @@ describe("handleTurnComplete — replay path", () => {
         text: "pre-persistence turn",
         atoms: [],
         turnKey: "tk-old",
+        // Both events carry the replay path's own wall-clock stamp, the way
+        // the supervisor emits them from JSONL. Without it each event reads
+        // `Date.now()` independently and `wallClockMs` is `0` only when the
+        // two reads land in the same millisecond.
+        timestamp: REPLAYED_AT,
       },
       {
         type: "turn_complete",
         msg_id: "msg-old",
         result: "success",
+        timestamp: REPLAYED_AT,
         // No `telemetry` field — pre-feature turn or evicted row.
       },
     ]);

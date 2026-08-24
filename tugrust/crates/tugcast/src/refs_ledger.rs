@@ -333,7 +333,9 @@ mod tests {
     #[test]
     fn a_rekey_onto_an_empty_session_is_a_plain_move() {
         let ledger = RefsLedger::open_in_memory().unwrap();
-        ledger.record_run(&run("parent", "run-1", &["src/a.ts"])).unwrap();
+        ledger
+            .record_run(&run("parent", "run-1", &["src/a.ts"]))
+            .unwrap();
 
         assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
         assert_eq!(ledger.list_refs("parent").unwrap(), None);
@@ -345,8 +347,12 @@ mod tests {
         // `tug_session_id` is the primary key, so this is the case a bare
         // UPDATE would fail on.
         let ledger = RefsLedger::open_in_memory().unwrap();
-        ledger.record_run(&run_settled("parent", "older", 100)).unwrap();
-        ledger.record_run(&run_settled("fork", "newer", 200)).unwrap();
+        ledger
+            .record_run(&run_settled("parent", "older", 100))
+            .unwrap();
+        ledger
+            .record_run(&run_settled("fork", "newer", 200))
+            .unwrap();
 
         assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
         assert_eq!(ledger.list_refs("parent").unwrap(), None);
@@ -356,8 +362,12 @@ mod tests {
     #[test]
     fn a_rekey_carrying_the_newer_run_displaces_the_destination() {
         let ledger = RefsLedger::open_in_memory().unwrap();
-        ledger.record_run(&run_settled("parent", "newer", 200)).unwrap();
-        ledger.record_run(&run_settled("fork", "older", 100)).unwrap();
+        ledger
+            .record_run(&run_settled("parent", "newer", 200))
+            .unwrap();
+        ledger
+            .record_run(&run_settled("fork", "older", 100))
+            .unwrap();
 
         assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
         assert_eq!(ledger.list_refs("parent").unwrap(), None);
@@ -367,7 +377,9 @@ mod tests {
     #[test]
     fn a_rekey_is_idempotent_and_never_self_collides() {
         let ledger = RefsLedger::open_in_memory().unwrap();
-        ledger.record_run(&run("parent", "run-1", &["src/a.ts"])).unwrap();
+        ledger
+            .record_run(&run("parent", "run-1", &["src/a.ts"]))
+            .unwrap();
 
         assert_eq!(
             ledger.rekey_session("parent", "parent").unwrap(),

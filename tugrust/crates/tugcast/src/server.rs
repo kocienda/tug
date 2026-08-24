@@ -312,16 +312,16 @@ async fn draft_handler(
     };
     // Blocking work (path resolution syscalls, ledger mutex, SQLite)
     // stays off the async workers.
-    let response = match tokio::task::spawn_blocking(move || apply_draft_request(&ledger, &req)).await
-    {
-        Ok(response) => response,
-        Err(e) => {
-            return err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("draft task failed: {e}"),
-            );
-        }
-    };
+    let response =
+        match tokio::task::spawn_blocking(move || apply_draft_request(&ledger, &req)).await {
+            Ok(response) => response,
+            Err(e) => {
+                return err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("draft task failed: {e}"),
+                );
+            }
+        };
     // A draft the changesets feed derives from just moved, so the feed
     // recomputes — the same bump the dash bind handler fires. Without it a
     // standing join prompt keeps composing its "lands as" from the draft that

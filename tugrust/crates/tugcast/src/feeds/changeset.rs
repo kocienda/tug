@@ -1385,9 +1385,7 @@ pub(crate) fn format_commit_summary(
     let added: u64 = files.iter().map(|f| f.added.unwrap_or(0) as u64).sum();
     let removed: u64 = files.iter().map(|f| f.deleted.unwrap_or(0) as u64).sum();
     let files_line = receipt_files_line(files);
-    format!(
-        "committed {short} · {count} file(s) · +{added} −{removed}\n{files_line}\n{message}"
-    )
+    format!("committed {short} · {count} file(s) · +{added} −{removed}\n{files_line}\n{message}")
 }
 
 /// The `/dash-join` receipt's durable summary (Spec S01).
@@ -3523,7 +3521,10 @@ Some context.
     #[test]
     fn format_join_summary_omits_the_files_line_when_there_are_none() {
         let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject line", &[]);
-        assert_eq!(s, "joined abc1234567 · d → trunk · 1 round(s)\nSubject line");
+        assert_eq!(
+            s,
+            "joined abc1234567 · d → trunk · 1 round(s)\nSubject line"
+        );
         assert!(!s.contains("files:"));
     }
 

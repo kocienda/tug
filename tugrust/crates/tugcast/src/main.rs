@@ -20,6 +20,7 @@ mod fs_stat;
 mod fs_write;
 mod git_exclude;
 mod host;
+mod ink_adoption;
 mod jots;
 mod ledger_integrity;
 /// Crate-root path utilities (firmlink/synthetic/symlink resolution). Lives
@@ -30,7 +31,6 @@ mod path_resolver;
 mod permissions;
 mod prompt_history_api;
 mod prompt_ledger;
-mod ink_adoption;
 mod refs_ledger;
 mod resources;
 mod router;

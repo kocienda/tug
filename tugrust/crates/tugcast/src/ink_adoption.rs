@@ -336,10 +336,14 @@ mod tests {
         sessions
             .record_spawn("fork", "ws", "/proj", "card-1", 2, Some("stocky-pixie"))
             .unwrap();
-        sessions.set_fork_provenance("fork", "parent", "point").unwrap();
+        sessions
+            .set_fork_provenance("fork", "parent", "point")
+            .unwrap();
 
         let shell = ShellLedger::open_in_memory().unwrap();
-        shell.record_exchange(&shell_row("parent", "/commit")).unwrap();
+        shell
+            .record_exchange(&shell_row("parent", "/commit"))
+            .unwrap();
         let refs = RefsLedger::open_in_memory().unwrap();
         refs.record_run(&refs_row("parent", "run-1")).unwrap();
         let ink = InkStores {
@@ -399,10 +403,14 @@ mod tests {
         sessions
             .record_spawn("stranger", "ws", "/proj", "card-1", 3, None)
             .unwrap();
-        sessions.set_fork_provenance("fork", "parent", "point").unwrap();
+        sessions
+            .set_fork_provenance("fork", "parent", "point")
+            .unwrap();
 
         let shell = ShellLedger::open_in_memory().unwrap();
-        shell.record_exchange(&shell_row("parent", "/commit")).unwrap();
+        shell
+            .record_exchange(&shell_row("parent", "/commit"))
+            .unwrap();
 
         adopt_by_lineage(
             &sessions,
@@ -452,8 +460,7 @@ mod tests {
                 dir.path().join("projects"),
             )
             .unwrap();
-            let bank =
-                tugbank_core::TugbankClient::open(dir.path().join("bank.db")).expect("bank");
+            let bank = tugbank_core::TugbankClient::open(dir.path().join("bank.db")).expect("bank");
             Self {
                 sessions,
                 bank,
@@ -464,11 +471,10 @@ mod tests {
         /// Write `<root>/<encoded project>/<session>.jsonl` containing one
         /// turn per named ancestor — the shape a fork's file copy has.
         fn write_jsonl(&self, session: &str, project_dir: &str, ancestor_ids: &[&str]) {
-            let (dir, _) =
-                crate::session_ledger::claude_project_dir(
-                    self.sessions.claude_projects_root(),
-                    project_dir,
-                );
+            let (dir, _) = crate::session_ledger::claude_project_dir(
+                self.sessions.claude_projects_root(),
+                project_dir,
+            );
             std::fs::create_dir_all(&dir).expect("create project dir");
             let body: String = ancestor_ids
                 .iter()
@@ -492,7 +498,9 @@ mod tests {
         fx.write_jsonl("head", "/proj", &["orphan", "head"]);
 
         let shell = ShellLedger::open_in_memory().unwrap();
-        shell.record_exchange(&shell_row("orphan", "/commit")).unwrap();
+        shell
+            .record_exchange(&shell_row("orphan", "/commit"))
+            .unwrap();
         let ink = InkStores {
             shell: Some(&shell),
             refs: None,
@@ -521,7 +529,9 @@ mod tests {
         fx.write_jsonl("head", "/proj", &["orphan"]);
 
         let shell = ShellLedger::open_in_memory().unwrap();
-        shell.record_exchange(&shell_row("orphan", "/commit")).unwrap();
+        shell
+            .record_exchange(&shell_row("orphan", "/commit"))
+            .unwrap();
         let ink = InkStores {
             shell: Some(&shell),
             refs: None,
@@ -555,7 +565,9 @@ mod tests {
         fx.write_jsonl("head", "/proj", &["alive"]);
 
         let shell = ShellLedger::open_in_memory().unwrap();
-        shell.record_exchange(&shell_row("alive", "/commit")).unwrap();
+        shell
+            .record_exchange(&shell_row("alive", "/commit"))
+            .unwrap();
         let ink = InkStores {
             shell: Some(&shell),
             refs: None,
@@ -618,7 +630,9 @@ mod tests {
         fx.write_jsonl("sibling", "/proj", &["orphan"]);
 
         let shell = ShellLedger::open_in_memory().unwrap();
-        shell.record_exchange(&shell_row("orphan", "/commit")).unwrap();
+        shell
+            .record_exchange(&shell_row("orphan", "/commit"))
+            .unwrap();
         let ink = InkStores {
             shell: Some(&shell),
             refs: None,

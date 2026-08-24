@@ -2434,10 +2434,9 @@ impl SessionLedger {
                 "SELECT DISTINCT root_tag FROM sessions
                  WHERE root_tag IS NOT NULL AND root_tag != ''",
             )?;
-            let collected = stmt
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            collected
+
+            stmt.query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
         };
         for root in roots {
             let wearer: Option<(String, String)> = conn
@@ -3739,13 +3738,7 @@ impl SessionLedger {
             .query_row(
                 "SELECT tag, name, name_user_set FROM sessions WHERE session_id = ?1",
                 params![parent_session_id],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get::<_, i64>(2)? != 0,
-                    ))
-                },
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
             )
             .optional()?;
         let Some((tag, name, name_user_set)) = parent else {
@@ -7968,9 +7961,7 @@ mod tests {
         )
         .unwrap();
         spawn_fork(&l, "root", "point-1", "f-1");
-        let resolved = l
-            .resolve_session_ids(&["stocky-pixie".to_owned()])
-            .unwrap();
+        let resolved = l.resolve_session_ids(&["stocky-pixie".to_owned()]).unwrap();
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].1.session_id, "f-1");
     }
@@ -7997,7 +7988,9 @@ mod tests {
         // the entry's remembered tag; the claim loses to the head and
         // rerolls a complete fresh pair.
         assert_eq!(
-            l.inherit_fork_identity("root", "f-2", millis(0)).unwrap().tag,
+            l.inherit_fork_identity("root", "f-2", millis(0))
+                .unwrap()
+                .tag,
             None
         );
         l.record_spawn(
@@ -8026,13 +8019,16 @@ mod tests {
         l.record_spawn("root", WS_A, "/proj", "card-1", millis(0), None)
             .unwrap();
         assert_eq!(
-            l.inherit_fork_identity("root", "f-1", millis(0)).unwrap().tag,
+            l.inherit_fork_identity("root", "f-1", millis(0))
+                .unwrap()
+                .tag,
             None,
             "the caller spawns it as a root"
         );
         // An unknown parent is the same answer, not an error.
         assert_eq!(
-            l.inherit_fork_identity("no-such", "f-2", millis(0)).unwrap(),
+            l.inherit_fork_identity("no-such", "f-2", millis(0))
+                .unwrap(),
             InheritedForkIdentity::default()
         );
     }
@@ -8062,12 +8058,17 @@ mod tests {
         assert!(!parent.name_user_set);
         // An auto title is NOT transferred — the fork's copied JSONL
         // re-derives it.
-        l.record_spawn("root2", WS_A, "/proj", "card-2", millis(0), Some("azure-heron"))
-            .unwrap();
+        l.record_spawn(
+            "root2",
+            WS_A,
+            "/proj",
+            "card-2",
+            millis(0),
+            Some("azure-heron"),
+        )
+        .unwrap();
         l.record_auto_title("root2", "Auto title").unwrap();
-        let inherited = l
-            .inherit_fork_identity("root2", "f-2", millis(0))
-            .unwrap();
+        let inherited = l.inherit_fork_identity("root2", "f-2", millis(0)).unwrap();
         assert_eq!(inherited.tag.as_deref(), Some("azure-heron"));
         assert_eq!(inherited.user_name, None);
         assert_eq!(
@@ -8094,8 +8095,15 @@ mod tests {
         // onto an unrelated session.
         l.mark_closed("f-1").unwrap();
         l.trash("f-1").unwrap();
-        l.record_spawn("s-new", WS_A, "/proj", "card-2", millis(0), Some("stocky-pixie"))
-            .unwrap();
+        l.record_spawn(
+            "s-new",
+            WS_A,
+            "/proj",
+            "card-2",
+            millis(0),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
         let tag = l.get("s-new").unwrap().unwrap().tag.expect("rerolled");
         assert_ne!(tag, "stocky-pixie");
         assert_is_lexicon_pair(&tag);

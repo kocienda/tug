@@ -785,7 +785,10 @@ mod tests {
         // a full window rather than inside it.
         let chatter = rows.iter().filter(|r| r.command.starts_with("cmd")).count();
         assert_eq!(chatter, MAX_EXCHANGES_PER_SESSION);
-        assert_eq!(rows.len(), MAX_EXCHANGES_PER_SESSION + LANDING_RECEIPT_COMMANDS.len());
+        assert_eq!(
+            rows.len(),
+            MAX_EXCHANGES_PER_SESSION + LANDING_RECEIPT_COMMANDS.len()
+        );
     }
 
     #[test]

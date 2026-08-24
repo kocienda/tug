@@ -248,27 +248,40 @@ lint:
     cd tugrust && cargo clippy --workspace --all-targets -- -D warnings
     cd tugrust && cargo fmt --all -- --check
 
+# Apply the clippy suggestions `cargo clippy --fix` refuses to, and print the
+# ones no tool should apply unattended. `--fix` applies only what rustc marked
+# `MachineApplicable`, so a lint like `ptr_arg` survives every `--fix` pass
+# forever; this reads the same diagnostics out of `--message-format=json` and
+# decides for itself. `--explain` reports without applying. The trust criteria
+# live at the top of the script.
+clippy-repair *ARGS:
+    bun scripts/clippy-repair.ts {{ARGS}}
+
 # Repair everything repairable, then run the full gate.
 #
-# `lint` only reports; this is the recipe that EDITS. It repairs in three
-# passes, cheapest first — clippy's machine-applicable rewrites, formatting,
-# then the derived goldens (`just golden`) — and only then runs `ci`. So a
-# stale golden, which is arithmetic rather than a bug, is fixed on the way
-# through instead of failing the gate with a 245-line diff to read.
+# `lint` only reports; this is the recipe that EDITS. It repairs in four
+# passes, cheapest first — clippy's machine-applicable rewrites, the trusted
+# suggestions `--fix` skips (`just clippy-repair`), formatting, then the
+# derived goldens (`just golden`) — and only then runs `ci`. So a stale
+# golden, which is arithmetic rather than a bug, is fixed on the way through
+# instead of failing the gate with a 245-line diff to read.
 #
 # It rewrites files in place, so review the diff afterwards; when it changes
 # a golden it says so and shows you which.
 #
 # What is left when this recipe still fails is, by construction, the part no
-# tool can do: a lint clippy has no mechanical rewrite for (`large_enum_variant`,
-# `if_same_then_else` — these want a judgment call about the code's shape), or
-# a genuinely failing test. The recipe names which of the two before it stops.
+# tool can do: a lint whose repair is not self-contained or would compile into
+# a different meaning (`large_enum_variant`, `empty_line_after_doc_comments` —
+# these want a judgment call about the code's shape), or a genuinely failing
+# test. The recipe names which of the two before it stops, and for the lint
+# case it prints clippy's own proposal rather than only that it declined.
 fix:
     #!/usr/bin/env bash
     set -euo pipefail
     cd "{{justfile_directory()}}"
 
     (cd tugrust && cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged)
+    just clippy-repair --quiet
     (cd tugrust && cargo fmt --all)
 
     just golden
@@ -281,12 +294,21 @@ fix:
 
     if ! just lint; then
         echo
-        echo "STOPPED: lint failures survived --fix. These have no mechanical" >&2
-        echo "rewrite; each one above needs a decision about the code's shape" >&2
-        echo "(restructure it, or #[allow(...)] it with the reason)." >&2
+        echo "STOPPED: lint failures survived both repair passes." >&2
+        just clippy-repair --explain
+        echo
+        echo "Each one needs a decision about the code's shape — take clippy's" >&2
+        echo "proposal above, restructure the code, or #[allow(...)] it with the" >&2
+        echo "reason. A lint printing nothing above has no proposal at all." >&2
         exit 1
     fi
-    just test
+
+    if ! just test; then
+        echo
+        echo "STOPPED: a test genuinely fails. Nothing above this line can repair" >&2
+        echo "that — the failure named above is about behavior, not shape." >&2
+        exit 1
+    fi
 
 # Full pre-merge gate (lint + test). `fix` runs these same two recipes rather
 # than calling `ci`, so that it can speak between them; keep the pair in step.

@@ -30,8 +30,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinOffer,
-    DashJoinQuestion, DashJoinReport, DashJoinState, DashResolvedFile,
+    DashConflictCommit, DashConflictHistory, DashJoinBlocker, DashJoinOffer, DashJoinQuestion,
+    DashJoinReport, DashJoinState, DashResolvedFile,
 };
 use tugdash_core::ops::{self, DashDetail};
 use tugdash_core::resolve::{self, CandidateStatus};

@@ -3676,7 +3676,10 @@ mod tests {
             std::collections::HashSet::from(["fork-ink".to_string()]),
             "the parent's receipts moved to the line's head"
         );
-        assert_eq!(shell.list_exchanges_since("fork-ink", None).unwrap().len(), 2);
+        assert_eq!(
+            shell.list_exchanges_since("fork-ink", None).unwrap().len(),
+            2
+        );
         let refs = ink.refs.expect("refs ledger");
         assert_eq!(refs.list_refs("parent-ink").unwrap(), None);
         assert_eq!(refs.list_refs("fork-ink").unwrap().unwrap().run_id, "run-1");
@@ -3693,7 +3696,10 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(
-            ink.refs.expect("refs ledger").list_refs("fork-bare").unwrap(),
+            ink.refs
+                .expect("refs ledger")
+                .list_refs("fork-bare")
+                .unwrap(),
             None
         );
     }

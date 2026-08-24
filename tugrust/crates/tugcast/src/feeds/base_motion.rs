@@ -791,11 +791,10 @@ fn compose_for(
             // The composer is IO-free by contract, so the config read happens
             // here, where git IO already does. The worktree carries its own
             // committed `.tugtool/config.toml` — the copy this run is about.
-            let verify = tugutil_core::config::Config::load_from_project(Path::new(
-                &job.worktree_abs,
-            ))
-            .ok()
-            .and_then(|config| config.tugtool.dash.verify);
+            let verify =
+                tugutil_core::config::Config::load_from_project(Path::new(&job.worktree_abs))
+                    .ok()
+                    .and_then(|config| config.tugtool.dash.verify);
             compose_conflict_message(&ConflictMessage {
                 dash: &job.name,
                 base_branch: &job.base_branch,

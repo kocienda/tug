@@ -1666,7 +1666,13 @@ mod tests {
         let mut rx = feed.subscribe();
         let (tx, input_rx) = mpsc::channel(8);
         let cancel = CancellationToken::new();
-        let task = tokio::spawn(refs_dispatcher_task(input_rx, feed, None, None, cancel.clone()));
+        let task = tokio::spawn(refs_dispatcher_task(
+            input_rx,
+            feed,
+            None,
+            None,
+            cancel.clone(),
+        ));
 
         let payload = json!({
             "type": "match",
