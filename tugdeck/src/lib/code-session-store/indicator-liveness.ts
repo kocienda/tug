@@ -100,6 +100,28 @@ export function jobRowState(status: JobStatus): TugProgressIndicatorState {
 }
 
 /**
+ * A plan-ledger row's state — the dash's own step list, gated the same way a
+ * task row is.
+ *
+ * `in progress` is a cell a step verb wrote into a document, not an
+ * observation of anything running: a run that stopped mid-step leaves the row
+ * saying `in progress` for as long as the plan sits on disk. So the `idle`
+ * gate is the same gate, for the same reason — the ledger still reads "in
+ * progress", the glyph does not claim it is happening.
+ *
+ * An unrecognized spelling rests at `stopped`, the conservative reading and
+ * the one the plan-doc scan takes for the same cell.
+ */
+export function ledgerRowState(
+  status: string,
+  idle: boolean,
+): TugProgressIndicatorState {
+  if (status === "done") return "completed";
+  if (status === "in progress") return idle ? "stopped" : "running";
+  return "stopped";
+}
+
+/**
  * The goal row's state.
  *
  * A goal is not work — it is a standing condition on the session, set once

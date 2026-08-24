@@ -119,6 +119,28 @@ export interface SessionChangesetEntry {
   draft?: ChangesetDraft;
 }
 
+/**
+ * One row of a dash's plan ledger — the step list a surface renders.
+ *
+ * Two fields on purpose. The ledger row on disk also carries an anchor and a
+ * commit cell; both belong to the Changes shade rather than to a placard, and a
+ * list that shows a title and a state needs a title and a state.
+ */
+export interface DashStep {
+  /** The step's title, as the ledger table spells it. */
+  title: string;
+  /** The status cell, lowercased: `pending` | `in progress` | `done`. */
+  status: string;
+}
+
+export function isDashStep(value: unknown): value is DashStep {
+  return (
+    isRecord(value) &&
+    typeof value.title === "string" &&
+    typeof value.status === "string"
+  );
+}
+
 /** A dash worktree branch and its accumulated base..branch changes. */
 export interface DashChangesetEntry {
   kind: "dash";
@@ -172,6 +194,14 @@ export interface DashChangesetEntry {
    *  when the file cannot be read or parsed: absence means *nothing to say*,
    *  and a surface paints nothing for it. */
   review?: string;
+  /** That plan's ledger, in source order — one entry per declared step.
+   *
+   *  The counters above say *where* the run is; this says what the walk *is*,
+   *  and it is the only source for that. Read off the same parse `review` comes
+   *  from, so a dash's fraction and its step list cannot come from two readings
+   *  of two different bytes. Absent when the dash records no plan, or when the
+   *  file cannot be read or parsed — the same silence `review` keeps. */
+  steps?: DashStep[];
   /** The base branch the dash was created from. */
   base: string;
   /** Number of commits on the dash branch past its base. */
@@ -621,6 +651,8 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.step_title === undefined || typeof value.step_title === "string") &&
       (value.last_activity === undefined || typeof value.last_activity === "string") &&
       (value.plan_path === undefined || typeof value.plan_path === "string") &&
+      (value.steps === undefined ||
+        (Array.isArray(value.steps) && value.steps.every(isDashStep))) &&
       (value.base_ahead === undefined || typeof value.base_ahead === "number") &&
       isOptionalStringArray(value.base_overlap) &&
       (value.last_replay === undefined || typeof value.last_replay === "string") &&

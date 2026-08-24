@@ -96,6 +96,22 @@ describe("changeset wire contract", () => {
     expect(isChangesetEntry({ ...base, plan_path: "dash/plan.md" })).toBe(true);
     expect(isChangesetEntry({ ...base, plan_path: 7 })).toBe(false);
     expect(isChangesetEntry({ ...base, plan_path: null })).toBe(false);
+    // The ledger is optional both ways: the wire skips it entirely for a dash
+    // driving no plan, and a whole array of `{title, status}` arrives once one
+    // is. A row missing either half is drift, not a sparse row — a step list
+    // that cannot say what a step is or where it stands is not a step list.
+    expect(
+      isChangesetEntry({
+        ...base,
+        steps: [{ title: "Do it", status: "in progress" }],
+      }),
+    ).toBe(true);
+    expect(isChangesetEntry({ ...base, steps: [] })).toBe(true);
+    expect(isChangesetEntry({ ...base, steps: [{ title: "Do it" }] })).toBe(
+      false,
+    );
+    expect(isChangesetEntry({ ...base, steps: ["Do it"] })).toBe(false);
+    expect(isChangesetEntry({ ...base, steps: null })).toBe(false);
     // `last_activity` is an ISO-8601 string or nothing. A number — an epoch
     // millisecond count, the plausible drift — is not a date this side parses.
     expect(isChangesetEntry({ ...base, last_activity: "2026-08-14T12:00:00Z" })).toBe(true);

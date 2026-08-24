@@ -83,6 +83,7 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import {
   goalRowState,
   jobRowState,
+  ledgerRowState,
   taskRowState,
 } from "@/lib/code-session-store/indicator-liveness";
 import type { TaskStatus } from "@/lib/code-session-store/select-task-list";
@@ -131,6 +132,7 @@ import {
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
 import { DashMetaLine } from "@/components/tugways/dash-meta-line";
 import { DashSigil } from "@/components/tugways/dash-sigil";
+import type { DashStep } from "@/lib/changeset-types";
 import type { DashSessionFact } from "@/lib/dash-session-index";
 
 // ---------------------------------------------------------------------------
@@ -1271,6 +1273,57 @@ export function JobsPopoverContent({
 // ---------------------------------------------------------------------------
 
 /**
+ * A dash's plan ledger as numbered popup-list items — the same row shape
+ * `TaskListItems` renders, over the document rather than over the transcript.
+ *
+ * The ordinal is the row's ledger position, which is the step number the plan
+ * itself uses and the number the fraction above counts against. Nothing here
+ * is derived: the title is the ledger's spelling of the title, and the state is
+ * the status cell put through {@link ledgerRowState}.
+ */
+export function DashStepItems({
+  steps,
+  idle,
+}: {
+  steps: ReadonlyArray<DashStep>;
+  idle: boolean;
+}): React.ReactElement {
+  return (
+    <>
+      {steps.map((step, index) => (
+        <TugPopupListItem
+          // The ledger is a table with one row per step, so position is
+          // identity — two rows may legitimately carry the same title.
+          key={index}
+          className="session-tasks-popover-item"
+          data-slot="session-dash-popover-step"
+          data-status={step.status}
+          indicator={
+            <TugProgressIndicator
+              variant="pulsing-dot"
+              size={14}
+              state={ledgerRowState(step.status, idle)}
+              aria-label={`step ${step.status}`}
+            />
+          }
+        >
+          <TugPopupListItemText
+            primary={
+              <>
+                <span className="session-tasks-popover-ordinal">
+                  {index + 1}.
+                </span>
+                {step.title}
+              </>
+            }
+          />
+        </TugPopupListItem>
+      ))}
+    </>
+  );
+}
+
+/**
  * `DASH` popup — opened from the status row's fourth cell while the session is
  * driving a dash, in place of the `TASKS` reading.
  *
@@ -1278,9 +1331,21 @@ export function JobsPopoverContent({
  * shade already speak: the dash's own atom, then `DashMetaLine` at the reading
  * scale (the step ring with its run band, the stage glyph, the round count, the
  * current step's title, the age, and every divergence fact the dash carries),
- * then the [D100] checklist that is a plan run's step list seen from the task
- * side. Composed, not restated — every mark here is the same component the row
- * surfaces render, so the three readings of one dash cannot disagree.
+ * then **the plan's ledger** — the dash's own step list. Composed, not restated
+ * — every mark here is the same component the row surfaces render, so the three
+ * readings of one dash cannot disagree.
+ *
+ * The list is the ledger and not the [D100] task list, which is what it used to
+ * be. A run creates one task per step, so the two coincide when everything goes
+ * right and diverge the moment anything does not: tasks are session-scoped and
+ * append-only, so a second dash in one session inherits the first's checklist;
+ * a dash resumed in a fresh session has no tasks at all while its ledger is
+ * half walked; fix rounds make tasks that are not steps. The fraction above the
+ * list is counted against the ledger, so the list has to be the ledger or the
+ * two halves of one popup describe two different runs.
+ *
+ * A dash driving no plan has no ledger, and there the task list is the only
+ * checklist there is — so that is exactly, and only, when it is shown.
  *
  * The one exit is `Show in Changes`, which reveals this card's own Changes
  * shade. That is where every decision about a dash lives, and a placard is a
@@ -1301,6 +1366,7 @@ export function DashPopoverContent({
   idle: boolean;
   onShowInChanges: () => void;
 }): React.ReactElement {
+  const steps = fact.entry.steps ?? [];
   return (
     <TugPopupListFrame
       kind="item"
@@ -1326,9 +1392,15 @@ export function DashPopoverContent({
             atom
             atomSize="2xs"
           />
+          {/* The meta line's ring rides the same lead column the rows below
+              put their dots in, so the head reads as this list's heading
+              rather than as a stray line above it. The column is the grid's,
+              declared once in CSS — never a margin on the mark. */}
           <DashMetaLine entry={fact.entry} size="sm" />
         </div>
-        {tasks.length === 0 ? (
+        {steps.length > 0 ? (
+          <DashStepItems steps={steps} idle={idle} />
+        ) : tasks.length === 0 ? (
           <TugPopupListEmpty form="word">None</TugPopupListEmpty>
         ) : (
           <TaskListItems tasks={tasks} idle={idle} />

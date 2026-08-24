@@ -207,23 +207,20 @@
    `data-priority` is unchanged, so nothing in this file moves and the row's
    geometry cannot shift when a session picks a dash up.
 
-   Which half gives way under pressure is the whole design. The name elides;
-   the fraction does not shrink, because a clipped numeral is a lie about how
-   far along the run is, while a clipped name is still recognizable and the
-   whole of it is on the placard and the cell's accessible label. */
+   Nothing in here gives way under pressure, because nothing in here can:
+   the stage glyph and the run fraction are both fixed-width and both would be
+   lies clipped. That is what taking the dash's *name* out of the cell bought —
+   the one fact here that could grow without bound, and the one the reader
+   already knows, since they are the one who started it. The name is the cell's
+   accessible label in full and the placard's own heading one click away.
+
+   `center` rather than `baseline`: a glyph has no baseline to share with a
+   numeral, so the two are centred against each other in the line box. */
 .session-telemetry-status-value-dash {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--tug-space-2xs);
-  min-width: 0;
   max-width: 100%;
-}
-
-.session-telemetry-status-dash-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* `tabular-nums` for the reason every other ticking figure in this row has

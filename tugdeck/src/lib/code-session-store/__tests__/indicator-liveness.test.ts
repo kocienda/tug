@@ -14,6 +14,7 @@ import { describe, expect, it } from "bun:test";
 import {
   goalRowState,
   jobRowState,
+  ledgerRowState,
   taskRowState,
 } from "../indicator-liveness";
 import { sessionSessionPhaseVisual } from "../session-phase-visual";
@@ -112,6 +113,26 @@ describe("the liveness rule — only executing work breathes", () => {
     for (const status of TASK_STATUSES) {
       const live = taskRowState(status, false) === "running";
       expect(live).toBe(status === "in_progress");
+    }
+  });
+
+  it("holds a ledger row to the same gate a task row is held to", () => {
+    // The plan's own spellings, which are not the task list's. `in progress`
+    // is a cell a step verb wrote into a document on disk — a run that stopped
+    // mid-step leaves it saying so for as long as the file sits there — so it
+    // breathes only while the session it belongs to is actually working.
+    expect(ledgerRowState("done", false)).toBe("completed");
+    expect(ledgerRowState("done", true)).toBe("completed");
+    expect(ledgerRowState("in progress", false)).toBe("running");
+    expect(ledgerRowState("in progress", true)).toBe("stopped");
+    expect(ledgerRowState("pending", false)).toBe("stopped");
+  });
+
+  it("rests an unrecognized ledger status, never breathes it", () => {
+    // The conservative reading, and the one the plan-doc scan takes for the
+    // same cell: a spelling nobody knows has not been shown to be running.
+    for (const status of ["", "blocked", "IN PROGRESS", "skipped"]) {
+      expect(ledgerRowState(status, false)).toBe("stopped");
     }
   });
 

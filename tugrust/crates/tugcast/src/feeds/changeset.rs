@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tugcast_core::types::{
-    ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, OrphanedFile, PlanDocEntry,
-    SharedOwner, UnattributedFile,
+    ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DashStep, OrphanedFile,
+    PlanDocEntry, SharedOwner, UnattributedFile,
 };
 
 use super::attribution::{parse_worktree_states, repo_root_for};
@@ -1116,29 +1116,50 @@ fn dash_file_row(file: tugdash_core::DashDetailFile) -> ChangesetFile {
     }
 }
 
-/// What a dash's recorded plan says about its own review, or `None`.
+/// What a dash's recorded plan says about itself: its review state and its
+/// ledger, from **one** parse.
+///
+/// Both readings come from the same document and the same read, so they are
+/// taken together rather than by two functions that could be given two
+/// different paths, or run against two different bytes on either side of a
+/// write. A dash whose fraction says `2/5` and whose step list holds six rows
+/// is the failure this shape removes.
 ///
 /// `worktree_abs` is the dash worktree's absolute path as
 /// `dash_detail_entries_in` resolved it, and `plan_path` is relative to that
 /// worktree. **Nothing else joins in** — composing from the caller's repo root
 /// would be the bug the absolute path exists to remove, and because every
-/// failure here is `None`, that bug would not raise: it would show up as a mark
+/// failure here is silent, that bug would not raise: it would show up as a mark
 /// that never appears.
 ///
-/// Every failure path is `None` deliberately ([P03]): a plan that cannot be
-/// read has not been shown to be stale, and an unreadable plan is a normal
-/// state rather than an incident.
-fn dash_review_state(worktree_abs: &Path, plan_path: &str) -> Option<String> {
+/// Every failure path is `(None, empty)` deliberately ([P03]): a plan that
+/// cannot be read has not been shown to be stale and has not been shown to have
+/// no steps, and an unreadable plan is a normal state rather than an incident.
+fn dash_plan_reading(worktree_abs: &Path, plan_path: &str) -> (Option<String>, Vec<DashStep>) {
     let abs = worktree_abs.join(plan_path);
-    let source = std::fs::read_to_string(&abs)
+    let Ok(source) = std::fs::read_to_string(&abs)
         .inspect_err(|e| tracing::debug!(path = %abs.display(), error = %e, "dash plan unreadable"))
-        .ok()?;
-    let doc = tugutil_core::plan::parse(&source).ok()?;
-    Some(
-        tugutil_core::plan::review_state(&doc, &source)
-            .as_str()
-            .to_string(),
-    )
+    else {
+        return (None, Vec::new());
+    };
+    let Ok(doc) = tugutil_core::plan::parse(&source) else {
+        return (None, Vec::new());
+    };
+    // The ledger, not the step headings: the ledger is what the step verbs
+    // rewrite, so it is the only half of the document that moves as a run
+    // walks — and `step_current` is counted against it too.
+    let steps = doc
+        .ledger_rows
+        .iter()
+        .map(|row| DashStep {
+            title: row.title.clone(),
+            status: row.status.clone(),
+        })
+        .collect();
+    let review = tugutil_core::plan::review_state(&doc, &source)
+        .as_str()
+        .to_string();
+    (Some(review), steps)
 }
 
 /// Derive one dash entry per `refs/heads/tugdash/` branch.
@@ -1349,13 +1370,14 @@ async fn dash_entries(
         details
             .into_iter()
             .map(|detail| {
-                let review = detail
+                let (review, steps) = detail
                     .plan_path
                     .as_deref()
-                    .and_then(|plan| dash_review_state(Path::new(&detail.worktree_abs), plan));
+                    .map(|plan| dash_plan_reading(Path::new(&detail.worktree_abs), plan))
+                    .unwrap_or((None, Vec::new()));
                 let join =
                     crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
-                (detail, review, join)
+                (detail, review, steps, join)
             })
             .collect::<Vec<_>>()
     })
@@ -1371,7 +1393,7 @@ async fn dash_entries(
     // costs nothing and saves cloning the map into the closure. Dispatched from
     // the async side for the same reason the frame is: a ladder that runs for
     // minutes must never hold a recompute (Spec S06).
-    for (detail, _, join) in &details {
+    for (detail, _, _, join) in &details {
         let bound = bound_by_dash
             .get(&detail.owner_key)
             .is_some_and(|sessions| !sessions.is_empty());
@@ -1383,7 +1405,7 @@ async fn dash_entries(
 
     details
         .into_iter()
-        .map(|(detail, review, join)| ChangesetEntry::Dash {
+        .map(|(detail, review, steps, join)| ChangesetEntry::Dash {
             join: Some(join),
             bound_sessions: bound_by_dash
                 .get(&detail.owner_key)
@@ -1405,6 +1427,7 @@ async fn dash_entries(
             last_activity: detail.last_activity,
             plan_path: detail.plan_path,
             review,
+            steps,
             base: detail.base,
             rounds: detail.rounds,
             worktree: detail.worktree_abs,
@@ -2576,17 +2599,17 @@ Some context.
     }
 
     #[test]
-    fn dash_review_state_reads_reviewed_for_a_stamped_plan() {
+    fn dash_plan_reading_reads_reviewed_for_a_stamped_plan() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), true);
         assert_eq!(
-            dash_review_state(dir.path(), "plan.md").as_deref(),
+            dash_plan_reading(dir.path(), "plan.md").0.as_deref(),
             Some("reviewed")
         );
     }
 
     #[test]
-    fn dash_review_state_reads_stale_after_the_document_moves() {
+    fn dash_plan_reading_reads_stale_after_the_document_moves() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), true);
         let path = dir.path().join("plan.md");
@@ -2596,34 +2619,55 @@ Some context.
         );
         std::fs::write(&path, moved).unwrap();
         assert_eq!(
-            dash_review_state(dir.path(), "plan.md").as_deref(),
+            dash_plan_reading(dir.path(), "plan.md").0.as_deref(),
             Some("stale")
         );
     }
 
     #[test]
-    fn dash_review_state_reads_never_reviewed_without_a_stamp() {
+    fn dash_plan_reading_reads_never_reviewed_without_a_stamp() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(dir.path(), false);
         assert_eq!(
-            dash_review_state(dir.path(), "plan.md").as_deref(),
+            dash_plan_reading(dir.path(), "plan.md").0.as_deref(),
             Some("never-reviewed")
         );
     }
 
-    /// Both failures read as *nothing to say*, not as an accusation: a plan
-    /// nobody can read has not been shown to be unreviewed.
+    /// The other half of the reading: the ledger, which is the only source a
+    /// surface has for what a dash's walk *is*. Counted off `ledger_rows`
+    /// rather than the step headings, for the reason the plan-doc scan counts
+    /// off them — the ledger is what the step verbs rewrite.
     #[test]
-    fn dash_review_state_is_absent_for_a_missing_file() {
+    fn dash_plan_reading_carries_the_ledger_rows() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(dash_review_state(dir.path(), "plan.md").is_none());
+        write_plan(dir.path(), true);
+        let (_, steps) = dash_plan_reading(dir.path(), "plan.md");
+        assert_eq!(
+            steps,
+            vec![DashStep {
+                title: "The only step".to_string(),
+                status: "pending".to_string(),
+            }]
+        );
+    }
+
+    /// Both failures read as *nothing to say*, not as an accusation: a plan
+    /// nobody can read has not been shown to be unreviewed, and has not been
+    /// shown to have no steps.
+    #[test]
+    fn dash_plan_reading_is_absent_for_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (review, steps) = dash_plan_reading(dir.path(), "plan.md");
+        assert!(review.is_none());
+        assert!(steps.is_empty());
     }
 
     #[test]
-    fn dash_review_state_is_absent_for_a_document_that_is_not_a_plan() {
+    fn dash_plan_reading_is_absent_for_a_document_that_is_not_a_plan() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("plan.md"), "# Notes\n\nJust prose.\n").unwrap();
-        assert!(dash_review_state(dir.path(), "plan.md").is_none());
+        assert!(dash_plan_reading(dir.path(), "plan.md").0.is_none());
     }
 
     /// A project root declaring `docs = "<docs>"`, with a `.git` marker so the
@@ -3234,6 +3278,7 @@ Some context.
             last_activity: None,
             plan_path: None,
             review: None,
+            steps: Vec::new(),
             base: "main".to_owned(),
             rounds: 0,
             worktree: String::new(),
@@ -3317,6 +3362,7 @@ Some context.
                     last_activity: None,
                     plan_path: None,
                     review: None,
+                    steps: Vec::new(),
                     base: "main".to_owned(),
                     rounds: 1,
                     worktree: "/repo/.tug/worktrees/demo".to_owned(),

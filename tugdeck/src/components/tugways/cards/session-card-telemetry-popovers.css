@@ -276,7 +276,12 @@
    reinforced beyond the success-colored dot. Presentation-only cue on
    the item's primary slot; the indicator's own appearance is owned by
    the component via its `state` prop. */
-.session-tasks-popover-item[data-status="completed"] .tug-popup-list-item-primary {
+/* A finished row is struck through, in both vocabularies: `completed` is a
+   task's spelling, `done` is a ledger cell's. Two selectors rather than a
+   normalizing shim, because the two words are two sources' own words and
+   neither is the other's to rename. */
+.session-tasks-popover-item[data-status="completed"] .tug-popup-list-item-primary,
+.session-tasks-popover-item[data-status="done"] .tug-popup-list-item-primary {
   text-decoration: line-through;
   opacity: 0.7;
 }
@@ -309,10 +314,38 @@
 /* The dash's identity over its metadata line, above the checklist. A block
    rather than a popup-list item: it is the placard's subject, not one of its
    rows, and the items beneath it are the run's steps. */
+/* The head and the step rows below it share an inline padding, and that used
+   to be the *whole* of their alignment — but a shared left edge is not a shared
+   column. The head's meta line leads with a 16px ring; each row leads with a
+   14px dot; so two marks that read as one column were drawn off centre from
+   each other by the difference, which is exactly how it looked.
+
+   One lead box, declared once and spent twice: the head centres its leading
+   mark in it, the rows centre their dot in it. Retuning either mark now moves
+   both together instead of reopening the gap. Which mark leads the meta line is
+   the meta line's business — the ring when the dash declared counters, the
+   stage glyph when it did not — so the rule takes whichever one is first
+   rather than naming one and shifting the line when it is absent. */
+[data-slot="session-dash-popover-body"] {
+  --tugx-dash-popover-lead-width: 16px;
+}
+
 .session-dash-popover-head {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-xs);
   min-width: 0;
   padding: var(--tug-space-xs) var(--tug-space-sm);
+}
+
+.session-dash-popover-head .tug-dash-meta-line > :first-child {
+  flex: 0 0 auto;
+  display: inline-flex;
+  justify-content: center;
+  inline-size: var(--tugx-dash-popover-lead-width);
+}
+
+[data-slot="session-dash-popover-body"] .tug-popup-list-item-lead {
+  justify-content: center;
+  inline-size: var(--tugx-dash-popover-lead-width);
 }

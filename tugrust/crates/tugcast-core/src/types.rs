@@ -362,6 +362,24 @@ pub struct ChangesetFile {
     pub shared_with: Vec<SharedOwner>,
 }
 
+/// One row of a dash's plan ledger — the step list a surface can render.
+///
+/// The counters beside it (`step_current` / `step_total`) say *where* a run
+/// is; this says *what the walk is*. It is projected from the same parse
+/// `review` comes from, so a dash's fraction and its step list are one reading
+/// of one document rather than two readings that can disagree.
+///
+/// Deliberately two fields. The ledger row also carries an anchor and a commit
+/// cell, and both belong to the Changes shade rather than to a placard — a
+/// list that renders a title and a state needs a title and a state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DashStep {
+    /// The step's title, as the ledger table spells it.
+    pub title: String,
+    /// The status cell, lowercased: `pending` | `in progress` | `done`.
+    pub status: String,
+}
+
 /// One co-owner named on a shared file's badge.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SharedOwner {
@@ -537,6 +555,14 @@ pub enum ChangesetEntry {
         /// absence is "nothing to say", never an accusation.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         review: Option<String>,
+        /// That plan's ledger, in source order — one entry per declared step.
+        ///
+        /// Sent for the same reason `review` is, and read off the same parse:
+        /// a surface asking what this dash's walk *is* has no other source.
+        /// Empty when the dash records no plan, when the file cannot be read,
+        /// or when it does not parse — the same silence `review` keeps.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        steps: Vec<DashStep>,
         /// The base branch the dash was created from.
         base: String,
         /// Number of commits on the dash branch past its base.
@@ -1673,6 +1699,7 @@ mod tests {
             last_activity: None,
             plan_path: None,
             review: None,
+            steps: vec![],
             base: "main".to_string(),
             rounds: 0,
             worktree: "/repo/.tug/worktrees/tugdash__x".to_string(),

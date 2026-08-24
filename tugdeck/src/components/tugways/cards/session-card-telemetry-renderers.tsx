@@ -94,6 +94,7 @@ import {
   type ScrollToRowHandler,
 } from "./session-card-telemetry-popovers";
 import { dashGlanceFraction } from "@/components/tugways/dash-meta-line";
+import { DashStageMark } from "@/components/tugways/dash-stage-mark";
 import { useDashForSession } from "@/lib/dash-session-index";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
@@ -817,7 +818,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const dashFact = useDashForSession(snap.tugSessionId);
   // The same call, in the same argument order, the masthead's identity row
   // already makes — so Z1 and Z2 cannot disagree about the numerals. Null for
-  // a dash that declared no counters, which reads as the name alone.
+  // a dash that declared no counters, which reads as the stage glyph alone.
   const dashGlance =
     dashFact !== null
       ? dashGlanceFraction(
@@ -827,8 +828,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           dashFact.stepTotal,
         )
       : null;
-  // The cell elides the name to fit its fixed box; the label does not, so a
-  // screen reader hears the whole identity the eye may only see a prefix of.
+  // The cell shows no name at all; the label carries the whole identity, so a
+  // screen reader hears which dash the glyph and the fraction belong to.
   const dashCellLabel =
     dashFact === null
       ? ""
@@ -1218,20 +1219,27 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         {replayInert ? (
           <span className="session-telemetry-status-value">—</span>
         ) : dashFact !== null ? (
-          // The dash's name and its run fraction, inside the box TASKS already
+          // The dash's stage and its run fraction, inside the box TASKS already
           // held: `data-priority` is unchanged, so the measured width table and
           // the placard's anchor query both keep working, and the row's
-          // geometry does not move when a session picks a dash up. The name
-          // elides and the fraction does not — a truncated numeral would be a
-          // lie, and the full name is on the placard and the cell's label.
+          // geometry does not move when a session picks a dash up.
+          //
+          // **No name.** The cell is ~110px, and a name is the one fact here
+          // that can be arbitrarily long — so it ate the box and elided, which
+          // spent every pixel on the thing the reader already knows (they
+          // picked the dash) and pushed out the two that change while they
+          // watch. Nothing in the cell can be truncated now, because nothing in
+          // it would still be true truncated. The name is on the cell's own
+          // `DASH` label as a reading, in the accessible label in full, and on
+          // the placard one click away.
           <span
             className="session-telemetry-status-value session-telemetry-status-value-dash"
             data-slot="session-telemetry-dash-value"
             aria-label={dashCellLabel}
           >
-            <span className="session-telemetry-status-dash-name">
-              {dashFact.name}
-            </span>
+            {dashFact.stage !== null && (
+              <DashStageMark stage={dashFact.stage} />
+            )}
             {dashGlance !== null && (
               <span className="session-telemetry-status-dash-fraction">
                 {`${dashGlance.current}/${dashGlance.total}`}

@@ -65,6 +65,11 @@
  * @covers tugdeck/src/components/lens/sections/dash-prompt-target.ts
  * @covers tugdeck/src/lib/dash-prompts.ts
  * @covers tugdeck/src/lib/changeset-types.ts
+ * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.css
+ * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
+ * @covers tugdeck/src/components/tugways/tug-status-cell.css
+ * @covers tugdeck/src/lib/code-session-store/indicator-liveness.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast/src/feeds/changeset_all.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
@@ -485,7 +490,8 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         const dashBox = await app.evalJS<{
           label: string;
           width: number;
-          name: string;
+          text: string;
+          stage: string | null;
           fraction: string;
           aria: string | null;
         }>(
@@ -495,7 +501,8 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
              return {
                label: (cell?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim(),
                width: cell?.getBoundingClientRect().width ?? 0,
-               name: (value?.querySelector(".session-telemetry-status-dash-name")?.textContent ?? "").trim(),
+               text: (value?.textContent ?? "").trim(),
+               stage: value?.querySelector('[data-slot="tug-dash-stage-mark"]')?.getAttribute("data-stage") ?? null,
                fraction: (value?.querySelector(".session-telemetry-status-dash-fraction")?.textContent ?? "").trim(),
                aria: value?.getAttribute("aria-label") ?? null,
              };
@@ -503,10 +510,15 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         );
         note("at0473 Z2 as DASH", JSON.stringify(dashBox));
         expect(dashBox.label).toBe("DASH");
-        expect(dashBox.name).toBe(DASH_NAME);
         expect(dashBox.fraction).toBe("1/3");
-        // The accessible label carries the whole name, which the elided cell
-        // may only show a prefix of.
+        // The stage as a glyph, not a word — and the *name is not in the cell
+        // at all*. A name is the one fact here that can be arbitrarily long,
+        // and in a ~110px box it elided away the two facts that actually move
+        // while somebody watches. Nothing left in the cell can be truncated,
+        // because nothing left in it would still be true truncated.
+        expect(dashBox.stage).toBe("implementing");
+        expect(dashBox.text).not.toContain(DASH_NAME);
+        // Which dash it is lives in the accessible label, in full.
         expect(dashBox.aria).toBe(`dash ${DASH_NAME}, step 1 of 3`);
         // **The box did not move.** The reading changed; the geometry is the
         // measured width table's, keyed on a `data-priority` this change
@@ -519,12 +531,28 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           `document.querySelector(${JSON.stringify(DASH_PLACARD)}) !== null`,
           { timeoutMs: 10000 },
         );
-        const placard = await app.evalJS<{ text: string; steps: number }>(
+        const placard = await app.evalJS<{
+          text: string;
+          rows: Array<{ text: string; status: string | null }>;
+          headMark: number;
+          rowMark: number;
+        }>(
           `(() => {
              const body = document.querySelector(${JSON.stringify(DASH_PLACARD)});
+             const steps = Array.from(body?.querySelectorAll('[data-slot="session-dash-popover-step"]') ?? []);
+             const centre = (el) => {
+               if (el === null || el === undefined) return -1;
+               const box = el.getBoundingClientRect();
+               return box.left + box.width / 2;
+             };
              return {
                text: (body?.textContent ?? "").trim(),
-               steps: body?.querySelectorAll('[data-slot="tug-popup-list-item"]').length ?? 0,
+               rows: steps.map((row) => ({
+                 text: (row.querySelector(".tug-popup-list-item-primary")?.textContent ?? "").trim(),
+                 status: row.getAttribute("data-status"),
+               })),
+               headMark: centre(body?.querySelector('[data-slot="tug-dash-meta-line"]')?.firstElementChild),
+               rowMark: centre(steps[0]?.querySelector(".tug-popup-list-item-lead")?.firstElementChild),
              };
            })()`,
         );
@@ -535,14 +563,35 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // three readings of one dash cannot disagree.
         expect(placard.text).toContain(DASH_NAME);
         expect(placard.text).toContain("1/3");
-        expect(placard.text).toContain("The only step");
         expect(placard.text).toContain("uncommitted");
-        // The checklist beneath it is the [D100] list, and this fixture's
-        // resumed session has none — so it reads the honest "None" rather
-        // than an empty region. A run's own tasks arrive from the transcript,
-        // which is `TaskListItems`' own coverage.
-        expect(placard.steps).toBe(0);
-        expect(placard.text).toContain("None");
+        // **The list is the plan's ledger**, not the [D100] task list it used
+        // to be. This session is a real `--resume` and has written no tasks at
+        // all, so under the old reading the placard said "None" over a dash
+        // three steps deep — the fraction above it counting a walk the list
+        // below it denied existed. The ledger has no way to be silent about a
+        // plan it is the ledger of.
+        expect(placard.rows.map((r) => r.text)).toEqual([
+          "1.The only step",
+          "2.The second step",
+          "3.The third step",
+        ]);
+        // And it says where the walk actually is: `dash step start 1` flipped
+        // row one and nothing else.
+        expect(placard.rows.map((r) => r.status)).toEqual([
+          "in progress",
+          "pending",
+          "pending",
+        ]);
+        expect(placard.text).not.toContain("None");
+        // One lead column, measured. The head's ring and the rows' dots are
+        // different sizes, so sharing an inline padding left them off centre
+        // from each other by the difference — a shared left edge is not a
+        // shared column.
+        expect(placard.headMark).toBeGreaterThan(0);
+        expect(
+          Math.abs(placard.headMark - placard.rowMark),
+          "the head's mark is centred in the column the step dots sit in",
+        ).toBeLessThanOrEqual(1);
         note("at0473 Z2 dash placard", (await app.screenshot()).path);
       } finally {
         await app.close();
