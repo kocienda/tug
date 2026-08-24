@@ -12,11 +12,10 @@
 //! Changeset card, via tugcast) own presentation. Repo resolution is
 //! cwd-relative (`find_repo_root`), matching `git`'s own behaviour.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
-use tugutil_core::paths::project_state_dir;
 use tugutil_core::{Config, find_repo_root, sanitize_branch_name};
 
 use crate::dash::{
@@ -164,12 +163,12 @@ pub struct JoinOptions {
     pub message: Option<String>,
     /// Report conflicts in-memory via `git merge-tree`, touching nothing.
     pub preview: bool,
-    /// Resume an interrupted join's teardown from the journal.
+    /// Resume an interrupted join's teardown from its open op-log record.
     pub continue_join: bool,
     /// Land a pre-built candidate commit from the resolution ladder ([P31])
     /// instead of merging the dash branch: the candidate supplies the resolved
     /// **bytes**, `strategy` still decides the **shape**, and the normal
-    /// journaled teardown follows. Staleness-guarded by ancestry, the same test
+    /// recorded teardown follows. Staleness-guarded by ancestry, the same test
     /// [`crate::resolve::candidate_status`] applies.
     ///
     /// The candidate's own internal shape — one commit on the base, or a chain
@@ -1032,7 +1031,7 @@ pub struct DashDetail {
     pub files: Vec<DashDetailFile>,
     /// Round commit subjects, newest first; empty when the dash has no rounds.
     pub round_subjects: Vec<String>,
-    /// Derived stage ([P03]); `joining` requires the join journal, so callers
+    /// Derived stage ([P03]); `joining` requires a join in flight, so callers
     /// that can also see a draft recompute with [`derive_stage`].
     pub stage: String,
     /// How far a stepped run has got, from the latest step declaration.
@@ -1137,7 +1136,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
     // The same normalization the join verbs do: a card whose project is a
     // linked worktree must be told about the repository's dashes, keyed the
     // way every other reader keys them — the derived `joining` stage reads the
-    // join journal out of the main root's state dir.
+    // op log out of the main root's state dir.
     let repo_root = &main_repo_root(repo_root);
     let Ok(branches) = git_stdout(
         repo_root,
@@ -1223,12 +1222,12 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         // ([P01]): the declarations are the record this path derives from.
         let declarations = read_declarations(repo_root, name);
         let run_span = crate::dash::run_fraction(&declarations);
-        // The other reading of the journal, and deliberately the wide one: any
-        // journal at all — live or left by a crash — means this dash is not
-        // joinable right now, so readiness stands down either way. The blocker
+        // The other reading of a join in flight, and deliberately the wide
+        // one: any teardown under way — live or left by a crash — means this
+        // dash is not joinable right now, so readiness stands down either way. The blocker
         // set makes the opposite call for the opposite reason; see
         // `join_blockers_from_detail`.
-        let joining = read_join_journal(repo_root, name).is_some();
+        let joining = crate::oplog::join_in_flight(repo_root, name).is_some();
         let plan_path = dash_plan_path(repo_root, name);
         // Every input is already in hand from this dash's own composition, so
         // readiness costs no extra git call on the recompute's hot path ([P04]).
@@ -1308,7 +1307,7 @@ pub struct DashStatus {
     pub worktree_dirty: bool,
     /// Whether a maintained join draft is on file.
     pub draft: bool,
-    /// The join journal's phase when an interrupted join left one.
+    /// The teardown phase an interrupted join reached, from its open record.
     pub join_journal_phase: Option<String>,
     /// Live sessions mated to this dash ([P08]); empty when unresolvable, when
     /// the binding column has not migrated in yet, or when every bound card
@@ -1477,8 +1476,9 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
     let plan_path = dash_plan_path(repo_root, name);
 
     let draft = dash_draft_message(repo_root, &branch).is_some();
-    let join_journal_phase =
-        read_join_journal(repo_root, name).map(|journal| format!("{:?}", journal.phase));
+    let join_journal_phase = crate::oplog::join_in_flight(repo_root, name)
+        .and_then(|op| op.join)
+        .map(|progress| format!("{:?}", progress.phase));
     let bound_sessions = bound_sessions_for(&id);
     let declarations = read_declarations(repo_root, name);
     let run_span = crate::dash::run_fraction(&declarations);
@@ -2381,62 +2381,14 @@ pub fn commit(
     })
 }
 
-/// Teardown phase of a join, recorded in the join journal so a crash between
-/// steps can resume via `--continue` ([P14]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum JoinPhase {
-    /// The integrate commit landed on base; worktree + branch still present.
-    Integrated,
-    /// Worktree removed; branch still present.
-    WorktreeRemoved,
-    /// Branch deleted; only the dash-log line + journal-clear remain.
-    BranchDeleted,
-}
-
-/// The resumable join journal ([P14]) — a small JSON file beside the dash-log.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct JoinJournal {
-    name: String,
-    base_branch: String,
-    strategy: String,
-    commit_hash: String,
-    phase: JoinPhase,
-    /// The message the integrate committed with, carried so a `--continue`
-    /// finishing the teardown can still report it. Defaulted rather than
-    /// required: a journal written before this field existed must still read.
-    #[serde(default)]
-    message: Option<String>,
-}
-
-fn join_journal_path(repo: &Path, name: &str) -> PathBuf {
-    project_state_dir(repo).join(format!("join-journal-{}.json", sanitize_branch_name(name)))
-}
-
-fn write_join_journal(repo: &Path, journal: &JoinJournal) -> Result<(), String> {
-    let dir = project_state_dir(repo);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to write join journal: {}", e))?;
-    let path = dir.join(format!(
-        "join-journal-{}.json",
-        sanitize_branch_name(&journal.name)
-    ));
-    let body =
-        serde_json::to_string_pretty(journal).map_err(|e| format!("join journal encode: {}", e))?;
-    std::fs::write(&path, body).map_err(|e| format!("failed to write join journal: {}", e))
-}
-
-fn read_join_journal(repo: &Path, name: &str) -> Option<JoinJournal> {
-    let txt = std::fs::read_to_string(join_journal_path(repo, name)).ok()?;
-    serde_json::from_str(&txt).ok()
-}
-
-/// Whether a join of `name` is in flight — the journal check, without exposing
-/// the journal's shape.
+/// Whether a join of `name` is between its integrate and its end — the bool
+/// face of [`crate::oplog::join_in_flight`], for callers that only need to know
+/// whether to stand down.
+///
+/// `main_repo_root` is a filesystem walk, so a caller holding a worktree path
+/// reads the right state directory without paying for a git process.
 pub fn join_in_flight(repo: &Path, name: &str) -> bool {
-    read_join_journal(repo, name).is_some()
-}
-
-fn clear_join_journal(repo: &Path, name: &str) {
-    let _ = std::fs::remove_file(join_journal_path(repo, name));
+    crate::oplog::join_in_flight(&main_repo_root(repo), name).is_some()
 }
 
 /// Whether `git` here supports `git merge-tree --write-tree` (git ≥ 2.38).
@@ -3217,7 +3169,7 @@ fn intersect_base_dirt(
 
 /// The repository root a dash operation works against.
 ///
-/// A dash's branch, its worktree, and its join journal all live in the main
+/// A dash's branch, its worktree, and its op log all live in the main
 /// repository, so a caller that names a *linked worktree* means the same repo —
 /// and must be answered about the same one. The CLI already resolves this way
 /// (`join` → `find_repo_root`); without this, tugcast serving a card whose
@@ -3243,7 +3195,7 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     let detail =
         dash_detail_entry_in(repo_root, name).ok_or_else(|| format!("Dash not found: {}", name))?;
     let current = current_branch(repo_root)?;
-    // No occupancy view from a CLI process, and none wanted: a journal on disk
+    // No occupancy view from a CLI process, and none wanted: a join in flight
     // refuses a join started from here whether or not the server is mid-join.
     // Which is exactly why the resolve lease exists — the one occupancy fact a
     // second process can still read, because it is written in git.
@@ -3254,7 +3206,7 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
 /// already holds.
 ///
 /// **Never cache this.** Every input is something that moves without moving a
-/// SHA: a journal file, which branch the base checkout has out, and the
+/// SHA: a join in flight, which branch the base checkout has out, and the
 /// working-tree dirt on both sides. A blocker set cached against the two heads
 /// keeps refusing a join whose real answer changed the moment the user
 /// cleaned their checkout — which is a face that lies, and the specific failure
@@ -3264,8 +3216,8 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
 ///
 /// `held` says which run holds this dash right now — `"join"`, `"resolve"`, or
 /// `None` for nobody, exactly what tugcast's in-process occupancy registry
-/// answers. It is the one input the caller must supply: see the journal note in
-/// the body for why the answer cannot be read from disk. A caller with no
+/// answers. It is the one input the caller must supply: see the in-flight note
+/// in the body for why the answer cannot be read from disk. A caller with no
 /// occupancy view passes `None` and is answered from git alone, which is what
 /// the resolve lease below is for.
 pub fn join_blockers_from_detail(
@@ -3278,19 +3230,20 @@ pub fn join_blockers_from_detail(
     let base_branch = detail.base.as_str();
     let mut blockers = Vec::new();
 
-    // The journal means *a join owns this dash*, and that reading splits on one
-    // fact this function cannot see: whether anybody is still running. A join
-    // writes the journal at each teardown phase boundary and clears it at the
-    // end, so for the whole squash-to-record window the file is on disk while
-    // the join is perfectly healthy. Only a journal nobody holds is stale.
+    // A join in flight means *a join owns this dash*, and that reading splits
+    // on one fact this function cannot see: whether anybody is still running. A
+    // join advances its record's phase at each teardown boundary and completes
+    // it at the end, so for the whole squash-to-record window the record is
+    // open while the join is perfectly healthy. Only a teardown nobody holds is
+    // stale.
     //
-    // A *resolve* holding the dash does not excuse the journal: it would be
+    // A *resolve* holding the dash does not excuse it: it would be
     // running over a crashed join's leavings, and the refusal is still right.
     //
     // `held` is passed rather than read because the holder registry is
     // in-process and lives a crate away — the same reason `pilot_action` takes
     // its facts rather than fetching them.
-    if held != Some("join") && read_join_journal(repo_root, name).is_some() {
+    if held != Some("join") && crate::oplog::join_in_flight(repo_root, name).is_some() {
         blockers.push(JoinBlocker {
             kind: "stale-journal".to_string(),
             detail: stale_journal_detail(name),
@@ -3416,7 +3369,7 @@ pub fn join_conflicts_in(repo_root: &Path, name: &str) -> Result<JoinConflicts, 
 /// a `--preview` (in-memory `git merge-tree`, nothing touched), an
 /// intersection-aware preflight (base dirt blocks only when it overlaps the
 /// dash's changed set), a clean abort on conflict with the structured conflict
-/// list, and a journaled teardown resumable via `--continue`. The default
+/// list, and a recorded teardown resumable via `--continue`. The default
 /// squash/merge message is the maintained dash draft, else the description.
 pub fn join(name: &str, opts: JoinOptions) -> Result<JoinOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
@@ -3531,7 +3484,7 @@ fn commit_archived_plan(repo_root: &Path, name: &str, warnings: &mut Vec<String>
 /// | `squash` | the integrate — squash-merge and commit, of the dash branch or of a resolved candidate, per `strategy` |
 /// | `teardown` | removing the dash worktree |
 /// | `release` | dropping the candidate ref, removing the workshop, deleting the branch |
-/// | `record` | the dash-log line and clearing the join journal |
+/// | `record` | the dash-log line and closing the op-log record |
 ///
 /// **The order is the code's, not the wire's convenience.** The dash-log line
 /// is written *last*, after teardown and release, because it is the terminal
@@ -3553,20 +3506,31 @@ pub fn join_in_with_progress(
     let repo_root = main_repo_root(repo_root);
     let mut warnings = Vec::new();
     migrate_worktrees(&repo_root, &mut warnings);
+    // A journal an older build left behind becomes an op record here, where
+    // every path below can see it — and an unreadable one is named rather than
+    // ignored, because ignoring it would let a plain join run over a dash that
+    // is half torn down.
+    crate::oplog::fold_legacy_join_journal(&repo_root, name)?;
     // Pre-feature dashes get rerere enabled here so a recorded resolution
     // replays on this and future joins ([P31]).
     crate::resolve::ensure_rerere_config(&repo_root);
     let branch = branch_name(name);
     let worktree = worktree_path(&repo_root, name);
 
-    if !branch_exists(&repo_root, &branch) {
-        return Err(format!("Dash not found: {}", name));
-    }
-    let base_branch = dash_base(&repo_root, name)?;
-
-    // --continue: resume an interrupted teardown from the journal.
+    // --continue: resume an interrupted teardown from the record it left open.
+    //
+    // **Above the branch-exists guard, because the last phase of a teardown is
+    // the branch being gone.** A join killed after `branch -D` has a worktree
+    // to be sure of, a dash-log line to append, and a record to close — and the
+    // dash it names no longer has a branch, so a guard asking git would refuse
+    // the one resume that most needs to run. The record is what says this dash
+    // is mid-teardown; git cannot know it.
     if opts.continue_join {
-        let journal = read_join_journal(&repo_root, name)
+        let op = crate::oplog::join_in_flight(&repo_root, name)
+            .ok_or_else(|| format!("No interrupted join to continue for dash '{}'.", name))?;
+        let progress = op
+            .join
+            .clone()
             .ok_or_else(|| format!("No interrupted join to continue for dash '{}'.", name))?;
         return finish_join_teardown(
             TeardownTarget {
@@ -3576,11 +3540,17 @@ pub fn join_in_with_progress(
                 worktree: &worktree,
                 origin: opts.origin.as_deref(),
             },
-            journal,
+            op.seq,
+            progress,
             warnings,
             &on_beat,
         );
     }
+
+    if !branch_exists(&repo_root, &branch) {
+        return Err(format!("Dash not found: {}", name));
+    }
+    let base_branch = dash_base(&repo_root, name)?;
 
     // --preview: report conflicts and blockers in memory; nothing is mutated.
     // This sits above the stale-journal guard because a preview of a journalled
@@ -3609,8 +3579,9 @@ pub fn join_in_with_progress(
         });
     }
 
-    // A stale journal means a prior join half-finished — require --continue.
-    if read_join_journal(&repo_root, name).is_some() {
+    // A join still in flight means a prior one half-finished — require
+    // --continue.
+    if crate::oplog::join_in_flight(&repo_root, name).is_some() {
         return Err(stale_journal_detail(name));
     }
 
@@ -3708,12 +3679,115 @@ pub fn join_in_with_progress(
     if let Some(lease) = &broke_lease {
         warnings.push(broke_lease_warning(name, lease, op_seq));
     }
+    // Integrate, in one function with one return type ([P03]): what it landed,
+    // or the conflicts that stopped it landing anything.
+    let conflict_outcome = |conflicts: Vec<String>, warnings: Vec<String>| JoinOutcome {
+        name: name.to_string(),
+        base_branch: base_branch.clone(),
+        strategy: opts.strategy.as_str().to_string(),
+        commit_hash: None,
+        conflicts,
+        previewed: false,
+        blockers: vec![],
+        message: None,
+        // Preview-only ([P07]): an execute that hit conflicts aborted cleanly
+        // and the caller's next act is a preview, which computes it.
+        archaeology: vec![],
+        warnings,
+    };
+
+    on_beat("squash", "start");
+    let integration = match integrate_join(
+        &repo_root,
+        name,
+        &branch,
+        &base_branch,
+        &opts,
+        &mut warnings,
+    ) {
+        Ok(integration) => integration,
+        // A record describes an operation that happened, and this one did not:
+        // the integrate left the base as it found it. So the record opened
+        // above goes with it — jj states the rule as a transaction that is not
+        // committed writing no operation, and undo and replay already keep it.
+        // Dropping it here is what lets an incomplete join record *mean* a
+        // teardown to resume.
+        Err(e) => {
+            crate::oplog::abandon(&repo_root, op_seq);
+            return Err(e);
+        }
+    };
+    let (commit_hash, message) = match integration {
+        Integration::Landed {
+            commit_hash,
+            message,
+        } => (commit_hash, message),
+        Integration::Conflicted(conflicts) => {
+            crate::oplog::abandon(&repo_root, op_seq);
+            return Ok(conflict_outcome(conflicts, warnings));
+        }
+    };
+
+    // Record the integrate on the op the join opened, then run the resumable
+    // teardown. From here the record is the resume record: an incomplete join
+    // op carrying progress is what `--continue` finishes.
+    let progress = crate::oplog::JoinProgress {
+        phase: crate::oplog::JoinPhase::Integrated,
+        commit_hash,
+        strategy: opts.strategy.as_str().to_string(),
+        message,
+    };
+    crate::oplog::record_join_progress(&repo_root, op_seq, progress.clone())?;
+    on_beat("squash", "done");
+
+    finish_join_teardown(
+        TeardownTarget {
+            repo_root: &repo_root,
+            name,
+            branch: &branch,
+            worktree: &worktree,
+            origin: opts.origin.as_deref(),
+        },
+        op_seq,
+        progress,
+        warnings,
+        &on_beat,
+    )
+}
+/// What an integrate did: it landed a commit on the base, or it hit conflicts
+/// and left the base exactly as it found it.
+///
+/// The distinction is the one the operation log turns on. A join that lands
+/// nothing records nothing, so the caller needs the two apart as data rather
+/// than as an outcome it has to inspect.
+enum Integration {
+    Landed {
+        commit_hash: String,
+        message: Option<String>,
+    },
+    Conflicted(Vec<String>),
+}
+
+/// Put the dash's work on the base — the whole integrate, in one place.
+///
+/// Three landing shapes read together: a pre-built candidate from the
+/// resolution ladder, and the strategy match for a plain join, which is the
+/// same three strategies over the dash branch itself. Every exit that does not
+/// land — a conflict, a stale candidate, a failed merge or commit — leaves the
+/// base as it was, which is what lets the caller drop the record it opened.
+fn integrate_join(
+    repo_root: &Path,
+    name: &str,
+    branch: &str,
+    base_branch: &str,
+    opts: &JoinOptions,
+    warnings: &mut Vec<String>,
+) -> Result<Integration, String> {
 
     // Land a pre-built candidate from the resolution ladder ([P31]) instead of
     // merging the dash branch. The candidate is the resolved bytes; `strategy`
-    // still decides the shape, and the journaled teardown is the same one.
+    // still decides the shape, and the recorded teardown is the same one.
     if let Some(candidate) = opts.candidate.clone() {
-        on_beat("squash", "start");
 
         // Staleness, stated rather than inferred. This used to ride on
         // `merge --ff-only` failing, which conflated two different facts: a
@@ -3722,9 +3796,9 @@ pub fn join_in_with_progress(
         // `resolve::candidate_status` applies, so the join's verdict and the
         // face's verdict cannot disagree — and it leaves the landing free to be
         // whatever the caller asked for.
-        let base_head = git_stdout(&repo_root, &["rev-parse", &base_branch])?;
+        let base_head = git_stdout(repo_root, &["rev-parse", base_branch])?;
         let current = git_output(
-            &repo_root,
+            repo_root,
             &["merge-base", "--is-ancestor", &base_head, &candidate],
         )?;
         if !current.status.success() {
@@ -3744,15 +3818,15 @@ pub fn join_in_with_progress(
         // strategy the caller asked for is what decides the shape, exactly as
         // it does for a join with no candidate, and `Squash` is the default
         // every route asks for.
-        let final_msg = integrate_message(&repo_root, name, &branch, opts.message.clone());
+        let final_msg = integrate_message(repo_root, name, branch, opts.message.clone());
         let commit_hash = match opts.strategy {
             JoinStrategy::Squash => {
                 // The candidate is a descendant of the base head, so this
                 // stages its tree without conflict; the commit below is what
                 // the draft was written for.
-                let merge = git_output(&repo_root, &["merge", "--squash", &candidate])?;
+                let merge = git_output(repo_root, &["merge", "--squash", &candidate])?;
                 if !merge.status.success() {
-                    let _ = git_output(&repo_root, &["reset", "--hard"]);
+                    let _ = git_output(repo_root, &["reset", "--hard"]);
                     return Err(format!(
                         "failed to stage the resolved candidate: {}",
                         String::from_utf8_lossy(&merge.stderr).trim()
@@ -3764,24 +3838,24 @@ pub fn join_in_with_progress(
                 // directory is never dirty between the two. A commit failure
                 // below runs `reset --hard`, which owns index and worktree
                 // together and so takes the staged move with it.
-                archive_adopted_plan(&repo_root, name, &mut warnings);
-                let commit = git_output(&repo_root, &["commit", "-m", &final_msg])?;
+                archive_adopted_plan(repo_root, name, warnings);
+                let commit = git_output(repo_root, &["commit", "-m", &final_msg])?;
                 if !commit.status.success() {
-                    let _ = git_output(&repo_root, &["reset", "--hard"]);
+                    let _ = git_output(repo_root, &["reset", "--hard"]);
                     return Err(format!(
                         "git commit failed: {}",
                         String::from_utf8_lossy(&commit.stderr).trim()
                     ));
                 }
-                git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+                git_stdout(repo_root, &["rev-parse", "HEAD"])?
             }
             JoinStrategy::Merge => {
                 let merge = git_output(
-                    &repo_root,
+                    repo_root,
                     &["merge", "--no-ff", "-m", &final_msg, &candidate],
                 )?;
                 if !merge.status.success() {
-                    let _ = git_output(&repo_root, &["merge", "--abort"]);
+                    let _ = git_output(repo_root, &["merge", "--abort"]);
                     return Err(format!(
                         "failed to merge the resolved candidate: {}",
                         String::from_utf8_lossy(&merge.stderr).trim()
@@ -3789,14 +3863,14 @@ pub fn join_in_with_progress(
                 }
                 // The receipt names the integrate, so it is read before the
                 // archive commit lands on top of it.
-                let integrated = git_stdout(&repo_root, &["rev-parse", "HEAD"])?;
-                commit_archived_plan(&repo_root, name, &mut warnings);
+                let integrated = git_stdout(repo_root, &["rev-parse", "HEAD"])?;
+                commit_archived_plan(repo_root, name, warnings);
                 integrated
             }
             // The one strategy that asks for the candidate's own history on the
             // base, and therefore the one that keeps its own messages.
             JoinStrategy::Rebase => {
-                let ff = git_output(&repo_root, &["merge", "--ff-only", &candidate])?;
+                let ff = git_output(repo_root, &["merge", "--ff-only", &candidate])?;
                 if !ff.status.success() {
                     return Err(format!(
                         "failed to fast-forward '{}' onto the resolved candidate: {}",
@@ -3804,8 +3878,8 @@ pub fn join_in_with_progress(
                         String::from_utf8_lossy(&ff.stderr).trim()
                     ));
                 }
-                let integrated = git_stdout(&repo_root, &["rev-parse", "HEAD"])?;
-                commit_archived_plan(&repo_root, name, &mut warnings);
+                let integrated = git_stdout(repo_root, &["rev-parse", "HEAD"])?;
+                commit_archived_plan(repo_root, name, warnings);
                 integrated
             }
         };
@@ -3813,138 +3887,85 @@ pub fn join_in_with_progress(
         // what is actually on the base rather than a message it never wrote.
         let message = match opts.strategy {
             JoinStrategy::Rebase => {
-                git_stdout(&repo_root, &["log", "-1", "--format=%B", &commit_hash]).ok()
+                git_stdout(repo_root, &["log", "-1", "--format=%B", &commit_hash]).ok()
             }
             _ => Some(final_msg),
         };
-        let journal = JoinJournal {
-            name: name.to_string(),
-            base_branch: base_branch.clone(),
-            strategy: opts.strategy.as_str().to_string(),
+        return Ok(Integration::Landed {
             commit_hash,
-            phase: JoinPhase::Integrated,
             message,
-        };
-        write_join_journal(&repo_root, &journal)?;
-        on_beat("squash", "done");
-        return finish_join_teardown(
-            TeardownTarget {
-                repo_root: &repo_root,
-                name,
-                branch: &branch,
-                worktree: &worktree,
-                origin: opts.origin.as_deref(),
-            },
-            journal,
-            warnings,
-            &on_beat,
-        );
+        });
     }
 
-    let final_msg = integrate_message(&repo_root, name, &branch, opts.message.clone());
-    on_beat("squash", "start");
+    let final_msg = integrate_message(repo_root, name, branch, opts.message.clone());
 
     // Integrate per strategy. A conflict cleanly aborts (pre-join state
     // restored) and returns the structured conflict list — never a dead end.
-    let conflict_outcome = |conflicts: Vec<String>, warnings: Vec<String>| JoinOutcome {
-        name: name.to_string(),
-        base_branch: base_branch.clone(),
-        strategy: opts.strategy.as_str().to_string(),
-        commit_hash: None,
-        conflicts,
-        previewed: false,
-        blockers: vec![],
-        message: None,
-        // Preview-only ([P07]): an execute that hit conflicts aborted cleanly
-        // and the caller's next act is a preview, which computes it.
-        archaeology: vec![],
-        warnings,
-    };
 
     let commit_hash = match opts.strategy {
         JoinStrategy::Squash => {
-            let merge = git_output(&repo_root, &["merge", "--squash", &branch])?;
+            let merge = git_output(repo_root, &["merge", "--squash", branch])?;
             if !merge.status.success() {
-                let conflicts = conflicted_paths(&repo_root);
+                let conflicts = conflicted_paths(repo_root);
                 // A squash conflict leaves the index/worktree dirty but sets no
                 // MERGE_HEAD, so `reset --hard` (not `merge --abort`) restores.
-                let _ = git_output(&repo_root, &["reset", "--hard"]);
-                return Ok(conflict_outcome(conflicts, warnings));
+                let _ = git_output(repo_root, &["reset", "--hard"]);
+                return Ok(Integration::Conflicted(conflicts));
             }
             // Between a successful staging and the commit: the sweep rides the
             // landing commit itself, so the default join still lands exactly
             // one commit and the docs directory is never dirty between them.
-            archive_adopted_plan(&repo_root, name, &mut warnings);
-            let commit = git_output(&repo_root, &["commit", "-m", &final_msg])?;
+            archive_adopted_plan(repo_root, name, warnings);
+            let commit = git_output(repo_root, &["commit", "-m", &final_msg])?;
             if !commit.status.success() {
-                let _ = git_output(&repo_root, &["reset", "--hard"]);
+                let _ = git_output(repo_root, &["reset", "--hard"]);
                 return Err(format!(
                     "git commit failed: {}",
                     String::from_utf8_lossy(&commit.stderr).trim()
                 ));
             }
-            git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+            git_stdout(repo_root, &["rev-parse", "HEAD"])?
         }
         JoinStrategy::Merge => {
-            let merge = git_output(&repo_root, &["merge", "--no-ff", "-m", &final_msg, &branch])?;
+            let merge = git_output(repo_root, &["merge", "--no-ff", "-m", &final_msg, branch])?;
             if !merge.status.success() {
-                let conflicts = conflicted_paths(&repo_root);
-                let _ = git_output(&repo_root, &["merge", "--abort"]);
-                return Ok(conflict_outcome(conflicts, warnings));
+                let conflicts = conflicted_paths(repo_root);
+                let _ = git_output(repo_root, &["merge", "--abort"]);
+                return Ok(Integration::Conflicted(conflicts));
             }
             // The receipt names the integrate, so it is read before the archive
             // commit lands on top of it.
-            let integrated = git_stdout(&repo_root, &["rev-parse", "HEAD"])?;
-            commit_archived_plan(&repo_root, name, &mut warnings);
+            let integrated = git_stdout(repo_root, &["rev-parse", "HEAD"])?;
+            commit_archived_plan(repo_root, name, warnings);
             integrated
         }
         JoinStrategy::Rebase => {
             // Fast-forward when base is unchanged (linear); else replay the
             // dash's commits onto the current base with cherry-pick.
-            let ff = git_output(&repo_root, &["merge", "--ff-only", &branch])?;
+            let ff = git_output(repo_root, &["merge", "--ff-only", branch])?;
             let integrated = if ff.status.success() {
-                git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+                git_stdout(repo_root, &["rev-parse", "HEAD"])?
             } else {
                 let pick = git_output(
-                    &repo_root,
+                    repo_root,
                     &["cherry-pick", &format!("{}..{}", base_branch, branch)],
                 )?;
                 if !pick.status.success() {
-                    let conflicts = conflicted_paths(&repo_root);
-                    let _ = git_output(&repo_root, &["cherry-pick", "--abort"]);
-                    return Ok(conflict_outcome(conflicts, warnings));
+                    let conflicts = conflicted_paths(repo_root);
+                    let _ = git_output(repo_root, &["cherry-pick", "--abort"]);
+                    return Ok(Integration::Conflicted(conflicts));
                 }
-                git_stdout(&repo_root, &["rev-parse", "HEAD"])?
+                git_stdout(repo_root, &["rev-parse", "HEAD"])?
             };
-            commit_archived_plan(&repo_root, name, &mut warnings);
+            commit_archived_plan(repo_root, name, warnings);
             integrated
         }
     };
 
-    // Journal the successful integrate, then run the resumable teardown.
-    let journal = JoinJournal {
-        name: name.to_string(),
-        base_branch: base_branch.clone(),
-        strategy: opts.strategy.as_str().to_string(),
-        commit_hash: commit_hash.clone(),
-        phase: JoinPhase::Integrated,
-        message: Some(final_msg.clone()),
-    };
-    write_join_journal(&repo_root, &journal)?;
-    on_beat("squash", "done");
-
-    finish_join_teardown(
-        TeardownTarget {
-            repo_root: &repo_root,
-            name,
-            branch: &branch,
-            worktree: &worktree,
-            origin: opts.origin.as_deref(),
-        },
-        journal,
-        warnings,
-        &on_beat,
-    )
+    Ok(Integration::Landed {
+        commit_hash,
+        message: Some(final_msg),
+    })
 }
 
 /// What a join's teardown acts on: the repo, the dash, and the git objects
@@ -3959,13 +3980,19 @@ struct TeardownTarget<'a> {
     origin: Option<&'a str>,
 }
 
-/// The resumable teardown half of a join ([P14]): remove the worktree, delete
-/// the branch, append the dash-log line, clear the journal — advancing the
-/// journal phase after each step so `--continue` resumes exactly where a crash
-/// left off. Idempotent per phase.
+/// The resumable teardown half of a join: remove the worktree, delete the
+/// branch, append the dash-log line, complete the record — advancing the
+/// record's phase after each step so `--continue` resumes exactly where a
+/// crash left off. Idempotent per phase.
+///
+/// The sequence number is carried in rather than searched for. This is also the
+/// `--continue` entry point, and there the caller found the record by asking
+/// which join is in flight — so both paths arrive holding the op they are
+/// finishing, and a completion can no longer land on the wrong one.
 fn finish_join_teardown(
     target: TeardownTarget<'_>,
-    mut journal: JoinJournal,
+    op_seq: u64,
+    mut progress: crate::oplog::JoinProgress,
     mut warnings: Vec<String>,
     on_beat: &dyn Fn(&str, &str),
 ) -> Result<JoinOutcome, String> {
@@ -3976,15 +4003,15 @@ fn finish_join_teardown(
         worktree,
         origin,
     } = target;
-    if journal.phase == JoinPhase::Integrated {
+    if progress.phase == crate::oplog::JoinPhase::Integrated {
         on_beat("teardown", "start");
         remove_dash_worktree(repo_root, branch, worktree, &mut warnings);
-        journal.phase = JoinPhase::WorktreeRemoved;
-        write_join_journal(repo_root, &journal)?;
+        progress.phase = crate::oplog::JoinPhase::WorktreeRemoved;
+        crate::oplog::record_join_progress(repo_root, op_seq, progress.clone())?;
         on_beat("teardown", "done");
     }
 
-    if journal.phase == JoinPhase::WorktreeRemoved {
+    if progress.phase == crate::oplog::JoinPhase::WorktreeRemoved {
         on_beat("release", "start");
         // The branch config section dies with the branch, but a loose ref does
         // not — so the candidate is dropped explicitly, on every join path,
@@ -4003,59 +4030,59 @@ fn finish_join_teardown(
                 _ => {}
             }
         }
-        journal.phase = JoinPhase::BranchDeleted;
-        write_join_journal(repo_root, &journal)?;
+        progress.phase = crate::oplog::JoinPhase::BranchDeleted;
+        crate::oplog::record_join_progress(repo_root, op_seq, progress.clone())?;
         on_beat("release", "done");
     }
 
-    // Record the terminal action in the dash-log ([P04], R01), then clear the
-    // journal so the join is no longer "incomplete".
+    // Record the terminal action in the dash-log, then close the record — in
+    // that order, so a crash between the two leaves a join that visibly
+    // happened and an op `--continue` can still complete.
     on_beat("record", "start");
-    let short = git_stdout(repo_root, &["rev-parse", "--short", &journal.commit_hash])
-        .unwrap_or_else(|_| journal.commit_hash.clone());
+    let short = git_stdout(repo_root, &["rev-parse", "--short", &progress.commit_hash])
+        .unwrap_or_else(|_| progress.commit_hash.clone());
     let note = match origin {
         Some(origin) => format!("joined via {origin}"),
         None => "joined".to_string(),
     };
     append_dash_log(repo_root, name, &short, &note).map_err(|e| e.to_string())?;
-    clear_join_journal(repo_root, name);
 
-    // Close the op record. This function is also the `--continue` entry point
-    // and receives only the journal, which carries no sequence number — so the
-    // op is found by asking for this dash's newest incomplete join rather than
-    // by being handed one. A completion that cannot find its op is a warning,
-    // never a failure: the join happened, and an op left without an `after` is
-    // exactly the `incomplete-op` state undo refuses honestly.
-    match crate::oplog::newest_incomplete(repo_root, name, crate::oplog::OpVerb::Join) {
-        Some(op) => {
-            let after = crate::oplog::OpAfter {
-                base_tip: git_stdout(repo_root, &["rev-parse", &journal.base_branch]).ok(),
-                landed_commit: Some(journal.commit_hash.clone()),
-                ..Default::default()
-            };
-            if let Err(e) = crate::oplog::record_complete(repo_root, op.seq, after) {
-                warnings.push(format!("Failed to complete the op-log record: {}", e));
-            }
-        }
-        None => warnings.push(format!(
-            "No open op-log record for the join of '{}'; it cannot be undone.",
-            name
-        )),
+    let base_branch = base_branch_of(repo_root, op_seq, name);
+    let after = crate::oplog::OpAfter {
+        base_tip: git_stdout(repo_root, &["rev-parse", &base_branch]).ok(),
+        landed_commit: Some(progress.commit_hash.clone()),
+        ..Default::default()
+    };
+    if let Err(e) = crate::oplog::record_complete(repo_root, op_seq, after) {
+        warnings.push(format!("Failed to complete the op-log record: {}", e));
     }
     on_beat("record", "done");
 
     Ok(JoinOutcome {
         name: name.to_string(),
-        base_branch: journal.base_branch,
-        strategy: journal.strategy,
-        commit_hash: Some(journal.commit_hash),
+        base_branch,
+        strategy: progress.strategy,
+        commit_hash: Some(progress.commit_hash),
         conflicts: vec![],
         previewed: false,
         blockers: vec![],
-        message: journal.message,
+        message: progress.message,
         archaeology: vec![],
         warnings,
     })
+}
+
+/// The base branch the join was recorded against, from the record itself.
+///
+/// The op's `before` is the one place it is stated as a fact rather than
+/// re-derived: by the time a `--continue` runs, the dash branch may already be
+/// deleted and `dash_base` would fall back to the repository's default branch,
+/// which is a guess.
+fn base_branch_of(repo_root: &Path, op_seq: u64, name: &str) -> String {
+    crate::oplog::read_op(repo_root, op_seq)
+        .map(|op| op.before.base_branch)
+        .or_else(|| dash_base(repo_root, name).ok())
+        .unwrap_or_else(|| "main".to_string())
 }
 
 /// Release a dash: tear down its worktree + branch without merging.
@@ -4325,13 +4352,42 @@ mod tests {
     use tempfile::TempDir;
 
     /// Join options for a test whose subject is the join's **mechanics** — the
-    /// squash, the teardown, the draft, the journal.
+    /// squash, the teardown, the draft, the record.
     ///
     /// Nothing but the defaults, since verification left the join: these
     /// options carried an `anyway: true` for as long as a gate stood between a
     /// join and the base, and there is no gate left to name.
     fn mechanics() -> JoinOptions {
         JoinOptions::default()
+    }
+
+    /// Seed a join interrupted at `phase`, through the real code path: capture,
+    /// record, attach progress. Never a hand-written payload — a fixture that
+    /// spelled the record itself would stop testing the writer.
+    fn seed_interrupted_join(
+        repo: &Path,
+        name: &str,
+        phase: crate::oplog::JoinPhase,
+        commit_hash: &str,
+    ) -> u64 {
+        let root = fs::canonicalize(repo).unwrap();
+        let before = crate::oplog::capture_before(&root, name).unwrap();
+        let tips = crate::oplog::tips_of(&before);
+        let seq =
+            crate::oplog::record_begin(&root, crate::oplog::OpVerb::Join, name, before, &tips)
+                .unwrap();
+        crate::oplog::record_join_progress(
+            &root,
+            seq,
+            crate::oplog::JoinProgress {
+                phase,
+                commit_hash: commit_hash.to_string(),
+                strategy: "squash".to_string(),
+                message: None,
+            },
+        )
+        .unwrap();
+        seq
     }
 
     #[test]
@@ -7089,23 +7145,16 @@ Some context.
         assert_eq!(drafted.stage, "ready");
         assert!(drafted.draft);
 
-        // An interrupted join leaves a journal, and outranks the draft.
-        // Written against the canonical repo path, which is what
-        // `find_repo_root` (and so `status`) resolves — the state-dir slug
-        // must agree.
-        let canonical_repo = fs::canonicalize(repo).unwrap();
-        write_join_journal(
-            &canonical_repo,
-            &JoinJournal {
-                name: "status-dash".to_string(),
-                base_branch: "main".to_string(),
-                strategy: "squash".to_string(),
-                commit_hash: "abc1234".to_string(),
-                phase: JoinPhase::WorktreeRemoved,
-                message: None,
-            },
-        )
-        .unwrap();
+        // An interrupted join leaves an open record carrying its phase, and
+        // outranks the draft. Seeded against the canonical repo path, which is
+        // what `find_repo_root` (and so `status`) resolves — the state-dir
+        // slug must agree.
+        seed_interrupted_join(
+            repo,
+            "status-dash",
+            crate::oplog::JoinPhase::WorktreeRemoved,
+            "abc1234",
+        );
         let joining = status("status-dash").unwrap();
         assert_eq!(joining.stage, "joining");
         assert_eq!(
@@ -8034,6 +8083,94 @@ Some context.
 
     fn blocker<'a>(outcome: &'a JoinOutcome, kind: &str) -> Option<&'a JoinBlocker> {
         outcome.blockers.iter().find(|b| b.kind == kind)
+    }
+
+    /// Every join op recorded for `name`, read from the canonical repo root the
+    /// state dir is slugged from.
+    fn ops_for(repo: &Path, name: &str) -> Vec<crate::oplog::OpPayload> {
+        let root = std::fs::canonicalize(repo).unwrap();
+        crate::oplog::list_ops(&root)
+            .into_iter()
+            .filter(|op| op.dash == name && op.verb == crate::oplog::OpVerb::Join)
+            .collect()
+    }
+
+    /// A join that conflicts leaves the base exactly as it found it, so the
+    /// record it opened is dropped rather than left open forever. An op that
+    /// survived would name a join that did not happen — and once an incomplete
+    /// join op *means* a teardown to resume, it would refuse every later join
+    /// of this dash with a `--continue` that has nothing to continue.
+    #[serial]
+    #[test]
+    fn a_conflicted_join_records_no_op() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "clash");
+        let repo = temp.path();
+
+        // The base edits the same file the dash did, so the squash conflicts.
+        fs::write(repo.join("shared.txt"), "base\nbase edit\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "base touches shared"]).unwrap();
+
+        let out = join("clash", mechanics()).unwrap();
+        assert_eq!(out.conflicts, vec!["shared.txt".to_string()]);
+        assert!(out.commit_hash.is_none(), "nothing landed");
+
+        assert!(
+            ops_for(repo, "clash").is_empty(),
+            "a join that landed nothing records nothing"
+        );
+        let root = std::fs::canonicalize(repo).unwrap();
+        let err = crate::oplog::undo_in(&root, Some("clash")).unwrap_err();
+        assert!(
+            err.starts_with("nothing-to-undo:"),
+            "and undo says so plainly rather than reporting a phantom: {err}"
+        );
+    }
+
+    /// The same rule on the refusal side: a candidate the base has moved past
+    /// never touches the base, so its record goes too.
+    #[serial]
+    #[test]
+    fn a_stale_candidate_refusal_records_no_op() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        let home = temp.path().join("state");
+        init_git_repo(repo);
+        redirect_state_dir(&home);
+        std::env::set_current_dir(repo).unwrap();
+        fs::write(repo.join("f.txt"), "A\n").unwrap();
+        run_git(repo, &["add", "-A"]);
+        run_git(repo, &["commit", "-m", "seed f"]);
+
+        create("stale", None, None, false, None).unwrap();
+        let worktree = repo.join(".tug/worktrees/stale");
+        fs::write(worktree.join("f.txt"), "B\n").unwrap();
+        commit("stale", "r1", None).unwrap();
+        fs::write(worktree.join("f.txt"), "C\n").unwrap();
+        commit("stale", "r2", None).unwrap();
+        fs::write(repo.join("f.txt"), "B\n").unwrap();
+        run_git(repo, &["commit", "-am", "main to B"]);
+
+        let candidate = crate::resolve::resolve_conflicts(repo, "stale", None)
+            .unwrap()
+            .candidate_commit
+            .expect("candidate");
+
+        fs::write(repo.join("other.txt"), "z\n").unwrap();
+        run_git(repo, &["add", "-A"]);
+        run_git(repo, &["commit", "-m", "base advances again"]);
+
+        let err = join(
+            "stale",
+            JoinOptions {
+                candidate: Some(candidate),
+                ..mechanics()
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("stale candidate"), "got: {err}");
+        assert!(ops_for(repo, "stale").is_empty(), "and no record survives it");
     }
 
     #[serial]
@@ -9648,7 +9785,7 @@ Some context.
     }
 
     /// Pins the ordering: the preview arm sits above the stale-journal guard,
-    /// so a journalled dash previews with a blocker instead of erroring.
+    /// so a dash mid-teardown previews with a blocker instead of erroring.
     #[serial]
     #[test]
     fn preview_reports_a_stale_journal() {
@@ -9656,21 +9793,15 @@ Some context.
         seed_dash_with_a_round(&temp, "journalled");
         let repo = temp.path();
 
-        // The journal's state dir is slugged from the repo's *canonical* path,
+        // The record's state dir is slugged from the repo's *canonical* path,
         // which on macOS is `/private/var/…` where a TempDir reads `/var/…`.
-        let root = std::fs::canonicalize(repo).unwrap();
-        write_join_journal(
-            &root,
-            &JoinJournal {
-                name: "journalled".to_string(),
-                base_branch: dash_base(repo, "journalled").unwrap(),
-                strategy: "squash".to_string(),
-                commit_hash: git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
-                phase: JoinPhase::Integrated,
-                message: None,
-            },
-        )
-        .unwrap();
+        let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+        seed_interrupted_join(
+            repo,
+            "journalled",
+            crate::oplog::JoinPhase::Integrated,
+            &head,
+        );
 
         let out = preview("journalled");
         let b = blocker(&out, "stale-journal").expect("stale-journal blocker");
@@ -9682,7 +9813,7 @@ Some context.
         );
     }
 
-    /// A join in flight writes the journal itself, so the journal alone cannot
+    /// A join in flight opens the record itself, so an open record alone cannot
     /// mean "a previous join is incomplete" — for the whole squash-to-record
     /// window it means the opposite. The holder is what tells the two apart,
     /// and the blocked sentence is false in every clause while a join runs.
@@ -9693,19 +9824,8 @@ Some context.
         seed_dash_with_a_round(&temp, "inflight");
         let repo = temp.path();
 
-        let root = std::fs::canonicalize(repo).unwrap();
-        write_join_journal(
-            &root,
-            &JoinJournal {
-                name: "inflight".to_string(),
-                base_branch: dash_base(repo, "inflight").unwrap(),
-                strategy: "squash".to_string(),
-                commit_hash: git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
-                phase: JoinPhase::Integrated,
-                message: None,
-            },
-        )
-        .unwrap();
+        let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+        seed_interrupted_join(repo, "inflight", crate::oplog::JoinPhase::Integrated, &head);
 
         let detail = dash_detail_entry_in(repo, "inflight").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
@@ -9713,14 +9833,14 @@ Some context.
         let unheld = join_blockers_from_detail(repo, &detail, &current, None);
         assert!(
             unheld.iter().any(|b| b.kind == "stale-journal"),
-            "a journal nobody holds is stale and must refuse: {:?}",
+            "a teardown nobody holds is stale and must refuse: {:?}",
             unheld.iter().map(|b| &b.kind).collect::<Vec<_>>()
         );
 
         let held = join_blockers_from_detail(repo, &detail, &current, Some("join"));
         assert!(
             !held.iter().any(|b| b.kind == "stale-journal"),
-            "a join holding the dash wrote that journal: {:?}",
+            "a join holding the dash opened that record: {:?}",
             held.iter().map(|b| &b.kind).collect::<Vec<_>>()
         );
 
@@ -9739,7 +9859,7 @@ Some context.
                 .filter(|b| b.kind != "stale-journal")
                 .map(|b| &b.kind)
                 .collect::<Vec<_>>(),
-            "only the journal blocker moves; every other refusal still stands"
+            "only the stale-journal blocker moves; every other refusal still stands"
         );
     }
 
@@ -9803,20 +9923,10 @@ Some context.
 
         // stale-journal
         let root = std::fs::canonicalize(repo).unwrap();
-        write_join_journal(
-            &root,
-            &JoinJournal {
-                name: "agree".to_string(),
-                base_branch: dash_base(repo, "agree").unwrap(),
-                strategy: "squash".to_string(),
-                commit_hash: git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
-                phase: JoinPhase::Integrated,
-                message: None,
-            },
-        )
-        .unwrap();
+        let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+        let seq = seed_interrupted_join(repo, "agree", crate::oplog::JoinPhase::Integrated, &head);
         assert_agrees("stale-journal");
-        clear_join_journal(&root, "agree");
+        crate::oplog::abandon(&root, seq);
 
         // empty — a dash of its own, since the one above has a round.
         create("agree2", None, None, false, None).unwrap();
@@ -10403,9 +10513,10 @@ Some context.
     #[serial]
     #[test]
     fn test_join_continue_resumes_teardown() {
-        // Simulate a crash right after the integrate commit: a journal at phase
-        // `Integrated` with the worktree + branch still present. `--continue`
-        // must finish the teardown (remove worktree, delete branch, dash-log).
+        // Simulate a crash right after the integrate commit: an open join
+        // record at phase `Integrated` with the worktree + branch still
+        // present. `--continue` must finish the teardown (remove worktree,
+        // delete branch, dash-log).
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
@@ -10418,29 +10529,19 @@ Some context.
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
         commit("resume", "add f", None).unwrap();
 
-        // Do the integrate by hand, then journal it as if we crashed next.
+        // Do the integrate by hand, then record it as if we crashed next.
         git_output(repo, &["merge", "--squash", "tugdash/resume"]).unwrap();
         git_output(repo, &["commit", "-m", "tugdash(resume): add f"]).unwrap();
         let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
         // `join` resolves the repo via `find_repo_root` (canonical), so the
-        // journal must be written to the canonical state dir to be found.
+        // record must be written to the canonical state dir to be found.
         let canon = fs::canonicalize(repo).unwrap();
-        write_join_journal(
-            &canon,
-            &JoinJournal {
-                name: "resume".to_string(),
-                base_branch: "main".to_string(),
-                strategy: "squash".to_string(),
-                commit_hash: head.clone(),
-                phase: JoinPhase::Integrated,
-                message: None,
-            },
-        )
-        .unwrap();
+        let seq =
+            seed_interrupted_join(repo, "resume", crate::oplog::JoinPhase::Integrated, &head);
         assert!(worktree.exists());
         assert!(branch_present(repo, "tugdash/resume"));
 
-        // A plain join now refuses (journal present); --continue resumes.
+        // A plain join now refuses (a join is in flight); --continue resumes.
         assert!(join("resume", mechanics()).is_err());
         let out = join(
             "resume",
@@ -10457,11 +10558,169 @@ Some context.
             "branch deleted on continue"
         );
         assert!(
-            read_join_journal(&canon, "resume").is_none(),
-            "journal cleared on completion"
+            crate::oplog::join_in_flight(&canon, "resume").is_none(),
+            "the record is complete, so nothing is in flight"
+        );
+        let op = crate::oplog::read_op(&canon, seq).expect("the record is still there");
+        assert!(op.after.is_some(), "and it completed rather than being dropped");
+        assert_eq!(
+            op.join.unwrap().phase,
+            crate::oplog::JoinPhase::BranchDeleted,
+            "the finished record still says how far the teardown got"
         );
         let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
         assert!(dlog.contains("joined"), "dash-log records the join: {dlog}");
+    }
+
+
+    /// The resumability guarantee, one phase at a time: entering the teardown
+    /// at any of its three states finishes the join and finishes it once.
+    #[serial]
+    #[test]
+    fn continue_resumes_from_each_phase() {
+        for phase in [
+            crate::oplog::JoinPhase::Integrated,
+            crate::oplog::JoinPhase::WorktreeRemoved,
+            crate::oplog::JoinPhase::BranchDeleted,
+        ] {
+            let temp = TempDir::new().unwrap();
+            let repo = temp.path();
+            let home = temp.path().join("state");
+            init_git_repo(repo);
+            redirect_state_dir(&home);
+            std::env::set_current_dir(repo).unwrap();
+
+            create("phased", None, None, false, None).unwrap();
+            let worktree = repo.join(".tug/worktrees/phased");
+            fs::write(worktree.join("f.txt"), "x\n").unwrap();
+            commit("phased", "add f", None).unwrap();
+
+            // The integrate by hand, then the git state each phase implies —
+            // the record says what has already happened, so the tree must
+            // agree with it or the test would be resuming a fiction.
+            git_output(repo, &["merge", "--squash", "tugdash/phased"]).unwrap();
+            git_output(repo, &["commit", "-m", "tugdash(phased): add f"]).unwrap();
+            let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+            let seq = seed_interrupted_join(repo, "phased", phase, &head);
+            let canon = fs::canonicalize(repo).unwrap();
+            if phase != crate::oplog::JoinPhase::Integrated {
+                let mut warnings = Vec::new();
+                remove_dash_worktree(repo, "tugdash/phased", &worktree, &mut warnings);
+            }
+            if phase == crate::oplog::JoinPhase::BranchDeleted {
+                git_output(repo, &["branch", "-D", "tugdash/phased"]).unwrap();
+            }
+
+            let out = join(
+                "phased",
+                JoinOptions {
+                    continue_join: true,
+                    ..mechanics()
+                },
+            )
+            .unwrap_or_else(|e| panic!("{phase:?}: {e}"));
+
+            assert_eq!(out.commit_hash.as_deref(), Some(head.as_str()), "{phase:?}");
+            assert_eq!(out.base_branch, "main", "{phase:?}: from the record's before");
+            assert!(!worktree.exists(), "{phase:?}: worktree removed");
+            assert!(!branch_present(repo, "tugdash/phased"), "{phase:?}: branch gone");
+            let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
+            assert!(dlog.contains("joined"), "{phase:?}: dash-log records it");
+            let op = crate::oplog::read_op(&canon, seq).expect("the record");
+            assert_eq!(op.after.unwrap().landed_commit.as_deref(), Some(head.as_str()));
+            assert_eq!(
+                op.join.unwrap().phase,
+                crate::oplog::JoinPhase::BranchDeleted,
+                "{phase:?}: and it ended at the last phase"
+            );
+        }
+    }
+
+    /// Once a join is finished there is nothing in flight, so the second press
+    /// is refused by name rather than re-running a teardown over a dash that no
+    /// longer exists.
+    #[serial]
+    #[test]
+    fn continue_twice_is_a_named_refusal() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "twice");
+
+        join("twice", mechanics()).unwrap();
+        let err = join(
+            "twice",
+            JoinOptions {
+                continue_join: true,
+                ..mechanics()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err, "No interrupted join to continue for dash 'twice'.");
+    }
+
+    /// The record the journal never was: after a clean join, how the teardown
+    /// went is still readable beside what it landed.
+    #[serial]
+    #[test]
+    fn a_finished_join_keeps_its_progress_on_the_record() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "receipt");
+        let repo = temp.path();
+        let canon = fs::canonicalize(repo).unwrap();
+
+        let out = join("receipt", mechanics()).unwrap();
+        let op = crate::oplog::list_ops(&canon)
+            .into_iter()
+            .find(|op| op.dash == "receipt" && op.verb == crate::oplog::OpVerb::Join)
+            .expect("the join recorded itself");
+        assert!(op.after.is_some(), "and completed");
+        let progress = op.join.expect("with its progress still on it");
+        assert_eq!(progress.phase, crate::oplog::JoinPhase::BranchDeleted);
+        assert_eq!(Some(progress.commit_hash), out.commit_hash);
+        assert_eq!(progress.strategy, "squash");
+        assert!(
+            !crate::oplog::join_in_flight(&canon, "receipt").is_some(),
+            "a completed record is not a teardown to resume"
+        );
+    }
+
+    /// Undo's refusal is a property of the payload, and the fold leaves it
+    /// exactly where it was: an operation mid-teardown has no `after`, so it is
+    /// refused by name until `--continue` gives it one.
+    #[serial]
+    #[test]
+    fn undo_refuses_a_join_mid_teardown_then_reverses_it_once_continued() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        let home = temp.path().join("state");
+        init_git_repo(repo);
+        redirect_state_dir(&home);
+        std::env::set_current_dir(repo).unwrap();
+
+        create("halfway", None, None, false, None).unwrap();
+        let worktree = repo.join(".tug/worktrees/halfway");
+        fs::write(worktree.join("f.txt"), "x\n").unwrap();
+        commit("halfway", "add f", None).unwrap();
+
+        git_output(repo, &["merge", "--squash", "tugdash/halfway"]).unwrap();
+        git_output(repo, &["commit", "-m", "tugdash(halfway): add f"]).unwrap();
+        let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
+        seed_interrupted_join(repo, "halfway", crate::oplog::JoinPhase::Integrated, &head);
+        let canon = fs::canonicalize(repo).unwrap();
+
+        let err = crate::oplog::undo_in(&canon, Some("halfway")).unwrap_err();
+        assert!(err.starts_with("incomplete-op:"), "got {err}");
+
+        join(
+            "halfway",
+            JoinOptions {
+                continue_join: true,
+                ..mechanics()
+            },
+        )
+        .unwrap();
+        let undone = crate::oplog::undo_in(&canon, Some("halfway")).expect("now it reverses");
+        assert_eq!(undone.verb, crate::oplog::OpVerb::Join);
+        assert!(branch_present(repo, "tugdash/halfway"), "the dash is back");
     }
 
     /// Every blocker kind, asserted identical between the composed path the
@@ -10527,21 +10786,14 @@ Some context.
         git_output(repo, &["checkout", "main"]).unwrap();
 
         // stale-journal.
-        let journal = JoinJournal {
-            name: "kinds".to_string(),
-            base_branch: "main".to_string(),
-            strategy: "squash".to_string(),
-            commit_hash: "deadbeef".to_string(),
-            phase: JoinPhase::Integrated,
-            message: None,
-        };
-        write_join_journal(repo, &journal).unwrap();
+        let seq =
+            seed_interrupted_join(repo, "kinds", crate::oplog::JoinPhase::Integrated, "deadbeef");
         assert!(
             same("stale journal")
                 .iter()
                 .any(|b| b.kind == "stale-journal")
         );
-        clear_join_journal(repo, "kinds");
+        crate::oplog::abandon(&fs::canonicalize(repo).unwrap(), seq);
 
         // empty: a dash with no rounds and no tracked worktree dirt.
         create("hollow", None, None, false, None).unwrap();

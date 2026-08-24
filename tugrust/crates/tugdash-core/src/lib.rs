@@ -47,8 +47,8 @@ pub use ops::{
     step_done, step_start,
 };
 pub use oplog::{
-    OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome, UndoOutcome, list_ops, redo_in,
-    undo_in,
+    JoinPhase, JoinProgress, OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome,
+    UndoOutcome, list_ops, redo_in, undo_in,
 };
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{

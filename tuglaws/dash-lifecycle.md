@@ -34,7 +34,7 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 
 | Stage | When | Kind |
 |---|---|---|
-| `joining` | a join journal exists — an interrupted teardown | derived |
+| `joining` | an incomplete join op — an interrupted teardown | derived |
 | `implementing` | a `dash step` declaration is the latest | declared |
 | `built` | `dash mark built` | declared |
 | `audited` | `dash mark audited` | declared |
@@ -44,7 +44,7 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 
 `joining` outranks everything, including a declaration, because an interrupted teardown is the one state that actively needs a person.
 
-**The rule: anything git can see is derived on every read and never stored; anything it cannot is declared once, in the dash-log, by a verb** ([D138]). Rounds, dirt, and the journal are visible to git, so they are recomputed every time and cannot go stale. "This build succeeded" and "I am on step 4 of 9" are not visible to git at all, so a verb writes them down. **A stage is never written to a config key** — that would make the derived half stale-able and the declared half duplicated.
+**The rule: anything git can see is derived on every read and never stored; anything it cannot is declared once, in the dash-log, by a verb** ([D138]). Rounds and dirt are visible to git, so they are recomputed every time and cannot go stale; an interrupted teardown is not, and is declared on the operation record the same verb already writes. "This build succeeded" and "I am on step 4 of 9" are not visible to git at all, so a verb writes them down. **A stage is never written to a config key** — that would make the derived half stale-able and the declared half duplicated.
 
 ## Binding
 
@@ -75,9 +75,11 @@ A dash verb that lands, moves, or deletes a branch used to be a one-way door. `t
 An operation has two halves, which store different facts and never the same one:
 
 - **A keepalive ref**, `refs/tug/oplog/<seq>`, on a synthetic commit whose parents are every tip the verb is about to move or delete — the dash head, the base tip, a standing candidate, and the conflict chain. This is what makes recovery possible at all: once it exists, `branch -D` and `reset` cannot strand the dash's rounds, so they are reachable from a ref rather than from a reflog on a clock. The conflict chain is in that list because a teardown deletes its ref along with the candidate's, and the chain holds the resolver's checkpoints — the most expensive commits in the system, and the ones nothing else would keep. It is read **without** the validity gate: validity answers *may this chain be opened*, the keepalive answers *may this work be collected*, and the second question has the broader yes.
-- **A payload**, `oplog-<seq>.json` beside the join journal in the project state dir, holding the verb, the dash, and the before/after values. It is a file rather than the keepalive's commit message because it is written twice — once before the verb acts and once when it completes — and a commit message is immutable.
+- **A payload**, `oplog-<seq>.json` in the project state dir, holding the verb, the dash, and the before/after values. It is a file rather than the keepalive's commit message because it is written twice — once before the verb acts and once when it completes — and a commit message is immutable.
 
-Three verbs record: `join`, `replay`, and `discard`. `create` does not, because a half-made create already rolls itself back. Retention is 50 operations per repository, pruned oldest-first by the writer — no daemon, the same discipline the join journal uses. Pruning drops both halves, and dropping the keepalive is what finally lets `git gc` collect the commits, which is the honest meaning of *no longer undoable*.
+Three verbs record: `join`, `replay`, and `discard`. `create` does not, because a half-made create already rolls itself back. Retention is 50 operations per repository, pruned oldest-first by the writer — no daemon and no lock file. Pruning drops both halves, and dropping the keepalive is what finally lets `git gc` collect the commits, which is the honest meaning of *no longer undoable*.
+
+**A join's forward state lives on the same record as its reverse state.** The payload carries the teardown's phase from the moment the integrate lands, which is what `join --continue` resumes from and what every reader consults to answer *is a join in flight*; the operation it hangs on is the one an undo would reverse. There is no second file for the two to disagree about, and no second retention regime that could drop one and keep the other. The rule that keeps the meaning honest is that **a join which lands nothing records nothing**: a conflict, a stale candidate, or a failed integrate leaves the base as it found it, so the record opened for it is dropped — jj's rule that a transaction which is not committed writes no operation, which undo and replay already kept and the join now does too. An operation left incomplete therefore *means* a teardown to resume, and `undo` refuses it by name until `--continue` finishes it.
 
 Three rules govern the undo itself:
 

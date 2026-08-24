@@ -13,22 +13,28 @@
 //!   delete. This is the half that makes undo possible at all: once it exists,
 //!   `branch -D` and `reset` can no longer strand the rounds, because the
 //!   commits are reachable from a ref nothing sweeps.
-//! - A **payload**, `oplog-<seq>.json` beside the join journal in
-//!   `project_state_dir`, holding the verb, the dash, and the before/after
-//!   values. It is written twice — once before the verb acts and once when it
+//! - A **payload**, `oplog-<seq>.json` in `project_state_dir`, holding the
+//!   verb, the dash, and the before/after values. It is written twice — once before the verb acts and once when it
 //!   completes — which is why it is a file rather than the keepalive's commit
 //!   message: a message is immutable, and the second write is the whole point.
 //!
 //! The two halves store different facts, never the same one. The ref carries
 //! reachability; the payload carries the record.
 //!
+//! **A join's forward state lives on the same record as its reverse state.**
+//! The payload's [`JoinProgress`] says how far the teardown got, which is what
+//! `join --continue` resumes from and what every "a join is in flight" reader
+//! consults; the operation it hangs on is the one an undo would reverse. There
+//! is no second journal for the two to disagree about. The rule that keeps the
+//! meaning honest is that a join which lands nothing records nothing: the
+//! integrate's non-landing exits [`abandon`] the record they opened.
+//!
 //! **A payload with no `after` is an operation that died mid-flight**, and that
 //! is a state the log reports rather than hides — [`undo_in`] refuses it by
 //! name rather than guessing what half of it happened.
 //!
 //! Retention is [`OPLOG_CAP`] operations per repository, pruned oldest-first by
-//! the writer. There is no daemon and no lock file; the same discipline the
-//! join journal uses. Pruning drops both halves, and dropping the keepalive is
+//! the writer. There is no daemon and no lock file. Pruning drops both halves, and dropping the keepalive is
 //! what finally lets `git gc` collect the commits — which is the honest meaning
 //! of "this operation is no longer undoable".
 
@@ -36,6 +42,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tugutil_core::paths::project_state_dir;
+use tugutil_core::sanitize_branch_name;
 use tugutil_core::session::now_iso8601;
 
 use crate::dash::refuse_unredirected_temp_repo;
@@ -163,6 +170,41 @@ pub struct OpAfter {
     pub handed_back: Vec<String>,
 }
 
+/// How far a join's teardown has got.
+///
+/// The three states are read as guards, not as a counter: each is "everything
+/// below this line is done", so re-entering at any of them repeats nothing and
+/// skips nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JoinPhase {
+    /// The integrate commit landed on base; worktree + branch still present.
+    Integrated,
+    /// Worktree removed; branch still present.
+    WorktreeRemoved,
+    /// Branch deleted; only the dash-log line and the completion remain.
+    BranchDeleted,
+}
+
+/// A join between its integrate and its end — the forward record, on the same
+/// payload as the reverse one.
+///
+/// `before` is the world the verb found and `after` is the world it left; this
+/// is the *during*, and it exists only while the join is in flight. It stays on
+/// the payload after completion, where it is the receipt of how the join went.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JoinProgress {
+    pub phase: JoinPhase,
+    /// The integrate commit on the base branch.
+    pub commit_hash: String,
+    /// `JoinStrategy::as_str()`, stored as text — the enum is private to
+    /// `ops`, and this module only carries the word.
+    pub strategy: String,
+    /// The message the integrate committed with, carried so a `--continue`
+    /// finishing the teardown can still report it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 /// One operation's record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpPayload {
@@ -179,6 +221,14 @@ pub struct OpPayload {
     /// The sequence number of the undo that reversed this operation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undone_by: Option<u64>,
+    /// How far a join's teardown has got — present from the moment the
+    /// integrate lands until the record is dropped, and left in place after
+    /// completion as the receipt of the teardown.
+    ///
+    /// An incomplete Join payload carrying this is what "a join is in flight"
+    /// means; one without it is a join that died before it landed anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join: Option<JoinProgress>,
     /// Which operation this one reverses — set on an Undo (the operation it
     /// undid) and on a Redo (the undo it reversed).
     ///
@@ -407,6 +457,7 @@ pub fn record_begin(
             recorded_at: now_iso8601(),
             before,
             after: None,
+            join: None,
             undone_by: None,
             reverses: None,
         };
@@ -443,6 +494,152 @@ pub fn record_reverses(repo: &Path, seq: u64, reverses: u64) -> Result<(), Strin
     write_payload(repo, &payload)
 }
 
+/// Attach or advance a join's teardown progress on its record.
+///
+/// The write is the same rename-into-place every other payload write uses, and
+/// it happens *before* the phase's actions are treated as done — so a crash
+/// leaves a record claiming less than was achieved, which the idempotent
+/// teardown repeats harmlessly, rather than more than was achieved, which it
+/// would skip.
+pub fn record_join_progress(repo: &Path, seq: u64, progress: JoinProgress) -> Result<(), String> {
+    let mut payload = read_op(repo, seq)
+        .ok_or_else(|| format!("oplog: no operation {seq} to record join progress on"))?;
+    payload.join = Some(progress);
+    write_payload(repo, &payload)
+}
+
+/// Every sequence number with a payload on disk, newest first, from the state
+/// directory alone.
+///
+/// Deliberately not [`ref_seqs`]: that spawns `git for-each-ref`, and the one
+/// caller here — "is a join in flight?" — sits on the join board's uncached
+/// path, recomputed per dash per recompute. The keepalive answers whether the
+/// work can still be collected; in-flight-ness is a property of the payload, so
+/// the refs have nothing to say about it.
+fn payload_seqs_desc(repo: &Path) -> Vec<u64> {
+    let mut seqs: Vec<u64> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(project_state_dir(repo)) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if let Some(rest) = name.strip_prefix("oplog-") {
+                if let Some(num) = rest.strip_suffix(".json") {
+                    if let Ok(seq) = num.parse::<u64>() {
+                        seqs.push(seq);
+                    }
+                }
+            }
+        }
+    }
+    seqs.sort_unstable();
+    seqs.reverse();
+    seqs
+}
+
+/// The join of `dash` that is between its integrate and its end, if there is
+/// one — the record `--continue` resumes and every "a join is in flight" reader
+/// consults.
+///
+/// **The whole predicate is tested all the way back, never short-circuited on
+/// "the newest op for this dash".** [`undo_in`] skips an incomplete operation
+/// rather than stopping at it, so `dash undo` during an interrupted join
+/// records an Undo *above* the join it could not reverse. A scan that stopped
+/// at the first record naming the dash would then report no join in flight for
+/// a dash that is half torn down.
+pub fn join_in_flight(repo: &Path, dash: &str) -> Option<OpPayload> {
+    let _ = fold_legacy_join_journal(repo, dash);
+    payload_seqs_desc(repo)
+        .into_iter()
+        .filter_map(|seq| read_op(repo, seq))
+        .find(|op| {
+            op.dash == dash
+                && op.verb == OpVerb::Join
+                && op.after.is_none()
+                && op.join.is_some()
+        })
+}
+
+/// The retired join-journal file, as it was written.
+///
+/// The one place the old format is still spelled, and it is spelled as the
+/// artifact being read out of existence.
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyJoinJournal {
+    #[allow(dead_code)]
+    name: String,
+    base_branch: String,
+    strategy: String,
+    commit_hash: String,
+    phase: JoinPhase,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+fn legacy_journal_path(repo: &Path, dash: &str) -> PathBuf {
+    project_state_dir(repo).join(format!("join-journal-{}.json", sanitize_branch_name(dash)))
+}
+
+/// Fold a join journal left on disk by an older build onto the operation log,
+/// and delete it.
+///
+/// Read-time and idempotent, the shape `migrate_worktrees` already established:
+/// there is no upgrade command because the reader is the thing that runs. The
+/// progress attaches to the dash's open join record when there is one, and
+/// otherwise records one — a journal can outlive its op, either because the op
+/// was pruned or because the join predates the log — so that `--continue` has
+/// something to finish and `undo` has something to answer about.
+///
+/// The file is removed **only after** the payload write returns `Ok`. A crash
+/// in between re-enters here and folds again onto the same open record.
+pub fn fold_legacy_join_journal(repo: &Path, dash: &str) -> Result<Option<u64>, String> {
+    let path = legacy_journal_path(repo, dash);
+    let txt = match std::fs::read_to_string(&path) {
+        Ok(txt) => txt,
+        Err(_) => return Ok(None),
+    };
+    let journal: LegacyJoinJournal = serde_json::from_str(&txt).map_err(|e| {
+        format!(
+            "legacy-join-journal-unreadable: {}: {e}",
+            path.to_string_lossy()
+        )
+    })?;
+
+    let seq = match newest_incomplete(repo, dash, OpVerb::Join) {
+        Some(op) => op.seq,
+        None => {
+            // `capture_before` does not fail once the branch is gone: it falls
+            // back to the repository's default branch and reads empty tips. So
+            // the base branch it reports at phase `BranchDeleted` is a guess,
+            // and the journal recorded the real one — the journal wins.
+            let mut before = capture_before(repo, dash).unwrap_or(OpBefore {
+                base_branch: journal.base_branch.clone(),
+                base_tip: String::new(),
+                dash_tip: String::new(),
+                worktree: String::new(),
+                config: OpConfig::default(),
+                candidate: None,
+                conflict: None,
+                broke_lease: None,
+            });
+            before.base_branch = journal.base_branch.clone();
+            let tips = tips_of(&before);
+            record_begin(repo, OpVerb::Join, dash, before, &tips)?
+        }
+    };
+
+    record_join_progress(
+        repo,
+        seq,
+        JoinProgress {
+            phase: journal.phase,
+            commit_hash: journal.commit_hash,
+            strategy: journal.strategy,
+            message: journal.message,
+        },
+    )?;
+    let _ = std::fs::remove_file(&path);
+    Ok(Some(seq))
+}
 /// Drop a record whose verb turned out to touch nothing, both halves.
 ///
 /// A verb that opens a record and then refuses — a replay whose compare-and-swap
@@ -510,9 +707,9 @@ pub fn newest_undoable(repo: &Path, dash: Option<&str>) -> Option<OpPayload> {
 /// The newest operation for `dash` that began and never completed — how a
 /// resumed verb finds the record it opened before it was interrupted.
 ///
-/// `finish_join_teardown` is the caller this exists for: it receives the join
-/// journal and nothing else, and it is also the `--continue` entry point, so
-/// there is no sequence number to hand it.
+/// [`fold_legacy_join_journal`] is the caller this exists for: a journal an
+/// older build left behind belongs on the record that join already opened, and
+/// the file carries no sequence number to find it by.
 pub fn newest_incomplete(repo: &Path, dash: &str, verb: OpVerb) -> Option<OpPayload> {
     list_ops(repo)
         .into_iter()
@@ -1529,5 +1726,210 @@ mod tests {
         let found = newest_incomplete(f.path(), "demo", OpVerb::Join).expect("the open op");
         assert_eq!(found.seq, open);
         assert!(newest_incomplete(f.path(), "demo", OpVerb::Discard).is_none());
+    }
+
+    fn progress(phase: JoinPhase, commit: &str) -> JoinProgress {
+        JoinProgress {
+            phase,
+            commit_hash: commit.to_string(),
+            strategy: "squash".to_string(),
+            message: Some("landed it".to_string()),
+        }
+    }
+
+    /// Writing a legacy journal the way the retired code did — plain
+    /// `serde_json` over the old field set — so the fold is tested against the
+    /// artifact rather than against a reconstruction of it.
+    fn write_legacy_journal(f: &Fixture, dash: &str, phase: &str, base_branch: &str) {
+        let dir = project_state_dir(f.path());
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(format!("join-journal-{dash}.json")),
+            format!(
+                r#"{{"name":"{dash}","base_branch":"{base_branch}","strategy":"squash",
+                     "commit_hash":"deadbeef","phase":"{phase}","message":"from the journal"}}"#
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn a_payload_with_join_progress_round_trips() {
+        let f = init();
+        for phase in [
+            JoinPhase::Integrated,
+            JoinPhase::WorktreeRemoved,
+            JoinPhase::BranchDeleted,
+        ] {
+            let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+            record_join_progress(f.path(), seq, progress(phase, "abc123")).unwrap();
+            let read = read_op(f.path(), seq).expect("it parses");
+            let join = read.join.expect("progress is on the record");
+            assert_eq!(join.phase, phase);
+            assert_eq!(join.commit_hash, "abc123");
+            assert_eq!(join.strategy, "squash");
+            assert_eq!(join.message.as_deref(), Some("landed it"));
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn an_old_payload_without_the_join_field_still_parses() {
+        let f = init();
+        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let raw = std::fs::read_to_string(payload_path(f.path(), seq)).unwrap();
+        assert!(
+            !raw.contains("\"join\":"),
+            "a join that has not integrated yet omits the field entirely"
+        );
+        assert!(read_op(f.path(), seq).expect("it parses").join.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn join_in_flight_needs_both_an_open_op_and_progress() {
+        let f = init();
+        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        assert!(
+            join_in_flight(f.path(), "demo").is_none(),
+            "an op that never integrated is not a teardown to resume"
+        );
+
+        record_join_progress(f.path(), seq, progress(JoinPhase::Integrated, "abc123")).unwrap();
+        assert_eq!(join_in_flight(f.path(), "demo").unwrap().seq, seq);
+        assert!(
+            join_in_flight(f.path(), "other").is_none(),
+            "and it answers per dash"
+        );
+
+        record_complete(f.path(), seq, OpAfter::default()).unwrap();
+        assert!(
+            join_in_flight(f.path(), "demo").is_none(),
+            "a completed join is not in flight"
+        );
+
+        // A verb other than Join carrying progress is impossible in practice;
+        // the predicate names the verb anyway, so assert it cheaply.
+        let other = record_begin(f.path(), OpVerb::Discard, "demo", before(&f), &[]).unwrap();
+        record_join_progress(f.path(), other, progress(JoinPhase::Integrated, "abc123")).unwrap();
+        assert!(join_in_flight(f.path(), "demo").is_none());
+    }
+
+    /// `undo_in` skips an incomplete operation rather than stopping at it, so an
+    /// undo record can sit above a join that is half torn down. The scan must
+    /// read past it.
+    #[test]
+    #[serial]
+    fn an_undo_recorded_above_an_in_flight_join_does_not_hide_it() {
+        let f = init();
+        let join = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_join_progress(f.path(), join, progress(JoinPhase::WorktreeRemoved, "abc123"))
+            .unwrap();
+
+        let undo = record_begin(f.path(), OpVerb::Undo, "demo", before(&f), &[]).unwrap();
+        record_complete(f.path(), undo, OpAfter::default()).unwrap();
+        assert!(undo > join, "the undo is the newer record");
+
+        let found = join_in_flight(f.path(), "demo").expect("the join is still in flight");
+        assert_eq!(found.seq, join);
+        assert_eq!(found.join.unwrap().phase, JoinPhase::WorktreeRemoved);
+    }
+
+    /// The executable form of "no `for-each-ref`": with every keepalive gone,
+    /// a ref-dependent read finds nothing and this one still answers.
+    #[test]
+    #[serial]
+    fn the_in_flight_read_touches_no_refs() {
+        let f = init();
+        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_join_progress(f.path(), seq, progress(JoinPhase::Integrated, "abc123")).unwrap();
+        git(f.path(), &["update-ref", "-d", &oplog_ref_name(seq)]);
+        assert!(ref_seqs(f.path()).is_empty(), "the keepalive is gone");
+
+        assert_eq!(join_in_flight(f.path(), "demo").unwrap().seq, seq);
+    }
+
+    #[test]
+    #[serial]
+    fn an_open_join_with_progress_is_refused_by_undo_as_incomplete() {
+        let f = init();
+        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_join_progress(f.path(), seq, progress(JoinPhase::WorktreeRemoved, "abc123"))
+            .unwrap();
+        let err = undo_in(f.path(), Some("demo")).unwrap_err();
+        assert!(err.starts_with("incomplete-op:"), "got {err}");
+    }
+
+    #[test]
+    #[serial]
+    fn abandon_drops_the_progress_with_the_payload() {
+        let f = init();
+        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_join_progress(f.path(), seq, progress(JoinPhase::Integrated, "abc123")).unwrap();
+
+        abandon(f.path(), seq);
+        assert!(read_op(f.path(), seq).is_none(), "the payload is gone");
+        assert!(ref_seqs(f.path()).is_empty(), "and so is the keepalive");
+        assert!(join_in_flight(f.path(), "demo").is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn a_legacy_journal_attaches_to_the_open_op_and_is_deleted() {
+        let f = init();
+        let seq = record_begin(f.path(), OpVerb::Join, "resume", before(&f), &[]).unwrap();
+        write_legacy_journal(&f, "resume", "WorktreeRemoved", "main");
+
+        let folded = fold_legacy_join_journal(f.path(), "resume").unwrap();
+        assert_eq!(folded, Some(seq), "it attaches rather than recording a second");
+        let join = read_op(f.path(), seq).unwrap().join.expect("progress attached");
+        assert_eq!(join.phase, JoinPhase::WorktreeRemoved);
+        assert_eq!(join.commit_hash, "deadbeef");
+        assert_eq!(join.message.as_deref(), Some("from the journal"));
+        assert!(!legacy_journal_path(f.path(), "resume").exists());
+
+        // Idempotent: a second fold finds nothing left to do.
+        assert_eq!(fold_legacy_join_journal(f.path(), "resume").unwrap(), None);
+        assert_eq!(join_in_flight(f.path(), "resume").unwrap().seq, seq);
+    }
+
+    #[test]
+    #[serial]
+    fn a_legacy_journal_with_no_open_op_records_one() {
+        let f = init();
+        write_legacy_journal(&f, "orphan", "BranchDeleted", "trunk");
+
+        let seq = fold_legacy_join_journal(f.path(), "orphan")
+            .unwrap()
+            .expect("a record was created for it");
+        let op = read_op(f.path(), seq).expect("the payload is on disk");
+        assert_eq!(op.verb, OpVerb::Join);
+        assert_eq!(op.dash, "orphan");
+        assert!(op.after.is_none(), "and it is open, so --continue can finish it");
+        assert_eq!(
+            op.before.base_branch, "trunk",
+            "the journal's base branch wins over what capture_before guesses"
+        );
+        assert_eq!(op.join.unwrap().phase, JoinPhase::BranchDeleted);
+        assert!(!legacy_journal_path(f.path(), "orphan").exists());
+    }
+
+    #[test]
+    #[serial]
+    fn an_unreadable_legacy_journal_is_left_in_place_and_named() {
+        let f = init();
+        let dir = project_state_dir(f.path());
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("join-journal-broken.json");
+        std::fs::write(&path, "{ not json at all").unwrap();
+
+        let err = fold_legacy_join_journal(f.path(), "broken").unwrap_err();
+        assert!(err.starts_with("legacy-join-journal-unreadable:"), "got {err}");
+        assert!(path.exists(), "a file nobody could read is never deleted");
+        assert!(
+            join_in_flight(f.path(), "broken").is_none(),
+            "and the predicate says no rather than guessing"
+        );
     }
 }

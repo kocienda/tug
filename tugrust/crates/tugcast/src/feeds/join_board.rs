@@ -16,7 +16,7 @@
 //!
 //! **Never cached** — the blockers, and every ref and config read. Blockers
 //! answer to working-tree dirt, to which branch the base checkout has out, and
-//! to a journal file; none of those move a SHA. A blocker set cached against
+//! to whether a teardown is under way; none of those move a SHA. A blocker set cached against
 //! the two heads would keep refusing a join whose real answer changed the
 //! moment the user cleaned their checkout — a face that lies, which is exactly
 //! what this whole seam was built to stop.
@@ -109,12 +109,12 @@ pub fn sweep_workshops(repo_root: &Path, live_dashes: &[String]) {
         if crate::feeds::join_occupancy::run_kind(&owner_key).is_some() {
             continue;
         }
-        // A join removes its own workshop as one phase of a journaled
+        // A join removes its own workshop as one phase of a recorded
         // teardown, and the dash leaves the feed's list before that teardown
         // finishes. Sweeping in that window would run a second `git worktree
         // remove`/`prune` in the same `.git/worktrees` as the one the join is
-        // running. The journal is the "a join owns this dash right now" fact,
-        // and it outlives the dash's presence on the feed by design.
+        // running. The open join record is the "a join owns this dash right
+        // now" fact, and it outlives the dash's presence on the feed by design.
         if tugdash_core::ops::join_in_flight(repo_root, &name) {
             continue;
         }
@@ -145,10 +145,11 @@ pub fn join_state_for(
 
     // Uncached, always: what would refuse a join right now.
     let blockers: Vec<DashJoinBlocker> =
-        // A live join and a crashed one both leave a journal on disk, and only
-        // the second is a blocker. The holder is what tells them apart — and it
-        // has to be a *join* holder: a resolve running over a journal a crashed
-        // join left behind is exactly the case that still wants the refusal.
+        // A live join and a crashed one both leave an open record carrying a
+        // phase, and only the second is a blocker. The holder is what tells
+        // them apart — and it has to be a *join* holder: a resolve running over
+        // the leavings of a crashed join is exactly the case that still wants
+        // the refusal.
         //
         // The holder also suppresses the resolve lease, whichever run it is:
         // the registry is the exact answer where it exists, and the lease is

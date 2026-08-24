@@ -116,7 +116,7 @@ pub enum Decision {
 /// mid-turn check comes before the conflict branch so a busy session is parked
 /// rather than interrupted, to be retried when its turn ends.
 ///
-/// Worktree cleanliness and the join journal are re-checked inside
+/// Worktree cleanliness and a join in flight are re-checked inside
 /// `replay_onto`, which is the single source of truth for them — they appear
 /// here so a dash that cannot be acted on is skipped without paying for a
 /// blocking hop.

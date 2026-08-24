@@ -652,7 +652,13 @@ fn print_oplog(ops: &[tugdash_core::OpPayload]) {
         // list reports what it says.
         let state = match (&op.after, op.undone_by) {
             (_, Some(by)) => format!("undone by {}", by),
-            (None, _) => "incomplete".to_string(),
+            // An incomplete join carrying progress is not a mystery: it is a
+            // teardown waiting for `--continue`, and the list says how far it
+            // got rather than leaving the reader to guess what half happened.
+            (None, _) => match &op.join {
+                Some(progress) => format!("incomplete (teardown at {:?})", progress.phase),
+                None => "incomplete".to_string(),
+            },
             _ if op.is_redoable() => "redoable".to_string(),
             _ if op.is_undoable() => "undoable".to_string(),
             _ => "not undoable".to_string(),

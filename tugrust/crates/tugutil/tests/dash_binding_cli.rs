@@ -462,3 +462,313 @@ fn dash_redo_reverses_an_undo_and_then_says_there_is_nothing_left() {
         String::from_utf8_lossy(&via_undo.stdout)
     );
 }
+
+// ---------------------------------------------------------------------------
+// A join killed mid-teardown, and resumed
+// ---------------------------------------------------------------------------
+
+/// A `git` that forwards every call to the real one, except the call it was
+/// told to stop at — where it announces itself and then blocks until the test
+/// opens the gate.
+///
+/// A pause point outside the product is what makes this a *crash* test rather
+/// than a crash-hook test: nothing in `tugdash-core` knows it is being watched,
+/// and the process really is killed, mid-teardown, by a signal it cannot catch.
+const GIT_SHIM: &str = r#"#!/bin/sh
+case "$*" in
+  *"branch -D"*) : > "$SHIM_SEEN_BRANCH_D" ;;
+esac
+pause=no
+if [ "$SHIM_PAUSE_ON" = "after-branch-delete" ]; then
+  case "$*" in
+    *"rev-parse --short"*) [ -f "$SHIM_SEEN_BRANCH_D" ] && pause=yes ;;
+  esac
+else
+  case "$*" in
+    *"$SHIM_PAUSE_ON"*) pause=yes ;;
+  esac
+fi
+if [ "$pause" = yes ] && [ ! -f "$SHIM_PAUSED" ]; then
+  : > "$SHIM_PAUSED"
+  while [ ! -f "$SHIM_GATE" ]; do sleep 0.05; done
+fi
+exec "$SHIM_REAL_GIT" "$@"
+"#;
+
+/// Run `tugutil dash join <name>` under the shim and SIGKILL it the moment the
+/// teardown reaches `pause_on`.
+fn kill_join_at(tmp: &Path, root: &Path, name: &str, pause_on: &str) {
+    let shim_dir = tmp.join(format!("shim-{pause_on}").replace(' ', "-"));
+    std::fs::create_dir_all(&shim_dir).unwrap();
+    let shim = shim_dir.join("git");
+    std::fs::write(&shim, GIT_SHIM).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let real_git = String::from_utf8(
+        Command::new("which")
+            .arg("git")
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    let paused = shim_dir.join("paused");
+    let gate = shim_dir.join("gate");
+
+    let mut cmd = tug(tmp);
+    cmd.current_dir(root);
+    cmd.args(["dash", "join", name]);
+    cmd.env(
+        "PATH",
+        format!(
+            "{}:{}",
+            shim_dir.to_string_lossy(),
+            std::env::var("PATH").unwrap_or_default()
+        ),
+    );
+    cmd.env("SHIM_REAL_GIT", &real_git);
+    cmd.env("SHIM_PAUSE_ON", pause_on);
+    cmd.env("SHIM_PAUSED", &paused);
+    cmd.env("SHIM_GATE", &gate);
+    cmd.env("SHIM_SEEN_BRANCH_D", shim_dir.join("saw-branch-d"));
+    let mut child = cmd.spawn().unwrap();
+
+    // Bounded wait, no fixed sleep: the shim announces the pause by creating a
+    // file, so the test proceeds the instant the teardown is where it wants it.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !paused.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the join never reached `{pause_on}`"
+        );
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("the join exited ({status}) before reaching `{pause_on}`");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    child.kill().unwrap();
+    let _ = child.wait();
+    std::fs::write(&gate, "go").unwrap();
+}
+
+fn oplog_list(tmp: &Path, root: &Path) -> String {
+    let mut cmd = tug(tmp);
+    cmd.current_dir(root);
+    cmd.args(["dash", "undo", "--list"]);
+    let out = cmd.output().unwrap();
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+fn continue_join(tmp: &Path, root: &Path, name: &str) {
+    let mut cmd = tug(tmp);
+    cmd.current_dir(root);
+    cmd.args(["dash", "join", name, "--continue"]);
+    let out = cmd.output().unwrap();
+    assert!(
+        out.status.success(),
+        "--continue failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// What every one of these tests asserts once the resume has run: the teardown
+/// finished, the record closed, and no journal file exists anywhere.
+fn assert_finished(tmp: &Path, root: &Path, name: &str) {
+    let worktree = root.join(".tug/worktrees").join(name);
+    assert!(!worktree.exists(), "worktree removed");
+    assert!(
+        !branch_exists(root, &format!("tugdash/{name}")),
+        "branch deleted"
+    );
+    let listing = oplog_list(tmp, root);
+    assert!(
+        !listing.contains("incomplete"),
+        "the record closed: {listing}"
+    );
+    assert!(
+        journal_files(tmp).is_empty(),
+        "no join journal is written by any path"
+    );
+
+    let mut undo = tug(tmp);
+    undo.current_dir(root);
+    undo.args(["dash", "undo", name]);
+    let out = undo.output().unwrap();
+    assert!(
+        out.status.success(),
+        "and the finished join is undoable: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn branch_exists(root: &Path, branch: &str) -> bool {
+    Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--verify", "--quiet", branch])
+        .status()
+        .unwrap()
+        .success()
+}
+
+/// Every `join-journal-*.json` under the redirected state dir.
+fn journal_files(tmp: &Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let mut stack = vec![tmp.join("state")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("join-journal-"))
+            {
+                found.push(path);
+            }
+        }
+    }
+    found
+}
+
+/// The directory the op payloads landed in — the project's state dir, found by
+/// what is in it rather than by recomputing the slug.
+fn state_dir_with_payloads(tmp: &Path) -> std::path::PathBuf {
+    let mut stack = vec![tmp.join("state")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("oplog-"))
+            {
+                return dir;
+            }
+        }
+    }
+    panic!("no op payload was written");
+}
+
+#[test]
+fn a_join_killed_before_its_worktree_goes_is_resumed_by_continue() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+
+    kill_join_at(&tmp_path, &root, "demo", "worktree remove");
+
+    assert!(root.join(".tug/worktrees/demo").exists(), "worktree still there");
+    assert!(branch_exists(&root, "tugdash/demo"), "branch still there");
+    let listing = oplog_list(&tmp_path, &root);
+    assert!(
+        listing.contains("incomplete (teardown at Integrated)"),
+        "the record says how far it got: {listing}"
+    );
+
+    continue_join(&tmp_path, &root, "demo");
+    assert_finished(&tmp_path, &root, "demo");
+}
+
+#[test]
+fn a_join_killed_before_its_branch_goes_is_resumed_by_continue() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+
+    kill_join_at(&tmp_path, &root, "demo", "branch -D");
+
+    assert!(!root.join(".tug/worktrees/demo").exists(), "worktree gone");
+    assert!(branch_exists(&root, "tugdash/demo"), "branch still there");
+    let listing = oplog_list(&tmp_path, &root);
+    assert!(
+        listing.contains("incomplete (teardown at WorktreeRemoved)"),
+        "{listing}"
+    );
+
+    continue_join(&tmp_path, &root, "demo");
+    assert_finished(&tmp_path, &root, "demo");
+}
+
+/// The boundary that had no resume at all before the fold: with the branch
+/// already deleted, a `--continue` used to be refused as `Dash not found`.
+#[test]
+fn a_join_killed_after_its_branch_goes_is_resumed_by_continue() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+
+    kill_join_at(&tmp_path, &root, "demo", "after-branch-delete");
+
+    assert!(!branch_exists(&root, "tugdash/demo"), "branch gone");
+    let listing = oplog_list(&tmp_path, &root);
+    assert!(
+        listing.contains("incomplete (teardown at BranchDeleted)"),
+        "{listing}"
+    );
+
+    continue_join(&tmp_path, &root, "demo");
+    assert_finished(&tmp_path, &root, "demo");
+}
+
+/// A journal an older build left behind is folded onto the op log by the first
+/// verb that reads it, and finished by `--continue` — no upgrade step, and the
+/// file is gone afterwards.
+#[test]
+fn a_legacy_journal_on_disk_is_folded_and_continued_by_the_binary() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+
+    // Reach the same state an old build would have been killed in, then
+    // rewrite that state the way the old build recorded it: a journal file and
+    // no operation at all.
+    kill_join_at(&tmp_path, &root, "demo", "worktree remove");
+    let state = state_dir_with_payloads(&tmp_path);
+    let head = git_stdout(&root, &["rev-parse", "HEAD"]);
+    for entry in std::fs::read_dir(&state).unwrap().flatten() {
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("oplog-"))
+        {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    let journal = state.join("join-journal-demo.json");
+    std::fs::write(
+        &journal,
+        format!(
+            r#"{{"name":"demo","base_branch":"main","strategy":"squash",
+                 "commit_hash":"{head}","phase":"Integrated","message":"old build"}}"#
+        ),
+    )
+    .unwrap();
+
+    continue_join(&tmp_path, &root, "demo");
+    assert!(!journal.exists(), "the journal is read out of existence");
+    assert_finished(&tmp_path, &root, "demo");
+}

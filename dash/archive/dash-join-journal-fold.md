@@ -409,12 +409,12 @@ fn payload_seqs_desc(repo: &Path) -> Vec<u64>;                          // read_
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | Progress on the payload, the in-flight predicate, and the legacy fold | pending | — |
-| #step-2 | One integrate function; a join that lands nothing records nothing | pending | — |
-| #step-3 | Teardown and `--continue` over the op; the journal retired | pending | — |
-| #step-4 | CLI surface and the kill-mid-teardown tests | pending | — |
-| #step-5 | Doctrine: lifecycle doc and D161 | pending | — |
-| #step-6 | Integration Checkpoint | pending | — |
+| #step-1 | Progress on the payload, the in-flight predicate, and the legacy fold | done | `5bb691471` |
+| #step-2 | One integrate function; a join that lands nothing records nothing | done | `9636b7765` |
+| #step-3 | Teardown and `--continue` over the op; the journal retired | done | `6929da0b1` |
+| #step-4 | CLI surface and the kill-mid-teardown tests | done | `85a792b79` |
+| #step-5 | Doctrine: lifecycle doc and D161 | done | `21b5a0dc2` |
+| #step-6 | Integration Checkpoint | done | `ae5b3a27a` |
 
 ---
 
