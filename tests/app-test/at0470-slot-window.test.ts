@@ -39,7 +39,7 @@
  * @covers tugdeck/src/components/tugways/tug-slot-layout.tsx
  * @covers tugdeck/src/components/tugways/tug-slot-layout.css
  * @covers tugdeck/src/lib/slot-window-pref.ts
- * @covers tugdeck/src/components/lens/sections/layouts-section.tsx
+ * @covers tugdeck/src/action-dispatch.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -58,7 +58,6 @@ const wait = (ms: number): Promise<void> =>
 
 const PICKER = '[data-testid="lens-slot-picker"]';
 const JUMP = '[data-testid="lens-slot-picker-jump"]';
-const WINDOW_ROW = '[data-testid="lens-layouts-slot-window"]';
 
 /** What one row's window is drawing, left to right. */
 interface WindowFacts {
@@ -366,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
   );
 
   test(
-    "the Layout section's Slot Window row is what sets the width",
+    "the `set-slot-window` action is what sets the width",
     async () => {
       const app = await launchTugApp({ testName: "at0470-slot-window" });
       try {
@@ -376,18 +375,13 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Lens row's slot window", () => {
           "three to begin with",
         ).toBe(3);
 
-        // The row is a segmented group of two; the second segment is 5.
-        await app.evalJS<boolean>(
-          `(function () {
-             var group = document.querySelector(${JSON.stringify(WINDOW_ROW)});
-             var five = Array.prototype.filter.call(
-               group.querySelectorAll("button"),
-               function (b) { return b.textContent.trim() === "5"; },
-             )[0];
-             five.click();
-             return true;
-           })()`,
-        );
+        // Driven through the action, which is the whole of the switch now. The
+        // Layout section carried a Slot Window row for a while and no longer
+        // does — the window settled at five, and a row asking the reader to
+        // choose sat oddly in a section otherwise entirely about the deck. The
+        // preference and the action outlived it, so the width is still a thing
+        // that changes and this is still the path it changes by.
+        await app.dispatchControlAction("set-slot-window", { size: 5 });
         await wait(700);
 
         const wide = await windows(app);
