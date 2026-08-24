@@ -348,9 +348,12 @@ export interface MiniaturePlaceRects {
   rails: Partial<Record<SidebarSide, { basisPct: number }>>;
   /** One entry per drawn block, placed within the field. */
   blocks: readonly (MiniatureRect & { slot: number })[];
-  /** Whether the flow strip is longer than the band, and the scale that fits
-   *  the whole of it into the field when it is. */
-  flow: { overflows: boolean; scale: number };
+  /** Whether the flow strip is longer than the band, the scale that fits the
+   *  whole of it into the field when it is, and the seam each live block gives
+   *  up off its own right edge so the strip reads as separate cards without
+   *  measuring longer than the deck's. Zero for every drawing whose blocks are
+   *  already spaced apart. */
+  flow: { overflows: boolean; scale: number; seamPct: number };
 }
 
 /**
@@ -466,6 +469,21 @@ export function miniatureGeometry({
         );
   const flowOverflows = layout === "flow" && flowStrip > 100;
   const flowScale = flowOverflows ? 100 / flowStrip : 1;
+  // The live strip's seam, taken OUT of each block rather than added between
+  // them — and that distinction is the whole of it.
+  //
+  // The deck's own gap is a fraction of a pixel at this scale (see
+  // `cardGapFor`), so a strip drawn at the deck's real positions and nothing
+  // else has no visible seam at all: the cards butt together and four columns
+  // read as one grey slab. The synthetic strip solves that by spacing the
+  // blocks apart, and doing the same to the live one is what made the strip
+  // longer than the deck's and the window narrower than the band.
+  //
+  // Subtracting the seam from each block's own width costs nothing the window
+  // is measured against: every left edge stays exactly where the deck put it,
+  // the strip keeps its whole length, and the blocks still read as separate
+  // cards. A drawn card is a card's width less the air it is seen against.
+  const flowSeam = flowLive !== null ? flowGap : 0;
 
   // Where every block stands, in percent of the field: fit tiles the band in
   // equal shares; flow lays the strip out at each block's own width and scales
@@ -476,7 +494,7 @@ export function miniatureGeometry({
       ? flowBlocks.map((block) => ({
           slot: block.slot,
           leftPct: block.leftPct * flowScale,
-          widthPct: block.widthPct * flowScale,
+          widthPct: Math.max(block.widthPct * flowScale - flowSeam, 0),
         }))
       : Array.from({ length: count }, (_, i) => ({
           slot: i,
@@ -492,7 +510,7 @@ export function miniatureGeometry({
   return {
     rails: railRects,
     blocks,
-    flow: { overflows: flowOverflows, scale: flowScale },
+    flow: { overflows: flowOverflows, scale: flowScale, seamPct: flowSeam },
   };
 }
 

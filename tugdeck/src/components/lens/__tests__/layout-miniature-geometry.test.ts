@@ -147,7 +147,7 @@ describe("miniatureGeometry — flow", () => {
   });
 
   test("the live strip draws the deck's own extents, not equal cards", () => {
-    const { blocks } = miniatureGeometry({
+    const { blocks, flow } = miniatureGeometry({
       kind: "three-up",
       layout: "flow",
       flow: {
@@ -160,9 +160,13 @@ describe("miniatureGeometry — flow", () => {
       },
     });
     // Two blocks for two occupied slots — an empty slot contributes nothing to
-    // a real strip — and the second is twice the first.
+    // a real strip — and the second is twice the first. Each has given up the
+    // seam off its own right edge, so the doubling is in what they were BEFORE
+    // that, which is the measure the window is taken against.
     expect(blocks.map((b) => b.slot)).toEqual([0, 2]);
-    expect(blocks[1].widthPct).toBeCloseTo(blocks[0].widthPct * 2, 6);
+    expect(flow.seamPct).toBeGreaterThan(0);
+    const measured = blocks.map((b) => b.widthPct + flow.seamPct);
+    expect(measured[1]).toBeCloseTo(measured[0] * 2, 6);
   });
 
   test("the live strip is laid out at its own gaps, not the drawing's seam", () => {
@@ -195,10 +199,11 @@ describe("miniatureGeometry — flow", () => {
       );
     }
     // And the window says what is true: the third slot is wholly inside the
-    // band, the fourth is not.
+    // band, the fourth is not. Measured at the card's own right edge — the seam
+    // is air the block gives up, not width the deck lost.
     const windowRight = 100 * flow.scale;
     const rightOf = (i: number): number =>
-      blocks[i].leftPct + blocks[i].widthPct;
+      blocks[i].leftPct + blocks[i].widthPct + flow.seamPct;
     expect(rightOf(2)).toBeLessThanOrEqual(windowRight);
     expect(rightOf(3)).toBeGreaterThan(windowRight);
   });

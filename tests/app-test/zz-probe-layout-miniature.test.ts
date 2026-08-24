@@ -223,11 +223,28 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
         // placeholder the real strip carries for it. The occupied blocks are
         // the first five, in slot order, and their proportions are the claim.
         expect(committed.blocks.length).toBe(6);
+        // Each block is its card at one scale, LESS the seam it gives up off
+        // its own right edge — a constant, because the deck's real gap is a
+        // fraction of a pixel here and a drawing that added the seam BETWEEN
+        // the blocks instead would measure a strip longer than the deck's.
+        //
+        // So the claim is that one line fits all five: recover the scale from
+        // the first two blocks, and every remaining block must give back the
+        // same seam. That is stronger than the ratio it replaces — a drawing
+        // that flattened the extents would satisfy no line at all — and it
+        // pins the seam's existence too, which is the half that regressed
+        // when the real positions first landed.
+        const scale =
+          (committed.blocks[0] - committed.blocks[1]) / (widths[0] - widths[1]);
+        const seamAt = (i: number): number => scale * widths[i] - committed.blocks[i];
+        const seam = seamAt(0);
+        note(`recovered seam: ${seam.toFixed(2)}% of the field`);
+        expect(seam, "the blocks are drawn apart, not butted together").toBeGreaterThan(1);
         for (let i = 1; i < widths.length; i += 1) {
           expect(
-            committed.blocks[i] / committed.blocks[0],
-            `block ${i} is drawn in slot ${i}'s proportion to slot 0`,
-          ).toBeCloseTo(widths[i] / widths[0], 2);
+            seamAt(i),
+            `block ${i} is drawn at slot ${i}'s own extent, one seam in`,
+          ).toBeCloseTo(seam, 1);
         }
 
         // ── 2. The window stands at the offset, measured in bands ──────────
