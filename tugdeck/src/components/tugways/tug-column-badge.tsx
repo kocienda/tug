@@ -230,7 +230,7 @@ export function StackGlyph({
   return (
     <svg
       className="tug-column-badge-glyph"
-      viewBox="0 0 18 20"
+      viewBox="0 0 16 20"
       aria-hidden="true"
       focusable="false"
     >
@@ -240,7 +240,7 @@ export function StackGlyph({
           className="tug-column-badge-slice"
           data-region={key}
           data-lit={key === lit ? "true" : undefined}
-          points={`9,${dy} 17.5,${dy + 4.5} 9,${dy + 9} 0.5,${dy + 4.5}`}
+          points={`8,${dy} 15.5,${dy + 4.5} 8,${dy + 9} 0.5,${dy + 4.5}`}
         />
       ))}
     </svg>
@@ -282,7 +282,7 @@ export function SplitGlyph({
   return (
     <svg
       className="tug-column-badge-glyph"
-      viewBox="0 0 18 20"
+      viewBox="0 0 16 20"
       aria-hidden="true"
       focusable="false"
     >
@@ -294,7 +294,7 @@ export function SplitGlyph({
           data-lit={key === lit ? "true" : undefined}
           x="0.5"
           y={y}
-          width="17"
+          width="15"
           height="5"
           rx="1"
         />
