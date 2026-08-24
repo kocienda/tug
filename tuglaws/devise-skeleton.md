@@ -1,4 +1,4 @@
-<!-- devise-skeleton v5 -->
+<!-- devise-skeleton v6 -->
 
 <!--
   This is the format contract for plans authored by `/tugplug:plan-devise` and walked
@@ -10,6 +10,26 @@
   Prefix reservation: plan-local design decisions use `[P01]` (NOT `[D01]`).
   `[D##]` is reserved for the global design decisions in `design-decisions.md`,
   which a plan may also cite by reference — keeping the two namespaces distinct.
+
+  **Five sections are mandatory; the rest of this template is guidance.** The linter
+  fails a plan that omits any of `{#plan-metadata}`, `{#phase-overview}`,
+  `{#execution-steps}`, `{#step-status-ledger}`, or `{#deliverables}` (PL001). Every
+  other section below is shown because it is usually worth writing — not because a
+  build breaks without it. Sections marked "(Optional)" are the ones real plans most
+  often skip; skip any of them when there is nothing true to put there.
+
+  **`{#execution-steps}` is also what makes this document a plan.** Detection is
+  positive: `tugutil plan lint` treats a file as a plan only if it declares that
+  anchor, and exits 2 with "not a plan document" otherwise. A brief therefore lints
+  as a non-plan by construction — its format is `tuglaws/brief-skeleton.md`.
+
+  **Implementing a plan never stales its review.** The content stamp is computed over
+  a canonical extract, not the file: it drops the Review Record entirely (the stamp
+  lives inside it), drops blank lines and horizontal rules, reduces every Step Status
+  Ledger row to its anchor and title, and unticks every checkbox. So flipping a row to
+  `done`, recording its commit, and ticking task boxes leave the stamp untouched, and
+  `tugutil plan status` still reads `reviewed` at the end of a run. Editing the plan's
+  *content* is what makes it `stale` — which is the signal actually worth having.
 -->
 
 ## <Plan Title> {#phase-slug}
@@ -106,7 +126,7 @@ Deferred: <what was raised as an Open Question instead of decided>.
 
 This plan format relies on **explicit, named anchors** and **rich `References:` lines** in execution steps.
 
-#### 1) Use explicit anchors everywhere you will cite later
+#### 1) Use explicit anchors everywhere you will cite later {#anchors-everywhere}
 
 - **Technique**: append an explicit anchor to the end of a heading using `{#anchor-name}`.
   - Example (append anchor to any heading):
@@ -114,7 +134,7 @@ This plan format relies on **explicit, named anchors** and **rich `References:` 
     - `#### [P01] Workspace snapshots are immutable (DECIDED) {#p01-snapshots-immutable}`
 - **Why**: do not rely on auto-generated heading slugs; explicit anchors are stable when titles change.
 
-#### 2) Anchor naming rules (lock these in)
+#### 2) Anchor naming rules (lock these in) {#anchor-naming}
 
 - **Allowed characters**: lowercase `a–z`, digits `0–9`, and hyphen `-` only.
 - **Style**: short, semantic, **kebab-case**, no phase numbers (anchors should survive renumbering).
@@ -130,7 +150,7 @@ This plan format relies on **explicit, named anchors** and **rich `References:` 
   - **`sNN-...`**: specs (`Spec S01`) anchors, e.g. `{#s01-command-response}`
   - **Domain anchors**: for major concepts/sections, use a clear noun phrase, e.g. `{#cross-platform}`, `{#config-schema}`, `{#error-scenarios}`
 
-#### 3) Stable label conventions (for non-heading artifacts)
+#### 3) Stable label conventions (for non-heading artifacts) {#label-conventions}
 
 Use stable labels so steps can cite exact plan artifacts even when prose moves around:
 
@@ -149,7 +169,7 @@ Numbering rules:
   `design-decisions.md`). A `References:` line may cite both — `[P05]` for a
   decision made *in this plan*, `[D40]` for one it inherits from the global set.
 
-#### 4) `**Depends on:**` lines for execution step dependencies
+#### 4) `**Depends on:**` lines for execution step dependencies {#depends-on-lines}
 
 Steps that depend on other steps must include a `**Depends on:**` line that references step anchors.
 
@@ -166,7 +186,7 @@ Steps that depend on other steps must include a `**Depends on:**` line that refe
 
 ---
 
-#### 5) `**References:**` lines are required for every execution step
+#### 5) `**References:**` lines are required for every execution step {#references-lines}
 
 Every step must include a `**References:**` line that cites the plan artifacts it implements.
 
@@ -295,30 +315,9 @@ Table T05, (#op-rename, #fundamental-wall)
 
 ---
 
-### Compatibility / Migration / Rollout (Optional) {#rollout}
-
-> Use this section when you are changing public APIs, config formats, CLI contracts, or anything that affects adopters.
-
-- **Compatibility policy**: <semver? schema versioning?>
-- **Migration plan**:
-  - <what changes>
-  - <who is impacted>
-  - <how to migrate, and how to detect breakage>
-- **Rollout plan**:
-  - <opt-in flag / staged rollout / canary / feature gate>
-  - <rollback strategy>
-
----
-
-### Definitive Symbol Inventory {#symbol-inventory}
+### Definitive Symbol Inventory (Optional) {#symbol-inventory}
 
 > A concrete list of new crates/files/symbols to add. This is what keeps implementation crisp.
-
-#### New crates (if any) {#new-crates}
-
-| Crate | Purpose |
-|-------|---------|
-| `<crate>` | <purpose> |
 
 #### New files (if any) {#new-files}
 
@@ -334,7 +333,7 @@ Table T05, (#op-rename, #fundamental-wall)
 
 ---
 
-### Documentation Plan {#documentation-plan}
+### Documentation Plan (Optional) {#documentation-plan}
 
 - [ ] <Docs update>
 - [ ] <Examples / schema examples / API docs>
@@ -358,7 +357,20 @@ Table T05, (#op-rename, #fundamental-wall)
 
 > Name what you are deliberately *not* testing, and why. This keeps reviewers from
 > reading a coverage gap as an oversight, and steers authors away from low-value tests
-> the project bans (e.g. mock-store assertion tests, fake-DOM render tests).
+> the project bans.
+>
+> **The banned shapes are matched literally.** A Tests block naming any of these fails
+> lint (PL020), because there is no in-process DOM substrate and a mock-store test only
+> asserts what `tsc --noEmit` already proves:
+>
+> - `happy-dom`
+> - `jsdom`
+> - `@testing-library/react`
+> - `mock-store` / `mock store`
+>
+> A test that needs `document` or `window` to express itself is either a pure function
+> over data or a real-app test. The list is what the rule actually greps for, so a Tests
+> block that spells one of these fails whatever the surrounding sentence says.
 
 - <area not tested> — <why (covered elsewhere / not worth the brittleness / banned pattern)>
 
@@ -372,7 +384,9 @@ Table T05, (#op-rename, #fundamental-wall)
 >
 > **Patterns:**
 > - If a step is large, split the work into multiple **flat steps** (`Step N`, `Step N+1`, …) with separate commits and checkpoints, each with explicit `**Depends on:**` lines.
-> - End the plan with an **Integration Checkpoint step** that verifies the **fit** — not the work. Its subject is the one tree nothing else in the run ever tested: the dash replayed onto the live base, which is what a join will actually land. It uses `Commit: N/A (verification only)` to signal no separate commit.
+> - End the plan with an **Integration Checkpoint step** that verifies the **fit** — not the work. Its subject is the one tree nothing else in the run ever tested: the dash replayed onto the live base, which is what a join will actually land. Give it an ordinary `**Commit:**` message like any other step: closing a step writes its ledger row, that write dirties the tree, and the round commits it — so the step lands a commit whatever the plan says, and a message reading "no separate commit" describes a state that never occurs.
+>
+> **The run declares where it ends, and that declaration arms the join.** `dash step start <n> --through <m>` names `m` as the last step of the run; when step `m` goes `done`, the dash is finished, the join arc arms itself, and the offer reaches the user without anybody remembering to raise it. A run that never declared its last step can only ever look like a run still in progress. So a plan's step list is also a promise about where the arc ends — which is why folding a step into a neighbour still calls that step's `done` verb rather than quietly dropping it.
 >
 > **The Integration Checkpoint is a procedure, and it is not a second sweep.** A checkpoint that passed is spent: every command in the per-step checkpoints already ran, against these bytes, inside the step that changed them. Re-listing them at the end costs minutes and can only re-prove what is already proven — and it proves it about the **sandbox**, frozen at branch time, rather than about the deliverable. So the ending is:
 >
@@ -396,10 +410,18 @@ Table T05, (#op-rename, #fundamental-wall)
 > step range, and to mark progress. Keep it in sync as steps land — flip `pending` →
 > `in progress` → `done` (record the commit). It is the plan's source of truth for "where are we?".
 
+> **Every step gets a row, and every row names a step.** The linter checks this in
+> both directions (PL016): a step with no row is a step `dash step` cannot start or
+> finish, and a row naming no step is a row the run will never close. The rows below
+> match the five steps this template goes on to show.
+
 | Step | Title | Status | Commit |
 |---|---|---|---|
 | #step-1 | <title> | pending | — |
 | #step-2 | <title> | pending | — |
+| #step-3 | <title> | pending | — |
+| #step-4 | <title> | pending | — |
+| #step-5 | Integration Checkpoint | pending | — |
 
 #### Step 1: <Prep Step Title> {#step-1}
 
@@ -499,7 +521,7 @@ Table T05, (#op-rename, #fundamental-wall)
 
 **Depends on:** #step-3, #step-4
 
-**Commit:** `N/A (verification only)`
+**Commit:** `<scope>: integration checkpoint`
 
 **References:** [P04] <decision>, [P05] <decision>, (#success-criteria)
 
@@ -534,7 +556,7 @@ Table T05, (#op-rename, #fundamental-wall)
 - [ ] <T test>
 - [ ] <T test>
 
-#### Roadmap / Follow-ons (Explicitly Not Required for Phase Close) {#roadmap}
+#### Follow-ons (Explicitly Not Required for Phase Close) {#follow-ons}
 
 - [ ] <follow-on item>
 - [ ] <follow-on item>

@@ -2048,6 +2048,38 @@ Some context.
         );
     }
 
+    /// The format contract must satisfy the rules it teaches.
+    ///
+    /// The skeleton is a plan document in its own right — it declares
+    /// `{#execution-steps}` — so the linter has an opinion about it, and for a
+    /// long time that opinion was three errors and five warnings: the example
+    /// ledger named two of the five steps the template goes on to show. A
+    /// contract that fails its own checker is a suggestion, and prose drift is
+    /// invisible without a guard. Warnings count here as well as errors: the
+    /// skeleton is the one document that should model a clean bill.
+    ///
+    /// Resolved from the crate manifest and skipped cleanly when absent, so the
+    /// crate stays testable outside this repository.
+    #[test]
+    fn the_skeleton_satisfies_its_own_rules() {
+        let skeleton = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tuglaws/devise-skeleton.md")
+            .canonicalize();
+        let Ok(skeleton) = skeleton else {
+            return;
+        };
+        let Ok(source) = std::fs::read_to_string(&skeleton) else {
+            return;
+        };
+        let doc = parse(&source).expect("the devise skeleton must parse as a plan");
+        let diagnostics = lint(&doc);
+        assert!(
+            diagnostics.is_empty(),
+            "{} carries diagnostics: {diagnostics:#?}",
+            skeleton.display()
+        );
+    }
+
     // --- ledger editing ----------------------------------------------------
 
     /// The lines that differ between two documents, as `(line_no, before, after)`.

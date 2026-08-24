@@ -57,4 +57,5 @@
 ## Templates
 
 - [devise-skeleton.md](devise-skeleton.md) — Template for plan documents (the format `/tugplug:plan-devise` authors and `/tugplug:dash-implement` walks). Kept here per user decision; it is a template, not a tuglaws law or architecture doc.
+- [brief-skeleton.md](brief-skeleton.md) — Template for **briefs**: what was found and what was decided, before an implementable plan exists. Deliberately lighter than the plan skeleton and deliberately unlinted — a brief carries no steps, ledger, or checkpoints, and `tugutil plan lint` refuses it by construction. Findings are `[F##]`, decisions `[B##]`, both citable from the plan it spawns.
 - [plan-review-rubric.md](plan-review-rubric.md) — What a reviewer judges when reading a plan, and what belongs to `tugutil plan lint` instead. Read by `/tugplug:plan-review` and `/tugplug:dash-audit`.

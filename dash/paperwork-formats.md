@@ -293,11 +293,11 @@ Every change to `tuglaws/devise-skeleton.md`, and the authority for each.
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The brief has a written format | pending | — |
-| #step-2 | The skeleton matches its linter | pending | — |
-| #step-3 | The skeleton is pruned to what plans use | pending | — |
-| #step-4 | Both formats are reachable | pending | — |
-| #step-5 | Integration checkpoint | pending | — |
+| #step-1 | The brief has a written format | done | `e47fb1620` |
+| #step-2 | The skeleton matches its linter | done | `e8c656429` |
+| #step-3 | The skeleton is pruned to what plans use | done | `5ba84734c` |
+| #step-4 | Both formats are reachable | done | `49bb91010` |
+| #step-5 | Integration checkpoint | done | `3a471fc2d` |
 
 #### Step 1: The brief has a written format {#step-1}
 
