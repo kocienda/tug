@@ -1,16 +1,18 @@
 /**
- * session-card-telemetry-popovers.tsx — popup content for the six Z2
- * status-row anchors (STATE, TIME, TOKENS, CONTEXT, TASKS, JOBS).
+ * session-card-telemetry-popovers.tsx — popup content for the five Z2
+ * status-row anchors (STATE, TIME, CONTEXT, TASKS, JOBS).
  *
  * Every popup composes the shared `TugPopupList` vocabulary — frame,
- * log grid, item rows, footer — so the six surfaces read with one
+ * log grid, item rows, footer — so the five surfaces read with one
  * rhythm. This module contributes only what is session-card-specific:
  * turn-address links into the transcript, per-turn previews and
  * end-state badges, task/job row assembly, and the copy-text
  * composers behind each footer's COPY affordance.
  *
- * Titles match the Z2 cell legends (STATE / TIME / TOKENS / CONTEXT /
- * TASKS / JOBS) so a popup and its trigger read as one instrument.
+ * **Every frame here is headerless.** These popups open inside the
+ * shared `TugPlacard`, whose header already carries the cell's legend,
+ * so a frame `title` would title the same surface twice. (The prop is
+ * still right for a popup that opens on its own — the masthead's do.)
  *
  * **Footer affordances.** Log-shaped popups (all but CONTEXT) carry a
  * COPY action that writes the visible list as plain text; JOBS adds
@@ -726,7 +728,7 @@ export function TasksPopoverContent({
 }): React.ReactElement {
   if (state.tasks.length === 0) {
     return (
-      <TugPopupListFrame title="Tasks" kind="item">
+      <TugPopupListFrame kind="item">
         <TugPopupListEmpty>No tasks for this session.</TugPopupListEmpty>
       </TugPopupListFrame>
     );
@@ -737,7 +739,6 @@ export function TasksPopoverContent({
   const summary = composeTaskSummary(countTasks(state.tasks));
   return (
     <TugPopupListFrame
-      title="Tasks"
       kind="item"
       footer={
         <TugPopupListFooter summary={summary}>
@@ -1121,7 +1122,7 @@ export function JobsPopoverContent({
   const hasJobs = jobs.length > 0;
   if (!hasGoal && !hasJobs) {
     return (
-      <TugPopupListFrame title="Jobs" kind="item">
+      <TugPopupListFrame kind="item">
         <TugPopupListEmpty>No background jobs this session.</TugPopupListEmpty>
       </TugPopupListFrame>
     );
@@ -1196,7 +1197,6 @@ export function JobsPopoverContent({
 
   return (
     <TugPopupListFrame
-      title="Jobs"
       kind="item"
       footer={
         <TugPopupListFooter summary={composeJobsCellSummary(counts, goal)}>
