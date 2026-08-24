@@ -379,6 +379,10 @@ export function applyRestoredRefs(
     notice: null,
     startedAtMs: settledAtMs,
     settledAtMs,
+    // The written position. Null for a run recorded before the anchor column,
+    // or by a session with no assistant turn behind it — those seat by
+    // timestamp exactly as every run once did.
+    anchorMsgId: typeof run.anchor_msg_id === "string" ? run.anchor_msg_id : undefined,
   });
   refsSessionStore?._adoptRefs(refs);
 }

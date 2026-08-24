@@ -453,6 +453,18 @@ export interface TurnEntry {
   turnKey: string;
   msgId: string;
   /**
+   * Ink only: the `msgId` of the transcript turn this row was written after,
+   * stamped server-side on the ledger row at write time and replayed with it.
+   *
+   * A durable ink row's position is a written fact, not something re-derived
+   * from clocks at every boot — restore seats an anchored row immediately
+   * after the last entry whose `msgId` matches. `undefined` for a live row,
+   * for a row written before the anchor column existed, and for a session
+   * whose transcript held no assistant turn yet; those fall back to timestamp
+   * placement, which degrades position and never loses a row.
+   */
+  anchorMsgId?: string;
+  /**
    * Intrinsic origin of this turn ([P01], S01). Set by the turn's opener,
    * never inferred from `messages[0]`. `"user"` → a genuine user submission
    * (renders a `#u` user row + `#a` assistant row); `"assistant"` → a wake /

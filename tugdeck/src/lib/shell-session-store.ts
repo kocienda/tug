@@ -476,6 +476,10 @@ export function applyRestoredShellExchanges(
       cwdAfter: typeof r.cwd_after === "string" ? r.cwd_after : null,
       startedAtMs: started,
       settledAtMs: numberOr(r.settled_at_ms, started),
+      // The written position. A row from before the anchor column, or from a
+      // session with no assistant turn behind it, carries null and seats by
+      // timestamp exactly as every row once did.
+      anchorMsgId: typeof r.anchor_msg_id === "string" ? r.anchor_msg_id : undefined,
     });
   }
 }

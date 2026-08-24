@@ -1823,6 +1823,7 @@ function handleAssistantEntry(
             kind: "tool_use",
             tool_use_id: block.toolUseId,
             tool_name: block.toolName,
+            timestamp: parseEntryTimestamp(entry),
             ipc_version: IPC_VERSION,
           }
         : {
@@ -1830,6 +1831,7 @@ function handleAssistantEntry(
             msg_id: entryMsgId,
             block_index: block.index,
             kind: block.kind,
+            timestamp: parseEntryTimestamp(entry),
             ipc_version: IPC_VERSION,
           };
     out.push(blockStart);

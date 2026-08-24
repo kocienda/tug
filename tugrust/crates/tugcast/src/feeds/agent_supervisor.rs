@@ -5387,6 +5387,11 @@ impl AgentSupervisor {
             Some(sessions) => sessions.resolve_to_lineage_head(session_id),
             None => session_id.to_string(),
         };
+        // The anchor reads the *head's* transcript — the file the deck will
+        // replay — so it has to come after the resolution above, never before.
+        // `cwd` is the landing's project dir, which is what locates that file.
+        let anchor_msg_id =
+            sessions.and_then(|s| s.latest_assistant_msg_id(&session_id, Some(cwd)));
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
@@ -5400,6 +5405,7 @@ impl AgentSupervisor {
             cwd_after: None,
             started_at_ms: now,
             settled_at_ms: now,
+            anchor_msg_id,
         }) {
             Ok(id) => Some(id),
             Err(e) => {
@@ -10099,6 +10105,118 @@ mod tests {
         );
     }
 
+    // ── the receipt records where it belongs in the transcript ──────────────
+
+    /// A sessions ledger with real Claude transcripts on disk, so the anchor
+    /// read at the write gateway has a file to walk. Returns the tempdir too —
+    /// dropping it would delete the transcripts mid-test.
+    fn sessions_with_transcripts(
+        rows: &[(&str, &str)],
+    ) -> (Arc<crate::session_ledger::SessionLedger>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sessions = Arc::new(
+            crate::session_ledger::SessionLedger::open_with_claude_root(
+                dir.path().join("sessions.db"),
+                dir.path().join("projects"),
+            )
+            .expect("sessions ledger"),
+        );
+        let (project, _) =
+            crate::session_ledger::claude_project_dir(sessions.claude_projects_root(), "/proj");
+        std::fs::create_dir_all(&project).expect("project dir");
+        for (i, (session, msg_id)) in rows.iter().enumerate() {
+            sessions
+                .record_spawn(session, "ws", "/proj", "card-1", 1_000 + i as i64, None)
+                .expect("spawn");
+            std::fs::write(
+                project.join(format!("{session}.jsonl")),
+                format!(
+                    "{{\"type\":\"user\",\"message\":{{\"role\":\"user\"}}}}\n\
+                     {{\"type\":\"assistant\",\"message\":{{\"id\":\"{msg_id}\"}}}}\n"
+                ),
+            )
+            .expect("write jsonl");
+        }
+        (sessions, dir)
+    }
+
+    #[test]
+    fn a_landing_receipt_is_stamped_with_the_sessions_newest_assistant_message() {
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let (sessions, _dir) = sessions_with_transcripts(&[("solo", "msg_01TURN")]);
+
+        AgentSupervisor::record_landing_receipt(
+            Some(&shell),
+            Some(&sessions),
+            Some("solo"),
+            "/commit",
+            "landed",
+            "/proj",
+        );
+
+        let rows = shell.list_exchanges_since("solo", None).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].anchor_msg_id.as_deref(),
+            Some("msg_01TURN"),
+            "the receipt records the turn it follows",
+        );
+    }
+
+    #[test]
+    fn the_receipt_anchor_comes_from_the_lineage_heads_transcript() {
+        // The parent and the fork hold different transcripts. A receipt
+        // arriving under the superseded id must anchor into the file the deck
+        // will actually replay — the head's — or the anchor names a turn that
+        // will never appear and the row silently falls back to timestamps.
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let (sessions, _dir) =
+            sessions_with_transcripts(&[("parent", "msg_01PARENT"), ("fork", "msg_01FORK")]);
+        sessions
+            .set_fork_provenance("fork", "parent", "point-1")
+            .expect("provenance");
+
+        AgentSupervisor::record_landing_receipt(
+            Some(&shell),
+            Some(&sessions),
+            Some("parent"),
+            "/dash-join",
+            "landed",
+            "/proj",
+        );
+
+        let rows = shell.list_exchanges_since("fork", None).unwrap();
+        assert_eq!(rows.len(), 1, "the receipt keyed onto the head");
+        assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01FORK"));
+    }
+
+    #[test]
+    fn a_receipt_from_a_transcript_less_session_still_lands_unanchored() {
+        // [L23] posture at the gateway: no anchor degrades placement, it never
+        // blocks the write.
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let (sessions, _dir) = sessions_with_transcripts(&[]);
+        sessions
+            .record_spawn("zero-turns", "ws", "/proj", "card-1", 1_000, None)
+            .expect("spawn");
+
+        AgentSupervisor::record_landing_receipt(
+            Some(&shell),
+            Some(&sessions),
+            Some("zero-turns"),
+            "/commit",
+            "landed",
+            "/proj",
+        );
+
+        let rows = shell.list_exchanges_since("zero-turns", None).unwrap();
+        assert_eq!(rows.len(), 1, "the receipt is written regardless");
+        assert_eq!(rows[0].anchor_msg_id, None);
+    }
+
     /// A supervisor wired with a forked sessions ledger and a shell ledger
     /// whose ink already sits on the head, plus the CONTROL receiver the
     /// restore answer arrives on.
@@ -10148,6 +10266,7 @@ mod tests {
                     cwd_after: None,
                     started_at_ms: 1,
                     settled_at_ms: 2,
+                    anchor_msg_id: None,
                 })
                 .expect("record");
         }
@@ -10188,6 +10307,7 @@ mod tests {
                 cwd_after: None,
                 started_at_ms: 1,
                 settled_at_ms: 2,
+                anchor_msg_id: None,
             })
             .expect("record");
 
@@ -14535,6 +14655,7 @@ mod tests {
                     cwd_after: Some("/proj".to_string()),
                     started_at_ms: 1,
                     settled_at_ms: 2,
+                    anchor_msg_id: None,
                 })
                 .unwrap();
         }
@@ -14606,6 +14727,7 @@ mod tests {
                     crate::feeds::text_ref::LinePreview::whole("    needle"),
                 )],
                 settled_at_ms: 7,
+                anchor_msg_id: None,
             })
             .unwrap();
 

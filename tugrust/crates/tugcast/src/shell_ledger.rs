@@ -69,6 +69,11 @@ pub struct NewShellExchange {
     pub cwd_after: Option<String>,
     pub started_at_ms: i64,
     pub settled_at_ms: i64,
+    /// The Claude assistant `message.id` this row follows in the transcript,
+    /// stamped at the write gateway. `None` for a row written before the
+    /// anchor column existed, or by a session whose JSONL holds no assistant
+    /// line yet; such a row restores by timestamp, as every row once did.
+    pub anchor_msg_id: Option<String>,
 }
 
 /// A persisted exchange row, serialized into the `list_shell_exchanges_ok`
@@ -85,6 +90,7 @@ pub struct ShellExchangeRow {
     pub cwd_after: Option<String>,
     pub started_at_ms: i64,
     pub settled_at_ms: i64,
+    pub anchor_msg_id: Option<String>,
 }
 
 /// One session's ink holdings, as `GET /api/ink-census` reports them.
@@ -147,6 +153,7 @@ impl ShellLedger {
 
     fn from_conn(conn: Connection) -> Result<Self, ShellLedgerError> {
         tugcore::ledger_db::apply_pragmas(&conn)?;
+        Self::migrate_add_anchor_msg_id(&conn)?;
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS shell_exchanges (
@@ -159,7 +166,8 @@ impl ShellLedger {
                 cwd            TEXT    NOT NULL,
                 cwd_after      TEXT,
                 started_at_ms  INTEGER NOT NULL,
-                settled_at_ms  INTEGER NOT NULL
+                settled_at_ms  INTEGER NOT NULL,
+                anchor_msg_id  TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_shell_exchanges_session
                 ON shell_exchanges(tug_session_id, id);
@@ -168,6 +176,26 @@ impl ShellLedger {
         Ok(Self {
             db: Mutex::new(conn),
         })
+    }
+
+    /// Self-healing add of `anchor_msg_id`.
+    ///
+    /// Runs before the DDL batch so an existing table is widened before
+    /// anything reads it; a database that has no `shell_exchanges` table yet
+    /// returns early and gets the column from `CREATE TABLE` instead.
+    fn migrate_add_anchor_msg_id(conn: &Connection) -> Result<(), ShellLedgerError> {
+        let cols = crate::ledger_integrity::table_columns(conn, "main", "shell_exchanges")?;
+        if cols.is_empty() || cols.iter().any(|c| c == "anchor_msg_id") {
+            return Ok(());
+        }
+        match conn.execute(
+            "ALTER TABLE shell_exchanges ADD COLUMN anchor_msg_id TEXT",
+            [],
+        ) {
+            Ok(_) => Ok(()),
+            Err(err) if crate::ledger_integrity::is_duplicate_column(&err) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// Record a settled exchange, assigning the next per-session `seq`, then
@@ -186,8 +214,8 @@ impl ShellLedger {
         )?;
         conn.execute(
             "INSERT INTO shell_exchanges
-                (tug_session_id, seq, command, output, exit_code, cwd, cwd_after, started_at_ms, settled_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                (tug_session_id, seq, command, output, exit_code, cwd, cwd_after, started_at_ms, settled_at_ms, anchor_msg_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 ex.tug_session_id,
                 seq,
@@ -198,6 +226,7 @@ impl ShellLedger {
                 ex.cwd_after,
                 ex.started_at_ms,
                 ex.settled_at_ms,
+                ex.anchor_msg_id,
             ],
         )?;
         let id = conn.last_insert_rowid();
@@ -363,7 +392,7 @@ impl ShellLedger {
 
         let mut sql = String::from(
             "SELECT id, tug_session_id, seq, command, output, exit_code, cwd, cwd_after,
-                    started_at_ms, settled_at_ms
+                    started_at_ms, settled_at_ms, anchor_msg_id
              FROM shell_exchanges
              WHERE (?1 IS NULL OR tug_session_id = ?1)
                AND (?2 IS NULL OR command LIKE ?2 ESCAPE '\\')
@@ -417,7 +446,7 @@ impl ShellLedger {
         let conn = self.db.lock().expect("shell ledger mutex");
         let mut stmt = conn.prepare(
             "SELECT id, tug_session_id, seq, command, output, exit_code, cwd, cwd_after,
-                    started_at_ms, settled_at_ms
+                    started_at_ms, settled_at_ms, anchor_msg_id
              FROM shell_exchanges
              WHERE tug_session_id = ?1 AND (?2 IS NULL OR settled_at_ms >= ?2)
              ORDER BY id ASC",
@@ -516,6 +545,7 @@ fn exchange_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ShellExchangeR
         cwd_after: row.get(7)?,
         started_at_ms: row.get(8)?,
         settled_at_ms: row.get(9)?,
+        anchor_msg_id: row.get(10)?,
     })
 }
 
@@ -533,6 +563,15 @@ mod tests {
             cwd_after: Some("/proj".to_string()),
             started_at_ms: 1000,
             settled_at_ms: 1012,
+            anchor_msg_id: None,
+        }
+    }
+
+    /// `ex` with an anchor stamped, for the ordering-fact tests.
+    fn anchored(sid: &str, cmd: &str, anchor: &str) -> NewShellExchange {
+        NewShellExchange {
+            anchor_msg_id: Some(anchor.to_string()),
+            ..ex(sid, cmd, Some(0))
         }
     }
 
@@ -590,6 +629,7 @@ mod tests {
             cwd_after: None,
             started_at_ms: settled - 10,
             settled_at_ms: settled,
+            anchor_msg_id: None,
         };
         led.record_exchange(&at("old", 1_000)).unwrap();
         led.record_exchange(&at("edge", 5_000)).unwrap();
@@ -800,5 +840,115 @@ mod tests {
             led.record_exchange(&ex("s1", command, Some(0))).unwrap();
         }
         assert_eq!(led.list_exchanges_since("s1", None).unwrap().len(), total);
+    }
+
+    // ── the anchor column ────────────────────────────────────────────────────
+
+    /// The DDL as it stood before `anchor_msg_id` — what a database written by
+    /// the previous binary actually contains.
+    const PRE_ANCHOR_DDL: &str = "
+        CREATE TABLE IF NOT EXISTS shell_exchanges (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            tug_session_id TEXT    NOT NULL,
+            seq            INTEGER NOT NULL,
+            command        TEXT    NOT NULL,
+            output         TEXT    NOT NULL,
+            exit_code      INTEGER,
+            cwd            TEXT    NOT NULL,
+            cwd_after      TEXT,
+            started_at_ms  INTEGER NOT NULL,
+            settled_at_ms  INTEGER NOT NULL
+        );
+    ";
+
+    #[test]
+    fn an_anchor_round_trips_through_both_reads() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        led.record_exchange(&anchored("s1", "/dash-join", "msg_01ABC"))
+            .unwrap();
+
+        let listed = led.list_exchanges_since("s1", None).unwrap();
+        assert_eq!(listed[0].anchor_msg_id.as_deref(), Some("msg_01ABC"));
+
+        let searched = led
+            .search_exchanges(Some("s1"), None, None, None, &[], 5)
+            .unwrap();
+        assert_eq!(searched[0].anchor_msg_id.as_deref(), Some("msg_01ABC"));
+    }
+
+    #[test]
+    fn an_unanchored_row_reads_back_null() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        led.record_exchange(&ex("s1", "ls", Some(0))).unwrap();
+        assert_eq!(
+            led.list_exchanges_since("s1", None).unwrap()[0].anchor_msg_id,
+            None
+        );
+    }
+
+    #[test]
+    fn a_pre_anchor_database_is_migrated_and_its_rows_read_null() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("shell_exchanges.db");
+
+        // A database as the previous binary left it: old schema, one row.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(PRE_ANCHOR_DDL).unwrap();
+            conn.execute(
+                "INSERT INTO shell_exchanges
+                    (tug_session_id, seq, command, output, exit_code, cwd, cwd_after,
+                     started_at_ms, settled_at_ms)
+                 VALUES ('s1', 1, '/commit', 'legacy', 0, '/proj', NULL, 1, 2)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let led = ShellLedger::open(&path).unwrap();
+        let rows = led.list_exchanges_since("s1", None).unwrap();
+        assert_eq!(rows.len(), 1, "the legacy row survives the migration");
+        assert_eq!(rows[0].command, "/commit");
+        assert_eq!(rows[0].anchor_msg_id, None);
+
+        // And the widened table takes a stamped row alongside it.
+        led.record_exchange(&anchored("s1", "/dash-join", "msg_01NEW"))
+            .unwrap();
+        let rows = led.list_exchanges_since("s1", None).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| r.anchor_msg_id.as_deref())
+                .collect::<Vec<_>>(),
+            vec![None, Some("msg_01NEW")],
+        );
+    }
+
+    #[test]
+    fn the_anchor_migration_is_a_no_op_on_reopen() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("shell_exchanges.db");
+
+        let led = ShellLedger::open(&path).unwrap();
+        led.record_exchange(&anchored("s1", "/commit", "msg_01KEEP"))
+            .unwrap();
+        drop(led);
+
+        // Reopening runs the migration again; it must find the column and
+        // leave both the schema and the rows alone.
+        let led = ShellLedger::open(&path).unwrap();
+        let rows = led.list_exchanges_since("s1", None).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01KEEP"));
+    }
+
+    #[test]
+    fn rekey_carries_the_anchor_onto_the_new_session() {
+        let led = ShellLedger::open_in_memory().unwrap();
+        led.record_exchange(&anchored("parent", "/dash-join", "msg_01MOVE"))
+            .unwrap();
+
+        assert_eq!(led.rekey_session("parent", "fork").unwrap(), 1);
+        let rows = led.list_exchanges_since("fork", None).unwrap();
+        assert_eq!(rows[0].anchor_msg_id.as_deref(), Some("msg_01MOVE"));
     }
 }

@@ -48,6 +48,13 @@ export interface ShellExchangeCompleteActionEvent {
   settledAtMs: number;
   /** True when the PATH classifier auto-routed this line to the shell ([P09]). */
   autoRouted?: boolean;
+  /**
+   * Restore only: the ledger row's `anchor_msg_id` — the transcript turn this
+   * exchange was written after. Absent on a live exchange, whose correct
+   * position is the transcript's end at the moment it happens.
+   * @see TurnEntry.anchorMsgId
+   */
+  anchorMsgId?: string;
 }
 
 /**
@@ -72,6 +79,12 @@ export interface RefsResultActionEvent {
   notice: string | null;
   startedAtMs: number;
   settledAtMs: number | null;
+  /**
+   * Restore only: the ledger row's `anchor_msg_id` — the transcript turn this
+   * run was written after. Absent on a live run.
+   * @see TurnEntry.anchorMsgId
+   */
+  anchorMsgId?: string;
 }
 
 export interface SendActionEvent {
@@ -203,6 +216,16 @@ export interface ContentBlockStartEvent {
    * `parentToolUseId` from the start so it nests immediately.
    */
   parent_tool_use_id?: string;
+  /**
+   * Original JSONL entry time (epoch ms) of the entry this block came from.
+   * Present only on the resume/replay path (tugcode's translator stamps it);
+   * live frames omit it, where the reducer's own clock is honest.
+   *
+   * Declared rather than left to the index signature below, which would type
+   * it `unknown`: this event mints the Message whose `createdAt` the
+   * committed transcript sorts on, so the mint reads it as a number.
+   */
+  timestamp?: number;
   tug_session_id?: string;
   [key: string]: unknown;
 }

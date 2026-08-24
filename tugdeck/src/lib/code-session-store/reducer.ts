@@ -1603,7 +1603,8 @@ function handleContentBlockStart(
       const child: ToolUseMessage = {
         kind: "tool_use",
         messageKey: `agent-child-${id}`,
-        createdAt: Date.now(),
+        // Same value the start anchor below reads — one event, one clock.
+        createdAt: typeof event.timestamp === "number" ? event.timestamp : Date.now(),
         toolUseId: id,
         toolName: name,
         input: {},
@@ -1652,7 +1653,12 @@ function handleContentBlockStart(
     return { state, effects: [] };
   }
 
-  const now = Date.now();
+  // The entry's own time on the replay path, our clock on the live one. This
+  // value becomes the Message's `createdAt`, and `createdAt` on `messages[0]`
+  // is what the committed transcript sorts on — so minting `Date.now()` for a
+  // replayed block dates a historical turn to the relaunch, which sorts it
+  // after durable ink that genuinely followed it.
+  const now = typeof event.timestamp === "number" ? event.timestamp : Date.now();
   const messageKey = wireMessageKey(event.msg_id, event.block_index);
   let message: Message;
   let toolUseId: string | undefined;
@@ -1997,7 +2003,8 @@ function handleToolUse(
     const child: ToolUseMessage = {
       kind: "tool_use",
       messageKey: `agent-child-${event.tool_use_id}`,
-      createdAt: Date.now(),
+      // Same value the start anchor below reads — one event, one clock.
+      createdAt: typeof event.timestamp === "number" ? event.timestamp : Date.now(),
       toolUseId: event.tool_use_id,
       toolName: event.tool_name,
       input: (event.input ?? {}) as Record<string, unknown>,
@@ -5603,7 +5610,7 @@ function turnSortTs(turn: TurnEntry): number {
  * phase) — they append directly to `transcript`. Telemetry fields are zero /
  * null: a shell exchange has no tokens, no TTFT, no approvals.
  */
-function buildShellTurnEntry(msg: ShellExchangeMessage): TurnEntry {
+function buildShellTurnEntry(msg: ShellExchangeMessage, anchorMsgId?: string): TurnEntry {
   const end = msg.settledAtMs ?? msg.startedAtMs;
   const wall = Math.max(0, end - msg.startedAtMs);
   // Honest end-state so the Z1B badge reads the exchange's outcome: a
@@ -5621,6 +5628,7 @@ function buildShellTurnEntry(msg: ShellExchangeMessage): TurnEntry {
   return {
     turnKey: `shell-${msg.exchangeId}`,
     msgId: msg.exchangeId,
+    ...(anchorMsgId !== undefined ? { anchorMsgId } : {}),
     origin: "shell",
     messages: [msg],
     // `result` is coarse (`success | interrupted`): a non-zero exit still ran
@@ -5693,17 +5701,125 @@ export function appendTurnInterleavingInk(
     i--;
   }
   next.splice(i, 0, entry);
+  return hoistInkAnchoredTo(next, entry);
+}
+
+/**
+ * Does `turn` answer to `anchor`? True when the turn's wire `msgId` is the
+ * anchor, or when it holds a Message minted under that `msg_id`.
+ *
+ * The second test is for compaction re-append, where one `message.id` can
+ * appear at two file positions: `wireMessageKey` is `` `${msgId}-b${index}` ``,
+ * so a turn carrying such a Message is a turn that anchor names even when the
+ * turn's own `msgId` ended up being a later one.
+ */
+function turnAnswersToAnchor(turn: TurnEntry, anchor: string): boolean {
+  if (turn.msgId === anchor) return true;
+  const prefix = `${anchor}-b`;
+  return turn.messages.some((m) => m.messageKey.startsWith(prefix));
+}
+
+/**
+ * Order two ink turns that share one anchor ([P03], R04). Settle time first,
+ * then ledger row id — the two ink ledgers assign ids independently, so an id
+ * comparison across them means nothing, but a settle time always does.
+ *
+ * A refs run has no numeric row id (its table is keyed by session), so it
+ * sorts after a shell row it settled with in the same millisecond. Arbitrary
+ * but deterministic, which is the property that matters.
+ */
+function compareInkSiblings(a: TurnEntry, b: TurnEntry): number {
+  if (a.endedAt !== b.endedAt) return a.endedAt - b.endedAt;
+  return inkLedgerRowId(a) - inkLedgerRowId(b);
+}
+
+/** The `shell_exchanges` row id behind a restored shell turn, or `Infinity`. */
+function inkLedgerRowId(entry: TurnEntry): number {
+  const match = /^shell-restored-(\d+)$/.exec(entry.turnKey);
+  return match === null ? Number.POSITIVE_INFINITY : Number(match[1]);
+}
+
+/**
+ * Move every ink turn anchored to `turn` so it sits immediately after it
+ * ([P05]).
+ *
+ * This is what makes the final transcript identical whichever way the boot
+ * race falls: a ledger restore that lands before the JSONL replay seats its
+ * rows by timestamp against turns that do not exist yet, and this re-seats
+ * them the moment their anchor turn arrives. It is also what fixes the common
+ * window case (R02) — an older row whose anchor was outside the loaded window
+ * moves into place as `loadPrevious` brings that turn in.
+ */
+function hoistInkAnchoredTo(transcript: TurnEntry[], turn: TurnEntry): TurnEntry[] {
+  if (isInkOrigin(turn.origin) || turn.msgId === "") return transcript;
+  const claimed = transcript.filter(
+    (t) => t.anchorMsgId !== undefined && t !== turn && turnAnswersToAnchor(turn, t.anchorMsgId),
+  );
+  if (claimed.length === 0) return transcript;
+  const rest = transcript.filter((t) => !claimed.includes(t));
+  claimed.sort(compareInkSiblings);
+  rest.splice(rest.indexOf(turn) + 1, 0, ...claimed);
+  return rest;
+}
+
+/**
+ * Seat a restored ink turn at the position it was written at ([P03]).
+ *
+ * The anchor names the transcript turn this row followed when it was written.
+ * The row goes immediately after the **last** entry answering to that anchor,
+ * and after any ink already seated there that sorts before it.
+ *
+ * Every miss — no anchor at all (a live row, or one written before the column
+ * existed), or an anchor naming a turn not in the loaded window — falls back
+ * to {@link insertTurnByTimestamp}, which is what every ink row used to do.
+ * That fallback is deliberate [L23] posture: a bad anchor costs a row its
+ * position, never its existence. On a long session it is also the *common*
+ * path at first paint, because Claude turns load windowed while ink restores
+ * whole — {@link hoistInkAnchoredTo} re-seats those rows as their anchors
+ * arrive.
+ */
+export function insertInkAnchored(
+  transcript: ReadonlyArray<TurnEntry>,
+  entry: TurnEntry,
+): TurnEntry[] {
+  const anchor = entry.anchorMsgId;
+  if (anchor === undefined) return insertTurnByTimestamp(transcript, entry);
+
+  let at = -1;
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    if (turnAnswersToAnchor(transcript[i]!, anchor)) {
+      at = i;
+      break;
+    }
+  }
+  if (at === -1) return insertTurnByTimestamp(transcript, entry);
+
+  // Step past siblings already seated under this anchor that come before it.
+  while (
+    at + 1 < transcript.length &&
+    transcript[at + 1]!.anchorMsgId === anchor &&
+    compareInkSiblings(transcript[at + 1]!, entry) < 0
+  ) {
+    at++;
+  }
+
+  const next = transcript.slice();
+  next.splice(at + 1, 0, entry);
   return next;
 }
 
 /**
  * Upsert an ink turn into the committed transcript ([P12]): replace the turn
  * with the same `turnKey` in place (settle preserving mount identity / row
- * position), or insert a new one at its timestamp position (mint). This is
+ * position), or insert a new one at its anchored position (mint). This is
  * what makes a streaming run update the row it already owns instead of
  * growing a new one per batch. The store wrapper owns `_transcript`, so this
  * pure helper runs there (via the `ingest-ink-turn` effect), not inside the
  * reducer's `CodeSessionState`.
+ *
+ * A live row carries no anchor and mints at the transcript's end, which is
+ * where it belongs at the moment of the act ([P06]); a restored row mints at
+ * the position it recorded ([P03]).
  */
 export function upsertInkTurn(
   transcript: ReadonlyArray<TurnEntry>,
@@ -5715,7 +5831,7 @@ export function upsertInkTurn(
     next[idx] = entry;
     return next;
   }
-  return insertTurnByTimestamp(transcript, entry);
+  return insertInkAnchored(transcript, entry);
 }
 
 function shellMessage(
@@ -5750,7 +5866,11 @@ function handleShellExchange(
   state: CodeSessionState,
   event: ShellExchangeStartedActionEvent | ShellExchangeCompleteActionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
-  const entry = buildShellTurnEntry(shellMessage(event));
+  // Only a restore carries an anchor, and a restore always arrives whole as a
+  // `complete` — an in-flight exchange is live, and live ink belongs at the end.
+  const anchorMsgId =
+    event.type === "shell_exchange_complete" ? event.anchorMsgId : undefined;
+  const entry = buildShellTurnEntry(shellMessage(event), anchorMsgId);
   return { state, effects: [{ kind: "ingest-ink-turn", entry }] };
 }
 
@@ -5782,7 +5902,7 @@ function refsMessage(event: RefsResultActionEvent): RefsResultMessage {
  * scratch, no activeTurn, no phase — and carries zero telemetry, because a
  * search costs no tokens.
  */
-export function buildRefsTurnEntry(msg: RefsResultMessage): TurnEntry {
+export function buildRefsTurnEntry(msg: RefsResultMessage, anchorMsgId?: string): TurnEntry {
   const end = msg.settledAtMs ?? msg.startedAtMs;
   const wall = Math.max(0, end - msg.startedAtMs);
   // A cancelled run really was interrupted; everything else — including a
@@ -5791,6 +5911,7 @@ export function buildRefsTurnEntry(msg: RefsResultMessage): TurnEntry {
   return {
     turnKey: `refs-${msg.runId}`,
     msgId: msg.runId,
+    ...(anchorMsgId !== undefined ? { anchorMsgId } : {}),
     origin: "refs",
     messages: [msg],
     result: msg.cancelled ? "interrupted" : "success",
@@ -5824,7 +5945,7 @@ function handleRefsResult(
   state: CodeSessionState,
   event: RefsResultActionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
-  const entry = buildRefsTurnEntry(refsMessage(event));
+  const entry = buildRefsTurnEntry(refsMessage(event), event.anchorMsgId);
   return { state, effects: [{ kind: "ingest-ink-turn", entry }] };
 }
 

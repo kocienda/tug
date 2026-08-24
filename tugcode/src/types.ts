@@ -371,6 +371,8 @@ export interface ContentBlockStartText {
   msg_id: string;
   block_index: number;
   kind: "text";
+  /** @see {@link ContentBlockStartToolUse.timestamp} */
+  timestamp?: number;
   ipc_version: number;
 }
 
@@ -379,6 +381,8 @@ export interface ContentBlockStartThinking {
   msg_id: string;
   block_index: number;
   kind: "thinking";
+  /** @see {@link ContentBlockStartToolUse.timestamp} */
+  timestamp?: number;
   ipc_version: number;
 }
 
@@ -389,6 +393,17 @@ export interface ContentBlockStartToolUse {
   kind: "tool_use";
   tool_use_id: string;
   tool_name: string;
+  /**
+   * Original JSONL entry time (epoch ms) of the entry this block came from.
+   * Set only on the resume/replay path; live frames omit it, where the
+   * reducer's own clock is already the honest answer.
+   *
+   * This event is what mints the reducer's Message, and the Message's
+   * `createdAt` is what the committed transcript sorts on. Without this
+   * field a replayed turn wears the relaunch wall-clock, which sorts it
+   * after durable ink that genuinely followed it.
+   */
+  timestamp?: number;
   ipc_version: number;
 }
 

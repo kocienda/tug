@@ -703,6 +703,15 @@ pub fn execute_run(
             Some(sessions) => sessions.resolve_to_lineage_head(&request.tug_session_id),
             None => request.tug_session_id.clone(),
         };
+        // The turn this run follows, read from the head's transcript — the file
+        // the deck will replay. After the resolution above, never before it.
+        // The run's root is the card's project dir, which locates that file.
+        let anchor_msg_id = sessions.as_ref().and_then(|sessions| {
+            sessions.latest_assistant_msg_id(
+                &ink_session,
+                Some(request.root.to_string_lossy().as_ref()),
+            )
+        });
         let record = NewRefsRun {
             tug_session_id: ink_session,
             run_id: request.run_id.clone(),
@@ -710,6 +719,7 @@ pub fn execute_run(
             command: request.command.clone(),
             refs: refs.clone(),
             settled_at_ms: now_ms() as i64,
+            anchor_msg_id,
         };
         if let Err(err) = ledger.record_run(&record) {
             warn!(error = %err, session, "refs ledger: could not record run");

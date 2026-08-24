@@ -41,6 +41,11 @@ pub struct NewRefsRun {
     pub command: String,
     pub refs: Vec<TextRef>,
     pub settled_at_ms: i64,
+    /// The Claude assistant `message.id` this run follows in the transcript,
+    /// stamped at the write gateway. `None` for a run recorded before the
+    /// anchor column existed, or by a session whose JSONL holds no assistant
+    /// line yet; such a run restores by timestamp, as every run once did.
+    pub anchor_msg_id: Option<String>,
 }
 
 /// The persisted run, serialized into the `list_refs_ok` CONTROL response.
@@ -51,6 +56,7 @@ pub struct RefsRunRow {
     pub command: String,
     pub refs: Vec<TextRef>,
     pub settled_at_ms: i64,
+    pub anchor_msg_id: Option<String>,
 }
 
 pub struct RefsLedger {
@@ -93,6 +99,7 @@ impl RefsLedger {
 
     fn from_conn(conn: Connection) -> Result<Self, RefsLedgerError> {
         tugcore::ledger_db::apply_pragmas(&conn)?;
+        Self::migrate_add_anchor_msg_id(&conn)?;
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS refs_runs (
@@ -101,7 +108,8 @@ impl RefsLedger {
                 op_kind        TEXT    NOT NULL,
                 command        TEXT    NOT NULL,
                 refs_json      TEXT    NOT NULL,
-                settled_at_ms  INTEGER NOT NULL
+                settled_at_ms  INTEGER NOT NULL,
+                anchor_msg_id  TEXT
             );
             ",
         )?;
@@ -110,20 +118,38 @@ impl RefsLedger {
         })
     }
 
+    /// Self-healing add of `anchor_msg_id`.
+    ///
+    /// Runs before the DDL batch so an existing table is widened before
+    /// anything reads it; a database that has no `refs_runs` table yet
+    /// returns early and gets the column from `CREATE TABLE` instead.
+    fn migrate_add_anchor_msg_id(conn: &Connection) -> Result<(), RefsLedgerError> {
+        let cols = crate::ledger_integrity::table_columns(conn, "main", "refs_runs")?;
+        if cols.is_empty() || cols.iter().any(|c| c == "anchor_msg_id") {
+            return Ok(());
+        }
+        match conn.execute("ALTER TABLE refs_runs ADD COLUMN anchor_msg_id TEXT", []) {
+            Ok(_) => Ok(()),
+            Err(err) if crate::ledger_integrity::is_duplicate_column(&err) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    }
+
     /// Record a completed run, replacing this session's previous one.
     pub fn record_run(&self, run: &NewRefsRun) -> Result<(), RefsLedgerError> {
         let refs_json = serde_json::to_string(&run.refs)?;
         let conn = self.db.lock().expect("refs ledger mutex");
         conn.execute(
             "INSERT INTO refs_runs
-                (tug_session_id, run_id, op_kind, command, refs_json, settled_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                (tug_session_id, run_id, op_kind, command, refs_json, settled_at_ms, anchor_msg_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(tug_session_id) DO UPDATE SET
                 run_id = excluded.run_id,
                 op_kind = excluded.op_kind,
                 command = excluded.command,
                 refs_json = excluded.refs_json,
-                settled_at_ms = excluded.settled_at_ms",
+                settled_at_ms = excluded.settled_at_ms,
+                anchor_msg_id = excluded.anchor_msg_id",
             params![
                 run.tug_session_id,
                 run.run_id,
@@ -131,6 +157,7 @@ impl RefsLedger {
                 run.command,
                 refs_json,
                 run.settled_at_ms,
+                run.anchor_msg_id,
             ],
         )?;
         Ok(())
@@ -207,7 +234,7 @@ impl RefsLedger {
         let conn = self.db.lock().expect("refs ledger mutex");
         let row = conn
             .query_row(
-                "SELECT run_id, op_kind, command, refs_json, settled_at_ms
+                "SELECT run_id, op_kind, command, refs_json, settled_at_ms, anchor_msg_id
                  FROM refs_runs WHERE tug_session_id = ?1",
                 params![tug_session_id],
                 |row| {
@@ -217,11 +244,12 @@ impl RefsLedger {
                         row.get::<_, String>(2)?,
                         row.get::<_, String>(3)?,
                         row.get::<_, i64>(4)?,
+                        row.get::<_, Option<String>>(5)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((run_id, op_kind, command, refs_json, settled_at_ms)) = row else {
+        let Some((run_id, op_kind, command, refs_json, settled_at_ms, anchor_msg_id)) = row else {
             return Ok(None);
         };
         Ok(Some(RefsRunRow {
@@ -233,6 +261,7 @@ impl RefsLedger {
             // than failing the whole read.
             refs: serde_json::from_str(&refs_json).unwrap_or_default(),
             settled_at_ms,
+            anchor_msg_id,
         }))
     }
 }
@@ -255,6 +284,7 @@ mod tests {
                 .map(|(i, path)| TextRef::filename(i as u32 + 1, *path))
                 .collect(),
             settled_at_ms: 1_700_000_000_000,
+            anchor_msg_id: None,
         }
     }
 
@@ -312,6 +342,7 @@ mod tests {
                 crate::feeds::text_ref::LinePreview::whole("  héllo and héllo"),
             )],
             settled_at_ms: 42,
+            anchor_msg_id: None,
         };
         ledger.record_run(&stored).unwrap();
 
@@ -395,5 +426,143 @@ mod tests {
             "a second run finds nothing left to move"
         );
         assert_eq!(ledger.list_refs("fork").unwrap().unwrap().run_id, "run-1");
+    }
+
+    // ── the anchor column ────────────────────────────────────────────────────
+
+    /// The DDL as it stood before `anchor_msg_id` — what a database written by
+    /// the previous binary actually contains.
+    const PRE_ANCHOR_DDL: &str = "
+        CREATE TABLE IF NOT EXISTS refs_runs (
+            tug_session_id TEXT    PRIMARY KEY,
+            run_id         TEXT    NOT NULL,
+            op_kind        TEXT    NOT NULL,
+            command        TEXT    NOT NULL,
+            refs_json      TEXT    NOT NULL,
+            settled_at_ms  INTEGER NOT NULL
+        );
+    ";
+
+    fn anchored(session: &str, run_id: &str, anchor: &str) -> NewRefsRun {
+        NewRefsRun {
+            anchor_msg_id: Some(anchor.to_string()),
+            ..run(session, run_id, &["src/a.ts"])
+        }
+    }
+
+    #[test]
+    fn an_anchor_round_trips_and_a_replacing_run_overwrites_it() {
+        let ledger = RefsLedger::open_in_memory().unwrap();
+        ledger
+            .record_run(&anchored("s1", "run-1", "msg_01OLD"))
+            .unwrap();
+        assert_eq!(
+            ledger
+                .list_refs("s1")
+                .unwrap()
+                .unwrap()
+                .anchor_msg_id
+                .as_deref(),
+            Some("msg_01OLD"),
+        );
+
+        // One run per session: the replacement's anchor is the one that stands.
+        ledger
+            .record_run(&anchored("s1", "run-2", "msg_01NEW"))
+            .unwrap();
+        assert_eq!(
+            ledger
+                .list_refs("s1")
+                .unwrap()
+                .unwrap()
+                .anchor_msg_id
+                .as_deref(),
+            Some("msg_01NEW"),
+        );
+
+        // And an unanchored replacement clears it rather than leaving a stale
+        // anchor pointing at a turn this run does not follow.
+        ledger
+            .record_run(&run("s1", "run-3", &["src/a.ts"]))
+            .unwrap();
+        assert_eq!(ledger.list_refs("s1").unwrap().unwrap().anchor_msg_id, None);
+    }
+
+    #[test]
+    fn a_pre_anchor_database_is_migrated_and_its_row_reads_null() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("refs.db");
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(PRE_ANCHOR_DDL).unwrap();
+            conn.execute(
+                "INSERT INTO refs_runs
+                    (tug_session_id, run_id, op_kind, command, refs_json, settled_at_ms)
+                 VALUES ('s1', 'run-legacy', 'match', '/match foo', '[]', 5)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let ledger = RefsLedger::open(&path).unwrap();
+        let row = ledger.list_refs("s1").unwrap().unwrap();
+        assert_eq!(row.run_id, "run-legacy");
+        assert_eq!(row.anchor_msg_id, None);
+
+        ledger
+            .record_run(&anchored("s2", "run-new", "msg_01NEW"))
+            .unwrap();
+        assert_eq!(
+            ledger
+                .list_refs("s2")
+                .unwrap()
+                .unwrap()
+                .anchor_msg_id
+                .as_deref(),
+            Some("msg_01NEW"),
+        );
+    }
+
+    #[test]
+    fn the_anchor_migration_is_a_no_op_on_reopen() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("refs.db");
+
+        let ledger = RefsLedger::open(&path).unwrap();
+        ledger
+            .record_run(&anchored("s1", "run-1", "msg_01KEEP"))
+            .unwrap();
+        drop(ledger);
+
+        let ledger = RefsLedger::open(&path).unwrap();
+        assert_eq!(
+            ledger
+                .list_refs("s1")
+                .unwrap()
+                .unwrap()
+                .anchor_msg_id
+                .as_deref(),
+            Some("msg_01KEEP"),
+        );
+    }
+
+    #[test]
+    fn rekey_carries_the_anchor_onto_the_new_session() {
+        let ledger = RefsLedger::open_in_memory().unwrap();
+        ledger
+            .record_run(&anchored("parent", "run-1", "msg_01MOVE"))
+            .unwrap();
+
+        assert_eq!(ledger.rekey_session("parent", "fork").unwrap(), 1);
+        assert_eq!(
+            ledger
+                .list_refs("fork")
+                .unwrap()
+                .unwrap()
+                .anchor_msg_id
+                .as_deref(),
+            Some("msg_01MOVE"),
+        );
     }
 }

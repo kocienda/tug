@@ -1812,3 +1812,84 @@ describe("translateJsonlEntry — direct unit tests", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// content_block_start carries the entry's historical time
+// ---------------------------------------------------------------------------
+
+describe("content_block_start timestamp", () => {
+  /** The `timestamp` field off every `content_block_start` in `out`. */
+  function blockStartTimestamps(out: OutboundMessage[]): Array<number | undefined> {
+    return out
+      .filter((m) => m.type === "content_block_start")
+      .map((m) => (m as { timestamp?: number }).timestamp);
+  }
+
+  test("a replayed entry's blocks carry the entry's own timestamp", async () => {
+    // The event that mints the reducer's Message must say when the entry
+    // happened, not when the replay ran — the committed transcript sorts on
+    // that value, and a relaunch wall-clock sorts a restored turn after ink
+    // that genuinely followed it.
+    const at = "2026-08-24T17:37:37.000Z";
+    const jsonl = makeJsonl([
+      userEntry([{ type: "text", text: "hello" }]),
+      {
+        ...assistantEntry({
+          msgId: "msg_stamped",
+          stopReason: "end_turn",
+          content: [
+            { type: "thinking", thinking: "..." },
+            { type: "text", text: "ok" },
+          ],
+        }),
+        timestamp: at,
+      },
+    ]);
+
+    const out = await collectSession({ kind: "ok", jsonl });
+    const stamps = blockStartTimestamps(out);
+    expect(stamps).toHaveLength(2);
+    expect(stamps).toEqual([Date.parse(at), Date.parse(at)]);
+  });
+
+  test("a tool_use block start is stamped the same way", async () => {
+    const at = "2026-08-24T17:30:00.000Z";
+    const jsonl = makeJsonl([
+      userEntry([{ type: "text", text: "go" }]),
+      {
+        ...assistantEntry({
+          msgId: "msg_tool",
+          stopReason: "tool_use",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_1",
+              name: "Read",
+              input: {},
+            } as JsonlContentBlock,
+          ],
+        }),
+        timestamp: at,
+      },
+    ]);
+
+    const out = await collectSession({ kind: "ok", jsonl });
+    expect(blockStartTimestamps(out)).toEqual([Date.parse(at)]);
+  });
+
+  test("an entry with no parseable timestamp omits the field", async () => {
+    // The reducer falls back to its own clock, which is what it did before
+    // this field existed — no fabricated value stands in for a missing one.
+    const jsonl = makeJsonl([
+      userEntry([{ type: "text", text: "hello" }]),
+      assistantEntry({
+        msgId: "msg_bare",
+        stopReason: "end_turn",
+        content: [{ type: "text", text: "ok" }],
+      }),
+    ]);
+
+    const out = await collectSession({ kind: "ok", jsonl });
+    expect(blockStartTimestamps(out)).toEqual([undefined]);
+  });
+});

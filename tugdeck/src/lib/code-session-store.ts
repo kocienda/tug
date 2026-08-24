@@ -965,6 +965,8 @@ export class CodeSessionStore {
           startedAtMs: number;
           settledAtMs: number;
           autoRouted?: boolean;
+          /** Restore only — the ledger row's written position anchor. */
+          anchorMsgId?: string;
         },
   ): void {
     if (this._disposed) return;
@@ -989,6 +991,7 @@ export class CodeSessionStore {
         startedAtMs: event.startedAtMs,
         settledAtMs: event.settledAtMs,
         autoRouted: event.autoRouted,
+        anchorMsgId: event.anchorMsgId,
       });
     }
   }

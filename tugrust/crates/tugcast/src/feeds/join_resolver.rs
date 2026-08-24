@@ -1902,7 +1902,9 @@ mod tests {
 
         let outcome = tugdash_core::resolve_conflicts(repo, "demo", None).unwrap();
         assert_eq!(outcome.unresolved.len(), 2, "both files conflict");
-        let root = tugdash_core::resolve::read_conflict(repo, "demo").unwrap().tip;
+        let root = tugdash_core::resolve::read_conflict(repo, "demo")
+            .unwrap()
+            .tip;
 
         let ctx = context(repo);
         finish_join(&ctx, &outcome)

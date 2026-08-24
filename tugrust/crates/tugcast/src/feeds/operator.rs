@@ -2703,6 +2703,7 @@ mod tests {
                 cwd_after: None,
                 started_at_ms: at_ms - 10,
                 settled_at_ms: at_ms,
+                anchor_msg_id: None,
             })
             .expect("exchange recorded");
     }

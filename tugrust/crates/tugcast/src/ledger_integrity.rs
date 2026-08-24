@@ -384,7 +384,7 @@ fn common_columns(
     Ok(live.into_iter().filter(|c| old.contains(c)).collect())
 }
 
-fn table_columns(
+pub(crate) fn table_columns(
     conn: &Connection,
     schema: &str,
     table: &str,
@@ -394,6 +394,15 @@ fn table_columns(
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(cols)
+}
+
+/// True when `err` is sqlite's `duplicate column name` — the answer a losing
+/// racer gets from a self-healing `ALTER TABLE ADD COLUMN`.
+pub(crate) fn is_duplicate_column(err: &rusqlite::Error) -> bool {
+    matches!(
+        err,
+        rusqlite::Error::SqliteFailure(_, Some(msg)) if msg.starts_with("duplicate column name")
+    )
 }
 
 /// How many snapshot backups to retain per database.

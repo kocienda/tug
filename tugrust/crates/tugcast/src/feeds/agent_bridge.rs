@@ -3647,6 +3647,7 @@ mod tests {
             cwd_after: None,
             started_at_ms: 1,
             settled_at_ms: 2,
+            anchor_msg_id: None,
         }
     }
 
@@ -3665,6 +3666,7 @@ mod tests {
                 command: "/match foo".to_string(),
                 refs: Vec::new(),
                 settled_at_ms: 10,
+                anchor_msg_id: None,
             })
             .expect("record run");
         })

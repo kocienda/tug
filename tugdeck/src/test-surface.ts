@@ -1258,6 +1258,24 @@ export interface TugTestSurface {
       complete: boolean;
       answered: boolean;
     };
+    /**
+     * The committed transcript as an ordered sequence — one entry per turn,
+     * carrying its origin, an ink row's command, its written anchor, and the
+     * clock facts a placement question is answered with.
+     *
+     * Read from the store rather than the DOM, for the at0461 reason: the
+     * transcript is windowed and virtualized, so a row's absence from the
+     * painted rows says nothing about the transcript, and the misplacement
+     * this exists to catch paints a perfectly clean shorter view.
+     */
+    order: Array<{
+      origin: string;
+      command: string | null;
+      anchorMsgId: string | null;
+      msgId: string;
+      createdAt: number;
+      endedAt: number;
+    }>;
   };
   /**
    * Re-ask the shell ledger for one card's ink rows — the refresh a
@@ -2457,21 +2475,37 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         complete: boolean;
         answered: boolean;
       };
+      order: Array<{
+        origin: string;
+        command: string | null;
+        anchorMsgId: string | null;
+        msgId: string;
+        createdAt: number;
+        endedAt: number;
+      }>;
     } {
       const services = cardServicesStore.getServices(cardId);
       if (services === null) {
         throw new Error(`inkRestoreFacts: card "${cardId}" has no bound session`);
       }
-      const turns = services.codeSessionStore
-        .getSnapshot()
-        .transcript.filter((t) => t.origin === "shell");
+      const transcript = services.codeSessionStore.getSnapshot().transcript;
+      const commandOf = (t: (typeof transcript)[number]): string | null => {
+        const msg = t.messages[0] as { command?: unknown } | undefined;
+        return typeof msg?.command === "string" ? msg.command : null;
+      };
+      const turns = transcript.filter((t) => t.origin === "shell");
       return {
         shellTurns: turns.length,
-        commands: turns.map((t) => {
-          const msg = t.messages[0] as { command?: unknown } | undefined;
-          return typeof msg?.command === "string" ? msg.command : "";
-        }),
+        commands: turns.map((t) => commandOf(t) ?? ""),
         restore: services.shellSessionStore.getSnapshot().restore,
+        order: transcript.map((t) => ({
+          origin: t.origin,
+          command: commandOf(t),
+          anchorMsgId: t.anchorMsgId ?? null,
+          msgId: t.msgId,
+          createdAt: t.messages[0]?.createdAt ?? t.endedAt,
+          endedAt: t.endedAt,
+        })),
       };
     },
 

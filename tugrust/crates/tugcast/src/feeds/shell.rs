@@ -950,6 +950,18 @@ async fn shell_session_task(
                 Some(sessions) => sessions.resolve_to_lineage_head(&tug_session_id),
                 None => tug_session_id.clone(),
             };
+            // The turn this row follows, read from the head's transcript — the
+            // file the deck will replay. After the resolution above, never
+            // before it. `spawn_cwd` is the card's project dir, and passing it
+            // is what makes the stamp work before tugcode has announced the
+            // session and written its ledger row; `cwd` would not do, since a
+            // `cd` moves it out of the project.
+            let anchor_msg_id = sessions_ledger.as_ref().and_then(|sessions| {
+                sessions.latest_assistant_msg_id(
+                    &ink_session,
+                    Some(spawn_cwd.to_string_lossy().as_ref()),
+                )
+            });
             let row = NewShellExchange {
                 tug_session_id: ink_session,
                 command: command.clone(),
@@ -959,6 +971,7 @@ async fn shell_session_task(
                 cwd_after: Some(cwd.clone()),
                 started_at_ms: started_at as i64,
                 settled_at_ms: settled_at as i64,
+                anchor_msg_id,
             };
             if let Err(e) = ledger.record_exchange(&row) {
                 warn!(error = %e, %tug_session_id, "shell ledger: record_exchange failed");

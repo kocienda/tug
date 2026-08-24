@@ -1275,6 +1275,65 @@ impl SessionLedger {
         &self.claude_projects_root
     }
 
+    /// The newest assistant `message.id` in `session_id`'s JSONL, or `None`.
+    ///
+    /// This is the **ink anchor**: the transcript turn a durable row written
+    /// right now follows. Ink write gateways stamp it on the ledger row so a
+    /// later restore seats that row by a written fact rather than re-deriving
+    /// its position from clocks, which is what put landing receipts thousands
+    /// of pixels above the transcript's end after a relaunch.
+    ///
+    /// The value is exactly what replay assigns as a turn's `msgId`, so the
+    /// deck resolves an anchor by comparing against state the transcript
+    /// already carries.
+    ///
+    /// Never errors. A missing session row, a missing or empty file, a line
+    /// that does not parse, a tail holding no assistant line — every surprise
+    /// is a `None`, which writes a NULL anchor and leaves the row restoring by
+    /// timestamp exactly as it did before anchors existed. Placement may
+    /// degrade; a receipt is never blocked or lost.
+    ///
+    /// Call it with a **lineage head**: the anchor must name a turn in the
+    /// file the deck will replay, which is the head's file, not a superseded
+    /// fork's.
+    ///
+    /// `project_dir` is the directory the session runs in, and it is what
+    /// locates the transcript. Every ink gateway already holds it, so every
+    /// ink gateway passes it. `None` falls back to the session's ledger row,
+    /// which is a strictly weaker source: the row is written when tugcode
+    /// announces the session, seconds after a card can already accept a `$`
+    /// command, so a row written in that window would find nothing and record
+    /// a NULL anchor for a session whose transcript was on disk all along.
+    pub fn latest_assistant_msg_id(
+        &self,
+        session_id: &str,
+        project_dir: Option<&str>,
+    ) -> Option<String> {
+        let project_dir = match project_dir {
+            Some(dir) if !dir.is_empty() => dir.to_string(),
+            _ => match self.get(session_id) {
+                Ok(Some(row)) => row.project_dir,
+                Ok(None) => {
+                    tracing::debug!(session_id, "ink anchor: no session row and no project dir");
+                    return None;
+                }
+                Err(err) => {
+                    tracing::debug!(session_id, error = %err, "ink anchor: session lookup failed");
+                    return None;
+                }
+            },
+        };
+        let (dir, _canonical) = claude_project_dir(&self.claude_projects_root, &project_dir);
+        let anchor = latest_assistant_msg_id_in(&dir.join(format!("{session_id}.jsonl")));
+        if anchor.is_none() {
+            tracing::debug!(
+                session_id,
+                "ink anchor: no assistant line in the transcript tail"
+            );
+        }
+        anchor
+    }
+
     /// Wire the "sessions changed" signal the ledger publishes on. Called once
     /// at startup (after the process-global recompute signal is created), so a
     /// delegate — the account-global changeset aggregate — recomputes whenever
@@ -7360,6 +7419,74 @@ pub fn claude_project_dir(claude_projects_root: &Path, project_dir: &str) -> (Pa
         .unwrap_or_else(|| project_dir.to_owned());
     let dir = claude_projects_root.join(encode_claude_project_name(&canonical));
     (dir, canonical)
+}
+
+/// How much of a transcript's tail the anchor read looks at.
+///
+/// Comfortably covers the distance from a turn's last assistant line to EOF —
+/// the lines that follow one are short (progress, summaries). A turn whose
+/// final assistant message alone exceeds this yields `None` and the timestamp
+/// fallback, which is the same posture as every other failure here.
+const ANCHOR_TAIL_BYTES: u64 = 64 * 1024;
+
+/// Scan `path`'s tail backward for the newest assistant `message.id`.
+///
+/// The parse is deliberately permissive — the file belongs to Claude Code, not
+/// to us, so a shape we don't recognize degrades placement rather than failing
+/// a write. See [`SessionLedger::latest_assistant_msg_id`], whose contract this
+/// implements.
+///
+/// `isSidechain` and `isMeta` entries are skipped, and that exclusion is
+/// load-bearing rather than defensive tidiness: replay drops both, so their
+/// `message.id` never becomes any turn's `msgId` and an anchor naming one could
+/// never resolve — a silent, permanent fallback that would look like a working
+/// anchor from the write side.
+fn latest_assistant_msg_id_in(path: &Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(ANCHOR_TAIL_BYTES);
+    if start > 0 {
+        file.seek(SeekFrom::Start(start)).ok()?;
+    }
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    // A non-zero seek can land mid-line. That first fragment is not a whole
+    // JSON object and is never evidence of anything.
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0);
+    }
+
+    for line in lines.iter().rev() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if entry.get("type").and_then(|v| v.as_str()) != Some("assistant") {
+            continue;
+        }
+        if entry.get("isSidechain").and_then(|v| v.as_bool()) == Some(true)
+            || entry.get("isMeta").and_then(|v| v.as_bool()) == Some(true)
+        {
+            continue;
+        }
+        let id = entry
+            .get("message")
+            .and_then(|m| m.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        if !id.is_empty() {
+            return Some(id.to_string());
+        }
+    }
+    None
 }
 
 /// Move `<root>/<encoded>/<sessionId>.jsonl` to
@@ -14100,5 +14227,265 @@ mod tests {
                 None => std::env::remove_var("TUG_INSTANCE_ID"),
             }
         }
+    }
+
+    // ── the ink anchor: reading a transcript's newest assistant message id ────
+
+    /// A ledger whose Claude transcripts live under a tempdir, so an anchor
+    /// read has a real file to walk.
+    struct AnchorFixture {
+        sessions: SessionLedger,
+        _dir: tempfile::TempDir,
+    }
+
+    impl AnchorFixture {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let sessions = SessionLedger::open_with_claude_root(
+                dir.path().join("sessions.db"),
+                dir.path().join("projects"),
+            )
+            .expect("ledger");
+            Self {
+                sessions,
+                _dir: dir,
+            }
+        }
+
+        /// Seed a session row and write `body` as its transcript.
+        fn seed(&self, session: &str, body: &str) {
+            self.sessions
+                .record_spawn(session, "ws", "/proj", "card-1", 1, None)
+                .expect("record_spawn");
+            let (dir, _) = claude_project_dir(self.sessions.claude_projects_root(), "/proj");
+            std::fs::create_dir_all(&dir).expect("create project dir");
+            std::fs::write(dir.join(format!("{session}.jsonl")), body).expect("write jsonl");
+        }
+    }
+
+    fn assistant_line(id: &str) -> String {
+        format!(
+            "{{\"type\":\"assistant\",\"message\":{{\"id\":\"{id}\",\"role\":\"assistant\"}}}}\n"
+        )
+    }
+
+    #[test]
+    fn the_anchor_is_the_newest_assistant_message_id() {
+        let fx = AnchorFixture::new();
+        let body = format!(
+            "{}{}{}{}",
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\"}}\n",
+            assistant_line("msg_01FIRST"),
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\"}}\n",
+            assistant_line("msg_01LAST"),
+        );
+        fx.seed("s1", &body);
+
+        assert_eq!(
+            fx.sessions.latest_assistant_msg_id("s1", None).as_deref(),
+            Some("msg_01LAST"),
+        );
+    }
+
+    #[test]
+    fn trailing_non_assistant_lines_do_not_hide_the_anchor() {
+        // A receipt is written after the turn settles, and what sits between
+        // the turn's last assistant line and EOF is exactly this: results,
+        // summaries, the next user prompt.
+        let fx = AnchorFixture::new();
+        let body = format!(
+            "{}{}{}",
+            assistant_line("msg_01ANCHOR"),
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\"}}\n",
+            "{\"type\":\"summary\",\"summary\":\"a compaction line\"}\n",
+        );
+        fx.seed("s1", &body);
+
+        assert_eq!(
+            fx.sessions.latest_assistant_msg_id("s1", None).as_deref(),
+            Some("msg_01ANCHOR"),
+        );
+    }
+
+    #[test]
+    fn sidechain_and_meta_assistant_lines_are_never_the_anchor() {
+        // Replay drops both, so their ids never become a turn's `msgId` — an
+        // anchor naming one could never resolve on the deck.
+        let fx = AnchorFixture::new();
+        let body = format!(
+            "{}{}{}",
+            assistant_line("msg_01REAL"),
+            "{\"type\":\"assistant\",\"isSidechain\":true,\"message\":{\"id\":\"msg_01SIDE\"}}\n",
+            "{\"type\":\"assistant\",\"isMeta\":true,\"message\":{\"id\":\"msg_01META\"}}\n",
+        );
+        fx.seed("s1", &body);
+
+        assert_eq!(
+            fx.sessions.latest_assistant_msg_id("s1", None).as_deref(),
+            Some("msg_01REAL"),
+        );
+    }
+
+    #[test]
+    fn a_malformed_line_is_skipped_rather_than_fatal() {
+        let fx = AnchorFixture::new();
+        let body = format!(
+            "{}{}{}",
+            assistant_line("msg_01GOOD"),
+            "{ this is not json\n",
+            "\n",
+        );
+        fx.seed("s1", &body);
+
+        assert_eq!(
+            fx.sessions.latest_assistant_msg_id("s1", None).as_deref(),
+            Some("msg_01GOOD"),
+        );
+    }
+
+    #[test]
+    fn an_assistant_line_with_no_message_id_is_not_an_anchor() {
+        let fx = AnchorFixture::new();
+        let body = format!(
+            "{}{}",
+            assistant_line("msg_01REAL"),
+            "{\"type\":\"assistant\",\"message\":{\"id\":\"\"}}\n",
+        );
+        fx.seed("s1", &body);
+
+        assert_eq!(
+            fx.sessions.latest_assistant_msg_id("s1", None).as_deref(),
+            Some("msg_01REAL"),
+        );
+    }
+
+    #[test]
+    fn the_anchor_read_survives_a_mid_line_seek_boundary() {
+        // A long transcript: the read seeks to the last 64 KiB and lands in the
+        // middle of some line. That partial first fragment is discarded, and
+        // the real anchor further down the tail is still found.
+        let fx = AnchorFixture::new();
+        let filler = "x".repeat(4_000);
+        let mut body = String::new();
+        for i in 0..40 {
+            body.push_str(&format!(
+                "{{\"type\":\"user\",\"n\":{i},\"pad\":\"{filler}\"}}\n"
+            ));
+        }
+        body.push_str(&assistant_line("msg_01TAIL"));
+        body.push_str("{\"type\":\"user\",\"message\":{\"role\":\"user\"}}\n");
+        fx.seed("s1", &body);
+        assert!(
+            body.len() as u64 > ANCHOR_TAIL_BYTES,
+            "the fixture must actually exceed the tail window",
+        );
+
+        assert_eq!(
+            fx.sessions.latest_assistant_msg_id("s1", None).as_deref(),
+            Some("msg_01TAIL"),
+        );
+    }
+
+    #[test]
+    fn an_anchor_older_than_the_tail_window_is_a_none_not_a_wrong_guess() {
+        // The one documented loss: a turn whose distance to EOF exceeds the
+        // window. It degrades to the timestamp fallback rather than reaching
+        // for a nearer line that is not the turn the row follows.
+        let fx = AnchorFixture::new();
+        let filler = "x".repeat(4_000);
+        let mut body = assistant_line("msg_01FARBACK");
+        for i in 0..40 {
+            body.push_str(&format!(
+                "{{\"type\":\"user\",\"n\":{i},\"pad\":\"{filler}\"}}\n"
+            ));
+        }
+        fx.seed("s1", &body);
+
+        assert_eq!(fx.sessions.latest_assistant_msg_id("s1", None), None);
+    }
+
+    #[test]
+    fn a_transcript_with_no_assistant_line_yields_no_anchor() {
+        let fx = AnchorFixture::new();
+        fx.seed(
+            "s1",
+            "{\"type\":\"user\",\"message\":{\"role\":\"user\"}}\n",
+        );
+        assert_eq!(fx.sessions.latest_assistant_msg_id("s1", None), None);
+    }
+
+    #[test]
+    fn an_empty_transcript_yields_no_anchor() {
+        let fx = AnchorFixture::new();
+        fx.seed("s1", "");
+        assert_eq!(fx.sessions.latest_assistant_msg_id("s1", None), None);
+    }
+
+    #[test]
+    fn a_missing_transcript_or_unknown_session_yields_no_anchor() {
+        let fx = AnchorFixture::new();
+        // A session row with no file on disk — a zero-turn session.
+        fx.sessions
+            .record_spawn("s1", "ws", "/proj", "card-1", 1, None)
+            .expect("record_spawn");
+        assert_eq!(fx.sessions.latest_assistant_msg_id("s1", None), None);
+        // And a session the ledger has never heard of, from either source.
+        assert_eq!(fx.sessions.latest_assistant_msg_id("nobody", None), None);
+        assert_eq!(
+            fx.sessions.latest_assistant_msg_id("nobody", Some("/proj")),
+            None
+        );
+    }
+
+    #[test]
+    fn a_caller_supplied_project_dir_reads_the_transcript_with_no_session_row() {
+        // The window the app-test found: a card accepts a `$` command seconds
+        // before tugcode announces its session and the ledger row is written.
+        // Looking the project dir up in a row that does not exist yet stamps a
+        // NULL anchor on a session whose transcript is on disk the whole time,
+        // so every gateway passes the project dir it already holds.
+        let fx = AnchorFixture::new();
+        let (dir, _) = claude_project_dir(fx.sessions.claude_projects_root(), "/proj");
+        std::fs::create_dir_all(&dir).expect("create project dir");
+        std::fs::write(dir.join("unannounced.jsonl"), assistant_line("msg_01EARLY"))
+            .expect("write jsonl");
+
+        assert_eq!(
+            fx.sessions.latest_assistant_msg_id("unannounced", None),
+            None,
+            "the ledger cannot answer for a session it has never seen",
+        );
+        assert_eq!(
+            fx.sessions
+                .latest_assistant_msg_id("unannounced", Some("/proj"))
+                .as_deref(),
+            Some("msg_01EARLY"),
+        );
+    }
+
+    #[test]
+    fn the_caller_supplied_project_dir_wins_over_the_row() {
+        // Two spellings of one session cannot both be right, and the caller's
+        // is the one that located the shell it is writing ink for.
+        let fx = AnchorFixture::new();
+        fx.seed("s1", &assistant_line("msg_01ROW"));
+        let (other, _) = claude_project_dir(fx.sessions.claude_projects_root(), "/elsewhere");
+        std::fs::create_dir_all(&other).expect("create project dir");
+        std::fs::write(other.join("s1.jsonl"), assistant_line("msg_01CALLER"))
+            .expect("write jsonl");
+
+        assert_eq!(
+            fx.sessions
+                .latest_assistant_msg_id("s1", Some("/elsewhere"))
+                .as_deref(),
+            Some("msg_01CALLER"),
+        );
+        // An empty hint is not a hint; the row still answers.
+        assert_eq!(
+            fx.sessions
+                .latest_assistant_msg_id("s1", Some(""))
+                .as_deref(),
+            Some("msg_01ROW"),
+        );
     }
 }

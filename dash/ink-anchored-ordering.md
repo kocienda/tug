@@ -245,12 +245,12 @@ No DOM row counting or pixel assertions (the store facts are the contract; paint
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The anchor column, written through and served | pending | |
-| #step-2 | The tail reader stamps the three gateways | pending | |
-| #step-3 | Replay tells the truth about time | pending | |
-| #step-4 | Anchored placement in the deck | pending | |
-| #step-5 | The relaunch ordering test | pending | |
-| #step-6 | Doctrine and integration checkpoint | pending | |
+| #step-1 | The anchor column, written through and served | done | `2a36c64b0` |
+| #step-2 | The tail reader stamps the three gateways | done | `89dd96e79` |
+| #step-3 | Replay tells the truth about time | done | `153d336a2` |
+| #step-4 | Anchored placement in the deck | done | `007530382` |
+| #step-5 | The relaunch ordering test | done | `e2cae9c27` |
+| #step-6 | Doctrine and integration checkpoint | done | `16fffbb92` |
 
 #### Step 1: The anchor column, written through and served {#step-1}
 
