@@ -25,6 +25,7 @@ import {
   _resetCommandBlockRegistryForTests,
   registerCommandBlock,
   registeredCommandBlocks,
+  resolveCommandAttribution,
   resolveCommandBlock,
 } from "../session-command-block-registry";
 import type { CommandBlockRenderer } from "../session-command-block-registry";
@@ -78,5 +79,30 @@ describe("session-command-block-registry", () => {
     registerCommandBlock("b", () => false, RendererB);
     registerCommandBlock("a", () => false, RendererA);
     expect(registeredCommandBlocks()).toEqual(["b", "a"]);
+  });
+
+  test("attribution defaults to shell and is declared per registration", () => {
+    registerCommandBlock("plain", (c) => c === "ls", RendererA);
+    registerCommandBlock("landed", (c) => c === "/land", RendererB, {
+      attribution: "git",
+    });
+    // The default is the literal truth about a $-route row, so a registration
+    // that says nothing gets it.
+    expect(resolveCommandAttribution("ls")).toBe("shell");
+    expect(resolveCommandAttribution("/land")).toBe("git");
+    // Total on the same terms as the renderer resolve.
+    expect(resolveCommandAttribution("git status")).toBe("shell");
+  });
+
+  test("attribution resolves by the same walk as the renderer", () => {
+    // First claim wins for both, from one registration — the property that
+    // stops a row from wearing one registration's block under another's
+    // header.
+    registerCommandBlock("first", (c) => c.startsWith("/x"), RendererA, {
+      attribution: "git",
+    });
+    registerCommandBlock("second", (c) => c.startsWith("/x"), RendererB);
+    expect(resolveCommandBlock("/xyz")).toBe(RendererA);
+    expect(resolveCommandAttribution("/xyz")).toBe("git");
   });
 });

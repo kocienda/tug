@@ -184,14 +184,16 @@ import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";
 import { SessionCompactionEntry } from "@/components/tugways/cards/session-compaction-entry";
 import { TugTranscriptEntry } from "@/components/tugways/tug-transcript-entry";
-import { resolveCommandBlock } from "./session-command-block-registry";
-// Side-effect import: registers the bespoke `/commit` receipt renderer with
-// the command-block registry before the first `resolveCommandBlock` call ([P08]).
-// `matchesCommitReceipt` is the same predicate the registry matches on, reused
-// here so the row's git attribution and the block renderer never disagree.
-import { matchesCommitReceipt } from "./session-commit-receipt-block";
-// The dash lane's landings register the same way ([P06]) — a join and a
-// release each render as their own receipt rather than as raw shell output.
+import {
+  resolveCommandAttribution,
+  resolveCommandBlock,
+} from "./session-command-block-registry";
+// Side-effect imports: each bespoke receipt renderer joins the command-block
+// registry before the first resolve ([P08], and [P06] for the dash lane's
+// landings). Nothing is named here on purpose — a row's attribution comes from
+// the same registration its renderer does, so the header and the block cannot
+// disagree about what a command is.
+import "./session-commit-receipt-block";
 import "./session-join-receipt-block";
 import { composeShellShareText } from "./shell-exchange-view";
 import { RefsResultBlock } from "./refs-result-block";
@@ -276,11 +278,13 @@ const SHELL_IDENTIFIER = "Shell";
  *  what the row holds (file references), not for the command that produced it;
  *  the command itself is right there in the block header. */
 const REFS_IDENTIFIER = "Refs";
-/** Identifier for a git-attributed row (the `/commit` receipt). The commit
- *  rides the shell ledger, but it ran no shell command the user typed — so the
- *  row is attributed to git, not to the shell that carried it. The operation
- *  is named here, in the attribution, which frees the block header's verb slot
- *  for the sha (the commit's real name). */
+/** Identifier for a git-attributed row — a landing receipt, `/commit` on the
+ *  main lane or `/dash-join` on the dash lane. Both ride the shell ledger, and
+ *  neither ran a shell command the user typed, so the row is attributed to git
+ *  rather than to the shell that carried it. Both spell the same word because
+ *  both perform the same act: a join squashes its rounds and commits them onto
+ *  the base. The operation is named here, in the attribution, which frees the
+ *  block header's verb slot for the sha (the commit's real name). */
 const GIT_IDENTIFIER = "Git Commit";
 
 /**
@@ -692,11 +696,13 @@ const ShellTurnCell = React.memo(function ShellTurnCell({
   // command family it understands; everything else renders through
   // the generic exchange block. Resolution is total.
   const CommandBlock = resolveCommandBlock(message.command);
-  // A `/commit` lands in the shell ledger like any other exchange, but the user
-  // typed no shell command — so it reads as a git operation, not a shell one:
-  // the git participant + icon, and no `exit N · duration` end-state (a commit's
-  // outcome is the receipt itself).
-  const isGitRow = matchesCommitReceipt(message.command);
+  // A landing — `/commit` on the main lane, `/dash-join` on the dash lane —
+  // lands in the shell ledger like any other exchange, but the user typed no
+  // shell command. So it reads as a git operation, not a shell one: the git
+  // participant + icon, and no `exit N · duration` end-state (a landing's
+  // outcome is the receipt itself). Which commands those are is the registry's
+  // to say, declared by each receipt beside its renderer.
+  const isGitRow = resolveCommandAttribution(message.command) === "git";
   return (
     <ResponderScope>
     <AnnotationScope value={annotation}>

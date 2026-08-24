@@ -42,6 +42,8 @@
  * @covers tugdeck/src/components/tugways/dash-join-register.tsx
  * @covers tugdeck/src/components/tugways/cards/session-landing-progress-row.css
  * @covers tugdeck/src/components/tugways/tug-transcript-entry.css
+ * @covers tugdeck/src/components/tugways/cards/session-command-block-registry.ts
+ * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -296,6 +298,31 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 1`,
           { timeoutMs: 60000 },
+        );
+
+        // ── And the receipt reads as the commit it is ────────────────────
+        // A join squashes its rounds and commits them onto the base. It rode
+        // the shell ledger to get here, and for a while that transport was
+        // what the row's header named — a bespoke commit block under a
+        // `Shell` speaker, while `/commit` wore a git one for the identical
+        // act. The attribution comes from the receipt's own registration now,
+        // so this reads what the entry actually says.
+        const attribution = await app.evalJS<{ participant: string; identifier: string }>(
+          `(function(){
+             var entry = document.querySelector(${JSON.stringify(JOIN_RECEIPT)})
+               ?.closest('[data-slot="tug-transcript-entry"]');
+             return {
+               participant: entry === null || entry === undefined
+                 ? "" : (entry.getAttribute("data-participant") ?? ""),
+               identifier: entry === null || entry === undefined
+                 ? "" : (entry.querySelector(".tug-transcript-entry__identifier")?.textContent ?? ""),
+             };
+           })()`,
+        );
+        note(`at0472 attribution: ${JSON.stringify(attribution)}`);
+        expect(attribution.participant, "the join receipt is a git row").toBe("git");
+        expect(attribution.identifier, "and its header names the operation").toBe(
+          "Git Commit",
         );
 
         // The progress row was never written down. Whatever it is saying now —

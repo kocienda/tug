@@ -64,10 +64,35 @@ export type CommandBlockRenderer = React.ComponentType<CommandBlockProps>;
 /** Predicate over the exchange's command text (as submitted, trimmed). */
 export type CommandBlockMatcher = (command: string) => boolean;
 
+/**
+ * Who a claimed row is attributed to — the speaker its entry header names.
+ *
+ * `shell` is the default and the literal truth for a `$`-route row: the user
+ * typed a command and this is its output. `git` is for the rows that ride the
+ * shell ledger without anybody having typed a shell command — the landings,
+ * `/commit` and `/dash-join`, whose subject is a commit on the base branch.
+ * Attributing those to the shell that carried them names the transport instead
+ * of the act.
+ *
+ * **It lives on the registration** because a bespoke receipt already knows what
+ * it is, and the alternative is a second enumeration of the same commands
+ * somewhere else — which is exactly how `/dash-join` came to render its own
+ * commit block under a `Shell` header while `/commit` rendered the identical
+ * kind of block under a git one.
+ */
+export type CommandBlockAttribution = "shell" | "git";
+
+/** Optional facts a registration may declare beyond matcher and renderer. */
+export interface CommandBlockOptions {
+  /** Defaults to `shell` — see {@link CommandBlockAttribution}. */
+  attribution?: CommandBlockAttribution;
+}
+
 interface CommandBlockRegistration {
   name: string;
   matcher: CommandBlockMatcher;
   renderer: CommandBlockRenderer;
+  attribution: CommandBlockAttribution;
 }
 
 const COMMAND_BLOCK_REGISTRY: CommandBlockRegistration[] = [];
@@ -86,11 +111,17 @@ export function registerCommandBlock(
   name: string,
   matcher: CommandBlockMatcher,
   renderer: CommandBlockRenderer,
+  options: CommandBlockOptions = {},
 ): void {
   if (COMMAND_BLOCK_REGISTRY.some((r) => r.name === name)) {
     throw new Error(`Command block "${name}" is already registered`);
   }
-  COMMAND_BLOCK_REGISTRY.push({ name, matcher, renderer });
+  COMMAND_BLOCK_REGISTRY.push({
+    name,
+    matcher,
+    renderer,
+    attribution: options.attribution ?? "shell",
+  });
 }
 
 /**
@@ -104,6 +135,20 @@ export function resolveCommandBlock(command: string): CommandBlockRenderer {
     if (registration.matcher(trimmed)) return registration.renderer;
   }
   return ShellExchangeBlock;
+}
+
+/**
+ * Resolve who a command's row is attributed to. Total on the same terms as
+ * {@link resolveCommandBlock}, and resolved by the *same* walk in the *same*
+ * order — so a row's header and its block can never be decided by two
+ * different readings of one command.
+ */
+export function resolveCommandAttribution(command: string): CommandBlockAttribution {
+  const trimmed = command.trim();
+  for (const registration of COMMAND_BLOCK_REGISTRY) {
+    if (registration.matcher(trimmed)) return registration.attribution;
+  }
+  return "shell";
 }
 
 /** Enumerate registered names, in registration (= resolution) order. */

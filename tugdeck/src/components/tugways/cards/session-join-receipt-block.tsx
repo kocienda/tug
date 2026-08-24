@@ -299,7 +299,13 @@ export function matchesDiscardReceipt(command: string): boolean {
 // Registration is a side effect of importing this module (the import sits
 // beside the commit block's in `session-card-transcript.tsx`, so both are
 // registered before the first resolve).
-registerCommandBlock("dash-join-receipt", matchesJoinReceipt, SessionJoinReceiptBlock);
+registerCommandBlock("dash-join-receipt", matchesJoinReceipt, SessionJoinReceiptBlock, {
+  // A join squashes the dash onto the base and commits it. That is the same
+  // act `/commit` performs, differently started, so it wears the same
+  // attribution — the discard below deletes a branch and commits nothing, so
+  // it keeps the shell default.
+  attribution: "git",
+});
 registerCommandBlock(
   "dash-discard-receipt",
   matchesDiscardReceipt,

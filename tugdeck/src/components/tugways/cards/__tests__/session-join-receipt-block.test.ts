@@ -20,6 +20,28 @@ import {
   parseDiscardReceipt,
   parseJoinReceipt,
 } from "@/components/tugways/cards/session-join-receipt-block";
+// Side-effect import: the commit receipt registers itself too, so the shipped
+// population below is the real one the transcript resolves against.
+import "@/components/tugways/cards/session-commit-receipt-block";
+import { resolveCommandAttribution } from "@/components/tugways/cards/session-command-block-registry";
+
+describe("what the shipped receipts are attributed to", () => {
+  it("attributes both landings to git and the discard to the shell", () => {
+    // The 2026-08-24 report: a dash join rendered its commit block under a
+    // `Shell` header while `/commit` rendered the same kind of block under a
+    // git one. A join squashes its rounds and commits them onto the base — the
+    // same act, differently started — so it reads the same way.
+    expect(resolveCommandAttribution("/commit")).toBe("git");
+    expect(resolveCommandAttribution("/dash-join")).toBe("git");
+    expect(resolveCommandAttribution("/dash-join lifecycle-fixup")).toBe("git");
+    // A discard deletes a branch and commits nothing, so it is not a landing
+    // and keeps the shell default.
+    expect(resolveCommandAttribution("/dash-discard")).toBe("shell");
+    expect(resolveCommandAttribution("/dash-release")).toBe("shell");
+    // And an ordinary typed command is what the default is for.
+    expect(resolveCommandAttribution("git status")).toBe("shell");
+  });
+});
 
 describe("matchesJoinReceipt / matchesDiscardReceipt", () => {
   it("claims the two verbs and nothing that merely starts like them", () => {

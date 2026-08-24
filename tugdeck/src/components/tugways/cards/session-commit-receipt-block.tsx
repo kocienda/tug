@@ -233,4 +233,8 @@ export function matchesCommitReceipt(command: string): boolean {
 
 // Registration happens at import time (the side-effect import in
 // session-card-transcript.tsx loads it before the first resolve, [P08]).
-registerCommandBlock("commit-receipt", matchesCommitReceipt, SessionCommitReceiptBlock);
+registerCommandBlock("commit-receipt", matchesCommitReceipt, SessionCommitReceiptBlock, {
+  // A commit rides the shell ledger, but the user typed no shell command: the
+  // row is a git operation and its header says so.
+  attribution: "git",
+});

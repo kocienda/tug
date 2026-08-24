@@ -125,22 +125,30 @@ beforeAll(() => {
     "--name-only",
     realSha,
   ]).split("\n");
-  realPath = touched[0] ?? "";
-  const patch = git(realRepoRoot, [
-    "diff-tree",
-    "--no-commit-id",
-    "--root",
-    "-r",
-    "-M",
-    "-p",
-    realSha,
-    "--",
-    realPath,
-  ]).split("\n");
-  // A substantial added line, so the assertion cannot pass on an empty `+`.
-  realAddedLine = (
-    patch.find((l) => l.startsWith("+") && !l.startsWith("+++") && l.trim().length > 12) ?? ""
-  ).slice(1);
+  // The fixture needs a file whose hunks contain a substantial added line, and
+  // whether HEAD's *first* touched file is one is an accident of whatever the
+  // checkout last committed: a deletions-only edit or a pure rename leads the
+  // list often enough, and taking touched[0] on faith turned this file red on
+  // an unrelated commit. So the file is chosen by the property the assertion
+  // needs, over every path in the commit.
+  const addedLineIn = (path: string): string =>
+    (
+      git(realRepoRoot, [
+        "diff-tree",
+        "--no-commit-id",
+        "--root",
+        "-r",
+        "-M",
+        "-p",
+        realSha,
+        "--",
+        path,
+      ])
+        .split("\n")
+        .find((l) => l.startsWith("+") && !l.startsWith("+++") && l.trim().length > 12) ?? ""
+    ).slice(1);
+  realPath = touched.find((p) => p !== "" && addedLineIn(p) !== "") ?? touched[0] ?? "";
+  realAddedLine = realPath === "" ? "" : addedLineIn(realPath);
   const numstat = git(realRepoRoot, [
     "diff-tree",
     "--no-commit-id",
