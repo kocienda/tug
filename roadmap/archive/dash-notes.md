@@ -1,3 +1,13 @@
+
+
+
+
+
+
+
+
+
+
 OK. We've done all the oustandinding work I have on my list for dashes and joins. I'm quite sure there will be more to do to improve the experience as we go. BUt for now, I want to start thinking about ways to make the dash process more ergonomic, findable, and visible to the human dev. Right now, dashes are created by orchestrating a set of slash commands. To do so requires the *full knowledge* of what these commands are and how/when to invoke them. Also, the *on ramp* to these slash commands varies from job to job. Basically in every session I start off by chatting with you about a project idea of some sort, then I proceed through the following phases, I ask you to:
 
 - Write a document/brief to the `roadmap` directory (sometimes).
@@ -8,12 +18,15 @@ OK. We've done all the oustandinding work I have on my list for dashes and joins
 
 There are quite a few issues here I would like to address:
 - The name of the `roadmap` directory and our reliance on it was never mean to be like it is. I picked this name off the cuff one session months ago, and not it seems like a decided piece of well-established infrastructure, and it simply isn't that. We need a new name for Tug, and what's more, this name should be whatever the user decides to make it for their project. There must be no *specially-blessed dash directory name* like this.
-- The `.tug/worktree` directory is similarly a product of an evolutionary step rather than a settled design. I want to think about this more too. Where should these worktrees go?
+- The `.tug/worktree` directory is similarly a product of an evolutionary step rather than a settled design. I want to think about this more too. Where should these worktrees go? Can we do better?
+- Should *both* of these directories be renamed to something like `dash` or `.dash` or go in a directory whose parent is a *dash* name of some sort?
 - The *brief* file format is unspecified. We should write something down and formalize more than we have.
 - The *plan* file format/example was last audited a couple of months ago (as I recall). We should give it a solid once-over again.
 - Most importantly, the creation of a dash is a *manual process* that requires too much built-in knowledge of these skills. We need to think about how we could better prompt and expose the notion of a *dash* as a great way to actually use git worktrees well in Tug, while avoiding many of the usability pitfalls and complications that result from using worktrees *by hand*. We must do better than this. ![CleanShot 2026-08-23 at 14.34.30@2x](<assets/CleanShot 2026-08-23 at 14.34.30@2x.png>). I will never expect a user to type a `tugutil` command themselves—this is an internal tool for the machinery and the models, not for human devs.
 
-Now, in addition to these naming and architectural cleanup jobs, I want to think about creating a set of user interface affordances that expose dashes, and help users to create them. We have made some progress over the past few days by improving the pulsing-dot indicator to show plan steps, and we now do better at displaying the plan steps in the session masthead and in the Lens. We have to be even more and do it all better. One area we should consider is the WORK tab that I just simplified down so that it *only shows* plan steps. This seems like an area that could be supplemented to show more controls over dashes.... maybe?   
+Now, in addition to these naming and architectural cleanup jobs, I want to think about creating a set of user interface affordances that expose dashes, and help users to create them. Maybe a new bar somewhere? Maybe a new DASH Z4A route tab? We have made some progress over the past few days by improving the pulsing-dot indicator to show plan steps, and we now do better at displaying the plan steps in the session masthead and in the Lens. We have to be even more and do it all better. One area we should consider is the TASKS tab that I just simplified down so that it *only shows* plan steps (as separate from JOBS). This seems like an area that could be supplemented to show more information about dashes.... maybe? Maybe the label could swap to DASH when we're on a dash? Something like that?  
+
+OK. This is a lot. Think about this. Break this down. Make a comprehensive proposal, then we can discuss it.
 
 
 
