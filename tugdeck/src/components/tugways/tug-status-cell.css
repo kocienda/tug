@@ -95,15 +95,22 @@
    overshot by ~19px and quietly tripped its own first rung, hiding TIME on a card
    that was supposed to show everything.
 
-   STATE and CONTEXT are the wide pair, TIME and TASKS the middle, JOBS the
-   narrowest.
+   STATE and CONTEXT are the wide pair, TIME the middle, TASKS and JOBS the
+   narrow pair.
+
+   **TASKS and JOBS are deliberately equal.** They are one division of one
+   subject read left to right, and the eye takes a width difference between
+   adjacent cells as a claim that one matters more. Sizing each to its own
+   content would say that — TASKS needs nearly twice what JOBS does — so the
+   pair is set to the wider one's need and the difference is spent on JOBS's
+   endcap wings, which is what the surplus is for everywhere else in this row.
+   14ch clears the 68px TASKS face with room for wings on both.
 
    **The total is held at 80ch on purpose.** The row spends the same width it
    did when it carried TOKENS and a merged WORK cell: the 28ch those two held
-   between them is what TASKS and JOBS divide, with TASKS taking the larger
-   share to seat its fraction. Holding the sum fixed is what lets the
-   `@container` rungs below keep their measured values — the full set and each
-   post-collapse subset need exactly what they needed before. */
+   between them is what TASKS and JOBS divide evenly. Holding the sum fixed is
+   what lets the `@container` rungs below keep their measured values — the full
+   set and each post-collapse subset need exactly what they needed before. */
 .session-telemetry-status-cell[data-priority="state"] {
   --tugx-session-status-cell-width: 18ch;
 }
@@ -114,10 +121,10 @@
   --tugx-session-status-cell-width: 19ch;
 }
 .session-telemetry-status-cell[data-priority="tasks"] {
-  --tugx-session-status-cell-width: 15ch;
+  --tugx-session-status-cell-width: 14ch;
 }
 .session-telemetry-status-cell[data-priority="jobs"] {
-  --tugx-session-status-cell-width: 13ch;
+  --tugx-session-status-cell-width: 14ch;
 }
 .session-telemetry-status-value-wrap {
   /* Wrap centers its single child value within the static cell width —
