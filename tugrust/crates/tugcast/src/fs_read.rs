@@ -268,12 +268,20 @@ mod tests {
         assert_eq!(after_move["ino"], before["ino"]);
         assert_ne!(after_move["sha256"], before["sha256"]);
 
-        // Unlink-and-recreate at one path is a different file, so the identity
-        // does NOT follow — which is why replace-in-place is settled by probing
-        // the path rather than by matching identity.
+        // Unlink-and-recreate at one path is a different file. The path is what
+        // settles a replace-in-place: the read reports the recreated bytes
+        // whatever the identity did.
         std::fs::remove_file(&moved).unwrap();
         std::fs::write(&moved, "recreated\n").unwrap();
         let (_, after_replace) = read_file(&moved);
+        assert_eq!(after_replace["sha256"], sha256_hex(b"recreated\n"));
+
+        // APFS never reuses an inode number, so on the platform the app ships
+        // on the identity does not follow the recreate — the property the Text
+        // card's rename-following leans on. Linux recycles a freed inode
+        // immediately and can hand the new file the old number, so this is
+        // asserted only where it is true.
+        #[cfg(target_os = "macos")]
         assert_ne!(after_replace["ino"], before["ino"]);
     }
 
