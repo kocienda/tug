@@ -35,7 +35,6 @@ use tugcast_core::types::{
 };
 use tugdash_core::ops::{self, DashDetail};
 
-use crate::feeds::join_occupancy::JoinRunKind;
 use tugdash_core::resolve::{self, CandidateStatus};
 
 /// The cacheable half of one dash's join facts, and the head pair it describes.
@@ -143,7 +142,6 @@ pub fn join_state_for(
     // moment rather than to a pair of commits (Spec S01).
     let run_kind = crate::feeds::join_occupancy::run_kind(&detail.owner_key);
     let run = run_kind.map(|k| k.to_string());
-    let joining = run_kind == Some(JoinRunKind::Join.as_str());
 
     // Uncached, always: what would refuse a join right now.
     let blockers: Vec<DashJoinBlocker> =
@@ -151,11 +149,15 @@ pub fn join_state_for(
         // the second is a blocker. The holder is what tells them apart — and it
         // has to be a *join* holder: a resolve running over a journal a crashed
         // join left behind is exactly the case that still wants the refusal.
+        //
+        // The holder also suppresses the resolve lease, whichever run it is:
+        // the registry is the exact answer where it exists, and the lease is
+        // the derived one for the process that cannot see it.
         ops::join_blockers_from_detail(
             repo_root,
             detail,
             current_branch,
-            joining,
+            run_kind,
         )
             .into_iter()
             .map(|b| DashJoinBlocker {
@@ -739,6 +741,38 @@ mod tests {
         let question = state.question.expect("the question the user is answering");
         assert_eq!(question.question, "Keep the new flag?");
         assert_eq!(state.run.as_deref(), Some("resolve"));
+    }
+
+    /// The in-process registry is the fast path and the lease is the
+    /// cross-process backstop, so a run this process holds suppresses the
+    /// lease blocker — and only for as long as it holds it ([P05]).
+    #[test]
+    fn the_board_hides_the_lease_blocker_while_it_holds_the_dash() {
+        let temp = fixture();
+        let repo = temp.path();
+        // Without the driver the ladder gives up and parks a conflict, which
+        // is what a resolver would then open.
+        git(repo, &["config", "--unset", "tugdash.mergedriver"]);
+        tugdash_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        tugdash_core::resolve::mark_resolve_begun(repo, "demo").unwrap();
+
+        let leased = |state: &DashJoinState| state.blockers.iter().any(|b| b.kind == "live-resolve");
+        assert!(leased(&compose(repo)), "nobody holds it, so git answers");
+
+        let detail = detail_for(repo);
+        let held = crate::feeds::join_occupancy::acquire(
+            &detail.owner_key,
+            crate::feeds::join_occupancy::JoinRunKind::Resolve,
+            None,
+        )
+        .expect("the dash is free");
+        assert!(
+            !leased(&compose(repo)),
+            "this process is the resolver; the derived answer is redundant"
+        );
+
+        drop(held);
+        assert!(leased(&compose(repo)), "and it comes back on release");
     }
 
     /// A candidate that went stale under a live run is reported, not cleared.

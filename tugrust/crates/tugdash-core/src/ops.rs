@@ -15,6 +15,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, SystemTime};
 use tugutil_core::paths::project_state_dir;
 use tugutil_core::{Config, find_repo_root, sanitize_branch_name};
 
@@ -179,6 +180,13 @@ pub struct JoinOptions {
     /// dash-log's terminal note so a join is attributable after the fact;
     /// `None` writes the bare note the log carried before routes were recorded.
     pub origin: Option<String>,
+    /// Proceed past the `live-resolve` refusal, tearing down a conflict chain
+    /// the lease says somebody may still be working on.
+    ///
+    /// Consent, not capability: the teardown is unchanged, and the op log's
+    /// keepalive already holds the chain so `tugutil dash undo` puts it back.
+    /// What the flag adds is a recorded decision and a receipt naming it.
+    pub break_lease: bool,
 }
 
 /// Outcome of [`join`].
@@ -238,7 +246,7 @@ pub struct ConflictCommit {
 /// One reason a join would be refused, as reported by a `--preview`.
 #[derive(Debug, Clone, Serialize)]
 pub struct JoinBlocker {
-    /// `off-base` | `base-dirt` | `stale-journal` | `empty`.
+    /// `off-base` | `base-dirt` | `stale-journal` | `live-resolve` | `empty`.
     pub kind: String,
     /// The human line — the same sentence the execute path returns as its `Err`.
     pub detail: String,
@@ -3035,6 +3043,46 @@ fn stale_journal_detail(name: &str) -> String {
     )
 }
 
+/// The receipt a broken lease leaves in the verb's warnings.
+fn broke_lease_warning(name: &str, lease: &crate::resolve::ResolveLease, seq: u64) -> String {
+    format!(
+        "Broke the resolve lease on '{}' (chain tip {} old); the resolver's checkpoints are kept at op #{} — tugutil dash undo restores them.",
+        name,
+        human_age(lease.age),
+        seq
+    )
+}
+
+/// A duration as a reader would say it: `45s`, `12m`, `1h 20m`.
+pub fn human_age(age: Duration) -> String {
+    let secs = age.as_secs();
+    if secs < 60 {
+        return format!("{secs}s");
+    }
+    let minutes = secs / 60;
+    if minutes < 60 {
+        return format!("{minutes}m");
+    }
+    format!("{}h {}m", minutes / 60, minutes % 60)
+}
+
+/// What a verb says when the chain says somebody is still resolving.
+///
+/// **Both ways out, because the sentence has two audiences.** `--break-lease`
+/// is a flag no Session card user can reach; the card's way past a lease that
+/// outlived its resolver is its Resolve arm, which runs the ladder and starts a
+/// fresh chain. A refusal naming only the flag would be a control that does
+/// nothing for half the people who read it ([L31]).
+pub fn live_resolve_detail(name: &str, lease: &crate::resolve::ResolveLease, verb: &str) -> String {
+    format!(
+        "A resolve may still be running for dash '{}': its conflict chain was last advanced {} ago, inside the {} lease. Wait for it to finish, resolve again to start a fresh one, or pass `--break-lease` to {} anyway — the resolver's checkpoints are kept by the op log and `tugutil dash undo` puts them back.",
+        name,
+        human_age(lease.age),
+        human_age(crate::resolve::RESOLVE_LEASE),
+        verb
+    )
+}
+
 fn off_base_detail(current_branch: &str, base_branch: &str) -> String {
     format!(
         "Cannot join: repo root worktree is on branch '{}' but dash targets '{}'. Check out '{}' first.",
@@ -3197,7 +3245,9 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     let current = current_branch(repo_root)?;
     // No occupancy view from a CLI process, and none wanted: a journal on disk
     // refuses a join started from here whether or not the server is mid-join.
-    Ok(join_blockers_from_detail(repo_root, &detail, &current, false))
+    // Which is exactly why the resolve lease exists — the one occupancy fact a
+    // second process can still read, because it is written in git.
+    Ok(join_blockers_from_detail(repo_root, &detail, &current, None))
 }
 
 /// What would refuse a join right now, composed from a detail the caller
@@ -3212,14 +3262,17 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
 /// read but one is already paid for by the detail walk, and the exception
 /// (which branch is checked out) is per-repository rather than per-dash.
 ///
-/// `joining` says whether a join holds this dash right now. It is the one input
-/// the caller must supply: see the journal note in the body for why the answer
-/// cannot be read from disk.
+/// `held` says which run holds this dash right now — `"join"`, `"resolve"`, or
+/// `None` for nobody, exactly what tugcast's in-process occupancy registry
+/// answers. It is the one input the caller must supply: see the journal note in
+/// the body for why the answer cannot be read from disk. A caller with no
+/// occupancy view passes `None` and is answered from git alone, which is what
+/// the resolve lease below is for.
 pub fn join_blockers_from_detail(
     repo_root: &Path,
     detail: &DashDetail,
     current_branch: &str,
-    joining: bool,
+    held: Option<&str>,
 ) -> Vec<JoinBlocker> {
     let name = detail.name.as_str();
     let base_branch = detail.base.as_str();
@@ -3231,10 +3284,13 @@ pub fn join_blockers_from_detail(
     // end, so for the whole squash-to-record window the file is on disk while
     // the join is perfectly healthy. Only a journal nobody holds is stale.
     //
-    // `joining` is passed rather than read because the holder registry is
+    // A *resolve* holding the dash does not excuse the journal: it would be
+    // running over a crashed join's leavings, and the refusal is still right.
+    //
+    // `held` is passed rather than read because the holder registry is
     // in-process and lives a crate away — the same reason `pilot_action` takes
     // its facts rather than fetching them.
-    if !joining && read_join_journal(repo_root, name).is_some() {
+    if held != Some("join") && read_join_journal(repo_root, name).is_some() {
         blockers.push(JoinBlocker {
             kind: "stale-journal".to_string(),
             detail: stale_journal_detail(name),
@@ -3267,6 +3323,19 @@ pub fn join_blockers_from_detail(
                 name,
             ),
             paths: detail.base_overlap_untracked.clone(),
+        });
+    }
+
+    // Only when nobody in this process holds the dash: the in-process registry
+    // is exact and instant, and the lease is the two-hour derived answer for
+    // the case it cannot see — another process entirely.
+    if held.is_none()
+        && let Some(lease) = crate::resolve::resolve_lease(repo_root, name, SystemTime::now())
+    {
+        blockers.push(JoinBlocker {
+            kind: "live-resolve".to_string(),
+            detail: live_resolve_detail(name, &lease, "join"),
+            paths: vec![],
         });
     }
 
@@ -3576,6 +3645,19 @@ pub fn join_in_with_progress(
         });
     }
 
+    // A resolve another process may still be running holds the dash, and the
+    // teardown below would take its workshop out from under it. Above the dirt
+    // sweep on purpose: every refusal to this point has touched nothing, and a
+    // refusal that had first committed a round would be a mutation on a
+    // refusal path ([L28]).
+    let broke_lease = match crate::resolve::resolve_lease(&repo_root, name, SystemTime::now()) {
+        Some(lease) if !opts.break_lease => {
+            return Err(live_resolve_detail(name, &lease, "join"));
+        }
+        Some(lease) => Some(lease),
+        None => None,
+    };
+
     // The verification gate stood here. Nothing replaces it: the run's ending
     // replays the dash onto the live base and verifies the tree that lands
     // ([D142]'s successor), so the bytes were checked once, warm, where a
@@ -3613,15 +3695,19 @@ pub fn join_in_with_progress(
     // The keepalive is what survives the teardown: `branch -D` below would
     // otherwise leave the dash's rounds reachable only from a reflog on a
     // clock.
-    let op_before = crate::oplog::capture_before(&repo_root, name)?;
+    let mut op_before = crate::oplog::capture_before(&repo_root, name)?;
+    op_before.broke_lease = broke_lease.as_ref().map(|l| l.age.as_secs());
     let op_tips = crate::oplog::tips_of(&op_before);
-    crate::oplog::record_begin(
+    let op_seq = crate::oplog::record_begin(
         &repo_root,
         crate::oplog::OpVerb::Join,
         name,
         op_before,
         &op_tips,
     )?;
+    if let Some(lease) = &broke_lease {
+        warnings.push(broke_lease_warning(name, lease, op_seq));
+    }
 
     // Land a pre-built candidate from the resolution ladder ([P31]) instead of
     // merging the dash branch. The candidate is the resolved bytes; `strategy`
@@ -3973,9 +4059,13 @@ fn finish_join_teardown(
 }
 
 /// Release a dash: tear down its worktree + branch without merging.
-pub fn discard(name: &str, origin: Option<&str>) -> Result<DiscardOutcome, String> {
+pub fn discard(
+    name: &str,
+    origin: Option<&str>,
+    break_lease: bool,
+) -> Result<DiscardOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
-    discard_in(&repo_root, name, origin)
+    discard_in(&repo_root, name, origin, break_lease)
 }
 
 /// Like [`discard`], but against an explicit repo root instead of the process
@@ -3984,6 +4074,7 @@ pub fn discard_in(
     repo_root: &Path,
     name: &str,
     origin: Option<&str>,
+    break_lease: bool,
 ) -> Result<DiscardOutcome, String> {
     let repo_root = main_repo_root(repo_root);
     let mut warnings = Vec::new();
@@ -4013,6 +4104,17 @@ pub fn discard_in(
         ));
     }
 
+    // A resolve another process may still be running holds the dash, and the
+    // teardown below removes the workshop it is working in. Above every write,
+    // beside the hand-back refusal, so a refused discard changes nothing.
+    let broke_lease = match crate::resolve::resolve_lease(&repo_root, name, SystemTime::now()) {
+        Some(lease) if !break_lease => {
+            return Err(live_resolve_detail(name, &lease, "discard"));
+        }
+        Some(lease) => Some(lease),
+        None => None,
+    };
+
     // Hand the plan back before anything is torn down. Adoption *removed* the
     // base copy, and discard deletes the branch holding the only one — so
     // without this, discarding a dash would permanently destroy the user's
@@ -4022,7 +4124,8 @@ pub fn discard_in(
     // record starts here — at the first write, with the branch still standing
     // and its config still readable.
     let op_seq = match crate::oplog::capture_before(&repo_root, name) {
-        Ok(before) => {
+        Ok(mut before) => {
+            before.broke_lease = broke_lease.as_ref().map(|l| l.age.as_secs());
             let tips = crate::oplog::tips_of(&before);
             crate::oplog::record_begin(
                 &repo_root,
@@ -4035,6 +4138,9 @@ pub fn discard_in(
         }
         Err(e) => return Err(format!("cannot record the discard in the op log: {e}")),
     };
+    if let Some(lease) = &broke_lease {
+        warnings.push(broke_lease_warning(name, lease, op_seq));
+    }
 
     let plan_restored = restore_plan_to_base(&repo_root, name, &branch, &mut warnings);
     let work_restored = apply_hand_back(&repo_root, &worktree, &hand, &mut warnings);
@@ -5619,7 +5725,7 @@ Some context.
         create("discard-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(!root.join("roadmap/plan.md").exists(), "adoption took it");
 
-        let out = discard("discard-dash", None).unwrap();
+        let out = discard("discard-dash", None, false).unwrap();
         assert_eq!(out.plan_restored.as_deref(), Some("roadmap/plan.md"));
         assert!(!branch_present(&root, "tugdash/discard-dash"));
         assert_eq!(
@@ -5642,7 +5748,7 @@ Some context.
         create("edited-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
         assert!(base_plan_status(&root).is_empty(), "adoption restored base");
 
-        let out = discard("edited-dash", None).unwrap();
+        let out = discard("edited-dash", None, false).unwrap();
         assert_eq!(out.plan_restored.as_deref(), Some("roadmap/plan.md"));
         assert_eq!(
             fs::read_to_string(root.join("roadmap/plan.md")).unwrap(),
@@ -5663,11 +5769,11 @@ Some context.
 
         // No plan recorded at all.
         create("bare-dash", None, None, false, None).unwrap();
-        assert!(discard("bare-dash", None).unwrap().plan_restored.is_none());
+        assert!(discard("bare-dash", None, false).unwrap().plan_restored.is_none());
 
         // A plan recorded, but the branch's copy is what base HEAD holds.
         create("same-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
-        let out = discard("same-dash", None).unwrap();
+        let out = discard("same-dash", None, false).unwrap();
         assert!(out.plan_restored.is_none());
         assert!(
             base_plan_status(&root).is_empty(),
@@ -5739,7 +5845,7 @@ Some context.
         commit("e2e-abandon", "a round", None).unwrap();
         assert!(!root.join("roadmap/plan.md").exists());
 
-        let out = discard("e2e-abandon", None).unwrap();
+        let out = discard("e2e-abandon", None, false).unwrap();
         assert_eq!(out.plan_restored.as_deref(), Some("roadmap/plan.md"));
         assert!(!branch_present(&root, "tugdash/e2e-abandon"));
         assert!(
@@ -5990,7 +6096,7 @@ Some context.
         create("returner", None, None, true, None).unwrap();
         assert!(!root.join("scratch.txt").exists());
 
-        let out = discard("returner", None).unwrap();
+        let out = discard("returner", None, false).unwrap();
         assert_eq!(out.work_restored, vec!["scratch.txt".to_string()]);
         assert_eq!(
             fs::read_to_string(root.join("scratch.txt")).unwrap(),
@@ -6011,7 +6117,7 @@ Some context.
         fs::write(worktree.join("typed.txt"), "written in the dash\n").unwrap();
         fs::write(worktree.join("README.md"), "# edited in the dash\n").unwrap();
 
-        let out = discard("typed", None).unwrap();
+        let out = discard("typed", None, false).unwrap();
         assert_eq!(out.work_restored, vec!["README.md", "typed.txt"]);
         assert_eq!(
             fs::read_to_string(root.join("typed.txt")).unwrap(),
@@ -6036,7 +6142,7 @@ Some context.
         fs::write(worktree.join("README.md"), "# the dash's words\n").unwrap();
         fs::write(root.join("README.md"), "# the user's words\n").unwrap();
 
-        let err = discard("clash", None).unwrap_err();
+        let err = discard("clash", None, false).unwrap_err();
         assert!(err.contains("README.md"), "{err}");
         assert_eq!(
             fs::read_to_string(root.join("README.md")).unwrap(),
@@ -6052,7 +6158,7 @@ Some context.
     fn discard_of_a_clean_worktree_behaves_exactly_as_before() {
         let (_temp, root) = repo_for_create(None);
         create("spotless", None, None, false, None).unwrap();
-        let out = discard("spotless", None).unwrap();
+        let out = discard("spotless", None, false).unwrap();
         assert!(out.work_restored.is_empty());
         assert!(out.warnings.is_empty(), "{:?}", out.warnings);
         assert!(!worktree_path(&root, "spotless").exists());
@@ -6623,7 +6729,7 @@ Some context.
         let worktree = universe.join(".tug/worktrees/goner");
         assert!(worktree.exists());
 
-        discard_in(&universe, "goner", None).unwrap();
+        discard_in(&universe, "goner", None, false).unwrap();
 
         assert!(!worktree.exists(), "worktree gone");
         assert!(!branch_present(&universe, "tugdash/goner"), "branch gone");
@@ -7408,7 +7514,7 @@ Some context.
         std::env::set_current_dir(repo).unwrap();
 
         create("dropped", None, None, false, None).unwrap();
-        discard("dropped", Some("cli")).unwrap();
+        discard("dropped", Some("cli"), false).unwrap();
 
         let dlog = fs::read_to_string(dash_log_path(&home, repo)).unwrap();
         assert!(
@@ -8054,7 +8160,7 @@ Some context.
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
         create("backagain", None, None, true, None).unwrap();
         let dash_tip = git_stdout(&root, &["rev-parse", "tugdash/backagain"]).unwrap();
-        discard("backagain", None).unwrap();
+        discard("backagain", None, false).unwrap();
         assert_eq!(
             fs::read_to_string(root.join("scratch.txt")).unwrap(),
             "notes\n"
@@ -8134,6 +8240,260 @@ Some context.
         (tip, candidate)
     }
 
+    // ---- the resolve lease ([P03], [P04]) ----
+
+    /// A chain a resolver has opened but not finished — the state a second
+    /// process must be able to read.
+    fn lease_a_parked_conflict(repo: &Path, name: &str) -> String {
+        park_conflict(repo, name);
+        crate::resolve::mark_resolve_begun(repo, name).expect("the begin marker lands")
+    }
+
+    #[serial]
+    #[test]
+    fn a_join_over_a_live_chain_is_refused_by_name_and_touches_nothing() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "leased");
+        let repo = temp.path();
+        let marker = lease_a_parked_conflict(repo, "leased");
+
+        // Dirt the sweep would commit, so a refusal below it would be visible.
+        let worktree = worktree_path(repo, "leased");
+        fs::write(worktree.join("late.txt"), "not yet committed\n").unwrap();
+        let dash_tip = git_stdout(repo, &["rev-parse", "tugdash/leased"]).unwrap();
+        let ops_before = crate::oplog::list_ops(repo).len();
+
+        let err = join("leased", mechanics()).unwrap_err();
+        assert!(err.contains("A resolve may still be running"), "{err}");
+        assert!(err.contains("--break-lease"), "{err}");
+        assert!(err.contains("resolve again"), "{err}");
+
+        assert_eq!(
+            crate::resolve::read_conflict(repo, "leased").unwrap().tip,
+            marker,
+            "a refused join leaves the chain exactly as it found it"
+        );
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "tugdash/leased"]).unwrap(),
+            dash_tip,
+            "the refusal is above the dirt sweep, so no round was committed"
+        );
+        assert_eq!(
+            crate::oplog::list_ops(repo).len(),
+            ops_before,
+            "and nothing was recorded"
+        );
+        assert!(branch_exists(repo, "tugdash/leased"));
+    }
+
+    #[serial]
+    #[test]
+    fn a_discard_over_a_live_chain_is_refused_the_same_way() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "leased");
+        let repo = temp.path();
+        let marker = lease_a_parked_conflict(repo, "leased");
+        let ops_before = crate::oplog::list_ops(repo).len();
+
+        let err = discard("leased", None, false).unwrap_err();
+        assert!(err.contains("A resolve may still be running"), "{err}");
+        assert!(err.contains("to discard anyway"), "{err}");
+
+        assert_eq!(
+            crate::resolve::read_conflict(repo, "leased").unwrap().tip,
+            marker
+        );
+        assert!(branch_exists(repo, "tugdash/leased"), "the dash stands");
+        assert!(worktree_path(repo, "leased").exists());
+        assert_eq!(crate::oplog::list_ops(repo).len(), ops_before);
+    }
+
+    #[serial]
+    #[test]
+    fn a_preview_lists_live_resolve_as_a_blocker() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "leased");
+        let repo = temp.path();
+        lease_a_parked_conflict(repo, "leased");
+
+        let blockers = join_preflight_in(repo, "leased").unwrap();
+        let blocker = blockers
+            .iter()
+            .find(|b| b.kind == "live-resolve")
+            .expect("the preview names the lease");
+        assert!(
+            blocker.detail.contains("A resolve may still be running"),
+            "{}",
+            blocker.detail
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn an_ended_lease_does_not_refuse() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "released");
+        let repo = temp.path();
+        park_conflict(repo, "released");
+        crate::resolve::mark_resolve_begun(repo, "released").unwrap();
+        crate::resolve::mark_resolve_ended(repo, "released").unwrap();
+
+        let (_, candidate) = resolve_parked_conflict(repo, "released");
+        let landed = join(
+            "released",
+            JoinOptions {
+                candidate: Some(candidate),
+                ..mechanics()
+            },
+        )
+        .expect("a released lease refuses nothing");
+        assert!(landed.commit_hash.is_some());
+    }
+
+    /// A resolve that died without its end marker stops refusing when its tip
+    /// ages past the window — the crash case, and the reason the window is the
+    /// resolver's own deadline rather than a guessed number.
+    ///
+    /// The ops path reads `SystemTime::now()` and cannot be handed a clock, and
+    /// `git_output` carries no environment, so the marker is backdated at the
+    /// point it is written instead.
+    #[serial]
+    #[test]
+    fn an_aged_out_lease_does_not_refuse() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "stale");
+        let repo = temp.path();
+        park_conflict(repo, "stale");
+
+        let tip = crate::resolve::read_conflict(repo, "stale").unwrap().tip;
+        let long_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - 3 * 60 * 60;
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args([
+                "commit-tree",
+                &format!("{tip}^{{tree}}"),
+                "-p",
+                &tip,
+                "-m",
+                "tugresolve(stale): begin",
+            ])
+            .env("GIT_COMMITTER_DATE", format!("{long_ago} +0000"))
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        let backdated = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        crate::resolve::advance_conflict_ref(repo, "stale", &backdated).unwrap();
+        assert!(
+            crate::resolve::resolve_lease(repo, "stale", std::time::SystemTime::now()).is_none(),
+            "three hours is past the two-hour window"
+        );
+
+        let (_, candidate) = resolve_parked_conflict(repo, "stale");
+        let landed = join(
+            "stale",
+            JoinOptions {
+                candidate: Some(candidate),
+                ..mechanics()
+            },
+        )
+        .expect("an aged-out lease refuses nothing");
+        assert!(landed.commit_hash.is_some());
+    }
+
+    /// The full receipt: an op that records the break, a warning that names
+    /// it, and an undo that puts the resolver's checkpoints back.
+    ///
+    /// A discard, because that is the shape where a lease genuinely still
+    /// stands: a join lands a *candidate*, and a candidate standing beside the
+    /// chain is the resolver's own receipt that it finished ([P02]).
+    #[serial]
+    #[test]
+    fn breaking_the_lease_tears_down_records_the_age_and_is_undoable() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "broken");
+        let repo = temp.path();
+        park_conflict(repo, "broken");
+        crate::resolve::mark_resolve_begun(repo, "broken").unwrap();
+
+        // The crashed resolver's committed work, above the begin marker.
+        let ws = crate::workshop::Workshop::open_conflict(repo, "broken").unwrap();
+        fs::write(ws.path().join("shared.txt"), "base\nboth sides\n").unwrap();
+        ws.checkpoint("tugresolve(broken): checkpoint").unwrap();
+        let chain_tip = crate::resolve::read_conflict(repo, "broken").unwrap().tip;
+        assert!(crate::resolve::resolve_lease(repo, "broken", SystemTime::now()).is_some());
+
+        let out = discard("broken", Some("cli"), true).expect("the break tears the dash down");
+        let warning = out
+            .warnings
+            .iter()
+            .find(|w| w.contains("Broke the resolve lease"))
+            .expect("the break is narrated");
+
+        let op = crate::oplog::newest_undoable(repo, Some("broken")).expect("an op stands");
+        assert!(warning.contains(&format!("#{}", op.seq)), "{warning}");
+        assert!(
+            op.before.broke_lease.is_some(),
+            "the op records that a lease was broken"
+        );
+        assert_eq!(op.before.conflict.as_deref(), Some(chain_tip.as_str()));
+
+        assert!(
+            crate::resolve::read_conflict(repo, "broken").is_none(),
+            "the discard tore the chain down, as it always has"
+        );
+        crate::oplog::undo_in(repo, None).unwrap();
+        assert_eq!(
+            crate::resolve::read_conflict(repo, "broken").map(|c| c.tip),
+            Some(chain_tip),
+            "and undo puts the resolver's checkpoints back"
+        );
+    }
+
+    /// The same flag on the join: a chain whose resolver died, on a dash that
+    /// now merges cleanly because the base moved on without it.
+    #[serial]
+    #[test]
+    fn breaking_the_lease_lets_a_join_through() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "forced");
+        let repo = temp.path();
+        park_conflict(repo, "forced");
+        crate::resolve::mark_resolve_begun(repo, "forced").unwrap();
+
+        // The base takes its own edit back, so nothing is left to merge around
+        // — the chain is stale, but the lease reads the tip, not validity.
+        fs::write(repo.join("shared.txt"), "base\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "base backs its edit out"]).unwrap();
+        assert!(crate::resolve::resolve_lease(repo, "forced", SystemTime::now()).is_some());
+
+        let refused = join("forced", mechanics()).unwrap_err();
+        assert!(refused.contains("A resolve may still be running"), "{refused}");
+
+        let landed = join(
+            "forced",
+            JoinOptions {
+                break_lease: true,
+                ..mechanics()
+            },
+        )
+        .expect("the break lands the join");
+        assert!(landed.commit_hash.is_some());
+        assert!(
+            landed
+                .warnings
+                .iter()
+                .any(|w| w.contains("Broke the resolve lease")),
+            "{:?}",
+            landed.warnings
+        );
+    }
+
     #[serial]
     #[test]
     fn a_join_keeps_the_conflict_chain_alive_and_undo_puts_the_ref_back() {
@@ -8187,7 +8547,7 @@ Some context.
         park_conflict(repo, "tossed");
         let (chain_tip, _candidate) = resolve_parked_conflict(repo, "tossed");
 
-        discard("tossed", None).unwrap();
+        discard("tossed", None, false).unwrap();
         assert!(crate::resolve::read_conflict(repo, "tossed").is_none());
 
         crate::oplog::undo_in(repo, None).unwrap();
@@ -8462,7 +8822,7 @@ Some context.
         let (_temp, root) = repo_for_create(None);
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
         create("backandgone", None, None, true, None).unwrap();
-        discard("backandgone", None).unwrap();
+        discard("backandgone", None, false).unwrap();
         crate::oplog::undo_in(&root, None).unwrap();
         assert!(branch_exists(&root, "tugdash/backandgone"));
 
@@ -8552,7 +8912,7 @@ Some context.
         crate::oplog::undo_in(repo, None).unwrap();
 
         // A discard on the restored dash is newer work the redo would trample.
-        discard("busy", None).unwrap();
+        discard("busy", None, false).unwrap();
 
         let err = crate::oplog::redo_in(repo, Some("busy")).unwrap_err();
         assert!(err.starts_with("superseded:"), "{err}");
@@ -8697,7 +9057,7 @@ Some context.
         create("recorder", None, None, true, None).unwrap();
         let dash_tip = git_stdout(&root, &["rev-parse", "tugdash/recorder"]).unwrap();
 
-        discard("recorder", None).unwrap();
+        discard("recorder", None, false).unwrap();
 
         let op = crate::oplog::list_ops(&root)
             .into_iter()
@@ -9350,18 +9710,27 @@ Some context.
         let detail = dash_detail_entry_in(repo, "inflight").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
 
-        let unheld = join_blockers_from_detail(repo, &detail, &current, false);
+        let unheld = join_blockers_from_detail(repo, &detail, &current, None);
         assert!(
             unheld.iter().any(|b| b.kind == "stale-journal"),
             "a journal nobody holds is stale and must refuse: {:?}",
             unheld.iter().map(|b| &b.kind).collect::<Vec<_>>()
         );
 
-        let held = join_blockers_from_detail(repo, &detail, &current, true);
+        let held = join_blockers_from_detail(repo, &detail, &current, Some("join"));
         assert!(
             !held.iter().any(|b| b.kind == "stale-journal"),
             "a join holding the dash wrote that journal: {:?}",
             held.iter().map(|b| &b.kind).collect::<Vec<_>>()
+        );
+
+        // A *resolve* holder does not excuse it: it would be running over a
+        // crashed join's leavings, and the refusal is still right.
+        let resolving = join_blockers_from_detail(repo, &detail, &current, Some("resolve"));
+        assert!(
+            resolving.iter().any(|b| b.kind == "stale-journal"),
+            "{:?}",
+            resolving.iter().map(|b| &b.kind).collect::<Vec<_>>()
         );
         assert_eq!(
             held.iter().map(|b| &b.kind).collect::<Vec<_>>(),
@@ -9496,7 +9865,7 @@ Some context.
         let worktree = repo.join(".tug/worktrees/test-dash");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
 
-        let result = discard("test-dash", None);
+        let result = discard("test-dash", None, false);
         assert!(result.is_ok());
 
         assert!(!worktree.exists());
@@ -9518,7 +9887,7 @@ Some context.
         redirect_state_dir(&temp.path().join("state"));
         std::env::set_current_dir(repo).unwrap();
 
-        let result = discard("nonexistent", None);
+        let result = discard("nonexistent", None, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }
@@ -10109,7 +10478,7 @@ Some context.
         let composed = || {
             let detail = dash_detail_entry_in(repo, "kinds").expect("detail");
             let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
-            join_blockers_from_detail(repo, &detail, &current, false)
+            join_blockers_from_detail(repo, &detail, &current, None)
         };
         let same = |label: &str| {
             let a = composed();
@@ -10179,7 +10548,7 @@ Some context.
         let hollow_detail = dash_detail_entry_in(repo, "hollow").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
         assert_eq!(
-            join_blockers_from_detail(repo, &hollow_detail, &current, false)
+            join_blockers_from_detail(repo, &hollow_detail, &current, None)
                 .iter()
                 .map(|b| &b.kind)
                 .collect::<Vec<_>>(),

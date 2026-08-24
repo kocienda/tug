@@ -5196,6 +5196,10 @@ impl AgentSupervisor {
             continue_join: request.continue_join,
             candidate: request.candidate.clone(),
             origin: Some("card".to_string()),
+            // The card has no gesture for breaking a lease, and tugcast's own
+            // guard is exact: a card join that reaches the lease refusal is by
+            // definition a resolve in another process ([P04], [P05]).
+            break_lease: false,
         };
         // The join's own narration ([P03]). It takes real seconds and used to
         // say nothing for all of them — the press landed and the next word was
@@ -5889,7 +5893,7 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let dash = request.dash.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugdash_core::discard_in(&dir_owned, &dash, Some("card"))
+            tugdash_core::discard_in(&dir_owned, &dash, Some("card"), false)
         })
         .await;
 

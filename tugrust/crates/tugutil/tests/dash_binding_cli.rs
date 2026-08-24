@@ -206,6 +206,124 @@ fn a_join_broadcasts_dash_gone_with_the_key_captured_before_teardown() {
     );
 }
 
+/// Park a real conflict chain on `name` and mark a resolve begun on it, as a
+/// resolver in another process would have left it. Returns the marker commit.
+fn park_a_leased_conflict(root: &Path, name: &str) -> String {
+    let worktree = root.join(".tug/worktrees").join(name);
+    std::fs::write(worktree.join("a.txt"), "dash side\n").unwrap();
+    git(&worktree, &["commit", "-am", "the dash edits a"]);
+    std::fs::write(root.join("a.txt"), "base side\n").unwrap();
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-m", "the base edits a"]);
+
+    let outcome = tugdash_core::resolve::resolve_conflicts(root, name, None).unwrap();
+    assert!(
+        !outcome.unresolved.is_empty(),
+        "the fixture must actually conflict"
+    );
+    tugdash_core::resolve::mark_resolve_begun(root, name).expect("the begin marker lands")
+}
+
+fn conflict_tip(root: &Path, name: &str) -> Option<String> {
+    tugdash_core::resolve::read_conflict(root, name).map(|c| c.tip)
+}
+
+/// The lease reaches every CLI door: the preview names it, the join refuses on
+/// it, and `--break-lease` proceeds with a receipt the op log holds.
+#[test]
+fn dash_join_names_a_live_resolve_and_break_lease_lands_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+    let marker = park_a_leased_conflict(&root, "demo");
+
+    let mut preview = tug(&tmp_path);
+    preview.current_dir(&root);
+    preview.args(["dash", "join", "demo", "--preview", "--json"]);
+    let out = preview.output().unwrap();
+    assert!(out.status.success(), "a preview reports, never refuses");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let blockers = body["data"]["blockers"].as_array().expect("blockers");
+    assert!(
+        blockers.iter().any(|b| b["kind"] == "live-resolve"),
+        "{body}"
+    );
+
+    let mut refused = tug(&tmp_path);
+    refused.current_dir(&root);
+    refused.args(["dash", "join", "demo"]);
+    let out = refused.output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("A resolve may still be running"), "{stderr}");
+    assert_eq!(conflict_tip(&root, "demo").as_deref(), Some(marker.as_str()));
+
+    // The base takes its own edit back, so the dash merges cleanly; the chain
+    // is stale but the lease reads the tip, not validity.
+    std::fs::write(root.join("a.txt"), "base\n").unwrap();
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "the base backs its edit out"]);
+
+    let mut broke = tug(&tmp_path);
+    broke.current_dir(&root);
+    broke.args(["dash", "join", "demo", "--break-lease", "--json"]);
+    let out = broke.output().unwrap();
+    assert!(
+        out.status.success(),
+        "the break lands the join: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let warnings = body["data"]["warnings"].as_array().expect("warnings");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str().unwrap_or_default().contains("Broke the resolve lease")),
+        "{body}"
+    );
+
+    let mut list = tug(&tmp_path);
+    list.current_dir(&root);
+    list.args(["dash", "undo", "--list"]);
+    let out = list.output().unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("broke lease"), "{stdout}");
+}
+
+/// `--resolve` is the third cross-process door: the ladder would clear the
+/// chain outright, so it is refused before it runs ([P06]).
+#[test]
+fn dash_join_resolve_refuses_over_a_live_chain_and_leaves_it_standing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "demo");
+    let marker = park_a_leased_conflict(&root, "demo");
+
+    let mut resolve = tug(&tmp_path);
+    resolve.current_dir(&root);
+    resolve.args(["dash", "join", "demo", "--resolve"]);
+    let out = resolve.output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("A resolve may still be running"), "{stderr}");
+    assert!(stderr.contains("to resolve anyway"), "{stderr}");
+
+    assert_eq!(
+        conflict_tip(&root, "demo").as_deref(),
+        Some(marker.as_str()),
+        "the ladder never ran, so the resolver's chain is exactly as it was"
+    );
+    assert!(
+        tugdash_core::resolve::read_candidate(&root, "demo").is_none(),
+        "and no candidate was built over it"
+    );
+}
+
 /// `bind` names the calling session, so without one it fails with an
 /// actionable message rather than binding something arbitrary.
 #[test]

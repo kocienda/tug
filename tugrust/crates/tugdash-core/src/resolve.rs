@@ -35,13 +35,14 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tugutil_core::sanitize_branch_name;
 
 use crate::ops::{
     branch_exists, branch_name, commit_worktree_dirt, config_get, dash_base, git_output,
-    git_stdout, integrate_message, worktree_path,
+    git_stdout, integrate_message, main_repo_root, worktree_path,
 };
 use crate::replay::{ReplayWalk, ReplayedRounds};
 
@@ -2201,6 +2202,129 @@ pub fn clear_conflict(repo: &Path, name: &str) {
     let _ = git_output(repo, &["update-ref", "-d", &conflict_ref_name(name)]);
 }
 
+/// The subject prefix every resolver-authored commit on a chain wears — the
+/// begin and end markers, and each checkpoint the resolver writes between them.
+pub const RESOLVE_SUBJECT_PREFIX: &str = "tugresolve(";
+
+/// How long a resolver-authored chain tip stands as evidence that a resolve is
+/// still running.
+///
+/// This is the same number tugcast's resolver dies at: a resolve that has not
+/// advanced its chain in this long has either passed its own deadline or lost
+/// the process that was running it, so the window a second process trusts and
+/// the ceiling the resolver enforces on itself are one constant by
+/// construction.
+pub const RESOLVE_LEASE: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// A resolve that git says is still under way.
+#[derive(Debug, Clone)]
+pub struct ResolveLease {
+    /// The chain tip the lease was read from.
+    pub tip: String,
+    /// How long ago that tip was committed.
+    pub age: Duration,
+}
+
+/// The subject of a resolve marker at one of the chain's two lifecycle edges.
+fn resolve_marker_subject(name: &str, edge: &str) -> String {
+    format!("{RESOLVE_SUBJECT_PREFIX}{name}): {edge}")
+}
+
+/// Commit an empty-delta marker on the chain and advance the ref to it.
+///
+/// The commit carries the tip's own tree and the tip as its only parent, so
+/// `read_conflict`'s first-parent walk still reaches the root, `open_conflict`
+/// resets to the same bytes, and the salvage rung reads the same blobs. What
+/// changes is the subject, which is the whole point: the chain becomes the
+/// resolve's own operation log, readable by any process from git alone.
+fn append_marker(repo: &Path, name: &str, subject: &str) -> Result<String, String> {
+    let repo = &main_repo_root(repo);
+    let Some(chain) = read_conflict(repo, name) else {
+        return Ok(String::new());
+    };
+    let tree = format!("{}^{{tree}}", chain.tip);
+    let out = git_output(repo, &["commit-tree", &tree, "-p", &chain.tip, "-m", subject])?;
+    if !out.status.success() {
+        return Err(format!(
+            "resolve marker commit-tree failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    advance_conflict_ref(repo, name, &sha)?;
+    Ok(sha)
+}
+
+/// Mark a resolve as begun on `name`'s conflict chain.
+///
+/// A no-op when no chain stands — a resolve that opens on a candidate rather
+/// than a conflict has nothing to write on, and that is a shape, not a failure.
+pub fn mark_resolve_begun(repo: &Path, name: &str) -> Result<String, String> {
+    append_marker(repo, name, &resolve_marker_subject(name, "begin"))
+}
+
+/// Mark a resolve as ended on `name`'s conflict chain, releasing its lease.
+///
+/// Refuses to write over anything but a resolver's own tip: a chain the ladder
+/// parked with no resolver on it must never acquire an `end`, or the next
+/// reader would see a released lease where there was never one to release. The
+/// same guard makes a second call idempotent.
+pub fn mark_resolve_ended(repo: &Path, name: &str) -> Result<String, String> {
+    let repo_root = main_repo_root(repo);
+    let Some(chain) = read_conflict(&repo_root, name) else {
+        return Ok(String::new());
+    };
+    let subject = git_stdout(&repo_root, &["log", "-1", "--format=%s", &chain.tip])?;
+    let end = resolve_marker_subject(name, "end");
+    if !subject.starts_with(RESOLVE_SUBJECT_PREFIX) || subject == end {
+        return Ok(chain.tip);
+    }
+    append_marker(&repo_root, name, &end)
+}
+
+/// Whether a resolve is still working `name`, derived from git alone.
+///
+/// Four facts, all readable by any process with the repository: a chain stands;
+/// its tip is a resolver's own commit and not the end marker; no candidate has
+/// been anchored; and the tip is younger than [`RESOLVE_LEASE`].
+///
+/// **Read without the validity gate, deliberately.** `conflict_is_valid`
+/// answers *may this chain be opened* — a round landing on the dash mid-resolve
+/// invalidates the chain without stopping the resolver working in the workshop.
+/// The lease answers a different question: *is somebody working on it*.
+///
+/// A standing candidate releases the lease because anchoring one is the
+/// resolver's last act, and the ladder clears any candidate before parking a
+/// new root — so the pair only ever coexist after a resolve completed.
+///
+/// `now` is a parameter so a test can age a chain without sleeping.
+pub fn resolve_lease(repo: &Path, name: &str, now: SystemTime) -> Option<ResolveLease> {
+    let repo = &main_repo_root(repo);
+    let chain = read_conflict(repo, name)?;
+    let subject = git_stdout(repo, &["log", "-1", "--format=%s", &chain.tip]).ok()?;
+    if !subject.starts_with(RESOLVE_SUBJECT_PREFIX) {
+        return None;
+    }
+    if subject == resolve_marker_subject(name, "end") {
+        return None;
+    }
+    if read_candidate(repo, name).is_some() {
+        return None;
+    }
+    let secs: u64 = git_stdout(repo, &["log", "-1", "--format=%ct", &chain.tip])
+        .ok()?
+        .parse()
+        .ok()?;
+    // A committer time in the future yields a zero age — live, conservatively.
+    let age = now
+        .duration_since(UNIX_EPOCH + Duration::from_secs(secs))
+        .unwrap_or(Duration::ZERO);
+    (age < RESOLVE_LEASE).then_some(ResolveLease {
+        tip: chain.tip,
+        age,
+    })
+}
+
 /// Build the record for a partial ladder run.
 fn conflict_record(
     repo: &Path,
@@ -2418,6 +2542,138 @@ mod tests {
         let parents = git_stdout(repo, &["rev-list", "--parents", "-n", "1", &chain.root]).unwrap();
         assert!(parents.contains(&base_head), "{parents}");
         assert!(parents.contains(&dash_head), "{parents}");
+    }
+
+    // ---- the resolve lease ----
+
+    /// The ladder parks conflicts with no resolver present — the join pilot
+    /// does it unattended — so a bare root must never read as occupancy.
+    #[test]
+    fn a_parked_root_is_not_a_lease() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+
+        assert!(read_conflict(repo, "demo").is_some(), "a chain stands");
+        assert!(resolve_lease(repo, "demo", SystemTime::now()).is_none());
+    }
+
+    #[test]
+    fn a_begin_marker_leases_the_dash_until_it_ages_out() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        let marker = mark_resolve_begun(repo, "demo").unwrap();
+
+        let now = SystemTime::now();
+        let lease = resolve_lease(repo, "demo", now).expect("a resolve holds the dash");
+        assert_eq!(lease.tip, marker);
+        assert!(lease.age < Duration::from_secs(60), "{:?}", lease.age);
+
+        let later = now + RESOLVE_LEASE + Duration::from_secs(1);
+        assert!(
+            resolve_lease(repo, "demo", later).is_none(),
+            "past the window the lease is gone, however the resolve died"
+        );
+    }
+
+    #[test]
+    fn a_checkpoint_renews_the_lease() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        mark_resolve_begun(repo, "demo").unwrap();
+
+        let ws = crate::workshop::Workshop::open_conflict(repo, "demo").unwrap();
+        std::fs::write(ws.path().join("f.txt"), "settled\n").unwrap();
+        let checkpoint = ws
+            .checkpoint("tugresolve(demo): checkpoint")
+            .unwrap()
+            .expect("the edit is a checkpoint");
+
+        let lease = resolve_lease(repo, "demo", SystemTime::now()).expect("still live");
+        assert_eq!(lease.tip, checkpoint, "the lease reads the newest tip");
+    }
+
+    #[test]
+    fn an_end_marker_releases_the_lease() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        mark_resolve_begun(repo, "demo").unwrap();
+        let end = mark_resolve_ended(repo, "demo").unwrap();
+
+        assert!(resolve_lease(repo, "demo", SystemTime::now()).is_none());
+        assert_eq!(read_conflict(repo, "demo").unwrap().tip, end);
+
+        // Idempotent: a second end writes nothing.
+        assert_eq!(mark_resolve_ended(repo, "demo").unwrap(), end);
+        assert_eq!(read_conflict(repo, "demo").unwrap().tip, end);
+    }
+
+    /// A chain the ladder parked and no resolver ever opened must not acquire
+    /// an end marker — a released lease implies one was held.
+    #[test]
+    fn ending_a_resolve_nobody_began_writes_nothing() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        let root = read_conflict(repo, "demo").unwrap().tip;
+
+        assert_eq!(mark_resolve_ended(repo, "demo").unwrap(), root);
+        assert_eq!(read_conflict(repo, "demo").unwrap().tip, root);
+    }
+
+    #[test]
+    fn a_standing_candidate_releases_the_lease() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        mark_resolve_begun(repo, "demo").unwrap();
+        assert!(resolve_lease(repo, "demo", SystemTime::now()).is_some());
+
+        let dash_head = git_stdout(repo, &["rev-parse", "tugdash/demo"]).unwrap();
+        let candidate = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        anchor_candidate(repo, "demo", &candidate, &dash_head).unwrap();
+
+        assert!(
+            resolve_lease(repo, "demo", SystemTime::now()).is_none(),
+            "anchoring a candidate is the resolver's receipt of completion"
+        );
+    }
+
+    /// The markers are empty-delta by construction, so every reader that walks
+    /// the chain or reads its tip tree sees exactly what it saw before.
+    #[test]
+    fn markers_keep_the_tip_tree_and_the_root_reachable() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        let parked = read_conflict(repo, "demo").unwrap();
+        let tree = git_stdout(repo, &["rev-parse", &format!("{}^{{tree}}", parked.tip)]).unwrap();
+
+        mark_resolve_begun(repo, "demo").unwrap();
+        mark_resolve_ended(repo, "demo").unwrap();
+
+        let after = read_conflict(repo, "demo").unwrap();
+        assert_eq!(after.root, parked.root, "the root is still reachable");
+        assert_eq!(after.record.paths.len(), parked.record.paths.len());
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", &format!("{}^{{tree}}", after.tip)]).unwrap(),
+            tree,
+            "a marker changes the subject, never the bytes"
+        );
+    }
+
+    #[test]
+    fn marking_a_dash_with_no_chain_is_a_no_op() {
+        let temp = init(&[("f.txt", "dash\n", "dash edits f")]);
+        let repo = temp.path();
+
+        assert_eq!(mark_resolve_begun(repo, "demo").unwrap(), "");
+        assert_eq!(mark_resolve_ended(repo, "demo").unwrap(), "");
+        assert!(read_conflict(repo, "demo").is_none());
+        assert!(resolve_lease(repo, "demo", SystemTime::now()).is_none());
     }
 
     #[test]

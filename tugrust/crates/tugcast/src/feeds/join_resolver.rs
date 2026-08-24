@@ -682,7 +682,12 @@ pub const RESOLVER_TURN_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 /// one resolver turn plus one expired question is well inside it. This catches
 /// whatever the inner bounds cannot — and names, in the stuck fact, what the
 /// resolve was doing when it expired.
-pub const RESOLVE_DEADLINE: Duration = Duration::from_secs(2 * 60 * 60);
+///
+/// The same number is the lease window every process reads off the conflict
+/// chain: a resolve that has not advanced its chain in this long has either
+/// died here or lost the process running it, so a second process may take the
+/// dash. Defined once so the ceiling and the window cannot drift apart.
+pub const RESOLVE_DEADLINE: Duration = tugdash_core::resolve::RESOLVE_LEASE;
 
 /// What a turn that went silent is reported as.
 fn silent_turn(bound: Duration) -> String {
@@ -810,6 +815,21 @@ pub async fn finish_join(
                 read_phase(&phase),
             )),
         };
+
+    // The resolve is over by every path that reaches here — anchored, refused,
+    // errored, or past its deadline — so the lease it took on the chain is
+    // released here rather than at each exit. Without the marker a finished
+    // resolve would go on refusing a CLI join until the tip aged out.
+    {
+        let repo = ctx.repo.clone();
+        let dash = ctx.dash.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(e) = tugdash_core::resolve::mark_resolve_ended(&repo, &dash) {
+                tracing::warn!(dash = %dash, error = %e, "could not mark the resolve ended");
+            }
+        })
+        .await;
+    }
 
     // A failed resolve gives the tree back ([P07]). The account of what went
     // wrong is the durable stuck fact, which is where somebody will read it;
@@ -953,7 +973,10 @@ async fn checkpoint_turn(ctx: &ResolverContext) {
         let Ok(workshop) = tugdash_core::Workshop::open_existing(&repo, &dash) else {
             return;
         };
-        let message = format!("tugresolve({dash}): checkpoint");
+        let message = format!(
+            "{}{dash}): checkpoint",
+            tugdash_core::resolve::RESOLVE_SUBJECT_PREFIX
+        );
         let _ = workshop.checkpoint(&message);
     })
     .await;
@@ -1122,7 +1145,18 @@ async fn open_workshop(
                 // Something is still unresolved, so the ladder parked a
                 // conflict. Its tree already carries the rungs' own
                 // resolutions, so opening it is the whole of the setup.
-                Some(_) => tugdash_core::Workshop::open_conflict(&repo, &dash)?,
+                Some(_) => {
+                    let ws = tugdash_core::Workshop::open_conflict(&repo, &dash)?;
+                    // The chain is this resolve's own operation log, and the
+                    // begin marker is what makes "a resolver opened this at T"
+                    // a git fact a second process can read. Best-effort: a
+                    // marker that fails degrades the lease to the aged-out
+                    // case, never to a destroyed resolve.
+                    if let Err(e) = tugdash_core::resolve::mark_resolve_begun(&repo, &dash) {
+                        tracing::warn!(dash = %dash, error = %e, "could not mark the resolve begun");
+                    }
+                    ws
+                }
                 // No conflict stands, so the ladder settled every path and the
                 // tree to audit is the candidate it built. This arm is not an
                 // edge case: a squash the machines finish completely reaches
@@ -1555,6 +1589,20 @@ mod tests {
         temp
     }
 
+    /// The subject the dash's conflict chain tip wears right now.
+    fn chain_subject(repo: &Path) -> String {
+        let tip = tugdash_core::resolve::read_conflict(repo, "demo")
+            .expect("a chain stands")
+            .tip;
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["log", "-1", "--format=%s", &tip])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
     fn context(repo: &Path) -> ResolverContext {
         let (control_tx, _rx) = tokio::sync::broadcast::channel(64);
         ResolverContext {
@@ -1614,6 +1662,14 @@ mod tests {
             std::fs::read_to_string(repo.join("f.txt")).unwrap(),
             before_base,
             "the base checkout is untouched by a resolve"
+        );
+
+        // The resolve released its lease on the way out, so a CLI join beside
+        // this one is not refused by a resolve that has already finished.
+        assert_eq!(chain_subject(repo), "tugresolve(demo): end");
+        assert!(
+            tugdash_core::resolve::resolve_lease(repo, "demo", std::time::SystemTime::now())
+                .is_none()
         );
     }
 
@@ -1870,6 +1926,63 @@ mod tests {
                 tugdash_core::resolve::CandidateStatus::None
             ),
             "a refused resolve anchors no candidate"
+        );
+        // A refused resolve is still an exit, so its lease is released too.
+        assert_eq!(chain_subject(repo), "tugresolve(demo): end");
+        assert!(
+            tugdash_core::resolve::resolve_lease(repo, "demo", std::time::SystemTime::now())
+                .is_none()
+        );
+    }
+
+    /// While a resolver is working, any second process can read that fact off
+    /// the chain — which is the whole of the cross-process occupancy guard.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_resolve_in_flight_leases_its_chain() {
+        let temp = conflicted_repo("#!/bin/sh\nread -r _charter\n");
+        let repo = temp.path().to_path_buf();
+        let gate = repo.join("go");
+        // The stub holds its turn open until the test opens the gate, so the
+        // lease is observed while a resolver is genuinely mid-flight.
+        write_exec(
+            &repo.join("stub-resolver.sh"),
+            &format!(
+                "#!/bin/sh\nws=\"$1\"\nread -r _charter\nwhile [ ! -f '{}' ]; do sleep 0.05; done\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf '%s\\n' '{{\"files\":[{{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"both rewrote it\",\"reconciliation\":\"kept both\"}}],\"notes\":\"done\"}}'\n",
+                gate.display()
+            ),
+        );
+
+        let outcome = tugdash_core::resolve_conflicts(&repo, "demo", None).unwrap();
+        assert!(
+            tugdash_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
+                .is_none(),
+            "the ladder parked a conflict; nobody is working it yet"
+        );
+
+        let ctx = context(&repo);
+        let running = tokio::spawn(async move { finish_join(&ctx, &outcome).await });
+
+        let mut held = None;
+        for _ in 0..600 {
+            if let Some(lease) =
+                tugdash_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
+            {
+                held = Some(lease);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let lease = held.expect("the resolver's begin marker leases the chain");
+        assert_eq!(chain_subject(&repo), "tugresolve(demo): begin");
+        assert!(lease.age < Duration::from_secs(120), "{:?}", lease.age);
+
+        std::fs::write(&gate, "").unwrap();
+        running.await.unwrap().expect("the resolve runs");
+
+        assert!(
+            tugdash_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
+                .is_none(),
+            "the lease is released the moment the resolve is over"
         );
     }
 

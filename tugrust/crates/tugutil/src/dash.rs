@@ -45,7 +45,10 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             preview,
             continue_join,
             resolve,
-        } if resolve => run_join_resolve(&name, message, strategy.into(), json, quiet),
+            break_lease,
+        } if resolve => {
+            run_join_resolve(&name, message, strategy.into(), break_lease, json, quiet)
+        }
         DashCommands::Join {
             name,
             message,
@@ -53,6 +56,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             preview,
             continue_join,
             resolve: _,
+            break_lease,
         } => run_join(
             &name,
             JoinOptions {
@@ -62,6 +66,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
                 continue_join,
                 candidate: None,
                 origin: Some("cli".to_string()),
+                break_lease,
             },
             json,
             quiet,
@@ -73,7 +78,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         DashCommands::Redo { name, list } => {
             return run_redo(name.as_deref(), list, json, quiet);
         }
-        DashCommands::Discard { name } => run_discard(&name, json, quiet),
+        DashCommands::Discard { name, break_lease } => run_discard(&name, break_lease, json, quiet),
         DashCommands::Config => run_config(json, quiet),
         DashCommands::DocsDir { set } => run_docs_dir(set, json, quiet),
         DashCommands::List => run_list(json, quiet),
@@ -326,9 +331,25 @@ fn run_join_resolve(
     name: &str,
     message: Option<String>,
     strategy: JoinStrategy,
+    break_lease: bool,
     json: bool,
     quiet: bool,
 ) -> Result<(), String> {
+    // The third cross-process door, and the one a lease check inside the join
+    // would never see: the ladder clears the conflict chain on both its arms,
+    // so by the time `ops::join` runs there is nothing left to protect. The
+    // check belongs here rather than in the ladder itself — the ladder's other
+    // callers are the join pilot and the supervisor, both already holding the
+    // in-process guard, and a check in the core would wedge the pilot for the
+    // whole window after any resolver crash ([P06]).
+    let repo_root = tugutil_core::find_repo_root().map_err(|e| e.to_string())?;
+    if !break_lease
+        && let Some(lease) =
+            resolve::resolve_lease(&repo_root, name, std::time::SystemTime::now())
+    {
+        return Err(ops::live_resolve_detail(name, &lease, "resolve"));
+    }
+
     let outcome = resolve::resolve_conflicts_cwd(name, None)?;
 
     let Some(candidate) = outcome.candidate_commit.clone() else {
@@ -365,6 +386,10 @@ fn run_join_resolve(
             continue_join: false,
             candidate: Some(candidate),
             origin: Some("cli".to_string()),
+            // The ladder already replaced whatever chain stood here, so the
+            // join below sees no lease — carried anyway so the two halves of
+            // one gesture cannot disagree.
+            break_lease,
         },
     )?;
     if landed.conflicts.is_empty()
@@ -397,10 +422,10 @@ fn run_join_resolve(
     Ok(())
 }
 
-fn run_discard(name: &str, json: bool, quiet: bool) -> Result<(), String> {
+fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result<(), String> {
     // Captured before the teardown, for the reason `capture_owner_key` states.
     let captured = capture_owner_key(name);
-    let data = ops::discard(name, Some("cli"))?;
+    let data = ops::discard(name, Some("cli"), break_lease)?;
     if let Some((repo, owner_key)) = captured {
         broadcast_dash_gone(&repo, &owner_key);
     }
@@ -631,6 +656,15 @@ fn print_oplog(ops: &[tugdash_core::OpPayload]) {
             _ if op.is_redoable() => "redoable".to_string(),
             _ if op.is_undoable() => "undoable".to_string(),
             _ => "not undoable".to_string(),
+        };
+        // A broken resolve lease is part of what this operation *was*, so the
+        // list says so beside the state rather than leaving it to the payload.
+        let state = match op.before.broke_lease {
+            Some(secs) => format!(
+                "{state}, broke lease ({})",
+                ops::human_age(std::time::Duration::from_secs(secs))
+            ),
+            None => state,
         };
         println!(
             "  {:>4}  {:<8} {:<20} {}  ({})",

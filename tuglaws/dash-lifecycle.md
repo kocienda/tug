@@ -95,6 +95,35 @@ A discard's handed-back files are the one half no undo reverses: they were *copi
 
 Redo of a replay is a compare-and-swap on the branch and nothing else — no forward ledger reconcile. The plan ledger's commit cells are committed content *on the branch*, so moving the branch moves them, which is why undo does no ledger work either. A reconcile would also be actively wrong: it can land a bookkeeping commit that leaves the tip past the recorded one, so the next undo would refuse `tip-moved` against a world the redo itself created.
 
+## Occupancy — the lease
+
+A workshop has one worker. Inside tugcast that is exact: a process-global registry takes the dash before any run touches it, and a second one is refused by name — "a resolve is already running for this dash". The registry is in memory on purpose, because a tugcast restart is both the only event that orphans a run and the event that releases every hold.
+
+What it cannot see is a **second process**. `tugutil dash join`, `tugutil dash discard`, and `tugutil dash join --resolve` run the same core from a CLI, and each of them tears a workshop down. A resolver mid-turn in that workshop loses its checkout.
+
+So liveness is derived from git, where both processes can read it, and the thing it is derived from is the conflict chain the resolve already writes. The chain becomes the resolve's own operation log:
+
+```
+tugresolve(<dash>): end          ← the resolve exited; the lease is released
+tugresolve(<dash>): checkpoint   ← one per turn that changed the tree
+tugresolve(<dash>): begin        ← the resolver opened the workshop
+tugconflict(<dash>): …           ← the root the ladder parked, record in its body
+```
+
+The markers are empty-delta commits carrying the tip's own tree and the tip as their only parent, so every existing reader — `read_conflict`'s first-parent walk, `open_conflict`'s reset, the salvage rung's blob reads — sees exactly what it saw before. What changes is the subject, which is the whole point.
+
+`resolve_lease` is then a pure function of the tip, and it holds only when all four are true: a chain stands, its tip is a `tugresolve(` commit that is not the end marker, no candidate is anchored, and the tip is younger than `RESOLVE_LEASE`. Each of the four answers a case the others cannot. A bare `tugconflict(` root is a conflict the ladder parked with nobody on it — the join pilot does that unattended — so the root's age is never a lease. A standing candidate is the resolver's own receipt of completion, because anchoring one is its last act and the ladder clears any candidate before parking a new root; without it, a resolve that missed its end marker would refuse for the whole window. And the chain is read **without** the validity gate, for the same reason the keepalive is: a round landing on the dash mid-resolve invalidates the chain without stopping the resolver.
+
+**The window is not a new number.** `RESOLVE_LEASE` is tugcast's `RESOLVE_DEADLINE` — the ceiling the resolver already enforces on itself — and the two are one constant by definition. A resolve that has not advanced its chain in that long has either died at its own deadline or lost the process running it. Nothing writes on a timer, and nothing needs to: checkpoints are per turn, and the begin marker is what carries a resolve through a slow one or a resume onto a tip that is days old.
+
+The refusal is an ordinary named blocker, `live-resolve`, in the same vocabulary as `stale-journal`, `off-base`, `base-dirt`, and `empty` — so it reaches the card with no client change, and the preview lists it where the execute path returns it as its `Err`. Its sentence states the tip's age, the window, and **both** ways out: `--break-lease` for the CLI, and resolving again for the card, whose Resolve arm runs the ladder and starts a fresh chain. Naming only the flag would be a control that does nothing for half the people who read it.
+
+`--break-lease` is consent, not capability. The teardown it permits is the one the verb always performed; the op log's keepalive already parents the chain tip, so `tugutil dash undo` puts the resolver's checkpoints back either way. What the flag adds is a recorded decision — `broke_lease` in the operation's `before`, printed in `dash undo --list` — and a warning naming the op number that restores what was torn down. Never a silent destruction.
+
+The in-process registry stays as the fast path and is not weakened: every tugcast path takes it first, and a run it holds suppresses the lease blocker, because the exact answer beats the derived one wherever it exists. The lease is the backstop for the process that has no registry to ask. The model is jj's op-heads lock, which exists only to avoid duplicated work and never carries correctness — here too, a lease that is wrong costs one turn, and the op log is what makes that turn recoverable.
+
+The CLI's `join --resolve` is guarded at the CLI rather than inside the ladder. The ladder clears the chain on both its arms, so a check in `join` would fire long after the checkpoints were gone; and a check in the ladder's core would also refuse the join pilot for the whole window after any resolver crash, wedging the one actor whose job is to clear the wreckage.
+
 ## Joining — by reference
 
 A dash joins by `/dash-join <name>` into its base: a preview runs on entry, the squash message is edited in the composer, and the join is the human’s act. Skills draft; humans join.

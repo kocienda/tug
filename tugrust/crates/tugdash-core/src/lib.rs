@@ -52,8 +52,10 @@ pub use oplog::{
 };
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{
-    FileMergeRequest, FileMerger, FileResolution, JoinShape, ResolveOutcome, ResolvedBy,
-    resolve_conflicts, resolve_conflicts_cwd, resolve_intent, resolver_program,
+    FileMergeRequest, FileMerger, FileResolution, JoinShape, RESOLVE_LEASE,
+    RESOLVE_SUBJECT_PREFIX, ResolveLease, ResolveOutcome, ResolvedBy, mark_resolve_begun,
+    mark_resolve_ended, resolve_conflicts, resolve_conflicts_cwd, resolve_intent, resolve_lease,
+    resolver_program,
 };
 pub use verify::clear_verification;
 pub use workshop::{Workshop, workshop_branch, workshop_path};

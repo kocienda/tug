@@ -488,6 +488,11 @@ pub enum DashCommands {
         /// re-merge, and a structured-merge driver — then land the result.
         #[arg(long)]
         resolve: bool,
+        /// Proceed although the dash's conflict chain says a resolve may still
+        /// be running, tearing down whatever it had reached. The op log keeps
+        /// the resolver's checkpoints; `tugutil dash undo` restores them.
+        #[arg(long = "break-lease")]
+        break_lease: bool,
     },
     /// Move a dash's rounds onto its base branch's current tip.
     ///
@@ -505,6 +510,11 @@ pub enum DashCommands {
     Discard {
         /// Dash name.
         name: String,
+        /// Proceed although the dash's conflict chain says a resolve may still
+        /// be running, tearing down whatever it had reached. The op log keeps
+        /// the resolver's checkpoints; `tugutil dash undo` restores them.
+        #[arg(long = "break-lease")]
+        break_lease: bool,
     },
     /// Reverse the most recent join, replay, or discard.
     ///

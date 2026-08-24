@@ -127,6 +127,15 @@ pub struct OpBefore {
     /// and human turns — so they are exactly what a keepalive is for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict: Option<String>,
+    /// How old the conflict chain's tip was, in seconds, when this verb broke a
+    /// resolve lease to proceed — `None` when no lease stood or none was
+    /// broken.
+    ///
+    /// The teardown is recorded either way by `conflict` above; this records
+    /// that somebody was told a resolve might still be running and said go
+    /// anyway. Never a silent destruction ([L23]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broke_lease: Option<u64>,
 }
 
 /// The world as the verb left it.
@@ -333,6 +342,7 @@ pub fn capture_before(repo: &Path, name: &str) -> Result<OpBefore, String> {
         },
         candidate: crate::resolve::read_candidate(repo, name),
         conflict: crate::resolve::read_conflict(repo, name).map(|c| c.tip),
+        broke_lease: None,
     })
 }
 
@@ -626,6 +636,7 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
         config: OpConfig::default(),
         candidate: None,
         conflict: None,
+        broke_lease: None,
     });
     let tips = tips_of(&undo_before);
     let undo_seq = record_begin(repo, OpVerb::Undo, &name, undo_before, &tips)?;
@@ -800,6 +811,7 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
         config: OpConfig::default(),
         candidate: None,
         conflict: None,
+        broke_lease: None,
     });
     let tips = tips_of(&redo_before);
     let redo_seq = record_begin(repo, OpVerb::Redo, &name, redo_before, &tips)?;
@@ -1301,6 +1313,7 @@ mod tests {
             },
             candidate: None,
             conflict: None,
+            broke_lease: None,
         }
     }
 
