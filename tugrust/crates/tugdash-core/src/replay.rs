@@ -803,6 +803,53 @@ mod tests {
         assert_eq!(cells(&f), vec![round[..9].to_string()]);
     }
 
+    /// Redo of a replay lands the recorded tip **exactly**, and the next undo
+    /// still works.
+    ///
+    /// Both halves matter. `reconcile_ledger_cells` can land a bookkeeping
+    /// commit, so a redo that re-ran it forward would leave the branch one
+    /// commit past `after.dash_tip` — and the next undo's compare-and-swap
+    /// would refuse `tip-moved` against a world its own redo created. The cells
+    /// need no re-running anyway: they are committed content on the branch, so
+    /// they move when it does.
+    #[test]
+    #[serial]
+    fn redo_of_a_replay_lands_the_recorded_tip_exactly() {
+        let f = init(&[("g.txt", "dash\n", "add g")]);
+        let round = f.tip("tugdash/demo");
+        plan_with_cells(&f, &[("step-1", "One", &round[..9])]);
+        let pre_replay = f.tip("tugdash/demo");
+        f.advance_base("f.txt", "B\n", "base moves");
+        replay_onto(f.path(), "demo").unwrap();
+        let replayed = f.tip("tugdash/demo");
+        let replayed_cells = cells(&f);
+
+        crate::oplog::undo_in(f.path(), Some("demo")).unwrap();
+        assert_eq!(f.tip("tugdash/demo"), pre_replay);
+
+        let out = crate::oplog::redo_in(f.path(), Some("demo")).unwrap();
+
+        assert_eq!(out.verb, crate::oplog::OpVerb::Replay);
+        assert_eq!(
+            f.tip("tugdash/demo"),
+            replayed,
+            "exactly the recorded tip — no bookkeeping commit past it"
+        );
+        assert_eq!(
+            cells(&f),
+            replayed_cells,
+            "and the ledger cells rode the branch back"
+        );
+
+        // The undo that follows must still find a world it recognises.
+        crate::oplog::undo_in(f.path(), Some("demo")).unwrap();
+        assert_eq!(
+            f.tip("tugdash/demo"),
+            pre_replay,
+            "a following undo still succeeds rather than refusing tip-moved"
+        );
+    }
+
     #[test]
     #[serial]
     fn undo_of_a_replay_refuses_when_a_round_landed_since() {

@@ -46,7 +46,10 @@ pub use ops::{
     join_in_flight, join_in_with_progress, join_preflight_in, list, mark, show, status, status_in,
     step_done, step_start,
 };
-pub use oplog::{OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, UndoOutcome, list_ops, undo_in};
+pub use oplog::{
+    OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome, UndoOutcome, list_ops, redo_in,
+    undo_in,
+};
 pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
 pub use resolve::{
     FileMergeRequest, FileMerger, FileResolution, JoinShape, ResolveOutcome, ResolvedBy,

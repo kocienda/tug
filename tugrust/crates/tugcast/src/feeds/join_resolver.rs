@@ -1300,6 +1300,7 @@ mod tests {
         let rung_resolved = vec![
             ("src/a.rs".to_string(), ResolvedBy::Rerere),
             ("src/b.rs".to_string(), ResolvedBy::Driver),
+            ("src/d.rs".to_string(), ResolvedBy::Salvage),
         ];
         let charter = compose_charter(&CharterInputs {
             intent: "Round subjects:\nteach the parser about tabs",
@@ -1316,6 +1317,10 @@ mod tests {
         assert!(charter.contains("`src/c.rs`"));
         assert!(charter.contains("`src/a.rs` — resolved by the rerere rung"));
         assert!(charter.contains("`src/b.rs` — resolved by the driver rung"));
+        // A new rung reaches the charter with no edit here: the line is
+        // rendered from `ResolvedBy::as_str`, so there is no rung-to-prose map
+        // to keep in step and no way for one to fall behind.
+        assert!(charter.contains("`src/d.rs` — resolved by the salvage rung"));
         // The fixed contract is present and unmodified.
         assert!(charter.starts_with(RESOLVER_CHARTER));
     }

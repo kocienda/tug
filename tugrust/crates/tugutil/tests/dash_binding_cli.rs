@@ -283,3 +283,64 @@ fn dash_bind_and_unbind_post_to_the_instance_and_emit_envelopes() {
     assert_eq!(body["op"], "unbind");
     assert_eq!(body["tug_session_id"], "sess-1");
 }
+
+/// The undo/redo pair driven end to end through the CLI: a redo re-applies the
+/// join, a second one has nothing left, and `--list` reports the log the same
+/// way whichever verb asks for it.
+#[test]
+fn dash_redo_reverses_an_undo_and_then_says_there_is_nothing_left() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_dash(&root, "cli");
+
+    let run = |args: &[&str]| {
+        let mut cmd = tug(&tmp_path);
+        cmd.current_dir(&root);
+        cmd.args(args);
+        cmd.output().unwrap()
+    };
+
+    assert!(run(&["dash", "join", "cli"]).status.success());
+    let landed = git_stdout(&root, &["rev-parse", "main"]);
+    assert!(run(&["dash", "undo"]).status.success());
+    assert_ne!(git_stdout(&root, &["rev-parse", "main"]), landed);
+
+    let redo = run(&["dash", "redo"]);
+    assert!(
+        redo.status.success(),
+        "redo failed: {}",
+        String::from_utf8_lossy(&redo.stderr)
+    );
+    assert_eq!(
+        git_stdout(&root, &["rev-parse", "main"]),
+        landed,
+        "the redo re-landed the join"
+    );
+    assert!(String::from_utf8_lossy(&redo.stdout).contains("Redid the join"));
+
+    // Nothing is left to redo, and the refusal says which state this is.
+    let again = run(&["dash", "redo"]);
+    assert!(!again.status.success(), "a second redo must exit non-zero");
+    let err = String::from_utf8_lossy(&again.stderr).to_string();
+    assert!(
+        err.contains("already-redone") || err.contains("nothing-to-redo"),
+        "{err}"
+    );
+
+    // One printer, two flags: the log reads identically from either verb.
+    let via_undo = run(&["dash", "undo", "--list"]);
+    let via_redo = run(&["dash", "redo", "--list"]);
+    assert!(via_undo.status.success() && via_redo.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&via_undo.stdout),
+        String::from_utf8_lossy(&via_redo.stdout),
+        "`undo --list` and `redo --list` are the same question"
+    );
+    assert!(
+        String::from_utf8_lossy(&via_undo.stdout).contains("redo"),
+        "and the redo operation is in it: {}",
+        String::from_utf8_lossy(&via_undo.stdout)
+    );
+}

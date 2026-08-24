@@ -519,6 +519,21 @@ pub enum DashCommands {
         #[arg(long)]
         list: bool,
     },
+    /// Re-apply the operation the most recent undo reversed.
+    ///
+    /// Undo's partner, with the same compare-and-swap discipline: it verifies
+    /// the world still matches what the undo left and refuses by name —
+    /// `nothing-to-redo`, `superseded`, `tip-moved`, `worktree-dirty` — rather
+    /// than forcing. Redoing an undo makes the original undoable again, so
+    /// `undo, redo, undo` toggles one operation instead of descending through
+    /// bookkeeping records.
+    Redo {
+        /// Dash name; without one, the newest undo on any dash.
+        name: Option<String>,
+        /// Print the operation log and exit, changing nothing.
+        #[arg(long)]
+        list: bool,
+    },
     /// Report the project's `[tugtool.dash]` declarations.
     ///
     /// One reader for the seam a project uses to say how its own tree is

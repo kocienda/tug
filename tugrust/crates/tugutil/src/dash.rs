@@ -70,6 +70,9 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         DashCommands::Undo { name, list } => {
             return run_undo(name.as_deref(), list, json, quiet);
         }
+        DashCommands::Redo { name, list } => {
+            return run_redo(name.as_deref(), list, json, quiet);
+        }
         DashCommands::Discard { name } => run_discard(&name, json, quiet),
         DashCommands::Config => run_config(json, quiet),
         DashCommands::DocsDir { set } => run_docs_dir(set, json, quiet),
@@ -618,9 +621,14 @@ fn print_oplog(ops: &[tugdash_core::OpPayload]) {
         // difference is what a reader acts on. The undoable case asks
         // `is_undoable` rather than re-deriving it, so the list cannot promise
         // an undo the verb would then decline.
+        //
+        // An undo that nothing has reversed reads `redoable`, asking
+        // `is_redoable` for the same reason: one predicate decides, and the
+        // list reports what it says.
         let state = match (&op.after, op.undone_by) {
             (_, Some(by)) => format!("undone by {}", by),
             (None, _) => "incomplete".to_string(),
+            _ if op.is_redoable() => "redoable".to_string(),
             _ if op.is_undoable() => "undoable".to_string(),
             _ => "not undoable".to_string(),
         };
@@ -632,6 +640,69 @@ fn print_oplog(ops: &[tugdash_core::OpPayload]) {
             op.recorded_at,
             state
         );
+    }
+}
+
+fn run_redo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
+    let repo = match tugutil_core::find_repo_root() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+
+    // One printer, two flags: `undo --list` and `redo --list` are the same
+    // question about the same log, and two spellings of it would drift.
+    if list {
+        let ops: Vec<_> = tugdash_core::list_ops(&repo)
+            .into_iter()
+            .filter(|op| name.is_none_or(|n| op.dash == n))
+            .collect();
+        if json {
+            print_ok("dash redo", &ops);
+        } else if !quiet {
+            print_oplog(&ops);
+        }
+        return ExitCode::from(0);
+    }
+
+    let outcome = match tugdash_core::redo_in(&repo, name) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+    if json {
+        print_ok("dash redo", &outcome);
+    } else if !quiet {
+        print_redo(&outcome);
+    }
+    ExitCode::from(0)
+}
+
+fn print_redo(outcome: &tugdash_core::RedoOutcome) {
+    println!(
+        "Redid the {} of {} (operation {})",
+        outcome.verb.as_str(),
+        outcome.dash,
+        outcome.original_seq
+    );
+    if let Some(base) = &outcome.base_tip {
+        println!("  base back at {}", short(base));
+    }
+    if let Some(tip) = &outcome.dash_tip {
+        println!("  {} at {}", outcome.dash, short(tip));
+    }
+    if !outcome.handed_back_left_in_place.is_empty() {
+        println!(
+            "  left in the base checkout (handed back by the original discard): {}",
+            outcome.handed_back_left_in_place.join(", ")
+        );
+    }
+    for w in &outcome.warnings {
+        println!("  warning: {}", w);
     }
 }
 

@@ -62,6 +62,7 @@ pub enum OpVerb {
     Replay,
     Discard,
     Undo,
+    Redo,
 }
 
 impl OpVerb {
@@ -71,7 +72,19 @@ impl OpVerb {
             OpVerb::Replay => "replay",
             OpVerb::Discard => "discard",
             OpVerb::Undo => "undo",
+            OpVerb::Redo => "redo",
         }
+    }
+
+    /// Whether this verb is bookkeeping over another operation rather than work
+    /// of its own.
+    ///
+    /// The one spelling of the rule. It used to live twice — in
+    /// [`OpPayload::is_undoable`] and again as a hand-written filter in
+    /// [`undo_in`] — and two copies of a rule is how a redo record becomes an
+    /// undo candidate.
+    pub fn is_reversal(self) -> bool {
+        matches!(self, OpVerb::Undo | OpVerb::Redo)
     }
 }
 
@@ -104,6 +117,16 @@ pub struct OpBefore {
     pub config: OpConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate: Option<String>,
+    /// The tip of `refs/tug/conflict/<name>` at capture, read **without** the
+    /// validity gate.
+    ///
+    /// Validity answers "may this chain be opened?"; the keepalive answers
+    /// "may this work be collected?", and the second question has the broader
+    /// yes. An invalidated chain still holds every checkpoint a resolver
+    /// committed, and those are the most expensive commits in the system — AI
+    /// and human turns — so they are exactly what a keepalive is for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<String>,
 }
 
 /// The world as the verb left it.
@@ -147,6 +170,13 @@ pub struct OpPayload {
     /// The sequence number of the undo that reversed this operation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undone_by: Option<u64>,
+    /// Which operation this one reverses — set on an Undo (the operation it
+    /// undid) and on a Redo (the undo it reversed).
+    ///
+    /// The pairing stated in the record rather than derived by searching
+    /// `undone_by` backlinks, so a redo can find its original directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reverses: Option<u64>,
 }
 
 fn payload_version() -> u32 {
@@ -165,7 +195,20 @@ impl OpPayload {
     /// join or replay underneath, so a second press reports `already-undone`
     /// about the real operation instead of complaining about the undo.
     pub fn is_undoable(&self) -> bool {
-        self.after.is_some() && self.undone_by.is_none() && self.verb != OpVerb::Undo
+        self.after.is_some() && self.undone_by.is_none() && !self.verb.is_reversal()
+    }
+
+    /// Whether this operation is a candidate for [`redo_in`]: it is an undo
+    /// that finished and that nothing has itself reversed.
+    ///
+    /// **Only an undo is redoable, and that is what keeps the stack flat.**
+    /// Undoing an undo would build a linked list somebody has to walk;
+    /// *redoing* one restores exactly what that undo took away and clears the
+    /// original's `undone_by`, so the original becomes undoable again. A second
+    /// `undo` press then means the original once more, and `undo, redo, undo`
+    /// toggles one operation rather than descending through bookkeeping.
+    pub fn is_redoable(&self) -> bool {
+        self.after.is_some() && self.undone_by.is_none() && self.verb == OpVerb::Undo
     }
 }
 
@@ -289,15 +332,19 @@ pub fn capture_before(repo: &Path, name: &str) -> Result<OpBefore, String> {
             plan: config_get(repo, &plan_config_key(name)),
         },
         candidate: crate::resolve::read_candidate(repo, name),
+        conflict: crate::resolve::read_conflict(repo, name).map(|c| c.tip),
     })
 }
 
-/// The tips a verb's keepalive must hold: the dash head, the base tip, and a
-/// standing candidate.
+/// The tips a verb's keepalive must hold: the dash head, the base tip, a
+/// standing candidate, and the conflict chain.
 pub(crate) fn tips_of(before: &OpBefore) -> Vec<String> {
     let mut tips = vec![before.dash_tip.clone(), before.base_tip.clone()];
     if let Some(candidate) = &before.candidate {
         tips.push(candidate.clone());
+    }
+    if let Some(conflict) = &before.conflict {
+        tips.push(conflict.clone());
     }
     tips.retain(|t| !t.is_empty());
     tips
@@ -351,6 +398,7 @@ pub fn record_begin(
             before,
             after: None,
             undone_by: None,
+            reverses: None,
         };
         write_payload(repo, &payload)?;
         prune(repo);
@@ -370,10 +418,18 @@ pub fn record_complete(repo: &Path, seq: u64, after: OpAfter) -> Result<(), Stri
 }
 
 /// Mark `seq` as reversed by the undo operation `by`.
-pub fn record_undone_by(repo: &Path, seq: u64, by: u64) -> Result<(), String> {
+pub fn record_undone_by(repo: &Path, seq: u64, by: Option<u64>) -> Result<(), String> {
     let mut payload =
         read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to mark undone"))?;
-    payload.undone_by = Some(by);
+    payload.undone_by = by;
+    write_payload(repo, &payload)
+}
+
+/// Record which operation `seq` reverses.
+pub fn record_reverses(repo: &Path, seq: u64, reverses: u64) -> Result<(), String> {
+    let mut payload =
+        read_op(repo, seq).ok_or_else(|| format!("oplog: no operation {seq} to pair"))?;
+    payload.reverses = Some(reverses);
     write_payload(repo, &payload)
 }
 
@@ -510,12 +566,14 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
     let repo = crate::ops::main_repo_root(repo);
     let repo = repo.as_path();
 
-    // Undo records are skipped wholesale, not refused: the operation a second
-    // press means is the join or replay beneath them ([`OpPayload::is_undoable`]).
+    // Reversal records — undos and redos — are skipped wholesale, not refused:
+    // the operation a second press means is the join or replay beneath them
+    // ([`OpPayload::is_undoable`]). The verb test is asked once, of
+    // `OpVerb::is_reversal`, rather than spelled out again here.
     let candidates: Vec<OpPayload> = list_ops(repo)
         .into_iter()
         .filter(|op| dash.is_none_or(|d| op.dash == d))
-        .filter(|op| op.verb != OpVerb::Undo)
+        .filter(|op| !op.verb.is_reversal())
         .collect();
 
     let op = match candidates.iter().find(|op| op.is_undoable()) {
@@ -567,6 +625,7 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
         worktree: op.before.worktree.clone(),
         config: OpConfig::default(),
         candidate: None,
+        conflict: None,
     });
     let tips = tips_of(&undo_before);
     let undo_seq = record_begin(repo, OpVerb::Undo, &name, undo_before, &tips)?;
@@ -575,7 +634,9 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
         OpVerb::Join => undo_join(repo, &op, &after, &mut warnings),
         OpVerb::Replay => undo_replay(&op, &after),
         OpVerb::Discard => undo_discard(repo, &op, &mut warnings),
-        OpVerb::Undo => unreachable!("undo records are filtered out of the candidates"),
+        OpVerb::Undo | OpVerb::Redo => {
+            unreachable!("reversal records are filtered out of the candidates")
+        }
     };
 
     let (dash_tip, base_tip) = match outcome {
@@ -596,7 +657,8 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
             ..Default::default()
         },
     )?;
-    record_undone_by(repo, op.seq, undo_seq)?;
+    record_undone_by(repo, op.seq, Some(undo_seq))?;
+    record_reverses(repo, undo_seq, op.seq)?;
 
     let _ = crate::dash::append_dash_log(
         repo,
@@ -616,6 +678,357 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
         restored_unbound: matches!(op.verb, OpVerb::Join | OpVerb::Discard),
         warnings,
     })
+}
+
+/// What a redo did.
+#[derive(Debug, Clone, Serialize)]
+pub struct RedoOutcome {
+    /// The undo that was reversed.
+    pub seq: u64,
+    /// The original operation the undo had reversed, and this redo re-applied.
+    pub original_seq: u64,
+    /// The original operation's verb — what was re-applied.
+    pub verb: OpVerb,
+    pub dash: String,
+    /// The sequence number this redo was itself recorded under.
+    pub recorded_as: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dash_tip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_tip: Option<String>,
+    /// Paths the original discard copied into the base checkout, which a redo
+    /// does not re-copy or remove — named for the same reason undo names them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub handed_back_left_in_place: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// Re-apply the operation the most recent undo reversed.
+///
+/// **Redo is always materially possible while the undo's record stands**, and
+/// the reason is worth stating because it is what makes the refusals below
+/// about consent rather than capability: an undo records itself *before* it
+/// acts, so its own keepalive parents the original operation's after-tips. The
+/// landed join commit survives its own undo because the undo recorded it.
+///
+/// Every re-application is a compare-and-swap against the recorded tips, with
+/// the same refusal vocabulary undo established. Nothing forces.
+pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
+    let repo = crate::ops::main_repo_root(repo);
+    let repo = repo.as_path();
+
+    let all = list_ops(repo);
+    let candidates: Vec<&OpPayload> = all
+        .iter()
+        .filter(|op| dash.is_none_or(|d| op.dash == d))
+        .collect();
+
+    let undo = match candidates.iter().find(|op| op.is_redoable()) {
+        Some(op) => (*op).clone(),
+        None => {
+            // The same three-state care `undo_in` takes: an undo already
+            // redone and one that died mid-flight are different facts.
+            if let Some(op) = candidates.iter().find(|op| op.verb == OpVerb::Undo) {
+                if let Some(by) = op.undone_by {
+                    return Err(format!(
+                        "already-redone: undo {} (of '{}') was reversed by operation {by}",
+                        op.seq, op.dash
+                    ));
+                }
+                if op.after.is_none() {
+                    return Err(format!(
+                        "incomplete-op: undo {} (of '{}') never finished, so what it changed is \
+                         unknown; it cannot be redone automatically",
+                        op.seq, op.dash
+                    ));
+                }
+            }
+            return Err(match dash {
+                Some(d) => format!("nothing-to-redo: no undo is recorded for '{d}'"),
+                None => "nothing-to-redo: no undo is recorded".to_string(),
+            });
+        }
+    };
+
+    // The operation the undo reversed, named by the record. The backlink search
+    // is the fallback for payloads written before `reverses` existed.
+    let original = undo
+        .reverses
+        .and_then(|seq| all.iter().find(|op| op.seq == seq))
+        .or_else(|| all.iter().find(|op| op.undone_by == Some(undo.seq)))
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "incomplete-op: undo {} does not name the operation it reversed",
+                undo.seq
+            )
+        })?;
+    let original_after = original.after.clone().ok_or_else(|| {
+        format!(
+            "incomplete-op: operation {} never recorded what it did",
+            original.seq
+        )
+    })?;
+
+    // **`superseded` is the legible guard, not the load-bearing one.** It
+    // catches the common shape — the dash was worked on after the undo — while
+    // the per-verb compare-and-swap below covers what a per-dash scan cannot,
+    // such as another dash landing on the same base in the meantime.
+    if let Some(newer) = all
+        .iter()
+        .find(|op| op.dash == original.dash && op.seq > undo.seq && !op.verb.is_reversal())
+    {
+        return Err(format!(
+            "superseded: operation {} ({} of '{}') has run since the undo, so re-applying it \
+             would trample newer work",
+            newer.seq,
+            newer.verb.as_str(),
+            newer.dash
+        ));
+    }
+
+    let mut warnings = Vec::new();
+    let name = original.dash.clone();
+
+    let redo_before = capture_before(repo, &name).unwrap_or(OpBefore {
+        base_branch: original.before.base_branch.clone(),
+        base_tip: git_stdout(repo, &["rev-parse", &original.before.base_branch])
+            .unwrap_or_default(),
+        dash_tip: String::new(),
+        worktree: original.before.worktree.clone(),
+        config: OpConfig::default(),
+        candidate: None,
+        conflict: None,
+    });
+    let tips = tips_of(&redo_before);
+    let redo_seq = record_begin(repo, OpVerb::Redo, &name, redo_before, &tips)?;
+
+    let outcome = match original.verb {
+        OpVerb::Join => redo_join(repo, &original, &original_after, &mut warnings),
+        OpVerb::Replay => redo_replay(&original, &original_after),
+        OpVerb::Discard => redo_discard(repo, &original, &mut warnings),
+        OpVerb::Undo | OpVerb::Redo => {
+            unreachable!("a reversal is never the operation an undo reversed")
+        }
+    };
+
+    let (dash_tip, base_tip) = match outcome {
+        Ok(pair) => pair,
+        Err(e) => {
+            abandon(repo, redo_seq);
+            return Err(e);
+        }
+    };
+
+    record_complete(
+        repo,
+        redo_seq,
+        OpAfter {
+            base_tip: base_tip.clone(),
+            dash_tip: dash_tip.clone(),
+            ..Default::default()
+        },
+    )?;
+    record_reverses(repo, redo_seq, undo.seq)?;
+    // The undo is now itself reversed, and the original is undoable again —
+    // which is what makes a following `undo` press mean the original rather
+    // than descending into bookkeeping.
+    record_undone_by(repo, undo.seq, Some(redo_seq))?;
+    record_undone_by(repo, original.seq, None)?;
+
+    let _ = crate::dash::append_dash_log(
+        repo,
+        &name,
+        "redone",
+        &format!(
+            "re-applied {} (operation {})",
+            original.verb.as_str(),
+            original.seq
+        ),
+    );
+
+    Ok(RedoOutcome {
+        seq: undo.seq,
+        original_seq: original.seq,
+        verb: original.verb,
+        dash: name,
+        recorded_as: redo_seq,
+        dash_tip,
+        base_tip,
+        handed_back_left_in_place: original_after.handed_back.clone(),
+        warnings,
+    })
+}
+
+/// Refuse rather than delete over uncommitted work in a dash the undo gave
+/// back.
+///
+/// `discard` hands such work to the base checkout instead of refusing, but that
+/// is a teardown the user asked for while looking at it. A redo is an
+/// undo-of-an-undo, where a surprise costs more than a second gesture — and
+/// moving somebody's files as a side effect of bookkeeping is what this engine
+/// does not do.
+fn refuse_dirty_worktree(op: &OpPayload) -> Result<(), String> {
+    let worktree = PathBuf::from(&op.before.worktree);
+    if !worktree.exists() {
+        return Ok(());
+    }
+    let dirt = git_stdout(&worktree, &["status", "--porcelain"]).unwrap_or_default();
+    let paths: Vec<&str> = dirt
+        .lines()
+        .filter_map(|l| l.get(3..))
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if paths.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "worktree-dirty: '{}' has uncommitted work in {}; redoing would delete it, so commit or \
+         discard those changes first",
+        op.before.worktree,
+        paths.join(", ")
+    ))
+}
+
+/// Re-land the join: move the base back to what it landed, then tear the dash
+/// down again.
+fn redo_join(
+    repo: &Path,
+    op: &OpPayload,
+    after: &OpAfter,
+    warnings: &mut Vec<String>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let base_branch = &op.before.base_branch;
+    let landed = after
+        .base_tip
+        .as_deref()
+        .ok_or("incomplete-op: the join recorded no resulting base tip")?;
+
+    // The world must still look like what the undo left.
+    let current = git_stdout(repo, &["rev-parse", base_branch])?;
+    if current != op.before.base_tip {
+        return Err(format!(
+            "tip-moved: '{base_branch}' is at {} but the undo left it at {}; something has landed \
+             since, so re-applying the join would destroy it",
+            &current[..current.len().min(9)],
+            &op.before.base_tip[..op.before.base_tip.len().min(9)]
+        ));
+    }
+    let branch = crate::ops::branch_name(&op.dash);
+    if crate::ops::branch_exists(repo, &branch) {
+        let dash_now = git_stdout(repo, &["rev-parse", &branch])?;
+        if dash_now != op.before.dash_tip {
+            return Err(format!(
+                "tip-moved: '{branch}' is at {} but the join consumed {}; the dash has moved since \
+                 the undo restored it",
+                &dash_now[..dash_now.len().min(9)],
+                &op.before.dash_tip[..op.before.dash_tip.len().min(9)]
+            ));
+        }
+    }
+    refuse_dirty_worktree(op)?;
+
+    // `--keep` for the same reason the undo uses it: it refuses over tracked
+    // changes rather than discarding them.
+    let reset = git_output(repo, &["reset", "--keep", landed])?;
+    if !reset.status.success() {
+        return Err(format!(
+            "base-dirty: git refused to move '{base_branch}' forward: {}",
+            String::from_utf8_lossy(&reset.stderr).trim()
+        ));
+    }
+
+    teardown_dash(repo, op, warnings);
+    Ok((None, Some(landed.to_string())))
+}
+
+/// Re-apply the replay: move the dash branch forward to the tip it left.
+///
+/// **A compare-and-swap and nothing else.** In particular no ledger reconcile:
+/// the plan's commit cells are committed content on the branch, so moving the
+/// branch moves them — which is why `undo_replay` does no ledger work either,
+/// and the two directions stay symmetric. A forward reconcile would be worse
+/// than redundant, because it can land a bookkeeping commit that leaves the tip
+/// *past* the recorded one and makes the next undo's CAS refuse `tip-moved`.
+fn redo_replay(
+    op: &OpPayload,
+    after: &OpAfter,
+) -> Result<(Option<String>, Option<String>), String> {
+    let worktree = PathBuf::from(&op.before.worktree);
+    if !worktree.exists() {
+        return Err(format!(
+            "no-worktree: '{}' is gone, and the branch move happens from inside it",
+            op.before.worktree
+        ));
+    }
+    let target = after
+        .dash_tip
+        .as_deref()
+        .ok_or("incomplete-op: the replay recorded no resulting dash tip")?;
+
+    match crate::replay::cas_reset(&worktree, &op.before.dash_tip, target)? {
+        None => Ok((Some(target.to_string()), None)),
+        Some(crate::replay::ReplayOutcome::Deferred { reason, detail }) => {
+            Err(format!("{reason}: {detail}"))
+        }
+        Some(other) => Err(format!("the branch could not be moved forward: {other:?}")),
+    }
+}
+
+/// Re-apply the discard: take the dash back down.
+///
+/// The hand-back is **not** repeated. Those files were copied into the base
+/// checkout by the original discard and are still there; copying them again, or
+/// pulling them back out, are both things this engine does not do to somebody's
+/// checkout. The outcome names them instead.
+fn redo_discard(
+    repo: &Path,
+    op: &OpPayload,
+    warnings: &mut Vec<String>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let branch = crate::ops::branch_name(&op.dash);
+    if crate::ops::branch_exists(repo, &branch) {
+        let dash_now = git_stdout(repo, &["rev-parse", &branch])?;
+        if dash_now != op.before.dash_tip {
+            return Err(format!(
+                "tip-moved: '{branch}' is at {} but the discard removed {}; the dash has moved \
+                 since the undo restored it",
+                &dash_now[..dash_now.len().min(9)],
+                &op.before.dash_tip[..op.before.dash_tip.len().min(9)]
+            ));
+        }
+    }
+    refuse_dirty_worktree(op)?;
+    teardown_dash(repo, op, warnings);
+    Ok((None, None))
+}
+
+/// Remove the worktree, the branch, and the branch-config facts — the teardown
+/// both join and discard perform, re-performed.
+fn teardown_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
+    let worktree = PathBuf::from(&op.before.worktree);
+    if worktree.exists() {
+        let out = git_output(
+            repo,
+            &["worktree", "remove", "--force", &op.before.worktree],
+        );
+        if !out.as_ref().is_ok_and(|o| o.status.success()) {
+            warnings.push(format!(
+                "The worktree at {} could not be removed; the branch was still taken down.",
+                op.before.worktree
+            ));
+        }
+    }
+    let branch = crate::ops::branch_name(&op.dash);
+    if crate::ops::branch_exists(repo, &branch) {
+        let out = git_output(repo, &["branch", "-D", &branch]);
+        if !out.as_ref().is_ok_and(|o| o.status.success()) {
+            warnings.push(format!("The branch '{branch}' could not be removed."));
+        }
+    }
+    crate::resolve::clear_candidate(repo, &op.dash);
 }
 
 /// Put the base branch back, then rebuild the dash the join tore down.
@@ -660,13 +1073,58 @@ fn undo_join(
     }
 
     restore_dash(repo, op, warnings)?;
+    restore_conflict_ref(repo, op, warnings);
     Ok((
         Some(op.before.dash_tip.clone()),
         Some(op.before.base_tip.clone()),
     ))
 }
 
+/// Put `refs/tug/conflict/<name>` back where the teardown found it.
+///
+/// Only for the two verbs whose teardown deletes it — join and discard, both
+/// through `clear_candidate`, which folds `clear_conflict`. A replay never
+/// touches the ref, and restoring the dash tip is itself what re-validates the
+/// chain under the head-equality test.
+///
+/// **Never over a newer chain.** Between the join and its undo a fresh resolve
+/// may have parked its own conflict at the same ref; overwriting that would
+/// destroy newer work to restore older. When the ref stands somewhere else the
+/// restore is skipped and both tips are named — the recorded chain stays
+/// reachable through this operation's keepalive either way, so nothing is lost
+/// by declining.
+fn restore_conflict_ref(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) {
+    let Some(recorded) = op.before.conflict.as_deref() else {
+        return;
+    };
+    // The question is whether the *ref* stands, not whether what it points at
+    // parses as a chain. A ref somebody else wrote is theirs either way, and a
+    // restore that clobbered an unparseable one would be the same destruction
+    // wearing a technicality.
+    let ref_name = crate::resolve::conflict_ref_name(&op.dash);
+    if let Ok(standing) = git_stdout(repo, &["rev-parse", "--verify", &ref_name]) {
+        if standing != recorded {
+            warnings.push(format!(
+                "A newer conflict for '{}' stands at {}, so the one this operation recorded ({}) \
+                 was left where it is; it stays reachable through the operation log.",
+                op.dash,
+                &standing[..standing.len().min(9)],
+                &recorded[..recorded.len().min(9)]
+            ));
+        }
+        return;
+    }
+    if let Err(e) = crate::resolve::advance_conflict_ref(repo, &op.dash, recorded) {
+        warnings.push(format!("The conflict chain could not be restored: {e}"));
+    }
+}
+
 /// Move the dash branch back to the tip it had before the replay.
+///
+/// **No conflict-ref work, deliberately.** A replay never deletes the chain, so
+/// there is nothing to restore — and moving the dash tip back is itself what
+/// re-validates it: validity is head equality, and the heads the chain names
+/// are the ones this reset just reinstated.
 fn undo_replay(
     op: &OpPayload,
     after: &OpAfter,
@@ -708,6 +1166,7 @@ fn undo_discard(
         ));
     }
     restore_dash(repo, op, warnings)?;
+    restore_conflict_ref(repo, op, warnings);
     Ok((Some(op.before.dash_tip.clone()), None))
 }
 
@@ -841,6 +1300,7 @@ mod tests {
                 plan: Some("dash/p.md".to_string()),
             },
             candidate: None,
+            conflict: None,
         }
     }
 
@@ -911,6 +1371,68 @@ mod tests {
         assert!(alive, "the keepalive ref keeps the deleted branch's tip reachable");
     }
 
+    /// A payload written before the conflict field existed must still parse —
+    /// the log is append-only and old records outlive schema changes.
+    #[test]
+    #[serial]
+    fn an_old_payload_without_the_conflict_field_still_parses() {
+        let f = init();
+        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let path = payload_path(f.path(), seq);
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !raw.contains("conflict"),
+            "an absent chain is omitted from the JSON entirely"
+        );
+        let read = read_op(f.path(), seq).expect("it parses");
+        assert!(read.before.conflict.is_none());
+
+        // And a recorded one round-trips.
+        let mut with = before(&f);
+        with.conflict = Some(f.tip("HEAD"));
+        let seq = record_begin(f.path(), OpVerb::Join, "demo", with, &[]).unwrap();
+        assert_eq!(
+            read_op(f.path(), seq).unwrap().before.conflict.as_deref(),
+            Some(f.tip("HEAD").as_str())
+        );
+    }
+
+    /// The keepalive's whole job, applied to the one commit family the landed
+    /// round left outside it: a checkpoint the resolver committed must survive
+    /// the teardown that deletes the conflict ref.
+    #[test]
+    #[serial]
+    fn the_keepalive_holds_a_conflict_chain_whose_ref_is_deleted() {
+        let f = init();
+        git(f.path(), &["checkout", "-q", "-b", "chain"]);
+        let checkpoint = f.commit("f.txt", "resolver got this far\n", "checkpoint");
+        git(f.path(), &["checkout", "-q", "main"]);
+        git(
+            f.path(),
+            &["update-ref", "refs/tug/conflict/demo", &checkpoint],
+        );
+
+        let mut b = before(&f);
+        b.conflict = Some(checkpoint.clone());
+        let tips = tips_of(&b);
+        assert!(tips.contains(&checkpoint), "and the keepalive parents it");
+
+        record_begin(f.path(), OpVerb::Join, "demo", b, &tips).unwrap();
+
+        // The teardown: the ref goes, the branch goes, nothing else refers to it.
+        crate::resolve::clear_conflict(f.path(), "demo");
+        git(f.path(), &["branch", "-D", "chain"]);
+
+        let alive = git_output(
+            f.path(),
+            &["cat-file", "-e", &format!("{checkpoint}^{{commit}}")],
+        )
+        .unwrap()
+        .status
+        .success();
+        assert!(alive, "the resolver's checkpoint is still reachable");
+    }
+
     #[test]
     #[serial]
     fn a_taken_sequence_number_is_not_reused() {
@@ -976,7 +1498,7 @@ mod tests {
         assert_eq!(newest_undoable(f.path(), Some("demo")).unwrap().seq, done);
         assert!(newest_undoable(f.path(), Some("other")).is_none());
 
-        record_undone_by(f.path(), done, 99).unwrap();
+        record_undone_by(f.path(), done, Some(99)).unwrap();
         assert!(
             newest_undoable(f.path(), None).is_none(),
             "an undone op is no longer offered"

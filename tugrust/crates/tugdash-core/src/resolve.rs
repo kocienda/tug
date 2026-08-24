@@ -58,6 +58,13 @@ pub enum ResolvedBy {
     Replay,
     /// The one-shot squash merged the whole dash cleanly.
     Squash,
+    /// A resolution this dash already made, replayed from a prior conflict
+    /// chain whose three stage oids for the path are unchanged.
+    ///
+    /// Above [`ResolvedBy::Rerere`] in trust and cost both: rerere replays on a
+    /// textual preimage match, this on exact object identity, and where rerere
+    /// needs a scratch worktree and a real merge, this needs one blob read.
+    Salvage,
     /// A previously recorded `rerere` resolution replayed.
     Rerere,
     /// `git merge-file` re-merged the three blobs cleanly.
@@ -268,6 +275,18 @@ fn resolve_ladder(
     let worktree = worktree_path(repo, name);
     let mut warnings = Vec::new();
 
+    // The prior chain, read **at entry** and raw. Two different writers delete
+    // this ref and both run below: `resolve_conflicts` clears it through
+    // `clear_candidate` (which folds `clear_conflict`), and this function calls
+    // `clear_conflict` directly on its fully-resolved arm. A read taken
+    // anywhere later races one of them.
+    //
+    // Raw rather than `valid_conflict` because staleness is the whole point:
+    // the chain salvage harvests from is by definition one the current heads
+    // invalidated, and its resolutions are still exactly as good as the stage
+    // oids say they are.
+    let prior_chain = read_conflict(repo, name);
+
     // Preamble: the tip must reflect the dash's real state before we resolve.
     commit_worktree_dirt(&worktree, name)?;
 
@@ -343,12 +362,35 @@ fn resolve_ladder(
     let scratch = tempfile::tempdir().map_err(|e| format!("resolve: tempdir: {}", e))?;
     let intent = resolve_intent(repo, &base_branch, &branch);
 
-    let rerere_resolved = rerere_rung(repo, &base_head, &branch, &stages, &mut warnings);
+    // Rung 2a — salvage, above rerere and consulted before it.
+    //
+    // `rerere_rung` is not a per-file rung despite its place in the numbering:
+    // it runs once, here, and spins up a scratch worktree and a real merge to
+    // build the map the loop below consults. So salvage is computed as a batch
+    // too — a check placed only inside the loop would still pay for rerere's
+    // worktree even when every path salvages.
+    let salvaged = salvage_rung(repo, prior_chain.as_ref(), &stages);
+    let rerere_resolved = if salvaged.len() == stages.len() {
+        BTreeMap::new()
+    } else {
+        rerere_rung(repo, &base_head, &branch, &stages, &mut warnings)
+    };
 
     let mut resolved: Vec<ResolvedFile> = Vec::new();
     let mut unresolved: Vec<String> = Vec::new();
 
     for (path, raw) in &stages {
+        // This dash's own prior resolution, replayed on exact stage identity.
+        if let Some(oid) = salvaged.get(path) {
+            resolved.push(ResolvedFile {
+                path: path.clone(),
+                by: ResolvedBy::Salvage,
+                blob_oid: oid.clone(),
+                mode: raw.merged_mode(),
+            });
+            continue;
+        }
+
         // Recorded resolution replayed by rerere.
         if let Some(oid) = rerere_resolved.get(path) {
             resolved.push(ResolvedFile {
@@ -443,6 +485,16 @@ fn resolve_ladder(
         // with every blob the rungs resolved patched in. The raw merge-tree
         // output would hand the resolver conflict markers in files the machine
         // had already settled.
+        // Orphan marker text is untidy rather than unresolved — the structural
+        // predicate reads it as content, so it would otherwise pass through
+        // every gate unremarked. Say so; refuse nothing.
+        let orphans = orphan_marker_paths_in_tree(repo, &staged_tree, &unresolved);
+        for path in orphans {
+            warnings.push(format!(
+                "{path} carries conflict-marker lines that belong to no complete block"
+            ));
+        }
+
         let dash_head = git_stdout(repo, &["rev-parse", &branch])?;
         let record = conflict_record(
             repo,
@@ -775,6 +827,75 @@ fn merge_tree_stages(
 // ---------------------------------------------------------------------------
 // Rung 2 — rerere (scratch worktree)
 // ---------------------------------------------------------------------------
+
+/// Reuse resolutions a prior conflict chain already holds, wherever the three
+/// stage oids for a path are byte-identical to the current ones.
+///
+/// **The problem this answers.** Conflict validity is strict head equality, so
+/// any base motion invalidates the chain and the ladder starts over. The
+/// machine rungs are cheap to re-derive and rung 2 replays what the teach-back
+/// recorded — but the resolver's own turn-by-turn work, committed as
+/// checkpoints, is taught to nothing and dies with the chain. Those are the
+/// most expensive resolutions in the system, and often the only ones a person
+/// or the AI seam actually looked at.
+///
+/// **Why exact oids and nothing looser.** Identical stage objects mean the
+/// three inputs are byte-identical to the ones that produced the recorded
+/// answer, so replaying it is deterministic rather than approximate. That is
+/// strictly narrower than rung 2, which replays on a textual preimage match.
+///
+/// **Checkpoint work only** ([`ConflictRecord::paths`], not `resolved`): a path
+/// the prior run's machine rungs settled re-derives through those same rungs,
+/// and rung 2 already covers the driver and AI results the teach-back saw.
+/// Harvesting them here would widen the precondition for no gain.
+///
+/// Returns `path → resolved blob oid`. A path is salvaged only when it is also
+/// marker-free at the prior tip — a checkpoint that left the block standing
+/// resolved nothing.
+fn salvage_rung(
+    repo: &Path,
+    prior: Option<&ConflictChain>,
+    stages: &BTreeMap<String, RawStages>,
+) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let Some(chain) = prior else {
+        return out;
+    };
+    let same = |recorded: &Option<ConflictStage>, current: &Option<(String, String)>| match (
+        recorded, current,
+    ) {
+        (None, None) => true,
+        (Some(r), Some((mode, oid))) => r.oid == *oid && r.mode == *mode,
+        _ => false,
+    };
+
+    let candidates: Vec<&ConflictPath> = chain
+        .record
+        .paths
+        .iter()
+        .filter(|p| {
+            stages.get(&p.path).is_some_and(|raw| {
+                same(&p.base, &raw.base) && same(&p.ours, &raw.ours) && same(&p.theirs, &raw.theirs)
+            })
+        })
+        .collect();
+    if candidates.is_empty() {
+        return out;
+    }
+
+    // One batched marker read over the candidates rather than one per path.
+    let paths: Vec<String> = candidates.iter().map(|p| p.path.clone()).collect();
+    let still_conflicted: std::collections::BTreeSet<String> =
+        marker_paths_in_tree(repo, &chain.tip, &paths).into_iter().collect();
+
+    for path in paths.iter().filter(|p| !still_conflicted.contains(*p)) {
+        let oid = git_stdout(repo, &["rev-parse", &format!("{}:{}", chain.tip, path)]);
+        if let Ok(oid) = oid {
+            out.insert(path.clone(), oid);
+        }
+    }
+    out
+}
 
 /// Replay recorded conflict resolutions ([P31]) in a scratch detached worktree:
 /// merge the branch into a checkout of the base head (rerere auto-applies +
@@ -1311,18 +1432,159 @@ fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(8192).any(|&b| b == 0)
 }
 
-/// Whether text carries any of git's four conflict markers.
+/// The shortest run of marker characters git will write. Git's own
+/// `conflict-marker-size` attribute can enlarge it but never shrink it below
+/// this, so a run of at least this many is the floor a parser accepts.
+const MIN_MARKER_RUN: usize = 7;
+
+/// Which of git's four markers a line opens, if it is a marker line at all.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MarkerKind {
+    Ours,
+    Base,
+    Separator,
+    Theirs,
+}
+
+/// Classify one line: a run of at least [`MIN_MARKER_RUN`] identical marker
+/// characters at column 0, ending the line or followed by a space and a label.
+///
+/// The trailing-space rule is what keeps a `<<<<<<<<<<` ASCII rule or a
+/// `=======================` divider from reading as a marker only by length —
+/// git writes either a bare marker or `marker + space + label`, never a marker
+/// run butted against other text.
+fn marker_kind(line: &str) -> Option<MarkerKind> {
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    let first = line.as_bytes().first().copied()?;
+    let kind = match first {
+        b'<' => MarkerKind::Ours,
+        b'|' => MarkerKind::Base,
+        b'=' => MarkerKind::Separator,
+        b'>' => MarkerKind::Theirs,
+        _ => return None,
+    };
+    let run = line.bytes().take_while(|&b| b == first).count();
+    if run < MIN_MARKER_RUN {
+        return None;
+    }
+    match line.as_bytes().get(run) {
+        None => Some(kind),
+        Some(b' ') => Some(kind),
+        Some(_) => None,
+    }
+}
+
+/// How far a conflict block has been read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BlockState {
+    /// Past `<<<<<<<`, before any `|||||||` or `=======`.
+    Ours,
+    /// Past `|||||||` (diff3/zdiff3 style), before `=======`.
+    Base,
+    /// Past `=======`, waiting on `>>>>>>>`.
+    Theirs,
+}
+
+/// Walk `bytes` line by line, calling `on_block` once per complete conflict
+/// block and returning whether any *structural* marker fell outside one.
+///
+/// A **complete block** is `<<<<<<<`, optionally `|||||||`, then `=======`,
+/// then `>>>>>>>`, in that order. Anything else — a bare `=======` setext
+/// underline, a `>>>>>>>` in a doc example, an opener whose closer never
+/// arrives — is content, because git only ever writes complete blocks.
+///
+/// A second opener while a block is open abandons the open block and starts
+/// fresh from the new opener: markers do not nest in git output, so the first
+/// opener was content that happened to look like one.
+///
+/// **Structural** excludes a lone `=======`. The returned flag feeds an
+/// advisory, and the separator is the one marker that is ordinary content in
+/// ordinary files ([`orphan_marker_lines`] carries the argument).
+fn scan_conflict_blocks(bytes: &[u8], mut on_block: impl FnMut()) -> bool {
+    let text = String::from_utf8_lossy(bytes);
+    let mut open: Option<BlockState> = None;
+    let mut orphans = false;
+    // An opener is pending from the moment it is read until its block either
+    // completes or is abandoned; an opener that never completes is wreckage.
+    let mut opener_pending = false;
+
+    for line in text.lines() {
+        let Some(kind) = marker_kind(line) else {
+            continue;
+        };
+        match (open, kind) {
+            // An opener always starts a block, abandoning any open one.
+            (prev, MarkerKind::Ours) => {
+                if prev.is_some() {
+                    orphans = true;
+                }
+                opener_pending = true;
+                open = Some(BlockState::Ours);
+            }
+            (Some(BlockState::Ours), MarkerKind::Base) => {
+                open = Some(BlockState::Base);
+            }
+            (Some(BlockState::Ours | BlockState::Base), MarkerKind::Separator) => {
+                open = Some(BlockState::Theirs);
+            }
+            (Some(BlockState::Theirs), MarkerKind::Theirs) => {
+                on_block();
+                opener_pending = false;
+                open = None;
+            }
+            // Any other marker inside an open block is out of order, which
+            // means the block was never git's: abandon it and treat what was
+            // read as content.
+            (Some(_), _) => {
+                orphans = true;
+                opener_pending = false;
+                open = None;
+            }
+            // A marker with no block open at all. A stray closer or base
+            // separator is wreckage; a stray `=======` is a setext underline.
+            (None, MarkerKind::Base | MarkerKind::Theirs) => orphans = true,
+            (None, MarkerKind::Separator) => {}
+        }
+    }
+
+    orphans || opener_pending
+}
+
+/// Whether text carries a complete `git` conflict block.
 ///
 /// The one predicate — the workshop's marker scan and the ladder's clean-merge
 /// test both ask it, so "does this file still conflict" cannot be answered two
 /// ways by two callers.
+///
+/// **Detection is structural, not prefix-matching.** A line that merely looks
+/// marker-ish is content: `=======` is a setext heading underline in markdown,
+/// and files carrying one are ordinary. Requiring the whole block — opener,
+/// optional base section, separator, closer, in order — is exactly the
+/// signature of something git wrote, so legitimate content can neither wedge a
+/// resolve nor cause a rung to withhold a merge it computed cleanly.
 pub(crate) fn has_conflict_markers(bytes: &[u8]) -> bool {
-    String::from_utf8_lossy(bytes).lines().any(|l| {
-        l.starts_with("<<<<<<<")
-            || l.starts_with("=======")
-            || l.starts_with(">>>>>>>")
-            || l.starts_with("|||||||")
-    })
+    let mut found = false;
+    scan_conflict_blocks(bytes, || found = true);
+    found
+}
+
+/// Whether text carries the wreckage of a dismantled conflict block: an
+/// opener, closer, or base separator belonging to no complete block.
+///
+/// Advisory only. A resolver that deleted some marker lines but not all leaves
+/// this true and [`has_conflict_markers`] false — sloppy, visible in the join
+/// report's diffs, and not something to refuse a resolution over.
+///
+/// **A lone `=======` does not count, and that asymmetry is the point.** The
+/// separator is the one marker with a thriving life as ordinary content — it
+/// is markdown's setext heading underline — which is the whole reason the
+/// prefix predicate had to go. An advisory that fired on every conflicted
+/// markdown file carrying a heading would reintroduce that noise one channel
+/// over, and an advisory nobody can trust is one nobody reads. `<<<<<<<`,
+/// `>>>>>>>`, and `|||||||` at column 0 have no such life, so they are the
+/// evidence this reports on.
+pub(crate) fn orphan_marker_lines(bytes: &[u8]) -> bool {
+    scan_conflict_blocks(bytes, || {})
 }
 
 /// Whether merged text is conflict-free — no `git` conflict markers.
@@ -1343,6 +1605,25 @@ pub fn marker_paths_in_tree(repo: &Path, tree: &str, paths: &[String]) -> Vec<St
                 .ok()
                 .filter(|o| o.status.success())
                 .is_some_and(|o| has_conflict_markers(&o.stdout))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Which of `paths` carry orphan marker lines in `tree` — marker text belonging
+/// to no complete block.
+///
+/// The advisory half of [`marker_paths_in_tree`]: a path here is not
+/// conflicted, it is untidy, and the ladder says so in its warnings rather than
+/// refusing over it.
+pub fn orphan_marker_paths_in_tree(repo: &Path, tree: &str, paths: &[String]) -> Vec<String> {
+    paths
+        .iter()
+        .filter(|path| {
+            git_output(repo, &["show", &format!("{tree}:{path}")])
+                .ok()
+                .filter(|o| o.status.success())
+                .is_some_and(|o| orphan_marker_lines(&o.stdout))
         })
         .cloned()
         .collect()
@@ -1381,6 +1662,7 @@ impl ResolvedBy {
         match self {
             ResolvedBy::Replay => "replay",
             ResolvedBy::Squash => "squash",
+            ResolvedBy::Salvage => "salvage",
             ResolvedBy::Rerere => "rerere",
             ResolvedBy::MergeFile => "merge-file",
             ResolvedBy::Driver => "driver",
@@ -1394,6 +1676,7 @@ impl ResolvedBy {
         match s {
             "replay" => Some(ResolvedBy::Replay),
             "squash" => Some(ResolvedBy::Squash),
+            "salvage" => Some(ResolvedBy::Salvage),
             "rerere" => Some(ResolvedBy::Rerere),
             "merge-file" => Some(ResolvedBy::MergeFile),
             "driver" => Some(ResolvedBy::Driver),
@@ -2337,6 +2620,398 @@ mod tests {
         assert!(!is_clean_merge(
             b"a\n<<<<<<< ours\nb\n=======\nc\n>>>>>>> theirs\n"
         ));
+    }
+
+    // ---- salvage ----
+
+    /// A dash and a base conflicting on two files, so a resolver can settle
+    /// one and leave the other.
+    fn init_two_file_conflict() -> tempfile::TempDir {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path();
+        git(repo, &["init", "-b", "main"]);
+        git(repo, &["config", "user.name", "t"]);
+        git(repo, &["config", "user.email", "t@t"]);
+        set(repo, "a.txt", "orig\n");
+        set(repo, "b.txt", "orig\n");
+        set(repo, "spare.txt", "orig\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base"]);
+        git(repo, &["branch", "tugdash/demo"]);
+        git(repo, &["config", "branch.tugdash/demo.tugbase", "main"]);
+
+        git(repo, &["switch", "-q", "tugdash/demo"]);
+        set(repo, "a.txt", "dash\n");
+        set(repo, "b.txt", "dash\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "dash edits both"]);
+
+        git(repo, &["switch", "-q", "main"]);
+        set(repo, "a.txt", "base\n");
+        set(repo, "b.txt", "base\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base edits both"]);
+        temp
+    }
+
+    /// Settle `path` in the workshop and checkpoint it, the way a resolver's
+    /// turn does — the work salvage exists to carry across an invalidation.
+    fn checkpoint_one(repo: &Path, path: &str, body: &str) {
+        let ws = crate::workshop::Workshop::open_conflict(repo, "demo").unwrap();
+        std::fs::write(ws.path().join(path), body).unwrap();
+        ws.checkpoint("resolver settles one file")
+            .expect("the checkpoint lands");
+    }
+
+    /// The invalidation drill. A resolver settles `a.txt`; the base then moves,
+    /// which invalidates the chain by head equality; the next resolve must
+    /// arrive with `a.txt` already done and only `b.txt` left.
+    #[test]
+    fn checkpointed_work_survives_base_motion_by_stage_identity() {
+        let temp = init_two_file_conflict();
+        let repo = temp.path();
+
+        let first = resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(first.unresolved, vec!["a.txt".to_string(), "b.txt".to_string()]);
+        checkpoint_one(repo, "a.txt", "settled by a person\n");
+
+        // Base motion that touches neither conflicted file: the chain is now
+        // invalid (strict head equality) though every stage is unchanged.
+        set(repo, "spare.txt", "moved\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "unrelated base work"]);
+        let chain = read_conflict(repo, "demo").unwrap();
+        assert!(
+            !conflict_is_valid(repo, "demo", &chain),
+            "the drill must actually invalidate the chain"
+        );
+
+        let second = resolve_conflicts(repo, "demo", None).unwrap();
+        let salvaged: Vec<&FileResolution> = second
+            .resolved
+            .iter()
+            .filter(|r| r.resolved_by == ResolvedBy::Salvage)
+            .collect();
+        assert_eq!(
+            salvaged.iter().map(|r| &r.path).collect::<Vec<_>>(),
+            vec!["a.txt"],
+            "the checkpointed file arrives already resolved"
+        );
+        assert_eq!(
+            second.unresolved,
+            vec!["b.txt".to_string()],
+            "and the resolver sees only the remainder"
+        );
+
+        // The salvaged bytes are the ones the resolver wrote, not a re-merge.
+        let record = read_conflict(repo, "demo").unwrap().record;
+        assert!(
+            record
+                .resolved
+                .iter()
+                .any(|r| r.path == "a.txt" && r.rung == "salvage"),
+            "and the new record names the rung: {:?}",
+            record.resolved
+        );
+    }
+
+    /// Stage motion is exactly what defeats salvage: a different input cannot
+    /// license replaying an answer computed for the old one.
+    #[test]
+    fn a_moved_stage_defeats_salvage() {
+        let temp = init_two_file_conflict();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        checkpoint_one(repo, "a.txt", "settled by a person\n");
+
+        // The base rewrites a.txt, so its stage-1/stage-3 oids move.
+        set(repo, "a.txt", "base again\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base rewrites a"]);
+
+        let second = resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(
+            !second
+                .resolved
+                .iter()
+                .any(|r| r.resolved_by == ResolvedBy::Salvage),
+            "nothing may salvage: {:?}",
+            second.resolved
+        );
+        assert!(second.unresolved.contains(&"a.txt".to_string()));
+    }
+
+    /// A checkpoint that left the block standing resolved nothing, so there is
+    /// nothing to salvage from it.
+    #[test]
+    fn a_checkpoint_still_carrying_markers_is_not_salvaged() {
+        let temp = init_two_file_conflict();
+        let repo = temp.path();
+        resolve_conflicts(repo, "demo", None).unwrap();
+        // A "resolution" that only edited around the conflict block.
+        checkpoint_one(
+            repo,
+            "a.txt",
+            "note\n<<<<<<< ours\ndash\n=======\nbase\n>>>>>>> theirs\n",
+        );
+
+        set(repo, "spare.txt", "moved\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "unrelated base work"]);
+
+        let second = resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(
+            !second
+                .resolved
+                .iter()
+                .any(|r| r.resolved_by == ResolvedBy::Salvage),
+            "a marker-carrying checkpoint is not a resolution"
+        );
+        assert!(second.unresolved.contains(&"a.txt".to_string()));
+    }
+
+    /// Machine-rung work re-derives through its own rungs rather than being
+    /// harvested here — salvage's precondition stays about checkpoint work.
+    #[test]
+    fn machine_rung_resolutions_are_not_salvaged() {
+        let temp = init_two_file_conflict();
+        let repo = temp.path();
+        // A driver settles b.txt at rung 4 while a.txt stays unresolved.
+        stub_driver(repo, "driver settled this\n");
+        let first = resolve_conflicts(repo, "demo", None).unwrap();
+        assert!(
+            first
+                .resolved
+                .iter()
+                .any(|r| r.path == "b.txt" && r.resolved_by == ResolvedBy::Driver),
+            "the fixture needs a machine-settled path: {:?}",
+            first.resolved
+        );
+
+        set(repo, "spare.txt", "moved\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "unrelated base work"]);
+
+        let second = resolve_conflicts(repo, "demo", None).unwrap();
+        let b = second
+            .resolved
+            .iter()
+            .find(|r| r.path == "b.txt")
+            .expect("b.txt resolves again");
+        assert_ne!(
+            b.resolved_by,
+            ResolvedBy::Salvage,
+            "it re-derives through its own rung, not through salvage"
+        );
+    }
+
+    #[test]
+    fn the_salvage_rung_round_trips_its_stored_spelling() {
+        assert_eq!(ResolvedBy::Salvage.as_str(), "salvage");
+        assert_eq!(ResolvedBy::parse("salvage"), Some(ResolvedBy::Salvage));
+    }
+
+    // ---- structural marker detection ----
+
+    /// Marker-ish lines that no complete block encloses are content, and the
+    /// setext case is not hypothetical: repo files carry `=======` underlines.
+    #[test]
+    fn lone_marker_lines_are_content_not_conflicts() {
+        let setext = b"Heading\n=======\n\nbody text\n";
+        assert!(
+            !has_conflict_markers(setext),
+            "a markdown setext underline is content"
+        );
+        assert!(!has_conflict_markers(
+            b"Docs say the closer is\n>>>>>>> theirs\nand that is all.\n"
+        ));
+        assert!(!has_conflict_markers(
+            b"diff3 adds a\n||||||| base\nsection.\n"
+        ));
+        assert!(!has_conflict_markers(b"<<<<<<< opener with no closer\nbody\n"));
+
+        // A marker run butted against other text is not a marker line.
+        assert!(!has_conflict_markers(
+            b"<<<<<<<ours\nb\n=======\nc\n>>>>>>>theirs\n"
+        ));
+    }
+
+    /// The block must be *ordered*, not merely present.
+    #[test]
+    fn out_of_order_marker_lines_do_not_form_a_block() {
+        assert!(!has_conflict_markers(
+            b">>>>>>> theirs\nb\n=======\nc\n<<<<<<< ours\n"
+        ));
+        assert!(
+            !has_conflict_markers(b"<<<<<<< ours\nb\n>>>>>>> theirs\n"),
+            "a closer with no separator is not a block"
+        );
+    }
+
+    /// Real `git merge-file` output, in each style the ladder can meet, and the
+    /// resolution of it. Hand-typed marker text proves the parser matches what
+    /// somebody typed; this proves it matches what git writes.
+    #[test]
+    fn real_merge_file_output_reads_conflicted_in_every_style() {
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = scratch.path();
+        for (label, style) in [
+            ("default", None),
+            ("diff3", Some("--diff3")),
+            ("zdiff3", Some("--zdiff3")),
+        ] {
+            std::fs::write(dir.join("base"), "A\n").unwrap();
+            std::fs::write(dir.join("ours"), "B\n").unwrap();
+            std::fs::write(dir.join("theirs"), "C\n").unwrap();
+            let mut cmd = Command::new("git");
+            cmd.arg("merge-file").arg("-p");
+            if let Some(style) = style {
+                cmd.arg(style);
+            }
+            let out = cmd
+                .arg(dir.join("ours"))
+                .arg(dir.join("base"))
+                .arg(dir.join("theirs"))
+                .output()
+                .unwrap();
+            assert!(
+                has_conflict_markers(&out.stdout),
+                "{label} style output must read conflicted: {}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+            assert!(
+                is_clean_merge(b"B\n"),
+                "{label}: and its resolution reads clean"
+            );
+        }
+    }
+
+    /// The stage-carrying path: a real `merge-tree` conflicted blob.
+    #[test]
+    fn real_merge_tree_conflicted_blob_reads_conflicted() {
+        let temp = init_conflicted();
+        let repo = temp.path();
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(outcome.unresolved, vec!["f.txt".to_string()]);
+        let chain = read_conflict(repo, "demo").expect("a conflict stands");
+        let body = git_stdout(repo, &["show", &format!("{}:f.txt", chain.tip)]).unwrap();
+        assert!(
+            has_conflict_markers(body.as_bytes()),
+            "merge-tree's own markers must detect: {body}"
+        );
+    }
+
+    /// Git writes CRLF blocks in a CRLF file, and the marker line then ends
+    /// `\r\n` rather than `\n`.
+    #[test]
+    fn crlf_blocks_read_conflicted() {
+        assert!(has_conflict_markers(
+            b"a\r\n<<<<<<< ours\r\nb\r\n=======\r\nc\r\n>>>>>>> theirs\r\n"
+        ));
+        assert!(
+            !has_conflict_markers(b"Heading\r\n=======\r\n\r\nbody\r\n"),
+            "and a CRLF setext underline is still content"
+        );
+    }
+
+    /// `conflict-marker-size` can enlarge the runs; it never shrinks them.
+    #[test]
+    fn enlarged_marker_runs_still_read_conflicted() {
+        assert!(has_conflict_markers(
+            b"<<<<<<<<<<<< ours\nb\n============\nc\n>>>>>>>>>>>> theirs\n"
+        ));
+    }
+
+    /// Orphans are the [`has_conflict_markers`] false half and the advisory's
+    /// true half — the trade strict detection makes, made visible.
+    #[test]
+    fn orphan_marker_lines_are_advisory_not_conflicts() {
+        let orphan = b"<<<<<<< ours\nbody\n";
+        assert!(!has_conflict_markers(orphan), "no complete block");
+        assert!(orphan_marker_lines(orphan), "but the opener is still there");
+
+        let clean = b"body\nHeading\n=======\n";
+        assert!(
+            !orphan_marker_lines(clean),
+            "a lone separator is a setext underline, not wreckage"
+        );
+        assert!(
+            orphan_marker_lines(b"body\n>>>>>>> theirs\n"),
+            "a stray closer has no such excuse"
+        );
+        assert!(orphan_marker_lines(b"body\n||||||| base\n"));
+
+        let complete = b"<<<<<<< ours\nb\n=======\nc\n>>>>>>> theirs\n";
+        assert!(
+            !orphan_marker_lines(complete),
+            "a complete block leaves nothing orphaned"
+        );
+    }
+
+    /// The withheld-resolution regression, which is the sharper half of the
+    /// bug. Every text rung validates its *own output* through
+    /// `is_clean_merge` before accepting it, so a file whose perfectly clean
+    /// merge legitimately contains a `=======` underline was rejected by the
+    /// rung that had just settled it — and fell through to `unresolved`, where
+    /// the AI seam was handed a conflict rung 3 had already answered.
+    #[test]
+    fn a_clean_merge_carrying_a_setext_underline_is_not_withheld() {
+        let scratch = tempfile::tempdir().unwrap();
+        let stages = LoadedStages {
+            base: Some(b"Heading\n=======\n\nl1\nl2\nl3\n".to_vec()),
+            ours: Some(b"Heading\n=======\n\nX\nl2\nl3\n".to_vec()),
+            theirs: Some(b"Heading\n=======\n\nl1\nl2\nY\n".to_vec()),
+        };
+        let merged = merge_file_rung(scratch.path(), "doc.md", &stages)
+            .expect("disjoint edits merge cleanly, underline or not");
+        let text = String::from_utf8_lossy(&merged);
+        assert!(
+            text.contains("X") && text.contains("Y"),
+            "both edits present: {text}"
+        );
+        assert!(
+            text.contains("======="),
+            "and the underline survived into the result: {text}"
+        );
+        assert!(
+            is_clean_merge(&merged),
+            "which the rung must accept rather than withhold"
+        );
+    }
+
+    /// End to end: a conflicted setext-underlined file goes all the way to a
+    /// committed candidate, which the prefix predicate made impossible — the
+    /// workshop could never read it as resolved.
+    #[test]
+    fn a_setext_file_resolves_through_the_workshop_to_a_candidate() {
+        let temp = init(&[("doc.md", "Heading\n=======\n\ndash\n", "dash edits doc")]);
+        let repo = temp.path();
+        set(repo, "doc.md", "Heading\n=======\n\nbase\n");
+        git(repo, &["add", "-A"]);
+        git(repo, &["commit", "-m", "base edits doc"]);
+
+        // No text rung can settle an overlapping edit, so it parks as a conflict.
+        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        assert_eq!(outcome.unresolved, vec!["doc.md".to_string()]);
+
+        // Resolve it the way a resolver would: whole-file bytes that keep the
+        // setext underline, which the old predicate read as an unresolved file.
+        let workshop = crate::workshop::Workshop::open_conflict(repo, "demo").unwrap();
+        std::fs::write(
+            workshop.path().join("doc.md"),
+            "Heading\n=======\n\nboth\n",
+        )
+        .unwrap();
+        assert!(
+            workshop.unresolved().unwrap().is_empty(),
+            "the resolved file reads settled despite its underline"
+        );
+        workshop
+            .checkpoint("resolve doc.md")
+            .expect("checkpoint accepts it");
+        let candidate = workshop.commit("resolved").expect("candidate commits");
+        let body = git_stdout(repo, &["show", &format!("{candidate}:doc.md")]).unwrap();
+        assert_eq!(body, "Heading\n=======\n\nboth");
     }
 
     // ---- ladder end-to-end ----

@@ -7946,6 +7946,530 @@ Some context.
         );
     }
 
+    /// Park a real conflict chain on `name` by making the base and the dash
+    /// edit the same line, then running the ladder until it gives up.
+    ///
+    /// Real rather than synthetic because `read_conflict` parses the record out
+    /// of the root commit's message: a hand-made ref is not a chain.
+    fn park_conflict(repo: &Path, name: &str) -> String {
+        let worktree = worktree_path(repo, name);
+        fs::write(worktree.join("shared.txt"), "base\ndash side\n").unwrap();
+        commit(name, "dash edits shared", None).unwrap();
+        fs::write(repo.join("shared.txt"), "base\nbase side\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "base edits shared"]).unwrap();
+
+        let outcome = crate::resolve::resolve_conflicts(repo, name, None).unwrap();
+        assert_eq!(
+            outcome.unresolved,
+            vec!["shared.txt".to_string()],
+            "the fixture must actually conflict"
+        );
+        crate::resolve::read_conflict(repo, name)
+            .expect("a chain stands")
+            .tip
+    }
+
+    /// Carry a parked conflict to the state a join actually meets: a resolver
+    /// has committed a checkpoint and settled the file, so a candidate stands
+    /// and the chain holds work worth keeping. Returns the chain tip.
+    fn resolve_parked_conflict(repo: &Path, name: &str) -> (String, String) {
+        let ws = crate::workshop::Workshop::open_conflict(repo, name).unwrap();
+        fs::write(ws.path().join("shared.txt"), "base\nboth sides\n").unwrap();
+        ws.checkpoint("resolve shared.txt")
+            .expect("the checkpoint lands");
+        let tip = crate::resolve::read_conflict(repo, name)
+            .expect("the chain advanced")
+            .tip;
+        // `Workshop::commit` builds the candidate; anchoring it and recording
+        // which dash head it was resolved against is what makes the join see
+        // it, and both are the resolver's job in the live flow.
+        let candidate = ws.commit("resolved").expect("the candidate commits");
+        crate::resolve::write_candidate_ref(repo, name, &candidate).unwrap();
+        let dash_head = git_stdout(repo, &["rev-parse", &branch_name(name)]).unwrap();
+        git_output(
+            repo,
+            &[
+                "config",
+                &crate::resolve::join_source_config_key(name),
+                &dash_head,
+            ],
+        )
+        .unwrap();
+        (tip, candidate)
+    }
+
+    #[serial]
+    #[test]
+    fn a_join_keeps_the_conflict_chain_alive_and_undo_puts_the_ref_back() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "chained");
+        let repo = temp.path();
+        park_conflict(repo, "chained");
+        let (chain_tip, candidate) = resolve_parked_conflict(repo, "chained");
+
+        // The join tears the dash down, and `clear_candidate` takes the
+        // conflict ref with it.
+        let landed = join(
+            "chained",
+            JoinOptions {
+                candidate: Some(candidate),
+                ..mechanics()
+            },
+        )
+        .unwrap();
+        assert!(
+            landed.commit_hash.is_some(),
+            "the join must land: {landed:?}"
+        );
+        assert!(
+            crate::resolve::read_conflict(repo, "chained").is_none(),
+            "the teardown cleared the ref"
+        );
+
+        // The op's keepalive is now the only thing holding the chain.
+        let alive = git_output(repo, &["cat-file", "-e", &format!("{chain_tip}^{{commit}}")])
+            .unwrap()
+            .status
+            .success();
+        assert!(alive, "the resolve work outlived the teardown");
+
+        let out = crate::oplog::undo_in(repo, None).unwrap();
+        assert_eq!(out.verb, crate::oplog::OpVerb::Join);
+        assert_eq!(
+            crate::resolve::read_conflict(repo, "chained").map(|c| c.tip),
+            Some(chain_tip),
+            "and the undo put the ref back where the teardown found it"
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn undo_of_a_discard_restores_the_conflict_ref_too() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "tossed");
+        let repo = temp.path();
+        park_conflict(repo, "tossed");
+        let (chain_tip, _candidate) = resolve_parked_conflict(repo, "tossed");
+
+        discard("tossed", None).unwrap();
+        assert!(crate::resolve::read_conflict(repo, "tossed").is_none());
+
+        crate::oplog::undo_in(repo, None).unwrap();
+        assert_eq!(
+            crate::resolve::read_conflict(repo, "tossed").map(|c| c.tip),
+            Some(chain_tip)
+        );
+    }
+
+    /// Never over newer work: a fresh resolve between the join and its undo
+    /// owns the ref, and restoring the older chain would destroy it.
+    #[serial]
+    #[test]
+    fn undo_leaves_a_newer_conflict_chain_alone_and_says_both_tips() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "raced2");
+        let repo = temp.path();
+        park_conflict(repo, "raced2");
+        let (old_tip, candidate) = resolve_parked_conflict(repo, "raced2");
+
+        join(
+            "raced2",
+            JoinOptions {
+                candidate: Some(candidate),
+                ..mechanics()
+            },
+        )
+        .unwrap();
+
+        // Somebody's newer resolve parked its own chain at the same ref.
+        let newer = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        git_output(repo, &["update-ref", "refs/tug/conflict/raced2", &newer]).unwrap();
+
+        let out = crate::oplog::undo_in(repo, None).unwrap();
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "refs/tug/conflict/raced2"]).unwrap(),
+            newer,
+            "the newer chain is untouched"
+        );
+        let warning = out
+            .warnings
+            .iter()
+            .find(|w| w.contains("newer conflict"))
+            .unwrap_or_else(|| panic!("the skip must be reported: {:?}", out.warnings));
+        assert!(warning.contains(&newer[..9]), "{warning}");
+        assert!(warning.contains(&old_tip[..9]), "{warning}");
+    }
+
+    /// The whole round, on one dash, in one pass — every leg asserted rather
+    /// than eyeballed.
+    ///
+    /// A setext-underlined markdown file and a source file both conflict; a
+    /// resolver checkpoints one; the base moves, invalidating the chain; the
+    /// re-resolve salvages the checkpointed file and settles the rest; the join
+    /// lands and its teardown clears the refs; undo puts everything back; redo
+    /// takes it away again. The markdown file is the point: under the old
+    /// prefix predicate its underline made it permanently unresolvable, so this
+    /// drill could not have reached its second line.
+    #[serial]
+    #[test]
+    fn the_whole_arc_runs_on_one_dash() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path();
+        init_git_repo(repo);
+        redirect_state_dir(&temp.path().join("state"));
+        std::env::set_current_dir(repo).unwrap();
+        fs::write(repo.join("doc.md"), "Heading\n=======\n\norig\n").unwrap();
+        fs::write(repo.join("code.rs"), "fn main() { orig() }\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "seed"]).unwrap();
+        create("arc", None, None, false, None).unwrap();
+
+        let worktree = repo.join(".tug/worktrees").join("arc");
+        fs::write(worktree.join("doc.md"), "Heading\n=======\n\ndash\n").unwrap();
+        fs::write(worktree.join("code.rs"), "fn main() { dash() }\n").unwrap();
+        commit("arc", "dash edits both", None).unwrap();
+
+        fs::write(repo.join("doc.md"), "Heading\n=======\n\nbase\n").unwrap();
+        fs::write(repo.join("code.rs"), "fn main() { base() }\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "base edits both"]).unwrap();
+
+        // Both conflict, and the markdown file is one of them — which the old
+        // predicate would have made permanently unresolvable.
+        let first = crate::resolve::resolve_conflicts(repo, "arc", None).unwrap();
+        assert_eq!(
+            first.unresolved,
+            vec!["code.rs".to_string(), "doc.md".to_string()]
+        );
+
+        // A resolver settles the markdown file, underline intact, and commits
+        // the checkpoint.
+        {
+            let ws = crate::workshop::Workshop::open_conflict(repo, "arc").unwrap();
+            fs::write(ws.path().join("doc.md"), "Heading\n=======\n\nboth\n").unwrap();
+            assert_eq!(
+                ws.unresolved().unwrap(),
+                vec!["code.rs".to_string()],
+                "the setext file reads settled"
+            );
+            ws.checkpoint("resolve doc.md").expect("checkpoint accepts");
+        }
+
+        // Base motion invalidates the chain without touching either stage.
+        fs::write(repo.join("elsewhere.txt"), "unrelated\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "unrelated base work"]).unwrap();
+
+        // The re-resolve salvages the checkpointed file.
+        let second = crate::resolve::resolve_conflicts(repo, "arc", None).unwrap();
+        assert!(
+            second
+                .resolved
+                .iter()
+                .any(|r| r.path == "doc.md"
+                    && r.resolved_by == crate::resolve::ResolvedBy::Salvage),
+            "doc.md must arrive salvaged: {:?}",
+            second.resolved
+        );
+        assert_eq!(second.unresolved, vec!["code.rs".to_string()]);
+
+        // Finish the remainder and land.
+        let (chain_tip, candidate) = {
+            let ws = crate::workshop::Workshop::open_conflict(repo, "arc").unwrap();
+            fs::write(ws.path().join("code.rs"), "fn main() { both() }\n").unwrap();
+            ws.checkpoint("resolve code.rs").unwrap();
+            let tip = crate::resolve::read_conflict(repo, "arc").unwrap().tip;
+            let candidate = ws.commit("resolved").unwrap();
+            crate::resolve::write_candidate_ref(repo, "arc", &candidate).unwrap();
+            let dash_head = git_stdout(repo, &["rev-parse", "tugdash/arc"]).unwrap();
+            git_output(
+                repo,
+                &[
+                    "config",
+                    &crate::resolve::join_source_config_key("arc"),
+                    &dash_head,
+                ],
+            )
+            .unwrap();
+            (tip, candidate)
+        };
+        let dash_tip = git_stdout(repo, &["rev-parse", "tugdash/arc"]).unwrap();
+        let base_before = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+
+        join(
+            "arc",
+            JoinOptions {
+                candidate: Some(candidate),
+                ..mechanics()
+            },
+        )
+        .unwrap();
+        let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        assert_ne!(landed, base_before);
+        assert!(!branch_exists(repo, "tugdash/arc"));
+        assert_eq!(
+            fs::read_to_string(repo.join("doc.md")).unwrap(),
+            "Heading\n=======\n\nboth\n",
+            "the resolved bytes landed, underline and all"
+        );
+        // The teardown cleared the chain, and only the keepalive holds it.
+        assert!(crate::resolve::read_conflict(repo, "arc").is_none());
+        assert!(
+            git_output(repo, &["cat-file", "-e", &format!("{chain_tip}^{{commit}}")])
+                .unwrap()
+                .status
+                .success(),
+            "the resolve work outlived the teardown"
+        );
+
+        // Undo restores everything the teardown took.
+        crate::oplog::undo_in(repo, None).unwrap();
+        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_before);
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "tugdash/arc"]).unwrap(),
+            dash_tip
+        );
+        assert_eq!(
+            crate::resolve::read_conflict(repo, "arc").map(|c| c.tip),
+            Some(chain_tip),
+            "including the conflict chain"
+        );
+
+        // Redo takes it away again.
+        crate::oplog::redo_in(repo, None).unwrap();
+        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), landed);
+        assert!(!branch_exists(repo, "tugdash/arc"));
+
+        // And the log reads as a coherent history.
+        let ops = crate::oplog::list_ops(repo);
+        let verbs: Vec<&str> = ops.iter().map(|o| o.verb.as_str()).collect();
+        assert_eq!(
+            verbs,
+            vec!["redo", "undo", "join"],
+            "newest first, one of each"
+        );
+        assert!(
+            ops.iter()
+                .find(|o| o.verb == crate::oplog::OpVerb::Join)
+                .unwrap()
+                .is_undoable(),
+            "the join is undoable once more, so a further press means it"
+        );
+    }
+
+    // ---- redo ----
+
+    /// The full cycle, with the bookkeeping asserted at every stage: a redo
+    /// re-applies what the undo took away and hands candidacy back to the
+    /// original, so the next `undo` press means the join again rather than
+    /// descending into the reversal records.
+    #[serial]
+    #[test]
+    fn a_join_undone_is_redone_and_undone_again() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "cycle");
+        let repo = temp.path();
+        let dash_tip = git_stdout(repo, &["rev-parse", "tugdash/cycle"]).unwrap();
+        let base_before = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+
+        join("cycle", mechanics()).unwrap();
+        let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+
+        let undone = crate::oplog::undo_in(repo, None).unwrap();
+        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_before);
+        assert!(branch_exists(repo, "tugdash/cycle"));
+
+        let redone = crate::oplog::redo_in(repo, None).unwrap();
+
+        assert_eq!(redone.verb, crate::oplog::OpVerb::Join);
+        assert_eq!(redone.original_seq, undone.seq);
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+            landed,
+            "the base is back at what the join landed"
+        );
+        assert!(
+            !branch_exists(repo, "tugdash/cycle"),
+            "and the dash is torn down again"
+        );
+        assert!(!worktree_path(repo, "cycle").exists());
+        assert_eq!(config_get(repo, &base_config_key("cycle")), None);
+
+        // The original is undoable again; the undo is not, because it was
+        // redone rather than undone.
+        let ops = crate::oplog::list_ops(repo);
+        let original = ops.iter().find(|o| o.seq == undone.seq).unwrap();
+        assert!(original.undone_by.is_none(), "candidacy handed back");
+        let undo_op = ops.iter().find(|o| o.seq == undone.recorded_as).unwrap();
+        assert_eq!(undo_op.undone_by, Some(redone.recorded_as));
+        assert_eq!(undo_op.reverses, Some(undone.seq));
+        let redo_op = ops.iter().find(|o| o.seq == redone.recorded_as).unwrap();
+        assert_eq!(redo_op.reverses, Some(undone.recorded_as));
+        assert!(
+            !redo_op.is_undoable(),
+            "a redo record is never an undo candidate"
+        );
+
+        // A second undo press means the join, not the bookkeeping.
+        let again = crate::oplog::undo_in(repo, None).unwrap();
+        assert_eq!(again.seq, undone.seq, "the same operation, once more");
+        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_before);
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "tugdash/cycle"]).unwrap(),
+            dash_tip
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn a_discard_undone_is_redone_without_repeating_the_hand_back() {
+        let (_temp, root) = repo_for_create(None);
+        fs::write(root.join("scratch.txt"), "notes\n").unwrap();
+        create("backandgone", None, None, true, None).unwrap();
+        discard("backandgone", None).unwrap();
+        crate::oplog::undo_in(&root, None).unwrap();
+        assert!(branch_exists(&root, "tugdash/backandgone"));
+
+        let out = crate::oplog::redo_in(&root, None).unwrap();
+
+        assert_eq!(out.verb, crate::oplog::OpVerb::Discard);
+        assert!(!branch_exists(&root, "tugdash/backandgone"));
+        assert!(!worktree_path(&root, "backandgone").exists());
+        // The handed-back file was copied into the base checkout by the
+        // original discard and is still there. A redo neither re-copies it nor
+        // takes it away; it names it.
+        assert_eq!(
+            fs::read_to_string(root.join("scratch.txt")).unwrap(),
+            "notes\n"
+        );
+        assert_eq!(out.handed_back_left_in_place, vec!["scratch.txt".to_string()]);
+    }
+
+    /// [L23]: a redo tears the worktree down, so uncommitted work started in
+    /// the dash between the undo and the redo would be destroyed. It refuses
+    /// and names the paths instead — and changes nothing on the way out.
+    #[serial]
+    #[test]
+    fn redo_refuses_over_a_dirty_restored_worktree() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "dirty");
+        let repo = temp.path();
+        join("dirty", mechanics()).unwrap();
+        let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        crate::oplog::undo_in(repo, None).unwrap();
+        let base_after_undo = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+        assert_ne!(base_after_undo, landed);
+
+        // The user started working in the dash the undo gave back.
+        let worktree = worktree_path(repo, "dirty");
+        fs::write(worktree.join("in-progress.txt"), "half a thought\n").unwrap();
+
+        let err = crate::oplog::redo_in(repo, None).unwrap_err();
+
+        assert!(err.starts_with("worktree-dirty:"), "{err}");
+        assert!(err.contains("in-progress.txt"), "the paths are named: {err}");
+        assert!(
+            worktree.join("in-progress.txt").exists(),
+            "and the work is still there"
+        );
+        assert!(branch_exists(repo, "tugdash/dirty"));
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+            base_after_undo,
+            "a refused redo moves nothing"
+        );
+        // The refused redo left no half-written record behind.
+        assert!(
+            !crate::oplog::list_ops(repo)
+                .iter()
+                .any(|o| o.verb == crate::oplog::OpVerb::Redo),
+            "the redo record was abandoned, not left incomplete"
+        );
+    }
+
+    #[serial]
+    #[test]
+    fn redo_refuses_when_the_base_moved_since_the_undo() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "moved");
+        let repo = temp.path();
+        join("moved", mechanics()).unwrap();
+        crate::oplog::undo_in(repo, None).unwrap();
+
+        fs::write(repo.join("later.txt"), "landed after the undo\n").unwrap();
+        git_output(repo, &["add", "."]).unwrap();
+        git_output(repo, &["commit", "-m", "later work"]).unwrap();
+        let tip_now = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+
+        let err = crate::oplog::redo_in(repo, None).unwrap_err();
+        assert!(err.starts_with("tip-moved:"), "{err}");
+        assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), tip_now);
+    }
+
+    #[serial]
+    #[test]
+    fn redo_refuses_when_a_newer_operation_ran_on_the_dash() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "busy");
+        let repo = temp.path();
+        join("busy", mechanics()).unwrap();
+        crate::oplog::undo_in(repo, None).unwrap();
+
+        // A discard on the restored dash is newer work the redo would trample.
+        discard("busy", None).unwrap();
+
+        let err = crate::oplog::redo_in(repo, Some("busy")).unwrap_err();
+        assert!(err.starts_with("superseded:"), "{err}");
+    }
+
+    #[serial]
+    #[test]
+    fn redo_with_nothing_to_redo_says_so() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "fresh");
+        let repo = temp.path();
+
+        let err = crate::oplog::redo_in(repo, None).unwrap_err();
+        assert!(err.starts_with("nothing-to-redo:"), "{err}");
+
+        // And once an undo has been redone, there is nothing left to redo.
+        join("fresh", mechanics()).unwrap();
+        crate::oplog::undo_in(repo, None).unwrap();
+        crate::oplog::redo_in(repo, None).unwrap();
+        let err = crate::oplog::redo_in(repo, None).unwrap_err();
+        assert!(err.starts_with("already-redone:"), "{err}");
+    }
+
+    /// The reachability claim redo rests on, made falsifiable: the undo records
+    /// itself *before* it acts, so its keepalive parents the join's landed
+    /// commit — which is why that commit survives its own undo.
+    #[serial]
+    #[test]
+    fn the_landed_commit_survives_its_undo_through_the_undos_own_keepalive() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "reach");
+        let repo = temp.path();
+        join("reach", mechanics()).unwrap();
+        let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
+
+        crate::oplog::undo_in(repo, None).unwrap();
+        assert_ne!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), landed);
+
+        let alive = git_output(repo, &["cat-file", "-e", &format!("{landed}^{{commit}}")])
+            .unwrap()
+            .status
+            .success();
+        assert!(alive, "no branch points at it, but the undo's keepalive does");
+
+        crate::oplog::redo_in(repo, None).unwrap();
+        assert_eq!(
+            git_stdout(repo, &["rev-parse", "main"]).unwrap(),
+            landed,
+            "so the redo can put it back"
+        );
+    }
+
     #[serial]
     #[test]
     fn undo_with_nothing_recorded_says_so() {
