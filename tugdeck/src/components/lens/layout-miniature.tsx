@@ -49,7 +49,6 @@ import {
   CONTENT_WIDTH_COMFY_PX,
   slotCount,
   type ContentWidth,
-  type FlowSlotExtent,
   type ImpositionKind,
   type ImpositionLayout,
   type RailMode,
@@ -64,6 +63,30 @@ const RAIL_NOMINAL_PX = 420;
 
 /** How many sidebar cards stand on each side. Absent or 0 draws no rail. */
 export type MiniatureRails = Partial<Record<SidebarSide, number>>;
+
+/**
+ * One slot as the LIVE strip stands it — where it begins and how wide it is,
+ * both in the strip's own pixels from the strip's origin.
+ *
+ * The left edge is carried rather than accumulated for the reason
+ * {@link FlowStrip.extents} is carried rather than re-derived: laying the
+ * slots out by summing widths and adding a gap makes the drawing responsible
+ * for a number it does not own, and it will get that number wrong the moment
+ * it differs from whatever the strip actually used.
+ */
+export interface MiniatureFlowSlot {
+  slot: number;
+  leftPx: number;
+  widthPx: number;
+}
+
+/** The live strip as the drawing needs it: the band it is seen through, its own
+ *  full length, and where each standing slot sits along it. */
+export interface MiniatureFlowStrip {
+  bandPx: number;
+  stripPx: number;
+  slots: readonly MiniatureFlowSlot[];
+}
 
 /** How far a card behind the front one peeks out of the rail, in percent of
  *  the miniature's height. Small: the picture has to say "there is another card
@@ -167,13 +190,23 @@ export interface LayoutMiniatureProps {
   committed?: boolean;
   /**
    * The deck's live flow truth, for the committed drawing alone: how far the
-   * strip has slid under the band, what the band measures, and what each
-   * occupied slot's extent is.
+   * strip has slid under the band, what the band measures, how long the strip
+   * is, and where every standing slot begins and ends along it.
    *
-   * All three or none. They are one fact in three numbers — a strip's
+   * All four or none. They are one fact in four numbers — a strip's
    * proportions mean nothing without the band they are seen through, and an
    * offset into a strip nobody has measured places the window nowhere — so a
    * partial set draws at rest rather than drawing a mixture of two truths.
+   *
+   * The strip's LENGTH and its slots' POSITIONS are given rather than derived,
+   * and that is the difference between a drawing and a claim. Derived, the
+   * drawing had to assume the gap between two slots, and it assumed the
+   * decorative one it uses for the synthetic strip — several times the real
+   * one. Every assumed gap inflated the strip the window is measured against,
+   * so the window came out narrower than the band really is and the picture
+   * showed a slot being cut off that was fully on screen. `deckFlowStrip`
+   * already resolves both numbers ([P09]); reading them is the only way the
+   * two can agree.
    *
    * Only a FLOW drawing reads them. Fit's slots are anchors at fractions of the
    * band and its cards tile it edge to edge whatever they are wide, so real
@@ -183,7 +216,9 @@ export interface LayoutMiniatureProps {
   /** @see {@link LayoutMiniatureProps.flowOffsetPx} */
   flowBandPx?: number;
   /** @see {@link LayoutMiniatureProps.flowOffsetPx} */
-  slotExtents?: readonly FlowSlotExtent[];
+  flowStripPx?: number;
+  /** @see {@link LayoutMiniatureProps.flowOffsetPx} */
+  flowSlots?: readonly MiniatureFlowSlot[];
 }
 
 /** The air between two members of a divided rail, in percent of the drawing's
@@ -330,10 +365,10 @@ export interface MiniaturePlaceRects {
  * column's slide runs down the field. Both stay where they were, applied on top
  * of these rects by the drawing alone.
  *
- * The live flow strip IS an input, though, and has to be: `slotExtents` decides
- * where the blocks are, so a consumer handed the synthetic strip while the
- * drawing drew the real one would stand its parts over a picture that is not
- * there. Absent, the strip is the synthetic one every proposal draws.
+ * The live flow strip IS an input, though, and has to be: it decides where the
+ * blocks are, so a consumer handed the synthetic strip while the drawing drew
+ * the real one would stand its parts over a picture that is not there. Absent,
+ * the strip is the synthetic one every proposal draws.
  */
 export function miniatureGeometry({
   kind,
@@ -348,9 +383,8 @@ export function miniatureGeometry({
   cards?: boolean;
   width?: ContentWidth;
   layout?: ImpositionLayout;
-  /** The live strip, when there is one: the band it is seen through and each
-   *  occupied slot's extent. */
-  flow?: { bandPx: number; extents: readonly FlowSlotExtent[] } | null;
+  /** The live strip, when there is one. */
+  flow?: MiniatureFlowStrip | null;
 }): MiniaturePlaceRects {
   const left = rails.left ?? 0;
   const right = rails.right ?? 0;
@@ -383,35 +417,53 @@ export function miniatureGeometry({
   // off the edge and the deck scrolls). When it is longer the WHOLE strip is
   // scaled into the frame and a window marks the part that is on screen.
   //
-  // Live, the blocks are the deck's own extents, in strip order — one per
-  // slot the kind defines, because every slot holds its place in the strip
-  // (an empty one carries the placeholder width the real strip gives it).
-  // The drawing does not decide this; `deckFlowStrip` is the one resolution
-  // ([P09]) and what it says is what is drawn.
+  // Live, the blocks are the deck's own strip — one per slot standing in it,
+  // each at the place and the width the strip put it, because every slot holds
+  // its place in the strip (an empty one carries the placeholder width the real
+  // strip gives it). The drawing does not decide any of this; `deckFlowStrip`
+  // is the one resolution ([P09]) and what it says is what is drawn.
+  //
+  // Including the GAPS. The drawing used to lay the live blocks out itself, by
+  // summing widths and inserting its own decorative seam between them, and that
+  // seam is several times the deck's real one — so the strip it measured came
+  // out longer than the strip on screen, the window (the band, as a share of
+  // that strip) came out narrower than the band really is, and the picture
+  // showed a slot half out of view that was fully on screen. The seam belongs
+  // to the SYNTHETIC strip alone, where there is no real gap to draw.
   const flowLive =
     layout === "flow" &&
     kind !== null &&
     flow !== undefined &&
     flow !== null &&
     flow.bandPx > 0 &&
-    flow.extents.length > 0
+    flow.stripPx > 0 &&
+    flow.slots.length > 0
       ? flow
       : null;
-  const flowBlocks: readonly { slot: number; widthPct: number }[] =
+  const flowGap = cardGapFor(count);
+  const syntheticWidthPct = (cardUnits / FLOW_BAND_NOMINAL_PX) * 100;
+  const flowBlocks: readonly (MiniatureRect & { slot: number })[] =
     flowLive !== null
-      ? flowLive.extents.map((extent) => ({
-          slot: extent.slot,
-          widthPct: (extent.width / flowLive.bandPx) * 100,
+      ? flowLive.slots.map((entry) => ({
+          slot: entry.slot,
+          leftPct: (entry.leftPx / flowLive.bandPx) * 100,
+          widthPct: (entry.widthPx / flowLive.bandPx) * 100,
         }))
       : Array.from({ length: count }, (_, i) => ({
           slot: i,
-          widthPct: (cardUnits / FLOW_BAND_NOMINAL_PX) * 100,
+          leftPct: i * (syntheticWidthPct + flowGap),
+          widthPct: syntheticWidthPct,
         }));
-  const flowGap = cardGapFor(flowBlocks.length);
-  const flowStrip = flowBlocks.reduce(
-    (sum, block, i) => sum + block.widthPct + (i > 0 ? flowGap : 0),
-    0,
-  );
+  // How long the strip is, in the same percent-of-band its blocks are stated
+  // in: its own measure when it is the real one, and where the last block ends
+  // when it is not.
+  const flowStrip =
+    flowLive !== null
+      ? (flowLive.stripPx / flowLive.bandPx) * 100
+      : flowBlocks.reduce(
+          (end, block) => Math.max(end, block.leftPct + block.widthPct),
+          0,
+        );
   const flowOverflows = layout === "flow" && flowStrip > 100;
   const flowScale = flowOverflows ? 100 / flowStrip : 1;
 
@@ -421,13 +473,9 @@ export function miniatureGeometry({
   // imposition) keeps its own width and the middle of the field under either.
   const blocks: readonly (MiniatureRect & { slot: number })[] =
     layout === "flow" && kind !== null
-      ? flowBlocks.map((block, i) => ({
+      ? flowBlocks.map((block) => ({
           slot: block.slot,
-          leftPct:
-            flowBlocks
-              .slice(0, i)
-              .reduce((sum, prior) => sum + prior.widthPct + flowGap, 0) *
-            flowScale,
+          leftPct: block.leftPct * flowScale,
           widthPct: block.widthPct * flowScale,
         }))
       : Array.from({ length: count }, (_, i) => ({
@@ -467,7 +515,8 @@ export function LayoutMiniature({
   committed = false,
   flowOffsetPx,
   flowBandPx,
-  slotExtents,
+  flowStripPx,
+  flowSlots,
 }: LayoutMiniatureProps): React.ReactElement {
   const left = rails.left ?? 0;
   const right = rails.right ?? 0;
@@ -487,9 +536,16 @@ export function LayoutMiniature({
     flowOffsetPx !== undefined &&
     flowBandPx !== undefined &&
     flowBandPx > 0 &&
-    slotExtents !== undefined &&
-    slotExtents.length > 0
-      ? { offsetPx: flowOffsetPx, bandPx: flowBandPx, extents: slotExtents }
+    flowStripPx !== undefined &&
+    flowStripPx > 0 &&
+    flowSlots !== undefined &&
+    flowSlots.length > 0
+      ? {
+          offsetPx: flowOffsetPx,
+          bandPx: flowBandPx,
+          stripPx: flowStripPx,
+          slots: flowSlots,
+        }
       : null;
 
   // Where everything stands — the shared arithmetic, not a second copy of it.
@@ -572,69 +628,81 @@ export function LayoutMiniature({
         />
       ) : null}
       <span className="layout-mini-field">
-        {blocks.map((block) => {
-          // A split column divides its RUN, not the band: the members keep the
-          // slot's left edge and its width and stack down it, flush top and
-          // bottom, with a seam between — the same equal division the rail's
-          // split draws, and for the same reason. A hand-dragged ratio is not
-          // what the picture is answering.
-          const members = columnSplits?.[block.slot] ?? 1;
-          if (members < 2) {
-            return (
-              <span
-                key={block.slot}
-                className="layout-mini-block"
-                style={{ left: `${block.leftPct}%`, width: `${block.widthPct}%` }}
-              />
-            );
-          }
-          // Past two members the column stops dividing and starts scrolling
-          // ([P08]), and the drawing says so rather than capping at three: EVERY
-          // member is drawn, each the same height, stacked down a strip that
-          // runs off the bottom of the field. The span is solved so the third
-          // member is cut exactly in half — `(100 - 2 * gap) / 2.5` puts two
-          // whole members and half of a third inside the run for any gap — which
-          // is the geometry the deck itself resolves, and the half-visible card
-          // IS the affordance saying there is more below.
-          const overflow = columnStanding(members) === "overflow";
-          const span = overflow
-            ? (100 - RAIL_SEAM_PCT * 2) / COLUMN_OVERFLOW_VISIBLE_MEMBERS
-            : (100 - RAIL_SEAM_PCT * (members - 1)) / members;
-          const fraction = overflow ? (columnOffsets?.[block.slot] ?? 0) : 0;
-          const slide = fraction * 100;
-          // A fraction of the RUN is the whole field's height; the member is
-          // `span` percent of it, and a translation is stated in percent of the
-          // element being translated. Negative because sliding the strip UP is
-          // what a positive offset means. ([P08])
-          const slideExpr = overflow
-            ? slideExpression(
-                columnOffsetSignal(block.slot),
-                fraction,
-                -10000 / span,
-              )
-            : null;
-          return Array.from({ length: members }, (_, m) => {
-            const top = m * (span + RAIL_SEAM_PCT) - slide;
-            return (
-              <span
-                key={`${block.slot}:${m}`}
-                className="layout-mini-block"
-                data-column-member=""
-                data-column-overflow={overflow ? "" : undefined}
-                style={
-                  {
-                    left: `${block.leftPct}%`,
-                    width: `${block.widthPct}%`,
-                    top: `${top}%`,
-                    bottom: `${100 - top - span}%`,
-                    "--mini-slide-y":
-                      committed && slideExpr !== null ? slideExpr : undefined,
-                  } as React.CSSProperties
-                }
-              />
-            );
-          });
-        })}
+        {/* The run: the field's box, and the only thing in the drawing that
+            clips. The clip is the affordance an overflowing column depends on —
+            its third member is cut in half by running off the bottom — so it
+            has to be here, and it must not reach the window. The window stands
+            two pixels proud of the cards on purpose, as a bracket around them
+            rather than a rect behind them, and inside the clip those two pixels
+            were simply cut off: the accent read as a pair of vertical lines
+            with their ends sheared. So the clip is the run's and the field is
+            the window's, which is also the honest division — a card is in the
+            deck, and the window is the frame the deck is seen through. */}
+        <span className="layout-mini-run">
+          {blocks.map((block) => {
+            // A split column divides its RUN, not the band: the members keep the
+            // slot's left edge and its width and stack down it, flush top and
+            // bottom, with a seam between — the same equal division the rail's
+            // split draws, and for the same reason. A hand-dragged ratio is not
+            // what the picture is answering.
+            const members = columnSplits?.[block.slot] ?? 1;
+            if (members < 2) {
+              return (
+                <span
+                  key={block.slot}
+                  className="layout-mini-block"
+                  style={{ left: `${block.leftPct}%`, width: `${block.widthPct}%` }}
+                />
+              );
+            }
+            // Past two members the column stops dividing and starts scrolling
+            // ([P08]), and the drawing says so rather than capping at three: EVERY
+            // member is drawn, each the same height, stacked down a strip that
+            // runs off the bottom of the field. The span is solved so the third
+            // member is cut exactly in half — `(100 - 2 * gap) / 2.5` puts two
+            // whole members and half of a third inside the run for any gap — which
+            // is the geometry the deck itself resolves, and the half-visible card
+            // IS the affordance saying there is more below.
+            const overflow = columnStanding(members) === "overflow";
+            const span = overflow
+              ? (100 - RAIL_SEAM_PCT * 2) / COLUMN_OVERFLOW_VISIBLE_MEMBERS
+              : (100 - RAIL_SEAM_PCT * (members - 1)) / members;
+            const fraction = overflow ? (columnOffsets?.[block.slot] ?? 0) : 0;
+            const slide = fraction * 100;
+            // A fraction of the RUN is the whole field's height; the member is
+            // `span` percent of it, and a translation is stated in percent of the
+            // element being translated. Negative because sliding the strip UP is
+            // what a positive offset means. ([P08])
+            const slideExpr = overflow
+              ? slideExpression(
+                  columnOffsetSignal(block.slot),
+                  fraction,
+                  -10000 / span,
+                )
+              : null;
+            return Array.from({ length: members }, (_, m) => {
+              const top = m * (span + RAIL_SEAM_PCT) - slide;
+              return (
+                <span
+                  key={`${block.slot}:${m}`}
+                  className="layout-mini-block"
+                  data-column-member=""
+                  data-column-overflow={overflow ? "" : undefined}
+                  style={
+                    {
+                      left: `${block.leftPct}%`,
+                      width: `${block.widthPct}%`,
+                      top: `${top}%`,
+                      bottom: `${100 - top - span}%`,
+                      "--mini-slide-y":
+                        committed && slideExpr !== null ? slideExpr : undefined,
+                    } as React.CSSProperties
+                  }
+                />
+              );
+            });
+          })}
+        </span>
         {flowOverflows ? (
           <span
             className="layout-mini-window"

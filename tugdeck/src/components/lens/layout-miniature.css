@@ -34,15 +34,25 @@
   background-color: var(--tug7-surface-global-primary-normal-sunken-rest);
 }
 
-/* The run the cards are drawn across — everything the Lens has not taken. */
+/* The run the cards are drawn across — everything the Lens has not taken. It
+   does NOT clip: the flow window stands inside it and stands two pixels proud
+   of the cards, which is the bracket's whole shape, and a clip here sheared
+   those two pixels off the top and bottom of the accent. */
 .layout-mini-field {
   position: relative;
   flex: 1 1 auto;
   min-inline-size: 0;
-  /* The field IS the run, so it clips the way the deck's canvas clips. An
-     overflowing column draws every one of its members down a strip that runs
-     off the bottom, and the half-visible third card at the edge — the whole
-     affordance — is that clip and nothing else. */
+}
+
+/* The cards' own box, filling the field — and the one thing in the drawing that
+   clips, the way the deck's canvas clips. An overflowing column draws every one
+   of its members down a strip that runs off the bottom, and the half-visible
+   third card at the edge — the whole affordance — is that clip and nothing
+   else. It is the CARDS that are clipped, which is also the honest division: a
+   card is in the deck, and the window is the frame the deck is seen through. */
+.layout-mini-run {
+  position: absolute;
+  inset: 0;
   overflow: clip;
 }
 

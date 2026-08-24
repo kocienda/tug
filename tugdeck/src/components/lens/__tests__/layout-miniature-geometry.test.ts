@@ -152,24 +152,64 @@ describe("miniatureGeometry — flow", () => {
       layout: "flow",
       flow: {
         bandPx: 1000,
-        extents: [
-          { slot: 0, width: 400 },
-          { slot: 2, width: 800 },
+        stripPx: 1210,
+        slots: [
+          { slot: 0, leftPx: 0, widthPx: 400 },
+          { slot: 2, leftPx: 410, widthPx: 800 },
         ],
       },
     });
     // Two blocks for two occupied slots — an empty slot contributes nothing to
-    // a real strip, not even a gap — and the second is twice the first.
+    // a real strip — and the second is twice the first.
     expect(blocks.map((b) => b.slot)).toEqual([0, 2]);
     expect(blocks[1].widthPct).toBeCloseTo(blocks[0].widthPct * 2, 6);
+  });
+
+  test("the live strip is laid out at its own gaps, not the drawing's seam", () => {
+    // The bug this pins: the drawing used to sum the widths and insert its own
+    // decorative seam, which is several times the deck's real gap. That made
+    // the strip longer than it is, so the window — the band as a share of the
+    // strip — came out narrower than the band, and the picture showed the last
+    // slot inside the band being cut off when it was fully on screen.
+    //
+    // Four slim cards, four-pixel gaps, a band that holds three of them.
+    const width = 412;
+    const gap = 4;
+    const stripPx = 3 * (width + gap) + width;
+    const slots = [0, 1, 2, 3].map((slot) => ({
+      slot,
+      leftPx: slot * (width + gap),
+      widthPx: width,
+    }));
+    const { blocks, flow } = miniatureGeometry({
+      kind: "four-up",
+      layout: "flow",
+      flow: { bandPx: width * 3 + gap * 2, stripPx, slots },
+    });
+    // The gaps the drawing draws are the gaps the deck has: every block stands
+    // at the same fraction of the field that its card stands at along the strip.
+    for (const block of blocks) {
+      expect(block.leftPct).toBeCloseTo(
+        (slots[block.slot].leftPx / stripPx) * 100,
+        6,
+      );
+    }
+    // And the window says what is true: the third slot is wholly inside the
+    // band, the fourth is not.
+    const windowRight = 100 * flow.scale;
+    const rightOf = (i: number): number =>
+      blocks[i].leftPct + blocks[i].widthPct;
+    expect(rightOf(2)).toBeLessThanOrEqual(windowRight);
+    expect(rightOf(3)).toBeGreaterThan(windowRight);
   });
 
   test("a live strip is ignored under fit, which tiles whatever the cards are wide", () => {
     const live = {
       bandPx: 1000,
-      extents: [
-        { slot: 0, width: 400 },
-        { slot: 1, width: 900 },
+      stripPx: 1310,
+      slots: [
+        { slot: 0, leftPx: 0, widthPx: 400 },
+        { slot: 1, leftPx: 410, widthPx: 900 },
       ],
     };
     const fit = miniatureGeometry({ kind: "two-up", flow: live });
@@ -185,12 +225,16 @@ describe("miniatureGeometry — flow", () => {
     const unmeasured = miniatureGeometry({
       kind: "three-up",
       layout: "flow",
-      flow: { bandPx: 0, extents: [{ slot: 0, width: 400 }] },
+      flow: {
+        bandPx: 0,
+        stripPx: 400,
+        slots: [{ slot: 0, leftPx: 0, widthPx: 400 }],
+      },
     });
     const empty = miniatureGeometry({
       kind: "three-up",
       layout: "flow",
-      flow: { bandPx: 1000, extents: [] },
+      flow: { bandPx: 1000, stripPx: 0, slots: [] },
     });
     expect(unmeasured.blocks).toEqual(synthetic.blocks);
     expect(empty.blocks).toEqual(synthetic.blocks);

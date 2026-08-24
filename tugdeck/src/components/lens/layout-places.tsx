@@ -79,6 +79,7 @@ import React, {
 
 import {
   miniatureGeometry,
+  type MiniatureFlowStrip,
   type MiniatureRails,
 } from "@/components/lens/layout-miniature";
 import { SplitGlyph, StackGlyph } from "@/components/tugways/tug-column-badge";
@@ -89,7 +90,6 @@ import { useItemGroupKeyboard } from "@/components/tugways/use-item-group-keyboa
 import type {
   ColumnMode,
   ContentWidth,
-  FlowSlotExtent,
   ImpositionKind,
   ImpositionLayout,
   RailMode,
@@ -127,7 +127,7 @@ export interface LayoutPlacesProps {
   width?: ContentWidth;
   layout?: ImpositionLayout;
   /** The live flow strip, when the drawing beneath is drawing one. */
-  flow?: { bandPx: number; extents: readonly FlowSlotExtent[] } | null;
+  flow?: MiniatureFlowStrip | null;
   /** Every slot the kind defines, occupied or not — the drawing draws the
    *  empty ones too, and a drawn block with no mark reads as a hole in the
    *  instrument. An empty slot's stored arrangement is as real as a

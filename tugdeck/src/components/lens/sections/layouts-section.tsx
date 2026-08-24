@@ -105,7 +105,10 @@ import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
 import { setSectionContent } from "@/components/lens/lens-section-content";
 import { LayoutMiniature } from "@/components/lens/layout-miniature";
-import type { MiniatureRails } from "@/components/lens/layout-miniature";
+import type {
+  MiniatureFlowSlot,
+  MiniatureRails,
+} from "@/components/lens/layout-miniature";
 import { LayoutPlaces } from "@/components/lens/layout-places";
 import type { LayoutPlace } from "@/components/lens/layout-places";
 import { dispatchCommand } from "@/command-dispatch";
@@ -132,7 +135,6 @@ import {
   DEFAULT_SIDEBAR_SIDE,
   type ContentWidth,
   type DeckImposition,
-  type FlowSlotExtent,
   type ImpositionKind,
   type ColumnMode,
   type ImpositionLayout,
@@ -369,12 +371,13 @@ function useDeckColumns(): readonly DeckColumn[] {
   return useMemo(() => (deck === null ? [] : deckColumnsOf(deck)), [deck]);
 }
 
-/** The deck's live flow truth, in the three numbers the committed miniature
- *  draws from — see {@link useCommittedFlow}. */
+/** The deck's live flow truth, in the numbers the committed miniature draws
+ *  from — see {@link useCommittedFlow}. */
 interface CommittedFlow {
   offsetPx: number;
   bandPx: number;
-  extents: readonly FlowSlotExtent[];
+  stripPx: number;
+  slots: readonly MiniatureFlowSlot[];
 }
 
 /**
@@ -402,12 +405,22 @@ function useCommittedFlow(): CommittedFlow | null {
     if (strip === null) return null;
     const bandPx = store.getFlowBandWidth();
     if (bandPx === null || bandPx <= 0) return null;
+    // The strip's own positions and its own length, not a re-derivation of
+    // either. `deckFlowStrip` resolves both ([P09]), and a drawing that laid the
+    // slots out itself would have to assume the gap between two of them — which
+    // is exactly how the picture came to show a slot cut off that was fully on
+    // screen.
     return {
       offsetPx: deck.flowOffset ?? 0,
       bandPx,
-      extents: [...strip.extents]
+      stripPx: strip.width,
+      slots: [...strip.extents]
         .sort(([a], [b]) => a - b)
-        .map(([slot, width]) => ({ slot, width })),
+        .map(([slot, width]) => ({
+          slot,
+          leftPx: strip.positions.get(slot) ?? 0,
+          widthPx: width,
+        })),
     };
   }, [deck, store]);
 }
@@ -1008,7 +1021,8 @@ function LayoutsSectionBody({
               committed
               flowOffsetPx={committedFlow?.offsetPx}
               flowBandPx={committedFlow?.bandPx}
-              slotExtents={committedFlow?.extents}
+              flowStripPx={committedFlow?.stripPx}
+              flowSlots={committedFlow?.slots}
               columnOffsets={committedColumnOffsets ?? undefined}
             />
           </div>
@@ -1061,7 +1075,8 @@ function LayoutsSectionBody({
               ? null
               : {
                   bandPx: committedFlow.bandPx,
-                  extents: committedFlow.extents,
+                  stripPx: committedFlow.stripPx,
+                  slots: committedFlow.slots,
                 }
           }
           columns={columnPlaces}
