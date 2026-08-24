@@ -229,6 +229,40 @@ describe("precedence — the part that gets re-derived wrongly", () => {
     expect(both?.word).toBe("blocked");
   });
 
+  test("a live join outranks a blocker", () => {
+    // The 2026-08-24 flash: a join writes its own resume journal while it runs,
+    // the server reported that journal as "a previous join is incomplete", and
+    // the register painted the refusal red over a join that was seconds from
+    // landing. The server no longer sends that blocker, and the arm order means
+    // no future blocker can paint over a run in flight either — a blocker
+    // answers whether a join may start, which a running join has settled.
+    const midJoin = reg(
+      {
+        ...reconciled(),
+        run: "join",
+        blockers: [
+          {
+            kind: "stale-journal",
+            detail: "A previous join of dash 'd' is incomplete.",
+          },
+        ],
+      },
+      { landBeat: { beat: "squash", status: "start" } },
+    );
+    expect(midJoin?.word).toBe("joining");
+    expect(midJoin?.phase).toBe("in_flight");
+
+    // A blocker with no join running still speaks — the arm moved, it did not
+    // go away.
+    const notJoining = reg({
+      ...reconciled(),
+      blockers: [
+        { kind: "stale-journal", detail: "A previous join of dash 'd' is incomplete." },
+      ],
+    });
+    expect(notJoining?.word).toBe("blocked");
+  });
+
   test("a live join outranks everything but a wire drop", () => {
     const overQuestion = reg(
       {

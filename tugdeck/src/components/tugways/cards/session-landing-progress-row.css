@@ -4,14 +4,24 @@
  * The register's appearance is `BlockHeader`'s and its framing is
  * `dash-join-register.css`'s. All this file does is give the row breathing
  * space where it sits: at the live edge, under the last transcript row, above
- * the composer. The scroller already insets its content, so there is no
- * horizontal padding here — a live-edge row that indented itself would sit off
- * the transcript's own left edge.
+ * the composer.
+ *
+ * **The live edge is not inside an entry, so it inherits no column.** Every
+ * transcript row renders through `TugTranscriptEntry`, whose pin and content
+ * rows are both a two-column grid — speaker gutter, then body — so tool blocks
+ * begin one gutter in. This row renders into `TugListView`'s `trailingContent`
+ * slot, which is a bare div outside that grid, and so began at zero: a register
+ * sitting a gutter's width to the left of every tool block it appears beneath.
+ * `--tugx-transcript-body-inset` is the entry's own arithmetic for where its
+ * body column starts; consuming it here is what keeps the two aligned when the
+ * gutter is retuned.
  *
  * [L20] — nothing here reaches into `--tugx-toolheader-*` or the register's
- * own tokens.
+ * own tokens. `--tugx-transcript-body-inset` is read rather than redefined; it
+ * belongs to `tug-transcript-entry.css`, which declares it for this purpose.
  */
 
 .session-landing-progress-row {
   padding-block: var(--tug-space-sm);
+  padding-inline-start: var(--tugx-transcript-body-inset);
 }

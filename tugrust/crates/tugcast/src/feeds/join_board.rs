@@ -34,6 +34,8 @@ use tugcast_core::types::{
     DashJoinReport, DashJoinState, DashResolvedFile,
 };
 use tugdash_core::ops::{self, DashDetail};
+
+use crate::feeds::join_occupancy::JoinRunKind;
 use tugdash_core::resolve::{self, CandidateStatus};
 
 /// The cacheable half of one dash's join facts, and the head pair it describes.
@@ -139,11 +141,22 @@ pub fn join_state_for(
     // Uncached and uncacheable: what is running on this dash right now. The
     // registry is in-process, so this is the one fact here that answers to the
     // moment rather than to a pair of commits (Spec S01).
-    let run = crate::feeds::join_occupancy::run_kind(&detail.owner_key).map(|k| k.to_string());
+    let run_kind = crate::feeds::join_occupancy::run_kind(&detail.owner_key);
+    let run = run_kind.map(|k| k.to_string());
+    let joining = run_kind == Some(JoinRunKind::Join.as_str());
 
     // Uncached, always: what would refuse a join right now.
     let blockers: Vec<DashJoinBlocker> =
-        ops::join_blockers_from_detail(repo_root, detail, current_branch)
+        // A live join and a crashed one both leave a journal on disk, and only
+        // the second is a blocker. The holder is what tells them apart — and it
+        // has to be a *join* holder: a resolve running over a journal a crashed
+        // join left behind is exactly the case that still wants the refusal.
+        ops::join_blockers_from_detail(
+            repo_root,
+            detail,
+            current_branch,
+            joining,
+        )
             .into_iter()
             .map(|b| DashJoinBlocker {
                 kind: b.kind,

@@ -28,6 +28,14 @@ body {
   --tugx-transcript-row-gap:            var(--tug-space-xl);
   --tugx-transcript-icon-column-width:  36px;
   --tugx-transcript-icon-column-gap:    var(--tug-space-xs);
+  /* Where the body column begins, measured from the entry's own left edge —
+   * the gutter plus the gap that follows it. Declared here, beside the two
+   * values it composes, because a surface that sits at the transcript's live
+   * edge rather than inside an entry has no grid to inherit and must line up
+   * with the body column by arithmetic. Reading this token is how it does that
+   * without hardcoding a number that stops tracking the gutter. */
+  --tugx-transcript-body-inset:
+    calc(var(--tugx-transcript-icon-column-width) + var(--tugx-transcript-icon-column-gap));
   --tugx-transcript-icon-size:          var(--tug-icon-size-md);
   --tugx-transcript-header-gap:         var(--tug-space-sm);
   /* Gap between the attribution header and the body. Tight by default —

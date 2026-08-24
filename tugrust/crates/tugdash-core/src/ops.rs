@@ -1215,6 +1215,11 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         // ([P01]): the declarations are the record this path derives from.
         let declarations = read_declarations(repo_root, name);
         let run_span = crate::dash::run_fraction(&declarations);
+        // The other reading of the journal, and deliberately the wide one: any
+        // journal at all — live or left by a crash — means this dash is not
+        // joinable right now, so readiness stands down either way. The blocker
+        // set makes the opposite call for the opposite reason; see
+        // `join_blockers_from_detail`.
         let joining = read_join_journal(repo_root, name).is_some();
         let plan_path = dash_plan_path(repo_root, name);
         // Every input is already in hand from this dash's own composition, so
@@ -3190,7 +3195,9 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     let detail =
         dash_detail_entry_in(repo_root, name).ok_or_else(|| format!("Dash not found: {}", name))?;
     let current = current_branch(repo_root)?;
-    Ok(join_blockers_from_detail(repo_root, &detail, &current))
+    // No occupancy view from a CLI process, and none wanted: a journal on disk
+    // refuses a join started from here whether or not the server is mid-join.
+    Ok(join_blockers_from_detail(repo_root, &detail, &current, false))
 }
 
 /// What would refuse a join right now, composed from a detail the caller
@@ -3204,16 +3211,30 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
 /// this whole seam exists to prevent. It is cheap instead of cached: every git
 /// read but one is already paid for by the detail walk, and the exception
 /// (which branch is checked out) is per-repository rather than per-dash.
+///
+/// `joining` says whether a join holds this dash right now. It is the one input
+/// the caller must supply: see the journal note in the body for why the answer
+/// cannot be read from disk.
 pub fn join_blockers_from_detail(
     repo_root: &Path,
     detail: &DashDetail,
     current_branch: &str,
+    joining: bool,
 ) -> Vec<JoinBlocker> {
     let name = detail.name.as_str();
     let base_branch = detail.base.as_str();
     let mut blockers = Vec::new();
 
-    if read_join_journal(repo_root, name).is_some() {
+    // The journal means *a join owns this dash*, and that reading splits on one
+    // fact this function cannot see: whether anybody is still running. A join
+    // writes the journal at each teardown phase boundary and clears it at the
+    // end, so for the whole squash-to-record window the file is on disk while
+    // the join is perfectly healthy. Only a journal nobody holds is stale.
+    //
+    // `joining` is passed rather than read because the holder registry is
+    // in-process and lives a crate away — the same reason `pilot_action` takes
+    // its facts rather than fetching them.
+    if !joining && read_join_journal(repo_root, name).is_some() {
         blockers.push(JoinBlocker {
             kind: "stale-journal".to_string(),
             detail: stale_journal_detail(name),
@@ -9301,6 +9322,58 @@ Some context.
         );
     }
 
+    /// A join in flight writes the journal itself, so the journal alone cannot
+    /// mean "a previous join is incomplete" — for the whole squash-to-record
+    /// window it means the opposite. The holder is what tells the two apart,
+    /// and the blocked sentence is false in every clause while a join runs.
+    #[serial]
+    #[test]
+    fn a_live_join_is_not_a_stale_journal() {
+        let temp = TempDir::new().unwrap();
+        seed_dash_with_a_round(&temp, "inflight");
+        let repo = temp.path();
+
+        let root = std::fs::canonicalize(repo).unwrap();
+        write_join_journal(
+            &root,
+            &JoinJournal {
+                name: "inflight".to_string(),
+                base_branch: dash_base(repo, "inflight").unwrap(),
+                strategy: "squash".to_string(),
+                commit_hash: git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
+                phase: JoinPhase::Integrated,
+                message: None,
+            },
+        )
+        .unwrap();
+
+        let detail = dash_detail_entry_in(repo, "inflight").expect("detail");
+        let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
+
+        let unheld = join_blockers_from_detail(repo, &detail, &current, false);
+        assert!(
+            unheld.iter().any(|b| b.kind == "stale-journal"),
+            "a journal nobody holds is stale and must refuse: {:?}",
+            unheld.iter().map(|b| &b.kind).collect::<Vec<_>>()
+        );
+
+        let held = join_blockers_from_detail(repo, &detail, &current, true);
+        assert!(
+            !held.iter().any(|b| b.kind == "stale-journal"),
+            "a join holding the dash wrote that journal: {:?}",
+            held.iter().map(|b| &b.kind).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            held.iter().map(|b| &b.kind).collect::<Vec<_>>(),
+            unheld
+                .iter()
+                .filter(|b| b.kind != "stale-journal")
+                .map(|b| &b.kind)
+                .collect::<Vec<_>>(),
+            "only the journal blocker moves; every other refusal still stands"
+        );
+    }
+
     #[serial]
     #[test]
     fn preview_reports_empty_for_a_dash_with_no_rounds() {
@@ -10036,7 +10109,7 @@ Some context.
         let composed = || {
             let detail = dash_detail_entry_in(repo, "kinds").expect("detail");
             let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
-            join_blockers_from_detail(repo, &detail, &current)
+            join_blockers_from_detail(repo, &detail, &current, false)
         };
         let same = |label: &str| {
             let a = composed();
@@ -10106,7 +10179,7 @@ Some context.
         let hollow_detail = dash_detail_entry_in(repo, "hollow").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
         assert_eq!(
-            join_blockers_from_detail(repo, &hollow_detail, &current)
+            join_blockers_from_detail(repo, &hollow_detail, &current, false)
                 .iter()
                 .map(|b| &b.kind)
                 .collect::<Vec<_>>(),

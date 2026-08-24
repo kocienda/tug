@@ -122,11 +122,13 @@ export const BEAT_WORDS: Record<string, string> = {
  *
  * 1. **wire-drop** — nothing below can be trusted when the feed is not
  *    arriving. Every other state is a claim about a moment that may be past.
- * 2. **blocked** — a blocker is an act somebody must take elsewhere, and it
- *    outranks a green verdict: a tree that builds still cannot land onto a
- *    dirty base.
- * 3. **joining** — a live join is the most specific thing happening, and it
- *    outranks the verdict that permitted it.
+ * 2. **joining** — a live join is the most specific thing happening, and it
+ *    outranks both the verdict that permitted it and any blocker. A blocker
+ *    answers *may this dash be joined*; a join in flight is past that question,
+ *    so a refusal painted over a running join reports a decision that has
+ *    already been made.
+ * 3. **blocked** — an act somebody must take elsewhere, which outranks a green
+ *    verdict: a tree that builds still cannot land onto a dirty base.
  * 4. **question** — a person is being waited on. Louder than a run, because a
  *    run that is waiting is not progressing.
  * 5. **stuck** — a refusal already stated, which is not a wait.
@@ -170,6 +172,20 @@ export function dashJoinRegister(
     };
   }
 
+  // Above the blockers, deliberately. A press that is refused on the live
+  // re-check has its beat retracted (`JoinModeController.retractNarration`), so
+  // a standing non-terminal beat means a join really is running — and a running
+  // join is past the question blockers answer.
+  const landing = landBeat ?? null;
+  if (landing !== null && landing.terminal !== true) {
+    const beat = BEAT_WORDS[landing.beat] ?? landing.beat;
+    return {
+      phase: "in_flight",
+      line: `Joining ${dash} into ${base} — ${beat}`,
+      word: "joining",
+    };
+  }
+
   const blockers = join?.blockers ?? [];
   if (blockers.length > 0) {
     return {
@@ -178,16 +194,6 @@ export function dashJoinRegister(
       // sentence composed here instead would be a second, worse copy.
       line: blockers[0]?.detail ?? "This join is blocked",
       word: "blocked",
-    };
-  }
-
-  const landing = landBeat ?? null;
-  if (landing !== null && landing.terminal !== true) {
-    const beat = BEAT_WORDS[landing.beat] ?? landing.beat;
-    return {
-      phase: "in_flight",
-      line: `Joining ${dash} into ${base} — ${beat}`,
-      word: "joining",
     };
   }
 

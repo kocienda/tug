@@ -40,6 +40,8 @@
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/components/tugways/dash-join-register.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-landing-progress-row.css
+ * @covers tugdeck/src/components/tugways/tug-transcript-entry.css
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -216,15 +218,36 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // ── Pinned beneath the rows, measured ────────────────────────────
         // Not "after them in the DOM" — under them on screen, which is what
         // "messages still scroll in above it" means geometrically.
-        const order = await app.evalJS<{ rows: number; lastBottom: number; edgeTop: number }>(
+        //
+        // The same probe reads the horizontal edge, which is the other half of
+        // "pinned beneath the rows" and was wrong from the day this row was
+        // written: every transcript row is a two-column grid — speaker gutter,
+        // then body — and the live-edge slot is a bare div outside that grid,
+        // so the register began a gutter's width to the LEFT of every tool
+        // block it appeared under. It reads the entry's own body-column inset
+        // now, so the two share a left edge.
+        const order = await app.evalJS<{
+          rows: number;
+          lastBottom: number;
+          edgeTop: number;
+          bodyLeft: number;
+          registerLeft: number;
+        }>(
           `(function(){
              var rows = document.querySelectorAll(${JSON.stringify(TRANSCRIPT_ROWS)});
              var last = rows.length === 0 ? null : rows[rows.length - 1];
              var edge = document.querySelector(${JSON.stringify(LIVE_EDGE)});
+             var reg = document.querySelector(${JSON.stringify(LIVE_REGISTER)});
+             var bodies = document.querySelectorAll(
+               ${JSON.stringify(`${SCROLLER} .tug-transcript-entry__body`)}
+             );
+             var body = bodies.length === 0 ? null : bodies[bodies.length - 1];
              return {
                rows: rows.length,
                lastBottom: last === null ? -1 : last.getBoundingClientRect().bottom,
                edgeTop: edge === null ? -1 : edge.getBoundingClientRect().top,
+               bodyLeft: body === null ? -1 : body.getBoundingClientRect().left,
+               registerLeft: reg === null ? -1 : reg.getBoundingClientRect().left,
              };
            })()`,
         );
@@ -234,6 +257,11 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
           order.edgeTop,
           "the live-edge row starts below the last transcript row's bottom",
         ).toBeGreaterThanOrEqual(order.lastBottom);
+        expect(order.bodyLeft, "an entry body was measured to align against").toBeGreaterThan(0);
+        expect(
+          Math.abs(order.registerLeft - order.bodyLeft),
+          "the register shares a left edge with the transcript's body column",
+        ).toBeLessThanOrEqual(1);
 
         // ── The join lands, and the ink settles into a receipt ───────────
         // The card is already on the Changes route with the composer armed, so
