@@ -71,14 +71,17 @@ One thing I'd push back on gently: none of this needs a plan yet. Steps 1–4 ea
 
 
 
+When we kick off a dash, the dash displays throughout the UI don't update to show the dash until the plan is written, yet the planning phase is indeed part of the entire dash arc as far as I'm concerned. We need to show this process as part of the dash inflight somehow.
+
+Briefs have increased in important, since they are the last touch point before a dash. What does this mean? Is there anything we can do to increase or improve the formalization of briefs without bloating them up or turning them into mini-plans?
 
 This `/dash-arc` display should be *custom*, not just shell script output.
 
+The styling of dash display in these atom/pills is inconsistent across the app: typeface is sometimes monospace, sometimes proportional; sometimes quiet/muted.
 
-The styling of dash display in these atom/pills is inconsistent across the app: typeface is sometimes monospace, sometimes proportional; sometimes quiet/muted
+The various surfaces we use to show the details and progress on dashes must improve.
 
-When we kick off a dash, the dash displays throughout the UI don't update to show the dash until the plan is written, yet the planning and review phases are indeed part of the entire dash arc as far as I'm concerned. We need to show this process is inflight somehow.
-
+The terminology is to dash *on* a topic or brief, not dash *against* it.
 
 
 
