@@ -120,6 +120,11 @@
   padding-inline-start: calc(
     var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
   );
+  /* The trailing edge takes the same inset, so a wrapped message line stops
+     short of the frame instead of running into it. */
+  padding-inline-end: calc(
+    var(--tugx-list-row-padding-inline-compact) + var(--tugx-list-row-indicator-gutter)
+  );
   font-family: var(--tug-font-family-mono);
   font-size: var(--tugx-commit-message-size);
   line-height: var(--tugx-commit-message-leading);
