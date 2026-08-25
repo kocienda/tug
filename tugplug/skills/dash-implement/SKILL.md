@@ -103,7 +103,7 @@ Pragmatics:
 - **A refused `dash step` is telling you about the document, not the tool.** It exits 1, names the plan and the row, and leaves the file untouched — a plan that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, or a `done` row you tried to reopen.
 
   Raise the refusal as an `AskUserQuestion` rather than picking a repair yourself, because the wrong guess corrupts the durable record: *"Fix the plan and retry"* / *"Hand-edit the ledger this run"*. Quote what the verb said. A malformed document usually wants fixing; a document that genuinely cannot be made to parse wants the hand-edit — and which one this is depends on what the plan is *for*, which is the user's to know.
-- **A long run asks once, at its midpoint.** When a single invocation is walking **more than six** steps, stop at the halfway step and ask: *"Continue"* / *"Stop here and report"*. Once per run, at that one boundary — never per step, and never on a run of six or fewer. The threshold is stated so it is not re-invented each time.
+- **A long run does not pause to ask whether to keep going.** However many steps the selector resolved to, walk them all. The selection *is* the answer to "how far": the user made it when they invoked the skill, and asking again at some interior step re-opens a decision they already made — the ledger is the progress surface, and it says where the run is without anybody being interrupted for it.
 - Folding trivial or already-absorbed steps into a neighbor is fine — the join squashes at the end, so per-step commit granularity is for *your* visibility during the run. When you fold a step, still run its `done` verb (pointing at the neighbor's commit) and close its task — no step is left dangling `in progress`.
 - If a step's verification fails, fix it before committing. Never commit red.
 - When you reach the end of the requested selection, stop walking and report the ledger state — which steps are `done` and which remain.
@@ -190,7 +190,7 @@ Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctr
 - **Honor the selector and the ledger.** Walk exactly the requested steps; resume from the first row that is not `done`; never rebuild a `done` step or build on an unfinished dependency.
 - **The verbs own the bookkeeping.** Drive the ledger with `dash step start|done`, not by hand-editing the table — the log line the verb writes is what the dash surfaces derive `implementing (i/N)` from, and a hand-edit leaves them blind.
 - **Keep the task list in lockstep.** One task per selected step, created up front; in-progress when you `start`, complete when you `done`. A run whose tasks don't match the ledger is an unfinished run.
-- **Ask at the three forks, and nowhere else.** The stale gate, a refused `dash step`, and the midpoint of a long run are the whole set. Everything outside it is covered by the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked) — a run that asks about everything trains the user to click through the dialog that mattered.
+- **Ask at the two forks, and nowhere else.** The stale gate and a refused `dash step` are the whole set. A long run is not a fork: the selector already said how far to walk. Everything outside it is covered by the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked) — a run that asks about everything trains the user to click through the dialog that mattered.
 
 ## When to reach for something else
 

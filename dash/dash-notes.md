@@ -77,7 +77,7 @@ One thing I'd push back on gently: none of this needs a plan yet. Steps 1–4 ea
 
 The styling of dash display in these atom/pills is inconsistent across the app: typeface is sometimes monospace, sometimes proportional; sometimes quiet/muted
 
-
+When we kick off a dash, the dash displays throughout the UI don't update to show the dash until the plan is written, yet the planning and review phases are indeed part of the entire dash arc as far as I'm concerned. We need to show this process is inflight somehow.
 
 
 
