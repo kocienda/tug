@@ -230,6 +230,8 @@ struct SessionSnapshot {
     idle: bool,
     /// The seated claude session has ended at least one turn.
     turn_ended: bool,
+    /// Its most recent turn ended in an API error rather than a response.
+    api_error: bool,
     claude_session_id: Option<String>,
     context_window: Option<i64>,
     context_max: Option<i64>,
@@ -248,7 +250,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     // would stop every in-flight arc on every restart. `Errored` and `Closed`
     // are the states with nothing left to advance.
     let entry_arc = entry_arc?;
-    let (live, idle, turn_ended, claude_session_id, context_window) = {
+    let (live, idle, turn_ended, api_error, claude_session_id, context_window) = {
         let entry = entry_arc.lock().await;
         let live = match entry.spawn_state {
             SpawnState::Idle => return None,
@@ -259,6 +261,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
             live,
             !entry.turn_active,
             entry.turns_ended > 0,
+            entry.turn_api_error,
             entry.claude_session_id.clone(),
             entry.context_window_tokens,
         )
@@ -275,6 +278,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         live,
         idle,
         turn_ended,
+        api_error,
         claude_session_id,
         context_window,
         context_max,
@@ -394,6 +398,7 @@ fn read(
         session_live: session.live,
         session_idle: session.idle,
         stage_turn_ended: session.turn_ended,
+        stage_api_error: session.api_error,
         stage_session_current,
         context_fraction,
         rotate_at: config.rotate_at(),
@@ -603,6 +608,10 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
 fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: &str) -> String {
     let why = match reason {
         "lint" => "the plan does not lint".to_string(),
+        "api error" => "its turn ended in an API error, not a response".to_string(),
+        "review did not stamp" => {
+            "two review rounds ended without stamping the plan".to_string()
+        }
         "document missing" => "the document it opened on is gone".to_string(),
         "plan missing" => "the plan is gone".to_string(),
         "session gone" => "its session ended".to_string(),
@@ -736,6 +745,7 @@ Some context.
             idle,
             // The seated session has run; the never-run case builds its own.
             turn_ended: true,
+            api_error: false,
             claude_session_id: claude.map(str::to_string),
             context_window: None,
             context_max: None,

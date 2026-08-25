@@ -48,6 +48,8 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const DIVIDER = '[data-slot="stage-divider"]';
 const USER_ROW = '[data-testid="session-card-transcript-user-body"]';
+const CONDUCTOR_ROW = '.tug-transcript-entry[data-participant="conductor"]';
+const STAGE_PROMPT = "/tugplug:plan-devise a plan for dash/foo-brief.md";
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 const PROMPT = "write the brief";
@@ -147,6 +149,7 @@ describe.skipIf(!SHOULD_RUN)(
               model: "opus",
               document: "dash/foo-brief.md",
               arc: "foo",
+              prompt: STAGE_PROMPT,
               ipc_version: 2,
             },
           });
@@ -155,6 +158,19 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(DIVIDER)}) !== null`,
             { timeoutMs: 6000 },
           );
+
+          // The stage's prompt opens the turn the card will watch, and the row
+          // says who spoke: the conductor, never "You" — nobody typed it.
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(CONDUCTOR_ROW)}) !== null`,
+            { timeoutMs: 6000 },
+          );
+          const conductorRow = await app.evalJS<string>(
+            `(document.querySelector(${JSON.stringify(CONDUCTOR_ROW)})||{}).textContent || ""`,
+          );
+          expect(conductorRow).toContain(STAGE_PROMPT);
+          expect(conductorRow).toContain("Conductor");
+          expect(conductorRow).not.toContain("You");
           const label = await app.evalJS<string>(
             `(document.querySelector(${JSON.stringify(DIVIDER)})||{}).textContent || ""`,
           );

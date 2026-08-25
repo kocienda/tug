@@ -94,6 +94,8 @@ describe("reducer — a stage that carries its prompt", () => {
     // frames have somewhere to land.
     expect(after.phase).toBe("submitting");
     expect(after.pendingTurn?.turnKey).toBe("arc-k1");
+    // Nobody in the deck typed this: the row says the conductor did.
+    expect(after.pendingTurn?.origin).toBe("conductor");
     const opener = after.scratch.get("arc-k1")?.messages[0];
     expect(opener?.kind).toBe("user_message");
     expect((opener as { text?: string }).text).toBe("/tugplug:plan-devise dash/foo-brief.md");
@@ -109,6 +111,30 @@ describe("reducer — a stage that carries its prompt", () => {
     expect(effects.length).toBe(0);
     expect(after.pendingTurn?.turnKey).toBe("k1");
     expect(after.scratch.has("arc-k2")).toBe(false);
+  });
+});
+
+describe("reducer — a replayed stage marks its opener as the conductor's", () => {
+  const addUser = (turnKey: string, text: string): CodeSessionEvent =>
+    ({ type: "add_user_message", text, atoms: [], turnKey }) as CodeSessionEvent;
+
+  it("the first replayed user message after a stage divider is the conductor's, the next is the user's", () => {
+    const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
+    const divided = reduce(replaying, stage("devise", "opus", "dash/foo-brief.md")).state;
+
+    const opened = reduce(divided, addUser("r1", "/tugplug:plan-devise dash/foo-brief.md")).state;
+    expect(opened.pendingTurn?.origin).toBe("conductor");
+
+    // A follow-up in the same stage is a person typing.
+    const closed = { ...opened, pendingTurn: null } as CodeSessionState;
+    const next = reduce(closed, addUser("r2", "and also…")).state;
+    expect(next.pendingTurn?.origin).toBe("user");
+  });
+
+  it("a replayed user message with no divider before it is the user's", () => {
+    const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
+    const opened = reduce(replaying, addUser("r1", "hello")).state;
+    expect(opened.pendingTurn?.origin).toBe("user");
   });
 });
 

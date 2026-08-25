@@ -523,6 +523,7 @@ pub fn join_ready(
     worktree_dirty_tracked: bool,
     joining: bool,
     decls: &DashDeclarations,
+    has_plan: bool,
 ) -> bool {
     if joining || rounds < 1 || worktree_dirty_tracked {
         return false;
@@ -532,7 +533,10 @@ pub fn join_ready(
             decls.latest,
             Some(DashDeclaration::Built) | Some(DashDeclaration::Audited)
         )
-        || decls.step.is_none()
+        // A plan-less dash arms on every round. A dash that adopted a plan
+        // and has not yet declared a step is a run that has not started —
+        // its one round is the adoption itself — and is not joinable.
+        || (!has_plan && decls.step.is_none())
 }
 
 /// How far through the *declared run* a stepped dash has got: `(position,

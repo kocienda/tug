@@ -1272,6 +1272,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             crate::dash::unfinished_tracked_dirt(&worktree_dirt_tracked, plan_path.as_deref()),
             joining,
             &declarations,
+            plan_path.is_some(),
         );
 
         entries.push(DashDetail {
@@ -1524,6 +1525,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         crate::dash::unfinished_tracked_dirt(&worktree_dirt_tracked, plan_path.as_deref()),
         join_journal_phase.is_some(),
         &declarations,
+        plan_path.is_some(),
     );
 
     Ok(DashStatus {
@@ -4904,7 +4906,8 @@ Some context.
             detail.rounds,
             false,
             false,
-            &decls
+            &decls,
+            true
         ));
     }
 
@@ -7095,45 +7098,54 @@ Some context.
             3,
             false,
             false,
-            &run(Some(8), true, Some((8, 15)))
+            &run(Some(8), true, Some((8, 15))),
+            true
         ));
         // …and one that stopped short of its declared end.
         assert!(!join_ready(
             3,
             false,
             false,
-            &run(Some(8), false, Some((7, 15)))
+            &run(Some(8), false, Some((7, 15))),
+            true
         ));
         // A step still open is never ready, whatever the arithmetic says.
         assert!(!join_ready(
             3,
             false,
             false,
-            &run(Some(8), false, Some((8, 15)))
+            &run(Some(8), false, Some((8, 15))),
+            true
         ));
         // A mark arms on its own — the manual and legacy path ([P03]).
-        assert!(join_ready(3, false, false, &marked(DashDeclaration::Built)));
+        assert!(join_ready(3, false, false, &marked(DashDeclaration::Built), true));
         assert!(join_ready(
             3,
             false,
             false,
-            &marked(DashDeclaration::Audited)
+            &marked(DashDeclaration::Audited),
+            true
         ));
         // A plan-less generation arms on every round ([P02])…
-        assert!(join_ready(1, false, false, &DashDeclarations::default()));
+        assert!(join_ready(1, false, false, &DashDeclarations::default(), false));
         // …but not while its tracked work is uncommitted.
-        assert!(!join_ready(1, true, false, &DashDeclarations::default()));
+        assert!(!join_ready(1, true, false, &DashDeclarations::default(), false));
+        // A dash that adopted a plan and has declared no step is a run that
+        // has not started: its one round is the adoption, and the arc that
+        // cancelled here must not read as ready to join.
+        assert!(!join_ready(1, false, false, &DashDeclarations::default(), true));
         // A legacy plan dash — steps declared, no run — stays dark until marked.
         assert!(!join_ready(
             3,
             false,
             false,
-            &run(None, false, Some((8, 15)))
+            &run(None, false, Some((8, 15))),
+            true
         ));
         // A join in flight is landing, not ready; and nothing to join is not
         // ready either.
-        assert!(!join_ready(1, false, true, &DashDeclarations::default()));
-        assert!(!join_ready(0, false, false, &DashDeclarations::default()));
+        assert!(!join_ready(1, false, true, &DashDeclarations::default(), false));
+        assert!(!join_ready(0, false, false, &DashDeclarations::default(), false));
     }
 
     /// `status` walks a dash's whole lifecycle: fresh → a round → an authored

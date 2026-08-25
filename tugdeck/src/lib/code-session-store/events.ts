@@ -90,6 +90,12 @@ export interface RefsResultActionEvent {
 export interface SendActionEvent {
   type: "send";
   /**
+   * Who is speaking in the turn this opens. Absent for a typed submission
+   * (`user`); `conductor` for a stage prompt the arc seated on the user's
+   * behalf ({@link SessionStageEvent.prompt}).
+   */
+  origin?: "user" | "conductor";
+  /**
    * Synthesized substrate text — contains `U+FFFC` (object
    * replacement) at every position where the wire's content blocks
    * carry an image. File-path atoms have already been substituted

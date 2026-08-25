@@ -366,6 +366,10 @@ pub struct LedgerEntry {
     /// from the ledger row on rebind. Zero is the state between a spawn and
     /// its first `turn_complete`: seated, idle, and never yet run.
     pub turns_ended: u32,
+    /// The most recent turn ended in an API error (`turn_complete` with
+    /// `is_api_error`) — the stage did not run. Overwritten at every turn end,
+    /// reset when a `session_init` names a different claude session.
+    pub turn_api_error: bool,
     /// The last `model_change` selector a **WebSocket client** sent for this
     /// session — the deck's own choice ([P15]).
     ///
@@ -464,6 +468,7 @@ impl LedgerEntry {
             child_start_time: None,
             turn_active: false,
             turns_ended: 0,
+            turn_api_error: false,
             input_tx: None,
             cancel: CancellationToken::new(),
             card_id: None,
@@ -2505,6 +2510,16 @@ fn code_input_frame(payload: &serde_json::Value) -> Frame {
 /// turn. `result.usage` would be the sum across every API call of the turn,
 /// which over-counts by roughly the number of tool calls — so this reads the
 /// frame's own `usage` and never a total.
+/// A `turn_complete` whose result was an API error — tugcode marks the frame
+/// when claude's result text began `API Error:`.
+pub(crate) fn turn_ended_in_api_error(payload: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(payload) else {
+        return false;
+    };
+    value.get("type").and_then(|t| t.as_str()) == Some("turn_complete")
+        && value.get("is_api_error").and_then(|v| v.as_bool()) == Some(true)
+}
+
 fn parse_context_window(payload: &[u8]) -> Option<i64> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
     if value.get("type")?.as_str()? != "cost_update" {
@@ -8277,6 +8292,7 @@ impl AgentSupervisor {
                             } else if entry.replay_brackets_open == 0 {
                                 entry.turn_active = false;
                                 entry.turns_ended += 1;
+                                entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
                                 drop(entry);
                                 // The session went idle: a dash parked behind it
                                 // because the gate refuses to move a branch
@@ -9051,6 +9067,16 @@ mod tests {
             session_id: session_id.map(str::to_owned),
             hunks: None,
         }
+    }
+
+    #[test]
+    fn a_turn_complete_marked_as_an_api_error_is_read_as_one() {
+        let errored = br#"{"type":"turn_complete","msg_id":"m","seq":1,"result":"success","is_api_error":true}"#;
+        let clean = br#"{"type":"turn_complete","msg_id":"m","seq":1,"result":"success"}"#;
+        let other = br#"{"type":"assistant_text","is_api_error":true}"#;
+        assert!(turn_ended_in_api_error(errored));
+        assert!(!turn_ended_in_api_error(clean));
+        assert!(!turn_ended_in_api_error(other));
     }
 
     #[test]

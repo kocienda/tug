@@ -290,6 +290,8 @@ export interface TurnComplete {
   msg_id: string;
   seq: number;
   result: string;
+  /** The turn's result was an API error rather than a response; absent otherwise. */
+  is_api_error?: boolean;
   /**
    * Optional per-turn telemetry payload. Populated only on replay
    * (tugcast supervisor attaches it from the SessionLedger when

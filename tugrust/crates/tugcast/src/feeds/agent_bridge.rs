@@ -1715,6 +1715,7 @@ pub async fn relay_session_io(
                                 if let Some(id) = &claude_id {
                                     if entry.claude_session_id.as_deref() != Some(id.as_str()) {
                                         entry.turns_ended = 0;
+                                        entry.turn_api_error = false;
                                     }
                                     entry.claude_session_id = Some(id.clone());
                                 }

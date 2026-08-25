@@ -34,10 +34,6 @@ use tugutil_core::plan::ReviewState;
 /// gate will raise, so the arc records a note and moves rather than looping.
 pub const REVIEW_CAP: usize = 2;
 
-/// The note the cap records before it rotates to implement ([P06]).
-pub const REVIEW_CAP_NOTE: &str =
-    "review cap reached — the plan is still stale; dash-implement's setup gate raises it";
-
 /// What the plan's Step Status Ledger and the dash's own run declarations say.
 ///
 /// All of it is read from the plan at its *current* location and from the
@@ -93,6 +89,10 @@ pub struct ArcFacts {
     /// to write. `true` when no stage is recorded, so the opening rotation
     /// is decided by the requesting turn alone.
     pub stage_turn_ended: bool,
+    /// The stage's most recent turn ended in an API error — a 403, a 529 —
+    /// rather than a response. The stage did not run, so nothing its
+    /// documents say is its answer; the arc stops and says why.
+    pub stage_api_error: bool,
     /// The claude session running on the bound card is the one the newest
     /// `arc-stage` line names.
     ///
@@ -229,6 +229,16 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     if stage.is_some() && !facts.stage_turn_ended {
         return None;
     }
+    // A turn that ended in an API error is a stage that did not run. Rotating
+    // on would judge documents it never touched; waiting would wait forever.
+    if let Some(stage) = stage {
+        if facts.stage_api_error {
+            return Some(ArcAction::Stop {
+                stage,
+                reason: "api error".to_string(),
+            });
+        }
+    }
 
     match stage {
         None => Some(start_action(facts)),
@@ -283,11 +293,14 @@ fn review_action(record: &ArcRecord, facts: &ArcFacts) -> ArcAction {
     if record.review_rounds() < REVIEW_CAP {
         ArcAction::Rotate(Rotation::plain(ArcStage::Review))
     } else {
-        ArcAction::Rotate(Rotation {
-            stage: ArcStage::Implement,
-            steps: None,
-            note: Some(REVIEW_CAP_NOTE.to_string()),
-        })
+        // Two rounds and still no stamp: an unreviewed plan is not the
+        // implement stage's to walk. Stop, say so, and let the user review
+        // by hand or resume — a rotation onward would only reach
+        // dash-implement's stale gate, which asks a question no arc can answer.
+        ArcAction::Stop {
+            stage: ArcStage::Review,
+            reason: "review did not stamp".to_string(),
+        }
     }
 }
 
@@ -354,6 +367,7 @@ mod tests {
             session_live: true,
             session_idle: true,
             stage_turn_ended: true,
+            stage_api_error: false,
             stage_session_current: true,
             context_fraction: None,
             rotate_at: 0.6,
@@ -463,13 +477,33 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_plan_at_the_cap_rotates_implement_and_carries_the_note() {
+    fn a_stale_plan_at_the_cap_stops_rather_than_implementing_unreviewed() {
         let mut facts = facts();
         facts.review = Some(ReviewState::Stale);
         let record = record(&[ArcStage::Devise, ArcStage::Review, ArcStage::Review]);
-        let rotation = rotation(arc_action(&record, &facts));
-        assert_eq!(rotation.stage, ArcStage::Implement);
-        assert_eq!(rotation.note.as_deref(), Some(REVIEW_CAP_NOTE));
+        assert_eq!(
+            arc_action(&record, &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Review,
+                reason: "review did not stamp".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_stage_whose_turn_ended_in_an_api_error_stops_in_that_stage() {
+        for stage in [ArcStage::Devise, ArcStage::Review, ArcStage::Implement] {
+            let mut facts = facts();
+            facts.stage_api_error = true;
+            assert_eq!(
+                arc_action(&record(&[stage]), &facts),
+                Some(ArcAction::Stop {
+                    stage,
+                    reason: "api error".to_string(),
+                }),
+                "{stage:?}"
+            );
+        }
     }
 
     #[test]

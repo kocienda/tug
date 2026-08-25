@@ -48,6 +48,8 @@ The work is to give the layer a name, extract the operation from the arc into so
 
 **[B08] `plan-devise` is the first non-arc score.** Its §5 fork becomes: finish the plan, then `tugutil session rotate --model <review model> --stage review --prompt "/tugplug:plan-review <path>"`. The review lands as its own visible turn on its own model with no click. This is the acceptance test for the whole brief: if the conductor cannot carry that one hand-off cleanly, it has not been extracted.
 
+**[B09] A stage opens on a score, not a sentence.** The first real run (2026-08-25, `conductor` devise on `loose-shake`) spent its opening turn re-mapping a tree the brief had already mapped: the prompt was the one line *"a plan for dash/conductor-brief.md, honoring every [B##]"*, and the model went looking for the files the brief names, tripping twice on the way. The conductor holds the whole piece; the player should be handed their part. The opening prompt a rotation carries is composed from three things, all document facts and none a model's words: the document itself and the paths its `[F##]` findings name (*"start there"*); what moved in the tree since the document was written — `git log --oneline <document's last commit>..HEAD -- <those paths>`, so the plan is written against the code as it is; and the arc's own state — a resume says it is one, and names the stage that stopped and why, so the stage does not rediscover its own history. `opening_prompt` in `dash_arc_runner.rs` is where this lives today; under [B06] it becomes the conductor's, and the `prompt` parameter of [B05] is what carries it. A takeoff that stumbles is not the model's failing; it is the conductor handing over a title instead of a score.
+
 ---
 
 ## Open Questions {#open-questions}

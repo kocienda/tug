@@ -473,6 +473,23 @@ mod tests {
 
     #[test]
     #[serial]
+    fn a_discarded_dash_has_no_arc() {
+        let fixture = log_repo("");
+        let root = fixture.root();
+        append_arc_start(root, "d", "dash/d-brief.md").unwrap();
+        append_arc_stage(root, "d", ArcStage::Devise, "s1", None).unwrap();
+        assert!(read_arc(root, "d").is_some());
+        // Discard writes the dash's terminal marker; the arc record ends with
+        // the dash, so a later `dash run` under the same name opens fresh
+        // rather than resuming into a dash that no longer exists.
+        append_dash_log(root, "d", "discarded", "").unwrap();
+        assert_eq!(read_arc(root, "d"), None);
+        append_arc_start(root, "d", "dash/d-brief.md").unwrap();
+        let fresh = read_arc(root, "d").unwrap();
+        assert!(fresh.stages.is_empty(), "the discarded arc's stages do not carry over");
+    }
+
+    #[test]
     fn the_append_helpers_round_trip_through_the_reader() {
         let fixture = log_repo("");
         let root = fixture.root();

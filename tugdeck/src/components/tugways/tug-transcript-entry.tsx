@@ -75,6 +75,7 @@ import {
   ListTree,
   Shell,
   User,
+  WandSparkles,
 } from "lucide-react";
 
 import { Operator } from "@/components/tugways/tug-icons";
@@ -97,7 +98,8 @@ export type Participant =
   | "refs"
   | "git"
   | "observer"
-  | "operator";
+  | "operator"
+  | "conductor";
 
 /**
  * Icon rendered in the gutter for each participant. Lucide glyphs picked
@@ -139,6 +141,10 @@ const PARTICIPANT_ICONS: Record<Participant, React.ReactNode> = {
   // shared registry rather than in an Overview-only fork of the row.
   observer: <Eye size={ICON_PIXEL_SIZE} />,
   operator: <Operator size={ICON_PIXEL_SIZE} />,
+  // The conductor: a turn tugcast opened on the user's behalf — a dash
+  // arc's stage prompt. The row lays out as a user row; the glyph says who
+  // actually spoke.
+  conductor: <WandSparkles size={ICON_PIXEL_SIZE} />,
 };
 
 // ---------------------------------------------------------------------------

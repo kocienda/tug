@@ -6606,6 +6606,10 @@ export class SessionManager {
           msg_id: turn.currentMessageId ?? turn.openerId,
           seq: turnSeq,
           result: resultValue,
+          // A turn whose result was an API error (a 403, a 529) ended without
+          // running: the arc reads this to stop rather than judge documents
+          // the stage never touched.
+          ...(routeResult.resultMetadata?.is_api_error === true ? { is_api_error: true } : {}),
           ipc_version: 2,
         });
       }
