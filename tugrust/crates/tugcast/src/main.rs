@@ -4,6 +4,7 @@ mod auth;
 mod changes_journal;
 mod changes_writer;
 mod cli;
+mod conductor;
 mod control;
 mod dash_api;
 mod dead_branch;
@@ -1942,6 +1943,23 @@ async fn main() {
         },
         arc_tick_rx,
         changeset_all_rx.clone(),
+    ));
+
+    // The conductor: perform the rotations `POST /api/session` parked, on the
+    // same idle transition, on a third sibling channel ([P04]). A request is
+    // always parked and never performed at request time — a rotation mid-turn
+    // kills the claude that asked for it.
+    let conductor_state = Arc::new(conductor::ConductorState::default());
+    feed_router.conductor = Some(Arc::clone(&conductor_state));
+    let (conductor_tick_tx, conductor_tick_rx) = mpsc::channel::<String>(64);
+    let _ = supervisor.conductor_tick_tx.set(conductor_tick_tx);
+    tokio::spawn(conductor::run_conductor(
+        conductor::ConductorContext {
+            supervisor: Arc::clone(&supervisor),
+            state: conductor_state,
+            cancel: cancel.clone(),
+        },
+        conductor_tick_rx,
     ));
 
     // JOTS feed — watches the machine-global `jots.json` and pushes the whole

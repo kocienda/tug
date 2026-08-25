@@ -271,6 +271,51 @@ pub enum Commands {
     /// a red file's history says about it.
     #[command(subcommand)]
     Apptest(ApptestCommands),
+
+    /// This card's claude session — ask the conductor to seat a fresh one.
+    #[command(subcommand)]
+    Session(SessionCommands),
+}
+
+#[derive(Subcommand)]
+pub enum SessionCommands {
+    /// Rotate this card onto a fresh claude session, at this turn's end.
+    ///
+    /// The rotation is recorded and this returns; the card rotates when the
+    /// turn you are in ends. It cannot happen sooner: a rotation retires the
+    /// claude session it runs on, so performing one now would kill the model
+    /// that asked for it. Run outside a turn, it lands at the end of the
+    /// session's next one.
+    ///
+    /// The card, its transcript, its durable ink, and its callsign all stay
+    /// where they are — a rotation seats a new session under the same card. The
+    /// retiring session's context does not carry across; that is `/compact`'s
+    /// job, not this one's.
+    ///
+    /// With `--model` omitted, a `--stage` of `devise`, `review`, or
+    /// `implement` resolves the model the project declared for that stage in
+    /// `[tugtool.dash]`; any other label means the account default. A rotation
+    /// onto a named model hands the card back to your own model one turn later.
+    Rotate {
+        /// What the fresh session opens on. Required unless `--cancel`.
+        #[arg(long)]
+        prompt: Option<String>,
+        /// The stage label the transcript's divider renders (default: `rotate`).
+        #[arg(long)]
+        stage: Option<String>,
+        /// The model selector to seat the fresh session on.
+        #[arg(long)]
+        model: Option<String>,
+        /// The reasoning effort to seat it at.
+        #[arg(long)]
+        effort: Option<String>,
+        /// Project dir (default: cwd) — where the stage models are declared.
+        #[arg(long)]
+        project: Option<PathBuf>,
+        /// Withdraw this session's pending rotation. Takes no other flags.
+        #[arg(long)]
+        cancel: bool,
+    },
 }
 
 #[derive(Subcommand)]

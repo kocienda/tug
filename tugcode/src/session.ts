@@ -8163,7 +8163,15 @@ export class SessionManager {
     const parentSessionId = this.resolveClaudeId();
     await this.killAndCleanup();
 
+    // Absent is what *clears* it: `TUG_DASH_ARC` belongs to a score, not to a
+    // card, so a rotation naming none spawns claude without it.
     this.currentArc = stage?.arc ?? null;
+
+    // The effort is recorded before the spawn so the level rides that one
+    // spawn. Setting it afterwards would cost a second respawn through
+    // `handleEffortChange`, which is a fresh claude the rotation never asked
+    // for.
+    if (stage?.effort !== undefined) this.currentEffort = stage.effort;
 
     // Generate a new id for the fresh session and claim it with claude
     // via --session-id so downstream persistence and routing have a
@@ -8178,9 +8186,9 @@ export class SessionManager {
         newSessionId: this.sessionId,
         stage: stage.name,
         model: this.currentModel ?? "",
-        document: stage.document,
-        arc: stage.arc,
-        steps: stage.steps,
+        ...(stage.document !== undefined ? { document: stage.document } : {}),
+        ...(stage.arc !== undefined ? { arc: stage.arc } : {}),
+        ...(stage.steps !== undefined ? { steps: stage.steps } : {}),
         ...(stage.prompt !== undefined ? { prompt: stage.prompt } : {}),
         ipc_version: 2,
       });

@@ -467,14 +467,21 @@ export interface SessionStage {
   parentSessionId: string;
   /** The stage's freshly minted claude session id. */
   newSessionId: string;
-  /** Which stage of the arc this session runs. */
-  stage: "devise" | "review" | "implement";
+  /**
+   * The stage label. `devise` / `review` / `implement` are the arc's three;
+   * any other word is a rotation no score is driving.
+   */
+  stage: string;
   /** The model selector the rotation set, or empty for the account default. */
   model: string;
-  /** The document the arc opened on, repo-relative. */
-  document: string;
-  /** The dash name the arc is keyed by. */
-  arc: string;
+  /**
+   * The document the score opened on, repo-relative. Absent on a scoreless
+   * rotation. The bridge's parser requires only `parentSessionId`,
+   * `newSessionId`, and `stage`; every other field is optional there.
+   */
+  document?: string;
+  /** The dash name the score is keyed by. Absent on a scoreless rotation. */
+  arc?: string;
   /**
    * The stage's opening prompt, echoed from the command so the deck opens the
    * turn it is about to watch. Absent on a stage the runner sent no prompt for.

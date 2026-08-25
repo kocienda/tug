@@ -74,6 +74,38 @@ describe("stageNoteText", () => {
     expect(stageNoteText("review", "", "dash/foo.md")).toBe("review · dash/foo.md");
     expect(stageNoteText("review", "", "")).toBe("review");
   });
+
+  it("names a rotation with no score behind it by its stage and its model", () => {
+    // A conductor rotation nobody is scoring carries no document, because
+    // there is no score for it to have opened on. The divider is the label
+    // and the model, and reads as a boundary all the same.
+    expect(stageNoteText("review", "opus", "")).toBe("review · opus");
+  });
+});
+
+describe("reducer — a rotation with no score behind it", () => {
+  const scoreless = (name: string, model: string): CodeSessionEvent =>
+    ({
+      type: "session_stage",
+      stage: name,
+      model,
+      document: "",
+      arc: "",
+      prompt: "/tugplug:plan-review dash/foo.md",
+      turnKey: "rot-k1",
+    }) as CodeSessionEvent;
+
+  it("folds into a divider and a conductor-origin turn, with no score anywhere in the path", () => {
+    const { state: after, effects } = reduce(fresh(), scoreless("review", "opus"));
+
+    const note = effects.find((e) => e.kind === "append-stage-note");
+    expect(note).toBeDefined();
+    expect((note as { text?: string }).text).toBe("review · opus");
+    expect(effects.some((e) => e.kind === "send-frame")).toBe(false);
+
+    expect(after.pendingTurn?.turnKey).toBe("rot-k1");
+    expect(after.pendingTurn?.origin).toBe("conductor");
+  });
 });
 
 describe("reducer — a stage that carries its prompt", () => {

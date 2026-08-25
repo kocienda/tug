@@ -1535,6 +1535,7 @@ impl SessionLedger {
         Self::migrate_sessions_add_name_user_set(conn)?;
         Self::migrate_sessions_add_tag(conn)?;
         Self::migrate_sessions_add_fork_provenance(conn)?;
+        Self::migrate_sessions_add_stage_provenance(conn)?;
         Self::migrate_sessions_add_synopsis(conn)?;
         Self::migrate_sessions_add_private(conn)?;
         Self::migrate_sessions_add_dash_binding(conn)?;
@@ -1573,6 +1574,13 @@ impl SessionLedger {
                 -- rewind-fork inherits its parent's `tag` verbatim.
                 forked_from_session_id TEXT,
                 fork_point        TEXT,
+                -- Stage provenance ([P10]): what a rotation seated this
+                -- session as. Both NULL on a session no rotation seated. They
+                -- live here rather than being reconstructed from a dash arc's
+                -- record, because a rotation need not have a score behind it —
+                -- and its transcript is an invariant either way.
+                stage_label       TEXT,
+                stage_model       TEXT,
                 -- The rolling generated description ([P07]). NULL until the
                 -- Summarize lane writes one; frozen (never written) once the
                 -- user has renamed the session.
@@ -2455,6 +2463,32 @@ impl SessionLedger {
             return Ok(());
         }
         for name in ["forked_from_session_id", "fork_point"] {
+            if !cols.iter().any(|(n, _)| n == name) {
+                match conn.execute(&format!("ALTER TABLE sessions ADD COLUMN {name} TEXT"), []) {
+                    Ok(_) => {}
+                    Err(err) if is_duplicate_column(&err) => {}
+                    Err(err) => return Err(err.into()),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Self-healing add of the stage-provenance columns ([P10]).
+    ///
+    /// `stage_label` and `stage_model` record what a rotation seated this
+    /// session as. They live on the row rather than being reconstructed from a
+    /// dash arc's record, because a rotation need not have a score behind it:
+    /// a card rotated by a bare `session rotate` has no arc to read, and
+    /// without these columns its earlier sessions would vanish from the
+    /// transcript on the next relaunch. Both are NULL on a session no rotation
+    /// seated, and on every row written before this migration.
+    fn migrate_sessions_add_stage_provenance(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if cols.is_empty() {
+            return Ok(());
+        }
+        for name in ["stage_label", "stage_model"] {
             if !cols.iter().any(|(n, _)| n == name) {
                 match conn.execute(&format!("ALTER TABLE sessions ADD COLUMN {name} TEXT"), []) {
                     Ok(_) => {}
@@ -3872,6 +3906,58 @@ impl SessionLedger {
         drop(conn);
         self.notify_sessions_changed();
         Ok(())
+    }
+
+    /// Write what a rotation seated this session as ([P10]).
+    ///
+    /// Written beside `set_fork_provenance`, from the same announcement and at
+    /// the same moment, because the two halves answer one question: the fork
+    /// edge says *which session this descends from*, and these say *what it was
+    /// seated as*. A restore reads both to redraw the transcript's divider, and
+    /// reads them from the row rather than from an arc record, so a rotation
+    /// with no score behind it replays exactly as a scored one does.
+    ///
+    /// `model` is `None` for the account default — the same absence the
+    /// rotation itself carries, rather than a stand-in word.
+    pub fn set_stage_provenance(
+        &self,
+        session_id: &str,
+        label: &str,
+        model: Option<&str>,
+    ) -> Result<(), LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let affected = conn.execute(
+            "UPDATE sessions SET stage_label = ?2, stage_model = ?3
+             WHERE session_id = ?1",
+            params![session_id, label, model],
+        )?;
+        if affected == 0 {
+            return Err(LedgerError::NotFound(session_id.to_owned()));
+        }
+        drop(conn);
+        self.notify_sessions_changed();
+        Ok(())
+    }
+
+    /// What a rotation seated `session_id` as, or `None` if no rotation did.
+    ///
+    /// Total: an unknown session, a row written before the migration, and a
+    /// query error all read as "no rotation seated this", which is what the
+    /// lineage restore then falls back to the arc record for.
+    pub fn stage_provenance(&self, session_id: &str) -> Option<(String, Option<String>)> {
+        let conn = self.db.lock().expect("ledger mutex");
+        conn.query_row(
+            "SELECT stage_label, stage_model FROM sessions WHERE session_id = ?1",
+            params![session_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            },
+        )
+        .ok()
+        .and_then(|(label, model)| label.map(|label| (label, model)))
     }
 
     /// Follow the fork edges child-ward from `session_id` and return the id
@@ -8139,6 +8225,74 @@ mod tests {
             .unwrap();
         assert_eq!(from, "f-3");
         assert_eq!(point, "point-4");
+    }
+
+    #[test]
+    fn what_a_rotation_seated_a_session_as_survives_on_the_row() {
+        // The transcript is an invariant of a rotation ([B05]), and a rotation
+        // with no score behind it has no arc record to reconstruct it from —
+        // so the two facts the divider needs live on the row.
+        let l = fresh();
+        for id in ["root", "seated", "untouched"] {
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), None)
+                .expect("record_spawn");
+        }
+        l.set_stage_provenance("seated", "review", Some("opus"))
+            .expect("stage provenance");
+
+        assert_eq!(
+            l.stage_provenance("seated"),
+            Some(("review".to_string(), Some("opus".to_string())))
+        );
+        assert_eq!(
+            l.stage_provenance("untouched"),
+            None,
+            "no rotation seated this session"
+        );
+        assert_eq!(
+            l.stage_provenance("no-such-session"),
+            None,
+            "and an unknown session is not an error"
+        );
+
+        // The account default is the same absence the rotation carries, not a
+        // stand-in word.
+        l.set_stage_provenance("root", "rotate", None)
+            .expect("stage provenance");
+        assert_eq!(l.stage_provenance("root"), Some(("rotate".to_string(), None)));
+
+        assert!(matches!(
+            l.set_stage_provenance("no-such-session", "review", None),
+            Err(LedgerError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn a_ledger_opened_over_a_pre_migration_file_accepts_stage_provenance() {
+        // The migration is additive and self-healing: a database written before
+        // the columns existed grows them on the next open, and the rows it
+        // already held read as "no rotation seated this".
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        {
+            let l = SessionLedger::open(&path, 0).expect("open");
+            l.record_spawn("older", WS_A, "/proj", "card-1", millis(0), None)
+                .expect("record_spawn");
+            let conn = l.db.lock().unwrap();
+            for name in ["stage_label", "stage_model"] {
+                conn.execute(&format!("ALTER TABLE sessions DROP COLUMN {name}"), [])
+                    .expect("drop the column so the reopen has to add it");
+            }
+        }
+
+        let l = SessionLedger::open(&path, 0).expect("reopen");
+        assert_eq!(l.stage_provenance("older"), None);
+        l.set_stage_provenance("older", "review", Some("opus"))
+            .expect("the reopened ledger accepts the write");
+        assert_eq!(
+            l.stage_provenance("older"),
+            Some(("review".to_string(), Some("opus".to_string())))
+        );
     }
 
     #[test]

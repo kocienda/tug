@@ -296,6 +296,44 @@ pub(crate) fn git_stdout(dir: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// The newest commit that touched `path`, if git has ever seen it.
+///
+/// The anchor for "what changed since this document was written": a document
+/// git has never seen, an unborn HEAD, and a repo that is not one all answer
+/// `None` rather than an error, because a rotation must never fail over a
+/// paragraph it could have omitted.
+pub fn last_commit_touching(root: &Path, path: &str) -> Option<String> {
+    let sha = git_stdout(root, &["log", "-1", "--format=%H", "--", path]).ok()?;
+    (!sha.is_empty()).then_some(sha)
+}
+
+/// The commits since `since` that touched any of `paths`, newest first,
+/// capped at `cap` lines.
+///
+/// Total for the same reason as [`last_commit_touching`]: every failure is an
+/// empty vector, which composes into a prompt with one fewer paragraph.
+pub fn commits_touching_since(
+    root: &Path,
+    since: &str,
+    paths: &[String],
+    cap: usize,
+) -> Vec<String> {
+    if paths.is_empty() || cap == 0 {
+        return Vec::new();
+    }
+    let range = format!("{since}..HEAD");
+    let mut args: Vec<&str> = vec!["log", "--oneline", &range, "--"];
+    args.extend(paths.iter().map(String::as_str));
+    let Ok(out) = git_stdout(root, &args) else {
+        return Vec::new();
+    };
+    out.lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(cap)
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Read a single git config value, if present and non-empty.
 pub(crate) fn config_get(repo: &Path, key: &str) -> Option<String> {
     let out = git_output(repo, &["config", "--get", key]).ok()?;
@@ -4531,6 +4569,59 @@ mod tests {
         }
         let root = fs::canonicalize(repo).unwrap();
         tugutil_core::project_state_dir(&root).join("dash-log.md")
+    }
+
+    #[test]
+    fn the_git_readers_answer_what_moved_and_never_fail_over_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // An unborn HEAD: git has never seen anything here.
+        assert_eq!(last_commit_touching(root, "doc.md"), None);
+        assert!(commits_touching_since(root, "HEAD", &["a.rs".to_string()], 20).is_empty());
+
+        init_git_repo(root);
+        fs::write(root.join("doc.md"), "the document\n").unwrap();
+        fs::write(root.join("a.rs"), "fn a() {}\n").unwrap();
+        commit_all(root, "add the document and the file it cites");
+        let since = last_commit_touching(root, "doc.md").expect("git has seen the document");
+
+        // Nothing has moved yet.
+        assert!(commits_touching_since(root, &since, &["a.rs".to_string()], 20).is_empty());
+
+        fs::write(root.join("a.rs"), "fn a() { todo!() }\n").unwrap();
+        commit_all(root, "change the cited file");
+        fs::write(root.join("b.rs"), "fn b() {}\n").unwrap();
+        commit_all(root, "add an uncited file");
+
+        let moved = commits_touching_since(root, &since, &["a.rs".to_string()], 20);
+        assert_eq!(moved.len(), 1, "scoped to the paths, not the whole repo");
+        assert!(moved[0].contains("change the cited file"));
+
+        // A document git has never seen contributes nothing rather than
+        // erroring, and the cap is respected.
+        assert_eq!(last_commit_touching(root, "never-existed.md"), None);
+        assert!(commits_touching_since(root, &since, &[], 20).is_empty());
+        assert!(commits_touching_since(root, &since, &["a.rs".to_string()], 0).is_empty());
+        assert!(
+            commits_touching_since(root, "not-a-ref", &["a.rs".to_string()], 20).is_empty(),
+            "a range git cannot resolve is no clause, never an error"
+        );
+    }
+
+    fn commit_all(path: &Path, message: &str) {
+        Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(["commit", "-m", message])
+            .output()
+            .unwrap();
     }
 
     fn init_git_repo(path: &Path) {

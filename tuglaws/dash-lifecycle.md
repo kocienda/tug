@@ -46,6 +46,12 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 
 **The rule: anything git can see is derived on every read and never stored; anything it cannot is declared once, in the dash-log, by a verb** ([D138]). Rounds and dirt are visible to git, so they are recomputed every time and cannot go stale; an interrupted teardown is not, and is declared on the operation record the same verb already writes. "This build succeeded" and "I am on step 4 of 9" are not visible to git at all, so a verb writes them down. **A stage is never written to a config key** — that would make the derived half stale-able and the declared half duplicated.
 
+## Arcs and stages
+
+An arc is a dash's **score**: a schedule of rotations that carries one dash from a brief through devise, review, and implement without anybody clicking between them. A *stage* there is a rotation of the card's claude session — a fresh session seated under the same card, on a chosen model, opening on a composed prompt — and it is **not** one of the seven derived words above. The two senses share a spelling and nothing else: a dash is `implementing` because a `dash step` declaration says so, and an arc is in its `review` stage because that is the session currently seated.
+
+What a rotation is, what it cannot change, and when it is allowed to happen live in [conductor.md](conductor.md).
+
 ## Binding
 
 A **bind** mates a live session to a dash. It is a UI concept: git has no idea it happened.
@@ -140,6 +146,7 @@ An operation is spelled the same everywhere, and that spelling is its `tugutil` 
 
 ## See also
 
+- [conductor.md](conductor.md) — what a rotation is, and the other meaning of *stage*.
 - [dash-work-doctrine.md](dash-work-doctrine.md) — how an agent behaves on a dash worktree.
 - [tracking-changes.md](tracking-changes.md) — the capture and commit layer beneath a dash, and the landing doctrine.
 - [D112] (scope axiom), [D113], [D116] (the landing workflow), [D138] (derive vs declare), [D139] (one plan home).

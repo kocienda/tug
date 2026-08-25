@@ -44,16 +44,18 @@ use tracing::{debug, info, warn};
 use tugcast_core::protocol::{Frame, TugSessionId};
 use tugdash_core::arc::{
     ArcRecord, ArcStage, append_arc_done, append_arc_note, append_arc_plan, append_arc_stop,
-    read_arc,
+    read_arc, stage_model,
 };
 use tugutil_core::config::{Config, DashConfig};
 use tugutil_core::plan;
 
-use super::agent_supervisor::{AgentSupervisor, SpawnState, StageSpec};
+use super::agent_supervisor::{AgentSupervisor, SpawnState};
 use super::dash_arc::{
     ArcAction, ArcFacts, Rotation, StepLedgerFacts, arc_action, context_max_from_breakdown,
     step_range,
 };
+use crate::conductor::{self, RotationRequest};
+
 use crate::session_ledger::SessionLedger;
 
 /// What the engine needs to run.
@@ -296,6 +298,10 @@ struct ArcReading {
     plan_for_prompt: Option<String>,
     /// Where the devise stage should write its plan: `<docs>/<dash>.md`.
     devise_target: Option<String>,
+    /// The repo-relative paths the document cites ([S02]).
+    cited_paths: Vec<String>,
+    /// What moved in those paths since the document was last written ([S02]).
+    commits_since: Vec<String>,
     config: DashConfig,
 }
 
@@ -313,10 +319,37 @@ fn read(
 
     let document_abs = record.document.as_ref().map(|doc| project.join(doc));
     let document_exists = document_abs.as_ref().is_some_and(|p| p.is_file());
-    let input_is_plan = document_abs
+    let document_source = document_abs
         .as_ref()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .is_some_and(|source| lints_as_plan(&source));
+        .and_then(|p| std::fs::read_to_string(p).ok());
+    let input_is_plan = document_source
+        .as_deref()
+        .is_some_and(lints_as_plan);
+
+    // What a stage is handed beyond its ask ([B09], [S02]): the paths the
+    // document itself cites, and what git says moved in them since the
+    // document was written. Both gathered here, inside the pass that is
+    // blocking by construction, and both total — a document citing nothing and
+    // a repo git has never seen simply contribute no clause.
+    let cited_paths = document_source
+        .as_deref()
+        .map(|source| {
+            conductor::prompt::cited_paths(source, project, conductor::prompt::CITED_PATHS_CAP)
+        })
+        .unwrap_or_default();
+    let commits_since = record
+        .document
+        .as_deref()
+        .and_then(|doc| tugdash_core::ops::last_commit_touching(project, doc))
+        .map(|since| {
+            tugdash_core::ops::commits_touching_since(
+                project,
+                &since,
+                &cited_paths,
+                conductor::prompt::COMMITS_CAP,
+            )
+        })
+        .unwrap_or_default();
 
     // Where the plan lives *now* ([P16]): the worktree copy from adoption on,
     // the base copy before it. The git read is scoped to this one dash and
@@ -426,6 +459,8 @@ fn read(
         done_count,
         plan_for_prompt,
         devise_target,
+        cited_paths,
+        commits_since,
         config,
     })
 }
@@ -440,47 +475,37 @@ fn lints_as_plan(source: &str) -> bool {
     }
 }
 
-/// The model the project declared for a stage ([P13]). `None` is the account
-/// default, which sends no `model_change` frame at all.
-fn stage_model(config: &DashConfig, stage: ArcStage) -> Option<String> {
-    match stage {
-        ArcStage::Devise => config.devise_model.clone(),
-        ArcStage::Review => config.review_model.clone(),
-        ArcStage::Implement => config.implement_model.clone(),
-    }
-}
-
-/// The stage's opening prompt (Spec S09). Every character of it is composed
-/// from the arc record and the project's declarations; nothing here is a word
-/// a model wrote.
+/// The stage's opening prompt: the score's ask, plus what the documents say
+/// about where to start and what has moved ([B09], [S02]).
+///
+/// The facts were gathered in `read`'s blocking pass; the wording is the
+/// conductor's, so every score composes the same way. Nothing here is a word a
+/// model wrote.
 fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
-    match rotation.stage {
-        ArcStage::Devise => {
-            let document = reading.record.document.as_deref()?;
-            let target = reading.devise_target.as_deref()?;
-            Some(format!(
-                "/tugplug:plan-devise a plan for {document}, honoring every [B##] decision it records 🢂 {target}"
-            ))
-        }
-        ArcStage::Review => Some(format!(
-            "/tugplug:plan-review {}",
-            reading.plan_for_prompt.as_deref()?
-        )),
-        ArcStage::Implement => {
-            let plan = reading.plan_for_prompt.as_deref()?;
-            Some(match rotation.steps {
-                // No selector on the first implement stage: the whole plan, and
-                // `dash-implement`'s own setup declares `--through`.
-                None => format!("/tugplug:dash-implement {plan}"),
-                Some((from, through)) => {
-                    format!(
-                        "/tugplug:dash-implement {plan} Steps {}",
-                        step_range(from, through)
-                    )
-                }
-            })
-        }
-    }
+    let steps = rotation
+        .steps
+        .map(|(from, through)| step_range(from, through));
+    let ask = conductor::prompt::stage_ask(
+        rotation.stage.as_str(),
+        reading.record.document.as_deref(),
+        reading.devise_target.as_deref(),
+        reading.plan_for_prompt.as_deref(),
+        steps.as_deref(),
+    )?;
+    // A stopped arc that is rotating again is resuming, and the stage it opens
+    // is owed that fact: it is the difference between starting the work and
+    // picking it back up.
+    let resume = reading
+        .record
+        .stopped
+        .as_ref()
+        .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
+    Some(conductor::prompt::compose(
+        &ask,
+        &reading.cited_paths,
+        &reading.commits_since,
+        resume,
+    ))
 }
 
 async fn rotate(
@@ -541,20 +566,19 @@ async fn rotate(
     } else {
         reading.plan_for_prompt.clone()
     };
-    let spec = StageSpec {
-        stage: rotation.stage.as_str().to_string(),
-        document,
-        plan: plan_for_stage,
-        arc: arc.dash.clone(),
-        model: stage_model(&reading.config, rotation.stage),
-        steps: rotation
-            .steps
-            .map(|(from, through)| step_range(from, through)),
-        prompt,
-    };
+    let request = RotationRequest::new(arc.session.clone(), prompt, rotation.stage.as_str())
+        .document(Some(document))
+        .plan(plan_for_stage)
+        .score(Some(arc.dash.clone()))
+        .model(stage_model(&reading.config, rotation.stage))
+        .steps(
+            rotation
+                .steps
+                .map(|(from, through)| step_range(from, through)),
+        );
 
     let dispatched_at = reading.record.stages.len();
-    let outcome = ctx.supervisor.drive_stage(&arc.session, &spec).await;
+    let outcome = conductor::rotate(&ctx.supervisor, &request).await;
     {
         let mut map = state.lock().await;
         let entry = map.entry(key.to_string()).or_default();
@@ -659,7 +683,7 @@ async fn finish(
         &arc.project.to_string_lossy(),
         &summary,
     );
-    if let Err(refusal) = ctx.supervisor.restore_deck_model(&arc.session).await {
+    if let Err(refusal) = conductor::hand_back(&ctx.supervisor, &arc.session).await {
         warn!(
             dash = %arc.dash,
             reason = refusal.reason(),
@@ -677,7 +701,7 @@ async fn finish(
 
 /// Record a stop and hand the card back, for a refusal discovered mid-rotation.
 async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: &str) {
-    if let Err(refusal) = ctx.supervisor.restore_deck_model(&arc.session).await {
+    if let Err(refusal) = conductor::hand_back(&ctx.supervisor, &arc.session).await {
         warn!(
             dash = %arc.dash,
             reason = refusal.reason(),
@@ -974,6 +998,54 @@ Some context.
             prompt,
             "/tugplug:plan-devise a plan for dash/demo-brief.md, honoring every [B##] decision it records 🢂 dash/demo.md"
         );
+    }
+
+    /// [B09]: a stage opens on a part, not a title. The document names where
+    /// to start, so the stage that opens on it is handed those paths — the
+    /// clause the prompt gained over the bare ask.
+    #[test]
+    fn a_devise_prompt_names_the_files_its_document_cites() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("dash")).unwrap();
+        std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/a.rs"), "fn a() {}\n").unwrap();
+        std::fs::write(root.join("src/b.ts"), "export const b = 1;\n").unwrap();
+        std::fs::write(
+            root.join("dash/demo-brief.md"),
+            "# A brief\n\n[F01] `src/a.rs` holds it, `src/b.ts` reads it, `src/gone.rs` does not exist.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\ndocs = \"dash\"\n",
+        )
+        .unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+
+        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        assert_eq!(
+            reading.cited_paths,
+            vec!["src/a.rs".to_string(), "src/b.ts".to_string()]
+        );
+        let prompt = opening_prompt(
+            &reading,
+            &Rotation {
+                stage: ArcStage::Devise,
+                steps: None,
+                note: None,
+            },
+        )
+        .unwrap();
+        assert!(prompt.starts_with("/tugplug:plan-devise a plan for dash/demo-brief.md"));
+        assert!(prompt.contains("start there: src/a.rs, src/b.ts"));
+        assert!(
+            !prompt.contains("src/gone.rs"),
+            "a backticked token that is not a file on disk is prose"
+        );
+        // No git repo here at all, so there is nothing git could say moved.
+        assert!(!prompt.contains("what changed"));
     }
 
     #[test]
@@ -1374,18 +1446,6 @@ Some context.
             "an implement stage with steps left and no reading sits still — \
              the base path's absence is not a stop"
         );
-    }
-
-    #[test]
-    fn a_stage_model_comes_from_the_projects_own_declaration() {
-        let mut config = DashConfig::default();
-        assert_eq!(stage_model(&config, ArcStage::Review), None);
-        config.review_model = Some("opus".to_string());
-        assert_eq!(
-            stage_model(&config, ArcStage::Review),
-            Some("opus".to_string())
-        );
-        assert_eq!(stage_model(&config, ArcStage::Devise), None);
     }
 
     use tugdash_core::arc::ArcStageLine;

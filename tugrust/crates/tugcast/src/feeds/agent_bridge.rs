@@ -1577,6 +1577,11 @@ pub async fn relay_session_io(
                                                     .parent_session_id
                                                     .clone(),
                                                 fork_point: Some(fork.fork_point.clone()),
+                                                // A rewind-fork seats nothing:
+                                                // it continues a conversation
+                                                // rather than opening one.
+                                                stage_label: None,
+                                                stage_model: None,
                                             },
                                         ));
                                     }
@@ -1657,6 +1662,14 @@ pub async fn relay_session_io(
                                                     .parent_session_id
                                                     .clone(),
                                                 fork_point: None,
+                                                // Recorded from the same
+                                                // announcement the identity
+                                                // transfer reads, so the
+                                                // restore can redraw this
+                                                // divider without an arc
+                                                // record to consult ([P10]).
+                                                stage_label: Some(stage.stage.clone()),
+                                                stage_model: stage.model.clone(),
                                             },
                                         ));
                                     }
@@ -1823,6 +1836,23 @@ pub async fn relay_session_io(
                                         error = %err,
                                         "set_fork_provenance failed; the fork keeps its callsign but loses its parentage record"
                                     );
+                                }
+                                // What the rotation seated it as, beside where
+                                // it came from: the fork edge and these two
+                                // columns are the whole of what a restore needs
+                                // to redraw the transcript's divider ([P10]).
+                                if let Some(label) = fork.stage_label.as_deref() {
+                                    if let Err(err) = ledger.set_stage_provenance(
+                                        record_id,
+                                        label,
+                                        fork.stage_model.as_deref(),
+                                    ) {
+                                        warn!(
+                                            session = %tug_session_id,
+                                            error = %err,
+                                            "set_stage_provenance failed; the rotation lands but its divider will not survive a relaunch"
+                                        );
+                                    }
                                 }
                                 // The receipts and search history of this
                                 // conversation belong with the line of work,
@@ -3853,6 +3883,15 @@ mod tests {
         assert_eq!(parsed.parent_session_id, "p");
         assert_eq!(parsed.new_session_id, "n");
         assert_eq!(parsed.stage, "review");
+        // A rotation with no score behind it names no arc and no document,
+        // and that absence is what keeps `arc-stage` unwritten: the write is
+        // guarded on an arc name *and* a parsable stage, so a `None` here
+        // cannot reach the dash-log at all.
+        assert!(parsed.arc.is_none());
+        assert!(
+            ArcStage::parse(&parsed.stage).is_some(),
+            "the label still parses; it is the missing arc that stops the write"
+        );
     }
 
     fn shell_row(session: &str, command: &str) -> crate::shell_ledger::NewShellExchange {

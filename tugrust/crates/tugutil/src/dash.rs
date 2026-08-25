@@ -952,7 +952,7 @@ fn run_arc_run(
     // The arc runs on a card: every stage is a rotation of the calling
     // session's own tugcode ([B05]). Without a session there is nowhere for a
     // stage to go, so this refuses rather than recording an arc nobody can run.
-    let session = calling_session_id().map_err(|_| {
+    let session = calling_session_id("an arc").map_err(|_| {
         "no session — an arc runs on a Session card, so run this from one or set TUG_SESSION_ID"
             .to_string()
     })?;
@@ -1082,6 +1082,20 @@ fn binding_project(project: Option<std::path::PathBuf>) -> Result<std::path::Pat
 /// a single port by design ([D09]), which is the right answer for a
 /// machine-global write and the wrong one for a per-instance ledger.
 fn post_dash_api(body: serde_json::Value) -> Result<serde_json::Value, String> {
+    post_instance_api("/api/dash", "dash binding", body)
+}
+
+/// The same try-each-instance POST, for any per-instance tugcast API.
+///
+/// `subject` is what the "no instance was found" failure names. It is a
+/// parameter rather than a literal because the text is read by whoever ran the
+/// verb, and a rotation must not report a dash binding it never asked for
+/// ([P03]).
+pub(crate) fn post_instance_api(
+    path: &str,
+    subject: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let mut ports: Vec<u16> = Vec::new();
     if let Ok(Some(instance)) = std::env::current_dir()
         .map_err(|_| ())
@@ -1095,9 +1109,9 @@ fn post_dash_api(body: serde_json::Value) -> Result<serde_json::Value, String> {
         }
     }
     if ports.is_empty() {
-        return Err(
-            "dash binding goes through a running Tug instance, but none was found".to_string(),
-        );
+        return Err(format!(
+            "{subject} goes through a running Tug instance, but none was found"
+        ));
     }
 
     // A non-2xx must stay readable: `unknown_session` arrives as a 404 whose
@@ -1110,7 +1124,7 @@ fn post_dash_api(body: serde_json::Value) -> Result<serde_json::Value, String> {
 
     let mut last_error = None;
     for port in ports {
-        let url = format!("http://127.0.0.1:{port}/api/dash");
+        let url = format!("http://127.0.0.1:{port}{path}");
         let response = match agent.post(&url).send_json(body.clone()) {
             Ok(r) => r,
             Err(e) => {
@@ -1140,13 +1154,17 @@ fn post_dash_api(body: serde_json::Value) -> Result<serde_json::Value, String> {
 }
 
 /// The calling session's id, or the actionable error naming what to do.
-fn calling_session_id() -> Result<String, String> {
+///
+/// `subject` names what wanted the session, so the refusal says why it is
+/// asking rather than reporting whatever the first caller happened to be.
+pub(crate) fn calling_session_id(subject: &str) -> Result<String, String> {
     std::env::var("TUG_SESSION_ID")
         .ok()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
-            "no session — dash binding names the calling session, so run this from a Session card or set TUG_SESSION_ID"
-                .to_string()
+            format!(
+                "no session — {subject} names the calling session, so run this from a Session card or set TUG_SESSION_ID"
+            )
         })
 }
 
@@ -1156,7 +1174,7 @@ fn run_bind(
     json: bool,
     quiet: bool,
 ) -> Result<(), String> {
-    let session = calling_session_id()?;
+    let session = calling_session_id("dash binding")?;
     let project = binding_project(project)?;
     let response = post_dash_api(serde_json::json!({
         "op": "bind",
@@ -1205,7 +1223,7 @@ fn claim_dash(name: &str) {
 }
 
 fn run_unbind(project: Option<std::path::PathBuf>, json: bool, quiet: bool) -> Result<(), String> {
-    let session = calling_session_id()?;
+    let session = calling_session_id("dash binding")?;
     let _project = binding_project(project)?;
     post_dash_api(serde_json::json!({
         "op": "unbind",

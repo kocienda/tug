@@ -649,6 +649,157 @@ fn apply_dash_request(
     }
 }
 
+/// Request payload for POST /api/session — the conductor's door ([S03]).
+///
+/// A rotation names no dash, so it does not ride `DashApiRequest`: putting
+/// `model`, `prompt`, `stage`, and `effort` on a type whose name says it is
+/// about dashes would spell the conductor's whole parameter set in the wrong
+/// vocabulary ([P03]).
+#[derive(serde::Deserialize)]
+struct SessionApiRequest {
+    /// `rotate` | `rotate_cancel`.
+    op: String,
+    #[serde(default)]
+    tug_session_id: Option<String>,
+    /// Project path as the caller spelled it — resolved through the [L29]
+    /// gateway here, exactly as `apply_dash_request` does.
+    #[serde(default)]
+    project_dir: Option<String>,
+    /// The stage label the divider renders. Free text.
+    #[serde(default)]
+    stage: Option<String>,
+    /// The stage's opening prompt.
+    #[serde(default)]
+    prompt: Option<String>,
+    /// The model to seat the fresh session on. Absent is the account default.
+    #[serde(default)]
+    model: Option<String>,
+    /// The reasoning effort to seat it at. Absent leaves the level as it is.
+    #[serde(default)]
+    effort: Option<String>,
+}
+
+/// Handle POST /api/session. Loopback only, like every tugcast API.
+///
+/// The request is **parked**, never performed: the caller is a model running
+/// inside the very turn whose end the rotation is scheduled for, and rotating
+/// on receipt would kill it mid-sentence ([P04]). What this handler does is
+/// decide whether the promise can be made — the session must exist here, and
+/// the card must not already be running a score ([P06]) — and record it.
+async fn session_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(router): State<FeedRouter>,
+    body: Bytes,
+) -> Response {
+    fn err(status: StatusCode, message: &str) -> Response {
+        (
+            status,
+            axum::Json(serde_json::json!({ "status": "error", "message": message })),
+        )
+            .into_response()
+    }
+    if !addr.ip().is_loopback() {
+        return err(StatusCode::FORBIDDEN, "forbidden");
+    }
+    let Some(supervisor) = router.supervisor.as_ref() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "no supervisor");
+    };
+    let Some(ledger) = supervisor.session_ledger.clone() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "no session ledger");
+    };
+    let Some(conductor) = router.conductor.clone() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "no conductor");
+    };
+    let req: SessionApiRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => return err(StatusCode::BAD_REQUEST, &format!("invalid JSON: {e}")),
+    };
+    let Some(session_id) = req.tug_session_id.clone().filter(|s| !s.is_empty()) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "a rotation names the session it rotates",
+        );
+    };
+
+    match req.op.as_str() {
+        "rotate" => {
+            let Some(prompt) = req.prompt.clone().filter(|p| !p.is_empty()) else {
+                return err(StatusCode::BAD_REQUEST, "rotate needs a prompt");
+            };
+            let stage = req
+                .stage
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "rotate".to_string());
+            // The ledger read and the arc-record read are both blocking work.
+            // `unknown_session` stays a 404 whose body the CLI's port loop
+            // reads as "not this instance" before trying the next one.
+            let probe = {
+                let ledger = Arc::clone(&ledger);
+                let session_id = session_id.clone();
+                tokio::task::spawn_blocking(move || {
+                    let known = matches!(ledger.get(&session_id), Ok(Some(_)));
+                    let scored =
+                        known && crate::conductor::score_is_running(&ledger, &session_id);
+                    (known, scored)
+                })
+                .await
+            };
+            let (known, scored) = match probe {
+                Ok(probe) => probe,
+                Err(e) => {
+                    return err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("session task failed: {e}"),
+                    );
+                }
+            };
+            if !known {
+                return err(StatusCode::NOT_FOUND, "unknown_session");
+            }
+            if scored {
+                return err(
+                    StatusCode::CONFLICT,
+                    crate::conductor::Refusal::ArcRunning.reason(),
+                );
+            }
+            // Resolved for the same reason every other project path is, even
+            // though nothing here opens a repo: a spelling that reached the
+            // gateway is the one the rest of the system compares against.
+            if let Some(dir) = req.project_dir.as_deref() {
+                let _ = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(dir));
+            }
+            let request = crate::conductor::RotationRequest::new(
+                tugcast_core::protocol::TugSessionId::new(session_id),
+                prompt,
+                stage,
+            )
+            .model(req.model.clone().filter(|m| !m.is_empty()))
+            .effort(req.effort.clone().filter(|e| !e.is_empty()));
+            let replaced = conductor.park(request);
+            (
+                StatusCode::OK,
+                axum::Json(
+                    serde_json::json!({ "status": "ok", "pending": true, "replaced": replaced }),
+                ),
+            )
+                .into_response()
+        }
+        "rotate_cancel" => {
+            let cancelled = conductor.withdraw(&session_id);
+            (
+                StatusCode::OK,
+                axum::Json(serde_json::json!({ "status": "ok", "cancelled": cancelled })),
+            )
+                .into_response()
+        }
+        other => err(
+            StatusCode::BAD_REQUEST,
+            &format!("unknown op '{other}'"),
+        ),
+    }
+}
+
 /// Handle POST /api/changes-write — the owner side of the single-writer
 /// contract ([LR8]). The body is one `changes_journal::Record`, sent by an
 /// instance that lost the writer claim; the owner applies it through the
@@ -1188,6 +1339,7 @@ pub(crate) fn build_app(
         .route("/api/ink-census", get(ink_census_handler))
         .route("/api/draft", post(draft_handler))
         .route("/api/dash", post(dash_handler))
+        .route("/api/session", post(session_handler))
         .route("/api/changes-write", post(changes_write_handler))
         .route(
             "/api/workspace/acquire",

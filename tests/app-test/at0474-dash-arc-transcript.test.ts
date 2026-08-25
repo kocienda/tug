@@ -50,6 +50,7 @@ const DIVIDER = '[data-slot="stage-divider"]';
 const USER_ROW = '[data-testid="session-card-transcript-user-body"]';
 const CONDUCTOR_ROW = '.tug-transcript-entry[data-participant="conductor"]';
 const STAGE_PROMPT = "/tugplug:plan-devise a plan for dash/foo-brief.md";
+const REVIEW_PROMPT = "/tugplug:plan-review dash/foo.md";
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 const PROMPT = "write the brief";
@@ -200,6 +201,101 @@ describe.skipIf(!SHOULD_RUN)(
           const order = JSON.parse(rows) as string[];
           expect(order).toContain("user");
           expect(order.indexOf("user")).toBeLessThan(order.indexOf("divider"));
+
+          const stillThere = await app.evalJS<boolean>(
+            `Array.from(document.querySelectorAll(${JSON.stringify(
+              USER_ROW,
+            )})).some((el) => (el.textContent || "").includes(${JSON.stringify(PROMPT)}))`,
+          );
+          expect(stillThere).toBe(true);
+
+          process.stdout.write("VERDICT: PASS\n");
+        } catch (err) {
+          process.stdout.write("VERDICT: FAIL\n");
+          const tail = app.tailLog(200);
+          if (tail !== "") process.stderr.write(`\n[at0474] log tail:\n${tail}\n`);
+          throw err;
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    test(
+      "a rotation with no score behind it draws its divider and leaves the transcript alone",
+      async () => {
+        // The conductor's primitive is not the arc's. A rotation nobody is
+        // scoring carries no `arc` and no `document`, and the boundary must
+        // still be visible and still be a boundary — a divider naming the
+        // stage and the model, with everything above it exactly where it was.
+        const app = await launchTugApp({ testName: "at0474-conductor-rotation" });
+        try {
+          await app.enableDeckTrace(true);
+          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.waitForCondition<boolean>(
+            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+            { timeoutMs: 30_000 },
+          );
+          await app.bindSession("A", { projectDir });
+          await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+
+          await app.driveSession("A", { op: "send", text: PROMPT, atoms: [] });
+          await app.waitForCondition<boolean>(
+            `document.querySelectorAll(${JSON.stringify(USER_ROW)}).length > 0`,
+            { timeoutMs: 6000 },
+          );
+          await app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT_FEED,
+            decoded: {
+              type: "turn_complete",
+              tug_session_id: TUG_SESSION_ID,
+              msg_id: "m1",
+              result: "success",
+            },
+          });
+
+          await app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT_FEED,
+            decoded: {
+              type: "session_stage",
+              tug_session_id: TUG_SESSION_ID,
+              parentSessionId: "claude-parent",
+              newSessionId: "claude-review",
+              stage: "review",
+              model: "opus",
+              prompt: REVIEW_PROMPT,
+              ipc_version: 2,
+            },
+          });
+
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(DIVIDER)}) !== null`,
+            { timeoutMs: 6000 },
+          );
+          const label = await app.evalJS<string>(
+            `(document.querySelector(${JSON.stringify(DIVIDER)})||{}).textContent || ""`,
+          );
+          expect(label).toContain("review");
+          expect(label).toContain("opus");
+          // No score opened it on anything, so the divider names nothing it
+          // was not given: the text ends at the model, with no trailing
+          // separator and no blank where a document would be.
+          expect(label.trim().endsWith("review · opus")).toBe(true);
+          expect(label).not.toContain("dash/");
+
+          await app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT_FEED,
+            decoded: {
+              type: "session_init",
+              tug_session_id: TUG_SESSION_ID,
+              session_id: "claude-review",
+              ipc_version: 2,
+            },
+          });
 
           const stillThere = await app.evalJS<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(

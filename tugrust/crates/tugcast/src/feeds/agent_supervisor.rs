@@ -247,6 +247,11 @@ pub struct PendingFork {
     /// is written `NULL` rather than given an invented value: the provenance
     /// columns are what tells a rewind from a rotation.
     pub fork_point: Option<String>,
+    /// What a rotation seated this session as — the stage label the divider
+    /// renders — or `None` for a rewind-fork, which seats nothing ([P10]).
+    pub stage_label: Option<String>,
+    /// The model the rotation seated it on, or `None` for the account default.
+    pub stage_model: Option<String>,
 }
 
 /// Per-session ledger record, keyed by [`TugSessionId`] in the supervisor.
@@ -634,6 +639,14 @@ pub trait SessionsRecorder: Send + Sync {
     /// The dash a session is bound to, if any — the key an arc record is read
     /// under, so the restore can name each stage in the chain.
     fn dash_name_for(&self, session_id: &str) -> Option<String>;
+
+    /// What a rotation seated a session as — its stage label and the model it
+    /// seated it on ([P10]).
+    ///
+    /// On the trait rather than reached for through a `SessionLedger` because
+    /// the restore path takes a `&dyn SessionsRecorder`: a writer alone would
+    /// leave the columns unreadable from the one place they exist to be read.
+    fn stage_provenance(&self, session_id: &str) -> Option<(String, Option<String>)>;
 }
 
 /// Production implementation backed by a shared [`SessionLedger`].
@@ -952,6 +965,10 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         self.ledger.lineage_chain(session_id)
     }
 
+    fn stage_provenance(&self, session_id: &str) -> Option<(String, Option<String>)> {
+        self.ledger.stage_provenance(session_id)
+    }
+
     fn dash_name_for(&self, session_id: &str) -> Option<String> {
         match self.ledger.get(session_id) {
             Ok(row) => row.and_then(|r| r.dash_name),
@@ -991,30 +1008,56 @@ fn replay_lineage(
     // carries it: a rotation's `session_init` records a fresh row, and only
     // `dash bind` / `dash run` ever write a binding — so asking the head alone
     // would find nothing on every arc that has rotated once.
-    let dash = chain.iter().find_map(|id| recorder.dash_name_for(id))?;
-    let record = tugdash_core::arc::read_arc(project_dir, &dash)?;
+    // A score, if there is one. There need not be: a rotation with nothing
+    // driving it has no dash binding and no arc record, and its transcript is
+    // just as much an invariant of the rotation as a scored one's ([B05]). So
+    // the score supplies only the two facts that are genuinely its — the arc
+    // name and the document it opened on — and the rest comes off the row.
+    let score = chain
+        .iter()
+        .find_map(|id| recorder.dash_name_for(id))
+        .and_then(|dash| {
+            tugdash_core::arc::read_arc(project_dir, &dash).map(|record| (dash, record))
+        });
     let entries: Vec<serde_json::Value> = chain
         .iter()
         .map(|session_id| {
-            let stage = record.stages.iter().find(|s| &s.session_id == session_id);
+            let recorded = recorder.stage_provenance(session_id);
+            let logged = score
+                .as_ref()
+                .and_then(|(_, record)| record.stages.iter().find(|s| &s.session_id == session_id));
+            // The row is the answer; the arc record is the fallback for a row
+            // written before the columns existed, so an arc that rotated on an
+            // older build replays exactly as it did.
+            let seated = recorded
+                .map(|(label, model)| (label, model.unwrap_or_default()))
+                .or_else(|| {
+                    logged.map(|stage| {
+                        (
+                            stage.stage.as_str().to_string(),
+                            stage.model.clone().unwrap_or_default(),
+                        )
+                    })
+                });
             let mut entry = serde_json::Map::new();
             entry.insert("sessionId".into(), serde_json::json!(session_id));
-            if let Some(stage) = stage {
-                entry.insert("stage".into(), serde_json::json!(stage.stage.as_str()));
-                entry.insert(
-                    "model".into(),
-                    serde_json::json!(stage.model.clone().unwrap_or_default()),
-                );
-                entry.insert("arc".into(), serde_json::json!(&dash));
-                if let Some(document) = record.plan.as_ref().or(record.document.as_ref()) {
-                    entry.insert("document".into(), serde_json::json!(document));
+            if let Some((label, model)) = seated {
+                entry.insert("stage".into(), serde_json::json!(label));
+                entry.insert("model".into(), serde_json::json!(model));
+                // The score's own two facts, and only where a score seated
+                // this entry — a scoreless rotation names neither.
+                if let (Some((dash, record)), Some(_)) = (score.as_ref(), logged) {
+                    entry.insert("arc".into(), serde_json::json!(dash));
+                    if let Some(document) = record.plan.as_ref().or(record.document.as_ref()) {
+                        entry.insert("document".into(), serde_json::json!(document));
+                    }
                 }
             }
             serde_json::Value::Object(entry)
         })
         .collect();
-    // A chain whose every entry is stage-less is a fork lineage wearing an
-    // arc's dash binding — nothing to divide, so nothing to send.
+    // A chain whose every entry is stage-less is a fork lineage, not a
+    // rotation's — nothing to divide, so nothing to send.
     if entries.iter().all(|e| e.get("stage").is_none()) {
         return None;
     }
@@ -1362,6 +1405,12 @@ pub struct AgentSupervisor {
     /// rotate its next stage. Both are fed from the one place the supervisor
     /// recognizes the transition, so neither re-derives it.
     pub arc_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
+    /// The same idle transition again, for the conductor ([P04]).
+    ///
+    /// A third sibling for the reason there is a second: an mpsc has one
+    /// consumer, and a rotation asked for mid-turn must land at *that* turn's
+    /// end — the edge computed here and nowhere else.
+    pub conductor_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
 }
 
 /// Registration sent through [`AgentSupervisor::merger_register_tx`] so the
@@ -2423,79 +2472,8 @@ fn parse_bind_dash_payload(payload: &[u8]) -> Result<BindDashPayload, ControlErr
     })
 }
 
-/// What a stage rotation carries — everything the three frames are composed
-/// from, and nothing a model wrote.
-///
-/// Composed by the arc's runner from the arc record and the project's
-/// `[tugtool.dash]` declarations; the supervisor only sends it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StageSpec {
-    /// `devise` | `review` | `implement`.
-    pub stage: String,
-    /// The document the arc opened on, repo-relative.
-    pub document: String,
-    /// The plan the stage drives, once one exists.
-    pub plan: Option<String>,
-    /// The dash name the arc is keyed by.
-    pub arc: String,
-    /// The model the project declared for this stage, or `None` for the
-    /// account default — which sends no `model_change` frame at all.
-    pub model: Option<String>,
-    /// The inclusive step range a *continued* implement stage walks, `N-M`
-    /// ([P07]). `None` on every other stage, which is what tells the
-    /// transcript's divider a continued stage from a first one ([B13]).
-    pub steps: Option<String>,
-    /// The stage's opening prompt (Spec S09).
-    pub prompt: String,
-}
-
-/// How a rotation's frames reached the card.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StageDelivery {
-    /// Sent on a live tugcode's stdin.
-    Sent,
-    /// Queued behind a spawn in flight; the promotion drains them in order.
-    Queued,
-}
-
-/// Why a rotation could not happen.
-///
-/// Returned rather than logged: the runner stops the arc with this as the
-/// recorded reason, so a rotation that cannot happen is visible on the card
-/// instead of leaving the arc waiting forever ([L31], [P11]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StageRefusal {
-    /// No ledger entry for the session — the card is gone.
-    UnknownSession,
-    /// The session has no claude running to rotate.
-    Idle,
-    Errored,
-    Closed,
-    /// The spawn-window queue was already full of user input.
-    QueueOverflow,
-    /// `Live` with no stdin sender installed.
-    NoInputTx,
-    /// The stdin channel closed under the send.
-    SendFailed,
-}
-
-impl StageRefusal {
-    /// The word recorded in `arc-stop`'s note and shown on the card.
-    pub fn reason(&self) -> &'static str {
-        match self {
-            StageRefusal::UnknownSession => "session gone",
-            StageRefusal::Idle => "session idle",
-            StageRefusal::Errored => "session errored",
-            StageRefusal::Closed => "session closed",
-            StageRefusal::QueueOverflow => "spawn queue full",
-            StageRefusal::NoInputTx => "no stdin",
-            StageRefusal::SendFailed => "stdin closed",
-        }
-    }
-}
-
 /// Build a CODE_INPUT frame from a payload the caller composed.
-fn code_input_frame(payload: &serde_json::Value) -> Frame {
+pub(crate) fn code_input_frame(payload: &serde_json::Value) -> Frame {
     Frame::new(
         FeedId::CODE_INPUT,
         serde_json::to_vec(payload).expect("stage frame payload serializes"),
@@ -3058,6 +3036,7 @@ impl AgentSupervisor {
             draft_tasks: crate::feeds::draft_engine::DraftTaskRegistry::default(),
             turn_complete_tx: std::sync::OnceLock::new(),
             arc_tick_tx: std::sync::OnceLock::new(),
+            conductor_tick_tx: std::sync::OnceLock::new(),
         };
         (sup, merger_register_rx)
     }
@@ -6808,194 +6787,6 @@ impl AgentSupervisor {
         );
     }
 
-    /// Rotate a stage onto a card's own tugcode ([P02], Spec S01).
-    ///
-    /// The three frames are exactly the ones the deck sends when a user picks
-    /// a model and starts a fresh session with a prompt; the only new thing is
-    /// who sends them. Model **first**, because tugcode records the selector
-    /// and its next spawn reuses it — a model set after the spawn would be
-    /// flipped underneath a claude that had already started.
-    ///
-    /// A stage that declares no model sends **two** frames, not a
-    /// `model_change` carrying "default": omitting the frame leaves the card
-    /// on whatever it was, which is what "the account default" means here.
-    ///
-    /// The `SpawnState` matrix is `do_request_replay`'s, with one difference
-    /// that matters: this **returns its refusal** instead of logging and
-    /// dropping it ([L31]). The arc's runner is the caller, and a rotation
-    /// that cannot happen must stop the arc with a reason rather than leave it
-    /// waiting for a stage that will never start.
-    pub async fn drive_stage(
-        &self,
-        tug_session_id: &TugSessionId,
-        spec: &StageSpec,
-    ) -> Result<StageDelivery, StageRefusal> {
-        let entry_arc = {
-            let ledger = self.ledger.lock().await;
-            match ledger.get(tug_session_id) {
-                Some(e) => e.clone(),
-                None => return Err(StageRefusal::UnknownSession),
-            }
-        };
-
-        let mut frames: Vec<Frame> = Vec::with_capacity(3);
-        if let Some(model) = spec.model.as_deref() {
-            frames.push(code_input_frame(&serde_json::json!({
-                "type": "model_change",
-                "tug_session_id": tug_session_id.as_str(),
-                "model": model,
-            })));
-        }
-        let mut stage = serde_json::json!({
-            "name": spec.stage,
-            "document": spec.document,
-            "arc": spec.arc,
-        });
-        if let Some(plan) = spec.plan.as_deref() {
-            stage["plan"] = serde_json::Value::String(plan.to_owned());
-        }
-        if let Some(steps) = spec.steps.as_deref() {
-            stage["steps"] = serde_json::Value::String(steps.to_owned());
-        }
-        // The prompt rides the command as well as its own frame: tugcode
-        // echoes it on `session_stage`, which is how the deck opens the turn
-        // it is about to watch.
-        stage["prompt"] = serde_json::Value::String(spec.prompt.clone());
-        frames.push(code_input_frame(&serde_json::json!({
-            "type": "session_command",
-            "tug_session_id": tug_session_id.as_str(),
-            "command": "new",
-            "stage": stage,
-        })));
-        // The prompt itself is a `user_message` in the deck's own wire shape —
-        // Anthropic content blocks — and it goes through the dispatcher like
-        // one of the deck's, so it opens a journal row and marks the turn
-        // active exactly as a typed prompt would. Only the prompt takes that
-        // door: the dispatcher reads a `model_change` as the deck's own
-        // selector ([P15]), which a stage's model is not.
-        let prompt = code_input_frame(&serde_json::json!({
-            "type": "user_message",
-            "tug_session_id": tug_session_id.as_str(),
-            "content": [{ "type": "text", "text": spec.prompt }],
-        }));
-
-        // Branch inside the lock, exactly as `do_request_replay` does:
-        // `Spawning` enqueues here; `Live` snapshots `input_tx` and sends
-        // after the lock is released, so a blocking mpsc send never holds the
-        // per-session mutex.
-        let snapshot = {
-            let mut entry = entry_arc.lock().await;
-            match entry.spawn_state {
-                SpawnState::Spawning => {
-                    // Back-pushed in order so the stage's frames stay in the
-                    // order they were built once the queue drains.
-                    for frame in frames {
-                        if entry.queue.push(frame) == QueuePush::Overflow {
-                            return Err(StageRefusal::QueueOverflow);
-                        }
-                    }
-                    drop(entry);
-                    // Queued in order behind the command: the dispatcher
-                    // buffers into the same queue while the entry spawns.
-                    self.dispatch_one(prompt).await;
-                    tracing::info!(
-                        target: "dev::session-lifecycle",
-                        event = "dash_arc.stage_queued",
-                        tug_session_id = %tug_session_id,
-                        stage = %spec.stage,
-                        arc = %spec.arc,
-                    );
-                    return Ok(StageDelivery::Queued);
-                }
-                SpawnState::Live => entry.input_tx.clone(),
-                SpawnState::Idle => return Err(StageRefusal::Idle),
-                SpawnState::Errored => return Err(StageRefusal::Errored),
-                SpawnState::Closed => return Err(StageRefusal::Closed),
-            }
-        };
-
-        // `Live` with no `input_tx` is a programming error — the worker
-        // installs the sender before the bridge promotes the entry — but the
-        // arc must not hang on it, so it is a refusal like any other.
-        let Some(tx) = snapshot else {
-            return Err(StageRefusal::NoInputTx);
-        };
-        for frame in frames {
-            if tx.send(frame).await.is_err() {
-                return Err(StageRefusal::SendFailed);
-            }
-        }
-        self.dispatch_one(prompt).await;
-        tracing::info!(
-            target: "dev::session-lifecycle",
-            event = "dash_arc.stage_sent",
-            tug_session_id = %tug_session_id,
-            stage = %spec.stage,
-            arc = %spec.arc,
-        );
-        Ok(StageDelivery::Sent)
-    }
-
-    /// Hand the card back on the deck's own model ([P15]).
-    ///
-    /// Exactly one `model_change` frame, carrying the last selector a
-    /// WebSocket client sent for this session, or `"default"` when it never
-    /// sent one — which `handleModelChange` maps to "no `--model`". Sent at
-    /// `arc-done` and at `arc-stop`, **before** the receipt, so the card the
-    /// user is handed back is already theirs.
-    ///
-    /// Without it [B04] is only half true: tugcode records a selector on its
-    /// manager and every later spawn reuses it, so a card whose arc ended on
-    /// the implement model would stay there — including through the user's own
-    /// `/new`.
-    pub async fn restore_deck_model(&self, tug_session_id: &TugSessionId) -> Result<(), StageRefusal> {
-        let entry_arc = {
-            let ledger = self.ledger.lock().await;
-            match ledger.get(tug_session_id) {
-                Some(e) => e.clone(),
-                None => return Err(StageRefusal::UnknownSession),
-            }
-        };
-        let (model, snapshot) = {
-            let entry = entry_arc.lock().await;
-            let model = entry
-                .deck_model
-                .clone()
-                .unwrap_or_else(|| "default".to_string());
-            match entry.spawn_state {
-                SpawnState::Spawning => {
-                    drop(entry);
-                    let frame = code_input_frame(&serde_json::json!({
-                        "type": "model_change",
-                        "tug_session_id": tug_session_id.as_str(),
-                        "model": model,
-                    }));
-                    let mut entry = entry_arc.lock().await;
-                    if entry.queue.push(frame) == QueuePush::Overflow {
-                        return Err(StageRefusal::QueueOverflow);
-                    }
-                    return Ok(());
-                }
-                SpawnState::Live => (model, entry.input_tx.clone()),
-                SpawnState::Idle => return Err(StageRefusal::Idle),
-                SpawnState::Errored => return Err(StageRefusal::Errored),
-                SpawnState::Closed => return Err(StageRefusal::Closed),
-            }
-        };
-        let Some(tx) = snapshot else {
-            return Err(StageRefusal::NoInputTx);
-        };
-        let frame = code_input_frame(&serde_json::json!({
-            "type": "model_change",
-            "tug_session_id": tug_session_id.as_str(),
-            "model": model,
-        }));
-        if tx.send(frame).await.is_err() {
-            return Err(StageRefusal::SendFailed);
-        }
-        Ok(())
-    }
-
     /// Handle a `trash_session` CONTROL request. Refuses if the row is
     /// currently live (per [D03] / picker UX). Emits `session_updated
     /// { removed: true }` on success — the recorder broadcasts that frame
@@ -8307,6 +8098,14 @@ impl AgentSupervisor {
                                 if let Some(tx) = self.arc_tick_tx.get() {
                                     let _ = tx.try_send(id.to_string());
                                 }
+                                // And again for the conductor ([P04]): a
+                                // rotation asked for from inside this turn was
+                                // parked rather than performed, precisely so
+                                // it lands here instead of killing the claude
+                                // that asked for it.
+                                if let Some(tx) = self.conductor_tick_tx.get() {
+                                    let _ = tx.try_send(id.to_string());
+                                }
                             }
                         }
                     }
@@ -8950,6 +8749,9 @@ impl SessionsRecorder for NoopSessionsRecorder {
     fn dash_name_for(&self, _session_id: &str) -> Option<String> {
         None
     }
+    fn stage_provenance(&self, _session_id: &str) -> Option<(String, Option<String>)> {
+        None
+    }
 }
 
 /// Construct an [`AgentSupervisor`] with stub channels and a stalled
@@ -9004,6 +8806,30 @@ pub(crate) fn test_minimal_supervisor() -> (Arc<AgentSupervisor>, mpsc::Receiver
         cancel,
     );
     (Arc::new(sup), register_rx)
+}
+
+/// Test helper: insert a bare ledger entry for `tug_session_id` and hand back
+/// the entry so the test can set its spawn state and stdin sender.
+///
+/// The workspace key is synthetic and the project dir is the crate root: these
+/// entries exercise per-session bookkeeping, never workspace lifecycle.
+#[cfg(test)]
+pub(crate) async fn insert_ledger_entry_for_tests(
+    sup: &AgentSupervisor,
+    tug_session_id: &TugSessionId,
+) -> Arc<Mutex<LedgerEntry>> {
+    let entry = Arc::new(Mutex::new(LedgerEntry::new(
+        tug_session_id.clone(),
+        WorkspaceKey::from_test_str(env!("CARGO_MANIFEST_DIR")),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        SessionMode::New,
+        CrashBudget::new(3, Duration::from_secs(60)),
+    )));
+    sup.ledger
+        .lock()
+        .await
+        .insert(tug_session_id.clone(), entry.clone());
+    entry
 }
 
 /// Test helper: install a Live ledger entry for `tug_session_id` with a
@@ -9658,23 +9484,7 @@ mod tests {
         sup: &AgentSupervisor,
         tug_session_id: &TugSessionId,
     ) -> Arc<Mutex<LedgerEntry>> {
-        // LedgerEntry gained workspace_key + project_dir.
-        // Tests that build a bare ledger entry use a synthetic key and
-        // the shared fixture path — they don't exercise workspace
-        // lifecycle, just per-session bookkeeping.
-        let workspace_key = WorkspaceKey::from_test_str(test_project_dir());
-        let entry = Arc::new(Mutex::new(LedgerEntry::new(
-            tug_session_id.clone(),
-            workspace_key,
-            PathBuf::from(test_project_dir()),
-            SessionMode::New,
-            CrashBudget::new(3, Duration::from_secs(60)),
-        )));
-        sup.ledger
-            .lock()
-            .await
-            .insert(tug_session_id.clone(), entry.clone());
-        entry
+        super::insert_ledger_entry_for_tests(sup, tug_session_id).await
     }
 
     fn fake_metadata_frame(tug_session_id: &str) -> Frame {
@@ -12655,288 +12465,6 @@ mod tests {
     }
 
     // ---- handle_control: request_replay during Spawning (Step R4 / [D12]) ----
-
-    // ---- the arc rotates a stage on a card's own tugcode ([P02]) ----------
-
-    fn stage_spec(model: Option<&str>) -> StageSpec {
-        StageSpec {
-            stage: "devise".to_string(),
-            document: "dash/some-brief.md".to_string(),
-            plan: None,
-            arc: "some-dash".to_string(),
-            model: model.map(str::to_owned),
-            steps: None,
-            prompt: "/tugplug:plan-devise a plan for dash/some-brief.md".to_string(),
-        }
-    }
-
-    /// A continued implement stage carries its step range onto the wire, so
-    /// the transcript's divider can say `implement, continued · steps N–M`
-    /// without re-deriving a range the runner already computed ([P07], [B13]).
-    #[tokio::test]
-    async fn a_continued_implement_stage_carries_its_step_range() {
-        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
-        let tug_id = TugSessionId::new("sess-steps");
-        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
-        let (input_tx, mut input_rx) = mpsc::channel::<Frame>(8);
-        {
-            let mut entry = entry_arc.lock().await;
-            entry.spawn_state = SpawnState::Live;
-            entry.input_tx = Some(input_tx);
-        }
-
-        let spec = StageSpec {
-            stage: "implement".to_string(),
-            document: "dash/some-brief.md".to_string(),
-            plan: Some("dash/some.md".to_string()),
-            arc: "some-dash".to_string(),
-            model: None,
-            steps: Some("4-9".to_string()),
-            prompt: "/tugplug:dash-implement dash/some.md Steps 4-9".to_string(),
-        };
-        sup.drive_stage(&tug_id, &spec).await.unwrap();
-
-        let command = input_rx.recv().await.expect("session_command frame");
-        let parsed: serde_json::Value = serde_json::from_slice(&command.payload).unwrap();
-        assert_eq!(parsed["type"], "session_command");
-        assert_eq!(parsed["stage"]["steps"], "4-9");
-
-        // A first implement stage carries none, which is what tells the two
-        // apart on the wire.
-        // Drain the first rotation's remaining frame before the next one.
-        let _first_prompt = input_rx.recv().await;
-
-        let mut first = spec.clone();
-        first.steps = None;
-        sup.drive_stage(&tug_id, &first).await.unwrap();
-        let command = input_rx.recv().await.expect("session_command frame");
-        let parsed: serde_json::Value = serde_json::from_slice(&command.payload).unwrap();
-        assert!(parsed["stage"].get("steps").is_none());
-    }
-
-    /// The `type` of each frame, in order.
-    fn frame_types(frames: &[Frame]) -> Vec<String> {
-        frames
-            .iter()
-            .map(|f| {
-                serde_json::from_slice::<serde_json::Value>(&f.payload).unwrap()["type"]
-                    .as_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .collect()
-    }
-
-    #[tokio::test]
-    async fn a_live_rotation_sends_exactly_the_three_frames_in_order() {
-        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
-        let tug_id = TugSessionId::new("sess-stage-live");
-        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
-        let (input_tx, mut input_rx) = mpsc::channel::<Frame>(8);
-        {
-            let mut entry = entry_arc.lock().await;
-            entry.spawn_state = SpawnState::Live;
-            entry.input_tx = Some(input_tx);
-        }
-
-        let delivery = sup
-            .drive_stage(&tug_id, &stage_spec(Some("opus")))
-            .await
-            .expect("a live card takes the rotation");
-        assert_eq!(delivery, StageDelivery::Sent);
-
-        let mut sent = Vec::new();
-        while let Ok(frame) = input_rx.try_recv() {
-            sent.push(frame);
-        }
-        assert_eq!(
-            frame_types(&sent),
-            vec!["model_change", "session_command", "user_message"],
-            "model first — tugcode records the selector and its next spawn reuses it"
-        );
-
-        let model: serde_json::Value = serde_json::from_slice(&sent[0].payload).unwrap();
-        assert_eq!(model["model"], "opus");
-        assert_eq!(model["tug_session_id"], "sess-stage-live");
-
-        let command: serde_json::Value = serde_json::from_slice(&sent[1].payload).unwrap();
-        assert_eq!(command["command"], "new");
-        assert_eq!(command["stage"]["name"], "devise");
-        assert_eq!(command["stage"]["document"], "dash/some-brief.md");
-        assert_eq!(command["stage"]["arc"], "some-dash");
-        assert!(
-            command["stage"].get("plan").is_none(),
-            "a stage with no plan yet names none"
-        );
-
-        assert_eq!(
-            command["stage"]["prompt"],
-            "/tugplug:plan-devise a plan for dash/some-brief.md",
-            "the command carries the prompt for the deck's benefit"
-        );
-
-        // The prompt frame is in the deck's own wire shape: content blocks,
-        // never a bare `text` — tugcode forwards `content` to claude verbatim,
-        // and a frame without it arrives as an empty message.
-        let prompt: serde_json::Value = serde_json::from_slice(&sent[2].payload).unwrap();
-        assert_eq!(prompt["type"], "user_message");
-        assert_eq!(
-            prompt["content"][0]["text"],
-            "/tugplug:plan-devise a plan for dash/some-brief.md"
-        );
-        assert!(prompt.get("text").is_none());
-    }
-
-    #[tokio::test]
-    async fn an_undeclared_model_sends_two_frames_and_no_model_change() {
-        // Omitting the frame is what "the account default" means: sending
-        // `model_change: "default"` would *change* a card the user had set.
-        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
-        let tug_id = TugSessionId::new("sess-stage-nomodel");
-        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
-        let (input_tx, mut input_rx) = mpsc::channel::<Frame>(8);
-        {
-            let mut entry = entry_arc.lock().await;
-            entry.spawn_state = SpawnState::Live;
-            entry.input_tx = Some(input_tx);
-        }
-
-        sup.drive_stage(&tug_id, &stage_spec(None))
-            .await
-            .expect("sent");
-
-        let mut sent = Vec::new();
-        while let Ok(frame) = input_rx.try_recv() {
-            sent.push(frame);
-        }
-        assert_eq!(frame_types(&sent), vec!["session_command", "user_message"]);
-    }
-
-    #[tokio::test]
-    async fn a_spawning_rotation_queues_its_frames_in_order() {
-        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
-        let tug_id = TugSessionId::new("sess-stage-spawning");
-        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
-        {
-            let mut entry = entry_arc.lock().await;
-            entry.spawn_state = SpawnState::Spawning;
-        }
-
-        let delivery = sup
-            .drive_stage(&tug_id, &stage_spec(Some("sonnet")))
-            .await
-            .expect("queued behind the spawn");
-        assert_eq!(delivery, StageDelivery::Queued);
-
-        let mut entry = entry_arc.lock().await;
-        let mut queued = Vec::new();
-        while let Some(frame) = entry.queue.pop() {
-            queued.push(frame);
-        }
-        assert_eq!(
-            frame_types(&queued),
-            vec!["model_change", "session_command", "user_message"],
-            "the drain order is the order they were built"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_rotation_with_nobody_to_receive_it_returns_its_refusal() {
-        // [L31]: the runner must be able to stop the arc with a reason. A
-        // silent drop here would leave the arc waiting for a stage that is
-        // never going to start.
-        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
-
-        let unknown = TugSessionId::new("sess-stage-nobody");
-        assert_eq!(
-            sup.drive_stage(&unknown, &stage_spec(None)).await,
-            Err(StageRefusal::UnknownSession)
-        );
-
-        let tug_id = TugSessionId::new("sess-stage-idle");
-        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
-        for (state, expected) in [
-            (SpawnState::Idle, StageRefusal::Idle),
-            (SpawnState::Errored, StageRefusal::Errored),
-            (SpawnState::Closed, StageRefusal::Closed),
-        ] {
-            entry_arc.lock().await.spawn_state = state;
-            assert_eq!(
-                sup.drive_stage(&tug_id, &stage_spec(None)).await,
-                Err(expected),
-                "an {state:?} card has no claude to rotate"
-            );
-        }
-
-        // Live with no stdin installed is a programming error, but the arc
-        // must surface it rather than hang on it.
-        {
-            let mut entry = entry_arc.lock().await;
-            entry.spawn_state = SpawnState::Live;
-            entry.input_tx = None;
-        }
-        assert_eq!(
-            sup.drive_stage(&tug_id, &stage_spec(None)).await,
-            Err(StageRefusal::NoInputTx)
-        );
-
-        // Every refusal carries a word the arc can record and a card can show.
-        for refusal in [
-            StageRefusal::UnknownSession,
-            StageRefusal::Idle,
-            StageRefusal::Errored,
-            StageRefusal::Closed,
-            StageRefusal::QueueOverflow,
-            StageRefusal::NoInputTx,
-            StageRefusal::SendFailed,
-        ] {
-            assert!(!refusal.reason().is_empty());
-        }
-    }
-
-    #[tokio::test]
-    async fn only_a_deck_model_change_is_remembered_for_the_restore() {
-        // [P15]: the dispatcher is the one place every WebSocket-client frame
-        // passes, and the runner bypasses it — so what lands here is by
-        // construction the deck's own choice.
-        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
-        let tug_id = TugSessionId::new("sess-deck-model");
-        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
-        assert_eq!(entry_arc.lock().await.deck_model, None);
-
-        sup.dispatch_one(Frame::new(
-            FeedId::CODE_INPUT,
-            serde_json::to_vec(&serde_json::json!({
-                "tug_session_id": "sess-deck-model",
-                "type": "model_change",
-                "model": "opus",
-            }))
-            .unwrap(),
-        ))
-        .await;
-        assert_eq!(
-            entry_arc.lock().await.deck_model.as_deref(),
-            Some("opus"),
-            "the deck's selector is what the card goes back to when the arc ends"
-        );
-
-        // A rotation's own frames never touch it — they go straight to
-        // `input_tx` and never reach the dispatcher.
-        let (input_tx, _input_rx) = mpsc::channel::<Frame>(8);
-        {
-            let mut entry = entry_arc.lock().await;
-            entry.spawn_state = SpawnState::Live;
-            entry.input_tx = Some(input_tx);
-        }
-        sup.drive_stage(&tug_id, &stage_spec(Some("sonnet")))
-            .await
-            .expect("sent");
-        assert_eq!(
-            entry_arc.lock().await.deck_model.as_deref(),
-            Some("opus"),
-            "the stage's model is the stage's, not the card's"
-        );
-    }
 
     /// Spawning: request_replay is enqueued at the front of the
     /// per-session queue. The bridge's session_init promote-and-drain
@@ -18255,6 +17783,72 @@ mod tests {
         assert_eq!(lineage[2]["model"], "fable");
         assert_eq!(lineage[1]["arc"], "foo");
         assert_eq!(lineage[1]["document"], "dash/foo-brief.md");
+    }
+
+    /// The invariant [B05] asks for: a rotation's transcript survives a
+    /// relaunch. With no score behind it there is no dash binding and no arc
+    /// record to read, so the lineage has to come off the row or not at all.
+    #[test]
+    fn a_chain_rotated_with_no_score_behind_it_still_carries_its_lineage() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        for id in ["s-first", "s-rotated"] {
+            ledger
+                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, None)
+                .expect("record_spawn");
+        }
+        ledger
+            .set_fork_provenance("s-rotated", "s-first", None)
+            .expect("provenance");
+        ledger
+            .set_stage_provenance("s-rotated", "review", Some("opus"))
+            .expect("stage provenance");
+
+        let recorder = LedgerSessionsRecorder::new(ledger);
+        let lineage = replay_lineage(&recorder, "s-rotated", root).expect("a lineage");
+
+        assert_eq!(lineage.len(), 2);
+        assert!(
+            lineage[0].get("stage").is_none(),
+            "the session the rotation replaced was seated by nothing"
+        );
+        assert_eq!(lineage[1]["stage"], "review");
+        assert_eq!(lineage[1]["model"], "opus");
+        assert!(
+            lineage[1].get("arc").is_none() && lineage[1].get("document").is_none(),
+            "a rotation with no score names neither"
+        );
+    }
+
+    /// The columns are the answer and the arc record is the fallback, so a
+    /// chain carrying both must read exactly as the chain carrying only the
+    /// record does — otherwise an arc that rotated on an older build would
+    /// replay differently from one that rotated today.
+    #[test]
+    fn a_stage_carrying_both_the_columns_and_the_record_reads_the_same_either_way() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let ledger = seed_arc_lineage(root, "foo");
+        let from_record =
+            replay_lineage(&LedgerSessionsRecorder::new(Arc::clone(&ledger)), "s-implement", root)
+                .expect("a lineage");
+
+        for (id, label, model) in [
+            ("s-devise", "devise", "opus"),
+            ("s-review", "review", "fable"),
+            ("s-implement", "implement", "opus"),
+        ] {
+            ledger
+                .set_stage_provenance(id, label, Some(model))
+                .expect("stage provenance");
+        }
+        let from_columns =
+            replay_lineage(&LedgerSessionsRecorder::new(ledger), "s-implement", root)
+                .expect("a lineage");
+
+        assert_eq!(from_columns, from_record);
     }
 
     #[test]

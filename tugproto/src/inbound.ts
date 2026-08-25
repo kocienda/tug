@@ -161,14 +161,32 @@ export interface AddDirectory {
  * carries no stage, and must stay byte-identical on the wire.
  */
 export interface SessionStageSpec {
-  /** Which stage of the arc this session runs. */
-  name: "devise" | "review" | "implement";
-  /** The document the arc opened on, repo-relative. */
-  document: string;
+  /**
+   * The stage label. `devise` / `review` / `implement` are the arc's three;
+   * any other word is a rotation no score is driving, and the transcript's
+   * divider renders whatever it is given.
+   */
+  name: string;
+  /**
+   * The document the score opened on, repo-relative. Absent on a rotation with
+   * no score behind it, and the divider omits it rather than showing a blank.
+   */
+  document?: string;
   /** The plan the stage drives, once one exists. */
   plan?: string;
-  /** The dash name the arc is keyed by — what the stage's claude reads as `TUG_DASH_ARC`. */
-  arc: string;
+  /**
+   * The dash name the score is keyed by — what the stage's claude reads as
+   * `TUG_DASH_ARC`. **Absent is what clears it**: a rotation carrying no `arc`
+   * spawns claude with no `TUG_DASH_ARC` at all, which is how a scoreless
+   * rotation tells the stage skills that nothing is driving them.
+   */
+  arc?: string;
+  /**
+   * The reasoning effort the fresh session runs at. Applied before the spawn,
+   * so the level rides that one spawn instead of costing a second respawn
+   * through an effort change behind it. Absent leaves the level as it is.
+   */
+  effort?: string;
   /**
    * The inclusive step range a *continued* implement stage walks, spelled
    * `N-M` ([P07]). Present only on a rotation the runner composed from a

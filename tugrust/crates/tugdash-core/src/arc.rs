@@ -13,6 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use tugutil_core::config::DashConfig;
 use tugutil_core::error::TugError;
 use tugutil_core::paths::project_state_dir;
 
@@ -46,6 +47,21 @@ impl ArcStage {
             "implement" => Some(ArcStage::Implement),
             _ => None,
         }
+    }
+}
+
+/// The model the project declared for a stage, or `None` for the account
+/// default — which sends no `model_change` frame at all.
+///
+/// Shared rather than private to the runner because the stage label *is* the
+/// role ([P05]): a `tugutil session rotate --stage review` resolves the model
+/// the same way an arc's review stage does, and a second table would be the
+/// same fact written twice.
+pub fn stage_model(config: &DashConfig, stage: ArcStage) -> Option<String> {
+    match stage {
+        ArcStage::Devise => config.devise_model.clone(),
+        ArcStage::Review => config.review_model.clone(),
+        ArcStage::Implement => config.implement_model.clone(),
     }
 }
 
@@ -255,6 +271,18 @@ mod tests {
     use crate::dash::{DashDeclarations, read_declarations};
     use serial_test::serial;
     use std::fs;
+
+    #[test]
+    fn a_stage_model_comes_from_the_projects_own_declaration() {
+        let mut config = DashConfig::default();
+        assert_eq!(stage_model(&config, ArcStage::Review), None);
+        config.review_model = Some("opus".to_string());
+        assert_eq!(
+            stage_model(&config, ArcStage::Review),
+            Some("opus".to_string())
+        );
+        assert_eq!(stage_model(&config, ArcStage::Devise), None);
+    }
 
     /// A scratch data dir plus the repo root whose dash-log it holds — the same
     /// shape `dash.rs`'s tests use, and `#[serial]` for the same reason: the

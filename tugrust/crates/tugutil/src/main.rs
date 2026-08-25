@@ -9,6 +9,7 @@ mod draft;
 mod host;
 mod output;
 mod plan;
+mod session;
 mod splash;
 
 use std::process::ExitCode;
@@ -111,6 +112,9 @@ fn main() -> ExitCode {
         Some(Commands::Dash(cmd)) => dash::dispatch(cmd, json, quiet),
         Some(Commands::Plan(cmd)) => plan::dispatch(cmd, json),
         Some(Commands::Host(cmd)) => host::dispatch(cmd, json, quiet),
+
+        // The conductor's door: rotate this card at the turn's end.
+        Some(Commands::Session(cmd)) => session::dispatch(cmd, json),
 
         // The app-test results ledger.
         Some(Commands::Apptest(cmd)) => changes::finish(match cmd {
