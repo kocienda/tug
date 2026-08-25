@@ -41,9 +41,21 @@
  *   2. `onContextMenu(event)` — `preventDefault` (suppress the system menu),
  *      restore the step-1 snapshot when there is one (clearing the
  *      smart-select, or handing back a range the user had), sample
- *      `hasSelection` from the live selection
- *      (`adapterRef.current.hasRangedSelection()`), open the menu at the click
- *      point. The selection is otherwise already intact from step 1.
+ *      `hasSelection`, open the menu at the click point. The selection is
+ *      otherwise already intact from step 1.
+ *
+ *      `hasSelection` is **either** source: the adapter
+ *      (`adapterRef.current.hasRangedSelection()`) or the live DOM selection
+ *      scoped to the surface. Neither alone is enough. The adapter is the
+ *      surface's own answer and is the only one for a native input, whose
+ *      selection never reaches `window.getSelection()`; the DOM is the only
+ *      one for a selection THIS CLICK just made, because WebKit smart-selects
+ *      the closest word inside `sendContextMenuEvent` and a surface with its
+ *      own model — CM6 — folds that in from a `selectionchange` its
+ *      DOMObserver flushes later than this menu is built. Asking only the
+ *      adapter dimmed Cut / Copy / Look Up on a bare secondary click: the
+ *      menu opened over a word the user could see selected and offered
+ *      nothing that acts on it.
  *
  *   3. `hasSelection` drives `buildTextEditingMenuItems({ hasSelection, canEdit
  *      })` so Cut / Copy / Paste / Select All enablement is consistent across
@@ -104,7 +116,10 @@ import {
   type TextEditingMenuCapabilities,
 } from "./text-editing-menu";
 import type { TextSelectionAdapter } from "./text-selection-adapter";
-import type { DictionaryLookupRequest } from "@/lib/dictionary-lookup";
+import {
+  dictionaryLookupFor,
+  type DictionaryLookupRequest,
+} from "@/lib/dictionary-lookup";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -218,31 +233,72 @@ interface MenuState {
   lookup: DictionaryLookupRequest | null;
 }
 
+/** The element the surface attached its handler to, for scoping a DOM read. */
+function surfaceOf(event: MouseEvent): Element | null {
+  const current = event.currentTarget;
+  if (current instanceof Element) return current;
+  const target = event.target;
+  return target instanceof Element ? target : null;
+}
+
 /**
- * What the selection would hand the system dictionary: its text, and the
- * point the definition panel anchors to.
+ * The live DOM selection, when it is ranged and lands inside `surface`.
  *
- * The anchor is the bottom-left of the selection's bounding rect, which
- * approximates the baseline origin of its first character — what AppKit's
- * `showDefinition(for:at:)` asks for, so the panel points at the word rather
- * than at wherever the cursor happened to be. A selection with no measurable
- * rect falls back to the click point.
+ * This is what a bare secondary click leaves behind. WebKit smart-selects the
+ * closest word inside `sendContextMenuEvent`, before the event it dispatches
+ * to us, so by the time a handler runs the word is selected in the DOM — but
+ * a surface with its own selection model has not necessarily folded that
+ * change in yet. CM6 learns about it from a `selectionchange` its DOMObserver
+ * flushes on its own schedule, which is after this menu is built. Reading the
+ * DOM is how the menu sees the selection the click just made rather than the
+ * one the surface remembers from before it.
+ *
+ * Scoped to the surface because a selection standing in some other card is
+ * not this menu's to act on.
+ */
+function domSelectionWithin(surface: Element | null): Selection | null {
+  const sel = window.getSelection();
+  if (sel === null || sel.isCollapsed || sel.rangeCount === 0) return null;
+  if (surface === null) return sel;
+  const { anchorNode, focusNode } = sel;
+  const inside =
+    (anchorNode !== null && surface.contains(anchorNode)) ||
+    (focusNode !== null && surface.contains(focusNode));
+  return inside ? sel : null;
+}
+
+/**
+ * What the selection would hand the system dictionary: its text, and where
+ * on the page that text is drawn.
+ *
+ * The adapter is asked first — a CM6 adapter answers from its own document
+ * model, a native input from `selectionStart`/`selectionEnd`, and both are
+ * more authoritative about their own text than the DOM is. `domSelection` is
+ * the fallback for the two cases the adapter cannot answer: a click that just
+ * made the selection (the surface has not folded it in yet), and a surface
+ * with no adapter at all.
+ *
+ * The geometry is always the DOM's, and a native `<input>` or `<textarea>`
+ * has none to give — it keeps its selection out of `window.getSelection()`
+ * entirely — so the click point is the anchor there. `null` means the other
+ * direction: no text to define, which is where the markdown view's CSS-visual
+ * select-all lands.
  */
 function sampleDictionaryLookup(
   adapter: TextSelectionAdapter | null,
+  domSelection: Selection | null,
   event: MouseEvent,
 ): DictionaryLookupRequest | null {
-  const sel = window.getSelection();
+  const fromAdapter = adapter?.getSelectedText() ?? "";
   const text =
-    adapter !== null ? adapter.getSelectedText() : (sel?.toString() ?? "");
+    fromAdapter.trim() !== "" ? fromAdapter : (domSelection?.toString() ?? "");
   if (text.trim() === "") return null;
-  if (sel !== null && sel.rangeCount > 0) {
-    const rect = sel.getRangeAt(0).getBoundingClientRect();
-    if (rect.width > 0 || rect.height > 0) {
-      return { text, x: rect.left, y: rect.bottom };
-    }
-  }
-  return { text, x: event.clientX, y: event.clientY };
+  const fallback = { x: event.clientX, y: event.clientY };
+  const range =
+    domSelection !== null && domSelection.rangeCount > 0
+      ? domSelection.getRangeAt(0)
+      : document.createRange();
+  return dictionaryLookupFor(range, text, fallback);
 }
 
 /**
@@ -339,7 +395,18 @@ export function useTextSurfaceContextMenu(
       const preClick = preClickRangesRef.current;
       preClickRangesRef.current = null;
       if (preClick !== null) restoreSelection(preClick.ranges);
-      let hasSelection = adapterRef?.current?.hasRangedSelection() ?? false;
+      const adapter = adapterRef?.current ?? null;
+      // Read the DOM AFTER any restore above, so what this sees is the
+      // selection the menu is actually about to act on.
+      const domSelection = domSelectionWithin(surfaceOf(event));
+      // Either source counts. The adapter is the surface's own answer and is
+      // right about a selection made before this click; the DOM is right
+      // about one this click just made, which the surface has not folded in
+      // yet. Asking only the adapter is what dimmed Cut / Copy / Look Up on
+      // a bare secondary click over a word — the menu opened over a word the
+      // user could see selected and offered nothing that acts on it.
+      let hasSelection =
+        (adapter?.hasRangedSelection() ?? false) || domSelection !== null;
       if (hasSelectionOverride !== undefined) {
         hasSelection = hasSelectionOverride();
       }
@@ -349,7 +416,7 @@ export function useTextSurfaceContextMenu(
         hasSelection,
         extra: extraEntries?.(event) ?? [],
         hideStandard: hideStandardItems?.(event) ?? false,
-        lookup: sampleDictionaryLookup(adapterRef?.current ?? null, event),
+        lookup: sampleDictionaryLookup(adapter, domSelection, event),
       });
     },
     [adapterRef, hasSelectionOverride, extraEntries, hideStandardItems],

@@ -930,6 +930,45 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         return "data:image/png;base64,\(png.base64EncodedString())"
     }
 
+    /// The font to draw a Look Up in Dictionary callout in: the nearest AppKit
+    /// can get to the font the selection is drawn in on the page.
+    ///
+    /// `families` is a CSS `font-family` list, which names candidates in
+    /// preference order and ends in a generic. Most of Tug's stack is bundled
+    /// with the web layer rather than installed, so `NSFont(name:)` will
+    /// usually miss every entry and the system font at the right SIZE is the
+    /// answer — size is what sets the ascent, and the ascent is what decides
+    /// whether the callout lands on the word. The family walk is what makes an
+    /// installed face (a user's own monospace pick, say) match exactly when it
+    /// is there to be matched.
+    static func definitionFont(
+        families: String,
+        size: Double,
+        bold: Bool,
+        italic: Bool
+    ) -> NSFont {
+        // AppKit's own default when the page reported nothing usable.
+        let points = size > 0 ? CGFloat(size) : NSFont.systemFontSize
+        var base: NSFont?
+        for candidate in families.split(separator: ",") {
+            let name = candidate
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            if name.isEmpty { continue }
+            if let found = NSFont(name: name, size: points) {
+                base = found
+                break
+            }
+        }
+        let font = base ?? NSFont.systemFont(ofSize: points)
+        var traits: NSFontDescriptor.SymbolicTraits = []
+        if bold { traits.insert(.bold) }
+        if italic { traits.insert(.italic) }
+        if traits.isEmpty { return font }
+        let descriptor = font.fontDescriptor.withSymbolicTraits(traits)
+        return NSFont(descriptor: descriptor, size: points) ?? font
+    }
+
     /// Clean up WKScriptMessageHandler registrations to break retain cycle
     func cleanupBridge() {
         guard !bridgeCleaned else { return }
@@ -1384,18 +1423,34 @@ extension MainWindow: WKScriptMessageHandler {
             // Dictionary, Thesaurus, whatever else the user has enabled —
             // exactly as a native text view would.
             //
-            // The point crosses unconverted: a WKWebView's coordinate system
-            // is Y-down from the top-left, which is the space the viewport
-            // rect was measured in. `at:` wants the baseline origin of the
-            // first character, and the web layer sends the selection's
-            // bottom-left for it.
+            // `showDefinition` does not merely place a panel — it redraws the
+            // string as a yellow callout over the word, measured from the
+            // attributed string's own attributes and positioned from `at:`,
+            // which is the BASELINE ORIGIN of the first character. Both halves
+            // have to be right or the callout sits off the word, so the web
+            // layer sends the baseline it measured and the selection's font
+            // travels with it.
+            //
+            // Only the scale changes on the way in. A WKWebView's coordinate
+            // system is Y-down from the top-left — the same space the viewport
+            // rect was measured in — but `pageZoom` stands between CSS px and
+            // view points, so a reader who has pressed ⌘+ still gets the
+            // callout on the word rather than a fraction of the way up it.
             guard let body = message.body as? [String: Any],
                   let text = body["text"] as? String, !text.isEmpty else { return }
+            let zoom = webView.pageZoom
             let anchor = NSPoint(
-                x: (body["x"] as? Double) ?? 0,
-                y: (body["y"] as? Double) ?? 0
+                x: ((body["x"] as? Double) ?? 0) * zoom,
+                y: ((body["y"] as? Double) ?? 0) * zoom
             )
-            webView.showDefinition(for: NSAttributedString(string: text), at: anchor)
+            let font = MainWindow.definitionFont(
+                families: (body["fontFamily"] as? String) ?? "",
+                size: ((body["fontSize"] as? Double) ?? 0) * zoom,
+                bold: (body["bold"] as? Bool) ?? false,
+                italic: (body["italic"] as? Bool) ?? false
+            )
+            let defined = NSAttributedString(string: text, attributes: [.font: font])
+            webView.showDefinition(for: defined, at: anchor)
         case "openPath":
             // `/memory` ([#step-12a]) — hand a memory path to the OS. The web
             // layer sends a `~`-relative or absolute path plus a `kind`; we

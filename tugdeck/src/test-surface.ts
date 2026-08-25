@@ -58,6 +58,10 @@ import {
   type ActivityChannel,
 } from "./lib/session-activity-store";
 import { peekSparklineTape } from "./components/tugways/tug-sparkline";
+import {
+  dictionaryLookupFor,
+  type DictionaryLookupRequest,
+} from "./lib/dictionary-lookup";
 import { textMeasurer, whenFaceLoaded } from "./lib/font-metrics";
 import type { SparklineTapeDebugState } from "./lib/sparkline-tape";
 import { nodeToPath, selectionGuard } from "./components/tugways/selection-guard";
@@ -329,8 +333,31 @@ import {
  * drives the live store and hands back the subscriber-call count, which is the
  * only place those semantics can be asserted against the real object.
  * Additive; major stays `2`.
+ *
+ * `2.13.0`: adds {@link TugTestSurface.dictionaryLookupProbe}. What the
+ * definition panel anchors to is a text baseline derived from the metrics of
+ * the face actually rasterized, so it means nothing outside a real window with
+ * the real fonts loaded. The only other way to see the number is to activate
+ * the menu row, which puts a system panel on the user's screen; the probe reads
+ * the payload without asking AppKit for anything. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.12.0" as const;
+export const SURFACE_VERSION = "2.13.0" as const;
+
+/**
+ * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
+ * in Dictionary would send, and the glyph box it was measured from.
+ *
+ * The two together are the assertion. A baseline is only correct RELATIVE to
+ * the box the text is drawn in — an absolute viewport y says nothing — so the
+ * probe hands back both rather than making the test reconstruct the rect from
+ * a selector and hope it picked the same one.
+ */
+export interface DictionaryLookupProbe {
+  /** The payload the menu item carries and the bridge posts. */
+  request: DictionaryLookupRequest;
+  /** The first line's client rect: the box the baseline was derived from. */
+  rect: { top: number; left: number; width: number; height: number };
+}
 
 /**
  * `sessionStorage` key for the cross-reload generation counter.
@@ -1006,6 +1033,20 @@ export interface TugTestSurface {
    * store rather than through a reconstructed one.
    */
   sparklineTapeState(selector: string): SparklineTapeDebugState | null;
+
+  /**
+   * What Look Up in Dictionary would hand the host for the LIVE selection
+   * (SURFACE_VERSION 2.13.0), beside the glyph box it was measured from, or
+   * `null` when nothing is selected.
+   *
+   * The real sampler over the real selection, in a real window with the real
+   * fonts loaded — which is the only place its answer means anything, since
+   * the whole quantity is a baseline derived from a face's metrics. The
+   * alternative way to see it is to activate the menu row, and that summons a
+   * system panel onto the user's screen; this reads the payload without
+   * asking AppKit for anything.
+   */
+  dictionaryLookupProbe(): DictionaryLookupProbe | null;
 
   /**
    * The advance of `text` in the face `selector`'s element ACTUALLY renders in
@@ -2122,6 +2163,29 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       const container = document.querySelector(selector);
       if (container === null) return null;
       return peekSparklineTape(container)?.debugState() ?? null;
+    },
+
+    dictionaryLookupProbe(): DictionaryLookupProbe | null {
+      const selection = window.getSelection();
+      if (selection === null || selection.rangeCount === 0) return null;
+      const range = selection.getRangeAt(0);
+      const text = selection.toString();
+      if (text.trim() === "") return null;
+      const request = dictionaryLookupFor(range, text);
+      if (request === null) return null;
+      const rects = Array.from(range.getClientRects());
+      const rect =
+        rects.find((r) => r.width > 0 || r.height > 0) ??
+        range.getBoundingClientRect();
+      return {
+        request,
+        rect: {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        },
+      };
     },
 
     async measureFaceAdvance(
