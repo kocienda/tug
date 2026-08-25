@@ -168,7 +168,7 @@ import {
   LOAD_OLDER_PX,
   type OverviewPostEntry,
 } from "@/lib/overview-store";
-import { selectionToTranscriptMarkdown } from "@/lib/markdown/serialize-selection";
+import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
 import { buildSlashCommandLine } from "@/lib/slash-commands";
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import type { CompletionProvider } from "@/lib/tug-text-types";
@@ -748,7 +748,7 @@ function OverviewPostRow({
   // is the transcript's own walk, and the hook writes both clipboard
   // flavors off it ([P03]/[P05] in `transcript-host-helpers.ts`).
   const resolveCopyMarkdown = useCallback<CopyMarkdownResolver>(
-    (bodyEl, selection) => selectionToTranscriptMarkdown(selection, bodyEl),
+    (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
     [],
   );
   const { ResponderScope, cellProps, bodyRef, menu } = useTranscriptCellMenu({

@@ -111,6 +111,7 @@ import {
   type SessionIdentityContext,
 } from "@/lib/session-identity";
 import { sessionPrivateStore } from "@/lib/session-private-store";
+import type { AtomSegment } from "@/lib/tug-atom-img";
 import { cn } from "@/lib/utils";
 
 /** Density tiers this component renders. Row and masthead compose these two. */
@@ -567,6 +568,7 @@ export function TugSessionCitation({
   recordedTag,
   context,
   size = "2xs",
+  atom,
   className,
 }: {
   /**
@@ -583,6 +585,14 @@ export function TugSessionCitation({
   /** Further facts the caller already holds — a row's state or lineage. */
   context?: SessionIdentityContext;
   size?: TugSessionIdentitySize;
+  /**
+   * The atom this citation IS, when it was rendered from one — a session chip
+   * in a transcript row stands at a `U+FFFC` in that row's substrate. Carried
+   * into the DOM as the same three `data-atom-*` attributes every other chip
+   * wears, so a copy that crosses it puts the atom on the clipboard rather than
+   * the title it happened to be drawing.
+   */
+  atom?: AtomSegment;
   className?: string;
 }): React.ReactElement {
   const cited = useCitedSession(citedId);
@@ -621,6 +631,9 @@ export function TugSessionCitation({
           ? () => dispatchCommand("focus-session-card", { cardId })
           : undefined
       }
+      data-atom-type={atom?.type}
+      data-atom-label={atom?.label}
+      data-atom-value={atom?.value}
       className={className}
     />
   );

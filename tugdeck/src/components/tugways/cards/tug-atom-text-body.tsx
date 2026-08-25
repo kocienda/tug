@@ -16,9 +16,10 @@
  * semantics free per HTML spec. The shared helper is the consistency
  * boundary; React vs. imperative DOM is a per-surface choice.
  *
- * The walking substrate ({@link walkAtomText}) is exported separately
- * so pure-logic tests pin the (text, atoms) → segments mapping
- * without needing to mount the component.
+ * The walking substrate ({@link walkAtomText}) lives in `lib/atom-text`
+ * beside the two other readings of the same pair — the copy text and the
+ * clipboard sidecar — so a row, its copy, and a paste of that copy can
+ * never disagree about what the substrate holds.
  *
  * Laws:
  *  - [L06] all chip appearance flows from the baked data URI + per-image
@@ -42,6 +43,7 @@ import {
   atomHeightFor,
   type AtomSegment,
 } from "@/lib/tug-atom-img";
+import { walkAtomText } from "@/lib/atom-text";
 import { TugAtomChip } from "@/lib/tug-atom-chip";
 import { TugSessionCitation } from "@/components/tugways/tug-session-identity";
 import {
@@ -57,66 +59,6 @@ import {
 import { ANNOTATION_CLASS } from "@/lib/annotator/types";
 import type { AtomPathRoots } from "@/lib/atom-file-path";
 import type { TurnAddress } from "../tug-transcript-entry";
-
-// ---------------------------------------------------------------------------
-// Walking substrate — exported for pure-logic tests
-// ---------------------------------------------------------------------------
-
-/**
- * One segment in the walked output of {@link walkAtomText}: either a
- * run of plain text, an atom occurrence (paired with its entry from
- * the parallel `atoms` array), or a `stray-ffc` — a `U+FFFC` that had
- * no matching atom in `atoms`.
- *
- * The `stray-ffc` case is the defensive branch matching
- * `buildWirePayload`'s invariant ([Spec S03]): when the atoms array
- * is shorter than the count of `U+FFFC` characters in the text, the
- * surplus is rendered as a visible character rather than crashing.
- */
-export type AtomTextSegment =
-  | { kind: "text"; text: string }
-  | { kind: "atom"; atom: AtomSegment }
-  | { kind: "stray-ffc" };
-
-/**
- * Walk `text`, splitting at `U+FFFC` characters. For each `U+FFFC`
- * the parallel-indexed entry in `atoms` becomes an `atom` segment;
- * any `U+FFFC` past the end of `atoms` becomes a `stray-ffc` segment.
- *
- * Pure — no React, no DOM, no theme reads. Stable for same inputs.
- */
-export function walkAtomText(
-  text: string,
-  atoms: ReadonlyArray<AtomSegment>,
-): AtomTextSegment[] {
-  const segments: AtomTextSegment[] = [];
-  let buf = "";
-  let atomIndex = 0;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === TUG_ATOM_CHAR) {
-      if (buf.length > 0) {
-        segments.push({ kind: "text", text: buf });
-        buf = "";
-      }
-      const atom = atoms[atomIndex];
-      if (atom === undefined) {
-        segments.push({ kind: "stray-ffc" });
-      } else {
-        segments.push({ kind: "atom", atom });
-      }
-      atomIndex++;
-    } else {
-      buf += ch;
-    }
-  }
-  if (buf.length > 0) {
-    segments.push({ kind: "text", text: buf });
-  }
-
-  return segments;
-}
 
 // ---------------------------------------------------------------------------
 // Chip-label decoration — pure, exported for tests
@@ -236,6 +178,7 @@ export const TugAtomTextBody = React.forwardRef<
               context={{
                 recordedProject: sessionAtomProject(seg.atom.value),
               }}
+              atom={seg.atom}
             />
           );
         }
@@ -279,54 +222,3 @@ export const TugAtomTextBody = React.forwardRef<
     </span>
   );
 });
-
-// ---------------------------------------------------------------------------
-// Copy-text formatter
-// ---------------------------------------------------------------------------
-
-/**
- * Format an atom-bearing substrate as plain text suitable for the
- * clipboard. Walks the same `(text, atoms)` pair the renderer walks,
- * substituting each atom occurrence with either a CommonMark inline
- * link `[label](value)` (when `value` is a meaningful URL distinct
- * from the label — e.g., an `@`-completed workspace path) or just
- * the bare label (when `value === label`, meaning the substrate has
- * no extra info to encode — e.g., a dropped file, since browsers
- * don't expose absolute paths for drag-and-drop files for security).
- *
- * A stray `U+FFFC` (atom missing or wrong-shape in the parallel
- * array) is passed through verbatim — visible regression rather
- * than a silent drop, mirroring `buildWirePayload`'s defensive
- * posture ([Spec S03]).
- *
- * The transcript user-row's COPY button reads this output so the
- * copied text carries an honest representation of each atom —
- * pasting into a markdown surface renders `@`-completion atoms as
- * proper links; dropped-file atoms paste as bare filenames since
- * there is no path to represent.
- */
-export function formatAtomTextForCopy(
-  text: string,
-  atoms: ReadonlyArray<AtomSegment>,
-): string {
-  const segments = walkAtomText(text, atoms);
-  let out = "";
-  for (const seg of segments) {
-    if (seg.kind === "text") {
-      out += seg.text;
-    } else if (seg.kind === "stray-ffc") {
-      out += TUG_ATOM_CHAR;
-    } else if (seg.atom.value === seg.atom.label) {
-      // No extra info to encode — drop the markdown-link wrapping
-      // and emit the bare label. Avoids the redundant
-      // `[raphael.jpeg](raphael.jpeg)` shape for browser-dropped
-      // files where `f.name` is all the platform exposes.
-      out += seg.atom.label;
-    } else {
-      // Use angle brackets so spaces, parens, and other non-URL-safe
-      // chars in the path don't break CommonMark's link parsing.
-      out += `[${seg.atom.label}](<${seg.atom.value}>)`;
-    }
-  }
-  return out;
-}

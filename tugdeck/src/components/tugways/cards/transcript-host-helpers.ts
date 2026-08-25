@@ -32,7 +32,13 @@ import {
   hasNativeClipboardBridge,
   writeClipboardViaNative,
 } from "@/lib/tug-native-clipboard";
-import { withClipboardOrigins } from "@/components/tugways/tug-text-editor/clipboard-filters";
+import {
+  TUG_ATOMS_MIME,
+  withClipboardOrigins,
+  type TugAtomsClipboardPayload,
+} from "@/components/tugways/tug-text-editor/clipboard-filters";
+import { atomTextClipboardPayload, formatAtomTextForCopy } from "@/lib/atom-text";
+import type { SelectionSubstrate } from "@/lib/markdown/serialize-selection";
 import { dispatchCommand } from "@/command-dispatch";
 import { revealDirectoryInFinder, revealPathInFinder } from "@/lib/os-open";
 import { openAttachmentPreview } from "@/lib/attachment-preview-open";
@@ -284,16 +290,21 @@ interface TranscriptCellProps {
 }
 
 /**
- * Resolve a live selection within the cell body to markdown. Returns
- * `null` when nothing copyable was touched (the hook then falls back to
- * plain text as a last-resort guard). The assistant cell supplies a
- * resolver that reconstructs markdown across the row's blocks ([P03]);
- * the user cell omits it and copies plain text.
+ * Resolve a live selection within the cell body to the `(text, atoms)`
+ * substrate: markdown for the prose, a `U+FFFC` for each chip it crossed, and
+ * the atoms behind them. Returns `null` when nothing copyable was touched (the
+ * hook then falls back to plain text as a last-resort guard).
+ *
+ * The substrate rather than a string because a copy owes two answers — the
+ * readable text for anywhere else, and the sidecar that rebuilds the chips on
+ * the way back into Tug — and they have to come from one reading of the
+ * selection. Every cell whose body can hold a chip supplies one; a cell of
+ * literal ink (shell, refs) omits it and copies its selection verbatim.
  */
 export type CopyMarkdownResolver = (
   bodyEl: HTMLElement,
   selection: Selection,
-) => string | null;
+) => SelectionSubstrate | null;
 
 /**
  * Write a copied selection to the clipboard in both flavors ([P05]):
@@ -308,13 +319,14 @@ function writeCopyClipboard(
   plain: string,
   html: string | null,
   origin: string | null,
+  atoms: TugAtomsClipboardPayload | null,
 ): void {
   // Inside Tug.app the native bridge is the only write that can carry the
   // sidecar — WebKit's pasteboard normalization swallows custom types, which
-  // is the whole reason the bridge exists — so a copy with provenance goes
-  // that way, carrying its html flavor along rather than losing it.
-  if (origin !== null && hasNativeClipboardBridge()) {
-    const sidecar = withClipboardOrigins(null, plain, origin);
+  // is the whole reason the bridge exists — so a copy with atoms or provenance
+  // goes that way, carrying its html flavor along rather than losing it.
+  if (hasNativeClipboardBridge()) {
+    const sidecar = withClipboardOrigins(atoms, plain, origin);
     if (
       sidecar !== null &&
       writeClipboardViaNative(plain, JSON.stringify(sidecar), html ?? undefined)
@@ -440,6 +452,7 @@ export function useTranscriptCellMenu({
   const reconstructCopy = useCallback((): {
     text: string;
     html: string | null;
+    sidecar: TugAtomsClipboardPayload | null;
   } | null => {
     const sel = window.getSelection();
     if (sel === null || sel.rangeCount === 0 || sel.isCollapsed) return null;
@@ -449,10 +462,15 @@ export function useTranscriptCellMenu({
     // resolver (the user row).
     const body = bodyRef.current;
     const resolve = resolveCopyRef.current;
+    let substrate: SelectionSubstrate | null = null;
     let text: string | null = null;
     if (body !== null && resolve !== undefined) {
       try {
-        text = resolve(body, sel);
+        substrate = resolve(body, sel);
+        text =
+          substrate === null
+            ? null
+            : formatAtomTextForCopy(substrate.text, substrate.atoms);
       } catch (err) {
         tugDevLogStore.warn(
           "session-card-transcript",
@@ -493,7 +511,14 @@ export function useTranscriptCellMenu({
     }
     if (text === null) text = sel.toString();
     if (text === "") return null;
-    return { text, html };
+    // The chips the selection crossed, as the sidecar a paste back into Tug
+    // rebuilds them from. Null when the selection crossed none — then this is
+    // ordinary prose and only its provenance is worth carrying.
+    const sidecar =
+      substrate === null
+        ? null
+        : atomTextClipboardPayload(substrate.text, substrate.atoms);
+    return { text, html, sidecar };
   }, []);
 
   const handleCopy = useCallback((): ActionHandlerResult => {
@@ -503,6 +528,7 @@ export function useTranscriptCellMenu({
       copy.text,
       copy.html,
       clipboardOriginFor(bodyRef.current),
+      copy.sidecar,
     );
   }, [reconstructCopy]);
 
@@ -547,10 +573,9 @@ export function useTranscriptCellMenu({
       // is handed to the native bridge, which owns every flavor including the
       // `text/html` this event would otherwise have written.
       const origin = clipboardOriginFor(body);
-      if (origin !== null && hasNativeClipboardBridge()) {
-        const sidecar = withClipboardOrigins(null, copy.text, origin);
+      const sidecar = withClipboardOrigins(copy.sidecar, copy.text, origin);
+      if (sidecar !== null && hasNativeClipboardBridge()) {
         if (
-          sidecar !== null &&
           writeClipboardViaNative(
             copy.text,
             JSON.stringify(sidecar),
@@ -563,6 +588,12 @@ export function useTranscriptCellMenu({
       }
       data.setData("text/plain", copy.text);
       if (copy.html !== null) data.setData("text/html", copy.html);
+      // Browser-mode: no native bridge, but the event's own custom type is
+      // readable by the editor's paste handler, so the chips survive a copy
+      // outside Tug.app too rather than the fidelity depending on the host.
+      if (sidecar !== null) {
+        data.setData(TUG_ATOMS_MIME, JSON.stringify(sidecar));
+      }
       event.preventDefault();
     },
     [reconstructCopy],
@@ -603,6 +634,7 @@ export function useTranscriptCellMenu({
       "`" + cmd + "`",
       `<code>${escapeHtml(cmd)}</code>`,
       clipboardOriginFor(bodyRef.current),
+      null,
     );
   }, []);
 
@@ -611,7 +643,7 @@ export function useTranscriptCellMenu({
   const handleCopyCommandPlain = useCallback((): ActionHandlerResult => {
     const cmd = sampledAnnotationValue(contextAnnotationRef.current);
     if (cmd === null) return;
-    writeCopyClipboard(cmd, null, clipboardOriginFor(bodyRef.current));
+    writeCopyClipboard(cmd, null, clipboardOriginFor(bodyRef.current), null);
   }, []);
 
   // Copy the right-clicked annotation's canonical value as bare text — the
@@ -620,7 +652,7 @@ export function useTranscriptCellMenu({
   const handleCopyAnnotationValue = useCallback((): ActionHandlerResult => {
     const value = sampledAnnotationValue(contextAnnotationRef.current);
     if (value === null) return;
-    writeCopyClipboard(value, null, clipboardOriginFor(bodyRef.current));
+    writeCopyClipboard(value, null, clipboardOriginFor(bodyRef.current), null);
   }, []);
 
   // Send the right-clicked annotation back into the conversation. Brings

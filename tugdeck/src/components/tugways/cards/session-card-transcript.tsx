@@ -116,7 +116,7 @@ import {
   useFootHeightReservation,
   codeSessionDialogPresence,
 } from "@/components/tugways/cards/session-card-transcript-foot-reservation";
-import { formatAtomTextForCopy } from "@/components/tugways/cards/tug-atom-text-body";
+import { copyAtomTextFrom, formatAtomTextForCopy } from "@/lib/atom-text";
 import { TugAtomMarkdownBody } from "@/components/tugways/cards/tug-atom-markdown-body";
 import { SessionContextAttachments } from "@/components/tugways/cards/session-context-attachments";
 import { splitLeadingContext } from "@/lib/pending-context-store";
@@ -165,7 +165,7 @@ import {
   toolCallToMarkdown,
   turnEntryToMarkdown,
 } from "@/components/tugways/cards/turn-entry-markdown";
-import { selectionToTranscriptMarkdown } from "@/lib/markdown/serialize-selection";
+import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { AnnotationScope } from "@/components/tugways/annotation-scope";
 import { annotationFromEvent } from "@/lib/annotator/annotation-element";
@@ -422,8 +422,34 @@ const UserMessageCell = React.memo(function UserMessageCell({
     ? formatTranscriptTimestamp(submitAt)
     : undefined;
   const hasBody = text.length > 0;
+  // The user row's body is a markdown render with the prompt's chips grafted
+  // back in, so its selection is a substrate like any other — the same
+  // resolver the assistant row uses. Without it the fallback is
+  // `Selection.toString()`, which reads a chip's drawn label as prose and
+  // hands back a string no paste can turn into a chip again: the same
+  // selection copying one way from the row's COPY and another from ⌘C.
+  const resolveCopyMarkdown = React.useCallback<CopyMarkdownResolver>(
+    (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
+    [],
+  );
   const { ResponderScope, cellProps, bodyRef, menu } =
-    useTranscriptCellMenu({ codeSessionStore });
+    useTranscriptCellMenu({ resolveCopyMarkdown, codeSessionStore });
+  // The COPY chip's write. `copyText` is what an external app gets; a paste
+  // back into Tug gets the substrate itself — text with its U+FFFC positions
+  // and the atoms that stand there, image bytes included — so the chips
+  // re-materialize as chips rather than arriving as the words they were
+  // flattened into.
+  const copyBody = React.useCallback(
+    () =>
+      copyAtomTextFrom(
+        bodyRef.current,
+        text,
+        atoms,
+        copyText,
+        (id) => bytesStore.get(id),
+      ),
+    [bodyRef, text, atoms, copyText, bytesStore],
+  );
   // Z1 — invoke the per-turn trailing renderer for this row half.
   // `row.turnKey` is set by the data source on every row (committed
   // and in-flight); the user row carries no `turn` payload while
@@ -494,6 +520,7 @@ const UserMessageCell = React.memo(function UserMessageCell({
                     participant="user"
                     turn={row.turn}
                     bodyText={hasBody ? copyText : undefined}
+                    bodyCopy={copyBody}
                   />
                   {hasTrailing ? trailing : null}
                 </>
@@ -1610,7 +1637,7 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
   // hook live-refs it so COPY always runs the latest one without
   // destabilizing the handler identity.
   const resolveCopyMarkdown = useCallback<CopyMarkdownResolver>(
-    (bodyEl, selection) => selectionToTranscriptMarkdown(selection, bodyEl),
+    (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
     [],
   );
   const { ResponderScope, cellProps, bodyRef, menu } =

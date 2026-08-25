@@ -343,6 +343,7 @@ export const TugAtomMarkdownBody = React.forwardRef<
               context={{
                 recordedProject: sessionAtomProject(atom.value),
               }}
+              atom={atom}
             />
           ) : (
             <TugAtomChip

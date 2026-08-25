@@ -62,6 +62,8 @@
  * The aria-label varies by participant ("Copy response" vs "Copy
  * message"); both share the same labelled `BlockCopyButton`
  * affordance so the COPY chip reads identically on both halves.
+ * `bodyCopy`, when supplied, takes the write itself — the user half
+ * copies an atom substrate, whose chips ride a clipboard sidecar.
  *
  * Conformance:
  *  - [L02] no external-state reads — the component is a pure
@@ -163,6 +165,16 @@ export interface SessionZ1BProps {
    * committed rows.
    */
   bodyText?: string | (() => string);
+  /**
+   * Copy path that supersedes the plain-text write, for a body that is more
+   * than text. The user half is an atom substrate: its chips ride a clipboard
+   * sidecar so a paste back into Tug re-materializes them, which a `writeText`
+   * of the flattened string cannot do. Resolves `true` on a confirmed write.
+   *
+   * {@link bodyText} is still required — it gates the affordance's presence
+   * and is the readable text this path writes on `.string`.
+   */
+  bodyCopy?: () => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +217,7 @@ export const SessionZ1B: React.FC<SessionZ1BProps> = ({
   perTurnTokens,
   agentTokens,
   bodyText,
+  bodyCopy,
 }) => {
   const isUserHalf = participant === "user";
   const isShellHalf = participant === "shell";
@@ -275,6 +288,7 @@ export const SessionZ1B: React.FC<SessionZ1BProps> = ({
             <BlockCopyButton
               data-slot="session-z1b-copy"
               getText={getBodyTextForCopy}
+              copyAction={bodyCopy}
               aria-label={copyAriaLabel}
               // One step up from the affordance default (`2xs`) so
               // COPY's 11px font + 12px icon read at the same scale

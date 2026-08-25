@@ -47,7 +47,10 @@ import {
   type CopyMarkdownResolver,
   useTranscriptCellMenu,
 } from "@/components/tugways/cards/transcript-host-helpers";
-import { selectionToTranscriptMarkdown } from "@/lib/markdown/serialize-selection";
+import {
+  selectionToTranscriptMarkdown,
+  selectionToTranscriptSubstrate,
+} from "@/lib/markdown/serialize-selection";
 
 const TURN_KEY = "fixture";
 const TOOL_USE_ID = "tu-fixture-1";
@@ -147,7 +150,7 @@ export function FixtureTranscriptCopy(): React.ReactElement {
   );
 
   const resolveCopyMarkdown = React.useCallback<CopyMarkdownResolver>(
-    (bodyEl, selection) => selectionToTranscriptMarkdown(selection, bodyEl),
+    (bodyEl, selection) => selectionToTranscriptSubstrate(selection, bodyEl),
     [],
   );
 

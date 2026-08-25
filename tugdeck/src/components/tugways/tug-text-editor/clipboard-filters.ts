@@ -60,6 +60,7 @@ import {
   writeClipboardViaNative,
 } from "@/lib/tug-native-clipboard";
 import { clipboardOriginFor } from "@/lib/clipboard-origin";
+import { chipDisplayLabel } from "@/lib/command-atom";
 
 // ---------------------------------------------------------------------------
 // Wire format
@@ -224,12 +225,14 @@ export function serializeClipboard(
 
   let fallback = text;
   if (local.length > 0) {
-    // Replace each U+FFFC with the corresponding atom's label, walking
+    // Replace each U+FFFC with the corresponding atom's displayed label —
+    // the chip's own text, so a slash command keeps the leading `/` it is
+    // drawn with — walking
     // back-to-front so earlier replacements don't shift later positions.
     const sorted = [...local].sort((a, b) => b.position - a.position);
     for (const a of sorted) {
       fallback = fallback.slice(0, a.position)
-        + a.segment.label
+        + chipDisplayLabel(a.segment.type, a.segment.label, a.segment.value)
         + fallback.slice(a.position + 1);
     }
   }

@@ -16,9 +16,16 @@
  * an unstyled run → plain. Markers aren't text, so the rendered result
  * equals the selection exactly.
  *
- * Because only text nodes produce output, structural/empty nodes the
- * selection merely grazed — a bare `<hr>`, an empty heading clone at a
- * boundary — contribute nothing: overshoot is impossible by construction.
+ * Because only text nodes and atom chips produce output, structural/empty
+ * nodes the selection merely grazed — a bare `<hr>`, an empty heading clone at
+ * a boundary — contribute nothing: overshoot is impossible by construction.
+ *
+ * **Atoms are characters, not text.** A chip is one indivisible thing the user
+ * put there, so a selection that crosses one yields a `U+FFFC` and the atom
+ * beside it — the same `(text, atoms)` substrate the prompt that submitted it
+ * carried. That is why this returns a substrate rather than a string: the
+ * readable text and the clipboard sidecar that rebuilds the chips are two
+ * readings of it, and a copy owes both.
  *
  * Math comes from KaTeX's embedded TeX annotation (`$tex$` / `$$tex$$`),
  * emitted once per `.katex` (skipping its duplicated MathML/visual text);
@@ -28,6 +35,9 @@
  *
  * @module lib/markdown/serialize-selection
  */
+
+import { formatAtomTextForCopy } from "@/lib/atom-text";
+import { TUG_ATOM_CHAR, type AtomSegment } from "@/lib/tug-atom-img";
 
 interface Marks {
   bold?: boolean;
@@ -52,8 +62,23 @@ interface Run {
   text: string;
   block: BlockInfo;
   marks: Marks;
-  /** Pre-formatted (KaTeX TeX) — emitted verbatim, no inline marks. */
+  /** Pre-formatted (KaTeX TeX, an atom's U+FFFC) — verbatim, no inline marks. */
   raw: boolean;
+  /**
+   * The atom this run stands for, when the run is a chip's `U+FFFC` rather
+   * than text. What makes the selection a substrate instead of a string.
+   */
+  atom?: AtomSegment;
+}
+
+/**
+ * The selection as the `(text, atoms)` substrate every atom-bearing surface
+ * speaks: markdown with a `U+FFFC` where each chip stood, and the atoms that
+ * stand there, in document order.
+ */
+export interface SelectionSubstrate {
+  text: string;
+  atoms: AtomSegment[];
 }
 
 const BLOCK_TAGS = new Set([
@@ -73,6 +98,34 @@ const BLOCK_TAGS = new Set([
 
 function isBlockBoundary(el: Element): boolean {
   return BLOCK_TAGS.has(el.tagName) || el.classList.contains("tugx-md-block");
+}
+
+/**
+ * The atom a chip element stands for, or `null` when the element is not one.
+ *
+ * Every chip — the transcript's `<svg>`, the editor's `<img>`, a session
+ * citation — carries its identity in the same three `data-atom-*` attributes,
+ * which is what lets one serializer read every surface's chips without knowing
+ * which component drew them.
+ */
+function atomOf(el: Element): AtomSegment | null {
+  const type = el.getAttribute("data-atom-type");
+  const label = el.getAttribute("data-atom-label");
+  const value = el.getAttribute("data-atom-value");
+  if (type === null || label === null || value === null) return null;
+  return { kind: "atom", type, label, value };
+}
+
+/** The chip element at or above `node`, or `null` when there is none. */
+function closestAtomChip(node: Node): Element | null {
+  let el = node.nodeType === Node.ELEMENT_NODE
+    ? (node as Element)
+    : node.parentElement;
+  while (el !== null) {
+    if (el.hasAttribute("data-atom-type")) return el;
+    el = el.parentElement;
+  }
+  return null;
 }
 
 function closestKatex(node: Node): Element | null {
@@ -170,13 +223,52 @@ function collectRuns(range: Range): Run[] {
 
   const doc = root.ownerDocument;
   if (doc === null) return [];
-  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  // A selection that landed entirely INSIDE one chip — its drawn label is text,
+  // so WebKit will let a drag select part of it. The chip is indivisible: the
+  // whole atom is what was selected.
+  const inChip = closestAtomChip(root);
+  if (inChip !== null) {
+    const atom = atomOf(inChip);
+    return atom === null
+      ? []
+      : [{ text: TUG_ATOM_CHAR, block: blockInfoOf(inChip), marks: {}, raw: true, atom }];
+  }
+  // Elements as well as text: a chip is an element with no text of its own to
+  // walk (the editor's `<img>`), or with text that is its own drawn label and
+  // must not be copied as prose (the transcript's `<svg>`).
+  const walker = doc.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+  );
   const runs: Run[] = [];
   const seenKatex = new Set<Element>();
+  const seenAtoms = new Set<Element>();
 
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as Element;
+      const atom = atomOf(el);
+      if (atom === null) continue;
+      if (seenAtoms.has(el) || !range.intersectsNode(el)) continue;
+      seenAtoms.add(el);
+      // The chip is one character in the substrate — the same U+FFFC the
+      // prompt that submitted it carried — with the atom recorded beside it.
+      runs.push({
+        text: TUG_ATOM_CHAR,
+        block: blockInfoOf(el),
+        marks: {},
+        raw: true,
+        atom,
+      });
+      continue;
+    }
     const textNode = node as Text;
     if (!range.intersectsNode(textNode)) continue;
+
+    // Text INSIDE a chip is the chip's own drawn label (its `<text>`, its
+    // `<title>`, a citation's title) — already accounted for by the atom run
+    // above, and never prose.
+    if (closestAtomChip(textNode) !== null) continue;
 
     // KaTeX: emit the TeX once for the whole `.katex`, skip its text.
     const katex = closestKatex(textNode);
@@ -245,30 +337,46 @@ function emitBlock(kind: string, level: number, inQuote: boolean, body: string):
 }
 
 /**
- * Reconstruct markdown for the current selection. Returns `null` only when
- * the selection is empty. `bodyEl` is unused today (the runs come from the
- * range); kept for call-site stability and future per-cell scoping.
+ * Reconstruct the current selection as the `(text, atoms)` substrate: markdown
+ * for the prose, a `U+FFFC` for each chip it crossed, and the atoms those
+ * chips stand for. Returns `null` when the selection is empty or produced
+ * nothing. `bodyEl` is unused today (the runs come from the range); kept for
+ * call-site stability and future per-cell scoping.
+ *
+ * The substrate rather than a string, because a copy has two readings to give
+ * and they are the same substrate: the readable text an external app pastes
+ * ({@link formatAtomTextForCopy}) and the sidecar that rebuilds the chips on
+ * the way back into Tug.
  */
-export function selectionToTranscriptMarkdown(
+export function selectionToTranscriptSubstrate(
   selection: Selection,
   _bodyEl: HTMLElement,
-): string | null {
+): SelectionSubstrate | null {
   if (selection.rangeCount === 0 || selection.isCollapsed) return null;
   const runs = collectRuns(selection.getRangeAt(0));
   if (runs.length === 0) return null;
 
   // Group consecutive runs by their block element.
   const out: string[] = [];
+  const atoms: AtomSegment[] = [];
   let curEl: Element | null = null;
   let curKind = "p";
   let curLevel = 0;
   let curQuote = false;
   let body = "";
+  // The atoms of the block being built, held back until the block is emitted:
+  // a block that trims away to nothing takes its chips with it, so the atoms
+  // stay paired with the U+FFFC characters that actually survived.
+  let bodyAtoms: AtomSegment[] = [];
   const flush = (): void => {
     if (curEl === null) return;
     const block = emitBlock(curKind, curLevel, curQuote, body);
-    if (block.trim() !== "") out.push(block);
+    if (block.trim() !== "") {
+      out.push(block);
+      atoms.push(...bodyAtoms);
+    }
     body = "";
+    bodyAtoms = [];
   };
   for (const run of runs) {
     if (run.block.el !== curEl) {
@@ -279,9 +387,24 @@ export function selectionToTranscriptMarkdown(
       curQuote = run.block.inQuote;
     }
     body += run.raw ? run.text : applyMarks(run.text, run.marks);
+    if (run.atom !== undefined) bodyAtoms.push(run.atom);
   }
   flush();
 
   const md = out.join("\n\n").trim();
-  return md.length > 0 ? md : null;
+  return md.length > 0 ? { text: md, atoms } : null;
+}
+
+/**
+ * The selection as readable markdown — the substrate above, flattened, with
+ * each chip written the way it is drawn. The `text/plain` flavor.
+ */
+export function selectionToTranscriptMarkdown(
+  selection: Selection,
+  bodyEl: HTMLElement,
+): string | null {
+  const substrate = selectionToTranscriptSubstrate(selection, bodyEl);
+  if (substrate === null) return null;
+  const text = formatAtomTextForCopy(substrate.text, substrate.atoms);
+  return text.length > 0 ? text : null;
 }

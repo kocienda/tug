@@ -162,6 +162,13 @@ export const TugAtomChip = React.forwardRef<SVGSVGElement, TugAtomChipProps>(
         style={{ verticalAlign: `${geom.baselineOffset}px` }}
         data-slot={dataSlot}
         data-testid={dataTestid}
+        // The atom's identity, in the same three attributes the editor's
+        // `<img>` chips carry. A copy that crosses this chip reads them to put
+        // the atom on the clipboard, so a paste back into Tug gets the chip
+        // rather than the label it drew ([L06] — attributes, not state).
+        data-atom-type={type}
+        data-atom-label={label}
+        data-atom-value={value}
         aria-label={displayLabel}
         role="img"
       >
