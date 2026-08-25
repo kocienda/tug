@@ -52,6 +52,40 @@ An arc is a dash's **score**: a schedule of rotations that carries one dash from
 
 What a rotation is, what it cannot change, and when it is allowed to happen live in [conductor.md](conductor.md).
 
+## Interruptions
+
+**Every interruption to a running arc leaves the dash in a state that is both sayable and resumable, and the user is told which one.** Sayable means the record says what happened in a word the receipt can explain; resumable means there is a gesture that picks the work back up. An arc that quietly stopped advancing is the silent early return [L31] exists to forbid.
+
+Two things hold across every row, so they are said once rather than per row. **The resume is `tugutil dash run <name>`**, and it lands at the end of the turn that asks for it: the verb runs from inside the asking session's own turn, and rotating on receipt would kill the claude that asked. And **a stop hands the card back on the deck's own model** — the last selector the user picked, never the one the last stage ran on — through the one path every stopper shares.
+
+| Interruption | What the arc does | What the user sees | How the work resumes |
+|---|---|---|---|
+| Cancel during **devise** | stops as `card taken`; the half-written plan is never judged on `lint` | `arc stopped · <dash> · in devise — you took the card back` | `tugutil dash run <name>` re-rotates devise — `a_cancelled_devise_or_review_turn_stops_the_arc_as_card_taken` |
+| Cancel during **review** | stops as `card taken`; the cancelled round does not burn against the review cap | `arc stopped · <dash> · in review — you took the card back` | `tugutil dash run <name>` re-rotates review — `a_cancelled_devise_or_review_turn_stops_the_arc_as_card_taken` |
+| Cancel during **implement** | nothing — the stage sits and the next turn decides | nothing; the card is yours to redirect and the stage is still on it | type the redirect into the same stage — `a_cancelled_implement_turn_sits` |
+| A machine **wedge recovery** mid-stage | nothing — tugcode marks its own cancel `is_recovery`, and the stage it recovered is alive and working | nothing | the stage carries on — `only_an_unmarked_cancel_reads_as_the_user_taking_the_card_back` |
+| A **fresh session** on the card (`/new`, a reset, a rewind fork) | stops as `card taken` **at the card's next spawn**, not at the gesture: a reset parks the entry `Idle`, and a card parked `Idle` is indistinguishable from one whose tugcast just restarted | `arc stopped · <dash> · in <stage> — you took the card back`, at the next prompt | `tugutil dash run <name>` — `a_session_no_rotation_seated_is_a_card_taken_back` |
+| A **model switch** mid-stage | records `model → <selector> in <stage>` and carries on; the transcript's stage divider is not rewritten | the note in `tugutil dash arc` and on the Lens row | nothing to resume — `a_model_switch_on_a_scored_card_lands_in_the_dash_log` |
+| A second **`/dash`** naming another dash | nothing — the bind is refused, and the running score is untouched | `card runs <dash> — stop it before binding <other>` | stop the first arc, then bind — `a_card_running_a_score_refuses_a_bind_to_another_dash` |
+| **`dash discard`** | the seated stage is retired at its turn's end; **no dash-log line is written**, because the discard's own terminal line already closed the arc's generation | `arc discarded · <dash> · the stage's turn will end and the card returns to <model>` | nothing to resume: the dash is gone — `an_ending_writes_no_arc_line_after_the_terminal_one` |
+| **`dash join`** | the same retirement, worded as the join it was | `arc joined · <dash> · the stage's turn will end and the card returns to <model>` | nothing to resume: the work landed — `a_joined_dash_says_joined_and_a_discarded_one_says_discarded` |
+| **`tugutil dash stop <name>`** | stops as `stopped by user` and hands the card back | `arc stopped · <dash> · in <stage> — you stopped it` | `tugutil dash run <name>` — `a_user_stop_writes_the_record_the_receipt_and_the_hand_back` |
+| **Closing the card** | records `card closed` before the row goes closed, while the binding still names the dash | nothing on the card, because there is no card; the record, `tugutil dash arc`, and the Lens all say it | `tugutil dash run <name>` from any card — `closing_a_card_seated_by_a_stage_stops_its_arc` |
+| **`dash unbind`** on a scored card | the same act with the same reason: `card closed` | as above | `tugutil dash run <name>` — `unbinding_a_scored_card_stops_the_arc_as_card_closed` |
+| A **tugcast relaunch** mid-stage | waits; the startup rebind seeds the recorded claude id, so the stage reads as current and nothing stops | nothing | the arc picks up on the card's first idle after it spawns — `a_card_that_has_not_spawned_since_startup_is_a_wait_not_a_stop` |
+| A **pending rotation** lost to a relaunch | the promise is dropped on purpose; a restart ended the turn it was a promise about | nothing | the next tick decides afresh; the rule is in [conductor.md](conductor.md) — `a_card_that_has_not_spawned_since_startup_is_a_wait_not_a_stop` |
+| A **side question** inside a stage (`/btw`, an `AskUserQuestion`) | nothing at all: the documents are untouched, so the predicate sees no edge | nothing beyond the question itself | the stage carries on — no test of its own; every "no document changed" predicate test asserts it |
+
+The side-question row is the **only** one whose middle cell is not a receipt, and that is what the row is for: nothing happens, and the table says so rather than leaving a reader to wonder whether it was forgotten.
+
+### What a stop can say
+
+The vocabulary is closed, and the compiler enforces it: `ArcStopReason` in `tugdash-core/src/arc.rs` carries every reason an arc can stop for, `append_arc_stop` takes it, and the receipt formatter matches it exhaustively with no fallback arm. A reason the receipt cannot explain is a reason the arc must not write.
+
+`lint` · `api error` · `review did not stamp` · `document missing` · `plan missing` · `session gone` · `card taken` · `card closed` · `stopped by user` · `discarded` · `joined` · `prompt unavailable` · `session idle` · `session errored` · `session closed` · `spawn queue full` · `no stdin` · `stdin closed` · `arc running`
+
+The last seven are the conductor's own refusals, mapped through `Refusal::stop_reason`. `discarded` and `joined` exist for their sentence alone — nothing writes them to the dash-log, because the ending's own terminal line has already closed the arc's generation.
+
 ## Binding
 
 A **bind** mates a live session to a dash. It is a UI concept: git has no idea it happened.
@@ -59,7 +93,7 @@ A **bind** mates a live session to a dash. It is a UI concept: git has no idea i
 - It lives in the per-instance `sessions.db` and is read back **live-sessions-only** (`bound_sessions_for`). That is exactly why a dash whose cards have all closed reads as *unbound* — unbound is not a stage, it is the absence of workers.
 - It is **per-card**. A session has at most one dash, which is why `unbind_dash`'s whole payload is the session id.
 - It **mints**: `bind_dash` naming a dash that does not exist succeeds anyway. Every sender therefore builds its frame from a snapshot row rather than from user text; the one place that accepts a typed name (`/dash-bind <name>`) matches the snapshot first and routes an unknown name to `dash create` through the shell, where the receipt says what was made.
-- Two cards on one dash is **legal**, not a race: `bound_sessions` is a list and the Lens renders one jump chip per bound session. A bind displaces only *this* card's previous binding.
+- Two cards on one dash is **legal**, not a race: `bound_sessions` is a list and the Lens renders one jump chip per bound session. A bind displaces only *this* card's previous binding — **unless that binding is a live score**, in which case the bind is refused by name. A card runs at most one arc, and a bind that displaced one left its record reading live forever with no stop and no receipt. See [Interruptions](#interruptions).
 - A bind is **never a join authority**. It says who is working; it does not say who may join.
 - The store moves on the **broadcast**, never on the gesture: `bind_dash_ok` / `unbind_dash_ok` are the only movers of `cardSessionBindingStore`, which is what leaves a card correctly bound to what it was when a bind is refused.
 
@@ -146,7 +180,7 @@ An operation is spelled the same everywhere, and that spelling is its `tugutil` 
 
 ## See also
 
-- [conductor.md](conductor.md) — what a rotation is, and the other meaning of *stage*.
+- [conductor.md](conductor.md) — what a rotation is, when it may happen, and the other meaning of *stage*. The [Interruptions](#interruptions) table above is what happens when something gets in one's way.
 - [dash-work-doctrine.md](dash-work-doctrine.md) — how an agent behaves on a dash worktree.
 - [tracking-changes.md](tracking-changes.md) — the capture and commit layer beneath a dash, and the landing doctrine.
 - [D112] (scope axiom), [D113], [D116] (the landing workflow), [D138] (derive vs declare), [D139] (one plan home).

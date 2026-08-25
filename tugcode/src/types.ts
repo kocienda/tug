@@ -319,6 +319,16 @@ export interface TurnCancelled {
   msg_id: string;
   seq: number;
   partial_result: string;
+  /**
+   * The cancel was tugcode recovering a wedged claude rather than the user
+   * cancelling; absent otherwise. Both reach the same emit sites through one
+   * `ActiveTurn.interrupted` flag, so without this the two are
+   * indistinguishable on the wire — and a consumer that reads every cancel as
+   * the user taking their card back would act on a session that is still
+   * alive and still working. An older frame carries no field and reads as a
+   * user cancel, which is what every frame before this was.
+   */
+  is_recovery?: boolean;
   ipc_version: number;
 }
 

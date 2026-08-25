@@ -691,6 +691,20 @@ pub enum DashCommands {
         #[arg(long)]
         project: Option<std::path::PathBuf>,
     },
+    /// Stop the arc, keep the dash.
+    ///
+    /// Deliberately not a `pause`: a stopped arc is already resumable with
+    /// `tugutil dash run <name>`, so a second word for the same record would
+    /// be a lie about the record. Before this verb existed the only way to
+    /// reach a stopped-and-resumable arc was to make something fail.
+    Stop {
+        /// Dash name.
+        name: String,
+        /// Project directory (default: cwd). Travels as your own spelling —
+        /// the server canonicalizes it ([L29]).
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
+    },
     /// Drop the calling session's dash binding.
     Unbind {
         /// Project directory (default: cwd).
@@ -916,5 +930,32 @@ mod tests {
         // overlapping flag names, missing subcommand attrs, malformed
         // arg derives.
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn dash_stop_takes_a_name_and_an_optional_project() {
+        let cli = Cli::parse_from([
+            "tugutil",
+            "dash",
+            "stop",
+            "interruption",
+            "--project",
+            "/tmp/p",
+        ]);
+        match cli.command {
+            Some(Commands::Dash(DashCommands::Stop { name, project })) => {
+                assert_eq!(name, "interruption");
+                assert_eq!(project.as_deref(), Some(std::path::Path::new("/tmp/p")));
+            }
+            _ => panic!("dash stop did not parse"),
+        }
+
+        let cli = Cli::parse_from(["tugutil", "dash", "stop", "interruption"]);
+        match cli.command {
+            Some(Commands::Dash(DashCommands::Stop { project, .. })) => {
+                assert!(project.is_none(), "--project defaults to the cwd")
+            }
+            _ => panic!("dash stop did not parse"),
+        }
     }
 }

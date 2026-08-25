@@ -2702,6 +2702,17 @@ export class ActiveTurn {
   /** True if `handleInterrupt` was invoked while this turn was active. */
   interrupted: boolean = false;
   /**
+   * Why the turn was interrupted, claimed first-writer-wins.
+   *
+   * `handleInterrupt` claims `"user"`; the result-liveness watchdog's
+   * force-terminate claims `"recovery"` only when nothing has claimed it yet.
+   * That ordering is what keeps the cancel-escalation ladder the user's: an
+   * interrupt claude never acknowledged still escalates through
+   * `forceTerminateAndRespawn`, but the gesture that started it was the
+   * user's and the frame says so. `null` while the turn is running.
+   */
+  interruptCause: "user" | "recovery" | null = null;
+  /**
    * True if the interrupt was a retraction (`interrupt{retract:true}` —
    * the client's CASE A pull-down). When the turn closes, the manager's
    * close hook truncates the session JSONL at this turn's
@@ -3967,6 +3978,10 @@ export class SessionManager {
       // observes the kill's EOF.
       if (this.activeTurn !== null) {
         this.activeTurn.interrupted = true;
+        // Claimed only if nothing has: reaching here from the interrupt
+        // ladder means the user cancelled and tugcode merely had to press
+        // harder, and the cause stays theirs.
+        this.activeTurn.interruptCause ??= "recovery";
       }
 
       await this.killAndCleanup({ escalate: true });
@@ -6914,6 +6929,7 @@ export class SessionManager {
         partial_result: turn.partialText.length > 0
           ? turn.partialText
           : "User interrupted",
+        ...(turn.interruptCause === "recovery" ? { is_recovery: true } : {}),
         ipc_version: 2,
       });
     }
@@ -6959,6 +6975,7 @@ export class SessionManager {
           msg_id: turn.currentMessageId ?? turn.openerId,
           seq: turn.seq,
           partial_result: turn.partialText || "User interrupted",
+          ...(turn.interruptCause === "recovery" ? { is_recovery: true } : {}),
           ipc_version: 2,
         });
       }
@@ -7208,6 +7225,9 @@ export class SessionManager {
     );
     if (this.activeTurn !== null) {
       this.activeTurn.interrupted = true;
+      // The user is the originating gesture, so it claims the cause. An
+      // escalation to forceTerminateAndRespawn will not overwrite this.
+      this.activeTurn.interruptCause ??= "user";
       if (retract) this.activeTurn.retractRequested = true;
     }
     const stdin = this.claudeProcess.stdin;

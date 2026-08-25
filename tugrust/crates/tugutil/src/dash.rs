@@ -96,6 +96,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         } => run_arc_run(&name, document.as_deref(), project, json, quiet),
         DashCommands::Arc { name, project } => run_arc_report(&name, project, json, quiet),
         DashCommands::Bind { name, project } => run_bind(&name, project, json, quiet),
+        DashCommands::Stop { name, project } => run_arc_stop(&name, project, json, quiet),
         DashCommands::Unbind { project } => run_unbind(project, json, quiet),
     };
 
@@ -270,7 +271,7 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
         && data.conflicts.is_empty()
         && let Some((repo, owner_key)) = captured
     {
-        broadcast_dash_gone(&repo, &owner_key);
+        broadcast_dash_gone(&repo, &owner_key, DashGone::Joined);
     }
     if json {
         print_ok("dash join", &data);
@@ -402,7 +403,7 @@ fn run_join_resolve(
     if landed.conflicts.is_empty()
         && let Some((repo, owner_key)) = captured
     {
-        broadcast_dash_gone(&repo, &owner_key);
+        broadcast_dash_gone(&repo, &owner_key, DashGone::Joined);
     }
 
     if json {
@@ -434,7 +435,7 @@ fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result
     let captured = capture_owner_key(name);
     let data = ops::discard(name, Some("cli"), break_lease)?;
     if let Some((repo, owner_key)) = captured {
-        broadcast_dash_gone(&repo, &owner_key);
+        broadcast_dash_gone(&repo, &owner_key, DashGone::Discarded);
     }
     if json {
         print_ok("dash discard", &data);
@@ -1197,6 +1198,39 @@ fn run_bind(
     Ok(())
 }
 
+/// Stop the arc running on this card, and keep the dash.
+///
+/// It runs from a terminal, so it reaches the card through the server: the
+/// stop hands the card back, leaves the receipt every other stop leaves, and
+/// records `arc-stop <stage> stopped by user`. `tugutil dash run <name>`
+/// afterwards resumes through the ordinary `arc-resume` path.
+fn run_arc_stop(
+    name: &str,
+    project: Option<std::path::PathBuf>,
+    json: bool,
+    quiet: bool,
+) -> Result<(), String> {
+    let session = calling_session_id("dash stop")?;
+    let project = binding_project(project)?;
+    let response = post_dash_api(serde_json::json!({
+        "op": "arc_stop",
+        "tug_session_id": session,
+        "project_dir": project.to_string_lossy(),
+        "dash": name,
+    }))?;
+    let stage = response
+        .get("stage")
+        .and_then(|s| s.as_str())
+        .unwrap_or("its stage");
+    if json {
+        print_ok("dash stop", response);
+    } else if !quiet {
+        println!("Stopped the arc on '{name}' in {stage}");
+        println!("Resume with tugutil dash run {name}");
+    }
+    Ok(())
+}
+
 /// Say that the calling session is working this dash.
 ///
 /// **The verbs that start or resume work on a dash call this** — `create` and
@@ -1240,6 +1274,41 @@ fn run_unbind(project: Option<std::path::PathBuf>, json: bool, quiet: bool) -> R
     Ok(())
 }
 
+/// Which gesture ended a dash.
+///
+/// `dash_gone` is the teardown of *any* ending — a discard and both join paths
+/// broadcast it — so the server is told which one happened and the card can
+/// say the truth rather than the discard's story about a join.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DashGone {
+    Discarded,
+    Joined,
+}
+
+impl DashGone {
+    fn as_str(&self) -> &'static str {
+        match self {
+            DashGone::Discarded => "discarded",
+            DashGone::Joined => "joined",
+        }
+    }
+}
+
+/// The `dash_gone` request body, as one value the broadcast sends to every
+/// live instance.
+fn dash_gone_body(
+    project: &std::path::Path,
+    dash_id: &str,
+    reason: DashGone,
+) -> serde_json::Value {
+    serde_json::json!({
+        "op": "dash_gone",
+        "project_dir": project.to_string_lossy(),
+        "dash_id": dash_id,
+        "reason": reason.as_str(),
+    })
+}
+
 /// Tell every live instance that a dash is gone, so its bindings and its
 /// authored draft are swept ([P05]).
 ///
@@ -1247,16 +1316,20 @@ fn run_unbind(project: Option<std::path::PathBuf>, json: bool, quiet: bool) -> R
 /// listening. Broadcast rather than try-until-owned — any instance may hold
 /// bindings to the dead dash.
 ///
+/// `reason` is the gesture that ended the dash. A typed one rather than a
+/// word, because there is exactly one way to get this wrong — naming the other
+/// gesture — and a `&str` would let a call site spell it.
+/// This is the teardown of *any* ending, not the discard's alone, and a card
+/// whose stage was seated on the dash is told which one happened. A card that
+/// said "arc discarded" when the user had just joined their work would be
+/// worse than the silence it replaces.
+///
 /// `dash_id` is the owner key the caller captured **before** the landing.
 /// `git branch -D` takes the branch's config with it, so a key resolved after
 /// the verb returns is the legacy form and matches none of the id-keyed rows
 /// this sweep exists to remove ([L23], Risk R02).
-fn broadcast_dash_gone(project: &std::path::Path, dash_id: &str) {
-    let body = serde_json::json!({
-        "op": "dash_gone",
-        "project_dir": project.to_string_lossy(),
-        "dash_id": dash_id,
-    });
+fn broadcast_dash_gone(project: &std::path::Path, dash_id: &str, reason: DashGone) {
+    let body = dash_gone_body(project, dash_id, reason);
     let live = tugcore::registry::list_live().unwrap_or_default();
     if live.is_empty() {
         // Nothing is running, so nothing holds a binding to sweep — not a
@@ -1742,6 +1815,66 @@ mod tests {
                 "{key} must be reported as null, not absent"
             );
         }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn an_arc_stopped_by_a_closing_card_resumes_from_a_fresh_one() {
+        // The accidental resume, made the designed one: a card that closed
+        // mid-stage leaves `arc-stop … card closed`, and the ordinary resume
+        // path picks the arc back up from wherever the user asks next.
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let repo = tempfile::tempdir().unwrap();
+        let root = repo.path();
+        tugdash_core::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::append_arc_stage(
+            root,
+            "demo",
+            tugdash_core::ArcStage::Review,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugdash_core::arc::append_arc_stop(
+            root,
+            "demo",
+            tugdash_core::ArcStage::Review,
+            tugdash_core::arc::ArcStopReason::CardClosed,
+        )
+        .unwrap();
+
+        let (opened, resumed, arc) = open_arc(root, "demo", None).expect("resume");
+        assert!(!opened, "the arc is the same one, not a second");
+        assert!(resumed, "and it resumes rather than reporting nothing to do");
+        assert_eq!(arc.stopped, None, "the resume clears the stop");
+        assert_eq!(
+            arc.resume,
+            Some(tugdash_core::ArcStage::Review),
+            "and names the stage to rotate again",
+        );
+    }
+
+    #[test]
+    fn an_endings_broadcast_names_the_gesture_that_ended_the_dash() {
+        let discard = dash_gone_body(
+            std::path::Path::new("/p"),
+            "tugdash/demo#1",
+            DashGone::Discarded,
+        );
+        assert_eq!(discard["op"], "dash_gone");
+        assert_eq!(discard["reason"], "discarded");
+        assert_eq!(discard["dash_id"], "tugdash/demo#1");
+
+        let join = dash_gone_body(
+            std::path::Path::new("/p"),
+            "tugdash/demo#1",
+            DashGone::Joined,
+        );
+        assert_eq!(join["reason"], "joined");
     }
 
     #[test]

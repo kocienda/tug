@@ -25,7 +25,7 @@
 //! [F04]). A stage announces nothing and is believed about nothing; it either
 //! moved the documents or it did not.
 
-use tugdash_core::arc::{ArcRecord, ArcStage};
+use tugdash_core::arc::{ArcRecord, ArcStage, ArcStopReason};
 use tugutil_core::plan::ReviewState;
 
 /// How many review rounds an arc runs before it proceeds anyway ([P06]).
@@ -93,6 +93,23 @@ pub struct ArcFacts {
     /// rather than a response. The stage did not run, so nothing its
     /// documents say is its answer; the arc stops and says why.
     pub stage_api_error: bool,
+    /// The stage's most recent turn was cancelled by the user — they took the
+    /// card back mid-stage.
+    ///
+    /// A devise or review stage stops on this: the turn *is* the product
+    /// there, and a cancelled one leaves no document to be judged on, so
+    /// rotating onward would judge a half-written plan and stopping on `lint`
+    /// would blame the plan for the user's gesture. An **implement** stage is
+    /// exempt: its progress lives in the Step Status Ledger rather than in the
+    /// turn, a cancelled turn leaves that ledger exactly as it was, and a
+    /// cancel there almost always means "let me redirect you" — which the user
+    /// types into the same stage. Stopping would hand the card back and cost a
+    /// rotation to say what the user was about to say anyway.
+    ///
+    /// A *machine* wedge recovery is not a taking and never sets this: tugcode
+    /// marks its own cancels `is_recovery`, and the stage it recovered is
+    /// still alive and still working.
+    pub stage_turn_cancelled: bool,
     /// The claude session running on the bound card is the one the newest
     /// `arc-stage` line names.
     ///
@@ -102,6 +119,16 @@ pub struct ArcFacts {
     /// earlier one ([P11]). `true` when the arc has rotated nothing yet, so
     /// the opening rotation is decided by the documents.
     pub stage_session_current: bool,
+    /// The claude session running on the bound card carries a `stage_label`.
+    ///
+    /// Only a rotation writes one — `set_stage_provenance` is called from one
+    /// place, on the `session_init` that follows a rotation's announcement — so
+    /// this is the durable, unambiguous answer to "did the conductor seat
+    /// this session?". It is keyed on the *outcome* rather than on any one
+    /// door, because the deck reaches a fresh session through several: a
+    /// `/new` reset, a rewind fork, a re-spawn onto a picked session.
+    /// `true` when the arc has rotated nothing yet.
+    pub stage_seated: bool,
     /// The used fraction of the stage session's context window, from the
     /// latest recorded `context_breakdown`. `None` when nothing has been
     /// recorded — a missing measurement is not a reason to guess ([P07]).
@@ -161,7 +188,10 @@ pub enum ArcAction {
     Done,
     /// The arc cannot continue, and says which stage it was in and why
     /// ([P11], [L31]).
-    Stop { stage: ArcStage, reason: String },
+    Stop {
+        stage: ArcStage,
+        reason: ArcStopReason,
+    },
 }
 
 /// Decide the arc's next act, or `None` when it should sit still.
@@ -182,7 +212,7 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     if !facts.session_live {
         return Some(ArcAction::Stop {
             stage: stage.unwrap_or(ArcStage::Devise),
-            reason: "session gone".to_string(),
+            reason: ArcStopReason::SessionGone,
         });
     }
 
@@ -206,12 +236,30 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         }));
     }
 
-    // A recorded stage that is not the one running is a stage that died —
-    // a restart, or a crash that never sent a turn end. Re-rotate that stage,
-    // never an earlier one ([P11]); the runner's in-flight guard is what keeps
-    // the window between a dispatch and its `arc-stage` line from reading as
-    // this ([R01]).
+    // A recorded stage that is not the one running is one of two things, and
+    // `stage_seated` is what tells them apart.
+    //
+    // **Seated** — the session carries a `stage_label`, so a rotation put it
+    // there: the stage died, or tugcast restarted. Re-rotate that stage, never
+    // an earlier one ([P11]); the runner's in-flight guard is what keeps the
+    // window between a dispatch and its `arc-stage` line from reading as this
+    // ([R01]).
+    //
+    // **Not seated** — nothing the conductor did produced this session, so the
+    // user reached a fresh one on the card: a `/new`, a reset, a rewind fork.
+    // Rotating the stage back onto the card they just cleared is the taking
+    // going unnoticed; the arc stops and says so.
+    //
+    // A relaunch never reaches the stop: the startup rebind seeds
+    // `claude_session_id` from the ledger row, so `stage_session_current` is
+    // true and this arm is not consulted at all.
     if let Some(stage) = stage {
+        if !facts.stage_session_current && !facts.stage_seated {
+            return Some(ArcAction::Stop {
+                stage,
+                reason: ArcStopReason::CardTaken,
+            });
+        }
         if !facts.stage_session_current {
             return Some(ArcAction::Rotate(Rotation {
                 stage,
@@ -235,7 +283,24 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         if facts.stage_api_error {
             return Some(ArcAction::Stop {
                 stage,
-                reason: "api error".to_string(),
+                reason: ArcStopReason::ApiError,
+            });
+        }
+    }
+    // The user cancelled the stage's turn — they took the card back. Devise
+    // and review stop, because the turn was the product; implement sits,
+    // because its progress is in the ledger and the cancel is nearly always a
+    // redirect the user is about to type into the same stage.
+    //
+    // Below the API-error arm on purpose: a turn that ended in a 529 is a
+    // machine failure with its own reason, not a taking. Below the never-run
+    // guard for a simpler reason — a session that has ended no turn cannot
+    // have cancelled one.
+    if let Some(stage) = stage {
+        if facts.stage_turn_cancelled && stage != ArcStage::Implement {
+            return Some(ArcAction::Stop {
+                stage,
+                reason: ArcStopReason::CardTaken,
             });
         }
     }
@@ -252,7 +317,7 @@ fn start_action(facts: &ArcFacts) -> ArcAction {
     if !facts.document_exists {
         return ArcAction::Stop {
             stage: ArcStage::Devise,
-            reason: "document missing".to_string(),
+            reason: ArcStopReason::DocumentMissing,
         };
     }
     // A document that already lints as a plan takes the arc straight to review
@@ -273,7 +338,7 @@ fn devise_action(facts: &ArcFacts) -> ArcAction {
         // waiting another tick would only wait forever.
         ArcAction::Stop {
             stage: ArcStage::Devise,
-            reason: "lint".to_string(),
+            reason: ArcStopReason::Lint,
         }
     }
 }
@@ -282,7 +347,7 @@ fn review_action(record: &ArcRecord, facts: &ArcFacts) -> ArcAction {
     if facts.plan_path.is_none() {
         return ArcAction::Stop {
             stage: ArcStage::Review,
-            reason: "plan missing".to_string(),
+            reason: ArcStopReason::PlanMissing,
         };
     }
     if facts.review == Some(ReviewState::Reviewed) {
@@ -299,7 +364,7 @@ fn review_action(record: &ArcRecord, facts: &ArcFacts) -> ArcAction {
         // dash-implement's stale gate, which asks a question no arc can answer.
         ArcAction::Stop {
             stage: ArcStage::Review,
-            reason: "review did not stamp".to_string(),
+            reason: ArcStopReason::ReviewDidNotStamp,
         }
     }
 }
@@ -368,6 +433,8 @@ mod tests {
             session_idle: true,
             stage_turn_ended: true,
             stage_api_error: false,
+            stage_turn_cancelled: false,
+            stage_seated: true,
             stage_session_current: true,
             context_fraction: None,
             rotate_at: 0.6,
@@ -403,7 +470,7 @@ mod tests {
             arc_action(&record(&[]), &facts),
             Some(ArcAction::Stop {
                 stage: ArcStage::Devise,
-                reason: "document missing".to_string(),
+                reason: ArcStopReason::DocumentMissing,
             })
         );
     }
@@ -442,7 +509,7 @@ mod tests {
             arc_action(&record(&[ArcStage::Devise]), &facts),
             Some(ArcAction::Stop {
                 stage: ArcStage::Devise,
-                reason: "lint".to_string(),
+                reason: ArcStopReason::Lint,
             })
         );
     }
@@ -455,7 +522,7 @@ mod tests {
             arc_action(&record(&[ArcStage::Devise]), &facts),
             Some(ArcAction::Stop {
                 stage: ArcStage::Devise,
-                reason: "lint".to_string(),
+                reason: ArcStopReason::Lint,
             })
         );
     }
@@ -485,9 +552,205 @@ mod tests {
             arc_action(&record, &facts),
             Some(ArcAction::Stop {
                 stage: ArcStage::Review,
-                reason: "review did not stamp".to_string(),
+                reason: ArcStopReason::ReviewDidNotStamp,
             })
         );
+    }
+
+    /// One case per predicate-visible row of `tuglaws/dash-lifecycle.md`'s
+    /// Interruptions table, so the doctrine and the machine cannot drift.
+    ///
+    /// The rows this cannot reach are the ones no predicate decides: a bind
+    /// refusal happens at the door, an ending and a close are written by the
+    /// gesture, and a model switch changes nothing the predicate reads. Each
+    /// of those has its own test named in its row.
+    #[test]
+    fn every_user_side_row_of_the_interruptions_table_has_an_arm() {
+        // Cancel during devise, and during review: the card is taken back.
+        for stage in [ArcStage::Devise, ArcStage::Review] {
+            let mut facts = facts();
+            facts.stage_turn_cancelled = true;
+            assert_eq!(
+                arc_action(&record(&[stage]), &facts),
+                Some(ArcAction::Stop {
+                    stage,
+                    reason: ArcStopReason::CardTaken,
+                }),
+                "cancel during {stage:?}",
+            );
+        }
+
+        // Cancel during implement: the stage sits.
+        let mut cancelled_implement = facts();
+        cancelled_implement.stage_turn_cancelled = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Implement]), &cancelled_implement),
+            None,
+            "cancel during implement",
+        );
+
+        // A machine wedge recovery: the fact is never set, so nothing decides.
+        let recovery = facts();
+        assert!(
+            !recovery.stage_turn_cancelled,
+            "a recovery leaves the cancel fact false",
+        );
+        assert_ne!(
+            arc_action(&record(&[ArcStage::Review]), &recovery),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Review,
+                reason: ArcStopReason::CardTaken,
+            }),
+            "a wedge recovery is not a taking",
+        );
+
+        // A fresh session nothing seated: the card was taken back.
+        let mut fresh = facts();
+        fresh.stage_session_current = false;
+        fresh.stage_seated = false;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Review]), &fresh),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Review,
+                reason: ArcStopReason::CardTaken,
+            }),
+            "a fresh session on the card",
+        );
+
+        // A tugcast relaunch: the rebind seeds the recorded id, so the stage
+        // reads as current and the arc waits rather than stopping.
+        let relaunch = facts();
+        assert!(relaunch.stage_session_current);
+        assert!(
+            !matches!(
+                arc_action(&record(&[ArcStage::Review]), &relaunch),
+                Some(ArcAction::Stop { .. })
+            ),
+            "a relaunch is a wait, not a stop",
+        );
+
+        // A resume picks the stopped stage back up, at the asking turn's end.
+        let mut stopped = record(&[ArcStage::Review]);
+        stopped.stopped = Some((ArcStage::Review, "card closed".to_string()));
+        assert_eq!(
+            arc_action(&stopped, &facts()),
+            None,
+            "a stopped arc is not advanced by a tick",
+        );
+        let mut resuming = record(&[ArcStage::Review]);
+        resuming.resume = Some(ArcStage::Review);
+        assert_eq!(
+            rotation(arc_action(&resuming, &facts())).stage,
+            ArcStage::Review,
+            "and a resume rotates the stage it stopped in",
+        );
+        let mut mid_turn = facts();
+        mid_turn.session_idle = false;
+        assert_eq!(
+            arc_action(&resuming, &mid_turn),
+            None,
+            "which lands at the end of the turn that asked for it",
+        );
+
+        // A side question changes no document, so nothing decides. The stage
+        // has ended no turn since, which is the shape of "still working".
+        let mut mid_stage = facts();
+        mid_stage.stage_turn_ended = false;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Review]), &mid_stage),
+            None,
+            "a side question inside a stage",
+        );
+    }
+
+    #[test]
+    fn a_session_no_rotation_seated_is_a_card_taken_back() {
+        // A `/new`, a reset, a rewind fork: whatever the door, the session on
+        // the card carries no stage label, so the conductor did not put it
+        // there and the arc must not rotate its stage back onto it.
+        for stage in [ArcStage::Devise, ArcStage::Review, ArcStage::Implement] {
+            let mut facts = facts();
+            facts.stage_session_current = false;
+            facts.stage_seated = false;
+            assert_eq!(
+                arc_action(&record(&[stage]), &facts),
+                Some(ArcAction::Stop {
+                    stage,
+                    reason: ArcStopReason::CardTaken,
+                }),
+                "{stage:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_seated_stage_the_record_does_not_name_is_rotated_again() {
+        // The restart case, unchanged: a rotation seated this session, so the
+        // stage died rather than being taken, and it rotates again.
+        let mut facts = facts();
+        facts.stage_session_current = false;
+        facts.stage_seated = true;
+        facts.ledger.first_pending = Some(3);
+        facts.ledger.run_through = Some(7);
+
+        let review = rotation(arc_action(&record(&[ArcStage::Review]), &facts));
+        assert_eq!(review.stage, ArcStage::Review);
+        assert_eq!(review.steps, None);
+
+        let implement = rotation(arc_action(&record(&[ArcStage::Implement]), &facts));
+        assert_eq!(implement.stage, ArcStage::Implement);
+        assert_eq!(implement.steps, Some((3, 7)));
+    }
+
+    #[test]
+    fn a_cancelled_devise_or_review_turn_stops_the_arc_as_card_taken() {
+        for stage in [ArcStage::Devise, ArcStage::Review] {
+            let mut facts = facts();
+            facts.stage_turn_cancelled = true;
+            // A cancelled devise turn leaves a half-written plan that does not
+            // lint. The stop must name the taking, never blame the plan.
+            facts.lint_ok = false;
+            assert_eq!(
+                arc_action(&record(&[stage]), &facts),
+                Some(ArcAction::Stop {
+                    stage,
+                    reason: ArcStopReason::CardTaken,
+                }),
+                "{stage:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cancelled_implement_turn_sits() {
+        // The ledger is where an implement stage's progress lives, and a
+        // cancelled turn left it exactly as it was.
+        let mut facts = facts();
+        facts.stage_turn_cancelled = true;
+        facts.ledger.step_just_done = false;
+        assert_eq!(arc_action(&record(&[ArcStage::Implement]), &facts), None);
+    }
+
+    #[test]
+    fn an_api_error_outranks_a_cancel() {
+        let mut facts = facts();
+        facts.stage_api_error = true;
+        facts.stage_turn_cancelled = true;
+        assert_eq!(
+            arc_action(&record(&[ArcStage::Review]), &facts),
+            Some(ArcAction::Stop {
+                stage: ArcStage::Review,
+                reason: ArcStopReason::ApiError,
+            })
+        );
+    }
+
+    #[test]
+    fn a_cancel_before_the_stage_has_ended_a_turn_decides_nothing() {
+        let mut facts = facts();
+        facts.stage_turn_ended = false;
+        facts.stage_turn_cancelled = true;
+        assert_eq!(arc_action(&record(&[ArcStage::Devise]), &facts), None);
     }
 
     #[test]
@@ -499,7 +762,7 @@ mod tests {
                 arc_action(&record(&[stage]), &facts),
                 Some(ArcAction::Stop {
                     stage,
-                    reason: "api error".to_string(),
+                    reason: ArcStopReason::ApiError,
                 }),
                 "{stage:?}"
             );
@@ -523,7 +786,7 @@ mod tests {
             arc_action(&record(&[ArcStage::Review]), &facts),
             Some(ArcAction::Stop {
                 stage: ArcStage::Review,
-                reason: "plan missing".to_string(),
+                reason: ArcStopReason::PlanMissing,
             })
         );
     }
@@ -616,7 +879,7 @@ mod tests {
             arc_action(&record(&[ArcStage::Review]), &facts),
             Some(ArcAction::Stop {
                 stage: ArcStage::Review,
-                reason: "session gone".to_string(),
+                reason: ArcStopReason::SessionGone,
             })
         );
     }

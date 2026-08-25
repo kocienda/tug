@@ -1933,24 +1933,30 @@ async fn main() {
     // base-motion takes, on a sibling channel because an mpsc has one consumer
     // ([P05]); the aggregate changeset watch is the slower floor, for a stage
     // that died without ever ending a turn.
+    // The conductor: perform the rotations `POST /api/session` parked, on the
+    // same idle transition, on a third sibling channel ([P04]). A request is
+    // always parked and never performed at request time — a rotation mid-turn
+    // kills the claude that asked for it.
+    //
+    // Built before the arc engine because the engine holds it: every stopper
+    // goes through one path, and an ending arms a hand-back on these
+    // registries rather than sending one.
+    let conductor_state = Arc::new(conductor::ConductorState::default());
+    feed_router.conductor = Some(Arc::clone(&conductor_state));
+
     let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
     let _ = supervisor.arc_tick_tx.set(arc_tick_tx);
     tokio::spawn(feeds::dash_arc_runner::run_arc_engine(
         feeds::dash_arc_runner::ArcContext {
             supervisor: Arc::clone(&supervisor),
             session_ledger: Arc::clone(&ledger),
+            conductor: Arc::clone(&conductor_state),
             cancel: cancel.clone(),
         },
         arc_tick_rx,
         changeset_all_rx.clone(),
     ));
 
-    // The conductor: perform the rotations `POST /api/session` parked, on the
-    // same idle transition, on a third sibling channel ([P04]). A request is
-    // always parked and never performed at request time — a rotation mid-turn
-    // kills the claude that asked for it.
-    let conductor_state = Arc::new(conductor::ConductorState::default());
-    feed_router.conductor = Some(Arc::clone(&conductor_state));
     let (conductor_tick_tx, conductor_tick_rx) = mpsc::channel::<String>(64);
     let _ = supervisor.conductor_tick_tx.set(conductor_tick_tx);
     tokio::spawn(conductor::run_conductor(

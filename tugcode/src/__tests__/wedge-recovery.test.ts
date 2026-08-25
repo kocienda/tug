@@ -377,6 +377,76 @@ describe("forceTerminateAndRespawn", () => {
     expect(emitted.some((e) => e.type === "resume_failed")).toBe(false);
   });
 
+  test("marks its cancel as a recovery, and a user's cancel is left unmarked", async () => {
+    // Both paths set one flag — `ActiveTurn.interrupted` — and reach the same
+    // emit site, so the frame is the only place the cause can be carried. A
+    // consumer that read every cancel as the user taking their card back would
+    // act on a session this recovery leaves alive and working.
+    const recovery = makeManager();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (recovery.manager as any).claudeProcess = mockClaudeChild().child;
+    const wedged = new ActiveTurn(0, []);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (recovery.manager as any).activeTurn = wedged;
+    const { emitted: afterRecovery } = await captureIpc(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (recovery.manager as any).forceTerminateAndRespawn("result_timeout");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (recovery.manager as any).activeTurn = wedged;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (recovery.manager as any).signalEofToActiveTurn();
+    });
+    expect(wedged.interruptCause).toBe("recovery");
+    const recoveryCancel = afterRecovery.find((e) => e.type === "turn_cancelled");
+    expect(recoveryCancel).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((recoveryCancel as any).is_recovery).toBe(true);
+
+    const user = makeManager();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (user.manager as any).claudeProcess = mockClaudeChild().child;
+    const cancelled = new ActiveTurn(0, []);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (user.manager as any).activeTurn = cancelled;
+    const { emitted: afterUser } = await captureIpc(async () => {
+      user.manager.handleInterrupt();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (user.manager as any).signalEofToActiveTurn();
+    });
+    expect(cancelled.interruptCause).toBe("user");
+    const userCancel = afterUser.find((e) => e.type === "turn_cancelled");
+    expect(userCancel).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((userCancel as any).is_recovery).toBeUndefined();
+  });
+
+  test("an interrupt claude never acked stays the user's cancel through the escalation", async () => {
+    // `interrupt_unacked` reaches the same force-terminate, but the gesture
+    // that started it was the user's — tugcode only had to press harder.
+    const { manager } = makeManager();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (manager as any).claudeProcess = mockClaudeChild().child;
+    const turn = new ActiveTurn(0, []);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (manager as any).activeTurn = turn;
+
+    const { emitted } = await captureIpc(async () => {
+      manager.handleInterrupt();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (manager as any).forceTerminateAndRespawn("interrupt_unacked");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).activeTurn = turn;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (manager as any).signalEofToActiveTurn();
+    });
+
+    expect(turn.interruptCause).toBe("user");
+    const cancel = emitted.find((e) => e.type === "turn_cancelled");
+    expect(cancel).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((cancel as any).is_recovery).toBeUndefined();
+  });
+
   test("is idempotent — a second call while in progress is a no-op", async () => {
     const { manager, spawns } = makeManager();
     const handle = mockClaudeChild();

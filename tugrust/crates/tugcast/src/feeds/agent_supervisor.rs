@@ -375,6 +375,16 @@ pub struct LedgerEntry {
     /// `is_api_error`) — the stage did not run. Overwritten at every turn end,
     /// reset when a `session_init` names a different claude session.
     pub turn_api_error: bool,
+    /// The most recent turn was cancelled **by the user** (`turn_cancelled`
+    /// with no `is_recovery` marker). Overwritten at every turn end, reset
+    /// when a `session_init` names a different claude session.
+    ///
+    /// A user cancel only, because that reset cannot cover the other kind:
+    /// tugcode's wedge recovery force-terminates claude and respawns
+    /// `--resume` against the *same* claude id, so no `session_init` ever
+    /// names a different one and the flag would latch on a session that is
+    /// still alive and still working. The cause rides the frame instead.
+    pub turn_cancelled: bool,
     /// The last `model_change` selector a **WebSocket client** sent for this
     /// session — the deck's own choice ([P15]).
     ///
@@ -474,6 +484,7 @@ impl LedgerEntry {
             turn_active: false,
             turns_ended: 0,
             turn_api_error: false,
+            turn_cancelled: false,
             input_tx: None,
             cancel: CancellationToken::new(),
             card_id: None,
@@ -2498,6 +2509,18 @@ pub(crate) fn turn_ended_in_api_error(payload: &[u8]) -> bool {
         && value.get("is_api_error").and_then(|v| v.as_bool()) == Some(true)
 }
 
+/// A `turn_cancelled` the **user** caused — tugcode leaves the frame unmarked
+/// for their cancel and sets `is_recovery` when it force-terminated a wedged
+/// claude to recover it. A frame from a build before that marker existed
+/// carries no field and reads as a user cancel, which is what it was.
+pub(crate) fn turn_ended_in_user_cancel(payload: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(payload) else {
+        return false;
+    };
+    value.get("type").and_then(|t| t.as_str()) == Some("turn_cancelled")
+        && value.get("is_recovery").and_then(|v| v.as_bool()) != Some(true)
+}
+
 fn parse_context_window(payload: &[u8]) -> Option<i64> {
     let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
     if value.get("type")?.as_str()? != "cost_update" {
@@ -4355,6 +4378,13 @@ impl AgentSupervisor {
         // sessions never reached `session_init` and have no row, so the
         // `claude_session_id` snapshot is `None` — nothing to mark closed.
         if let Some(claude_id) = claude_session_id {
+            // Before the row goes closed, while the binding still names the
+            // dash: a card seated by a stage takes its arc out of the sweep
+            // when it closes, and an arc that left with no record would say
+            // `review` forever with nothing running.
+            if let Some(ledger) = self.session_ledger.as_ref() {
+                crate::dash_api::stop_a_scored_cards_arc_as_closed(ledger, &claude_id);
+            }
             self.sessions_recorder.mark_closed(&claude_id);
         }
     }
@@ -5664,6 +5694,62 @@ impl AgentSupervisor {
                 None
             }
         }
+    }
+
+    /// Record `model → <selector> in <stage>` when the card is running a live
+    /// score's stage.
+    ///
+    /// A no-op for every other card: the note is about a score, and a user
+    /// changing models on their own card is not one.
+    pub(crate) async fn note_model_switch(&self, session: &str, selector: &str) {
+        let Some(ledger) = self.session_ledger.clone() else {
+            return;
+        };
+        let session = session.to_string();
+        let selector = selector.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            let Ok(Some(row)) = ledger.get(&session) else {
+                return;
+            };
+            let Some(dash) = row.dash_name.as_deref() else {
+                return;
+            };
+            if ledger.stage_provenance(&session).is_none() {
+                return;
+            }
+            let project = std::path::Path::new(&row.project_dir);
+            let Some(record) = tugdash_core::arc::read_arc(project, dash) else {
+                return;
+            };
+            if record.done || record.stopped.is_some() {
+                return;
+            }
+            let Some(stage) = record.current_stage() else {
+                return;
+            };
+            if let Err(e) = tugdash_core::arc::append_arc_note(
+                project,
+                dash,
+                &format!("model → {selector} in {}", stage.as_str()),
+            ) {
+                warn!(dash = %dash, error = %e, "could not record a mid-stage model switch");
+            }
+        })
+        .await;
+    }
+
+    /// The model a card returns to when a score gives it back — the deck's own
+    /// selector, which only a WebSocket client's `model_change` ever writes.
+    ///
+    /// `None` when the card never chose one, which a caller words as the
+    /// account default rather than showing a blank.
+    pub async fn deck_model_for(&self, session: &str) -> Option<String> {
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(&TugSessionId::new(session.to_string())).cloned()
+        }?;
+        let entry = entry_arc.lock().await;
+        entry.deck_model.clone()
     }
 
     /// Persist and announce the arc's terminal receipt ([P12]).
@@ -7832,7 +7918,32 @@ impl AgentSupervisor {
         // model its user picked, not the one the last stage ran on.
         if let Some("model_change") = inspected.as_ref().and_then(|i| i.msg_type()) {
             if let Some(model) = parse_model_selector(&frame.payload) {
-                entry_arc.lock().await.deck_model = Some(model);
+                // A *change*, not a repaint: writing a note when the selector
+                // already equals `deck_model` would put a line in the log for
+                // a no-op.
+                let changed = {
+                    let mut entry = entry_arc.lock().await;
+                    let changed = entry.deck_model.as_deref() != Some(model.as_str());
+                    entry.deck_model = Some(model.clone());
+                    changed
+                };
+                // A switch mid-stage is real and belongs in the record, so it
+                // goes where a switch belongs: the dash-log, which `tugutil
+                // dash arc` prints and the Lens reads.
+                //
+                // The transcript's stage divider is deliberately **not**
+                // touched, and `stage_model` on the session row is not
+                // rewritten. The divider's subject is what the stage was
+                // *seated* on, which stays true forever. Live it is one-shot
+                // ink minted from the `session_stage` frame; on restore it is
+                // composed from `stage_provenance`. Moving one and not the
+                // other would make the live divider and the restored one
+                // disagree about the same boundary — a new resting lie in
+                // place of the old one — and moving the live one means editing
+                // durable ink, which this codebase does not do.
+                if changed {
+                    self.note_model_switch(tug_session_id.as_str(), &model).await;
+                }
             }
         }
 
@@ -8084,6 +8195,7 @@ impl AgentSupervisor {
                                 entry.turn_active = false;
                                 entry.turns_ended += 1;
                                 entry.turn_api_error = turn_ended_in_api_error(&frame.payload);
+                                entry.turn_cancelled = turn_ended_in_user_cancel(&frame.payload);
                                 drop(entry);
                                 // The session went idle: a dash parked behind it
                                 // because the gate refuses to move a branch
@@ -8903,6 +9015,223 @@ mod tests {
         assert!(turn_ended_in_api_error(errored));
         assert!(!turn_ended_in_api_error(clean));
         assert!(!turn_ended_in_api_error(other));
+    }
+
+    /// A scored card with a live arc, seated in `review`, and the ledger that
+    /// holds it.
+    fn scored_review_card(
+        root: &std::path::Path,
+    ) -> Arc<crate::session_ledger::SessionLedger> {
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        ledger
+            .record_spawn(
+                "claude-1",
+                "ws-test",
+                &root.to_string_lossy(),
+                "card-1",
+                1_000,
+                None,
+            )
+            .unwrap();
+        ledger
+            .set_dash_binding("claude-1", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        ledger
+            .set_stage_provenance("claude-1", "review", None)
+            .unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(
+            root,
+            "demo",
+            tugdash_core::arc::ArcStage::Review,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        ledger
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn a_model_switch_on_a_scored_card_lands_in_the_dash_log() {
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let ledger = scored_review_card(root);
+
+        let (sup, _ledger, _rx) = make_supervisor_for_ledger(Arc::clone(&ledger), None);
+        let tug_session_id = TugSessionId::new("claude-1");
+        let _entry = insert_ledger_entry(&sup, &tug_session_id).await;
+
+        sup.dispatch_one(model_change_frame("claude-1", "sonnet")).await;
+
+        assert_eq!(
+            tugdash_core::arc::read_arc(root, "demo").unwrap().notes,
+            vec!["model → sonnet in review".to_string()],
+        );
+
+        // Repeating the selector is a repaint, not a switch.
+        sup.dispatch_one(model_change_frame("claude-1", "sonnet")).await;
+        assert_eq!(
+            tugdash_core::arc::read_arc(root, "demo").unwrap().notes.len(),
+            1,
+            "a no-op repaint writes no second note",
+        );
+
+        // A real second switch does.
+        sup.dispatch_one(model_change_frame("claude-1", "opus")).await;
+        assert_eq!(
+            tugdash_core::arc::read_arc(root, "demo").unwrap().notes,
+            vec![
+                "model → sonnet in review".to_string(),
+                "model → opus in review".to_string(),
+            ],
+        );
+    }
+
+    /// The bytes the deck sends when the user picks a model.
+    fn model_change_frame(session: &str, model: &str) -> Frame {
+        Frame::new(
+            FeedId::CODE_INPUT,
+            serde_json::to_vec(&serde_json::json!({
+                "tug_session_id": session,
+                "type": "model_change",
+                "model": model,
+            }))
+            .unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn a_model_switch_on_an_unscored_card_writes_no_note() {
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        ledger
+            .record_spawn(
+                "claude-1",
+                "ws-test",
+                &root.to_string_lossy(),
+                "card-1",
+                1_000,
+                None,
+            )
+            .unwrap();
+
+        let (sup, _ledger, _rx) = make_supervisor_for_ledger(Arc::clone(&ledger), None);
+        let tug_session_id = TugSessionId::new("claude-1");
+        let _entry = insert_ledger_entry(&sup, &tug_session_id).await;
+
+        sup.dispatch_one(model_change_frame("claude-1", "sonnet")).await;
+
+        assert_eq!(
+            tugdash_core::arc::read_arc(root, "demo"),
+            None,
+            "a card running no score leaves the log alone",
+        );
+
+        // Bound to a dash whose arc has already stopped is also not a score.
+        let ledger = scored_review_card(root);
+        tugdash_core::arc::append_arc_stop(
+            root,
+            "demo",
+            tugdash_core::arc::ArcStage::Review,
+            tugdash_core::arc::ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        let (sup, _ledger, _rx) = make_supervisor_for_ledger(ledger, None);
+        let _entry = insert_ledger_entry(&sup, &TugSessionId::new("claude-1")).await;
+        sup.dispatch_one(model_change_frame("claude-1", "sonnet")).await;
+        assert!(
+            tugdash_core::arc::read_arc(root, "demo")
+                .unwrap()
+                .notes
+                .is_empty(),
+        );
+    }
+
+    /// A card seated by a stage takes its arc out of the sweep when it closes
+    /// (`bound_sessions_by_dash` is live-rows-only), so the close writes the
+    /// stop while the binding still names the dash. Without it the record says
+    /// `review` forever with nothing running.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn closing_a_card_seated_by_a_stage_stops_its_arc() {
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: `#[serial]`; no other thread reads the environment here.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        ledger
+            .record_spawn(
+                "claude-1",
+                "ws-test",
+                &root.to_string_lossy(),
+                "card-1",
+                1_000,
+                None,
+            )
+            .unwrap();
+        ledger
+            .set_dash_binding("claude-1", Some(("tugdash/demo#1", "demo")))
+            .unwrap();
+        ledger
+            .set_stage_provenance("claude-1", "review", None)
+            .unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(
+            root,
+            "demo",
+            tugdash_core::arc::ArcStage::Review,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+
+        crate::dash_api::stop_a_scored_cards_arc_as_closed(&ledger, "claude-1");
+
+        assert_eq!(
+            tugdash_core::arc::read_arc(root, "demo").unwrap().stopped,
+            Some((
+                tugdash_core::arc::ArcStage::Review,
+                "card closed".to_string()
+            )),
+        );
+        // Twice is once: the second read finds the arc already stopped and
+        // leaves the log alone, so a close that races anything else does not
+        // stack `arc-stop` lines.
+        crate::dash_api::stop_a_scored_cards_arc_as_closed(&ledger, "claude-1");
+        assert_eq!(
+            tugdash_core::arc::read_arc(root, "demo").unwrap().stopped,
+            Some((
+                tugdash_core::arc::ArcStage::Review,
+                "card closed".to_string()
+            )),
+        );
+    }
+
+    #[test]
+    fn only_an_unmarked_cancel_reads_as_the_user_taking_the_card_back() {
+        let user = br#"{"type":"turn_cancelled","msg_id":"m","seq":1,"partial_result":"x"}"#;
+        let recovery =
+            br#"{"type":"turn_cancelled","msg_id":"m","seq":1,"partial_result":"x","is_recovery":true}"#;
+        let complete = br#"{"type":"turn_complete","msg_id":"m","seq":1,"result":"success"}"#;
+        assert!(turn_ended_in_user_cancel(user));
+        assert!(!turn_ended_in_user_cancel(recovery));
+        assert!(!turn_ended_in_user_cancel(complete));
     }
 
     #[test]
@@ -11463,7 +11792,7 @@ mod tests {
         let outcome = crate::dash_api::dash_gone(&ledger, &root, owner_key);
         assert!(matches!(
             outcome,
-            crate::dash_api::DashApiOutcome::Cleared(2)
+            crate::dash_api::DashApiOutcome::Cleared { cleared: 2, .. }
         ));
         assert!(ledger.get("sess-1").unwrap().unwrap().dash_id.is_none());
         assert!(ledger.get("sess-2").unwrap().unwrap().dash_id.is_none());

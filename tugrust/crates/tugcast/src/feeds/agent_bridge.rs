@@ -1729,6 +1729,11 @@ pub async fn relay_session_io(
                                     if entry.claude_session_id.as_deref() != Some(id.as_str()) {
                                         entry.turns_ended = 0;
                                         entry.turn_api_error = false;
+                                        // Without this the cancel latches
+                                        // across a rotation and the next
+                                        // stage stops the moment it ends its
+                                        // first turn.
+                                        entry.turn_cancelled = false;
                                     }
                                     entry.claude_session_id = Some(id.clone());
                                 }

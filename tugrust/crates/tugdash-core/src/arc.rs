@@ -50,6 +50,134 @@ impl ArcStage {
     }
 }
 
+/// Every reason an arc can stop for.
+///
+/// Closed on purpose. A stop is written into the dash-log and read back to the
+/// user as a sentence on the card, so a reason the receipt cannot explain is a
+/// reason the arc must not write — and the only way to make that a fact rather
+/// than a hope is to let the compiler check it. Both accessors match
+/// exhaustively and neither has a fallback arm.
+///
+/// The read side stays a `String`: [`ArcRecord::stopped`] holds whatever word
+/// the log carries, so a record written by an older build still parses and
+/// still prints its own wording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArcStopReason {
+    Lint,
+    ApiError,
+    ReviewDidNotStamp,
+    DocumentMissing,
+    PlanMissing,
+    SessionGone,
+    CardTaken,
+    CardClosed,
+    StoppedByUser,
+    /// The dash was discarded. Never written to the log — the discard's own
+    /// terminal line already closed the arc's generation, and a line after it
+    /// would open a phantom one. This variant exists for its sentence.
+    Discarded,
+    /// The dash joined and the work landed. Never written to the log, for the
+    /// same reason as [`ArcStopReason::Discarded`].
+    Joined,
+    PromptUnavailable,
+    SessionIdle,
+    SessionErrored,
+    SessionClosed,
+    SpawnQueueFull,
+    NoStdin,
+    StdinClosed,
+    ArcRunning,
+}
+
+impl ArcStopReason {
+    /// Every variant, so a test can walk the vocabulary. A new reason is added
+    /// here as well as to the enum; the exhaustive matches below are what the
+    /// compiler enforces.
+    pub const ALL: &'static [ArcStopReason] = &[
+        ArcStopReason::Lint,
+        ArcStopReason::ApiError,
+        ArcStopReason::ReviewDidNotStamp,
+        ArcStopReason::DocumentMissing,
+        ArcStopReason::PlanMissing,
+        ArcStopReason::SessionGone,
+        ArcStopReason::CardTaken,
+        ArcStopReason::CardClosed,
+        ArcStopReason::StoppedByUser,
+        ArcStopReason::Discarded,
+        ArcStopReason::Joined,
+        ArcStopReason::PromptUnavailable,
+        ArcStopReason::SessionIdle,
+        ArcStopReason::SessionErrored,
+        ArcStopReason::SessionClosed,
+        ArcStopReason::SpawnQueueFull,
+        ArcStopReason::NoStdin,
+        ArcStopReason::StdinClosed,
+        ArcStopReason::ArcRunning,
+    ];
+
+    /// The word written into `arc-stop`'s note.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ArcStopReason::Lint => "lint",
+            ArcStopReason::ApiError => "api error",
+            ArcStopReason::ReviewDidNotStamp => "review did not stamp",
+            ArcStopReason::DocumentMissing => "document missing",
+            ArcStopReason::PlanMissing => "plan missing",
+            ArcStopReason::SessionGone => "session gone",
+            ArcStopReason::CardTaken => "card taken",
+            ArcStopReason::CardClosed => "card closed",
+            ArcStopReason::StoppedByUser => "stopped by user",
+            ArcStopReason::Discarded => "discarded",
+            ArcStopReason::Joined => "joined",
+            ArcStopReason::PromptUnavailable => "prompt unavailable",
+            ArcStopReason::SessionIdle => "session idle",
+            ArcStopReason::SessionErrored => "session errored",
+            ArcStopReason::SessionClosed => "session closed",
+            ArcStopReason::SpawnQueueFull => "spawn queue full",
+            ArcStopReason::NoStdin => "no stdin",
+            ArcStopReason::StdinClosed => "stdin closed",
+            ArcStopReason::ArcRunning => "arc running",
+        }
+    }
+
+    /// What the receipt says, in the second person, as the tail of
+    /// "the arc stopped … because …".
+    pub fn sentence(&self) -> &'static str {
+        match self {
+            ArcStopReason::Lint => "the plan does not lint",
+            ArcStopReason::ApiError => "its turn ended in an API error, not a response",
+            ArcStopReason::ReviewDidNotStamp => {
+                "two review rounds ended without stamping the plan"
+            }
+            ArcStopReason::DocumentMissing => "the document it opened on is gone",
+            ArcStopReason::PlanMissing => "the plan is gone",
+            ArcStopReason::SessionGone => "its session ended",
+            ArcStopReason::CardTaken => "you took the card back",
+            ArcStopReason::CardClosed => "the card it ran on closed",
+            ArcStopReason::StoppedByUser => "you stopped it",
+            ArcStopReason::Discarded => "the dash was discarded",
+            ArcStopReason::Joined => "the dash joined and the work landed",
+            ArcStopReason::PromptUnavailable => "its opening prompt could not be composed",
+            ArcStopReason::SessionIdle => "its session had no claude running to rotate",
+            ArcStopReason::SessionErrored => "its session errored out",
+            ArcStopReason::SessionClosed => "its session was closed",
+            ArcStopReason::SpawnQueueFull => "the card's spawn queue was full",
+            ArcStopReason::NoStdin => "the card's session had no input channel",
+            ArcStopReason::StdinClosed => "the card's input channel closed",
+            ArcStopReason::ArcRunning => "the card was already running another score",
+        }
+    }
+
+    /// Whether a stop for this reason leaves anything to resume. The two
+    /// endings do not: the dash itself is gone, and `read_arc` resets at their
+    /// terminal line, so `tugutil dash run` would open a new arc rather than
+    /// pick this one up.
+    pub fn is_resumable(&self) -> bool {
+        !matches!(self, ArcStopReason::Discarded | ArcStopReason::Joined)
+    }
+}
+
 /// The model the project declared for a stage, or `None` for the account
 /// default — which sends no `model_change` frame at all.
 ///
@@ -247,9 +375,9 @@ pub fn append_arc_stop(
     repo_root: &Path,
     dash: &str,
     stage: ArcStage,
-    reason: &str,
+    reason: ArcStopReason,
 ) -> Result<(), TugError> {
-    let note = format!("{} {}", stage.as_str(), reason.trim());
+    let note = format!("{} {}", stage.as_str(), reason.as_str());
     append_dash_log(repo_root, dash, "arc-stop", note.trim())
 }
 
@@ -518,6 +646,33 @@ mod tests {
     }
 
     #[test]
+    fn every_stop_reason_has_a_sentence_and_a_word() {
+        let mut words = std::collections::HashSet::new();
+        let mut sentences = std::collections::HashSet::new();
+        for reason in ArcStopReason::ALL {
+            assert!(!reason.as_str().is_empty(), "{reason:?} has no log word");
+            assert!(!reason.sentence().is_empty(), "{reason:?} has no sentence");
+            assert!(
+                words.insert(reason.as_str()),
+                "{reason:?} repeats another reason's log word",
+            );
+            assert!(
+                sentences.insert(reason.sentence()),
+                "{reason:?} repeats another reason's sentence",
+            );
+        }
+        // The two endings are the only reasons with nothing to resume.
+        let unresumable: Vec<_> = ArcStopReason::ALL
+            .iter()
+            .filter(|reason| !reason.is_resumable())
+            .collect();
+        assert_eq!(
+            unresumable,
+            vec![&ArcStopReason::Discarded, &ArcStopReason::Joined],
+        );
+    }
+
+    #[test]
     fn the_append_helpers_round_trip_through_the_reader() {
         let fixture = log_repo("");
         let root = fixture.root();
@@ -526,7 +681,7 @@ mod tests {
         append_arc_stage(root, "d", ArcStage::Devise, "sess-1", Some("opus")).expect("devise");
         append_arc_stage(root, "d", ArcStage::Review, "sess-2", None).expect("review");
         append_arc_note(root, "d", "second review skipped").expect("note");
-        append_arc_stop(root, "d", ArcStage::Review, "plan still stale").expect("stop");
+        append_arc_stop(root, "d", ArcStage::Review, ArcStopReason::ReviewDidNotStamp).expect("stop");
 
         let arc = read_arc(root, "d").expect("arc");
         assert_eq!(arc.document.as_deref(), Some("dash/idea.md"));
@@ -536,7 +691,7 @@ mod tests {
         assert_eq!(arc.notes, vec!["second review skipped".to_owned()]);
         assert_eq!(
             arc.stopped,
-            Some((ArcStage::Review, "plan still stale".to_owned()))
+            Some((ArcStage::Review, "review did not stamp".to_owned()))
         );
         assert!(!arc.done);
 

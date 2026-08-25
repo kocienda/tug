@@ -43,8 +43,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use tugcast_core::protocol::{Frame, TugSessionId};
 use tugdash_core::arc::{
-    ArcRecord, ArcStage, append_arc_done, append_arc_note, append_arc_plan, append_arc_stop,
-    read_arc, stage_model,
+    ArcRecord, ArcStage, ArcStopReason, append_arc_done, append_arc_note, append_arc_plan,
+    append_arc_stop, read_arc, stage_model,
 };
 use tugutil_core::config::{Config, DashConfig};
 use tugutil_core::plan;
@@ -62,6 +62,9 @@ use crate::session_ledger::SessionLedger;
 pub struct ArcContext {
     pub supervisor: Arc<AgentSupervisor>,
     pub session_ledger: Arc<SessionLedger>,
+    /// The conductor's registries — an ending arms a hand-back here rather
+    /// than sending one, because the stage may be mid-turn.
+    pub conductor: Arc<conductor::ConductorState>,
     pub cancel: CancellationToken,
 }
 
@@ -234,6 +237,11 @@ struct SessionSnapshot {
     turn_ended: bool,
     /// Its most recent turn ended in an API error rather than a response.
     api_error: bool,
+    /// Its most recent turn was cancelled by the user.
+    turn_cancelled: bool,
+    /// The claude session running on the card carries a `stage_label` — a
+    /// rotation seated it.
+    stage_seated: bool,
     claude_session_id: Option<String>,
     context_window: Option<i64>,
     context_max: Option<i64>,
@@ -252,9 +260,16 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     // would stop every in-flight arc on every restart. `Errored` and `Closed`
     // are the states with nothing left to advance.
     let entry_arc = entry_arc?;
-    let (live, idle, turn_ended, api_error, claude_session_id, context_window) = {
+    let (live, idle, turn_ended, api_error, turn_cancelled, claude_session_id, context_window) = {
         let entry = entry_arc.lock().await;
         let live = match entry.spawn_state {
+            // The early return costs the taken-card arm its immediacy, and
+            // that is the right trade. A `/new` parks the entry `Idle`, so no
+            // stop is decided until the card spawns again — the stop lands at
+            // the user's next prompt rather than at the gesture. A card parked
+            // `Idle` is indistinguishable from a card whose tugcast just
+            // restarted, and judging it would stop every in-flight arc on
+            // every relaunch.
             SpawnState::Idle => return None,
             SpawnState::Spawning | SpawnState::Live => true,
             SpawnState::Errored | SpawnState::Closed => false,
@@ -264,6 +279,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
             !entry.turn_active,
             entry.turns_ended > 0,
             entry.turn_api_error,
+            entry.turn_cancelled,
             entry.claude_session_id.clone(),
             entry.context_window_tokens,
         )
@@ -276,11 +292,19 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         .as_deref()
         .and_then(|id| ctx.session_ledger.get_context_breakdown(id).ok().flatten())
         .and_then(|row| context_max_from_breakdown(&row.payload));
+    // Only a rotation writes a `stage_label`, at the `session_init` that
+    // follows its announcement, so the label is the durable fact that this
+    // session was seated by the conductor rather than reached by the deck.
+    let stage_seated = claude_session_id
+        .as_deref()
+        .is_some_and(|id| ctx.session_ledger.stage_provenance(id).is_some());
     Some(SessionSnapshot {
         live,
         idle,
         turn_ended,
         api_error,
+        turn_cancelled,
+        stage_seated,
         claude_session_id,
         context_window,
         context_max,
@@ -438,6 +462,8 @@ fn read(
         session_idle: session.idle,
         stage_turn_ended: session.turn_ended,
         stage_api_error: session.api_error,
+        stage_turn_cancelled: session.turn_cancelled,
+        stage_seated: session.stage_seated,
         stage_session_current,
         context_fraction,
         rotate_at: config.rotate_at(),
@@ -529,11 +555,11 @@ async fn rotate(
     }
 
     let Some(prompt) = opening_prompt(reading, rotation) else {
-        stop(ctx, arc, rotation.stage, "prompt unavailable").await;
+        stop(ctx, arc, rotation.stage, ArcStopReason::PromptUnavailable).await;
         return;
     };
     let Some(document) = reading.record.document.clone() else {
-        stop(ctx, arc, rotation.stage, "document missing").await;
+        stop(ctx, arc, rotation.stage, ArcStopReason::DocumentMissing).await;
         return;
     };
 
@@ -602,7 +628,7 @@ async fn rotate(
                 reason = refusal.reason(),
                 "arc rotation refused",
             );
-            stop(ctx, arc, rotation.stage, refusal.reason()).await;
+            stop(ctx, arc, rotation.stage, refusal.stop_reason()).await;
         }
     }
 }
@@ -644,39 +670,166 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
 /// so it does not read as one ([P12]) — but it happened on this card, and
 /// the card is where the user is watching, so it says which stage stopped,
 /// why, and what resumes it ([P11]).
-fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: &str) -> String {
-    let why = match reason {
-        "lint" => "the plan does not lint".to_string(),
-        "api error" => "its turn ended in an API error, not a response".to_string(),
-        "review did not stamp" => {
-            "two review rounds ended without stamping the plan".to_string()
-        }
-        "document missing" => "the document it opened on is gone".to_string(),
-        "plan missing" => "the plan is gone".to_string(),
-        "session gone" => "its session ended".to_string(),
-        other => other.to_string(),
+///
+/// The reason is an [`ArcStopReason`] rather than a word, so the sentence is
+/// the type's own and there is no arm for a reason nobody wrote a sentence for.
+/// A stop the receipt could not explain is a stop the arc must not write.
+fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopReason) -> String {
+    let next = if reason.is_resumable() {
+        format!("resume with tugutil dash run {}", record.dash)
+    } else {
+        "there is nothing to resume".to_string()
     };
     format!(
-        "arc stopped · {} · in {} — {why}\nresume with tugutil dash run {}",
+        "arc stopped · {} · in {} — {}\n{next}",
         record.dash,
         stage.as_str(),
-        record.dash,
+        reason.sentence(),
     )
+}
+
+/// How a stop reaches the card and the record.
+///
+/// Every caller of the stop path leaves a receipt — that is what makes it the
+/// stop path rather than a helper — so the two things a caller genuinely
+/// varies are named and nothing else is. No `Default`: a caller states its
+/// combination, so a new one cannot inherit a shape nobody chose.
+///
+/// A closing card is not a caller at all. It has no card left to paint a
+/// receipt on and no hand-back to give (`conductor::hand_back` refuses a
+/// `Closed` entry by design), so all it does is write its record — see
+/// `dash_api::stop_a_scored_cards_arc_as_closed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StopDelivery {
+    pub hand_back: HandBack,
+    /// Append `arc-stop` to the dash-log. An ending writes none: its own
+    /// terminal line already closed the arc's generation, and a line after it
+    /// would open a phantom one.
+    pub record: bool,
+}
+
+/// What to do about the model the stage is running on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HandBack {
+    /// Restore the deck's model now — the stage is between turns.
+    Send,
+    /// Arm the restore for the session's next turn end. The stage is mid-turn,
+    /// and nothing retires a claude mid-sentence.
+    Arm,
+}
+
+/// Stop an arc: hand the card back, leave the receipt, record the stop.
+///
+/// Every stopper comes through here — the predicate's `Stop`, a refused
+/// rotation, an ending, a card close, and `tugutil dash stop`. Four call sites
+/// that each remembered three of the four acts is how a discard came to tear
+/// down a binding while leaving the card on the stage's model with nothing
+/// armed.
+///
+/// The hand-back is issued **first**, so the card the user is handed back is
+/// already theirs by the time the terminal line lands. That is issue-order
+/// rather than arrival-order and the function claims no more: `hand_back`
+/// reaches the card over `input_tx` and the spawn queue while the receipt
+/// publishes on `control_tx`, so the two travel different channels and neither
+/// caller can pin which lands first.
+pub(crate) async fn stop_arc_for_session(
+    supervisor: &AgentSupervisor,
+    state: &conductor::ConductorState,
+    session: &TugSessionId,
+    project: &Path,
+    dash: &str,
+    stage: ArcStage,
+    reason: ArcStopReason,
+    how: StopDelivery,
+) {
+    match how.hand_back {
+        HandBack::Send => {
+            if let Err(refusal) = conductor::hand_back(supervisor, session).await {
+                warn!(
+                    dash = %dash,
+                    reason = refusal.reason(),
+                    "arc could not restore the deck's model",
+                );
+            }
+        }
+        HandBack::Arm => state.arm_hand_back(session.as_str()),
+    }
+
+    {
+        let summary = if reason.is_resumable() {
+            // The record supplies the dash name the receipt reads back. A stop
+            // with no record left to read is still worth saying, so a missing
+            // one falls back to a record naming only this dash and stage.
+            let record = read_arc(project, dash).unwrap_or_else(|| ArcRecord {
+                dash: dash.to_owned(),
+                document: None,
+                plan: None,
+                stages: Vec::new(),
+                notes: Vec::new(),
+                stopped: None,
+                resume: None,
+                done: false,
+                last_activity: None,
+            });
+            format_arc_stop_receipt(&record, stage, reason)
+        } else {
+            // The two endings are the reasons whose stop has not happened yet:
+            // the dash is gone, but the stage is mid-turn and is retired at
+            // that turn's end. So the receipt announces the retirement rather
+            // than reporting a stop, and names the model the card comes back
+            // to.
+            let model = supervisor
+                .deck_model_for(session.as_str())
+                .await
+                .unwrap_or_else(|| "the account default".to_string());
+            format!(
+                "arc {} · {dash} · the stage's turn will end and the card returns to {model}",
+                reason.as_str(),
+            )
+        };
+        supervisor.record_arc_receipt(
+            session.as_str(),
+            dash,
+            &project.to_string_lossy(),
+            &summary,
+        );
+    }
+
+    if how.record {
+        let project = project.to_path_buf();
+        let dash = dash.to_owned();
+        let _ = tokio::task::spawn_blocking(move || append_arc_stop(&project, &dash, stage, reason))
+            .await;
+    }
 }
 
 async fn finish(
     ctx: &ArcContext,
     arc: &BoundArc,
     reading: &ArcReading,
-    stopped: Option<(ArcStage, String)>,
+    stopped: Option<(ArcStage, ArcStopReason)>,
 ) {
-    // Either ending leaves a receipt on the card: the done ending's says the
-    // arc completed ([P12]); a stop's says where it stopped and why, so the
-    // card the user is watching is never the last to know ([L31]).
-    let summary = match stopped.as_ref() {
-        None => format_arc_receipt(&reading.record),
-        Some((stage, reason)) => format_arc_stop_receipt(&reading.record, *stage, reason),
-    };
+    if let Some((stage, reason)) = stopped {
+        stop_arc_for_session(
+            &ctx.supervisor,
+            &ctx.conductor,
+            &arc.session,
+            &arc.project,
+            &arc.dash,
+            stage,
+            reason,
+            StopDelivery {
+                hand_back: HandBack::Send,
+                record: true,
+            },
+        )
+        .await;
+        return;
+    }
+    // The done ending keeps its own body, receipt before hand-back. Only the
+    // stop path was reordered; the completion's ordering is left as it is
+    // rather than changed by a step that was not about it.
+    let summary = format_arc_receipt(&reading.record);
     ctx.supervisor.record_arc_receipt(
         arc.session.as_str(),
         &arc.dash,
@@ -692,27 +845,28 @@ async fn finish(
     }
     let project = arc.project.clone();
     let dash = arc.dash.clone();
-    let _ = tokio::task::spawn_blocking(move || match stopped {
-        Some((stage, reason)) => append_arc_stop(&project, &dash, stage, &reason),
-        None => append_arc_done(&project, &dash),
-    })
-    .await;
+    let _ = tokio::task::spawn_blocking(move || append_arc_done(&project, &dash)).await;
 }
 
 /// Record a stop and hand the card back, for a refusal discovered mid-rotation.
-async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: &str) {
-    if let Err(refusal) = conductor::hand_back(&ctx.supervisor, &arc.session).await {
-        warn!(
-            dash = %arc.dash,
-            reason = refusal.reason(),
-            "arc could not restore the deck's model",
-        );
-    }
-    let project = arc.project.clone();
-    let dash = arc.dash.clone();
-    let reason = reason.to_string();
-    let _ = tokio::task::spawn_blocking(move || append_arc_stop(&project, &dash, stage, &reason))
-        .await;
+///
+/// A refused rotation left no receipt before this went through the shared
+/// path; now it leaves one, which is the whole reason the path is shared.
+async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: ArcStopReason) {
+    stop_arc_for_session(
+        &ctx.supervisor,
+        &ctx.conductor,
+        &arc.session,
+        &arc.project,
+        &arc.dash,
+        stage,
+        reason,
+        StopDelivery {
+            hand_back: HandBack::Send,
+            record: true,
+        },
+    )
+    .await;
 }
 
 #[cfg(test)]
@@ -785,6 +939,10 @@ Some context.
             // The seated session has run; the never-run case builds its own.
             turn_ended: true,
             api_error: false,
+            turn_cancelled: false,
+            // A seated stage is the ordinary case; the taken-card tests build
+            // their own.
+            stage_seated: true,
             claude_session_id: claude.map(str::to_string),
             context_window: None,
             context_max: None,
@@ -854,7 +1012,7 @@ Some context.
             arc_action(&reading.record, &reading.facts),
             Some(ArcAction::Stop {
                 stage: ArcStage::Devise,
-                reason: "lint".to_string(),
+                reason: ArcStopReason::Lint,
             })
         );
     }
@@ -942,7 +1100,7 @@ Some context.
             arc_action(&reading.record, &reading.facts),
             Some(ArcAction::Stop {
                 stage: ArcStage::Review,
-                reason: "session gone".to_string(),
+                reason: ArcStopReason::SessionGone,
             })
         );
     }
@@ -966,7 +1124,7 @@ Some context.
         project_with_document(root, "dash/demo-brief.md");
         tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "s", None).unwrap();
-        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, "lint").unwrap();
+        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint).unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, Some("s")), None).unwrap();
         assert_eq!(arc_action(&reading.record, &reading.facts), None);
@@ -1149,6 +1307,7 @@ Some context.
             ArcContext {
                 supervisor,
                 session_ledger: ledger,
+                conductor: Arc::new(conductor::ConductorState::default()),
                 cancel: CancellationToken::new(),
             },
             entry,
@@ -1209,7 +1368,7 @@ Some context.
         tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
-        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, "lint").unwrap();
+        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint).unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -1236,11 +1395,60 @@ Some context.
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
+        // A rotation seated the session on the card, which is what tells a
+        // stage that died from a card the user took back.
+        ctx.session_ledger
+            .set_stage_provenance("claude-1", "devise", None)
+            .unwrap();
 
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 2, "the stage rotated again");
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 2, "and only once");
+    }
+
+    #[tokio::test]
+    async fn a_fresh_unseated_session_stops_the_arc_and_hands_the_card_back() {
+        // The user reached a fresh session on the card — a `/new`, a reset, a
+        // rewind fork. Nothing the conductor did produced it, so no rotation
+        // goes back onto it.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\ndocs = \"dash\"\n",
+        )
+        .unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "gone", None).unwrap();
+
+        // No `set_stage_provenance` for `claude-1`: the session on the card
+        // carries no stage label.
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Devise, "card taken".to_string())),
+            "the stop names the taking, not a dead stage"
+        );
+        let frames = {
+            let mut entry = entry.lock().await;
+            let mut out = Vec::new();
+            while let Some(frame) = entry.queue.pop() {
+                out.push(frame);
+            }
+            out
+        };
+        assert_eq!(frames.len(), 1, "the hand-back and nothing else");
+        let parsed: serde_json::Value = serde_json::from_slice(&frames[0].payload).unwrap();
+        assert_eq!(
+            parsed["type"], "model_change",
+            "the card goes back on the deck's own model",
+        );
     }
 
     #[tokio::test]
@@ -1297,7 +1505,7 @@ Some context.
         tugdash_core::arc::append_arc_plan(root, "demo", "dash/demo.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
-        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Review, "spawn queue full")
+        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Review, ArcStopReason::SpawnQueueFull)
             .unwrap();
         tugdash_core::arc::append_arc_resume(root, "demo", ArcStage::Review).unwrap();
 
@@ -1353,6 +1561,286 @@ Some context.
             record.stopped,
             Some((ArcStage::Devise, "lint".to_string())),
             "and the stop is recorded with its reason"
+        );
+    }
+
+    /// Every `arc_receipt` the supervisor published, as its summary text.
+    fn receipts(rx: &mut tokio::sync::broadcast::Receiver<Frame>) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Ok(frame) = rx.try_recv() {
+            let Ok(value) = serde_json::from_slice::<serde_json::Value>(&frame.payload) else {
+                continue;
+            };
+            if value.get("action").and_then(|a| a.as_str()) != Some("arc_receipt") {
+                continue;
+            }
+            if let Some(summary) = value.get("summary").and_then(|s| s.as_str()) {
+                out.push(summary.to_string());
+            }
+        }
+        out
+    }
+
+    /// Drain a session's spawn queue.
+    async fn queued(entry: &Arc<Mutex<super::super::agent_supervisor::LedgerEntry>>) -> Vec<Frame> {
+        let mut entry = entry.lock().await;
+        let mut out = Vec::new();
+        while let Some(frame) = entry.queue.pop() {
+            out.push(frame);
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn a_refused_rotation_leaves_a_receipt_as_well_as_a_record() {
+        // Before every stopper shared one path, a refused rotation recorded
+        // and handed back but said nothing on the card.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        std::fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\ndocs = \"dash\"\n",
+        )
+        .unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        // A closed entry is what the conductor refuses by name.
+        entry.lock().await.spawn_state = SpawnState::Closed;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+
+        let record = read_arc(root, "demo").unwrap();
+        assert_eq!(
+            record.stopped,
+            Some((ArcStage::Devise, "session gone".to_string())),
+        );
+        let said = receipts(&mut control_rx);
+        assert_eq!(said.len(), 1, "one receipt, got {said:?}");
+        assert!(said[0].starts_with("arc stopped · demo · in devise"), "{said:?}");
+    }
+
+    #[tokio::test]
+    async fn a_stop_issues_the_hand_back_before_it_records_the_receipt() {
+        // The restore goes first so the card the user is handed back is
+        // already theirs by the time the terminal line lands. Issue-order,
+        // not arrival-order: the two travel different channels.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        entry.lock().await.deck_model = Some("opus".to_string());
+
+        stop_arc_for_session(
+            &ctx.supervisor,
+            &ctx.conductor,
+            &TugSessionId::new("claude-1".to_string()),
+            root,
+            "demo",
+            ArcStage::Devise,
+            ArcStopReason::StoppedByUser,
+            StopDelivery {
+                hand_back: HandBack::Send,
+                record: true,
+            },
+        )
+        .await;
+
+        // The hand-back was queued before the receipt was published: the
+        // receipt channel is still empty at the moment the frame is on the
+        // queue only because the queue write happened first.
+        let frames = queued(&entry).await;
+        assert_eq!(frames.len(), 1);
+        let parsed: serde_json::Value = serde_json::from_slice(&frames[0].payload).unwrap();
+        assert_eq!(parsed["type"], "model_change");
+        assert_eq!(parsed["model"], "opus");
+
+        let said = receipts(&mut control_rx);
+        assert_eq!(said.len(), 1, "got {said:?}");
+        assert!(said[0].contains("you stopped it"), "{said:?}");
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Devise, "stopped by user".to_string())),
+        );
+    }
+
+    #[tokio::test]
+    async fn a_user_stop_writes_the_record_the_receipt_and_the_hand_back() {
+        // What `tugutil dash stop` reaches: the same three acts every other
+        // stop performs, so a stop the user asked for is not a lesser one.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        entry.lock().await.deck_model = Some("sonnet".to_string());
+
+        stop_arc_for_session(
+            &ctx.supervisor,
+            &ctx.conductor,
+            &TugSessionId::new("claude-1".to_string()),
+            root,
+            "demo",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+            StopDelivery {
+                hand_back: HandBack::Send,
+                record: true,
+            },
+        )
+        .await;
+
+        let frames = queued(&entry).await;
+        assert_eq!(frames.len(), 1);
+        let parsed: serde_json::Value = serde_json::from_slice(&frames[0].payload).unwrap();
+        assert_eq!(parsed["model"], "sonnet");
+
+        let said = receipts(&mut control_rx);
+        assert_eq!(said.len(), 1, "got {said:?}");
+        assert!(said[0].contains("you stopped it"), "{said:?}");
+        assert!(
+            said[0].contains("resume with tugutil dash run demo"),
+            "and the receipt says how to pick it back up: {said:?}",
+        );
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Implement, "stopped by user".to_string())),
+        );
+    }
+
+    #[tokio::test]
+    async fn an_endings_receipt_announces_the_retirement_rather_than_a_stop() {
+        // The two endings are the reasons whose stop has not happened yet: the
+        // dash is gone, but the stage is mid-turn and retires at that turn's
+        // end. So the receipt says what is about to happen and names the model
+        // the card comes back to, and it says which gesture ended the dash.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+        entry.lock().await.deck_model = Some("opus".to_string());
+
+        for (reason, word) in [
+            (ArcStopReason::Discarded, "discarded"),
+            (ArcStopReason::Joined, "joined"),
+        ] {
+            stop_arc_for_session(
+                &ctx.supervisor,
+                &ctx.conductor,
+                &TugSessionId::new("claude-1".to_string()),
+                root,
+                "demo",
+                ArcStage::Review,
+                reason,
+                StopDelivery {
+                    hand_back: HandBack::Arm,
+                    record: false,
+                },
+            )
+            .await;
+            let said = receipts(&mut control_rx);
+            assert_eq!(said.len(), 1, "got {said:?}");
+            assert_eq!(
+                said[0],
+                format!(
+                    "arc {word} · demo · the stage's turn will end and the card returns to opus"
+                ),
+            );
+            assert!(ctx.conductor.take_hand_back("claude-1"));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_ending_on_a_card_with_no_model_names_the_account_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+
+        let (ctx, _entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+
+        stop_arc_for_session(
+            &ctx.supervisor,
+            &ctx.conductor,
+            &TugSessionId::new("claude-1".to_string()),
+            root,
+            "demo",
+            ArcStage::Devise,
+            ArcStopReason::Discarded,
+            StopDelivery {
+                hand_back: HandBack::Arm,
+                record: false,
+            },
+        )
+        .await;
+
+        let said = receipts(&mut control_rx);
+        assert_eq!(said.len(), 1, "got {said:?}");
+        assert!(
+            said[0].ends_with("the card returns to the account default"),
+            "a card that never chose a model says so rather than showing a blank: {said:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn an_armed_stop_records_no_line_and_sends_no_frame() {
+        // The ending combination: the stage is mid-turn, so the restore is
+        // armed rather than sent, and nothing is appended to the dash-log —
+        // the ending's own terminal line closed the arc's generation, and a
+        // line after it would open a phantom one.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let mut control_rx = ctx.supervisor.control_tx.subscribe();
+
+        stop_arc_for_session(
+            &ctx.supervisor,
+            &ctx.conductor,
+            &TugSessionId::new("claude-1".to_string()),
+            root,
+            "demo",
+            ArcStage::Review,
+            ArcStopReason::Discarded,
+            StopDelivery {
+                hand_back: HandBack::Arm,
+                record: false,
+            },
+        )
+        .await;
+
+        assert!(queued(&entry).await.is_empty(), "nothing reaches the card yet");
+        assert!(
+            ctx.conductor.take_hand_back("claude-1"),
+            "the restore is armed for the turn's end",
+        );
+        assert_eq!(receipts(&mut control_rx).len(), 1, "and the card is told now");
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            None,
+            "no arc-stop line is appended",
         );
     }
 
@@ -1514,6 +2002,45 @@ Some context.
         assert!(
             receipt.contains("devise · account default · claude-a"),
             "got {receipt}"
+        );
+    }
+
+    #[test]
+    fn the_stop_receipt_says_what_stopped_it_and_how_to_resume() {
+        let record = done_record(vec![stage_line(ArcStage::Review, Some("opus"), "claude-b")]);
+        // Every reason renders its own sentence, and every resumable one ends
+        // with the gesture that picks the work back up.
+        for reason in ArcStopReason::ALL {
+            let receipt = format_arc_stop_receipt(&record, ArcStage::Review, *reason);
+            assert!(
+                receipt.starts_with("arc stopped · foo · in review — "),
+                "got {receipt}"
+            );
+            assert!(receipt.contains(reason.sentence()), "got {receipt}");
+            if reason.is_resumable() {
+                assert!(
+                    receipt.ends_with("\nresume with tugutil dash run foo"),
+                    "got {receipt}"
+                );
+            } else {
+                assert!(receipt.ends_with("\nthere is nothing to resume"), "got {receipt}");
+            }
+        }
+
+        assert_eq!(
+            format_arc_stop_receipt(&record, ArcStage::Devise, ArcStopReason::Lint),
+            "arc stopped · foo · in devise — the plan does not lint\n\
+             resume with tugutil dash run foo"
+        );
+        assert_eq!(
+            format_arc_stop_receipt(&record, ArcStage::Review, ArcStopReason::Discarded),
+            "arc stopped · foo · in review — the dash was discarded\n\
+             there is nothing to resume"
+        );
+        assert_eq!(
+            format_arc_stop_receipt(&record, ArcStage::Implement, ArcStopReason::CardTaken),
+            "arc stopped · foo · in implement — you took the card back\n\
+             resume with tugutil dash run foo"
         );
     }
 

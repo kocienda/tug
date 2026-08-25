@@ -20,7 +20,7 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::warn;
+use tracing::{info, warn};
 use tugbank_core::TugbankClient;
 use tugcast_core::{FeedId, Frame};
 
@@ -460,7 +460,7 @@ fn apply_draft_request(
 /// terminal join fires). Spec S04, [P04].
 #[derive(serde::Deserialize)]
 struct DashApiRequest {
-    /// `bind` | `arc_run` | `unbind` | `dash_gone`.
+    /// `bind` | `arc_run` | `unbind` | `arc_stop` | `dash_gone`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -476,6 +476,11 @@ struct DashApiRequest {
     /// deleted the dash's branch ([P05]).
     #[serde(default)]
     dash_id: Option<String>,
+    /// For `dash_gone`: which gesture ended the dash — `"discarded"` or
+    /// `"joined"`. Absent reads as a discard, which is what every caller
+    /// before this field existed was, so an older `tugutil` still works.
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 // (POST /api/plan-review is gone: a review is an ordinary turn the user starts,
@@ -518,6 +523,9 @@ async fn dash_handler(
     // mating is about, and every deck holding a card for it repaints from that
     // name alone.
     let session_id = req.tug_session_id.clone().unwrap_or_default();
+    // Kept out of the moved request for the same reason: the ending's receipt
+    // is worded from it after the blocking half returns.
+    let reason = req.reason.clone();
     let outcome = match tokio::task::spawn_blocking(move || apply_dash_request(&ledger, &req)).await
     {
         Ok(outcome) => outcome,
@@ -557,13 +565,83 @@ async fn dash_handler(
             )
                 .into_response()
         }
-        crate::dash_api::DashApiOutcome::Cleared(cleared) => {
+        crate::dash_api::DashApiOutcome::Cleared { cleared, seated } => {
             if cleared > 0 {
                 registry.changeset_all_bump().notify_one();
+            }
+            // A card whose stage this dash's arc was seated on is told the
+            // dash ended, and gets its model back at that stage's turn end.
+            //
+            // The hand-back is **armed**, never sent: the stage may be
+            // mid-turn, and nothing retires a claude mid-sentence. And no
+            // `arc-stop` is written on this path at all — the ending's own
+            // terminal dash-log line has already closed the arc's generation,
+            // so a line appended after it would become the first line of a
+            // phantom next generation that a dash reusing the name would be
+            // born carrying. The receipt on the card is the whole record,
+            // which is the right outcome for a dash that no longer exists.
+            let gesture = crate::dash_api::DashGoneReason::parse(reason.as_deref());
+            if let Some(conductor) = router.conductor.as_ref() {
+                for stage in &seated {
+                    info!(
+                        dash = %stage.dash_name,
+                        stage = stage.stage.as_str(),
+                        gesture = gesture.as_str(),
+                        "an ending retires a seated stage at its turn's end",
+                    );
+                    crate::feeds::dash_arc_runner::stop_arc_for_session(
+                        supervisor,
+                        conductor,
+                        &tugcast_core::protocol::TugSessionId::new(stage.session_id.clone()),
+                        std::path::Path::new(&stage.project_dir),
+                        &stage.dash_name,
+                        stage.stage,
+                        gesture.stop_reason(),
+                        crate::feeds::dash_arc_runner::StopDelivery {
+                            hand_back: crate::feeds::dash_arc_runner::HandBack::Arm,
+                            record: false,
+                        },
+                    )
+                    .await;
+                }
             }
             (
                 StatusCode::OK,
                 axum::Json(serde_json::json!({ "status": "ok", "cleared": cleared })),
+            )
+                .into_response()
+        }
+        crate::dash_api::DashApiOutcome::ArcStopped {
+            dash,
+            stage,
+            session_id,
+            project_dir,
+        } => {
+            let Some(conductor) = router.conductor.as_ref() else {
+                return err(StatusCode::SERVICE_UNAVAILABLE, "no conductor");
+            };
+            crate::feeds::dash_arc_runner::stop_arc_for_session(
+                supervisor,
+                conductor,
+                &tugcast_core::protocol::TugSessionId::new(session_id),
+                std::path::Path::new(&project_dir),
+                &dash,
+                stage,
+                tugdash_core::arc::ArcStopReason::StoppedByUser,
+                crate::feeds::dash_arc_runner::StopDelivery {
+                    hand_back: crate::feeds::dash_arc_runner::HandBack::Send,
+                    record: true,
+                },
+            )
+            .await;
+            registry.changeset_all_bump().notify_one();
+            (
+                StatusCode::OK,
+                axum::Json(serde_json::json!({
+                    "status": "ok",
+                    "dash": dash,
+                    "stage": stage.as_str(),
+                })),
             )
                 .into_response()
         }
@@ -635,6 +713,21 @@ fn apply_dash_request(
                 return DashApiOutcome::Error("unbind needs tug_session_id".to_string());
             };
             crate::dash_api::unbind(ledger, session)
+        }
+        // Stop the arc and keep the dash. The blocking half names the stage;
+        // the async half below performs the stop, because it is the half that
+        // holds the supervisor the hand-back and the receipt go through.
+        "arc_stop" => {
+            let (Some(session), Some(project), Some(dash)) = (
+                req.tug_session_id.as_deref(),
+                resolved_project(),
+                req.dash.as_deref(),
+            ) else {
+                return DashApiOutcome::Error(
+                    "arc_stop needs tug_session_id, project_dir, and dash".to_string(),
+                );
+            };
+            crate::dash_api::arc_stop(ledger, &project, session, dash)
         }
         "dash_gone" => {
             let (Some(project), Some(dash_id)) = (resolved_project(), req.dash_id.as_deref())

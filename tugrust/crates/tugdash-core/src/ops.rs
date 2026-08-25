@@ -5472,12 +5472,12 @@ Some context.
         assert_eq!(arc.stage.as_deref(), Some("review"));
         assert!(arc.stopped.is_none() && !arc.done);
 
-        crate::arc::append_arc_stop(&root, "arc-dash", crate::arc::ArcStage::Review, "lint failed")
+        crate::arc::append_arc_stop(&root, "arc-dash", crate::arc::ArcStage::Review, crate::arc::ArcStopReason::Lint)
             .unwrap();
         let stopped = dash_detail_entries_in(&root);
         let entry = stopped.iter().find(|d| d.name == "arc-dash").unwrap();
         let arc = entry.arc.as_ref().expect("a stopped arc still composes");
-        assert_eq!(arc.stopped.as_deref(), Some("lint failed"));
+        assert_eq!(arc.stopped.as_deref(), Some("lint"));
         assert_eq!(arc.stopped_stage.as_deref(), Some("review"));
         assert_eq!(
             entry.stage, "working",

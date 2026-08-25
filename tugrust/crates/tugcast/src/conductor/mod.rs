@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use tugcast_core::protocol::{Frame, TugSessionId};
+use tugdash_core::arc::ArcStopReason;
 
 use crate::feeds::agent_supervisor::{AgentSupervisor, QueuePush, SpawnState, code_input_frame};
 
@@ -187,6 +188,24 @@ impl Refusal {
             Refusal::NoInputTx => "no stdin",
             Refusal::SendFailed => "stdin closed",
             Refusal::ArcRunning => "arc running",
+        }
+    }
+
+    /// The stop this refusal becomes when it ends an arc.
+    ///
+    /// A total mapping rather than a bijection: `UnknownSession` already
+    /// answers "session gone", which is `ArcStopReason::SessionGone`'s word, so
+    /// it maps onto that rather than growing a duplicate.
+    pub fn stop_reason(&self) -> ArcStopReason {
+        match self {
+            Refusal::UnknownSession => ArcStopReason::SessionGone,
+            Refusal::Idle => ArcStopReason::SessionIdle,
+            Refusal::Errored => ArcStopReason::SessionErrored,
+            Refusal::Closed => ArcStopReason::SessionClosed,
+            Refusal::QueueOverflow => ArcStopReason::SpawnQueueFull,
+            Refusal::NoInputTx => ArcStopReason::NoStdin,
+            Refusal::SendFailed => ArcStopReason::StdinClosed,
+            Refusal::ArcRunning => ArcStopReason::ArcRunning,
         }
     }
 }
@@ -543,6 +562,30 @@ mod tests {
     use super::*;
     use crate::feeds::agent_supervisor::{insert_ledger_entry_for_tests, test_minimal_supervisor};
     use tokio::sync::mpsc;
+
+    /// Every refusal the conductor can return becomes a stop the receipt can
+    /// explain. Total, not injective: `UnknownSession` and a session that is
+    /// simply gone say the same thing, and they share the reason that says it.
+    #[test]
+    fn every_conductor_refusal_maps_to_a_stop_reason() {
+        const ALL: &[Refusal] = &[
+            Refusal::UnknownSession,
+            Refusal::Idle,
+            Refusal::Errored,
+            Refusal::Closed,
+            Refusal::QueueOverflow,
+            Refusal::NoInputTx,
+            Refusal::SendFailed,
+            Refusal::ArcRunning,
+        ];
+        for refusal in ALL {
+            assert_eq!(
+                refusal.stop_reason().as_str(),
+                refusal.reason(),
+                "{refusal:?} maps onto a reason that spells itself differently",
+            );
+        }
+    }
 
     fn request(model: Option<&str>) -> RotationRequest {
         RotationRequest::new(
@@ -973,6 +1016,46 @@ mod tests {
                 "{name} is owed no hand-back"
             );
         }
+    }
+
+    /// An ending arms a hand-back rather than sending one, because the stage
+    /// may be mid-turn. This is the mechanism it relies on: the next turn-end
+    /// tick takes the arming and restores the card's own model.
+    #[tokio::test]
+    async fn an_armed_hand_back_fires_on_the_next_turn_end() {
+        let (sup, _register_rx) = test_minimal_supervisor();
+        let tug_id = TugSessionId::new("sess-armed");
+        let entry_arc = insert_ledger_entry_for_tests(&sup, &tug_id).await;
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Spawning;
+            entry.deck_model = Some("sonnet".to_string());
+        }
+        let ctx = ConductorContext {
+            supervisor: Arc::clone(&sup),
+            state: Arc::new(ConductorState::default()),
+            cancel: CancellationToken::new(),
+        };
+
+        ctx.state.arm_hand_back("sess-armed");
+        on_tick(&ctx, "sess-armed").await;
+
+        let frames = {
+            let mut entry = entry_arc.lock().await;
+            let mut out = Vec::new();
+            while let Some(frame) = entry.queue.pop() {
+                out.push(frame);
+            }
+            out
+        };
+        assert_eq!(frames.len(), 1, "the card gets its model back");
+        let parsed: serde_json::Value = serde_json::from_slice(&frames[0].payload).unwrap();
+        assert_eq!(parsed["type"], "model_change");
+        assert_eq!(parsed["model"], "sonnet");
+        assert!(
+            !ctx.state.take_hand_back("sess-armed"),
+            "and the arming is spent, so a later tick restores nothing twice",
+        );
     }
 
     #[test]
