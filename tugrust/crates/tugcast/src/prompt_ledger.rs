@@ -1,9 +1,18 @@
 //! PromptLedger — sqlite-backed persistence for the user's prompt corpus.
 //!
 //! One append-only row per prompt submitted from a Session card's composer,
-//! keyed by `session_id` (the tug session id, stable across `--resume`). The
+//! keyed by the `session_id` that was live when the user pressed send. The
 //! deck's Up-arrow recall reads it back a page at a time; nothing else writes
 //! it, and nothing deletes from it.
+//!
+//! **That key is not stable, and the corpus is read through a lineage.** A
+//! session id rotates — Tug forks one, and Claude Code rotates its own on
+//! resume — so a card that has been relaunched even once is asking under an id
+//! no prompt was ever written against. Reads therefore go through the whole
+//! chain of ids the line of work has answered to (`session_lineage` below,
+//! resolved by `prompt_lineage`), never a bare equality on the live id. Nothing
+//! is re-keyed to compensate: a row records which session actually wrote the
+//! prompt, and that is a fact worth keeping.
 //!
 //! **Machine-global**, beside `changes.db` rather than inside an instance
 //! directory (`tugcore::instance::prompt_history_db_path`): the prompts are
@@ -35,13 +44,13 @@ use tracing::{info, warn};
 use tugbank_core::TugbankClient;
 
 /// Current on-disk schema version, stamped into `PRAGMA user_version`.
-pub const PROMPT_HISTORY_SCHEMA_VERSION: i64 = 1;
+pub const PROMPT_HISTORY_SCHEMA_VERSION: i64 = 2;
 
 /// Registered migrations, each keyed by the on-disk version it upgrades *from*.
 /// Every migration whose `from` is at or above the version found on disk is
-/// applied in order. Empty at v1; a schema change adds an entry here and bumps
+/// applied in order. A schema change adds an entry here and bumps
 /// [`PROMPT_HISTORY_SCHEMA_VERSION`] — never edits the DDL below alone.
-const PROMPT_HISTORY_MIGRATIONS: &[(i64, &str)] = &[];
+const PROMPT_HISTORY_MIGRATIONS: &[(i64, &str)] = &[(1, CREATE_SESSION_LINEAGE_SQL)];
 
 const CREATE_PROMPT_HISTORY_SQL: &str = "
     CREATE TABLE IF NOT EXISTS prompt_history (
@@ -57,6 +66,40 @@ const CREATE_PROMPT_HISTORY_SQL: &str = "
     CREATE INDEX IF NOT EXISTS idx_prompt_history_session
         ON prompt_history(session_id, id);
 ";
+
+/// The corpus's own copy of each line of work's session ids.
+///
+/// It exists because the evidence it is copied from does not last. A session's
+/// lineage lives in `sessions.db` — `forked_from_session_id` and the scanner's
+/// `external_scan_cache.lineage_ancestors` — which is **per-instance** and
+/// evicts rows on age and on cap, while this ledger is machine-global and
+/// never trims. Resolving a chain only at read time therefore works until the
+/// day the per-instance ledger forgets an edge, and then a decade of prompts
+/// goes quietly unreachable with nothing left to reconstruct it from.
+///
+/// So every resolution is written down here as it happens. `depth` counts
+/// outward from the session itself (0 = the session, 1 = its immediate
+/// predecessor), which keeps a later, longer resolution consistent with an
+/// earlier, shorter one — depths are measured from the near end, so they never
+/// renumber. Rows are insert-or-ignore and are never deleted or rewritten:
+/// like the prompts themselves, a recorded lineage is a fact about the past.
+const CREATE_SESSION_LINEAGE_SQL: &str = "
+    CREATE TABLE IF NOT EXISTS session_lineage (
+        session_id   TEXT    NOT NULL,
+        ancestor_id  TEXT    NOT NULL,
+        depth        INTEGER NOT NULL,
+        recorded_at  INTEGER NOT NULL,
+        PRIMARY KEY (session_id, ancestor_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_lineage_depth
+        ON session_lineage(session_id, depth);
+";
+
+/// The `prompt_history` column list, spelled once. The page read names it
+/// twice — inner query and outer re-sort — and a drift between the two is a
+/// column-order bug that types cannot catch.
+const PROMPT_COLUMNS: &str =
+    "id, session_id, route, text, atoms_json, project_path, submitted_at_ms, client_entry_id";
 
 #[derive(Debug, thiserror::Error)]
 pub enum PromptLedgerError {
@@ -118,7 +161,7 @@ impl PromptLedger {
                 &db,
                 "main",
                 corrupt_path,
-                &["prompt_history"],
+                &["prompt_history", "session_lineage"],
                 "prompt-history",
             );
         }
@@ -154,6 +197,7 @@ impl PromptLedger {
             }
         }
         conn.execute_batch(CREATE_PROMPT_HISTORY_SQL)?;
+        conn.execute_batch(CREATE_SESSION_LINEAGE_SQL)?;
         conn.pragma_update(None, "user_version", PROMPT_HISTORY_SCHEMA_VERSION)?;
         Ok(Self {
             db: Mutex::new(conn),
@@ -192,35 +236,60 @@ impl PromptLedger {
         Ok(id)
     }
 
-    /// One keyset page of a session's prompts, newest-backward: rows strictly
-    /// older than `before` (the whole tail when `None`), at most `limit` of
-    /// them, returned **ascending** so the deck can prepend a page as a block.
-    /// The bool is `has_more` — whether older rows remain past this page.
+    /// One keyset page of a line of work's prompts, newest-backward: rows
+    /// strictly older than `before` (the whole tail when `None`), at most
+    /// `limit` of them, returned **ascending** so the deck can prepend a page
+    /// as a block. The bool is `has_more` — whether older rows remain past
+    /// this page.
+    ///
+    /// `session_ids` is the whole lineage, not one id. Every id the line has
+    /// answered to owns some stretch of the corpus, and the page is the union
+    /// read in `id` order — which is chronological across the union for free,
+    /// because `id` is one monotonic sequence over the whole table rather than
+    /// a per-session counter. That is also what keeps the keyset cursor valid:
+    /// `before` means the same thing no matter which ancestor a row sits under.
     ///
     /// Keyset rather than offset because the table grows under the reader: an
     /// `OFFSET` page slides by one every time a prompt is appended mid-scroll,
     /// silently skipping a row.
     pub fn list_page(
         &self,
-        session_id: &str,
+        session_ids: &[String],
         before: Option<i64>,
         limit: usize,
     ) -> Result<(Vec<PromptRow>, bool), PromptLedgerError> {
-        let conn = self.db.lock().expect("prompt ledger mutex");
-        let mut stmt = conn.prepare(
-            "SELECT id, session_id, route, text, atoms_json, project_path, submitted_at_ms, client_entry_id FROM (
-                 SELECT id, session_id, route, text, atoms_json, project_path, submitted_at_ms, client_entry_id
+        if session_ids.is_empty() {
+            return Ok((Vec::new(), false));
+        }
+        // Placeholders for the lineage, then `before` twice over and the limit.
+        let ids = session_ids.len();
+        let placeholders = vec!["?"; ids].join(", ");
+        let sql = format!(
+            "SELECT {PROMPT_COLUMNS} FROM (
+                 SELECT {PROMPT_COLUMNS}
                  FROM prompt_history
-                 WHERE session_id = ?1 AND (?2 IS NULL OR id < ?2)
-                 ORDER BY id DESC LIMIT ?3
+                 WHERE session_id IN ({placeholders})
+                   AND (?{before_slot} IS NULL OR id < ?{before_slot})
+                 ORDER BY id DESC LIMIT ?{limit_slot}
              ) ORDER BY id ASC",
-        )?;
+            before_slot = ids + 1,
+            limit_slot = ids + 2,
+        );
+        let mut args: Vec<rusqlite::types::Value> = session_ids
+            .iter()
+            .map(|id| rusqlite::types::Value::Text(id.clone()))
+            .collect();
+        args.push(match before {
+            Some(id) => rusqlite::types::Value::Integer(id),
+            None => rusqlite::types::Value::Null,
+        });
         // One row past the page is the probe: its existence — not its content —
         // is the answer to "is there more?".
-        let rows = stmt.query_map(
-            params![session_id, before, limit as i64 + 1],
-            prompt_row_from,
-        )?;
+        args.push(rusqlite::types::Value::Integer(limit as i64 + 1));
+
+        let conn = self.db.lock().expect("prompt ledger mutex");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args), prompt_row_from)?;
         let mut fetched = rows.collect::<Result<Vec<_>, _>>()?;
         let has_more = fetched.len() > limit;
         if has_more {
@@ -228,6 +297,94 @@ impl PromptLedger {
             fetched.remove(0);
         }
         Ok((fetched, has_more))
+    }
+
+    /// Write down a resolved chain, oldest ancestor first — the order
+    /// [`resume_lineage_chain`] answers in.
+    ///
+    /// **Every member records its own prefix**, not just the newest one. A
+    /// chain `[A, B, C]` writes A's lineage as `[A]`, B's as `[A, B]`, and C's
+    /// as `[A, B, C]`. That redundancy is what makes the table survive the
+    /// thing it exists for: when the next rotation resolves only as far back as
+    /// B, because the per-instance ledger has evicted everything older, B's own
+    /// recorded prefix still carries A, and the chain reassembles from the
+    /// middle. Recording only under C would leave the corpus one eviction away
+    /// from the same blackout in a new spelling. The cost is a handful of rows
+    /// per chain, against a table that holds one row per id pair.
+    ///
+    /// Depths are counted from each member outward, so a later resolution that
+    /// reaches further back agrees with an earlier, shorter one instead of
+    /// renumbering it. Insert-or-ignore for the same reason: the first answer
+    /// for a pair is kept, and re-recording an unchanged chain writes nothing.
+    ///
+    /// Returns the number of rows newly recorded.
+    ///
+    /// [`resume_lineage_chain`]: crate::session_ledger::SessionLedger::resume_lineage_chain
+    pub fn record_chain(&self, chain: &[String], now_ms: i64) -> Result<usize, PromptLedgerError> {
+        if chain.is_empty() {
+            return Ok(0);
+        }
+        let mut conn = self.db.lock().expect("prompt ledger mutex");
+        // Every read resolves a chain and offers it here, and the answer is
+        // almost always one already on record. Check before opening a write
+        // transaction: this ledger is machine-global and several tugcast
+        // processes share it, so a read path that takes a write lock per page
+        // is contention bought for nothing. Asking about the newest member
+        // settles it, because a chain is only ever recorded whole.
+        let newest = chain.last().expect("non-empty");
+        let recorded: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM session_lineage WHERE session_id = ?1",
+            params![newest],
+            |row| row.get(0),
+        )?;
+        if recorded as usize >= chain.len() {
+            return Ok(0);
+        }
+        let tx = conn.transaction()?;
+        let mut recorded = 0;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO session_lineage (session_id, ancestor_id, depth, recorded_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(session_id, ancestor_id) DO NOTHING",
+            )?;
+            for (i, member) in chain.iter().enumerate() {
+                // `chain[..=i]` runs oldest-first; depth runs from `member`, so
+                // the walk that assigns it is the reverse of the reading order.
+                // The member's own depth-0 row falls out of this, and that row
+                // is what marks the session resolved — without it the startup
+                // backfill would re-resolve every ancestorless session forever.
+                for (depth, ancestor) in chain[..=i].iter().rev().enumerate() {
+                    recorded += stmt.execute(params![member, ancestor, depth as i64, now_ms])?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(recorded)
+    }
+
+    /// The recorded chain for `session_id`, nearest first (index 0 is the
+    /// session itself). Empty when the session has never been resolved.
+    pub fn lineage_of(&self, session_id: &str) -> Result<Vec<String>, PromptLedgerError> {
+        let conn = self.db.lock().expect("prompt ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT ancestor_id FROM session_lineage
+             WHERE session_id = ?1 ORDER BY depth ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Every session id that owns prompts but has no recorded lineage — the
+    /// startup backfill's work list, and empty once it has run.
+    pub fn sessions_missing_lineage(&self) -> Result<Vec<String>, PromptLedgerError> {
+        let conn = self.db.lock().expect("prompt ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT session_id FROM prompt_history
+             WHERE session_id NOT IN (SELECT session_id FROM session_lineage)",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     /// Complete a record whose attachment upload resolved after the prompt was
@@ -463,6 +620,12 @@ mod tests {
         }
     }
 
+    /// A one-session lineage — what a session that has never been forked or
+    /// resumed resolves to, and the shape these row-level tests want.
+    fn only(session_id: &str) -> Vec<String> {
+        vec![session_id.to_string()]
+    }
+
     #[test]
     fn append_assigns_monotonic_ids() {
         let ledger = PromptLedger::open_in_memory().unwrap();
@@ -484,7 +647,7 @@ mod tests {
         let second = ledger.append(&retry).unwrap();
 
         assert_eq!(first, second, "the retry echoes the original id");
-        let (rows, _) = ledger.list_page("s1", None, 50).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 50).unwrap();
         assert_eq!(rows.len(), 1, "no second row");
         assert_eq!(rows[0].text, "prompt 1", "the landed row is untouched");
     }
@@ -497,7 +660,7 @@ mod tests {
         }
         ledger.append(&entry("s2", 9)).unwrap();
 
-        let (rows, has_more) = ledger.list_page("s1", None, 50).unwrap();
+        let (rows, has_more) = ledger.list_page(&only("s1"), None, 50).unwrap();
         assert!(!has_more);
         assert_eq!(
             rows.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
@@ -513,12 +676,12 @@ mod tests {
         }
 
         // A page exactly the size of the remaining tail reports no more.
-        let (all, has_more) = ledger.list_page("s1", None, 10).unwrap();
+        let (all, has_more) = ledger.list_page(&only("s1"), None, 10).unwrap();
         assert_eq!(all.len(), 10);
         assert!(!has_more, "ten rows, page of ten: nothing older remains");
 
         // A short page reports more and hands back the NEWEST rows.
-        let (newest, has_more) = ledger.list_page("s1", None, 4).unwrap();
+        let (newest, has_more) = ledger.list_page(&only("s1"), None, 4).unwrap();
         assert!(has_more);
         assert_eq!(
             newest.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
@@ -532,10 +695,10 @@ mod tests {
         for n in 1..=10 {
             ledger.append(&entry("s1", n)).unwrap();
         }
-        let (newest, _) = ledger.list_page("s1", None, 4).unwrap();
+        let (newest, _) = ledger.list_page(&only("s1"), None, 4).unwrap();
         let oldest_loaded = newest.first().unwrap().id;
 
-        let (older, has_more) = ledger.list_page("s1", Some(oldest_loaded), 4).unwrap();
+        let (older, has_more) = ledger.list_page(&only("s1"), Some(oldest_loaded), 4).unwrap();
         assert!(has_more, "two rows still older than this page");
         assert_eq!(
             older.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
@@ -544,7 +707,7 @@ mod tests {
         );
 
         let (last, has_more) = ledger
-            .list_page("s1", Some(older.first().unwrap().id), 4)
+            .list_page(&only("s1"), Some(older.first().unwrap().id), 4)
             .unwrap();
         assert!(!has_more, "the walk reaches the beginning");
         assert_eq!(
@@ -570,7 +733,7 @@ mod tests {
                 .unwrap()
         );
 
-        let (rows, _) = ledger.list_page("s1", None, 10).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 10).unwrap();
         let atoms = rows[0].atoms.as_array().unwrap();
         assert!(atoms[0].get("path").is_none(), "atom-a is untouched");
         assert_eq!(atoms[1]["path"], "/tmp/draft/b.png");
@@ -587,7 +750,7 @@ mod tests {
         assert!(!ledger.set_atom_path("nope", "atom-a", "/tmp/x").unwrap());
         assert!(!ledger.set_atom_path("s1-1", "atom-z", "/tmp/x").unwrap());
 
-        let (rows, _) = ledger.list_page("s1", None, 10).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 10).unwrap();
         assert!(rows[0].atoms[0].get("path").is_none());
     }
 
@@ -657,12 +820,12 @@ mod tests {
 
         assert_eq!(migrate_prompt_history(&bank, &ledger), 3);
 
-        let (s1, _) = ledger.list_page("s1", None, 50).unwrap();
+        let (s1, _) = ledger.list_page(&only("s1"), None, 50).unwrap();
         assert_eq!(
             s1.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
             ["legacy 1", "legacy 2"],
         );
-        let (s2, _) = ledger.list_page("s2", None, 50).unwrap();
+        let (s2, _) = ledger.list_page(&only("s2"), None, 50).unwrap();
         assert_eq!(s2.len(), 1, "entries land under their own session");
 
         let remaining = bank
@@ -700,7 +863,7 @@ mod tests {
 
         assert_eq!(migrate_prompt_history(&bank, &ledger), 1);
 
-        let (rows, _) = ledger.list_page("s1", None, 10).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 10).unwrap();
         let atom = &rows[0].atoms[0];
         assert_eq!(atom["path"], "/d/uuid.png");
         assert_eq!(atom["label"], "shot.png");
@@ -733,7 +896,7 @@ mod tests {
             serde_json::json!([legacy_entry("s1", 1), legacy_entry("s1", 2)]),
         );
         assert_eq!(migrate_prompt_history(&bank, &ledger), 2);
-        let (rows, _) = ledger.list_page("s1", None, 50).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 50).unwrap();
         assert_eq!(rows.len(), 2, "the re-import added no duplicate rows");
     }
 
@@ -779,7 +942,7 @@ mod tests {
         let ledger = PromptLedger::open_in_memory().unwrap();
 
         assert_eq!(migrate_prompt_history(&bank, &ledger), 1);
-        let (rows, _) = ledger.list_page("s1", None, 10).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 10).unwrap();
         assert_eq!(rows[0].text, "legacy 1");
     }
 

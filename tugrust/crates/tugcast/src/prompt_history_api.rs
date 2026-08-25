@@ -30,6 +30,7 @@ use tracing::warn;
 
 use crate::fs_read::fs_error;
 use crate::prompt_ledger::{NewPromptEntry, PromptLedger};
+use crate::prompt_lineage::{self, LineageSource};
 
 /// Rows per page when the caller names no limit — the composer's initial window.
 pub(crate) const DEFAULT_PAGE_LIMIT: usize = 200;
@@ -82,10 +83,19 @@ pub(crate) fn clamp_limit(limit: Option<usize>) -> usize {
 /// A duplicate `client_entry_id` is a success carrying the existing id, not a
 /// conflict: the client retries an append it could not confirm, and the whole
 /// point of the id is that the retry is harmless.
-fn append_prompt(ledger: &PromptLedger, body: AppendBody) -> (StatusCode, Value) {
+fn append_prompt(
+    ledger: &PromptLedger,
+    lineage: &LineageSource,
+    body: AppendBody,
+) -> (StatusCode, Value) {
     if !body.atoms.is_array() {
         return fs_error(StatusCode::BAD_REQUEST, "bad_request");
     }
+    // Resolve on the way in as well as on the way out. A card that is appending
+    // is a card whose session ledger is live and current, which makes this the
+    // best moment there will ever be to copy its lineage into the corpus — the
+    // recall that needs it may not come until after the evidence is gone.
+    prompt_lineage::chain_for(lineage, ledger, &body.session_id);
     let entry = NewPromptEntry {
         session_id: body.session_id,
         route: body.route,
@@ -106,9 +116,18 @@ fn append_prompt(ledger: &PromptLedger, body: AppendBody) -> (StatusCode, Value)
 
 /// One keyset page of a session's prompts, oldest-first, with `has_more` saying
 /// whether older rows remain and `before` echoed back for the caller's cursor.
-fn page_prompts(ledger: &PromptLedger, query: PageQuery) -> (StatusCode, Value) {
+///
+/// `session` names the id the card is live under; the page spans that id's
+/// whole lineage, because a relaunched card asks under an id no prompt was
+/// written against (see `prompt_lineage`).
+fn page_prompts(
+    ledger: &PromptLedger,
+    lineage: &LineageSource,
+    query: PageQuery,
+) -> (StatusCode, Value) {
     let limit = clamp_limit(query.limit);
-    match ledger.list_page(&query.session, query.before, limit) {
+    let chain = prompt_lineage::chain_for(lineage, ledger, &query.session);
+    match ledger.list_page(&chain, query.before, limit) {
         Ok((entries, has_more)) => (
             StatusCode::OK,
             json!({
@@ -183,6 +202,7 @@ fn finish(result: Result<(StatusCode, Value), tokio::task::JoinError>) -> Respon
 pub(crate) async fn post_prompt_history(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Extension(ledger): Extension<Arc<PromptLedger>>,
+    Extension(lineage): Extension<LineageSource>,
     bytes: Bytes,
 ) -> Response {
     if let Some(denied) = deny_non_loopback(&addr, "post_prompt_history") {
@@ -192,19 +212,20 @@ pub(crate) async fn post_prompt_history(
         Ok(body) => body,
         Err(response) => return *response,
     };
-    finish(tokio::task::spawn_blocking(move || append_prompt(&ledger, body)).await)
+    finish(tokio::task::spawn_blocking(move || append_prompt(&ledger, &lineage, body)).await)
 }
 
 /// Handle `GET /api/prompt-history`. Restricted to loopback.
 pub(crate) async fn get_prompt_history(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Extension(ledger): Extension<Arc<PromptLedger>>,
+    Extension(lineage): Extension<LineageSource>,
     Query(query): Query<PageQuery>,
 ) -> Response {
     if let Some(denied) = deny_non_loopback(&addr, "get_prompt_history") {
         return denied;
     }
-    finish(tokio::task::spawn_blocking(move || page_prompts(&ledger, query)).await)
+    finish(tokio::task::spawn_blocking(move || page_prompts(&ledger, &lineage, query)).await)
 }
 
 /// Handle `POST /api/prompt-history/atom-path`. Restricted to loopback.
@@ -233,6 +254,17 @@ mod tests {
         PromptLedger::open_in_memory().unwrap()
     }
 
+    /// These tests drive the body-to-row seam, not lineage resolution — that
+    /// is `prompt_lineage`'s own suite. With no session ledger the chain is
+    /// the id as given, which is exactly the shape these assertions want.
+    fn no_lineage() -> LineageSource {
+        LineageSource::new(None)
+    }
+
+    fn only(session_id: &str) -> Vec<String> {
+        vec![session_id.to_string()]
+    }
+
     fn append_body(n: usize) -> AppendBody {
         serde_json::from_value(json!({
             "session_id": "s1",
@@ -249,11 +281,11 @@ mod tests {
     #[test]
     fn append_maps_the_body_onto_a_row_and_answers_with_its_id() {
         let ledger = ledger();
-        let (status, body) = append_prompt(&ledger, append_body(1));
+        let (status, body) = append_prompt(&ledger, &no_lineage(), append_body(1));
         assert_eq!(status, StatusCode::OK);
         let id = body["id"].as_i64().unwrap();
 
-        let (rows, _) = ledger.list_page("s1", None, 10).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, id);
         assert_eq!(rows[0].text, "prompt 1");
@@ -264,11 +296,11 @@ mod tests {
     #[test]
     fn a_duplicate_append_echoes_the_original_id_rather_than_conflicting() {
         let ledger = ledger();
-        let (_, first) = append_prompt(&ledger, append_body(1));
-        let (status, second) = append_prompt(&ledger, append_body(1));
+        let (_, first) = append_prompt(&ledger, &no_lineage(), append_body(1));
+        let (status, second) = append_prompt(&ledger, &no_lineage(), append_body(1));
         assert_eq!(status, StatusCode::OK);
         assert_eq!(first["id"], second["id"]);
-        let (rows, _) = ledger.list_page("s1", None, 10).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 10).unwrap();
         assert_eq!(rows.len(), 1, "the retry inserted nothing");
     }
 
@@ -285,10 +317,10 @@ mod tests {
             "client_entry_id": "s1-1",
         }))
         .unwrap();
-        let (status, err) = append_prompt(&ledger, body);
+        let (status, err) = append_prompt(&ledger, &no_lineage(), body);
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(err["error"], "bad_request");
-        let (rows, _) = ledger.list_page("s1", None, 10).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 10).unwrap();
         assert!(rows.is_empty());
     }
 
@@ -304,11 +336,12 @@ mod tests {
     fn a_page_read_maps_the_cursor_and_reports_more() {
         let ledger = ledger();
         for n in 1..=5 {
-            append_prompt(&ledger, append_body(n));
+            append_prompt(&ledger, &no_lineage(), append_body(n));
         }
 
         let (status, body) = page_prompts(
             &ledger,
+            &no_lineage(),
             serde_json::from_value(json!({"session": "s1", "limit": 2})).unwrap(),
         );
         assert_eq!(status, StatusCode::OK);
@@ -324,6 +357,7 @@ mod tests {
         let cursor = entries[0]["id"].as_i64().unwrap();
         let (_, older) = page_prompts(
             &ledger,
+            &no_lineage(),
             serde_json::from_value(json!({"session": "s1", "before": cursor, "limit": 2})).unwrap(),
         );
         assert_eq!(older["before"], cursor);
@@ -337,6 +371,7 @@ mod tests {
         let ledger = ledger();
         let (status, body) = page_prompts(
             &ledger,
+            &no_lineage(),
             serde_json::from_value(json!({"session": "never-was"})).unwrap(),
         );
         assert_eq!(status, StatusCode::OK);
@@ -356,10 +391,11 @@ mod tests {
     fn an_out_of_range_limit_still_serves_a_page() {
         let ledger = ledger();
         for n in 1..=3 {
-            append_prompt(&ledger, append_body(n));
+            append_prompt(&ledger, &no_lineage(), append_body(n));
         }
         let (status, body) = page_prompts(
             &ledger,
+            &no_lineage(),
             serde_json::from_value(json!({"session": "s1", "limit": 0})).unwrap(),
         );
         assert_eq!(status, StatusCode::OK);
@@ -380,7 +416,7 @@ mod tests {
             "client_entry_id": "s1-1",
         }))
         .unwrap();
-        append_prompt(&ledger, body);
+        append_prompt(&ledger, &no_lineage(), body);
 
         let patch: AtomPathBody = serde_json::from_value(json!({
             "client_entry_id": "s1-1",
@@ -392,7 +428,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(answer["ok"], true);
 
-        let (rows, _) = ledger.list_page("s1", None, 10).unwrap();
+        let (rows, _) = ledger.list_page(&only("s1"), None, 10).unwrap();
         assert_eq!(rows[0].atoms[0]["path"], "/tmp/draft/uuid.png");
 
         // A patch for an atom that is not there is a settled `false`, not an

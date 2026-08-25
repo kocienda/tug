@@ -1344,8 +1344,13 @@ async fn test_jots_put_refuses_to_clobber_corrupt_file() {
 /// Build a test app wired to an in-memory prompt ledger, reachable from
 /// `client_ip`. The ledger comes back alongside the router so a test can read
 /// the rows the routes wrote without going through the routes again.
+///
+/// `sessions` is the lineage evidence the routes resolve a read through. A
+/// test that only cares about row shape passes an empty ledger and gets the
+/// one-session chain; a test about relaunch seeds fork edges into it first.
 fn build_prompt_history_test_app(
     client_ip: IpAddr,
+    sessions: Arc<crate::session_ledger::SessionLedger>,
 ) -> (axum::Router, Arc<crate::prompt_ledger::PromptLedger>) {
     use axum::extract::connect_info::MockConnectInfo;
 
@@ -1373,13 +1378,30 @@ fn build_prompt_history_test_app(
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
 
-    let app = build_app(feed_router, dev_state, None, None, Some(ledger.clone()));
+    let app = build_app(
+        feed_router,
+        dev_state,
+        None,
+        None,
+        Some(crate::server::PromptHistoryDeps {
+            ledger: ledger.clone(),
+            sessions: Some(sessions),
+        }),
+    );
     let addr = SocketAddr::new(client_ip, 0);
     (app.layer(MockConnectInfo(addr)), ledger)
 }
 
 fn loopback_prompt_history_app() -> (axum::Router, Arc<crate::prompt_ledger::PromptLedger>) {
-    build_prompt_history_test_app(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
+    loopback_prompt_history_app_with(Arc::new(
+        crate::session_ledger::SessionLedger::open_in_memory().expect("session ledger"),
+    ))
+}
+
+fn loopback_prompt_history_app_with(
+    sessions: Arc<crate::session_ledger::SessionLedger>,
+) -> (axum::Router, Arc<crate::prompt_ledger::PromptLedger>) {
+    build_prompt_history_test_app(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), sessions)
 }
 
 fn append_request(client_entry_id: &str, text: &str) -> Request<Body> {
@@ -1413,7 +1435,7 @@ async fn test_prompt_history_append_returns_the_row_id() {
     let json = json_body(resp).await;
     let id = json["id"].as_i64().expect("an id");
 
-    let (rows, has_more) = ledger.list_page("sess-1", None, 10).unwrap();
+    let (rows, has_more) = ledger.list_page(&["sess-1".to_string()], None, 10).unwrap();
     assert!(!has_more);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].id, id);
@@ -1501,7 +1523,7 @@ async fn test_prompt_history_append_is_idempotent_on_client_entry_id() {
     let second = json_body(resp).await;
 
     assert_eq!(first["id"], second["id"]);
-    let (rows, _) = ledger.list_page("sess-1", None, 10).unwrap();
+    let (rows, _) = ledger.list_page(&["sess-1".to_string()], None, 10).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].text, "once", "the landed row is not rewritten");
 }
@@ -1553,7 +1575,7 @@ async fn test_prompt_history_atom_path_completes_the_row() {
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(json_body(resp).await["ok"], true);
 
-    let (rows, _) = ledger.list_page("sess-1", None, 10).unwrap();
+    let (rows, _) = ledger.list_page(&["sess-1".to_string()], None, 10).unwrap();
     assert_eq!(rows[0].atoms[0]["path"], "/tmp/draft-attachments/uuid.png");
 }
 
@@ -1574,14 +1596,17 @@ async fn test_prompt_history_append_rejects_a_malformed_body() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    let (rows, _) = ledger.list_page("sess-1", None, 10).unwrap();
+    let (rows, _) = ledger.list_page(&["sess-1".to_string()], None, 10).unwrap();
     assert!(rows.is_empty());
 }
 
 /// The prompt corpus is loopback-only, like every other local storage route.
 #[tokio::test]
 async fn test_prompt_history_refuses_a_non_loopback_client() {
-    let (app, ledger) = build_prompt_history_test_app(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
+    let (app, ledger) = build_prompt_history_test_app(
+        IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)),
+        Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("session ledger")),
+    );
 
     let resp = app
         .clone()
@@ -1602,8 +1627,67 @@ async fn test_prompt_history_refuses_a_non_loopback_client() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 
-    let (rows, _) = ledger.list_page("sess-1", None, 10).unwrap();
+    let (rows, _) = ledger.list_page(&["sess-1".to_string()], None, 10).unwrap();
     assert!(rows.is_empty());
+}
+
+/// The relaunch bug, end to end through the real router: prompts submitted
+/// under one session id must still page after the id rotates.
+///
+/// This is the shape that shipped broken. A card writes its corpus under
+/// `sess-1`; the app restarts and the card comes back live under `sess-2`,
+/// forked from `sess-1`; the composer asks for its history under `sess-2` and
+/// used to get an empty page, because the read was a bare equality on an id
+/// nothing had ever been written against.
+#[tokio::test]
+async fn test_prompt_history_pages_across_a_rotated_session_id() {
+    let sessions = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("l"));
+    sessions
+        .record_spawn("sess-1", "ws", "/proj", "card-1", 1, None)
+        .unwrap();
+    let (app, _ledger) = loopback_prompt_history_app_with(Arc::clone(&sessions));
+
+    for n in 1..=3 {
+        let resp = app
+            .clone()
+            .oneshot(append_request(&format!("e{n}"), &format!("prompt {n}")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // The relaunch: a fresh id, forked from the one that owns the prompts.
+    sessions
+        .record_spawn("sess-2", "ws", "/proj", "card-1", 2, Some("juicy-roach"))
+        .unwrap();
+    sessions
+        .set_fork_provenance("sess-2", "sess-1", None)
+        .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/prompt-history?session=sess-2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = json_body(resp).await;
+    let texts: Vec<&str> = json["entries"]
+        .as_array()
+        .expect("entries")
+        .iter()
+        .map(|entry| entry["text"].as_str().expect("text"))
+        .collect();
+    assert_eq!(
+        texts,
+        vec!["prompt 1", "prompt 2", "prompt 3"],
+        "the rotated session reads the corpus its predecessor wrote"
+    );
+    assert_eq!(json["has_more"], false);
 }
 
 /// With no ledger the routes are absent rather than panicking on a missing

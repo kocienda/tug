@@ -4094,6 +4094,44 @@ impl SessionLedger {
         chain
     }
 
+    /// Every session id a line of work has ever answered to, oldest first and
+    /// `session_id` last — the fork edges *and* the resume rotations.
+    ///
+    /// [`Self::lineage_chain`] walks `forked_from_session_id`, which this
+    /// ledger writes when **Tug** forks a session. That is the smaller half of
+    /// the story. When Claude Code resumes a session it rotates the id on its
+    /// own and copies the transcript forward, leaving no edge here at all; the
+    /// only record is the ancestor ids embedded in the copied JSONL, which the
+    /// external scanner parks in `external_scan_cache.lineage_ancestors`. A
+    /// corpus keyed by session id and read through one source alone therefore
+    /// goes blank after the first relaunch, which is exactly what it did.
+    ///
+    /// Total by construction, like both walks it composes: a missing cache
+    /// row, an unparseable column, or a query error contributes nothing, and
+    /// the answer always contains `session_id` itself.
+    pub fn resume_lineage_chain(&self, session_id: &str) -> Vec<String> {
+        // Taken first, and with the lock released, because it locks the same
+        // mutex this function goes on to hold.
+        let forks = self.lineage_chain(session_id);
+
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut chain: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for id in forks {
+            // A fork's own resume ancestors are older than the fork itself, so
+            // they go in ahead of it and the whole chain stays in age order.
+            for ancestor in resume_ancestors(&conn, &id) {
+                if seen.insert(ancestor.clone()) {
+                    chain.push(ancestor);
+                }
+            }
+            if seen.insert(id.clone()) {
+                chain.push(id);
+            }
+        }
+        chain
+    }
+
     /// Record an auto-generated `aiTitle` for a session, live.
     ///
     /// Writes `name` **only** when `name_user_set = 0` — a `/rename` is the
@@ -7173,6 +7211,44 @@ fn scan_cache_row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScanCa
         lineage_ancestors: row.get(19)?,
         tag: row.get(20)?,
     })
+}
+
+/// The ids a resumed session's transcript names as its own earlier lives,
+/// oldest first, as the external scanner stored them.
+///
+/// The column is a comma-joined list written by `external_sessions`, and the
+/// session's own id is never in it. Read on a best-effort footing: a session
+/// the scanner has not reached yet simply has no ancestors to report.
+fn resume_ancestors(conn: &Connection, session_id: &str) -> Vec<String> {
+    let stored: Option<String> = match conn
+        .query_row(
+            "SELECT lineage_ancestors FROM external_scan_cache WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()
+    {
+        Ok(stored) => stored.flatten(),
+        Err(err) => {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %err,
+                "resume ancestors unreadable; treating the session as having none"
+            );
+            None
+        }
+    };
+    stored
+        .into_iter()
+        .flat_map(|column| {
+            column
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 fn row_from_query(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<SessionRow, LedgerError>> {

@@ -1401,7 +1401,23 @@ fn broadcast_ask_rescind(router: &FeedRouter, request_id: &str) {
 /// a client. The client is created externally (in `main.rs`) so that migration
 /// can share the same connection before the server starts accepting connections.
 ///
-/// `prompt_ledger` follows the same pattern: `None` leaves the prompt-history
+/// What the prompt-history routes need, in one value because it is two
+/// databases with different lifetimes and the pairing is the load-bearing part.
+///
+/// `ledger` is machine-global and never trims; `sessions` is per-instance and
+/// evicts. The corpus is keyed by a session id that rotates on every relaunch,
+/// so a read has to resolve the id through the session ledger's fork and resume
+/// edges — and record what it resolved, because the evicting half is the only
+/// one that can still learn. Handing the routes the ledger alone is what made a
+/// relaunched card come back with no history at all.
+pub(crate) struct PromptHistoryDeps {
+    pub ledger: Arc<crate::prompt_ledger::PromptLedger>,
+    /// `None` when the session ledger did not open: reads fall back to the
+    /// lineage already recorded in the corpus, which is degraded, not blank.
+    pub sessions: Option<Arc<crate::session_ledger::SessionLedger>>,
+}
+
+/// `prompt_history` follows the same pattern: `None` leaves the prompt-history
 /// routes unregistered rather than registering handlers that would panic on a
 /// missing `Extension`. A composer talking to a build whose ledger failed to
 /// open therefore gets a 404 it can report, not a hang.
@@ -1410,7 +1426,7 @@ pub(crate) fn build_app(
     _dev_state: SharedDevState,
     bank_store: Option<Arc<TugbankClient>>,
     jots_state: Option<Arc<crate::jots::JotsState>>,
-    prompt_ledger: Option<Arc<crate::prompt_ledger::PromptLedger>>,
+    prompt_history: Option<PromptHistoryDeps>,
 ) -> Router {
     // Allow any origin on localhost — tugcast only binds to loopback.
     // This prevents WKWebView CORS errors during page teardown (keepalive
@@ -1505,7 +1521,7 @@ pub(crate) fn build_app(
     }
 
     // Wire the prompt-history routes when the ledger opened.
-    if let Some(ledger) = prompt_ledger {
+    if let Some(deps) = prompt_history {
         base = base
             .route(
                 "/api/prompt-history",
@@ -1516,7 +1532,10 @@ pub(crate) fn build_app(
                 "/api/prompt-history/atom-path",
                 post(crate::prompt_history_api::post_prompt_history_atom_path),
             )
-            .layer(Extension(ledger));
+            .layer(Extension(deps.ledger))
+            .layer(Extension(crate::prompt_lineage::LineageSource::new(
+                deps.sessions,
+            )));
     }
 
     let dist_path = crate::resources::source_tree().join("tugdeck").join("dist");
@@ -1547,9 +1566,9 @@ pub async fn run_server(
     dev_state: SharedDevState,
     bank_store: Option<Arc<TugbankClient>>,
     jots_state: Option<Arc<crate::jots::JotsState>>,
-    prompt_ledger: Option<Arc<crate::prompt_ledger::PromptLedger>>,
+    prompt_history: Option<PromptHistoryDeps>,
 ) -> Result<(), std::io::Error> {
-    let app = build_app(router, dev_state, bank_store, jots_state, prompt_ledger);
+    let app = build_app(router, dev_state, bank_store, jots_state, prompt_history);
 
     axum::serve(
         listener,

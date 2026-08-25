@@ -32,6 +32,7 @@ mod path_resolver;
 mod permissions;
 mod prompt_history_api;
 mod prompt_ledger;
+mod prompt_lineage;
 mod refs_ledger;
 mod resources;
 mod router;
@@ -641,6 +642,22 @@ async fn main() {
     if let (Some(bank), Some(pl)) = (bank_client.as_ref(), prompt_ledger.as_ref()) {
         // The migration logs its own count; nothing to report here.
         prompt_ledger::migrate_prompt_history(bank, pl);
+    }
+
+    // Copy each prompt-owning session's lineage into the corpus while the
+    // session ledger can still supply it. This is a race against eviction, not
+    // a repair: `sessions.db` is per-instance and drops rows on age and cap,
+    // and an ancestry nobody recorded before it goes is not reconstructible
+    // afterwards — the prompts stay on disk and become unreachable, which is
+    // how a relaunched card came back blank in the first place. Runs after the
+    // tugbank migration so imported rows are in the work list, and in the
+    // background because a large corpus must never delay serving.
+    if let Some(pl) = prompt_ledger.as_ref() {
+        let backfill_sessions = Arc::clone(&ledger);
+        let backfill_prompts = Arc::clone(pl);
+        tokio::task::spawn_blocking(move || {
+            prompt_lineage::backfill_at_startup(&backfill_sessions, &backfill_prompts);
+        });
     }
 
     // Startup hygiene: reclaim composer attachments nothing references any
@@ -2077,7 +2094,10 @@ async fn main() {
         shared_dev_state,
         bank_client,
         jots_state,
-        prompt_ledger,
+        prompt_ledger.map(|prompts| server::PromptHistoryDeps {
+            ledger: prompts,
+            sessions: Some(Arc::clone(&ledger)),
+        }),
     );
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
