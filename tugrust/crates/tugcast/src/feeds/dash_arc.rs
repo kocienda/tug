@@ -184,6 +184,21 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         return None;
     }
 
+    // A resume names the stage to rotate again and outranks the document
+    // facts: the documents still say what they said when the arc stopped, and
+    // the user has asked for the stopped stage back ([P11]). The verb runs
+    // from inside the asking session's own turn, so the idle check above is
+    // what places this rotation at that turn's end ([P05]).
+    if let Some(stage) = record.resume {
+        return Some(ArcAction::Rotate(Rotation {
+            stage,
+            steps: (stage == ArcStage::Implement)
+                .then(|| facts.ledger.first_pending.zip(facts.ledger.run_through))
+                .flatten(),
+            note: None,
+        }));
+    }
+
     // A recorded stage that is not the one running is a stage that died —
     // a restart, or a crash that never sent a turn end. Re-rotate that stage,
     // never an earlier one ([P11]); the runner's in-flight guard is what keeps
@@ -308,6 +323,7 @@ mod tests {
                 .collect(),
             notes: Vec::new(),
             stopped: None,
+            resume: None,
             done: false,
             last_activity: Some("2026-08-24T00:00:00Z".to_string()),
         }
@@ -548,6 +564,40 @@ mod tests {
         let mut record = record(&[ArcStage::Devise]);
         record.stopped = Some((ArcStage::Devise, "lint".to_string()));
         assert_eq!(arc_action(&record, &facts()), None);
+    }
+
+    #[test]
+    fn a_resumed_arc_rotates_the_stage_it_stopped_in() {
+        // A refused rotation out of devise stops *in review* — the stage it
+        // was trying to reach — so that is the stage a resume asks for, not
+        // the last one recorded.
+        let mut record = record(&[ArcStage::Devise]);
+        record.resume = Some(ArcStage::Review);
+        let mut facts = facts();
+        facts.lint_ok = false;
+        assert_eq!(
+            rotation(arc_action(&record, &facts)).stage,
+            ArcStage::Review,
+            "the resume outranks what the documents would have decided"
+        );
+    }
+
+    #[test]
+    fn a_resumed_implement_stage_carries_its_step_range() {
+        let mut record = record(&[ArcStage::Implement]);
+        record.resume = Some(ArcStage::Implement);
+        let rotation = rotation(arc_action(&record, &implementing(None, false)));
+        assert_eq!(rotation.stage, ArcStage::Implement);
+        assert_eq!(rotation.steps, Some((4, 9)));
+    }
+
+    #[test]
+    fn a_resume_waits_for_the_asking_turn_to_end() {
+        let mut record = record(&[ArcStage::Devise]);
+        record.resume = Some(ArcStage::Devise);
+        let mut facts = facts();
+        facts.session_idle = false;
+        assert_eq!(arc_action(&record, &facts), None);
     }
 
     #[test]

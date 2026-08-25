@@ -974,7 +974,12 @@ fn replay_lineage(
     if chain.len() < 2 {
         return None;
     }
-    let dash = recorder.dash_name_for(claude_session_id)?;
+    // The binding lives on the card's own row — the tug session id the deck
+    // spawned with, which is the chain's oldest entry. A stage row never
+    // carries it: a rotation's `session_init` records a fresh row, and only
+    // `dash bind` / `dash run` ever write a binding — so asking the head alone
+    // would find nothing on every arc that has rotated once.
+    let dash = chain.iter().find_map(|id| recorder.dash_name_for(id))?;
     let record = tugdash_core::arc::read_arc(project_dir, &dash)?;
     let entries: Vec<serde_json::Value> = chain
         .iter()
@@ -18137,10 +18142,14 @@ mod tests {
             ledger
                 .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, None)
                 .expect("record_spawn");
-            ledger
-                .set_dash_binding(id, Some(("dash-id", dash)))
-                .expect("dash binding");
         }
+        // Only the conversation's row carries the binding: it is the tug
+        // session id the deck spawned with and the one `dash run` bound. The
+        // stage rows are fresh spawns and carry none, exactly as production
+        // leaves them.
+        ledger
+            .set_dash_binding("s-conv", Some(("dash-id", dash)))
+            .expect("dash binding");
         for pair in ids.windows(2) {
             // A stage descends from its parent with no branch point ([P03]).
             ledger

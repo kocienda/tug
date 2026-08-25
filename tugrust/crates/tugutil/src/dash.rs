@@ -897,7 +897,7 @@ fn open_arc(
         // the record is the arc's identity, so writing another `arc-start`
         // would make one arc read as two.
         (Some(document), Some(arc)) if arc.document.as_deref() == Some(document) => {
-            Ok((false, arc.stopped.is_some(), arc))
+            resume_arc(root, dash, arc)
         }
         (Some(document), Some(arc)) => Err(format!(
             "dash '{dash}' already has an arc on {} — finish or stop that one before opening an \
@@ -910,12 +910,30 @@ fn open_arc(
                 .ok_or_else(|| format!("wrote the arc for '{dash}' but could not read it back"))?;
             Ok((true, false, arc))
         }
-        (None, Some(arc)) => Ok((false, arc.stopped.is_some(), arc)),
+        (None, Some(arc)) => resume_arc(root, dash, arc),
         (None, None) => Err(format!(
             "dash '{dash}' has no arc to resume — open one with `tugutil dash run {dash} \
              --document <path>`"
         )),
     }
+}
+
+/// Pick a stopped arc back up: write `arc-resume` naming the stage it stopped
+/// in, which clears the stop and tells the runner which stage to rotate again
+/// on the calling session's next idle ([P11]). An arc that is not stopped is
+/// left as it is — its record is already what the runner reads.
+fn resume_arc(
+    root: &std::path::Path,
+    dash: &str,
+    arc: ArcRecord,
+) -> Result<(bool, bool, ArcRecord), String> {
+    let Some((stage, _)) = arc.stopped else {
+        return Ok((false, false, arc));
+    };
+    tugdash_core::append_arc_resume(root, dash, stage).map_err(|e| e.to_string())?;
+    let arc = tugdash_core::read_arc(root, dash)
+        .ok_or_else(|| format!("resumed the arc for '{dash}' but could not read it back"))?;
+    Ok((false, true, arc))
 }
 
 /// Hand a document to the arc (Spec S06).
@@ -970,9 +988,8 @@ fn run_arc_run(
             (false, true) => println!(
                 "Arc on '{}' is stopped in {} — resuming",
                 name,
-                arc.stopped
-                    .as_ref()
-                    .map(|(stage, _)| stage.as_str())
+                arc.resume
+                    .map(|stage| stage.as_str())
                     .unwrap_or("an unrecorded stage")
             ),
             (false, false) => println!("Arc on '{}' is already open", name),
@@ -1618,7 +1635,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn resuming_a_stopped_arc_writes_nothing_and_reads_as_resumed() {
+    fn resuming_a_stopped_arc_writes_the_resume_and_clears_the_stop() {
         let fixture = arc_fixture();
         fixture.write_log(&format!(
             "{}{}",
@@ -1629,11 +1646,24 @@ mod tests {
         let (started, resumed, arc) = open_arc(fixture.root(), "demo", None).expect("resumed");
         assert!(!started);
         assert!(resumed);
+        assert_eq!(arc.stopped, None, "the stop is cleared");
         assert_eq!(
-            arc.stopped,
-            Some((tugdash_core::ArcStage::Review, "lint failed".to_owned()))
+            arc.resume,
+            Some(tugdash_core::ArcStage::Review),
+            "and the stage it stopped in is the one to rotate again"
         );
-        assert_eq!(fixture.log_lines().len(), before, "a resume writes nothing");
+        assert_eq!(
+            fixture.log_lines().len(),
+            before + 1,
+            "one `arc-resume` line"
+        );
+
+        // An arc that is not stopped has nothing to resume, and a second run
+        // on it writes nothing.
+        let after = fixture.log_lines().len();
+        let (_, resumed, _) = open_arc(fixture.root(), "demo", None).expect("still open");
+        assert!(!resumed);
+        assert_eq!(fixture.log_lines().len(), after);
     }
 
     #[test]

@@ -77,6 +77,10 @@ pub struct ArcRecord {
     /// The stage the arc stopped in and why ([P11]). Cleared by the next
     /// rotation, because resuming a stopped arc *is* rotating it again.
     pub stopped: Option<(ArcStage, String)>,
+    /// The stage a resume asked to rotate again ([P11]). Written by
+    /// `tugutil dash run` on a stopped arc, and cleared by the next
+    /// `arc-stage` line — the rotation it asked for.
+    pub resume: Option<ArcStage>,
     pub done: bool,
     /// The newest surviving arc line's timestamp.
     pub last_activity: Option<String>,
@@ -129,6 +133,7 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
             stages: Vec::new(),
             notes: Vec::new(),
             stopped: None,
+            resume: None,
             done: false,
             last_activity: None,
         });
@@ -140,12 +145,19 @@ pub fn read_arc(repo_root: &Path, dash: &str) -> Option<ArcRecord> {
             "arc-stage" => {
                 if let Some(stage) = read_stage_line(note, timestamp) {
                     record.stopped = None;
+                    record.resume = None;
                     record.stages.push(stage);
                 }
             }
             "arc-stop" => {
                 if let Some((stage, reason)) = read_stop_line(note) {
                     record.stopped = Some((stage, reason));
+                }
+            }
+            "arc-resume" => {
+                if let Some(stage) = ArcStage::parse(note.trim()) {
+                    record.stopped = None;
+                    record.resume = Some(stage);
                 }
             }
             "arc-done" => record.done = true,
@@ -223,6 +235,13 @@ pub fn append_arc_stop(
 ) -> Result<(), TugError> {
     let note = format!("{} {}", stage.as_str(), reason.trim());
     append_dash_log(repo_root, dash, "arc-stop", note.trim())
+}
+
+/// Append `arc-resume` — a stopped arc was picked back up, and `stage` is the
+/// one to rotate again ([P11]). Clears the stop; the rotation it asks for
+/// clears it in turn.
+pub fn append_arc_resume(repo_root: &Path, dash: &str, stage: ArcStage) -> Result<(), TugError> {
+    append_dash_log(repo_root, dash, "arc-resume", stage.as_str())
 }
 
 /// Append `arc-done` — the arc reached its terminal state ([P12]).
@@ -475,6 +494,17 @@ mod tests {
             Some((ArcStage::Review, "plan still stale".to_owned()))
         );
         assert!(!arc.done);
+
+        // A resume clears the stop and names the stage to rotate again; the
+        // rotation it asks for clears the resume.
+        append_arc_resume(root, "d", ArcStage::Review).expect("resume");
+        let arc = read_arc(root, "d").expect("arc");
+        assert_eq!(arc.stopped, None);
+        assert_eq!(arc.resume, Some(ArcStage::Review));
+        append_arc_stage(root, "d", ArcStage::Review, "sess-3", None).expect("review again");
+        let arc = read_arc(root, "d").expect("arc");
+        assert_eq!(arc.resume, None);
+        assert_eq!(arc.stages.len(), 3);
 
         append_arc_done(root, "d").expect("done");
         assert!(read_arc(root, "d").expect("arc").done);

@@ -1,12 +1,27 @@
 `Steps 4-6`, `7-9`, `10-12`, `13-15`
 
+OK. I slept on this `streamline-dash-workflow` idea, and the more I think about it, the more I find it fascinating. The *indirection-by-construction* aspect of Tug sessions, whereby we mediate the flow of content and data through `tugcode/tugcast` as a supervening/supervisory layer on top of `claude` sessions, gives them a power and flexibility that Claude Code sessions in the terminal simply cannot achieve. This feature has been in the codeboase for months, but tapping into this potential to create, control, and manage multiple `claude` sessions in the pursuit of a higher-level user goal—like a dash—feels like a capability we should be using more to better advantage.
 
-What happens when I'm in the middle of a dash and I do something to interrupt the complex, interlocking multi-operation procedure of the dash? How do I get the work back on track, say, after I: pause the work to ask a question in that session; use the session for some other little side task; relaunch the app; etc.? Can we support this somehow? What if I want to discard the dash... how do I do that? What if I (inadvisably it seems to me) try to kick off a second dash in a session that's already running one? In all these cases, we need a set of policies and procedures for giving the user properly excellent feedback about what their options are and how we act on the thing that they commmunicate they want. We *can't* leave unfinished work or turds around.
+In this vein, I have some questions and notes:
+- *Support/availability*: What can do we to *bake in* this capability so that it's easier to use, has better API, has better docs, is a facility that the model knows it can reach for more easily as we continue to revise and improve Tug? For example, the *model-check moment* we have/had where a call to `/tugplug:plan-devise` would pause and *ask for user action* before proceeding to `/tugplug:plan-review` with Opus is *something we could have done automatically* rather than stopping an asking for the user to act. Get what I mean here? We had this *indirection-by-construction* capability just sitting there... but did not use it.
+- *Robustness/correctness*: If we use this feature more, what happens when I'm in the middle of a dash and I do something to interrupt the complex, interlocking multi-operation procedure of the dash? How do I get the work back on track, say, after I: pause the work to ask a question in that session; use the session for some other little side task; relaunch the app; etc.? Can we support this somehow? What if I want to discard the dash... how do I do that? What if I (inadvisably it seems to me) try to kick off a second dash in a session that's already running one? In all these cases, we need a set of policies and procedures for giving the user properly excellent feedback about what their options are and how we act on the thing that they commmunicate they want. We *can't* leave unfinished work or turds around.
+- *Cohesion*: Can we possibly do something to pull together the tools we use to create, run, and join dashes? My notes:
+  - I'm frustrated in the usage of `tugutil dash [verb] ...`. It seems to me that the feature is important enough in Tug that it warrants a better place in the pantheon of names and code, not buried in a generic/catch-all command
+  - Why is `scripts/verify-fit.sh` just a shell script? It feels like this should be a better, more robust piece of infrastructure. It also should cover *all* the code in Tug, not just some directories or sub-projects.
+- *History/legacy*: It's been a long and winding road to get dashes to this point, and I worry that we have vestiges and legacy pieces of code/skills/docs sprinkled through the codebase, which will do nothing but confuse the new direction we're now heading. This old/obsolete code/skills/docs must be cleaned up and removed. 
+
+OK. Pull back. Weigh in here. Is there anything we can or should do now to the infrastructure in the codebase that is facilitating dashes before we do more work to make dashes happen?
 
 
-Can we possibly do something to pull together the tools we use to create, run, and join dashes? My notes:
-- I'm frustrated in the usage of `tugutil dash [verb] ...`. It seems to me that the feature is important enough in Tug that it warrants a better place in the pantheon of names and code, not buried in a generic/catch-all command
-- Why is `scripts/verify-fit.sh` just a shell script? It feels like this should be a better, more robust piece of infrastructure. It also should cover *all* the code in Tug, not just some directories or sub-projects.
+
+
+The styling of dash display in these atom/pills is inconsistent across the app: typeface is sometimes monospace, sometimes proportional; sometimes quiet/muted
+
+
+
+
+
+
 
 
 

@@ -196,7 +196,11 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
             }
             entry.in_flight_at = None;
         }
-        entry.last_done_count = Some(reading.done_count);
+        entry.last_done_count = retain_done_count(
+            entry.last_done_count,
+            reading.done_count,
+            reading.facts.session_idle,
+        );
     }
 
     let Some(action) = arc_action(&reading.record, &reading.facts) else {
@@ -208,6 +212,16 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
         ArcAction::Done => finish(ctx, arc, &reading, None).await,
         ArcAction::Stop { stage, reason } => finish(ctx, arc, &reading, Some((stage, reason))).await,
     }
+}
+
+/// The done-count the next tick compares against.
+///
+/// Only an idle reading may move it. The changeset recompute fires mid-turn —
+/// a round committing is exactly what fires it — and if that sweep recorded
+/// the count, the "a step just went done" edge would be consumed before the
+/// turn-end tick could see it, and an implement stage would never rotate.
+fn retain_done_count(previous: Option<usize>, current: usize, idle: bool) -> Option<usize> {
+    if idle { Some(current) } else { previous }
 }
 
 /// What one card is doing right now, read from the supervisor's live ledger.
@@ -224,19 +238,23 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         let ledger = ctx.supervisor.ledger.lock().await;
         ledger.get(id).cloned()
     };
-    let Some(entry_arc) = entry_arc else {
-        return Some(SessionSnapshot {
-            live: false,
-            idle: true,
-            claude_session_id: None,
-            context_window: None,
-            context_max: None,
-        });
-    };
+    // No entry, or one parked `Idle`, is a card that has not spawned since
+    // tugcast started — the startup sweep runs before any deck reconnects, and
+    // a rebound entry sits `Idle` until the deck's first frame. That is a wait,
+    // not a death: the ledger row the sweep found is still `live`, and the arc
+    // picks up on the card's first idle after it spawns. Reading it as gone
+    // would stop every in-flight arc on every restart. `Errored` and `Closed`
+    // are the states with nothing left to advance.
+    let entry_arc = entry_arc?;
     let (live, idle, claude_session_id, context_window) = {
         let entry = entry_arc.lock().await;
+        let live = match entry.spawn_state {
+            SpawnState::Idle => return None,
+            SpawnState::Spawning | SpawnState::Live => true,
+            SpawnState::Errored | SpawnState::Closed => false,
+        };
         (
-            matches!(entry.spawn_state, SpawnState::Spawning | SpawnState::Live),
+            live,
             !entry.turn_active,
             entry.claude_session_id.clone(),
             entry.context_window_tokens,
@@ -626,6 +644,65 @@ async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: &str) {
 mod tests {
     use super::*;
 
+    /// A plan that parses and lints clean — the fact `lints_as_plan` reads.
+    /// Local rather than a repository document: a plan under `dash/` is
+    /// archived the day its dash joins, and a test pinned to one goes with it.
+    const LINTING_PLAN: &str = r#"## A Two Step Plan {#two-step-plan}
+
+### Plan Metadata {#plan-metadata}
+
+| Field | Value |
+|---|---|
+| Owner | Someone |
+
+### Phase Overview {#phase-overview}
+
+Some context.
+
+### Execution Steps {#execution-steps}
+
+#### Step Status Ledger {#step-status-ledger}
+
+| Step | Title | Status | Commit |
+|---|---|---|---|
+| #step-1 | The first step | pending | — |
+| #step-2 | The second step | pending | — |
+
+#### Step 1: The first step {#step-1}
+
+**Commit:** `thing(scope): first`
+
+**References:** [P01] the decision, (#phase-overview)
+
+**Tasks:**
+- [ ] Do the first thing.
+
+**Tests:**
+- [ ] Unit: the first thing works.
+
+**Checkpoint:**
+- [ ] `cargo nextest run`
+
+#### Step 2: The second step {#step-2}
+
+**Commit:** `thing(scope): second`
+
+**References:** [P01] the decision, (#phase-overview)
+
+**Tasks:**
+- [ ] Do the second thing.
+
+**Tests:**
+- [ ] Unit: the second thing works.
+
+**Checkpoint:**
+- [ ] `cargo nextest run`
+
+### Deliverables and Checkpoints {#deliverables}
+
+**Deliverable:** the thing.
+"#;
+
     fn snapshot(live: bool, idle: bool, claude: Option<&str>) -> SessionSnapshot {
         SessionSnapshot {
             live,
@@ -709,8 +786,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::create_dir_all(root.join("dash")).unwrap();
-        let plan = include_str!("../../../../../dash/streamline-dash-workflow.md");
-        std::fs::write(root.join("dash/demo.md"), plan).unwrap();
+        std::fs::write(root.join("dash/demo.md"), LINTING_PLAN).unwrap();
         tugdash_core::arc::append_arc_start(root, "demo", "dash/demo.md").unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
@@ -989,6 +1065,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_card_that_has_not_spawned_since_startup_is_a_wait_not_a_stop() {
+        // The startup sweep runs before any deck reconnects: every bound arc's
+        // card is either absent from the supervisor or parked `Idle`. Neither
+        // is "session gone" — reading it so would stop every in-flight arc on
+        // every tugcast restart.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "gone", None).unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        entry.lock().await.spawn_state = SpawnState::Idle;
+        sweep(&ctx, &state).await;
+        assert_eq!(entry.lock().await.queue.len(), 0, "nothing rotated");
+        assert!(
+            read_arc(root, "demo").unwrap().stopped.is_none(),
+            "and nothing stopped"
+        );
+
+        ctx.supervisor.ledger.lock().await.clear();
+        sweep(&ctx, &state).await;
+        assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+
+        // A card whose claude errored out is the case with nothing to advance.
+        ctx.supervisor
+            .ledger
+            .lock()
+            .await
+            .insert(TugSessionId::new("claude-1".to_string()), entry.clone());
+        entry.lock().await.spawn_state = SpawnState::Errored;
+        sweep(&ctx, &state).await;
+        assert_eq!(
+            read_arc(root, "demo").unwrap().stopped,
+            Some((ArcStage::Review, "session gone".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_resumed_arc_rotates_its_stopped_stage_at_the_next_idle() {
+        // [P11] end to end at the runner: `dash run` on a stopped arc writes
+        // `arc-resume`, and the next idle tick rotates that stage — not the
+        // one before it, and not nothing.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        std::fs::write(root.join("dash/demo.md"), LINTING_PLAN).unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_plan(root, "demo", "dash/demo.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+        tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Review, "spawn queue full")
+            .unwrap();
+        tugdash_core::arc::append_arc_resume(root, "demo", ArcStage::Review).unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+        sweep(&ctx, &state).await;
+
+        let frames = {
+            let mut entry = entry.lock().await;
+            let mut out = Vec::new();
+            while let Some(frame) = entry.queue.pop() {
+                out.push(frame);
+            }
+            out
+        };
+        assert_eq!(frames.len(), 2, "one rotation: session_command + prompt");
+        let command: serde_json::Value = serde_json::from_slice(&frames[0].payload).unwrap();
+        assert_eq!(command["stage"]["name"], "review");
+    }
+
+    #[tokio::test]
     async fn a_stop_hands_the_card_back_on_the_decks_own_model() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -1087,9 +1238,8 @@ mod tests {
 
         // The plan as adoption leaves it: in the worktree, gone from the base
         // checkout, and its path recorded on the branch.
-        let plan = include_str!("../../../../../dash/streamline-dash-workflow.md");
         std::fs::create_dir_all(worktree.join("dash")).unwrap();
-        std::fs::write(worktree.join("dash/demo.md"), plan).unwrap();
+        std::fs::write(worktree.join("dash/demo.md"), LINTING_PLAN).unwrap();
         tugdash_core::ops::set_dash_plan_path(&root, "demo", "dash/demo.md").unwrap();
 
         tugdash_core::arc::append_arc_start(&root, "demo", "dash/demo-brief.md").unwrap();
@@ -1150,9 +1300,19 @@ mod tests {
             stages,
             notes: Vec::new(),
             stopped: None,
+            resume: None,
             done: true,
             last_activity: Some("2026-08-25T00:00:00Z".to_owned()),
         }
+    }
+
+    #[test]
+    fn only_an_idle_reading_moves_the_done_count() {
+        // A mid-turn recompute — a round committing fires one — must not
+        // consume the step-boundary edge the turn-end tick reads.
+        assert_eq!(retain_done_count(Some(3), 4, false), Some(3));
+        assert_eq!(retain_done_count(Some(3), 4, true), Some(4));
+        assert_eq!(retain_done_count(None, 4, false), None);
     }
 
     #[test]
