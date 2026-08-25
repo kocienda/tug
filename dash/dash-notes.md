@@ -1,6 +1,8 @@
 `Steps 4-6`, `7-9`, `10-12`, `13-15`
 
-OK. I slept on this `streamline-dash-workflow` idea, and the more I think about it, the more I find it fascinating. The *indirection-by-construction* aspect of Tug sessions, whereby we mediate the flow of content and data through `tugcode/tugcast` as a supervening/supervisory layer on top of `claude` sessions, gives them a power and flexibility that Claude Code sessions in the terminal simply cannot achieve. This feature has been in the codeboase for months, but tapping into this potential to create, control, and manage multiple `claude` sessions in the pursuit of a higher-level user goal—like a dash—feels like a capability we should be using more to better advantage.
+OK. Good audit. Good outcome. Good fixes. We'll live on this code, see what works, what breaks, and improve it more from here. The first step to do this is copnceptual, and is as follows.
+
+I slept on this `streamline-dash-workflow` idea, and the more I think about it, the more I find it fascinating. The *indirection-by-construction* aspect of Tug sessions, whereby we mediate the flow of content and data through `tugcode/tugcast` as a supervening/supervisory layer on top of `claude` sessions, gives them a power and flexibility that Claude Code sessions in the terminal simply cannot achieve. This feature has been in the codeboase for months, but tapping into this potential to create, control, and manage multiple `claude` sessions in the pursuit of a higher-level user goal—like a dash—feels like a capability we should be using more to better advantage.
 
 In this vein, I have some questions and notes:
 - *Support/availability*: What can do we to *bake in* this capability so that it's easier to use, has better API, has better docs, is a facility that the model knows it can reach for more easily as we continue to revise and improve Tug? For example, the *model-check moment* we have/had where a call to `/tugplug:plan-devise` would pause and *ask for user action* before proceeding to `/tugplug:plan-review` with Opus is *something we could have done automatically* rather than stopping an asking for the user to act. Get what I mean here? We had this *indirection-by-construction* capability just sitting there... but did not use it.
@@ -11,6 +13,62 @@ In this vein, I have some questions and notes:
 - *History/legacy*: It's been a long and winding road to get dashes to this point, and I worry that we have vestiges and legacy pieces of code/skills/docs sprinkled through the codebase, which will do nothing but confuse the new direction we're now heading. This old/obsolete code/skills/docs must be cleaned up and removed. 
 
 OK. Pull back. Weigh in here. Is there anything we can or should do now to the infrastructure in the codebase that is facilitating dashes before we do more work to make dashes happen?
+
+
+
+
+
+## Response
+
+Let me ground this in the tree before weighing in — a quick survey of the dash surface area, the verify script, and what's lying around from the older road.
+
+Survey done; here's where I land.
+
+## Short answer
+
+Yes — there is infrastructure work to do before more dashes, and it's mostly the same insight you had overnight, applied inward: **the arc built a capability and then kept it private.** Rotation lives inside `dash_arc_runner.rs` as an implementation detail of one feature. Nothing else in Tug — no skill, no verb, no op — can say "end this claude session and start a fresh one on that model with this prompt." That's why the model-check moment still asks the user to click. The capability was there; there was no door.
+
+Ordered by what I'd do first:
+
+## 1. Name and expose the primitive (the "support/availability" question)
+
+What the arc actually proved is a general operation: *tugcast can retire a card's claude session and seat a new one — model, prompt, stage label, lineage preserved — without the user touching anything, and a document decides when.* Pull that out of the runner into its own thing with three faces:
+
+- a tugcast op (`session_rotate`, beside `arc_run`) — the runner becomes its first client rather than its owner;
+- a `tugutil` verb a skill can call from inside a turn: *"when this turn ends, rotate to opus with this prompt"* — the exact shape `plan-devise` needs at the review gate, and the exact shape [P05] already gives the arc (the rotation lands at the asking turn's end);
+- one doc in `tuglaws/` that says what a rotation is, what survives it (transcript, ink, lineage, card identity), and what doesn't (context).
+
+Then `plan-devise`'s "if you're not on Opus, stop and print a chip" becomes "request a rotation to the review model." Its guardrail *Never switch the user's model* is pre-arc thinking; [P15] already answers the real worry — stages pick their model, and the card comes back on the user's. Once the verb exists, the model will reach for it, because skills are how the model learns what Tug can do.
+
+## 2. Write the interruption doctrine, then make each cell true (robustness)
+
+This is the gap that produces turds. Some cells already have answers — relaunch is [P10] plus the startup sweep; `/new` clears `TUG_DASH_ARC`; a side question inside a stage session is actually benign (the stage answers it, the predicate re-reads documents at idle and finds nothing changed). But those answers are scattered across code comments, and several cells have *no* answer I can vouch for without reading: a second `/dash` on a bound card (does `arc_run` refuse, or silently rebind?), `dash discard` while a stage is mid-turn (is `dash_gone` wired to the runner?), a model switch by the user mid-arc, closing the card.
+
+I'd write it as one table in `tuglaws/dash-lifecycle.md`: interruption × {what the arc does, what the user sees, how the work resumes}. The rule that has to hold in every cell is the one you named plus [L31]: **every interruption leaves the dash in a state that is both sayable and resumable, and the user is told which one.** Where a cell needs a verb (`pause`, `stop`, `discard` all mean different things to an arc), add it; where a cell is a refusal, the refusal says why. And — honestly — the first real `/dash` should run *before* this table is finished, because it'll show which interruptions actually happen.
+
+## 3. `verify-fit.sh` → a verb with total coverage (cohesion, part two)
+
+It's 49 lines of `sh` because it was the minimum that made [D149] real. It covers `tugrust/` and `tugdeck/` and nothing else, and it's now cost a manual pass on four milestones. The fix is structural: `.tugtool/config.toml` already declares `verify` as a command string — replace the string with a **surface table** (path prefix → check commands) for every built surface in the repo (`tugrust/`, `tugdeck/`, `tugcode/`, `tugproto/`, `tugapp/`, `tugplug/`, `tests/`), and a `tugutil dash verify <base> <head>` in Rust that walks the diff. A touched path matching no surface is a **refusal**, not a skipped check — that's how "covers all of Tug" becomes enforced rather than promised.
+
+## 4. Rename `tugutil` → `tug` (cohesion, part one)
+
+You're right that `tugutil dash` buries it, but I'd resist a separate `tugdash` binary: 19 dash verbs plus `plan`, `draft`, `commit` are one workflow and belong in one place. The better answer is the one `CLAUDE.md` already gives — it calls the CLI **`tug`** ("the unified developer CLI — changes & commits, dashes, host plumbing"), and the binary just hasn't caught up. `tug dash create`, `tug plan lint`, `tug commit` read like `git worktree`, `cargo test`. The rename is mechanical but wide (skills, tuglaws, the `~/.local/bin` symlinks, every human-facing message that still leaks the tool name), so I'd land it **last**, after the vocabulary from 1–3 settles.
+
+## 5. The legacy sweep
+
+Do a dedicated read-only inventory first, producing a kill list, rather than cleaning as we go. What I can already name from the survey: the retired `dash-bind` spelling still lives in `slash-commands.ts`, `dash-bind-error-store.ts`, its notice controller, three test files, and three tuglaws docs; one `roadmap/` reference in `plan-devise`; the pre-arc model guardrail in `plan-devise`. What I'd *question* rather than assert: `dash-join` as a skill now that the shade is the door ([D147]); `dash-on` vs bare `/dash` routing "a quick dash"; five `join_*` feeds in tugcast. (`tugmark` in tugdeck is the markdown crate, not the retired git CLI — leave it.)
+
+## The order, and why
+
+Inventory (cheap, read-only) → interruption doctrine (correctness — the thing that leaves turds) → the rotation primitive (the capability you actually want more of) → verify surface table → rename. Run a real `/dash` between steps one and two; it's the only input the doctrine can't get from reading code.
+
+One thing I'd push back on gently: none of this needs a plan yet. Steps 1–4 each want a brief first, and the briefs are where the design calls live (what a `pause` means to an arc; whether skills may pick a model). Say which one you want to think through first.
+
+
+
+
+
+
 
 
 
