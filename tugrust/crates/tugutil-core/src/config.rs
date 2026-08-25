@@ -53,6 +53,44 @@ pub struct DashConfig {
     /// here.
     #[serde(default)]
     pub docs: Option<String>,
+
+    /// The model the arc's devise stage runs on ([P13]). Absent means the
+    /// account default — a project declares a stage model, it never inherits
+    /// one, and the arc's receipt says which stages ran unspecified rather
+    /// than implying a choice nobody made ([D151]).
+    #[serde(default)]
+    pub devise_model: Option<String>,
+
+    /// The model the arc's review stage runs on. Absent means the account
+    /// default.
+    #[serde(default)]
+    pub review_model: Option<String>,
+
+    /// The model the arc's implement stage runs on. Absent means the account
+    /// default.
+    #[serde(default)]
+    pub implement_model: Option<String>,
+
+    /// The context fraction above which the implement stage rotates to a fresh
+    /// session at a step boundary. Absent means
+    /// [`IMPLEMENT_ROTATE_AT_DEFAULT`], which [`DashConfig::rotate_at`]
+    /// applies.
+    #[serde(default)]
+    pub implement_rotate_at: Option<f32>,
+}
+
+/// The context fraction the implement stage rotates above when a project
+/// declares none ([P07]).
+pub const IMPLEMENT_ROTATE_AT_DEFAULT: f32 = 0.6;
+
+impl DashConfig {
+    /// The rotation threshold to actually use: the declaration, or the
+    /// default. The default lives at the consumer rather than in the parse so
+    /// `dash config` can still report honestly that nothing was declared.
+    pub fn rotate_at(&self) -> f32 {
+        self.implement_rotate_at
+            .unwrap_or(IMPLEMENT_ROTATE_AT_DEFAULT)
+    }
 }
 
 /// The config file a project starts with: an empty hydration list and a
@@ -82,6 +120,16 @@ post_create = []
 # Consumed by plan search and by the authoring skills. Declare none and search
 # runs on .tugtool/ alone; the skills ask once and record the answer here.
 # docs = "dash"
+
+# The models the server-driven arc runs each stage on. Declare none and a stage
+# runs on the account default, which the arc's receipt says out loud.
+# devise_model = "sonnet"
+# review_model = "opus"
+# implement_model = "sonnet"
+
+# The context fraction above which the implement stage rotates to a fresh
+# session at a step boundary — never mid-step. Declare none and it is 0.6.
+# implement_rotate_at = 0.6
 "#;
 
 /// Why a proposed docs directory was refused. The value is written into a
@@ -417,6 +465,57 @@ mod tests {
         let empty: Config = toml::from_str("").expect("empty config should parse");
         assert!(empty.tugtool.dash.verify.is_none());
         assert!(empty.tugtool.dash.build.is_none());
+    }
+
+    #[test]
+    fn stage_declarations_parse() {
+        let toml = "[tugtool.dash]\ndevise_model = \"sonnet\"\nreview_model = \"opus\"\nimplement_model = \"fable\"\nimplement_rotate_at = 0.75\n";
+        let config: Config = toml::from_str(toml).expect("declaring stage models should parse");
+        let dash = &config.tugtool.dash;
+        assert_eq!(dash.devise_model.as_deref(), Some("sonnet"));
+        assert_eq!(dash.review_model.as_deref(), Some("opus"));
+        assert_eq!(dash.implement_model.as_deref(), Some("fable"));
+        assert_eq!(dash.implement_rotate_at, Some(0.75));
+        assert_eq!(dash.rotate_at(), 0.75);
+    }
+
+    #[test]
+    fn stage_declarations_default_to_none_and_the_threshold_to_the_consumer() {
+        // Undeclared stays `None` in the parse — that is what lets `dash
+        // config` report honestly that the project chose nothing — and the
+        // default is applied where the value is used.
+        let silent: Config = toml::from_str("[tugtool.dash]\npost_create = []\n").unwrap();
+        let dash = &silent.tugtool.dash;
+        assert!(dash.devise_model.is_none());
+        assert!(dash.review_model.is_none());
+        assert!(dash.implement_model.is_none());
+        assert!(dash.implement_rotate_at.is_none());
+        assert_eq!(dash.rotate_at(), IMPLEMENT_ROTATE_AT_DEFAULT);
+        assert_eq!(IMPLEMENT_ROTATE_AT_DEFAULT, 0.6);
+
+        // So does a project with no dash table at all.
+        let empty: Config = toml::from_str("").unwrap();
+        assert_eq!(empty.tugtool.dash.rotate_at(), IMPLEMENT_ROTATE_AT_DEFAULT);
+    }
+
+    #[test]
+    fn the_default_config_template_documents_every_stage_key() {
+        let config: Config =
+            toml::from_str(DEFAULT_CONFIG).expect("the template must be valid TOML");
+        // The template documents the keys as comments, so a project starting
+        // from it declares none of them.
+        assert!(config.tugtool.dash.devise_model.is_none());
+        for key in [
+            "devise_model",
+            "review_model",
+            "implement_model",
+            "implement_rotate_at",
+        ] {
+            assert!(
+                DEFAULT_CONFIG.contains(key),
+                "the template must document {key}"
+            );
+        }
     }
 
     #[test]

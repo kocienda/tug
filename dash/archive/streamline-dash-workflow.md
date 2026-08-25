@@ -524,9 +524,9 @@ M02 and M04 both change tugcode and Rust, so each ends with `just build-app` bef
 
 | Step | Title | Status | Commit |
 |---|---|---|---|
-| #step-1 | The arc record grammar and reader | pending | — |
-| #step-2 | `tugutil dash run` and `tugutil dash arc` | pending | — |
-| #step-3 | Stage models in `[tugtool.dash]` | pending | — |
+| #step-1 | The arc record grammar and reader | done | `06af4c29a` |
+| #step-2 | `tugutil dash run` and `tugutil dash arc` | done | `7f4c9c8c0` |
+| #step-3 | Stage models in `[tugtool.dash]` | done | `702c79344` |
 | #step-4 | tugcode announces a stage | pending | — |
 | #step-5 | tugcast reads the stage as lineage | pending | — |
 | #step-6 | tugcast originates a stage on a card's tugcode | pending | — |

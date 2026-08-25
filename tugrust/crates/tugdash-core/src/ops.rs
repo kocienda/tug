@@ -10678,7 +10678,7 @@ Some context.
         assert_eq!(Some(progress.commit_hash), out.commit_hash);
         assert_eq!(progress.strategy, "squash");
         assert!(
-            !crate::oplog::join_in_flight(&canon, "receipt").is_some(),
+            crate::oplog::join_in_flight(&canon, "receipt").is_none(),
             "a completed record is not a teardown to resume"
         );
     }

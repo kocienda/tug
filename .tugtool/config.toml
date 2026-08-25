@@ -13,3 +13,14 @@ build = "just app-debug"
 
 # Where this project's dash paperwork — briefs and plans — lives.
 docs = "dash"
+
+# The models the server-driven arc runs each stage on. Declaring one is a
+# choice about this project's work, so all four are left undeclared here: a
+# stage runs on the account default until somebody says otherwise.
+# devise_model = "sonnet"
+# review_model = "opus"
+# implement_model = "sonnet"
+
+# The context fraction above which the implement stage rotates to a fresh
+# session at a step boundary — never mid-step. Undeclared, it is 0.6.
+# implement_rotate_at = 0.6

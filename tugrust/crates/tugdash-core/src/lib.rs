@@ -10,6 +10,10 @@
 /// visibility log, and the stdin round-metadata shape.
 pub mod dash;
 
+/// The arc record — the server-driven arc's stages, document, and plan, kept
+/// as dash-log lines keyed by name so the record exists before a branch does.
+pub mod arc;
+
 /// Dash verb orchestration — `create` / `commit` / `join` / `discard` /
 /// `list` / `show`, each returning a typed outcome.
 pub mod ops;
@@ -34,6 +38,10 @@ pub mod workshop;
 /// against the joined tree, recorded as a fact anchored to two commits.
 pub mod verify;
 
+pub use arc::{
+    ArcRecord, ArcStage, ArcStageLine, append_arc_done, append_arc_note, append_arc_plan,
+    append_arc_stage, append_arc_start, append_arc_stop, read_arc,
+};
 pub use dash::{
     DashDeclaration, DashDeclarations, DashRoundMeta, MarkStage, StepPhase, append_dash_log,
     detect_default_branch, is_terminal, read_declarations, split_log_line, validate_dash_name,

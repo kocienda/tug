@@ -9,7 +9,8 @@ use std::process::ExitCode;
 use serde::Serialize;
 
 use tugdash_core::{
-    DashRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops, replay, resolve,
+    ArcRecord, DashRoundMeta, JoinOptions, JoinStrategy, MarkStage, ReplayOutcome, ops, replay,
+    resolve,
 };
 
 use crate::cli::{DashCommands, StepAction};
@@ -88,6 +89,12 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         DashCommands::Mark { name, stage, note } => {
             run_mark(&name, stage.into(), note, json, quiet)
         }
+        DashCommands::Run {
+            name,
+            document,
+            project,
+        } => run_arc_run(&name, document.as_deref(), project, json, quiet),
+        DashCommands::Arc { name, project } => run_arc_report(&name, project, json, quiet),
         DashCommands::Bind { name, project } => run_bind(&name, project, json, quiet),
         DashCommands::Unbind { project } => run_unbind(project, json, quiet),
     };
@@ -843,6 +850,185 @@ fn print_replay(name: &str, outcome: &ReplayOutcome) {
     }
 }
 
+// --- the arc ([P01], Spec S06, Spec S07) -----------------------------------
+
+/// What `dash run` did, and what the arc says afterwards.
+#[derive(Serialize)]
+struct ArcRunPayload {
+    dash: String,
+    /// An `arc-start` line was written — a new arc opened.
+    started: bool,
+    /// A stopped arc was picked back up ([P11]).
+    resumed: bool,
+    arc: ArcRecord,
+}
+
+#[derive(Serialize)]
+struct ArcReportPayload {
+    dash: String,
+    /// `null` for a dash with no arc, which is every dash created by hand.
+    arc: Option<ArcRecord>,
+}
+
+/// The project root the arc's record lives under: `--project` as the user
+/// spelled it ([L29] — the CLI never canonicalizes), else the enclosing
+/// project. Not the cwd: a verb run from a subdirectory reads the same log.
+fn arc_project_root(project: Option<std::path::PathBuf>) -> Result<std::path::PathBuf, String> {
+    match project {
+        Some(_) => binding_project(project),
+        None => tugutil_core::config::find_project_root().map_err(|e| e.to_string()),
+    }
+}
+
+/// Open an arc on `document`, or resume one that stopped.
+///
+/// Separated from the verb so the decision is testable over a synthesized log
+/// with no session, no instance, and no git.
+fn open_arc(
+    root: &std::path::Path,
+    dash: &str,
+    document: Option<&str>,
+) -> Result<(bool, bool, ArcRecord), String> {
+    tugdash_core::validate_dash_name(dash).map_err(|e| e.to_string())?;
+    let existing = tugdash_core::read_arc(root, dash);
+
+    match (document, existing) {
+        // A second `run` on the same document is the same arc, not a new one:
+        // the record is the arc's identity, so writing another `arc-start`
+        // would make one arc read as two.
+        (Some(document), Some(arc)) if arc.document.as_deref() == Some(document) => {
+            Ok((false, arc.stopped.is_some(), arc))
+        }
+        (Some(document), Some(arc)) => Err(format!(
+            "dash '{dash}' already has an arc on {} — finish or stop that one before opening an \
+             arc on {document}",
+            arc.document.as_deref().unwrap_or("an unrecorded document")
+        )),
+        (Some(document), None) => {
+            tugdash_core::append_arc_start(root, dash, document).map_err(|e| e.to_string())?;
+            let arc = tugdash_core::read_arc(root, dash)
+                .ok_or_else(|| format!("wrote the arc for '{dash}' but could not read it back"))?;
+            Ok((true, false, arc))
+        }
+        (None, Some(arc)) => Ok((false, arc.stopped.is_some(), arc)),
+        (None, None) => Err(format!(
+            "dash '{dash}' has no arc to resume — open one with `tugutil dash run {dash} \
+             --document <path>`"
+        )),
+    }
+}
+
+/// Hand a document to the arc (Spec S06).
+///
+/// The record is the whole of what this verb writes. **The POST that tells a
+/// live tugcast to start rotating stages is not here** — it lands with the
+/// handler that receives it, so nothing ships whose receiver does not exist.
+/// Until then the verb says the runner is not wired yet.
+fn run_arc_run(
+    name: &str,
+    document: Option<&str>,
+    project: Option<std::path::PathBuf>,
+    json: bool,
+    quiet: bool,
+) -> Result<(), String> {
+    // The arc runs on a card: every stage is a rotation of the calling
+    // session's own tugcode ([B05]). Without a session there is nowhere for a
+    // stage to go, so this refuses rather than recording an arc nobody can run.
+    let _session = calling_session_id().map_err(|_| {
+        "no session — an arc runs on a Session card, so run this from one or set TUG_SESSION_ID"
+            .to_string()
+    })?;
+    let root = arc_project_root(project)?;
+    let (started, resumed, arc) = open_arc(&root, name, document)?;
+
+    if json {
+        print_ok(
+            "dash run",
+            ArcRunPayload {
+                dash: name.to_string(),
+                started,
+                resumed,
+                arc,
+            },
+        );
+    } else if !quiet {
+        match (started, resumed) {
+            (true, _) => println!(
+                "Arc opened on '{}' for {}",
+                name,
+                arc.document.as_deref().unwrap_or("(no document)")
+            ),
+            (false, true) => println!(
+                "Arc on '{}' is stopped in {} — resuming",
+                name,
+                arc.stopped
+                    .as_ref()
+                    .map(|(stage, _)| stage.as_str())
+                    .unwrap_or("an unrecorded stage")
+            ),
+            (false, false) => println!("Arc on '{}' is already open", name),
+        }
+        println!("The runner is not wired yet, so no stage will rotate.");
+    }
+    Ok(())
+}
+
+/// Report the arc (Spec S07). No arc exits 0 with `arc: null`, matching
+/// `dash docs-dir`'s precedent: a dash without an arc is a state.
+fn run_arc_report(
+    name: &str,
+    project: Option<std::path::PathBuf>,
+    json: bool,
+    quiet: bool,
+) -> Result<(), String> {
+    let root = arc_project_root(project)?;
+    let arc = tugdash_core::read_arc(&root, name);
+
+    if json {
+        print_ok(
+            "dash arc",
+            ArcReportPayload {
+                dash: name.to_string(),
+                arc,
+            },
+        );
+    } else if !quiet {
+        match arc {
+            None => println!("arc: (none)"),
+            Some(arc) => print_arc(&arc),
+        }
+    }
+    Ok(())
+}
+
+fn print_arc(arc: &ArcRecord) {
+    let undeclared = "(not recorded)";
+    println!(
+        "document:  {}",
+        arc.document.as_deref().unwrap_or(undeclared)
+    );
+    println!("plan:      {}", arc.plan.as_deref().unwrap_or(undeclared));
+    let stage = match (&arc.stopped, arc.current_stage()) {
+        (Some((stage, reason)), _) => format!("{} (stopped: {})", stage.as_str(), reason),
+        (None, Some(stage)) if arc.done => format!("{} (done)", stage.as_str()),
+        (None, Some(stage)) => stage.as_str().to_string(),
+        (None, None) => "(none rotated yet)".to_string(),
+    };
+    println!("stage:     {}", stage);
+    for line in &arc.stages {
+        println!(
+            "  {}  {}  {}  {}",
+            line.at,
+            line.stage.as_str(),
+            line.session_id,
+            line.model.as_deref().unwrap_or("(account default)")
+        );
+    }
+    for note in &arc.notes {
+        println!("note:      {}", note);
+    }
+}
+
 // --- session↔dash binding ([P04], Spec S04) --------------------------------
 
 /// Resolve `--project` (default cwd) to an absolute path, as the user spelled
@@ -1057,14 +1243,18 @@ struct ListPayload {
 
 /// The project's `[tugtool.dash]` declarations, as one payload.
 ///
-/// `verify` and `build` are `null` when undeclared rather than absent, so a
-/// consumer reads the same three fields whatever the project says.
+/// Every key is `null` when undeclared rather than absent, so a consumer reads
+/// the same fields whatever the project says.
 #[derive(Serialize)]
 struct ConfigPayload {
     verify: Option<String>,
     build: Option<String>,
     post_create: Vec<String>,
     docs: Option<String>,
+    devise_model: Option<String>,
+    review_model: Option<String>,
+    implement_model: Option<String>,
+    implement_rotate_at: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -1101,6 +1291,10 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
         build: dash.build,
         post_create: dash.post_create,
         docs: dash.docs,
+        devise_model: dash.devise_model,
+        review_model: dash.review_model,
+        implement_model: dash.implement_model,
+        implement_rotate_at: dash.implement_rotate_at,
     };
 
     if json {
@@ -1124,6 +1318,26 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
             "docs:         {}",
             payload.docs.as_deref().unwrap_or(undeclared)
         );
+        println!(
+            "devise_model:    {}",
+            payload.devise_model.as_deref().unwrap_or(undeclared)
+        );
+        println!(
+            "review_model:    {}",
+            payload.review_model.as_deref().unwrap_or(undeclared)
+        );
+        println!(
+            "implement_model: {}",
+            payload.implement_model.as_deref().unwrap_or(undeclared)
+        );
+        match payload.implement_rotate_at {
+            Some(at) => println!("implement_rotate_at: {}", at),
+            None => println!(
+                "implement_rotate_at: {} (defaults to {})",
+                undeclared,
+                tugutil_core::config::IMPLEMENT_ROTATE_AT_DEFAULT
+            ),
+        }
     }
     Ok(())
 }
@@ -1290,5 +1504,197 @@ mod tests {
             err.contains("--through"),
             "the refusal must name the flag: {err}"
         );
+    }
+
+    // --- the arc record (Spec S06, Spec S07) -------------------------------
+
+    /// A scratch data dir plus the repo root whose dash-log it holds. Both
+    /// live as long as the fixture; the data dir is redirected off the user's
+    /// real one, which is why every arc test here is `#[serial]`.
+    struct ArcFixture {
+        _home: tempfile::TempDir,
+        repo: tempfile::TempDir,
+    }
+
+    impl ArcFixture {
+        fn root(&self) -> &std::path::Path {
+            self.repo.path()
+        }
+
+        /// The dash-log's lines, so a test can count what was written rather
+        /// than infer it from what was read back.
+        fn log_lines(&self) -> Vec<String> {
+            let path = tugutil_core::paths::project_state_dir(self.root()).join("dash-log.md");
+            std::fs::read_to_string(path)
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_owned)
+                .collect()
+        }
+
+        fn write_log(&self, lines: &str) {
+            let state = tugutil_core::paths::project_state_dir(self.root());
+            std::fs::create_dir_all(&state).expect("state dir");
+            std::fs::write(state.join("dash-log.md"), lines).expect("write log");
+        }
+    }
+
+    fn arc_fixture() -> ArcFixture {
+        let home = tempfile::tempdir().expect("tempdir");
+        // SAFETY: these tests are #[serial]; no other thread reads the
+        // environment concurrently while this runs.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", home.path());
+        }
+        ArcFixture {
+            _home: home,
+            repo: tempfile::tempdir().expect("tempdir"),
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn opening_an_arc_writes_one_start_line() {
+        let fixture = arc_fixture();
+        let (started, resumed, arc) =
+            open_arc(fixture.root(), "demo", Some("dash/idea.md")).expect("opened");
+        assert!(started);
+        assert!(!resumed);
+        assert_eq!(arc.document.as_deref(), Some("dash/idea.md"));
+        let starts = fixture
+            .log_lines()
+            .iter()
+            .filter(|line| line.contains("arc-start"))
+            .count();
+        assert_eq!(starts, 1);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn opening_the_same_document_twice_is_one_arc() {
+        let fixture = arc_fixture();
+        open_arc(fixture.root(), "demo", Some("dash/idea.md")).expect("opened");
+        let (started, _, _) = open_arc(fixture.root(), "demo", Some("dash/idea.md")).expect("reopened");
+        assert!(!started, "a second run on the same document opens nothing");
+        let starts = fixture
+            .log_lines()
+            .iter()
+            .filter(|line| line.contains("arc-start"))
+            .count();
+        assert_eq!(starts, 1);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_second_document_on_a_live_arc_is_refused_by_name() {
+        let fixture = arc_fixture();
+        open_arc(fixture.root(), "demo", Some("dash/idea.md")).expect("opened");
+        let err = open_arc(fixture.root(), "demo", Some("dash/other.md")).unwrap_err();
+        assert!(
+            err.contains("dash/idea.md") && err.contains("dash/other.md"),
+            "the refusal must name both documents: {err}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn resuming_without_an_arc_says_how_to_open_one() {
+        let fixture = arc_fixture();
+        let err = open_arc(fixture.root(), "demo", None).unwrap_err();
+        assert!(
+            err.contains("--document"),
+            "the refusal must name the way forward: {err}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn resuming_a_stopped_arc_writes_nothing_and_reads_as_resumed() {
+        let fixture = arc_fixture();
+        fixture.write_log(&format!(
+            "{}{}",
+            "2026-08-24T10:00:00Z  demo  arc-start  dash/idea.md\n",
+            "2026-08-24T10:05:00Z  demo  arc-stop  review lint failed\n"
+        ));
+        let before = fixture.log_lines().len();
+        let (started, resumed, arc) = open_arc(fixture.root(), "demo", None).expect("resumed");
+        assert!(!started);
+        assert!(resumed);
+        assert_eq!(
+            arc.stopped,
+            Some((tugdash_core::ArcStage::Review, "lint failed".to_owned()))
+        );
+        assert_eq!(fixture.log_lines().len(), before, "a resume writes nothing");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn an_unknown_dash_has_no_arc() {
+        let fixture = arc_fixture();
+        assert!(tugdash_core::read_arc(fixture.root(), "nonexistent").is_none());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_synthesized_log_round_trips_into_the_reported_payload() {
+        let fixture = arc_fixture();
+        fixture.write_log(
+            "2026-08-24T10:00:00Z  demo  arc-start  dash/idea.md\n\
+             2026-08-24T10:01:00Z  demo  arc-plan  dash/d.md\n\
+             2026-08-24T10:02:00Z  demo  arc-stage  devise sess-1 opus\n\
+             2026-08-24T11:00:00Z  demo  arc-stage  review sess-2 -\n",
+        );
+        let payload = ArcReportPayload {
+            dash: "demo".to_string(),
+            arc: tugdash_core::read_arc(fixture.root(), "demo"),
+        };
+        let value = serde_json::to_value(&payload).expect("serialize");
+        assert_eq!(value["dash"], "demo");
+        assert_eq!(value["arc"]["document"], "dash/idea.md");
+        assert_eq!(value["arc"]["plan"], "dash/d.md");
+        assert_eq!(value["arc"]["stages"][0]["stage"], "devise");
+        assert_eq!(value["arc"]["stages"][0]["model"], "opus");
+        assert_eq!(value["arc"]["stages"][1]["stage"], "review");
+        assert!(value["arc"]["stages"][1]["model"].is_null());
+        assert_eq!(value["arc"]["done"], false);
+    }
+
+    #[test]
+    fn the_config_payload_reports_every_stage_key_as_null_when_undeclared() {
+        // A project that declares none must still report all four, so a
+        // consumer reads the same shape whatever the project says.
+        let payload = ConfigPayload {
+            verify: None,
+            build: None,
+            post_create: Vec::new(),
+            docs: None,
+            devise_model: None,
+            review_model: None,
+            implement_model: None,
+            implement_rotate_at: None,
+        };
+        let value = serde_json::to_value(&payload).expect("serialize");
+        for key in [
+            "devise_model",
+            "review_model",
+            "implement_model",
+            "implement_rotate_at",
+        ] {
+            assert!(
+                value.get(key).is_some_and(serde_json::Value::is_null),
+                "{key} must be reported as null, not absent"
+            );
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn no_arc_serializes_as_null_rather_than_an_absent_key() {
+        let payload = ArcReportPayload {
+            dash: "demo".to_string(),
+            arc: None,
+        };
+        let value = serde_json::to_value(&payload).expect("serialize");
+        assert!(value["arc"].is_null());
     }
 }

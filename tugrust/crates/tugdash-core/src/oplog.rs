@@ -790,13 +790,13 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
             // operation already reversed and one that died mid-flight are
             // different facts, and a single blank refusal hides both.
             if let Some(op) = candidates.first() {
-                if op.undone_by.is_some() {
+                if let Some(undone_by) = op.undone_by {
                     return Err(format!(
                         "already-undone: operation {} ({} of '{}') was reversed by operation {}",
                         op.seq,
                         op.verb.as_str(),
                         op.dash,
-                        op.undone_by.unwrap()
+                        undone_by
                     ));
                 }
                 if op.after.is_none() {
@@ -1568,7 +1568,7 @@ mod tests {
             OpVerb::Discard,
             "demo",
             before(&f),
-            &[doomed.clone()],
+            std::slice::from_ref(&doomed),
         )
         .unwrap();
         git(f.path(), &["branch", "-D", "doomed"]);

@@ -605,6 +605,37 @@ pub enum DashCommands {
         #[arg(long)]
         note: Option<String>,
     },
+    /// Hand a document to the server-driven arc: record that this dash's work
+    /// runs as rotating devise / review / implement stages on the calling card.
+    ///
+    /// With `--document`, opens an arc on that document. Without one, resumes
+    /// an arc that stopped — the documents hold the progress, so a resume
+    /// re-runs the stopped stage and never restarts from the top ([P11]).
+    ///
+    /// The arc runs *on a card*, so the verb refuses without a calling
+    /// session: there would be nowhere for a stage to rotate.
+    Run {
+        /// Dash name — the arc's key, valid before any branch exists.
+        name: String,
+        /// The document the arc opens on: a brief, a note, an idea.
+        #[arg(long)]
+        document: Option<String>,
+        /// Project directory (default: cwd). Travels as your own spelling —
+        /// the server canonicalizes it ([L29]).
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
+    },
+    /// Report one dash's arc — document, plan, stages, stopped reason, done.
+    ///
+    /// A dash with no arc is a state, not an error: the verb exits 0 and says
+    /// so, which is every dash created by hand.
+    Arc {
+        /// Dash name.
+        name: String,
+        /// Project directory (default: cwd).
+        #[arg(long)]
+        project: Option<std::path::PathBuf>,
+    },
     /// Mate the calling session to a dash, so surfaces can say which session
     /// is working on which dash.
     Bind {
