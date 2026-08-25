@@ -335,6 +335,12 @@ fn read(
         }
         None => match record.plan.as_ref() {
             Some(rel) => (Some(project.join(rel)), Some(rel.clone())),
+            // The input document is itself the plan (Spec S09): it is where
+            // the review and implement prompts point until adoption moves it.
+            None if input_is_plan => match record.document.as_ref() {
+                Some(rel) => (Some(project.join(rel)), Some(rel.clone())),
+                None => (None, None),
+            },
             None => (None, None),
         },
     };
@@ -514,6 +520,15 @@ async fn rotate(
         if let Some(target) = reading.devise_target.clone() {
             let (p, d) = (project.clone(), dash.clone());
             let _ = tokio::task::spawn_blocking(move || append_arc_plan(&p, &d, &target)).await;
+        }
+    }
+    // An arc opened on a plan never devised one, so the plan path is recorded
+    // at its first review instead — the document itself (Spec S09) — and every
+    // later reading finds it where a devised plan's would be.
+    if rotation.stage == ArcStage::Review && reading.record.plan.is_none() {
+        if let Some(plan) = reading.plan_for_prompt.clone() {
+            let (p, d) = (project.clone(), dash.clone());
+            let _ = tokio::task::spawn_blocking(move || append_arc_plan(&p, &d, &plan)).await;
         }
     }
     if let Some(note) = rotation.note.clone() {
@@ -869,6 +884,17 @@ Some context.
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
         assert!(reading.facts.input_is_plan);
+        // The document is the plan, so the review prompt has a path to name.
+        assert_eq!(reading.plan_for_prompt.as_deref(), Some("dash/demo.md"));
+        let review = Rotation {
+            stage: ArcStage::Review,
+            steps: None,
+            note: None,
+        };
+        assert_eq!(
+            opening_prompt(&reading, &review).as_deref(),
+            Some("/tugplug:plan-review dash/demo.md")
+        );
         assert_eq!(
             arc_action(&reading.record, &reading.facts),
             Some(ArcAction::Rotate(Rotation {

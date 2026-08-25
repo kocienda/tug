@@ -4149,6 +4149,28 @@ pub fn discard_in(
     let worktree = worktree_path(&repo_root, name);
 
     if !branch_exists(&repo_root, &branch) && !worktree.exists() {
+        // A dash that exists only as an arc record — an arc that stopped
+        // before its devise stage created anything — has no branch or
+        // worktree to tear down, but it has a record a later `dash run` under
+        // the name would resume into. Discard ends that record the way it
+        // ends a dash's: with the terminal marker.
+        if crate::arc::read_arc(&repo_root, name).is_some() {
+            append_dash_log(
+                &repo_root,
+                name,
+                "discarded",
+                &origin.map_or(String::new(), |o| format!("via {o}")),
+            )
+            .map_err(|e| e.to_string())?;
+            return Ok(DiscardOutcome {
+                name: name.to_string(),
+                plan_restored: None,
+                work_restored: Vec::new(),
+                warnings: vec![
+                    "no branch or worktree existed; the dash's arc record was ended".to_string(),
+                ],
+            });
+        }
         return Err(format!("Dash not found: {}", name));
     }
 
@@ -4208,7 +4230,30 @@ pub fn discard_in(
         warnings.push(broke_lease_warning(name, lease, op_seq));
     }
 
-    let plan_restored = restore_plan_to_base(&repo_root, name, &branch, &mut warnings);
+    // A plan the arc devised is the run's product, not the user's document:
+    // discarding the run discards it, or the next `/dash` finds it in the
+    // docs directory and opens an arc on the very plan just thrown away. Its
+    // bytes stay reachable on the discarded branch's tip.
+    let arc_devised = plan_rel.as_deref().is_some_and(|rel| {
+        crate::arc::read_arc(&repo_root, name).is_some_and(|record| {
+            record.plan.as_deref() == Some(rel)
+                && record
+                    .stages
+                    .iter()
+                    .any(|line| line.stage == crate::arc::ArcStage::Devise)
+        })
+    });
+    let plan_restored = if arc_devised {
+        let tip = rev_parse(&repo_root, &branch).unwrap_or_default();
+        warnings.push(format!(
+            "the arc devised {}; it went with the dash (its bytes stay at {} in the reflog)",
+            plan_rel.as_deref().unwrap_or(""),
+            &tip[..tip.len().min(9)]
+        ));
+        None
+    } else {
+        restore_plan_to_base(&repo_root, name, &branch, &mut warnings)
+    };
     let work_restored = apply_hand_back(&repo_root, &worktree, &hand, &mut warnings);
 
     // Reap the dash's tmux/app and remove its worktree robustly (see
@@ -5855,6 +5900,45 @@ Some context.
 
     /// Adoption removed the base copy, so the branch holds the only one —
     /// and discard deletes the branch. The plan has to come back out first.
+    #[serial]
+    #[test]
+    fn discard_takes_an_arc_devised_plan_with_the_dash() {
+        let (_temp, root) = repo_for_create(Some(TWO_STEP_PLAN));
+        create("arc-dash", None, Some("roadmap/plan.md"), false, None).unwrap();
+        assert!(!root.join("roadmap/plan.md").exists(), "adoption took it");
+        // The record says the arc wrote this plan: a devise stage, then the
+        // plan line naming the adopted path.
+        crate::arc::append_arc_start(&root, "arc-dash", "roadmap/idea.md").unwrap();
+        crate::arc::append_arc_stage(&root, "arc-dash", crate::arc::ArcStage::Devise, "s1", None)
+            .unwrap();
+        crate::arc::append_arc_plan(&root, "arc-dash", "roadmap/plan.md").unwrap();
+
+        let out = discard("arc-dash", Some("cli"), false).unwrap();
+        assert_eq!(out.plan_restored, None);
+        assert!(
+            !root.join("roadmap/plan.md").exists(),
+            "the run's product does not come back to seed the next run"
+        );
+        assert!(out.warnings.iter().any(|w| w.contains("the arc devised roadmap/plan.md")));
+        assert_eq!(crate::arc::read_arc(&root, "arc-dash"), None);
+    }
+
+    #[serial]
+    #[test]
+    fn discard_ends_an_arc_that_never_made_a_dash() {
+        let (_temp, root) = repo_for_create(None);
+        crate::arc::append_arc_start(&root, "arc-only", "dash/idea.md").unwrap();
+        assert!(crate::arc::read_arc(&root, "arc-only").is_some());
+
+        let out = discard("arc-only", Some("cli"), false).unwrap();
+        assert_eq!(out.plan_restored, None);
+        assert!(out.work_restored.is_empty());
+        assert_eq!(out.warnings.len(), 1, "it says what it ended");
+        assert_eq!(crate::arc::read_arc(&root, "arc-only"), None);
+        // With the record ended there is nothing left under the name.
+        assert!(discard("arc-only", Some("cli"), false).is_err());
+    }
+
     #[serial]
     #[test]
     fn discard_hands_back_a_plan_that_was_untracked_on_base() {
