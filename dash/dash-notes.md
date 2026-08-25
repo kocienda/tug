@@ -28,11 +28,6 @@
 
 
 
-Durable commit message after a dash is *still not* a `Git Commit` message like *regular* commits. It's just a `Shell` message and I don't want that. It must be more clearly a commit operation.
-
-
-
-
 OK. We've done all the oustandinding work I have on my list for dashes and joins. I'm quite sure there will be more to do to improve the experience as we go. BUt for now, I want to start thinking about ways to make the dash process more ergonomic, findable, and visible to the human dev. Right now, dashes are created by orchestrating a set of slash commands. To do so requires the *full knowledge* of what these commands are and how/when to invoke them. Also, the *on ramp* to these slash commands varies from job to job. Basically in every session I start off by chatting with you about a project idea of some sort, then I proceed through the following phases, I ask you to:
 
 - Write a document/brief to the `roadmap` directory (sometimes).
