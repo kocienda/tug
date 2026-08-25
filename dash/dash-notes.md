@@ -72,7 +72,7 @@ One thing I'd push back on gently: none of this needs a plan yet. Steps 1–4 ea
 
 
 
-
+This `/dash-arc` display should be *custom*, not just shell script output.
 
 
 The styling of dash display in these atom/pills is inconsistent across the app: typeface is sometimes monospace, sometimes proportional; sometimes quiet/muted
