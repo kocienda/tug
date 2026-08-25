@@ -732,6 +732,7 @@ pub(crate) enum HandBack {
 /// reaches the card over `input_tx` and the spawn queue while the receipt
 /// publishes on `control_tx`, so the two travel different channels and neither
 /// caller can pin which lands first.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn stop_arc_for_session(
     supervisor: &AgentSupervisor,
     state: &conductor::ConductorState,

@@ -597,6 +597,12 @@ pub enum ChangesetEntry {
         /// — the settled mark's text, from the dash-log's `replayed` line.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last_replay: Option<String>,
+        /// What the last green verify said about the tree a join would land:
+        /// the head, the base it was verified onto, and whether both still
+        /// stand. Absent when nothing has verified this dash. It says; it
+        /// gates nothing ([D149]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fit: Option<DashFit>,
         /// Paths a replay stopped on, when the last attempt conflicted. Held by
         /// the engine rather than derived from git, because the answer is about
         /// an attempt rather than about a state.
@@ -638,6 +644,22 @@ pub struct DashArcState {
     /// Whether the arc reached its terminal line.
     #[serde(default, skip_serializing_if = "is_false")]
     pub done: bool,
+}
+
+/// What the last green verify said about the tree a join would land.
+///
+/// Both endpoints, because the fit is the dash replayed onto the live base: a
+/// base that moved after a green verify leaves the recorded head untouched
+/// while making the verified tree no longer the tree a join would land.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DashFit {
+    /// The head the fit was verified at, full sha.
+    pub head: String,
+    /// The base tip that head was verified onto, full sha.
+    pub base: String,
+    /// Whether both endpoints still stand. Derived on every recompute, never
+    /// stored.
+    pub current: bool,
 }
 
 /// The join pipeline's state for one dash — the single durable source every
@@ -1743,6 +1765,7 @@ mod tests {
             base_ahead: 0,
             base_overlap: vec![],
             last_replay: None,
+            fit: None,
             replay_conflict_paths: vec![],
             join: None,
             arc: None,

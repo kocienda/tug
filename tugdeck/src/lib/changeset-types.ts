@@ -250,6 +250,10 @@ export interface DashChangesetEntry {
   base_overlap?: string[];
   /** Where this dash's rounds went the last time its base moved under it. */
   last_replay?: string;
+  /** What the last green verify said about the tree a join would land: the
+   *  head, the base it was verified onto, and whether both still stand.
+   *  Absent when nothing has verified this dash. It says; it gates nothing. */
+  fit?: { head: string; base: string; current: boolean };
   /** Paths the last replay attempt stopped on, when it conflicted. */
   replay_conflict_paths?: string[];
   /**
@@ -528,6 +532,20 @@ function isOptionalDashArcState(value: unknown): value is DashArcState | undefin
   return true;
 }
 
+/** The fit fact, whose three fields travel together or not at all — a head
+ *  without the base it was verified onto cannot name a tree. */
+function isOptionalDashFit(
+  value: unknown,
+): value is { head: string; base: string; current: boolean } | undefined {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.head === "string" &&
+    typeof value.base === "string" &&
+    typeof value.current === "boolean"
+  );
+}
+
 function isOptionalDashJoinState(
   value: unknown,
 ): value is DashJoinStateWire | undefined {
@@ -693,6 +711,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.base_ahead === undefined || typeof value.base_ahead === "number") &&
       isOptionalStringArray(value.base_overlap) &&
       (value.last_replay === undefined || typeof value.last_replay === "string") &&
+      isOptionalDashFit(value.fit) &&
       isOptionalStringArray(value.replay_conflict_paths) &&
       isOptionalDashJoinState(value.join)
     );

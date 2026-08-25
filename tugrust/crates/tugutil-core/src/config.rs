@@ -33,13 +33,21 @@ pub struct DashConfig {
     #[serde(default)]
     pub post_create: Vec<String>,
 
-    /// The run-ending's scoped fit check. `{base}`/`{head}` are substituted by
-    /// the consumer with the replayed range before running via `sh -c` from the
-    /// worktree root; a command carrying neither runs unscoped. Absent means
-    /// undeclared: the ending degrades to the plan's own checkpoint commands,
-    /// stated plainly. Read at the ending only — never at join time ([D149]).
-    #[serde(default)]
-    pub verify: Option<String>,
+    /// The retired `verify` key, bound only so the loader can see it and
+    /// refuse. Nothing reads its value: a project declares the surfaces it is
+    /// made of, and the fit check runs what those surfaces declare. A config
+    /// still carrying this key would look like coverage while providing none,
+    /// so it is a refusal rather than a silently ignored field.
+    #[serde(default, rename = "verify")]
+    pub retired_verify: Option<String>,
+
+    /// The surfaces this project is made of: what each claims, and what
+    /// checking it means. `tugutil dash verify` resolves every path a dash
+    /// would land to exactly one of these, refuses when a path resolves to
+    /// none, and runs what the matched surfaces declare. An empty table is the
+    /// declared-none state, not an error.
+    #[serde(default, rename = "surface")]
+    pub surfaces: Vec<Surface>,
 
     /// The command that produces an inspectable instance from the worktree.
     /// Absent means no build is offered.
@@ -79,6 +87,34 @@ pub struct DashConfig {
     pub implement_rotate_at: Option<f32>,
 }
 
+
+/// One surface of a project: the paths it claims, and what checking it means.
+///
+/// Declared as `[[tugtool.dash.surface]]` in `.tugtool/config.toml`. A surface
+/// either declares its own `check` commands, borrows another surface's with
+/// `checked_by`, or declares neither — `check = []` being the claim that these
+/// paths are accounted for and there is nothing to run.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Surface {
+    /// A short identifier a human reads on a report line. Unique across the
+    /// table; not a path, and carrying no meaning beyond naming this surface.
+    pub name: String,
+
+    /// The repo-relative prefixes and exact paths this surface claims. A
+    /// touched path goes to the surface declaring the longest claiming path.
+    pub paths: Vec<String>,
+
+    /// The shell commands that check this surface, run in declaration order
+    /// from the worktree root. Empty means claimed with nothing to run.
+    #[serde(default)]
+    pub check: Vec<String>,
+
+    /// Other surfaces whose own `check` commands run as this surface's. One
+    /// level deep: a borrowed surface may not itself borrow.
+    #[serde(default)]
+    pub checked_by: Vec<String>,
+}
+
 /// The context fraction the implement stage rotates above when a project
 /// declares none ([P07]).
 pub const IMPLEMENT_ROTATE_AT_DEFAULT: f32 = 0.6;
@@ -106,11 +142,26 @@ pub const DEFAULT_CONFIG: &str = r#"[tugtool.dash]
 post_create = []
 # post_create = ["npm install"]
 
-# The run-ending's fit check, run from the worktree root once the replay has
-# put the rounds on the live base. {base} and {head} are replaced with that
-# range; a command carrying neither runs unscoped. Declare none and the ending
-# falls back to the plan's own checkpoint commands.
-# verify = "sh scripts/check.sh {base} {head}"
+# The surfaces this project is made of. `tugutil dash verify <dash>` resolves
+# every path the dash would land to the surface declaring the longest matching
+# path, and refuses — naming the paths — when one resolves to no surface. An
+# empty table declares none: the ending falls back to the plan's own checkpoint
+# commands over what the replay moved.
+#
+# `check` runs from the worktree root, in declaration order. `{base}`, `{head}`,
+# and `{paths}` expand to the range's endpoints and to this surface's own
+# touched paths, shell-quoted. `check = []` claims the paths and runs nothing.
+# `checked_by` borrows another surface's commands, one level deep.
+#
+# [[tugtool.dash.surface]]
+# name  = "src"
+# paths = ["src/"]
+# check = ["make check"]
+#
+# [[tugtool.dash.surface]]
+# name  = "docs"
+# paths = ["README.md", "doc/"]
+# check = []
 
 # The command that produces an inspectable instance from this worktree.
 # Declare none and no build is offered.
@@ -132,7 +183,158 @@ post_create = []
 # implement_rotate_at = 0.6
 "#;
 
-/// Why a proposed docs directory was refused. The value is written into a
+/// Why a config file was refused. Every variant carries the offending value,
+/// because a refusal a reader cannot act on is a refusal that gets worked
+/// around rather than fixed.
+///
+/// Raised only by what a config *declares*: a missing file is validated not at
+/// all, and an absent surface table is the declared-none state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigRefusal {
+    /// The retired `verify` key, which a surface table replaces.
+    RetiredVerify(String),
+    /// A surface with an empty `name`.
+    EmptyName,
+    /// Two surfaces sharing a `name`.
+    DuplicateName(String),
+    /// A surface declaring no paths, or an empty path string.
+    EmptyPaths(String),
+    /// A path that cannot be resolved against a repo root as written.
+    IllegalPath { surface: String, path: String },
+    /// Two surfaces claiming the same path, which no longest-prefix rule can
+    /// disambiguate.
+    DuplicatePath {
+        first: String,
+        second: String,
+        path: String,
+    },
+    /// A `checked_by` naming a surface the table does not declare.
+    UnknownLender { surface: String, lender: String },
+    /// A `checked_by` naming a surface that itself borrows.
+    LenderBorrows { surface: String, lender: String },
+    /// A `checked_by` naming its own surface.
+    SelfBorrow(String),
+}
+
+impl std::fmt::Display for ConfigRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RetiredVerify(value) => write!(
+                f,
+                "[tugtool.dash].verify is retired (declared as {value:?}) — declare \
+                 [[tugtool.dash.surface]] entries instead, and run `tugutil dash verify <dash>`"
+            ),
+            Self::EmptyName => f.write_str("a [[tugtool.dash.surface]] declares an empty name"),
+            Self::DuplicateName(name) => {
+                write!(f, "two surfaces are both named {name:?}")
+            }
+            Self::EmptyPaths(surface) => write!(
+                f,
+                "surface {surface:?} declares no paths — a surface claims at least one path"
+            ),
+            Self::IllegalPath { surface, path } => write!(
+                f,
+                "surface {surface:?} declares the path {path:?} — paths are repo-relative, \
+                 without `..`, and match by prefix rather than by glob"
+            ),
+            Self::DuplicatePath {
+                first,
+                second,
+                path,
+            } => write!(
+                f,
+                "surfaces {first:?} and {second:?} both claim {path:?} — a path belongs to \
+                 exactly one surface"
+            ),
+            Self::UnknownLender { surface, lender } => write!(
+                f,
+                "surface {surface:?} is checked_by {lender:?}, which no surface declares"
+            ),
+            Self::LenderBorrows { surface, lender } => write!(
+                f,
+                "surface {surface:?} is checked_by {lender:?}, which itself declares \
+                 checked_by — borrowing is one level deep"
+            ),
+            Self::SelfBorrow(name) => {
+                write!(f, "surface {name:?} declares itself in its own checked_by")
+            }
+        }
+    }
+}
+
+impl DashConfig {
+    /// Check everything this table declares, before anything believes it.
+    ///
+    /// Runs after the parse, on a config that was actually read from a file.
+    /// A project declaring no surfaces passes trivially — absence is a state,
+    /// and the only thing refused here is a declaration that cannot mean what
+    /// it says.
+    pub fn validate(&self) -> Result<(), ConfigRefusal> {
+        if let Some(value) = &self.retired_verify {
+            return Err(ConfigRefusal::RetiredVerify(value.clone()));
+        }
+
+        for (index, surface) in self.surfaces.iter().enumerate() {
+            if surface.name.trim().is_empty() {
+                return Err(ConfigRefusal::EmptyName);
+            }
+            if self.surfaces[..index].iter().any(|s| s.name == surface.name) {
+                return Err(ConfigRefusal::DuplicateName(surface.name.clone()));
+            }
+            if surface.paths.is_empty() || surface.paths.iter().any(|p| p.trim().is_empty()) {
+                return Err(ConfigRefusal::EmptyPaths(surface.name.clone()));
+            }
+            for path in &surface.paths {
+                if Path::new(path).is_absolute()
+                    || path.split('/').any(|c| c == "..")
+                    || path.contains(['*', '?', '['])
+                {
+                    return Err(ConfigRefusal::IllegalPath {
+                        surface: surface.name.clone(),
+                        path: path.clone(),
+                    });
+                }
+                if let Some(other) = self.surfaces[..index]
+                    .iter()
+                    .find(|s| s.paths.iter().any(|p| p == path))
+                {
+                    return Err(ConfigRefusal::DuplicatePath {
+                        first: other.name.clone(),
+                        second: surface.name.clone(),
+                        path: path.clone(),
+                    });
+                }
+            }
+        }
+
+        // Borrowing is checked against the whole table, so a surface may
+        // legally borrow one declared after it.
+        for surface in &self.surfaces {
+            for lender in &surface.checked_by {
+                if *lender == surface.name {
+                    return Err(ConfigRefusal::SelfBorrow(surface.name.clone()));
+                }
+                match self.surfaces.iter().find(|s| s.name == *lender) {
+                    None => {
+                        return Err(ConfigRefusal::UnknownLender {
+                            surface: surface.name.clone(),
+                            lender: lender.clone(),
+                        })
+                    }
+                    Some(found) if !found.checked_by.is_empty() => {
+                        return Err(ConfigRefusal::LenderBorrows {
+                            surface: surface.name.clone(),
+                            lender: lender.clone(),
+                        })
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+
+        Ok(())
+    }
+}/// Why a proposed docs directory was refused. The value is written into a
 /// committed config file and then joined onto the project root, so it is
 /// checked before it is believed rather than after.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -260,8 +462,14 @@ impl Config {
     pub fn load(path: &Path) -> Result<Self, TugError> {
         let content = fs::read_to_string(path)
             .map_err(|e| TugError::Config(format!("failed to read config file: {}", e)))?;
-        toml::from_str(&content)
-            .map_err(|e| TugError::Config(format!("failed to parse config file: {}", e)))
+        let config: Self = toml::from_str(&content)
+            .map_err(|e| TugError::Config(format!("failed to parse config file: {}", e)))?;
+        config
+            .tugtool
+            .dash
+            .validate()
+            .map_err(|e| TugError::Config(format!("{}: {}", path.display(), e)))?;
+        Ok(config)
     }
 
     /// The project's declared docs directory as an absolute path, when it
@@ -411,7 +619,211 @@ pub fn tugplan_name_from_path(path: &Path) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// A table's refusals, each with the offending value named — and, beside
+    /// each, a neighbouring config that differs only in being legal, so a
+    /// refusal that fired too broadly is caught here rather than by a project
+    /// whose config stopped loading.
     #[test]
+    fn surface_table_refusals_each_name_the_offending_value() {
+        let cases: &[(&str, &str, &[&str])] = &[
+            (
+                "the retired verify key",
+                "[tugtool.dash]\nverify = \"sh scripts/check.sh {base} {head}\"\n",
+                &["verify", "[[tugtool.dash.surface]]"],
+            ),
+            (
+                "an empty name",
+                "[[tugtool.dash.surface]]\nname = \"\"\npaths = [\"src/\"]\n",
+                &["empty name"],
+            ),
+            (
+                "two surfaces sharing a name",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"x/\"]\n\n[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"y/\"]\n",
+                &["\"a\""],
+            ),
+            (
+                "no paths at all",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = []\n",
+                &["\"a\"", "no paths"],
+            ),
+            (
+                "an empty path string",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"\"]\n",
+                &["\"a\""],
+            ),
+            (
+                "an absolute path",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"/etc/\"]\n",
+                &["\"a\"", "/etc/"],
+            ),
+            (
+                "a path escaping the root",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"../elsewhere/\"]\n",
+                &["\"a\"", "../elsewhere/"],
+            ),
+            (
+                "a glob",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"src/*.rs\"]\n",
+                &["\"a\"", "src/*.rs"],
+            ),
+            (
+                "two surfaces claiming the same path",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"src/\"]\n\n[[tugtool.dash.surface]]\nname = \"b\"\npaths = [\"src/\"]\n",
+                &["\"a\"", "\"b\"", "src/"],
+            ),
+            (
+                "a checked_by naming nothing",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"ghost\"]\n",
+                &["\"a\"", "ghost"],
+            ),
+            (
+                "a checked_by naming a borrower",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"b\"]\n\n[[tugtool.dash.surface]]\nname = \"b\"\npaths = [\"y/\"]\nchecked_by = [\"c\"]\n\n[[tugtool.dash.surface]]\nname = \"c\"\npaths = [\"z/\"]\ncheck = [\"true\"]\n",
+                &["\"a\"", "\"b\"", "one level"],
+            ),
+            (
+                "a surface borrowing itself",
+                "[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"x/\"]\nchecked_by = [\"a\"]\n",
+                &["\"a\""],
+            ),
+        ];
+
+        for (label, toml_text, fragments) in cases {
+            let config: Config =
+                toml::from_str(toml_text).unwrap_or_else(|e| panic!("{label} should parse: {e}"));
+            let refusal = config
+                .tugtool
+                .dash
+                .validate()
+                .expect_err(&format!("{label} must be refused"));
+            let message = refusal.to_string();
+            for fragment in *fragments {
+                assert!(
+                    message.contains(fragment),
+                    "{label}: the refusal must name {fragment:?}, said: {message}"
+                );
+            }
+        }
+
+        // The neighbour: everything the cases above got wrong, done right.
+        let legal: Config = toml::from_str(
+            "[tugtool.dash]\npost_create = []\n\n[[tugtool.dash.surface]]\nname = \"a\"\npaths = [\"src/\", \"README.md\"]\ncheck = [\"make check\"]\n\n[[tugtool.dash.surface]]\nname = \"b\"\npaths = [\"proto/\"]\nchecked_by = [\"a\"]\n",
+        )
+        .expect("the legal neighbour should parse");
+        legal
+            .tugtool
+            .dash
+            .validate()
+            .expect("the legal neighbour must still load");
+    }
+
+    /// Overlap is not ambiguity: a longer prefix shadowing a shorter one is
+    /// the resolution rule working, and only an *identical* claim is refused.
+    #[test]
+    fn overlapping_prefixes_are_legal_and_identical_ones_are_not() {
+        let overlapping: Config = toml::from_str(
+            "[[tugtool.dash.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\ncheck = [\"tsc\"]\n\n[[tugtool.dash.surface]]\nname = \"wasm\"\npaths = [\"tugdeck/crates/\"]\ncheck = [\"just wasm\"]\n",
+        )
+        .unwrap();
+        overlapping
+            .tugtool
+            .dash
+            .validate()
+            .expect("a longer prefix shadowing a shorter one is legal");
+
+        let identical: Config = toml::from_str(
+            "[[tugtool.dash.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\n\n[[tugtool.dash.surface]]\nname = \"other\"\npaths = [\"tugdeck/\"]\n",
+        )
+        .unwrap();
+        assert!(identical.tugtool.dash.validate().is_err());
+    }
+
+    /// A config file that declares the retired key does not merely fail an
+    /// assertion — it stops loading, which is what makes the retirement real.
+    #[test]
+    fn a_config_declaring_the_retired_key_fails_to_load() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".tugtool")).unwrap();
+        fs::write(
+            root.join(".tugtool/config.toml"),
+            "[tugtool.dash]\nverify = \"sh scripts/check.sh {base} {head}\"\n",
+        )
+        .unwrap();
+
+        let err = Config::load_from_project(root).expect_err("the retired key must refuse");
+        let message = err.to_string();
+        assert!(
+            message.contains("[[tugtool.dash.surface]]"),
+            "the refusal must point at the replacement: {message}"
+        );
+    }
+
+    /// The refusals fire on what a config declares, so a project with no
+    /// config file is not validated at all.
+    #[test]
+    fn a_missing_config_file_is_the_empty_table_and_no_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = Config::load_from_project(tmp.path()).expect("a missing file is not an error");
+        assert!(config.tugtool.dash.surfaces.is_empty());
+        assert!(config.tugtool.dash.retired_verify.is_none());
+    }
+
+    /// The template a fresh project starts from must itself survive the
+    /// loader, and must document the table rather than the key it replaced.
+    #[test]
+    fn the_default_config_template_declares_a_legal_empty_table() {
+        let config: Config =
+            toml::from_str(DEFAULT_CONFIG).expect("the template must be valid TOML");
+        config
+            .tugtool
+            .dash
+            .validate()
+            .expect("the template must validate clean");
+        assert!(config.tugtool.dash.surfaces.is_empty());
+        assert!(
+            DEFAULT_CONFIG.contains("[[tugtool.dash.surface]]"),
+            "the template must document the surface table"
+        );
+        for placeholder in ["{base}", "{head}", "{paths}"] {
+            assert!(
+                DEFAULT_CONFIG.contains(placeholder),
+                "the template must document {placeholder}"
+            );
+        }
+        assert!(
+            !DEFAULT_CONFIG.contains("verify ="),
+            "the template must not document the retired key"
+        );
+    }    /// This repository's own committed config, through the real loader.
+    ///
+    /// Cheap, and it catches a hand-edit typo at commit time rather than at the
+    /// next dash's ending — which is the moment a config that will not load is
+    /// most expensive and least expected.
+    #[test]
+    fn this_repositorys_own_config_loads_and_validates() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .expect("the crate sits three levels under the repo root")
+            .to_path_buf();
+        let config_path = root.join(".tugtool/config.toml");
+        if !config_path.exists() {
+            // A checkout without one is not this repository; nothing to assert.
+            return;
+        }
+        let config = Config::load(&config_path)
+            .expect("this repository's committed config must load through the real loader");
+        assert!(
+            !config.tugtool.dash.surfaces.is_empty(),
+            "this repository declares its surfaces"
+        );
+        assert!(
+            config.tugtool.dash.retired_verify.is_none(),
+            "the retired key would make this config unloadable"
+        );
+    }    #[test]
     fn test_is_reserved_file() {
         assert!(is_reserved_file("tugplan-implementation-log.md"));
         assert!(!is_reserved_file("tugplan-1.md"));
@@ -444,13 +856,16 @@ mod tests {
 
     #[test]
     fn dash_declarations_parse() {
-        let toml = "[tugtool.dash]\npost_create = [\"bun install\"]\nverify = \"sh scripts/verify-fit.sh {base} {head}\"\nbuild = \"just app-debug\"\n";
+        let toml = "[tugtool.dash]\npost_create = [\"bun install\"]\nbuild = \"just app-debug\"\n\n[[tugtool.dash.surface]]\nname = \"deck\"\npaths = [\"tugdeck/\"]\ncheck = [\"bunx tsc --noEmit\"]\n";
         let config: Config = toml::from_str(toml).expect("declaring config should parse");
-        assert_eq!(
-            config.tugtool.dash.verify.as_deref(),
-            Some("sh scripts/verify-fit.sh {base} {head}")
-        );
         assert_eq!(config.tugtool.dash.build.as_deref(), Some("just app-debug"));
+        let surfaces = &config.tugtool.dash.surfaces;
+        assert_eq!(surfaces.len(), 1);
+        assert_eq!(surfaces[0].name, "deck");
+        assert_eq!(surfaces[0].paths, vec!["tugdeck/".to_string()]);
+        assert_eq!(surfaces[0].check, vec!["bunx tsc --noEmit".to_string()]);
+        assert!(surfaces[0].checked_by.is_empty());
+        config.tugtool.dash.validate().expect("a legal table loads");
     }
 
     #[test]
@@ -458,12 +873,12 @@ mod tests {
         // A project that declares only hydration leaves the ending undeclared.
         let toml = "[tugtool.dash]\npost_create = [\"echo hi\"]\n";
         let config: Config = toml::from_str(toml).expect("partial config should parse");
-        assert!(config.tugtool.dash.verify.is_none());
+        assert!(config.tugtool.dash.surfaces.is_empty());
         assert!(config.tugtool.dash.build.is_none());
 
         // So does a project with no dash table at all.
         let empty: Config = toml::from_str("").expect("empty config should parse");
-        assert!(empty.tugtool.dash.verify.is_none());
+        assert!(empty.tugtool.dash.surfaces.is_empty());
         assert!(empty.tugtool.dash.build.is_none());
     }
 

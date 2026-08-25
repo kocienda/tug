@@ -60,6 +60,13 @@ export interface ParsedJoinReceipt {
    * the same absence and render the same way.
    */
   files: CommitReceiptFile[];
+  /**
+   * What the last green verify said about the tree this join landed, from the
+   * `fit:` line. Absent for a receipt written before the line existed, and for
+   * a dash nothing verified — the server omits the line rather than writing an
+   * empty one, so both arrive here as the same absence.
+   */
+  fit?: { verified: boolean; head: string; base: string };
 }
 
 /** The display facts parsed from an S02 discard summary. */
@@ -79,6 +86,10 @@ export interface ParsedDiscardReceipt {
 const JOIN_HEAD_RE = /^joined (\S+) · (\S+) → (\S+) · (\d+) round\(s\)$/;
 const DISCARD_HEAD_RE = /^discarded (\S+) · (\d+) round\(s\)(?:, (\d+) file\(s\))?$/;
 
+// The optional fit line, between the header and `files:`:
+//   fit: verified <head> onto <base>
+const FIT_RE = /^fit: (verified|stale) (\S+) onto (\S+)$/;
+
 // The header the verb wrote before it was renamed, when it led with `released`
 // and then said `discarded` again in front of the count. A transcript is
 // replayed from its JSONL on every card reload, so every receipt already
@@ -91,22 +102,32 @@ const HISTORICAL_DISCARD_HEAD_RE =
  * output is not an S01 summary — a truncated row, or one written before the
  * format existed. The caller then renders the raw output rather than nothing.
  *
- * Line 1 is the file list only when it carries the `files: ` prefix, which is
- * exactly `parseCommitReceipt`'s discipline. That one test is what makes every
- * join receipt already in JSONL keep parsing forever: a transcript replays
- * from its record on every card reload, so a format change that orphaned the
- * old shape would turn every recorded join back into a raw shell row.
+ * Every line after the header is claimed by its own **prefix**, and the
+ * message begins wherever the cursor stops. That is what makes every join
+ * receipt already in JSONL keep parsing forever: a transcript replays from its
+ * record on every card reload, so a parser that read `files:` at a fixed index
+ * would orphan the file list of every past join the moment a line was added
+ * above it. An unrecognized line ends the optional block and belongs to the
+ * message; only a header that does not match yields `null`, which is what
+ * sends the row to the generic shell block.
  */
 export function parseJoinReceipt(output: string): ParsedJoinReceipt | null {
   const lines = output.split("\n");
   const head = JOIN_HEAD_RE.exec(lines[0] ?? "");
   if (head === null) return null;
-  let messageStart = 1;
+  let cursor = 1;
   let files: CommitReceiptFile[] = [];
-  if (lines[1]?.startsWith(FILES_PREFIX) === true) {
-    files = parseFilesLine(lines[1]);
-    messageStart = 2;
+  let fit: ParsedJoinReceipt["fit"];
+  const fitLine = FIT_RE.exec(lines[cursor] ?? "");
+  if (fitLine !== null) {
+    fit = { verified: fitLine[1] === "verified", head: fitLine[2], base: fitLine[3] };
+    cursor += 1;
   }
+  if (lines[cursor]?.startsWith(FILES_PREFIX) === true) {
+    files = parseFilesLine(lines[cursor] ?? "");
+    cursor += 1;
+  }
+  const messageStart = cursor;
   return {
     sha: head[1],
     dash: head[2],
@@ -115,6 +136,7 @@ export function parseJoinReceipt(output: string): ParsedJoinReceipt | null {
     // A trailing blank line would paint as an empty row under `pre-wrap`.
     message: lines.slice(messageStart).join("\n").replace(/\s+$/, ""),
     files,
+    fit,
   };
 }
 
@@ -180,7 +202,7 @@ function JoinReceipt({
   cwd: string;
   exchangeId: string;
 }): React.ReactElement {
-  const { sha, dash, base, rounds, message, files } = parsed;
+  const { sha, dash, base, rounds, message, files, fit } = parsed;
   const subject = message.split("\n", 1)[0];
   // A squash subject names what it touched and the scope tag is often a path —
   // annotated like the commit receipt's subject, whose `<code>` this mirrors.
@@ -226,6 +248,11 @@ function JoinReceipt({
             <code>
               {dash} → {base}
             </code>
+            {fit !== undefined ? (
+              <code data-slot="join-receipt-fit" data-verified={fit.verified}>
+                fit {fit.verified ? "verified" : "stale"} {fit.head} onto {fit.base}
+              </code>
+            ) : null}
           </div>
         ) : null}
         {body.length > 0 ? (

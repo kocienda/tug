@@ -55,6 +55,11 @@ export interface DashMetaFact {
 /** At most this many paths in a fact's tooltip; the count carries the rest. */
 const FACT_TOOLTIP_PATHS = 8;
 
+/** A sha as a tooltip shows it. */
+function short(sha: string): string {
+  return sha.slice(0, 9);
+}
+
 function pathList(paths: ReadonlyArray<string>): string {
   const shown = paths.slice(0, FACT_TOOLTIP_PATHS).join("\n");
   const rest = paths.length - FACT_TOOLTIP_PATHS;
@@ -86,6 +91,7 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
   const overlap = entry.base_overlap ?? [];
   const ahead = entry.base_ahead ?? 0;
   const settled = entry.last_replay;
+  const fit = entry.fit;
   const arc = entry.arc;
   if (arc !== undefined && arc.stopped !== undefined) {
     const stage = arc.stopped_stage ?? arc.stage;
@@ -109,6 +115,14 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
       key: "overlap",
       label: `base overlap (${overlap.length})`,
       tooltip: `Uncommitted work on ${entry.base} touches files this dash also changes:\n${pathList(overlap)}`,
+      tone: "caution",
+    });
+  }
+  if (fit !== undefined && !fit.current) {
+    facts.push({
+      key: "fit",
+      label: "fit unverified",
+      tooltip: `The fit was verified at ${short(fit.head)} onto ${short(fit.base)}; one of those has moved since.\nVerify it again with \`tugutil dash verify ${entry.display_name}\`.`,
       tone: "caution",
     });
   }
@@ -138,6 +152,14 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
       key: "replayed",
       label: "replayed",
       tooltip: `Replayed ${settled}`,
+      tone: "subtle",
+    });
+  }
+  if (fit !== undefined && fit.current) {
+    facts.push({
+      key: "fit",
+      label: "fit verified",
+      tooltip: `The tree a join would land was verified at ${short(fit.head)} onto ${short(fit.base)}.`,
       tone: "subtle",
     });
   }

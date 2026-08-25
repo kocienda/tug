@@ -289,7 +289,39 @@ impl MarkStage {
     }
 }
 
-/// What a dash's surviving declarations say about it.
+/// What a dash's last green verify said about the tree a join would land.
+///
+/// Both endpoints, because the fit is the dash *replayed onto the live base*:
+/// a base that moved after a green verify leaves the recorded head untouched
+/// while making the verified tree no longer the tree a join would land.
+/// Recording one sha and deriving staleness from it would say `verified` about
+/// a tree that no longer exists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FitFact {
+    /// The head the fit was verified at, full sha.
+    pub head: String,
+    /// The base tip that head was verified onto, full sha.
+    pub base: String,
+    /// Whether both endpoints still stand: `head` is the dash branch's tip and
+    /// `base` is the base branch's tip. Derived at read time from one
+    /// `rev-parse` each; nothing about the staleness is stored.
+    pub current: bool,
+}
+
+/// The head/base pair a `verified` note names, if it names one.
+///
+/// The note leads with the head and carries the base after `onto`. A note that
+/// does not parse into that pair is ignored rather than half-believed — the
+/// same reading `read_step_fields` takes of a step note it cannot understand.
+pub fn parse_verified_note(note: &str) -> Option<(String, String)> {
+    let mut tokens = note.split_whitespace();
+    let head = tokens.next()?;
+    let base = tokens.skip_while(|t| *t != "onto").nth(1)?;
+    if head.is_empty() || base.is_empty() {
+        return None;
+    }
+    Some((head.to_string(), base.to_string()))
+}/// What a dash's surviving declarations say about it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DashDeclarations {
     /// The latest declaration of any kind — the one the stage derives from.
@@ -306,6 +338,11 @@ pub struct DashDeclarations {
     /// its base last moved under it. Deliberately not a `latest` declaration: a
     /// replay rewrites history, it does not move the dash's stage.
     pub last_replay: Option<String>,
+    /// The latest `verified` line's note — the head the fit was verified at
+    /// and the base it was verified onto. Deliberately not a `latest`
+    /// declaration, on the same grounds as `last_replay`: verifying reports on
+    /// a tree, it does not move the dash's stage.
+    pub last_verified: Option<String>,
     /// The timestamp of the newest surviving line for this dash's current
     /// generation — when the dash was last touched at all, by any writer. Reset
     /// with everything else at a terminal line, so a reused name reports its own
@@ -466,6 +503,7 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
             "built" => found.latest = Some(DashDeclaration::Built),
             "audited" => found.latest = Some(DashDeclaration::Audited),
             "replayed" => found.last_replay = Some(note.to_owned()),
+            "verified" => found.last_verified = Some(note.to_owned()),
             "run-through" => {
                 found.run_through = note.trim().parse().ok();
                 // A new selection is being declared: whatever step opened the

@@ -5562,6 +5562,7 @@ impl AgentSupervisor {
                             rounds,
                             outcome.message.as_deref().unwrap_or(""),
                             &files,
+                            outcome.fit.as_ref(),
                         );
                         receipt_id = Self::record_landing_receipt(
                             self.shell_ledger.as_ref(),
@@ -9459,6 +9460,7 @@ mod tests {
     #[test]
     fn changeset_join_ok_omits_blockers_when_there_are_none() {
         let outcome = tugdash_core::JoinOutcome {
+            fit: None,
             name: "d".to_string(),
             base_branch: "main".to_string(),
             strategy: "squash".to_string(),

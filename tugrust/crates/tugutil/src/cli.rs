@@ -551,6 +551,24 @@ pub enum DashCommands {
         /// Dash name.
         name: String,
     },
+    /// Verify the fit: check the tree a join would land against the surfaces
+    /// this project declares.
+    ///
+    /// Resolves every path the dash would land to the surface claiming the
+    /// longest matching prefix, refuses — naming the paths, before running a
+    /// single check — when one resolves to no surface, then runs what the
+    /// matched surfaces declare from the worktree root. A green run records
+    /// the head it verified and the base it verified onto; it gates nothing.
+    Verify {
+        /// Dash name.
+        name: String,
+        /// Verify from this commit instead of `merge-base(<base>, <branch>)`.
+        #[arg(long)]
+        base: Option<String>,
+        /// Verify up to this commit instead of the dash branch tip.
+        #[arg(long)]
+        head: Option<String>,
+    },
     /// Discard a dash: delete its worktree + branch without merging.
     Discard {
         /// Dash name.

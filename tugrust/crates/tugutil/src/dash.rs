@@ -73,6 +73,9 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             quiet,
         ),
         DashCommands::Replay { name } => return run_replay(&name, json, quiet),
+        DashCommands::Verify { name, base, head } => {
+            return run_verify(&name, base, head, json, quiet);
+        }
         DashCommands::Undo { name, list } => {
             return run_undo(name.as_deref(), list, json, quiet);
         }
@@ -486,6 +489,14 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
                 ""
             }
         );
+        if let Some(fit) = &data.fit {
+            let head: String = fit.head.chars().take(9).collect();
+            if fit.current {
+                println!("Fit: verified at {}", head);
+            } else {
+                println!("Fit: not verified since {}", head);
+            }
+        }
         println!("Draft: {}", if data.draft { "yes" } else { "no" });
         if let Some(phase) = &data.join_journal_phase {
             println!("Landing interrupted at: {}", phase);
@@ -606,7 +617,121 @@ fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
     ExitCode::from(replay_exit_status(&outcome))
 }
 
-fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
+/// Verify the fit, and print the report the ending reads.
+///
+/// The report is a finished document: the per-surface table, then exactly one
+/// receipt line. There is nothing a filter can extract that the receipt has
+/// not already extracted.
+fn run_verify(name: &str, base: Option<String>, head: Option<String>, json: bool, quiet: bool) -> ExitCode {
+    let repo = match tugutil_core::find_repo_root() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+    let report =
+        match tugdash_core::surfaces::verify_in(&repo, name, base.as_deref(), head.as_deref()) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                return ExitCode::from(1);
+            }
+        };
+
+    if json {
+        print_ok("dash verify", &report);
+    } else if !quiet {
+        print_verify(&report);
+    }
+    ExitCode::from(report.exit_code())
+}
+
+fn print_verify(report: &tugdash_core::surfaces::VerifyReport) {
+    if !report.unclaimed.is_empty() {
+        println!(
+            "{} paths match no declared surface:",
+            report.unclaimed.len()
+        );
+        for path in &report.unclaimed {
+            println!("  {}", path);
+        }
+        println!("\nDeclare a surface for them in .tugtool/config.toml:\n");
+        println!("  [[tugtool.dash.surface]]");
+        println!("  name  = \"<name>\"");
+        println!("  paths = [{}]", declaration_hint(&report.unclaimed));
+        println!("  check = []");
+        println!();
+    }
+
+    if !report.surfaces.is_empty() {
+        println!("surface      paths  checks  result");
+        for surface in &report.surfaces {
+            let ran = surface
+                .commands
+                .iter()
+                .filter(|c| c.status == "ran")
+                .count();
+            let result = if surface.red {
+                "red".to_string()
+            } else if surface.commands.is_empty() {
+                "claimed, unchecked".to_string()
+            } else if surface.borrowed_from.is_empty() {
+                "ok".to_string()
+            } else {
+                format!("ok (checked by {})", surface.borrowed_from.join(", "))
+            };
+            println!(
+                "{:<12} {:>5}  {:>6}  {}",
+                surface.name,
+                surface.paths.len(),
+                ran,
+                result
+            );
+            for command in &surface.commands {
+                match command.status.as_str() {
+                    "already-run" => println!(
+                        "               already run for {}: {}",
+                        command.already_run_for.as_deref().unwrap_or("?"),
+                        command.command
+                    ),
+                    "not-reached" => {
+                        println!("               not reached: {}", command.command)
+                    }
+                    _ if command.exit_code.is_some_and(|code| code != 0) => println!(
+                        "               failed (exit {}): {}",
+                        command.exit_code.unwrap_or(-1),
+                        command.command
+                    ),
+                    _ => {}
+                }
+            }
+        }
+        println!();
+    }
+
+    println!("{}", report.receipt);
+}
+
+/// The `paths = [...]` line a refusal suggests: the directories the unclaimed
+/// paths sit in, so the reader edits a declaration rather than composing one.
+fn declaration_hint(unclaimed: &[String]) -> String {
+    let mut prefixes: Vec<String> = Vec::new();
+    for path in unclaimed {
+        let prefix = match path.find('/') {
+            Some(at) => path[..=at].to_string(),
+            None => path.clone(),
+        };
+        if !prefixes.contains(&prefix) {
+            prefixes.push(prefix);
+        }
+    }
+    prefixes
+        .iter()
+        .map(|p| format!("\"{}\"", p))
+        .collect::<Vec<_>>()
+        .join(", ")
+}fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
     let repo = match tugutil_core::find_repo_root() {
         Ok(r) => r,
         Err(e) => {
@@ -1363,8 +1488,16 @@ struct ListPayload {
 /// Every key is `null` when undeclared rather than absent, so a consumer reads
 /// the same fields whatever the project says.
 #[derive(Serialize)]
+struct SurfacePayload {
+    name: String,
+    paths: Vec<String>,
+    check: Vec<String>,
+    checked_by: Vec<String>,
+}
+
+#[derive(Serialize)]
 struct ConfigPayload {
-    verify: Option<String>,
+    surfaces: Vec<SurfacePayload>,
     build: Option<String>,
     post_create: Vec<String>,
     docs: Option<String>,
@@ -1404,7 +1537,16 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
         tugutil_core::config::Config::load_from_project(&root).map_err(|e| e.to_string())?;
     let dash = config.tugtool.dash;
     let payload = ConfigPayload {
-        verify: dash.verify,
+        surfaces: dash
+            .surfaces
+            .into_iter()
+            .map(|s| SurfacePayload {
+                name: s.name,
+                paths: s.paths,
+                check: s.check,
+                checked_by: s.checked_by,
+            })
+            .collect(),
         build: dash.build,
         post_create: dash.post_create,
         docs: dash.docs,
@@ -1418,10 +1560,27 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
         print_ok("dash config", &payload);
     } else if !quiet {
         let undeclared = "(not declared)";
-        println!(
-            "verify:       {}",
-            payload.verify.as_deref().unwrap_or(undeclared)
-        );
+        if payload.surfaces.is_empty() {
+            println!("surfaces:     (none declared)");
+        } else {
+            for surface in &payload.surfaces {
+                let checks = if !surface.checked_by.is_empty() {
+                    format!("checked by {}", surface.checked_by.join(", "))
+                } else if surface.check.is_empty() {
+                    "claimed, unchecked".to_string()
+                } else if surface.check.len() == 1 {
+                    "1 check".to_string()
+                } else {
+                    format!("{} checks", surface.check.len())
+                };
+                println!(
+                    "surface:      {}  {}  ({})",
+                    surface.name,
+                    surface.paths.join(" "),
+                    checks
+                );
+            }
+        }
         println!(
             "build:        {}",
             payload.build.as_deref().unwrap_or(undeclared)
@@ -1794,7 +1953,7 @@ mod tests {
         // A project that declares none must still report all four, so a
         // consumer reads the same shape whatever the project says.
         let payload = ConfigPayload {
-            verify: None,
+            surfaces: Vec::new(),
             build: None,
             post_create: Vec::new(),
             docs: None,

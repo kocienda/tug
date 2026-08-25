@@ -182,3 +182,63 @@ describe("parseDiscardReceipt", () => {
     expect(parseDiscardReceipt("released spike · 2 round(s)")).toBe(null);
   });
 });
+
+/**
+ * The four shapes the parser's cursor has to survive, one case each.
+ *
+ * The second is the regression a positional parser would have introduced: with
+ * `fit:` inserted above `files:`, a parser testing `lines[1]` for the files
+ * prefix silently orphans the file list of every join receipt already in
+ * JSONL — and a transcript replays from its record on every card reload, so
+ * "already written" means forever. Every literal below is copied verbatim from
+ * `format_join_summary_is_parse_stable_across_every_optional_line`.
+ */
+describe("the join receipt's optional lines, in every combination", () => {
+  const FILES_LINE =
+    'files: [{"path":"src/a.rs","status":"modified","added":1,"removed":0}]';
+  const FIT_LINE = "fit: verified 3f0a1c9e2b onto 91c4de70f2";
+  const HEADER = "joined abc1234567 · d → trunk · 1 round(s)";
+
+  it("header + fit + files + message", () => {
+    const parsed = parseJoinReceipt(`${HEADER}\n${FIT_LINE}\n${FILES_LINE}\nSubject`);
+    expect(parsed?.message).toBe("Subject");
+    expect(parsed?.files.map((f) => f.path)).toEqual(["src/a.rs"]);
+    expect(parsed?.fit).toEqual({ verified: true, head: "3f0a1c9e2b", base: "91c4de70f2" });
+  });
+
+  it("header + files + message — the pre-fit shape, files still at index 1", () => {
+    const parsed = parseJoinReceipt(`${HEADER}\n${FILES_LINE}\nSubject`);
+    expect(parsed?.message).toBe("Subject");
+    expect(parsed?.files.map((f) => f.path)).toEqual(["src/a.rs"]);
+    expect(parsed?.fit).toBeUndefined();
+  });
+
+  it("header + fit + message", () => {
+    const parsed = parseJoinReceipt(`${HEADER}\n${FIT_LINE}\nSubject`);
+    expect(parsed?.message).toBe("Subject");
+    expect(parsed?.files).toEqual([]);
+    expect(parsed?.fit?.verified).toBe(true);
+  });
+
+  it("header + message alone", () => {
+    const parsed = parseJoinReceipt(`${HEADER}\nSubject`);
+    expect(parsed?.message).toBe("Subject");
+    expect(parsed?.files).toEqual([]);
+    expect(parsed?.fit).toBeUndefined();
+  });
+
+  it("a stale fit parses as one, and a multi-line message survives either way", () => {
+    const parsed = parseJoinReceipt(
+      `${HEADER}\nfit: stale 3f0a1c9e2b onto 91c4de70f2\n${FILES_LINE}\nSubject\n\nBody paragraph.`,
+    );
+    expect(parsed?.fit).toEqual({ verified: false, head: "3f0a1c9e2b", base: "91c4de70f2" });
+    expect(parsed?.message).toBe("Subject\n\nBody paragraph.");
+  });
+
+  it("a line that is neither prefix belongs to the message, not to a parse miss", () => {
+    const parsed = parseJoinReceipt(`${HEADER}\nfit: something else entirely\nSubject`);
+    expect(parsed).not.toBe(null);
+    expect(parsed?.fit).toBeUndefined();
+    expect(parsed?.message).toBe("fit: something else entirely\nSubject");
+  });
+});

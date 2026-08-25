@@ -1446,6 +1446,11 @@ async fn dash_entries(
             base_ahead: detail.base_ahead,
             base_overlap: detail.base_overlap,
             last_replay: detail.last_replay,
+            fit: detail.fit.map(|f| tugcast_core::types::DashFit {
+                head: f.head,
+                base: f.base,
+                current: f.current,
+            }),
         })
         .collect()
 }
@@ -1554,6 +1559,7 @@ pub(crate) fn format_commit_summary(
 ///
 /// ```text
 /// joined <sha[0..10]> · <dash> → <base> · <N> round(s)
+/// fit: verified <head[0..10]> onto <base[0..10]>
 /// files: [{"path":"…","status":"modified","added":16,"removed":1}, …]
 /// <full message>
 /// ```
@@ -1562,6 +1568,10 @@ pub(crate) fn format_commit_summary(
 /// also the shape every receipt written before the line existed carries. One
 /// degradation, not two: the deck decides by the `files: ` prefix, so a legacy
 /// row and a join with no readable file list take the same path.
+///
+/// The `fit:` line takes exactly that path, for exactly that reason: it sits
+/// between the header and `files:`, is omitted when the dash carried no fit
+/// fact, and is claimed by its own prefix rather than by its position.
 pub(crate) fn format_join_summary(
     sha: &str,
     dash: &str,
@@ -1569,15 +1579,23 @@ pub(crate) fn format_join_summary(
     rounds: u32,
     message: &str,
     files: &[tugchanges_core::FileStat],
+    fit: Option<&tugdash_core::dash::FitFact>,
 ) -> String {
     let short = &sha[..sha.len().min(10)];
     let message = message.trim();
     let header = format!("joined {short} · {dash} → {base} · {rounds} round(s)");
-    if files.is_empty() {
-        return format!("{header}\n{message}");
+    let mut lines = vec![header];
+    if let Some(fit) = fit {
+        let word = if fit.current { "verified" } else { "stale" };
+        let head = &fit.head[..fit.head.len().min(10)];
+        let onto = &fit.base[..fit.base.len().min(10)];
+        lines.push(format!("fit: {word} {head} onto {onto}"));
     }
-    let files_line = receipt_files_line(files);
-    format!("{header}\n{files_line}\n{message}")
+    if !files.is_empty() {
+        lines.push(receipt_files_line(files));
+    }
+    lines.push(message.to_string());
+    lines.join("\n")
 }
 
 /// The per-file stats for a landing commit — the receipt's file list.
@@ -3297,6 +3315,7 @@ Some context.
             base_ahead: 0,
             base_overlap: Vec::new(),
             last_replay: None,
+            fit: None,
             replay_conflict_paths: Vec::new(),
             join: None,
             arc: None,
@@ -3382,6 +3401,7 @@ Some context.
                     base_ahead: 0,
                     base_overlap: Vec::new(),
                     last_replay: None,
+            fit: None,
                     replay_conflict_paths: Vec::new(),
                     join: None,
                     arc: None,
@@ -3878,6 +3898,7 @@ Some context.
             5,
             "tugdash(join-lane): land the join surface",
             &[],
+            None,
         );
         assert_eq!(
             s,
@@ -3932,6 +3953,7 @@ Some context.
                 file_stat("src/a.rs", "modified", Some(16), Some(1)),
                 file_stat("src/b.rs", "created", Some(4), Some(0)),
             ],
+            None,
         );
         assert_eq!(
             s,
@@ -3947,7 +3969,7 @@ Some context.
     /// the line existed carries, so legacy and no-list are one code path.
     #[test]
     fn format_join_summary_omits_the_files_line_when_there_are_none() {
-        let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject line", &[]);
+        let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject line", &[], None);
         assert_eq!(
             s,
             "joined abc1234567 · d → trunk · 1 round(s)\nSubject line"
@@ -3955,7 +3977,86 @@ Some context.
         assert!(!s.contains("files:"));
     }
 
+    /// The fit line's position is the contract: between the header and
+    /// `files:`, claimed by its prefix rather than by an index.
     #[test]
+    fn format_join_summary_carries_the_fit_between_the_header_and_the_files() {
+        let fit = tugdash_core::dash::FitFact {
+            head: "3f0a1c9e2b7d4f6a".to_string(),
+            base: "91c4de70f2a3b5c7".to_string(),
+            current: true,
+        };
+        let s = format_join_summary(
+            "0123456789abcdef",
+            "join-lane",
+            "main",
+            5,
+            "tugdash(join-lane): land the join surface",
+            &[file_stat("src/a.rs", "modified", Some(16), Some(1))],
+            Some(&fit),
+        );
+        assert_eq!(
+            s,
+            "joined 0123456789 · join-lane → main · 5 round(s)\n\
+             fit: verified 3f0a1c9e2b onto 91c4de70f2\n\
+             files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":16,\"removed\":1}]\n\
+             tugdash(join-lane): land the join surface"
+        );
+    }
+
+    /// A stale fit says `stale` and still names the pair — a receipt that
+    /// showed a head without the base it was verified onto would name no tree.
+    #[test]
+    fn format_join_summary_says_stale_and_still_names_the_pair() {
+        let fit = tugdash_core::dash::FitFact {
+            head: "3f0a1c9e2b7d4f6a".to_string(),
+            base: "91c4de70f2a3b5c7".to_string(),
+            current: false,
+        };
+        let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
+        assert_eq!(
+            s,
+            "joined abc1234567 · d → trunk · 1 round(s)\n\
+             fit: stale 3f0a1c9e2b onto 91c4de70f2\n\
+             Subject"
+        );
+    }
+
+    /// Both optional lines, in every combination — the four shapes the deck's
+    /// cursor has to survive, pinned on the server that writes them.
+    #[test]
+    fn format_join_summary_is_parse_stable_across_every_optional_line() {
+        let fit = tugdash_core::dash::FitFact {
+            head: "3f0a1c9e2b7d4f6a".to_string(),
+            base: "91c4de70f2a3b5c7".to_string(),
+            current: true,
+        };
+        let files = [file_stat("src/a.rs", "modified", Some(1), Some(0))];
+
+        // Fit, no files.
+        let fit_only =
+            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
+        assert_eq!(fit_only.lines().nth(1), Some("fit: verified 3f0a1c9e2b onto 91c4de70f2"));
+        assert_eq!(fit_only.lines().nth(2), Some("Subject"));
+        assert!(!fit_only.contains("files:"));
+
+        // Files, no fit — the pre-fit shape, with `files:` still at index 1.
+        let files_only =
+            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &files, None);
+        assert!(files_only.lines().nth(1).is_some_and(|l| l.starts_with("files: ")));
+        assert!(!files_only.contains("fit:"));
+
+        // Both.
+        let both =
+            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &files, Some(&fit));
+        assert!(both.lines().nth(1).is_some_and(|l| l.starts_with("fit: ")));
+        assert!(both.lines().nth(2).is_some_and(|l| l.starts_with("files: ")));
+        assert_eq!(both.lines().nth(3), Some("Subject"));
+
+        // Neither.
+        let neither = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], None);
+        assert_eq!(neither.lines().nth(1), Some("Subject"));
+    }    #[test]
     fn format_join_summary_keeps_the_full_multi_line_message() {
         let s = format_join_summary(
             "abcdef0123456789",
@@ -3964,6 +4065,7 @@ Some context.
             1,
             "  Subject line\n\nA longer body paragraph.\n",
             &[],
+            None,
         );
         assert_eq!(
             s,

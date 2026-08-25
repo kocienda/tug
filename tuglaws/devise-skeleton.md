@@ -391,7 +391,7 @@ Table T05, (#op-rename, #fundamental-wall)
 > **The Integration Checkpoint is a procedure, and it is not a second sweep.** A checkpoint that passed is spent: every command in the per-step checkpoints already ran, against these bytes, inside the step that changed them. Re-listing them at the end costs minutes and can only re-prove what is already proven — and it proves it about the **sandbox**, frozen at branch time, rather than about the deliverable. So the ending is:
 >
 > 1. `tugutil dash replay <name>` — replays the rounds onto the live base, moving the branch and the worktree together.
-> 2. On **`Replayed`** or **`Recorded`** the tree moved, so verify it: the project's declared verify command, run in the warm worktree. `tugutil dash config --json` reports it; substitute `{base}` and `{head}` with the replayed range before running. In this repo the declaration is `sh scripts/verify-fit.sh {base} {head}`, which scopes `cargo check` / `tsc` + `vite build` to the surfaces the diff touches. **A project that declares no verify command verifies with the plan's own checkpoint commands over what the replay moved — the commands the plan already names, never an invented one — and says so.**
+> 2. On **`Replayed`** or **`Recorded`** the tree moved, so verify it: `tugutil dash verify <name>`, run in the warm worktree. It resolves every path the replay moved to a surface the project declared and runs what those surfaces declare — nothing is substituted by hand. A **refusal** names paths no surface claims and runs no check at all; declare a surface for them. **A project that declares no surfaces says so and exits 0 — then verify with the plan's own checkpoint commands over what the replay moved, the commands the plan already names, never an invented one, and say so.**
 > 3. On **`Current`** the base has not moved, so the tree the run's last checkpoint verified *is* the deliverable, byte for byte. **Nothing re-runs.** The ending costs one `dash replay` and seconds.
 > 4. On **`Conflicted`** the replay names the round it could not apply. That is work arriving at the right desk — the model is present, the worktree is warm, and the conflict is resolved there as normal work, then verified as in (2).
 >
@@ -527,7 +527,7 @@ Table T05, (#op-rename, #fundamental-wall)
 
 **Tasks:**
 - [ ] `tugutil dash replay <name>` — put the rounds on the live base, so what gets verified is what would land.
-- [ ] `Replayed` / `Recorded`: verify the replayed tree with the project's declared verify command (`tugutil dash config --json`), substituting `{base}`/`{head}` with the replayed range; with no declaration, the plan's own checkpoint commands over what the replay moved, said plainly.
+- [ ] `Replayed` / `Recorded`: verify the replayed tree with `tugutil dash verify <name>`; a refusal names paths no surface claims and is fixed by declaring one, and a project that declares no surfaces falls back to the plan's own checkpoint commands over what the replay moved, said plainly.
 - [ ] `Current`: the base never moved, so the last step's checkpoint already verified these exact bytes — re-run nothing and say so.
 - [ ] `Conflicted`: resolve the named round in the worktree, then verify as above.
 

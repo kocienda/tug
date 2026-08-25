@@ -19,9 +19,9 @@ use std::time::{Duration, SystemTime};
 use tugutil_core::{Config, find_repo_root, sanitize_branch_name};
 
 use crate::dash::{
-    DashDeclaration, DashRoundMeta, MarkStage, StepPhase, append_dash_log, append_mark_declaration,
-    append_run_through, append_step_declaration, detect_default_branch, read_declarations,
-    validate_dash_name,
+    DashDeclaration, DashDeclarations, DashRoundMeta, FitFact, MarkStage, StepPhase,
+    append_dash_log, append_mark_declaration, append_run_through, append_step_declaration,
+    detect_default_branch, read_declarations, validate_dash_name,
 };
 
 /// Outcome of [`create`].
@@ -207,6 +207,12 @@ pub struct JoinOutcome {
     /// the preview path only. Additive: absent from the JSON when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blockers: Vec<JoinBlocker>,
+    /// What the last green verify said about the tree this join landed —
+    /// captured before teardown, because the branch and the dash-log line it
+    /// derives from are both gone by the time the outcome is read. Additive:
+    /// absent from the JSON when the dash carried no fit fact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit: Option<FitFact>,
     /// The squash/merge message the join actually landed with — the maintained
     /// draft, the caller's override, or the candidate's own subject. Present
     /// only on a landed join, because it is the receipt's body and a receipt
@@ -1150,6 +1156,10 @@ pub struct DashDetail {
     /// The note of the dash-log's most recent `replayed` line — the settled
     /// mark's text. `None` when this dash has never been replayed.
     pub last_replay: Option<String>,
+    /// What the last green verify said about the tree a join would land.
+    /// `None` when nothing has verified this dash. It says; it gates nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit: Option<FitFact>,
     /// When this dash was last touched: the timestamp of the newest dash-log
     /// line for its current generation, ISO-8601 UTC. `None` for a dash created
     /// before creation wrote a birth record and never logged anything since.
@@ -1184,6 +1194,15 @@ fn parse_name_status(output: &str) -> Vec<DashDetailFile> {
         }
     }
     files
+}
+
+/// The paths a `git diff --name-status` output names, renames reported at
+/// their destination.
+pub(crate) fn name_status_paths(output: &str) -> Vec<String> {
+    parse_name_status(output)
+        .into_iter()
+        .map(|file| file.path)
+        .collect()
 }
 
 /// Every active dash in `repo_root`, with the per-dash detail a display needs.
@@ -1340,6 +1359,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             base_overlap_untracked: overlap.untracked,
             worktree_dirty_tracked,
             last_replay: declarations.last_replay.clone(),
+            fit: fit_fact(repo_root, branch, &base, &declarations),
             last_activity: declarations.last_activity.clone(),
             arc,
             base,
@@ -1367,7 +1387,30 @@ pub fn dash_detail_entry_in(repo_root: &Path, name: &str) -> Option<DashDetail> 
         .find(|d| d.name == name)
 }
 
-/// One dash's lifecycle readout (Spec S05) — the machine-readable answer to
+/// The fit fact a dash's declarations carry, with its currency resolved
+/// against the live tips.
+///
+/// Both endpoints are compared, because a base that moved invalidates a
+/// verified head just as surely as a new round does. An unparseable note
+/// yields `None` rather than a fact with half its pair.
+pub(crate) fn fit_fact(
+    repo: &Path,
+    branch: &str,
+    base_branch: &str,
+    declarations: &DashDeclarations,
+) -> Option<FitFact> {
+    let note = declarations.last_verified.as_deref()?;
+    let (head, base) = crate::dash::parse_verified_note(note)?;
+    let live_head = git_stdout(repo, &["rev-parse", branch]).ok();
+    let live_base = git_stdout(repo, &["rev-parse", base_branch]).ok();
+    let current =
+        live_head.as_deref() == Some(head.as_str()) && live_base.as_deref() == Some(base.as_str());
+    Some(FitFact {
+        head,
+        base,
+        current,
+    })
+}/// One dash's lifecycle readout (Spec S05) — the machine-readable answer to
 /// "where is this dash?".
 #[derive(Debug, Clone, Serialize)]
 pub struct DashStatus {
@@ -1404,6 +1447,11 @@ pub struct DashStatus {
     /// When this dash was last touched — the newest dash-log line's timestamp
     /// for the current generation, ISO-8601 UTC.
     pub last_activity: Option<String>,
+    /// What the last green verify said about the tree a join would land, and
+    /// whether it still stands. Absent when nothing has verified this dash —
+    /// which is the honest record of "not verified". It gates nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fit: Option<FitFact>,
     /// The standing conflict, when this dash has one.
     ///
     /// Derived at read time from `refs/tug/conflict/<name>` and absent — not
@@ -1558,6 +1606,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
     let bound_sessions = bound_sessions_for(&id);
     let declarations = read_declarations(repo_root, name);
     let run_span = crate::dash::run_fraction(&declarations);
+    let fit = fit_fact(repo_root, &branch, &base_branch, &declarations);
     let join_ready = crate::dash::join_ready(
         rounds.max(0) as u32,
         crate::dash::unfinished_tracked_dirt(&worktree_dirt_tracked, plan_path.as_deref()),
@@ -1593,6 +1642,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<DashStatus, String> {
         step_title: declarations.step_title.clone(),
         plan_path,
         last_activity: declarations.last_activity.clone(),
+        fit,
         conflict: conflict_summary(repo_root, name),
     })
 }
@@ -3647,6 +3697,10 @@ pub fn join_in_with_progress(
             base_branch,
             strategy: opts.strategy.as_str().to_string(),
             commit_hash: None,
+            // A preview lands nothing, so there is no landed tree to speak of
+            // the fit of; the receipt this field feeds is written only on a
+            // join that landed.
+            fit: None,
             conflicts: probe.conflicts,
             previewed: true,
             blockers,
@@ -3763,6 +3817,7 @@ pub fn join_in_with_progress(
         base_branch: base_branch.clone(),
         strategy: opts.strategy.as_str().to_string(),
         commit_hash: None,
+        fit: None,
         conflicts,
         previewed: false,
         blockers: vec![],
@@ -4080,6 +4135,15 @@ fn finish_join_teardown(
         worktree,
         origin,
     } = target;
+    // Captured while the branch still exists and the dash-log has not had its
+    // terminal line written: both are gone by the time the outcome is read,
+    // and a fact read afterwards would be no fact at all.
+    let fit = fit_fact(
+        repo_root,
+        branch,
+        &dash_base(repo_root, name).unwrap_or_default(),
+        &read_declarations(repo_root, name),
+    );
     if progress.phase == crate::oplog::JoinPhase::Integrated {
         on_beat("teardown", "start");
         remove_dash_worktree(repo_root, branch, worktree, &mut warnings);
@@ -4143,6 +4207,7 @@ fn finish_join_teardown(
         conflicts: vec![],
         previewed: false,
         blockers: vec![],
+        fit,
         message: progress.message,
         archaeology: vec![],
         warnings,

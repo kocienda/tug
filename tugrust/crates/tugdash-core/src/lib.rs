@@ -34,6 +34,11 @@ pub mod resolve;
 /// performed for real, so an agent has a tree and verification has a build.
 pub mod workshop;
 
+/// Surface resolution and the fit check — a project's declared surfaces, the
+/// touched paths each claims, the expanded commands that check them, and the
+/// runner behind `tugutil dash verify`.
+pub mod surfaces;
+
 /// Join verification — the project's own declared build and test commands run
 /// against the joined tree, recorded as a fact anchored to two commits.
 pub mod verify;

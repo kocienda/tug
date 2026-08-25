@@ -82,7 +82,7 @@ fn test_init_default_config_is_project_neutral() {
 
     let config = tugutil_core::config::Config::load(&config_path).expect("default should parse");
     assert!(config.tugtool.dash.post_create.is_empty());
-    assert!(config.tugtool.dash.verify.is_none());
+    assert!(config.tugtool.dash.surfaces.is_empty());
     assert!(config.tugtool.dash.build.is_none());
 }
 
@@ -275,7 +275,7 @@ fn test_dash_config_reports_declarations() {
     let temp = setup_test_project();
     std::fs::write(
         temp.path().join(".tugtool").join("config.toml"),
-        "[tugtool.dash]\npost_create = [\"npm install\"]\nverify = \"sh check.sh {base} {head}\"\nbuild = \"make app\"\n",
+        "[tugtool.dash]\npost_create = [\"npm install\"]\nbuild = \"make app\"\n\n[[tugtool.dash.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"make check\"]\n\n[[tugtool.dash.surface]]\nname = \"docs\"\npaths = [\"README.md\"]\ncheck = []\n",
     )
     .expect("failed to write config");
 
@@ -291,7 +291,14 @@ fn test_dash_config_reports_declarations() {
     let json: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
     assert_eq!(json["command"], "dash config");
-    assert_eq!(json["data"]["verify"], "sh check.sh {base} {head}");
+    assert_eq!(json["data"]["surfaces"][0]["name"], "src");
+    assert_eq!(json["data"]["surfaces"][0]["paths"][0], "src/");
+    assert_eq!(json["data"]["surfaces"][0]["check"][0], "make check");
+    assert_eq!(json["data"]["surfaces"][1]["name"], "docs");
+    assert_eq!(
+        json["data"]["surfaces"][1]["check"].as_array().unwrap().len(),
+        0
+    );
     assert_eq!(json["data"]["build"], "make app");
     assert_eq!(json["data"]["post_create"][0], "npm install");
 }
@@ -318,7 +325,7 @@ fn test_dash_config_missing_file_is_undeclared_not_an_error() {
     );
     let json: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
-    assert!(json["data"]["verify"].is_null());
+    assert_eq!(json["data"]["surfaces"].as_array().unwrap().len(), 0);
     assert!(json["data"]["build"].is_null());
     assert!(json["data"]["docs"].is_null());
     assert_eq!(json["data"]["post_create"].as_array().unwrap().len(), 0);

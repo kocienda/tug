@@ -86,3 +86,56 @@ describe("the arc on the dash metadata line", () => {
     expect(keys(entry({}))).toEqual([]);
   });
 });
+
+/**
+ * The fit on the same line.
+ *
+ * Two push sites in one linear sequence rather than one push with a computed
+ * index: a stale fit is a caution and sits with the cautions, a current one is
+ * a quiet receipt and sits with the receipts. What is under test is that the
+ * fact says the right thing, wears the right tone, sits in the right place,
+ * and leaves every other fact exactly where it was.
+ */
+describe("the fit on the dash metadata line", () => {
+  test("a current fit is a quiet receipt beside the other quiet receipts", () => {
+    const e = entry();
+    e.fit = { head: "3f0a1c9e2b7d4f6a", base: "91c4de70f2a3b5c7", current: true };
+    const facts = dashMetaFacts(e);
+    expect(facts.map((f) => f.key)).toEqual(["fit"]);
+    expect(facts[0]?.label).toBe("fit verified");
+    expect(facts[0]?.tone).toBe("subtle");
+    expect(facts[0]?.tooltip).toContain("3f0a1c9e2");
+    expect(facts[0]?.tooltip).toContain("91c4de70f");
+    // It states; it never says a join is blocked.
+    expect(facts[0]?.tooltip).not.toContain("block");
+  });
+
+  test("a stale fit is a caution, and sits with the cautions", () => {
+    const e = entry();
+    e.fit = { head: "3f0a1c9e2b7d4f6a", base: "91c4de70f2a3b5c7", current: false };
+    e.base_overlap = ["src/b.ts"];
+    e.worktree_dirty = true;
+    const facts = dashMetaFacts(e);
+    expect(facts.map((f) => f.key)).toEqual(["overlap", "fit", "uncommitted"]);
+    expect(facts[1]?.label).toBe("fit unverified");
+    expect(facts[1]?.tone).toBe("caution");
+  });
+
+  test("a dash nobody verified says nothing about the fit", () => {
+    expect(keys(entry())).toEqual([]);
+    const e = entry();
+    e.worktree_dirty = true;
+    expect(keys(e)).toEqual(["uncommitted"]);
+  });
+
+  test("unlike `replayed`, it carries no behind-the-base gate", () => {
+    // Base motion is already inside `current`, so a fit fact says its piece
+    // whatever `base_ahead` reads — where `replayed` correctly goes quiet.
+    const e = entry();
+    e.base_ahead = 4;
+    e.last_replay = "onto abc123456: d->e";
+    e.fit = { head: "3f0a1c9e2b7d4f6a", base: "91c4de70f2a3b5c7", current: false };
+    const facts = dashMetaFacts(e);
+    expect(facts.map((f) => f.key)).toEqual(["fit", "behind"]);
+  });
+});
