@@ -1226,8 +1226,8 @@ export const SessionTelemetryStatusRow = React.forwardRef<
         {replayInert ? (
           <span className="session-telemetry-status-value">—</span>
         ) : dashFact !== null ? (
-          // The dash's stage and its run fraction, inside the box TASKS already
-          // held: `data-priority` is unchanged, so the measured width table and
+          // The dash's reading, inside the box TASKS already held:
+          // `data-priority` is unchanged, so the measured width table and
           // the placard's anchor query both keep working, and the row's
           // geometry does not move when a session picks a dash up.
           //
@@ -1240,11 +1240,23 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // `DASH` label as a reading, in the accessible label in full, and on
           // the placard one click away.
           //
+          // **The glyph or the fraction, never both.** The count comes
+          // from the dash's latest step declaration, so it is absent for
+          // exactly the stages where the stage word is the whole story —
+          // `created` and `draft-ready` always, and `working` / `ready` /
+          // `built` / `audited` / `joining` on a dash driving no plan —
+          // and present from the first `step-start` onward, where the
+          // position in the run is what changes while somebody watches.
+          // Showing both put three circles in a ~96px cell (`ready`'s own
+          // glyph is a ringed check) and read as clutter rather than as
+          // an instrument. The stage is not lost: it is the glyph's
+          // tooltip, the cell's accessible label, and the placard.
+          //
           // The two flanking dots are the cell's own, not TASKS's: the
-          // DASH reading is a composite (a glyph beside a fraction), so
-          // it cannot ride a single indicator's `label` the way TASKS
-          // and JOBS do. They are siblings around it instead, the way
-          // STATE's are, pinned to the same 2px inset — so a session
+          // DASH reading cannot ride a single indicator's `label` the way
+          // TASKS and JOBS do, because on half the arc it is a glyph
+          // rather than text. They are siblings around it instead, the
+          // way STATE's are, pinned to the same 2px inset — so a session
           // picking a dash up changes what the cell says, not how it
           // looks.
           <span className="session-telemetry-status-dash-row">
@@ -1259,13 +1271,14 @@ export const SessionTelemetryStatusRow = React.forwardRef<
               data-slot="session-telemetry-dash-value"
               aria-label={dashCellLabel}
             >
-              {dashFact.stage !== null && (
-                <DashStageMark stage={dashFact.stage} />
-              )}
-              {dashGlance !== null && (
+              {dashGlance !== null ? (
                 <span className="session-telemetry-status-dash-fraction">
                   {`${dashGlance.current}/${dashGlance.total}`}
                 </span>
+              ) : (
+                dashFact.stage !== null && (
+                  <DashStageMark stage={dashFact.stage} />
+                )
               )}
             </span>
             <TugProgressIndicator

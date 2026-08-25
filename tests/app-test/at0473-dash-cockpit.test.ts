@@ -468,34 +468,9 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         expect(tasksBox.label).toBe("TASKS");
         expect(tasksBox.width).toBeGreaterThan(0);
 
-        // A real dash on project A, bound to the followed card's session, with
-        // a real plan and a real step declaration — the fixture runs the same
-        // verbs a run does.
-        const dash = createDash(dirA(), DASH_NAME, "at0473 fixture", projectA!.cli);
-        bindDash(dirA(), DASH_NAME, SID_A, {
-          binaryRoot: CHECKOUT,
-          env: projectA!.cli.env,
-        });
-        recordStampedPlan(dirA(), DASH_NAME, dash.worktree, {
-          rows: 3,
-          through: 3,
-          binaryRoot: CHECKOUT,
-          env: { ...projectA!.cli.env, TUG_SESSION_ID: SID_A },
-        });
-        await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "DASH"`,
-          { timeoutMs: 60000 },
-        );
-
-        const dashBox = await app.evalJS<{
-          label: string;
-          width: number;
-          text: string;
-          stage: string | null;
-          fraction: string;
-          aria: string | null;
-        }>(
-          `(() => {
+        // The cell's value, its stage glyph, its fraction, and the pose of the
+        // two dots flanking them — read the same way at both readings below.
+        const PROBE_DASH_CELL = `(() => {
              const cell = document.querySelector(${JSON.stringify(CELL)});
              const value = cell?.querySelector('[data-slot="session-telemetry-dash-value"]');
              return {
@@ -505,18 +480,70 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
                stage: value?.querySelector('[data-slot="tug-dash-stage-mark"]')?.getAttribute("data-stage") ?? null,
                fraction: (value?.querySelector(".session-telemetry-status-dash-fraction")?.textContent ?? "").trim(),
                aria: value?.getAttribute("aria-label") ?? null,
+               dots: Array.from(cell?.querySelectorAll('.session-telemetry-status-dash-row [data-slot="tug-progress-indicator"]') ?? [])
+                 .map((d) => d.getAttribute("data-state")),
              };
-           })()`,
+           })()`;
+        interface DashCellProbe {
+          label: string;
+          width: number;
+          text: string;
+          stage: string | null;
+          fraction: string;
+          aria: string | null;
+          dots: Array<string | null>;
+        }
+
+        // A real dash on project A, bound to the followed card's session — the
+        // fixture runs the same verbs a run does. No plan yet, which is the
+        // half of the arc the glyph is for: with no step count to show, the
+        // stage IS the value.
+        const dash = createDash(dirA(), DASH_NAME, "at0473 fixture", projectA!.cli);
+        bindDash(dirA(), DASH_NAME, SID_A, {
+          binaryRoot: CHECKOUT,
+          env: projectA!.cli.env,
+        });
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "DASH"`,
+          { timeoutMs: 60000 },
         );
+        const glyphOnly = await app.evalJS<DashCellProbe>(PROBE_DASH_CELL);
+        note("at0473 Z2 as DASH, no count", JSON.stringify(glyphOnly));
+        expect(glyphOnly.label).toBe("DASH");
+        expect(glyphOnly.stage).toBe("created");
+        expect(glyphOnly.fraction).toBe("");
+        // Both dots, and both quiet: a dash nobody has worked yet is not work
+        // in flight, and a dot pulsing over it would say it was.
+        expect(glyphOnly.dots).toEqual(["stopped", "stopped"]);
+
+        // Now a real plan and a real step declaration — and the count takes
+        // the value over.
+        recordStampedPlan(dirA(), DASH_NAME, dash.worktree, {
+          rows: 3,
+          through: 3,
+          binaryRoot: CHECKOUT,
+          env: { ...projectA!.cli.env, TUG_SESSION_ID: SID_A },
+        });
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-status-dash-fraction")?.textContent ?? "").trim() === "1/3"`,
+          { timeoutMs: 60000 },
+        );
+
+        const dashBox = await app.evalJS<DashCellProbe>(PROBE_DASH_CELL);
         note("at0473 Z2 as DASH", JSON.stringify(dashBox));
         expect(dashBox.label).toBe("DASH");
         expect(dashBox.fraction).toBe("1/3");
-        // The stage as a glyph, not a word — and the *name is not in the cell
-        // at all*. A name is the one fact here that can be arbitrarily long,
-        // and in a ~110px box it elided away the two facts that actually move
-        // while somebody watches. Nothing left in the cell can be truncated,
-        // because nothing left in it would still be true truncated.
-        expect(dashBox.stage).toBe("implementing");
+        // **The glyph yields to the count.** Both at once put three circles in
+        // a ~96px cell and read as clutter; the position in the run is the
+        // fact that moves while somebody watches, so it takes the box alone.
+        // The stage is still here — as the accessible label's step phrasing,
+        // and as the placard's own reading a click away.
+        expect(dashBox.stage).toBeNull();
+        expect(dashBox.dots.length).toBe(2);
+        // And the *name is not in the cell at all*. A name is the one fact
+        // here that can be arbitrarily long, and in a ~110px box it elided
+        // away the facts that actually move. Nothing left in the cell can be
+        // truncated, because nothing left in it would still be true truncated.
         expect(dashBox.text).not.toContain(DASH_NAME);
         // Which dash it is lives in the accessible label, in full.
         expect(dashBox.aria).toBe(`dash ${DASH_NAME}, step 1 of 3`);
