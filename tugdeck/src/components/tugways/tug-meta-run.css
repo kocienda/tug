@@ -26,7 +26,11 @@ body {
   padding-inline-start: var(--tugx-meta-run-rule-gap);
   border-inline-start: 1px solid var(--tugx-meta-run-rule);
   font-family: var(--tug-font-family-sans);
-  font-size: var(--tug-font-size-2xs);
+  /* The rail scale is the default because most hosts are rails. A host reading
+     at a larger size sets `--tugx-meta-run-size` on its own element so the
+     bullets and the rule scale with the facts they separate; the default lives
+     in the fallback, not on this element, so setting it from outside works. */
+  font-size: var(--tugx-meta-run-size, var(--tug-font-size-2xs));
   color: var(--tugx-meta-run-text);
 }
 

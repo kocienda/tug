@@ -3,7 +3,7 @@ name: dash-implement
 description: Implement a plan into a tested build on an isolated dash worktree — walk a single step, a step range, or the whole plan; agentless, in-thread, committing per step, stopping for review before merge
 argument-hint: "[plan-path] [Step N | Steps N-M]"
 disable-model-invocation: true
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion, TaskCreate, TaskUpdate
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 disallowed-tools: Task
 ---
 
@@ -63,13 +63,13 @@ If no plan exists yet, author one first with `/tugplug:plan-devise`, or write it
 
    The gate reads the worktree copy and needs no comparison against a base one: adoption left exactly one live copy, and replaying ledger progress does not move a plan's content stamp, so a `reviewed` plan is still `reviewed` after the transplant.
 4. Establish a green baseline with the project's own test commands — the ones the plan's step checkpoints name — so you know what "still green" means. In Tugtool that is `bun test`, plus `cd tugrust && cargo nextest run` for Rust changes. When the plan names none and the project has no test command to run, say the baseline is unestablished and proceed on that footing — never invent one.
-5. Make progress visible. **The Step Status Ledger is the progress surface** — `dash step start` and `dash step done` move its rows, and the Lens, the Changes card, and the Z2 placard all read from it — so the record of where the run is never depends on a tool the harness may not have. A task list is a mirror of it, offered where the harness provides one: call `ToolSearch` with query `select:TaskCreate,TaskUpdate`; if it returns the tools, create **one task per step** before you start walking (`TaskCreate` makes a single task — top-level string `subject` for the step title and `description` for what it does) and move each as you go. If it reports no such tools, say so in one line and carry on — that is the harness's shape, not a failure, and nothing is to be improvised in its place.
+5. **The Step Status Ledger is the progress surface.** `dash step start` and `dash step done` move its rows, and the Lens, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
 
 ### 2. Implement (walk the steps)
 
 Walk the resolved steps in dependency order. For each step:
 
-- **Open the step.** Flip its task to in-progress (`TaskUpdate`), then:
+- **Open the step.**
   ```bash
   tugutil dash step <name> start <n> --through <m> [--plan <path>]
   ```
@@ -93,7 +93,7 @@ Walk the resolved steps in dependency order. For each step:
   ```bash
   tugutil dash step <name> done <n> --commit <sha>
   ```
-  This writes the ledger row's status *and* its commit cell and appends the paired log line. Omit `--commit` to record the dash branch's tip. Then mark the step's task complete — task, ledger, and commit move together, and the verb is what keeps them together.
+  This writes the ledger row's status *and* its commit cell and appends the paired log line. Omit `--commit` to record the dash branch's tip. Ledger and commit move together, and the verb is what keeps them together.
 
 **Two spellings are house rules, not taste.** A round's commit subject is `tugdash(<name>): <imperative summary>` — the same scope-colon form the engine's own dash commits (`adopt plan`, `remap round ids`) carry, so `tug log` on the branch reads as one voice. And when you *name* a landed commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word itself: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone, which costs the reader the standard form. See `tuglaws/entity-presentation.md`.
 
@@ -104,7 +104,7 @@ Pragmatics:
 
   Raise the refusal as an `AskUserQuestion` rather than picking a repair yourself, because the wrong guess corrupts the durable record: *"Fix the plan and retry"* / *"Hand-edit the ledger this run"*. Quote what the verb said. A malformed document usually wants fixing; a document that genuinely cannot be made to parse wants the hand-edit — and which one this is depends on what the plan is *for*, which is the user's to know.
 - **A long run does not pause to ask whether to keep going.** However many steps the selector resolved to, walk them all. The selection *is* the answer to "how far": the user made it when they invoked the skill, and asking again at some interior step re-opens a decision they already made — the ledger is the progress surface, and it says where the run is without anybody being interrupted for it.
-- Folding trivial or already-absorbed steps into a neighbor is fine — the join squashes at the end, so per-step commit granularity is for *your* visibility during the run. When you fold a step, still run its `done` verb (pointing at the neighbor's commit) and close its task — no step is left dangling `in progress`.
+- Folding trivial or already-absorbed steps into a neighbor is fine — the join squashes at the end, so per-step commit granularity is for *your* visibility during the run. When you fold a step, still run its `done` verb (pointing at the neighbor's commit) — no step is left dangling `in progress`.
 - If a step's verification fails, fix it before committing. Never commit red.
 - When you reach the end of the requested selection, stop walking and report the ledger state — which steps are `done` and which remain.
 
@@ -162,7 +162,7 @@ Optional telemetry, and nothing gates on it. It stamps the stage word `built` on
 
 ### 4. Iterate (interactive)
 
-The user tests and reports issues. Fix them on the worktree, run the relevant checkpoint, and commit each fix as its own round. Track fixes the same way as steps: where the harness provided the task tools, `TaskCreate` a task per reported issue, flip it in-progress while you work it, complete it when its fix commits; where it did not, the round commits are the record. (Fix rounds are not plan steps — they get no `dash step` call.)
+The user tests and reports issues. Fix them on the worktree, run the relevant checkpoint, and commit each fix as its own round. The round commits are the record of the fixes. (Fix rounds are not plan steps — they get no `dash step` call.)
 
 **Know your build surface.** The general rule is one line: re-run the declared build when the surface you changed needs it to be seen. Which surfaces hot-reload and which need the rebuild is knowledge that belongs to the project's own docs, not to this skill — in Tugtool it is in `CLAUDE.md`, where tugdeck changes are live via Vite HMR (hard-reload the card if Fast Refresh does not repaint a row) and Rust, tugcode, or Swift changes need `just app-debug` again. On a project whose docs say nothing, re-run the declared build when in doubt, and say that is why.
 
@@ -189,7 +189,6 @@ Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctr
 
 - **Honor the selector and the ledger.** Walk exactly the requested steps; resume from the first row that is not `done`; never rebuild a `done` step or build on an unfinished dependency.
 - **The verbs own the bookkeeping.** Drive the ledger with `dash step start|done`, not by hand-editing the table — the log line the verb writes is what the dash surfaces derive `implementing (i/N)` from, and a hand-edit leaves them blind.
-- **Keep the task list in lockstep.** One task per selected step, created up front; in-progress when you `start`, complete when you `done`. A run whose tasks don't match the ledger is an unfinished run.
 - **Ask at the two forks, and nowhere else.** The stale gate and a refused `dash step` are the whole set. A long run is not a fork: the selector already said how far to walk. Everything outside it is covered by the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked) — a run that asks about everything trains the user to click through the dialog that mattered.
 
 ## When to reach for something else

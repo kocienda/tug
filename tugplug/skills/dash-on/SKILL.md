@@ -3,7 +3,7 @@ name: dash-on
 description: Quick, plan-less, worktree-isolated work — agentless, in-thread, committing per round, stopping for review before merge
 argument-hint: "[name] [instruction…]"
 disable-model-invocation: true
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion, TaskCreate, TaskUpdate
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 disallowed-tools: Task
 ---
 

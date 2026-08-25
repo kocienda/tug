@@ -3,7 +3,7 @@ name: dash
 description: Start or continue dash work from one conversational entry point — size the idea, route to a spike, a quick dash, or the brief/plan arc, and carry the arc through review to implementation
 argument-hint: "[idea…]"
 disable-model-invocation: true
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, AskUserQuestion, TaskCreate, TaskUpdate
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, AskUserQuestion
 disallowed-tools: Task
 ---
 
