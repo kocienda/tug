@@ -10,7 +10,6 @@ The plugin ships **agentless, main-loop-driven** skills — there are no sub-age
 - **`plan-devise`** — author an implementation plan in-thread against the devise skeleton (`tuglaws/devise-skeleton.md`). Writes to an explicit path (no assumed directory). *(was `devise`.)*
 - **`dash-implement`** — drive a plan to a tested debug build on an isolated `tugutil dash` worktree, committing per step, stopping for review before merge. Walks a single step, a step range, or the whole plan, driving the plan's Step Status Ledger with `tugutil dash step start|done`. Gates at setup on `tugutil plan status`: a plan whose review is `stale` or `never-reviewed` raises a dialog rather than being walked silently. *(was `implement`.)*
 - **`dash-on`** — quick, plan-less worktree-isolated task, same agentless model as `dash-implement` but without a plan. Takes a name and an instruction, and nothing else. *(was `dash-run`, and `dash` before that — the bare name belongs to the lane, not to one skill in it, and it now names the lane's front door above.)*
-- **`dash-join`** — land a worked dash into its base: preview via `tugutil dash join --preview`, then squash with the dash's join draft as the message, clear the draft, report the receipt. Backs the Session card's `/join` verb. Never composes the message and never discards. *(was `join`.)*
 
 **Assessment & drafting:**
 

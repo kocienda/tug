@@ -62,7 +62,6 @@ import { registerDiffCard } from "./components/tugways/cards/diff-card";
 import { registerGalleryCards } from "./components/tugways/cards/gallery-registrations";
 import { registerSpikeCards } from "./spikes/spike-registry";
 import { registerFixtureCards } from "./fixtures/fixture-registrations";
-import { installSessionPlacementGlobal } from "./components/tugways/cards/session-card-placement-experiment";
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import {
   animationCensus,
@@ -393,10 +392,6 @@ if (!container) {
       mutationCensus,
     };
   }
-  if (import.meta.env.DEV) {
-    installSessionPlacementGlobal();
-  }
-
   // Extract card IDs from the loaded layout and read per-card state bags
   // from the tugbank cache (`dev.tugtool.deck.cardstate`).
   let cardStates = new Map<string, import("./layout-tree").CardStateBag>();

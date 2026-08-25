@@ -136,7 +136,7 @@ body {
    transform that starts at the inverse of the move and ends at nothing. A
    transform tween in the accelerated form costs one compositing walk at each
    end and nothing in between (`lib/pane-flip.ts` holds the rules that keep it
-   there; `roadmap/jul30-perf-brief.md#i1-sparkline-exception` holds the
+   there; `dash/archive/jul30-perf-brief.md#i1-sparkline-exception` holds the
    measurements).
 
    `deck-canvas.tsx` still marks the frames' container with

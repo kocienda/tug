@@ -19,10 +19,10 @@ threaded after a `tool_result` while the turn is in flight.
 ## Files
 
 - `queued-command-mechanism.md` — the authoritative corpus finding (read this).
-- `merge-midturn-probe-transcript.txt` — a single raw-claude run of
-  `tugcode/probe-tool-overlap.ts` that **bypasses tugcode**. Kept only as a
-  labelled false start: one run can't distinguish merge from "buffered-without-a-
-  gap," and it doesn't exercise the queue layer. Not evidence for anything.
+- `merge-midturn-probe-transcript.txt` — a single raw-claude run that
+  **bypasses tugcode**. Kept only as a labelled false start: one run can't
+  distinguish merge from "buffered-without-a-gap," and it doesn't exercise the
+  queue layer. Not evidence for anything.
 
 ## Two retracted readings (recorded so they don't recur)
 

@@ -52,7 +52,7 @@ import {
 } from "./session-changes/session-changes-view";
 import type { DashJoinActions } from "./session-changes/session-changes-dash-join";
 import { SessionHistoryView } from "./session-history/session-history-view";
-import { useSessionPlacementSlots } from "./session-card-placement-experiment";
+import { SessionTelemetryStatusRow } from "./session-card-telemetry-renderers";
 import type { SessionTelemetryStatusRowHandle } from "./session-card-telemetry-renderers";
 import { formatPathChipText } from "../chrome/path-chip-format";
 import {
@@ -4327,9 +4327,7 @@ export function SessionCardBody({
     // `/dash-join [name] [message…]` — the dash lane's landing gesture ([P04]).
     // It no longer submits a turn: the landing is the user's act and belongs in
     // front of the button, so this enters join mode and the card runs the git
-    // itself. The `tugplug:dash-join` skill survives untouched as the agentic
-    // path over the same `tugutil dash join` verb; the two entrances differ in
-    // who is driving.
+    // itself.
     //
     // Bare = the bound dash; a name = that dash in this project; a name plus a
     // message seeds the join message as an edited draft, exactly as `/commit
@@ -4870,56 +4868,36 @@ export function SessionCardBody({
     </>
   ) : null;
 
-  // Dev-only placement-experiment slots. In production this returns
-  // an object with every slot undefined (the harness is gated behind
-  // the empty-default tugbank mapping); in dev, the slots resolve
-  // whichever datum the current `window.tugSessionPlacement` mapping
-  // selects. Explicit props on `SessionCardBody` win over experiment
-  // content — the harness only fills slots the caller left unset.
-  const experimentSlots = useSessionPlacementSlots({
-    codeSessionStore,
-    sessionMetadataStore,
-    onScrollToRow: handleScrollToRow,
-    statusRowRef,
-    // Author the Z2 status cells into the card's cycle as five leaf stops
-    // ([P10] revised) starting at SESSION_CYCLE_ORDER_STATUS_BASE; the status-bar
-    // region is wrapped in a second `cycle.CycleScope` (below) sharing this
-    // card's mode id.
-    //
-    // An open shade takes them back out. A shade rises from the entry region's
-    // top edge and covers everything above it, Z2 included — and the Changes
-    // shade is passive, so the walk is NOT trapped into it the way History's
-    // is. Left registered, the five cells stayed in the cycle while sitting
-    // behind the shade: five Tab stops in a row that paint their ring on a
-    // covered element and so look like nothing at all. A stop you cannot see
-    // is a ghost, and the cure is not to paint it but to not stop there.
-    // Passing an undefined group is how `SessionTelemetryStatusRow` leaves the
-    // walk entirely.
-    statusRowFocusGroup:
-      shadeView === "none" ? SESSION_CYCLE_GROUP : undefined,
-    statusRowFocusOrderBase: SESSION_CYCLE_ORDER_STATUS_BASE,
-    // The `/btw` placard's body (there is no BTW cell; `/btw` opens it).
-    sideQuestionStore,
-    // Staged-context queue: the `/btw` overlay's Add-to-context action.
-    pendingContextStore,
-  });
-  const effectiveHeaderContent = headerContent ?? experimentSlots.headerContent;
-  const effectiveStatusBarContent =
-    statusBarContent ?? experimentSlots.statusBarContent;
-  const effectiveRenderTurnTrailing =
-    renderTurnTrailing ?? experimentSlots.renderTurnTrailing;
-  // Z4B — prompt-entry indicator slot. Step 6 fills it with the badge
-  // cluster; until then an explicit `footerContent` prop (tests /
-  // gallery) or a dev placement-experiment Z4B assignment fills it.
-  const effectiveFooterContent =
-    footerContent ?? experimentSlots.promptIndicatorsContent;
-  // Project button — sits after the Session badge in the Z4B indicator
-  // cluster, grouped with the Mode/Model/Effort controls. Clicking it
-  // opens the bound project folder in Finder. The project-path button
-  // is the default; the placement-experiment harness overrides it when
-  // its mapping assigns a datum to Z3.
-  const effectivePromptStatusContent =
-    experimentSlots.promptStatusContent ?? projectStatusContent;
+  // Z2 — the session status row. An explicit `statusBarContent` prop
+  // (tests / gallery) wins; otherwise the card renders the row itself.
+  const effectiveStatusBarContent = statusBarContent ?? (
+    <SessionTelemetryStatusRow
+      ref={statusRowRef}
+      codeSessionStore={codeSessionStore}
+      sessionMetadataStore={sessionMetadataStore}
+      onScrollToRow={handleScrollToRow}
+      // Author the Z2 status cells into the card's cycle as five leaf stops
+      // ([P10] revised) starting at SESSION_CYCLE_ORDER_STATUS_BASE; the status-bar
+      // region is wrapped in a second `cycle.CycleScope` (below) sharing this
+      // card's mode id.
+      //
+      // An open shade takes them back out. A shade rises from the entry region's
+      // top edge and covers everything above it, Z2 included — and the Changes
+      // shade is passive, so the walk is NOT trapped into it the way History's
+      // is. Left registered, the five cells stayed in the cycle while sitting
+      // behind the shade: five Tab stops in a row that paint their ring on a
+      // covered element and so look like nothing at all. A stop you cannot see
+      // is a ghost, and the cure is not to paint it but to not stop there.
+      // Passing an undefined group is how `SessionTelemetryStatusRow` leaves the
+      // walk entirely.
+      focusGroup={shadeView === "none" ? SESSION_CYCLE_GROUP : undefined}
+      focusOrderBase={SESSION_CYCLE_ORDER_STATUS_BASE}
+      // The `/btw` placard's body (there is no BTW cell; `/btw` opens it).
+      sideQuestionStore={sideQuestionStore}
+      // Staged-context queue: the `/btw` overlay's Add-to-context action.
+      pendingContextStore={pendingContextStore}
+    />
+  );
 
   // Compose two ref consumers onto the card's root DOM node:
   //   - `cardContentResponderRef` registers this element as the
@@ -5044,7 +5022,7 @@ export function SessionCardBody({
               className="session-card-header-content"
               data-slot="session-card-header-content"
             >
-              {effectiveHeaderContent}
+              {headerContent}
             </div>
             {/*
               Route-driven view slot ([P01]/[P02]). The transcript pane is
@@ -5070,7 +5048,7 @@ export function SessionCardBody({
                   sessionMetadataStore={sessionMetadataStore}
                   transcriptStore={transcriptStore}
                   findSession={findSession}
-                  renderTurnTrailing={effectiveRenderTurnTrailing}
+                  renderTurnTrailing={renderTurnTrailing}
                   // The landing arc narrates at the live edge, beneath every
                   // row and above the composer — ink in motion, never
                   // ledgered. Built inline rather than memoized for the same
@@ -5388,7 +5366,7 @@ export function SessionCardBody({
                   // lands (Changes). The Changes chip's click toggles the
                   // changes sheet without leaving the mode.
                   <>
-                    {effectivePromptStatusContent}
+                    {projectStatusContent}
                     <TugActionTooltip
                       action={TUG_ACTIONS.TOGGLE_CHANGES_VIEW}
                       content={
@@ -5461,7 +5439,7 @@ export function SessionCardBody({
                     focusGroup={SESSION_CYCLE_GROUP}
                     focusOrder={SESSION_CYCLE_ORDER_AI}
                   />
-                  {effectiveFooterContent}
+                  {footerContent}
                 </>
                 )
               }

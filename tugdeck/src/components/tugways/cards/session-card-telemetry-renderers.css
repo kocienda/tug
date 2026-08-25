@@ -9,8 +9,7 @@
  * for this consumer per [D12]. Crucially, the overrides are keyed
  * on a renderer-owned class (e.g. `.session-telemetry-window-utilization`)
  * NOT on a placement-zone selector — so the renderer reads the
- * same regardless of which slot (Z1 / Z2 / Z3 / Z4) it lands in
- * during the placement-experiment study.
+ * same regardless of which slot (Z1 / Z2 / Z3 / Z4) it lands in.
  *
  * The Z2 status row's per-cell styling lives in the cell's own
  * component file (`tug-status-cell.css`); this file keeps only the
@@ -38,7 +37,7 @@
    ============================================================================
    Compact dashboard-style dial with `value / max` and a "tokens"
    label stacked beneath. Placement-agnostic; the same rules apply
-   in every zone the placement-experiment harness might assign.
+   in every zone.
    ========================================================================= */
 
 /* Wrapper is a single-line flex row hosting TWO items: `[value]

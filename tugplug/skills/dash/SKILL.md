@@ -22,7 +22,7 @@ Everything it routes to already exists as a skill of its own, and each one stays
 
 **This skill sequences; it does not restate.** At each hand-off it reads the sibling's own `SKILL.md` and carries out that contract in-thread. The expert skills remain the single source of truth for their own mechanics — an edit to `plan-devise` is picked up here with no second file to keep in step. What `/dash` owns, and no sibling does, is the connective narration: saying where the arc stands at each boundary, so the user never has to hold the sequence in their head.
 
-**On the plan route, sequencing means handing off rather than sequencing.** A running model cannot drive its own arc — it cannot end its own turn to start the next stage, and each stage wants a session that has never seen the last one's context. So `/dash` writes the brief, hands the document to `tugutil dash run`, and ends the turn. The server rotates the stages from there, on this same card. Everything below is written for that; the hand-driven path someone gets by invoking `plan-devise` directly is unchanged and still spelled out where it differs.
+**On the plan route, sequencing means handing off rather than sequencing.** A running model cannot drive its own arc — it cannot end its own turn to start the next stage, and each stage wants a session that has never seen the last one's context. So `/dash` writes the brief, hands the document to `tugutil dash run`, and ends the turn. The server rotates the stages from there, on this same card. Everything below is written for that, because on the plan route there is no other way through: `plan-devise` is a stage of this arc and stops when it is run outside one.
 
 **You are the orchestrator, in-thread.** Do not spawn sub-agents (`Task`). The plugin is agentless by charter.
 
@@ -128,20 +128,13 @@ So issuing that command is the last thing you do. Say what happens next (stage 6
 
 Say which contract you are entering as you enter it. The hand-off is the moment the user would otherwise lose the thread, and naming it is most of what the narration is for.
 
-### 5. The review gate — which the arc route does not have
+### 5. The review — a stage, not a gate
 
-A plan is not ready when it is written; it is ready when it has been reviewed. **Under an arc, that is a stage rather than a gate**, and the whole of this section is off.
+A plan is not ready when it is written; it is ready when it has been reviewed. **Under an arc, that is a stage rather than a gate**, so there is nothing here for you to hold.
 
 The runner rotates devise → review → implement itself, each on a fresh session, each on the model the project declared for it in `[tugtool.dash]` — and the review's model is a declaration, not a habit: a project that wants its reviews on Opus says `review_model = "opus"` there (this repository does), and a review that ran on anything else is a config fact to fix, never something a skill can promise. The review reads the plan **cold**, which is the thing a gate could never buy: an inline review is handed the author's own context, and the reader you actually want is one who has never seen it. So there is no chip to print, nothing to hand back, and no turn boundary to stop at — you handed the document over in stage 4 and the arc is already running.
 
-Everything below is the **hand-driven** path, and it reads exactly as it always has for someone who invoked `plan-devise` directly ([B11]). It is not a fallback and it is not deprecated: a user who wants to hold the arc themselves gets the same fork they have always had.
-
-Which happens next is `plan-devise` §5's fork, inherited whole:
-
-- **On Opus** — the review runs inline, in the same turn, because the model that would be handed the job is already the one holding it. Lint, judge against `tuglaws/plan-review-rubric.md` and the real code, apply the fixups, append the Review Record, and stamp with `tugutil plan stamp` as the last edit.
-- **On anything else** — stop. Say the plan is written and **unreviewed**, print `` `/tugplug:plan-review <path>` `` on its own line inside backticks, and say plainly that clicking it reviews the plan on whatever model is selected at that moment — so switching first is the user's call and their opportunity to make it.
-
-**Never switch the user's model, in either direction, and never schedule a turn on their behalf.** The arc spanning turns here is the design, not a gap in it: the review is where judgment lands, and the model choice belongs to the user.
+What the devise stage does when it finishes is `plan-devise` §5's, and it is stated there rather than restated here — one home per rule, because a second copy is how the first one drifted.
 
 ### 6. Say what happens next
 
@@ -170,4 +163,4 @@ This is the stage `/dash` owns outright, because nothing else in the arc will sp
 
 ## When to reach for something else
 
-Nothing here is exclusive. A user who knows exactly what they want should type it: `/tugplug:plan-devise`, `/tugplug:dash-on`, `/tugplug:spike-card`, `/tugplug:plan-review`, `/tugplug:dash-implement`. `/dash` exists so that knowing the roster is not the price of starting — it is the door for people who do not yet know which room they want, and it stops being needed the moment they do.
+Nothing here is exclusive. A user who knows exactly what they want should type it: `/tugplug:dash-on`, `/tugplug:spike-card`, `/tugplug:plan-review`, `/tugplug:dash-implement`. (`/tugplug:plan-devise` is not among them — it is a stage of this arc and stops when it is run outside one.) `/dash` exists so that knowing the roster is not the price of starting — it is the door for people who do not yet know which room they want, and it stops being needed the moment they do.

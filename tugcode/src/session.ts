@@ -3155,8 +3155,9 @@ export class SessionManager {
    * {@link handleClaudeLine} is dormant in normal operation.
    *
    * Exception: when claude *merges* a mid-turn message into the
-   * running turn — it does this at an agent-loop iteration boundary;
-   * see `probe-tool-overlap.ts` — no follow-on turn is produced and
+   * running turn — it does this at an agent-loop iteration boundary; see
+   * `tugrust/crates/tugcast/tests/fixtures/stream-json-catalog/v2.1.181-steering-spike/queued-command-mechanism.md`
+   * — no follow-on turn is produced and
    * the merged message's entry is left stale here. tugcode cannot
    * distinguish merge from buffer at submit time (claude emits no
    * signal for it), so a stale entry mislabels at most one later

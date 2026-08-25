@@ -2,7 +2,7 @@
 
 *How an agent works on a dash worktree. The rules below hold for every dash — a quick plan-less task, a planned run walking a ledger, an audit that only reads. They are cited, not copied: a working skill states its own flow and points here for the discipline, so the discipline has exactly one home.*
 
-*The lane's conversational entry point is the bare `/dash`, which sizes an idea with the user and routes it to whichever path fits. Typing the stage you want — `/tugplug:plan-devise`, `/tugplug:dash-on`, `/tugplug:dash-implement` — is the expert path and is never worse; `/dash` exists so that knowing the roster is not the price of starting. Whichever door a run comes through, the discipline below is the same one.*
+*The lane's conversational entry point is the bare `/dash`, which sizes an idea with the user and routes it to whichever path fits. Typing the stage you want — `/tugplug:dash-on`, `/tugplug:dash-implement` — is the expert path and is never worse (`/tugplug:plan-devise` is not among them: it is a stage of `/dash` and stops when it is run outside an arc); `/dash` exists so that knowing the roster is not the price of starting. Whichever door a run comes through, the discipline below is the same one.*
 
 This document covers **how the work is done**. The dash's state model — what `created`, `working`, `implementing`, `built`, `audited`, `draft-ready`, and `joining` mean and how each is derived or declared — is a separate subject, and lives in [dash-lifecycle.md](dash-lifecycle.md) along with the identity and binding models.
 
@@ -207,6 +207,10 @@ Join's other stops — a conflict, a missing draft, a named blocker — stay sto
 Never write step identifiers — "Step 4.5", "4i", "plan step X" — into code, comments, docstrings, test names, or commit messages. Describe the behavior or the reason directly.
 
 A plan document carries step numbers because it *is* the bookkeeping; so does the dash-log's `instruction` field, for the same reason. Nothing that outlives the run does.
+
+## Retiring something: the design goes, the spelling stays
+
+A retired **design** is deleted whole — the text and the apparatus behind it, its tests, its fixtures, its registry lines and its roster entries — never marked "superseded by"; a retired **spelling** is kept as an alias, because an unmatched `/verb` is submitted to claude as a prompt rather than refused, which is worse than a rename ([slash-commands.md](slash-commands.md#retire-a-spelling) owns that half and states it once). Tell the two apart by asking whether anything is left that a user could still type: if there is, it needs somewhere to land; if there is not, there is nothing to keep.
 
 ## No sub-agents
 

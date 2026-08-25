@@ -21,10 +21,5 @@
     "types": ["bun-types"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": [
-    "src/_archive/**/*",
-    "src/__tests__/conversation-types.test.ts",
-    "src/__tests__/ordering.test.ts"
-  ]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

@@ -398,9 +398,9 @@ const PLACARD_TITLES: Record<PlacardKind, string> = {
  * Imperative handle for {@link SessionTelemetryStatusRow}. Lets the session card open a
  * status-row placard programmatically — the surfaces the `/context` and
  * `/tasks` slash commands map to (they show the same breakdown a click on the
- * cell shows, no separate sheet). Threaded down through `useSessionPlacementSlots`
- * to the row's Z2 instance; a null ref (the row isn't the current Z2 datum)
- * makes these no-ops.
+ * cell shows, no separate sheet). The session card passes the ref straight to
+ * the row it renders into Z2; a null ref (an owner supplying its own
+ * `statusBarContent` instead) makes these no-ops.
  */
 export interface SessionTelemetryStatusRowHandle {
   /** Open the CONTEXT placard (the `/context`-style breakdown). */

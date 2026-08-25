@@ -12,7 +12,7 @@
 | Status | draft |
 | Target branch | `main` (dash worktree `tugdash/interruption`) |
 | Last updated | 2026-08-25 |
-| Source brief | `dash/interruption-brief.md` |
+| Source brief | `dash/archive/interruption-brief.md` |
 
 ---
 
@@ -34,7 +34,7 @@ A dash arc is a **score**: a schedule of rotations that carries one dash from a 
 
 The arc's decision half is `arc_action` in `tugrust/crates/tugcast/src/feeds/dash_arc.rs` — a pure first-match-wins rule list over `ArcFacts`. Its act half is `tugrust/crates/tugcast/src/feeds/dash_arc_runner.rs`, which gathers those facts, performs what the predicate returns, and records the result in the dash-log. The seating itself is `tugrust/crates/tugcast/src/conductor/mod.rs`. The verbs are `tugrust/crates/tugutil/src/dash.rs`; the binding write surface is `tugrust/crates/tugcast/src/dash_api.rs` behind `POST /api/dash` in `tugrust/crates/tugcast/src/server.rs`; the binding itself lives in `tugrust/crates/tugcast/src/session_ledger.rs`.
 
-`dash/interruption-brief.md` read every interruption against that code and decided ten things, `[B01]`–`[B10]`. Four real runs on 2026-08-25 (`ornate-fairy`, `reedy-buoy`, `loose-shake`, `gauzy-snack`) supplied the evidence. The defects the brief names are all still present at the head this plan is written against:
+`dash/archive/interruption-brief.md` read every interruption against that code and decided ten things, `[B01]`–`[B10]`. Four real runs on 2026-08-25 (`ornate-fairy`, `reedy-buoy`, `loose-shake`, `gauzy-snack`) supplied the evidence. The defects the brief names are all still present at the head this plan is written against:
 
 - A **cancelled** turn is indistinguishable from a finished one. `is_turn_end` (`feeds/session_metadata.rs`) matches `turn_complete` *and* `turn_cancelled`; the dispatcher's edge in `feeds/agent_supervisor.rs` clears `turn_active`, increments `turns_ended`, and sets `turn_api_error` on both. `ArcFacts` carries no fact for a cancel, so a devise cancelled mid-write stops on `lint` and a review cancelled mid-pass burns a round against `REVIEW_CAP`.
 - And a **cancel does not say who caused it**. `turn_cancelled` is written from two places in `tugcode/src/session.ts` — `signalEofToActiveTurn` and `emitInflightTurnFromActiveTurn` — and both key on one flag, `ActiveTurn.interrupted`. `handleInterrupt` sets it for the user's cancel; `forceTerminateAndRespawn` sets it for a *machine* wedge recovery, fired by the result-liveness watchdog (`result_timeout`) with no user in the loop. That recovery respawns `--resume` against the **same** claude id, so `agent_bridge.rs`'s reset (keyed on a *different* id) never fires and the stage is genuinely still alive. A fact that read every cancel as a taking would stop a healthy stage and blame the user for it ([P12]).
@@ -124,7 +124,7 @@ The arc's decision half is `arc_action` in `tugrust/crates/tugcast/src/feeds/das
 
 ### Open Questions {#open-questions}
 
-Both questions `dash/interruption-brief.md` left open were settled in this round by reading the code, as the brief's Exit required. Neither survives as a `[Q##]`.
+Both questions `dash/archive/interruption-brief.md` left open were settled in this round by reading the code, as the brief's Exit required. Neither survives as a `[Q##]`.
 
 - *Should a resume after `card taken` re-rotate at once, or wait for the user's next turn to end?* Settled — see [P11]. The existing placement is right and is now pinned by a named test.
 - *Does [B03]'s divider re-render need a deck change, or does the session row already drive it?* Settled — see [P10]. It would need both a deck change and a rewrite of durable ink, and it would introduce a live/restored divergence, so it is not done at all.

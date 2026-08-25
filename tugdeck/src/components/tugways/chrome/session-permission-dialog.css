@@ -11,10 +11,9 @@
 /**
  * session-permission-dialog.css — `PermissionDialog` chrome fragments.
  *
- * `PermissionDialog` has a single visible state — *pending* — after
- * Step 3.5 removed the recorded chrome (JSONL has no durable record
- * to reconstruct one from; see `roadmap/archive/dev-interactive-dialogs.md`
- * `#step-3-5`). The pending dialog composes `TugInlineDialog`
+ * `PermissionDialog` has a single visible state — *pending* — because
+ * JSONL carries no durable record of a decided dialog to reconstruct
+ * chrome from. The pending dialog composes `TugInlineDialog`
  * (owns `--tugx-idialog-*` and the dialog frame). The things this file
  * owns are:
  *

@@ -1,0 +1,180 @@
+# doc-link-allowlist.txt — the document-pointer debt, as of the sweep that landed
+# doc-link-resolution.test.ts.
+#
+# This is a to-do list with a green build, not an exemption mechanism. Every line
+# is a real dangle: a comment or a law that points at a `.md` file which is not
+# there. They are recorded rather than repaired because repairing them is its own
+# piece of work — most re-point mechanically from `dash/<plan>.md` to
+# `dash/archive/<plan>.md`, and the rest name documents that exist nowhere and
+# need a judgment about what the comment was trying to say.
+#
+# One `<citing-file> <cited-path>` pair per line; `#` starts a comment. A dangle
+# that is NOT on this list fails the build, which is the whole point — the list
+# freezes the debt that existed on the day the check landed and catches every new
+# one from that moment. The assertion is two-sided: an entry whose target has
+# since been created, or whose citing file no longer cites it, ALSO fails, and the
+# fix is to delete the line. A stale allowlist is the same disease one layer up.
+#
+# The exit condition is this file being empty.
+
+tugcode/src/__tests__/fixtures/compact-native/0967f3f0-013d-4849-b967-4b66dc702146.jsonl references/palette.md
+tugcode/src/__tests__/fixtures/subagent-foreground/main.jsonl references/palette.md
+tugcode/src/__tests__/replay-pending-row-injection.test.ts dash/tugplan-session-mid-turn-replay.md
+tugcode/src/__tests__/session.test.ts dash/tugplan-session-wake.md
+tugcode/src/__tests__/wake-reinit.test.ts dash/wake-investigation-findings.md
+tugcode/src/__tests__/wake-sdk-drift.test.ts dash/tugplan-session-wake.md
+tugcode/src/context-breakdown.ts cwd/CLAUDE.md
+tugcode/src/pulse/__tests__/voice.test.ts dash/pulse.md
+tugcode/src/replay.ts dash/dev-atoms.md
+tugcode/src/replay.ts dash/slash-command-plan.md
+tugcode/src/replay.ts dash/tugplan-session-wake.md
+tugcode/src/session.ts dash/dev-atoms.md
+tugcode/src/session.ts dash/tugplan-session-mid-turn-replay.md
+tugcode/src/session.ts dash/tugplan-session-transcript-resume.md
+tugcode/src/session.ts dash/tugplan-session-wake.md
+tugcode/src/session.ts dash/wake-investigation-findings.md
+tugcode/src/types.ts dash/transport-exploration.md
+tugcode/src/types.ts dash/tugplan-session-wake.md
+tugdeck/src/__tests__/session-wake-fixture-replay.test.ts dash/tugplan-session-wake.md
+tugdeck/src/components/chrome/deck-canvas.tsx dash/jul30-perf-brief.md
+tugdeck/src/components/chrome/tug-pane.tsx dash/layout-imposer-polish.md
+tugdeck/src/components/lens/sections/__tests__/dashes-section.test.ts dash/plan.md
+tugdeck/src/components/tugways/__tests__/focus-route.test.ts dash/keyboard-as-engine-state.md
+tugdeck/src/components/tugways/__tests__/kbf-derivation.test.ts dash/kbf-mode.md
+tugdeck/src/components/tugways/__tests__/tug-text-editor-ime-report.md dash/text-editing-base.md
+tugdeck/src/components/tugways/cards/__tests__/session-tool-visibility-policy.test.ts dash/session-assistant-rendering.md
+tugdeck/src/components/tugways/cards/gallery-attachment-strip.tsx dash/dev-atoms.md
+tugdeck/src/components/tugways/cards/gallery-registrations.tsx spikes/README.md
+tugdeck/src/components/tugways/cards/gallery-tug-arc-gauge.tsx dash/session-assistant-rendering.md
+tugdeck/src/components/tugways/cards/gallery-tug-dialog-button.tsx dash/session-assistant-rendering.md
+tugdeck/src/components/tugways/cards/gallery-tug-linear-gauge.tsx dash/session-assistant-rendering.md
+tugdeck/src/components/tugways/cards/session-card-transcript.tsx dash/archive/dev-interactive-dialogs.md
+tugdeck/src/components/tugways/cards/session-card.tsx dash/tugplan-session-init-orchestration.md
+tugdeck/src/components/tugways/cards/session-card.tsx docs/notes/focus-gesture-lock-investigation.md
+tugdeck/src/components/tugways/cards/session-tool-visibility-policy.ts dash/session-assistant-rendering.md
+tugdeck/src/components/tugways/chrome/session-caution-badge.tsx dash/session-assistant-rendering.md
+tugdeck/src/components/tugways/chrome/session-permission-dialog.tsx dash/archive/dev-interactive-dialogs.md
+tugdeck/src/components/tugways/internal/use-position-stable-click.ts dash/session-assistant-turns.md
+tugdeck/src/components/tugways/tug-prompt-entry.tsx dash/dev-atoms.md
+tugdeck/src/components/tugways/tug-sheet.tsx dash/tugplan-dev-overlay-framework.md
+tugdeck/src/components/tugways/tug-text-editor.tsx dash/dev-atoms.md
+tugdeck/src/components/tugways/tug-text-editor.tsx dash/kbf-mode.md
+tugdeck/src/components/tugways/tug-text-editor/clipboard-filters.ts dash/dev-atoms.md
+tugdeck/src/components/tugways/tug-text-editor/drop-extension.ts dash/dev-atoms.md
+tugdeck/src/deck-trace.ts dash/scroll-height-floor.md
+tugdeck/src/lib/__tests__/atom-bytes-store.test.ts dash/dev-atoms.md
+tugdeck/src/lib/__tests__/build-wire-payload.test.ts dash/dev-atoms.md
+tugdeck/src/lib/__tests__/image-downsample.test.ts dash/dev-atoms.md
+tugdeck/src/lib/__tests__/synthesize-user-message.test.ts dash/dev-atoms.md
+tugdeck/src/lib/annotator/detect-session-ref.ts docs/notes.md
+tugdeck/src/lib/atom-bytes-store.ts dash/dev-atoms.md
+tugdeck/src/lib/atom-mention-marker.ts dash/dev-atoms.md
+tugdeck/src/lib/build-wire-payload.ts dash/dev-atoms.md
+tugdeck/src/lib/card-services-store.ts dash/dev-atoms.md
+tugdeck/src/lib/card-services-store.ts dash/tugplan-session-mid-turn-replay.md
+tugdeck/src/lib/card-session-binding-store.ts dash/tugplan-session-connection-health.md
+tugdeck/src/lib/changeset-types.ts dash/dash-cockpit.md
+tugdeck/src/lib/code-session-store.ts dash/dev-atoms.md
+tugdeck/src/lib/code-session-store.ts dash/jul30-perf-brief.md
+tugdeck/src/lib/code-session-store.ts dash/tugplan-session-wake.md
+tugdeck/src/lib/code-session-store/__tests__/code-session-store.control-forward.test.ts dash/archive/dev-interactive-dialogs.md
+tugdeck/src/lib/code-session-store/__tests__/notification-hold.test.ts dash/jul30-perf-brief.md
+tugdeck/src/lib/code-session-store/events.ts dash/tugplan-session-wake.md
+tugdeck/src/lib/code-session-store/lifecycle-state.ts dash/tugplan-session-wake.md
+tugdeck/src/lib/code-session-store/reducer.ts dash/archive/dev-interactive-dialogs.md
+tugdeck/src/lib/code-session-store/reducer.ts dash/tugplan-session-wake.md
+tugdeck/src/lib/code-session-store/select-goal.ts dash/slash-command-plan.md
+tugdeck/src/lib/code-session-store/types.ts dash/tugplan-session-wake.md
+tugdeck/src/lib/filetree-store.ts dash/dev-atoms.md
+tugdeck/src/lib/image-downsample.ts dash/dev-atoms.md
+tugdeck/src/lib/pane-flip.ts dash/jul30-perf-brief.md
+tugdeck/src/lib/permission-rules-store.ts dash/transport-exploration.md
+tugdeck/src/lib/permission-rules.ts dash/transport-exploration.md
+tugdeck/src/lib/pulse-line/__tests__/render-pulse-line.test.ts dash/pulse.md
+tugdeck/src/lib/synthesize-user-message.ts dash/dev-atoms.md
+tugdeck/src/lib/tug-atom-img.ts dash/dev-atoms.md
+tugdeck/src/lib/workers/image-downsample-worker.ts dash/dev-atoms.md
+tugdeck/src/protocol.ts dash/dev-atoms.md
+tugdeck/src/spikes/spike-session-identity.tsx dash/session-identity.md
+tugdeck/src/spikes/spike-session-identity.tsx dash/session-reference-brief.md
+tuglaws/animation-doctrine.md dash/imposer-pane-motion.md
+tuglaws/animation-doctrine.md dash/jul30-perf-brief.md
+tuglaws/app-test-harness.md dash/tugplan-app-test-cleanup.md
+tuglaws/app-test-harness.md dash/tugplan-harness-extensions.md
+tuglaws/app-test-harness.md dash/tugplan-in-app-bridge.md
+tuglaws/app-test-harness.md tuglaws/app-test-inventory.md
+tuglaws/code-signing-mac.md dash/tug-multi-instance.md
+tuglaws/component-authoring.md dash/tugplan-tide-overlay-tier.md
+tuglaws/component-authoring.md dash/tugplan-tide-picker-redesign.md
+tuglaws/design-decisions.md dash-on/SKILL.md
+tuglaws/design-decisions.md dash/add-btw.md
+tuglaws/design-decisions.md dash/changes-commit-dash-consolidation.md
+tuglaws/design-decisions.md dash/changesets-plan.md
+tuglaws/design-decisions.md dash/commit-tool-fixes.md
+tuglaws/design-decisions.md dash/dash-entry-points.md
+tuglaws/design-decisions.md dash/dash-generality.md
+tuglaws/design-decisions.md dash/dash-integration-2.1-one-gesture.md
+tuglaws/design-decisions.md dash/dash-integration-5-polish.md
+tuglaws/design-decisions.md dash/dash-join-journal-fold.md
+tuglaws/design-decisions.md dash/dash-occupancy-lease.md
+tuglaws/design-decisions.md dash/durable-commit-stability.md
+tuglaws/design-decisions.md dash/jobs-tracking.md
+tuglaws/design-decisions.md dash/join-arc-2.md
+tuglaws/design-decisions.md dash/join-arc.md
+tuglaws/design-decisions.md dash/join-endgame-workflow.md
+tuglaws/design-decisions.md dash/join-voice.md
+tuglaws/design-decisions.md dash/keyboard-command-cleanup.md
+tuglaws/design-decisions.md dash/layout-imposition.md
+tuglaws/design-decisions.md dash/layouts-rework-plan.md
+tuglaws/design-decisions.md dash/layouts-rework.md
+tuglaws/design-decisions.md dash/lens-joins-imposition.md
+tuglaws/design-decisions.md dash/logout-consolidation.md
+tuglaws/design-decisions.md dash/monitors-in-jobs.md
+tuglaws/design-decisions.md dash/onboarding-and-install.md
+tuglaws/design-decisions.md dash/plan-adoption.md
+tuglaws/design-decisions.md dash/plan-step-consistency.md
+tuglaws/design-decisions.md dash/pulse-2.md
+tuglaws/design-decisions.md dash/pulse.md
+tuglaws/design-decisions.md dash/route-enhancements.md
+tuglaws/design-decisions.md dash/routes-rework.md
+tuglaws/design-decisions.md dash/session-identity.md
+tuglaws/design-decisions.md dash/session-reference-plan.md
+tuglaws/design-decisions.md dash/session-synopsis-consolidation.md
+tuglaws/design-decisions.md dash/shared-agent-bringup.md
+tuglaws/design-decisions.md dash/sidebar-split.md
+tuglaws/design-decisions.md dash/sparkline-improvements.md
+tuglaws/design-decisions.md dash/tool-block-renderers.md
+tuglaws/design-decisions.md dash/tugplan-tide-prompt-entry-zones.md
+tuglaws/design-decisions.md dash/tugplan-tide-session-wake.md
+tuglaws/design-decisions.md dash/unified-changes.md
+tuglaws/design-decisions.md dash/verify-surfaces.md
+tuglaws/design-decisions.md dash/z2-status-redesign.md
+tuglaws/entity-presentation.md dash/entity-presentation.md
+tuglaws/focus-language.md dash/tugplan-focus-language.md
+tuglaws/lifecycle-delegates.md dash/lifecycle-delegate-reliability.md
+tuglaws/lifecycle-delegates.md dash/tugplan-lifecycle-delegates.md
+tuglaws/pane-model.md dash/tugplan-tide-picker-redesign.md
+tuglaws/responder-chain.md dash/tugplan-tide-picker-redesign.md
+tuglaws/route-lifecycle.md dash/tugplan-tide-prompt-entry-zones.md
+tuglaws/scroll-intent.md dash/scroll-height-floor.md
+tuglaws/slash-commands.md dash/slash-command-plan.md
+tuglaws/state-preservation.md dash/tide-assistant-rendering.md
+tuglaws/state-preservation.md dash/tugplan-hmr-state-preservation.md
+tuglaws/tracking-changes.md dash/changesets-plan.md
+tuglaws/tracking-changes.md dash/commit-tool-fixes.md
+tuglaws/tuglaws.md dash/continuing-dash-join-failures.md
+tuglaws/wasm-crates.md dash/tide-assistant-rendering.md
+tugrust/crates/tugcast/src/feeds/agent_supervisor.rs dash/tugplan-dev-mid-turn-replay.md
+tugrust/crates/tugcast/src/feeds/agent_supervisor.rs dash/tugplan-dev-transcript-resume.md
+tugrust/crates/tugcast/src/feeds/changeset.rs dir/plan.md
+tugrust/crates/tugcast/src/feeds/filetree.rs dash/dev-atoms.md
+tugrust/crates/tugcast/src/feeds/pulse.rs dash/pulse-2.md
+tugrust/crates/tugcast/src/feeds/secret_filter.rs dash/dev-atoms.md
+tugrust/crates/tugcast/src/feeds/shell.rs crates/tugcast/probes/shell-exec/FINDINGS.md
+tugrust/crates/tugcast/src/feeds/workspace_registry.rs dash/dev-atoms.md
+tugrust/crates/tugcast/src/main.rs dash/dev-atoms.md
+tugrust/crates/tugcast/src/permissions.rs dash/transport-exploration.md
+tugrust/crates/tugcast/src/router.rs dash/dev-atoms.md
+tugrust/crates/tugcast/src/turn_engine.rs dash/canonical-turns-redux.md
+tugrust/crates/tugcore/src/ports.rs dash/tug-multi-instance.md
+tugrust/crates/tugcore/src/registry.rs dash/tug-multi-instance.md

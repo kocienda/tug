@@ -34,7 +34,6 @@ const PLUGIN_CATALOG = [
   "tugplug:dash",
   "tugplug:dash-audit",
   "tugplug:dash-implement",
-  "tugplug:dash-join",
   "tugplug:dash-on",
   "tugplug:draft",
   "tugplug:history",

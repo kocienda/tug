@@ -89,36 +89,20 @@ Then run the **cold-reader test**: could a fresh session, given only this docume
 
 ### 5. Hand the review to the conductor
 
-**First, check whether an arc is running you.** Run `printenv TUG_DASH_ARC` — when it names a dash, this turn is that arc's **devise stage**, and the arc handles the hand-off itself:
+**This stage runs under an arc.** `printenv TUG_DASH_ARC` names the dash whose arc you are the **devise stage** of, and the arc handles the hand-off itself:
 
 - Finish at the natural end — a written plan, lint-clean, at the path you were given — and stop there.
 - **Do not review it, on any model, including Opus.** The review is the arc's *next stage*: its own fresh session, on the model the project declared for it, reading the plan cold. That cold read is the point, and reviewing inline destroys it by handing the review the author's context.
 - **Print no chip and name no next command.** Nobody is going to click it. The runner is watching the documents — it reads `tugutil plan lint` and `tugutil plan status` on the plan you just wrote and rotates the stage itself.
 - **Ask for no rotation either.** The card is already running a score, and a second request on it is refused by name. Say what you wrote and where, and end the turn. Ending the turn *is* the hand-off.
 
-Outside an arc, the plan is not ready when you finish writing it; it is ready when it has been reviewed — and the review is a fresh session's cold read, on the model the project declared for it, exactly as it is under an arc. You do not review it yourself, on any model, and you do not hand the user a chip to click. You ask the conductor:
-
-```bash
-tugutil session rotate --stage review --prompt "/tugplug:plan-review <plan-path>"
-```
-
-Then **end your turn**. That is the whole gesture. The rotation lands at this turn's end — it cannot happen sooner, because it retires the session you are running in — and the review opens as its own visible turn on the project's declared review model, with nobody clicking anything. When the review's turn ends, the card is back on the model the user was on.
-
-Say what the receipt says: the review opens on that model at this turn's end, and the card hands back after. Do not print a `/tugplug:plan-review` chip alongside it — a chip beside a scheduled rotation teaches the user that nothing happens until they type, which is the belief this hand-off exists to retire.
-
-**If the verb exits non-zero, the review was not scheduled.** That is the real case, not a defensive one: `plan-devise` can run in a terminal claude with no Tug session at all, and the verb refuses without one. It also refuses when no Tug instance is running, and when the card is already running a score. Say plainly that the review was not scheduled and why, then fall back to the chip:
-
-`` `/tugplug:plan-review dash/my-plan.md` ``
-
-and say that clicking it reviews the plan **on whatever model is selected at that moment**, so switching models first is the user's call.
+**With no `TUG_DASH_ARC` in the environment, stop and say so.** This skill is a stage of `/dash` rather than a standalone command, and the bare `/dash` is the door into it: it sizes the idea with the user and opens the arc that carries the plan to its review. There is no path from here that ends anywhere else, because the plan is not ready when you finish writing it — it is ready when a fresh session has read it cold, and only the arc opens that session.
 
 ### 6. Hand off
 
-Tell the user the plan is written and name the exact path, and say the plan is **unreviewed** — it is, until the review turn lands. Then say what happens next: the review opens by itself at this turn's end, or, if the rotation was refused, that it was not scheduled and the chip is the next gesture. Either way, do not tell them to implement yet — an unreviewed plan is not ready, and a reviewed one may have just changed.
+Tell the user the plan is written and name the exact path, and say the plan is **unreviewed** — it is, until the review turn lands. Then say what happens next: the review opens by itself at this turn's end. Do not tell them to implement yet — an unreviewed plan is not ready, and a reviewed one may have just changed.
 
-The command after the review lands is `` `/tugplug:dash-implement <plan-path>` ``, and `plan-review` prints it. Write any command you do print on its own line **inside backticks**, command and path together in one span, with the real path substituted in — the Session card only turns a command line into a clickable chip when it arrives as its own inline code span; written as bare prose it is dead text.
-
-Don't start implementing from the devise skill — authoring and implementing are separate turns, as is committing the plan to git, which the user owns. Reviewing is a separate turn too, and it is the conductor's to open: this turn ends at the written plan and the rotation, whichever model you happen to be running on.
+Don't start implementing from the devise skill — authoring and implementing are separate turns, as is committing the plan to git, which the user owns. Reviewing is a separate turn too, and it is the arc's to open: this turn ends at the written plan, whichever model you happen to be running on.
 
 ## Guardrails
 
@@ -129,7 +113,7 @@ Don't start implementing from the devise skill — authoring and implementing ar
 - **Standalone always.** The plan must be implementable from any session with zero conversation context — bake every investigation finding into the document.
 - **Don't over-ask.** Clarify only design-changing unknowns.
 - **Lint before handing off.** `tugutil plan lint` exit 0 is the bar.
-- **Never review the plan yourself, on any model** — the review is a fresh session's cold read, and never declare a plan ready that nothing has reviewed. You may name the model for the stage you ask for: the conductor seats it on that model and hands the card back to the user's own at the end of the stage's turn. Asking for a rotation is not switching the user's model.
-- **Under an arc, never review and never print a chip.** `TUG_DASH_ARC` in the environment means the review is the next stage and the runner is reading the documents; the turn ends at the written plan.
+- **Never review the plan yourself, on any model** — the review is a fresh session's cold read, and never declare a plan ready that nothing has reviewed.
+- **Never print a chip and never name a next command.** The review is the arc's next stage and the runner is reading the documents; the turn ends at the written plan.
 - **Don't auto-implement.** `plan-devise` produces the document; the review turn improves it; `dash-implement` runs it.
 - **Don't auto-enter Plan mode** (`EnterPlanMode`) — just write the plan document.

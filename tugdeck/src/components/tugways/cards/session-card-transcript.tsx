@@ -511,9 +511,8 @@ const UserMessageCell = React.memo(function UserMessageCell({
               // `turn.turnEndReason` — an interrupt / error belongs
               // to the *response*, not the act of submitting.
               //
-              // Optional Z1 placement-experiment renderer trails
-              // Z1B when the experiment maps an alt-datum onto the
-              // user row.
+              // An optional `renderTurnTrailing` renderer trails Z1B
+              // when the caller supplies one.
               return (
                 <>
                   <SessionZ1B
@@ -2228,9 +2227,8 @@ export const SessionTranscriptHost = forwardRef<
   //     `useSessionCardServices`, scoped to the card mount.
   //   - `streamingStore` is `codeSessionStore.streamingDocument`,
   //     `readonly` and assigned once in the store's constructor.
-  //   - `renderTurnTrailing` is memoized by the placement-experiment
-  //     hook and only churns on `mapping.Z1` changes — a deliberate
-  //     user-driven event, not a streaming-time churn.
+  //   - `renderTurnTrailing` is a prop the card owner supplies and
+  //     holds stable; no caller churns it during streaming.
   // The renderer therefore never re-creates in steady state. Adding a
   // dep that DOES churn (the pre-20.4.16 `modelName` was exactly such
   // a dep — flipped from `null` to the resolved value on `system_init`)

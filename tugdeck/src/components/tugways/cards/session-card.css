@@ -365,8 +365,7 @@
    `session-card-telemetry-renderers.css`. Keying overrides on a
    renderer-owned class (e.g. `.session-telemetry-window-utilization`)
    rather than a placement-zone selector means the chip looks the
-   same whether the placement-experiment harness puts it in Z2, Z3,
-   or Z4 — exactly the property the experiment depends on. */
+   same in whichever zone it is rendered into. */
 
 /* Top-pane transcript host. Wraps a `TugListView` that renders
    committed turns + the in-flight pair as alternating (user, code)

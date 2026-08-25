@@ -37,7 +37,7 @@ The cost of that shows in `tugplug/skills/plan-devise/SKILL.md` §5: outside an 
 
 This plan gives the layer its name, moves the act behind a typed boundary, opens two doors onto it (an op and a verb), writes the doctrine, and converts `plan-devise` to use it.
 
-The governing document is [`dash/conductor-brief.md`](conductor-brief.md), whose decisions `[B01]`–`[B09]` this plan honors. Every plan-local decision below either implements a `[B##]` or settles one of the brief's three open questions.
+The governing document is [`dash/archive/conductor-brief.md`](conductor-brief.md), whose decisions `[B01]`–`[B09]` this plan honors. Every plan-local decision below either implements a `[B##]` or settles one of the brief's three open questions.
 
 #### Strategy {#strategy}
 
