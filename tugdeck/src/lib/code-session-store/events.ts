@@ -747,6 +747,16 @@ export interface SessionStageEvent {
    * stage from a first one.
    */
   steps?: string;
+  /**
+   * The stage's opening prompt — the `user_message` the runner sent right
+   * behind the rotation. Nobody in the deck submitted it, so nothing here has
+   * opened a turn for it, and the reducer drops every frame of a turn it did
+   * not open. With a prompt the stage opens that turn itself, exactly as a
+   * `send` would, minus the frame the runner already sent.
+   */
+  prompt?: string;
+  /** The turn key the wrapper minted for `prompt`; present iff `prompt` is. */
+  turnKey?: string;
 }
 
 /**

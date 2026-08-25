@@ -86,6 +86,13 @@ pub struct ArcFacts {
     /// That session is between turns. A rotation mid-turn would kill claude
     /// mid-sentence, so nothing rotates until the turn ends ([P05], [R02]).
     pub session_idle: bool,
+    /// The stage's claude session has ended at least one turn. A seated
+    /// session reads as idle from its spawn until its first frame, and a
+    /// decision taken in that gap would judge documents the stage has not
+    /// yet touched — the devise stage would stop on a plan it had not begun
+    /// to write. `true` when no stage is recorded, so the opening rotation
+    /// is decided by the requesting turn alone.
+    pub stage_turn_ended: bool,
     /// The claude session running on the bound card is the one the newest
     /// `arc-stage` line names.
     ///
@@ -216,6 +223,13 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
         }
     }
 
+    // Seated, current, idle — and never yet run. The stage has a turn coming
+    // and its documents are whatever the previous stage left; nothing about
+    // them is this stage's answer until it has ended a turn.
+    if stage.is_some() && !facts.stage_turn_ended {
+        return None;
+    }
+
     match stage {
         None => Some(start_action(facts)),
         Some(ArcStage::Devise) => Some(devise_action(facts)),
@@ -339,6 +353,7 @@ mod tests {
             ledger: StepLedgerFacts::default(),
             session_live: true,
             session_idle: true,
+            stage_turn_ended: true,
             stage_session_current: true,
             context_fraction: None,
             rotate_at: 0.6,
@@ -383,6 +398,26 @@ mod tests {
     fn a_devise_stage_that_produced_a_linting_plan_rotates_review() {
         let action = arc_action(&record(&[ArcStage::Devise]), &facts());
         assert_eq!(rotation(action).stage, ArcStage::Review);
+    }
+
+    #[test]
+    fn a_seated_stage_that_has_ended_no_turn_is_not_judged() {
+        // Idle from spawn to first frame; the plan it has not written is not
+        // a lint failure, and the review it has not held is not stale.
+        for stage in [ArcStage::Devise, ArcStage::Review, ArcStage::Implement] {
+            let mut facts = facts();
+            facts.stage_turn_ended = false;
+            facts.plan_path = None;
+            facts.lint_ok = false;
+            assert_eq!(arc_action(&record(&[stage]), &facts), None, "{stage:?}");
+        }
+    }
+
+    #[test]
+    fn the_opening_rotation_needs_no_turn_from_a_stage() {
+        let mut facts = facts();
+        facts.stage_turn_ended = false;
+        assert_eq!(rotation(arc_action(&record(&[]), &facts)).stage, ArcStage::Devise);
     }
 
     #[test]

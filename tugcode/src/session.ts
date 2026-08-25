@@ -3381,6 +3381,15 @@ export class SessionManager {
   private claudeReadyPromise: Promise<void> | null = null;
   private claudeReadyResolve: (() => void) | null = null;
   /**
+   * Held while a respawn is in flight — the kill of the live claude through
+   * the seating of the next one. Inbound frames are dispatched without
+   * awaiting one another, so a `user_message` that arrives behind a
+   * `session_command` would otherwise be written to the process being
+   * retired, or refused on its EOF, and never reach the fresh one.
+   * {@link handleUserMessage} waits on this; {@link respawn} owns it.
+   */
+  private respawnGate: Promise<void> | null = null;
+  /**
    * Set true the first time the stdout drain observes a `system/init`
    * event for the current claude subprocess. Subsequent `system/init`
    * events from the same subprocess are **wake bracket signals** — the
@@ -6995,6 +7004,11 @@ export class SessionManager {
     if (this.claudeReadyPromise !== null) {
       await this.claudeReadyPromise;
     }
+    // A respawn in flight owns the process slot; the message is for the
+    // claude it seats, not the one it is retiring.
+    while (this.respawnGate !== null) {
+      await this.respawnGate;
+    }
 
     if (!this.claudeProcess) {
       throw new Error("Session not initialized");
@@ -7947,7 +7961,32 @@ export class SessionManager {
    * A no-op of the respawn when there is no live session id yet (nothing to
    * resume): the level is still recorded, so it takes effect on the next spawn.
    */
+  /**
+   * Run one respawn under {@link respawnGate}. Respawns queue behind one
+   * another, and user messages queue behind all of them.
+   */
+  private async respawn<T>(work: () => Promise<T>): Promise<T> {
+    while (this.respawnGate !== null) {
+      await this.respawnGate;
+    }
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.respawnGate = gate;
+    try {
+      return await work();
+    } finally {
+      if (this.respawnGate === gate) this.respawnGate = null;
+      release();
+    }
+  }
+
   async handleEffortChange(effort: string): Promise<void> {
+    return this.respawn(() => this.effortChange(effort));
+  }
+
+  private async effortChange(effort: string): Promise<void> {
     console.log(`Setting reasoning effort: ${effort}`);
     this.currentEffort = effort;
 
@@ -8009,6 +8048,10 @@ export class SessionManager {
    * via `buildClaudeArgs`.
    */
   async handleAddDirectory(directory: string): Promise<void> {
+    return this.respawn(() => this.addDirectory(directory));
+  }
+
+  private async addDirectory(directory: string): Promise<void> {
     const dir = directory.trim();
     if (dir === "" || this.additionalDirectories.includes(dir)) return;
     console.log(`Adding working directory: ${dir}`);
@@ -8027,6 +8070,10 @@ export class SessionManager {
    * Per D10 (#d10-session-forking).
    */
   async handleSessionFork(): Promise<void> {
+    return this.respawn(() => this.sessionFork());
+  }
+
+  private async sessionFork(): Promise<void> {
     await this.killAndCleanup();
 
     const claudePath = resolveClaudePath();
@@ -8062,6 +8109,10 @@ export class SessionManager {
    * Respawns with --continue per D10.
    */
   async handleSessionContinue(): Promise<void> {
+    return this.respawn(() => this.sessionContinue());
+  }
+
+  private async sessionContinue(): Promise<void> {
     await this.killAndCleanup();
 
     const claudePath = resolveClaudePath();
@@ -8101,6 +8152,10 @@ export class SessionManager {
    * to an arc, not to a card.
    */
   async handleNewSession(stage?: SessionStageSpec): Promise<void> {
+    return this.respawn(() => this.newSession(stage));
+  }
+
+  private async newSession(stage?: SessionStageSpec): Promise<void> {
     const parentSessionId = this.resolveClaudeId();
     await this.killAndCleanup();
 
@@ -8122,6 +8177,7 @@ export class SessionManager {
         document: stage.document,
         arc: stage.arc,
         steps: stage.steps,
+        ...(stage.prompt !== undefined ? { prompt: stage.prompt } : {}),
         ipc_version: 2,
       });
     }

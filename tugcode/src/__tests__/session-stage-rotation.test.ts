@@ -164,6 +164,19 @@ describe("a stage rotation announces lineage", () => {
     expect(emitted.find((e) => e?.type === "session_stage").model).toBe("");
   });
 
+  test("the stage line echoes the opening prompt the command carried", async () => {
+    const m = manager();
+    await rotate(m, "new", { ...STAGE, prompt: "/tugplug:plan-devise dash/some-brief.md" });
+    expect(emitted.find((e) => e?.type === "session_stage").prompt).toBe(
+      "/tugplug:plan-devise dash/some-brief.md",
+    );
+
+    emitted = [];
+    const bare = manager();
+    await rotate(bare, "new", STAGE);
+    expect(emitted.find((e) => e?.type === "session_stage")).not.toHaveProperty("prompt");
+  });
+
   test("the stage's spawn carries the arc name", async () => {
     const m = manager();
     await rotate(m, "new", STAGE);
@@ -180,6 +193,56 @@ describe("a stage rotation announces lineage", () => {
     m.spawnClaude(m.sessionId, "resume");
     expect(spawnEnvs.length).toBe(before + 1);
     expect(spawnEnvs.at(-1)?.TUG_DASH_ARC).toBe("some-dash");
+  });
+});
+
+describe("a prompt dispatched behind the rotation", () => {
+  test("lands on the fresh session, never on the one being retired", async () => {
+    // The arc sends `session_command new` and the stage's prompt back to
+    // back, and the dispatch loop awaits neither. The retirement of the old
+    // claude takes real time (stdin EOF, then its exit), and the prompt must
+    // wait for the session that replaces it.
+    const written: Array<{ pid: number; text: string }> = [];
+    let nextPid = 100;
+    const slowProcess = (): any => {
+      const pid = nextPid++;
+      let exit: () => void = () => {};
+      const exited = new Promise<number>((resolve) => {
+        exit = () => resolve(0);
+      });
+      return {
+        pid,
+        stdin: {
+          write: (text: string) => written.push({ pid, text }),
+          flush: () => {},
+          end: () => setTimeout(exit, 20),
+        },
+        stdout: null,
+        exited,
+        kill: () => exit(),
+      };
+    };
+    (Bun as unknown as { spawn: unknown }).spawn = () => slowProcess();
+    const m = manager();
+    const retiring = slowProcess();
+    m.claudeProcess = retiring;
+
+    const rotation: Promise<void> = m.handleSessionCommand("new", STAGE);
+    const prompt: Promise<void> = m.handleUserMessage({
+      type: "user_message",
+      content: [{ type: "text", text: "/tugplug:plan-devise dash/some-brief.md" }],
+    });
+    await rotation;
+    // The prompt's handler then waits on a turn no fake claude will end;
+    // the write is what this test is about.
+    await Promise.race([prompt, new Promise((resolve) => setTimeout(resolve, 50))]);
+    await drainPendingWrites();
+
+    const fresh = m.claudeProcess;
+    expect(fresh.pid).not.toBe(retiring.pid);
+    expect(written.map((w) => w.pid)).toEqual([fresh.pid]);
+    expect(written[0]?.text).toContain("/tugplug:plan-devise");
+    expect(emitted.some((e) => e?.type === "error")).toBe(false);
   });
 });
 

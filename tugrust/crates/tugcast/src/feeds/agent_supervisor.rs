@@ -360,6 +360,12 @@ pub struct LedgerEntry {
     /// work only while this is set: Pulse measures the session *working*,
     /// not the idle claude process's event-loop heartbeat.
     pub turn_active: bool,
+    /// How many turns the claude session named by `claude_session_id` has
+    /// ended — counted at the same edge that clears `turn_active`, reset
+    /// when a `session_init` names a different claude session, and seeded
+    /// from the ledger row on rebind. Zero is the state between a spawn and
+    /// its first `turn_complete`: seated, idle, and never yet run.
+    pub turns_ended: u32,
     /// The last `model_change` selector a **WebSocket client** sent for this
     /// session — the deck's own choice ([P15]).
     ///
@@ -457,6 +463,7 @@ impl LedgerEntry {
             child_pid: None,
             child_start_time: None,
             turn_active: false,
+            turns_ended: 0,
             input_tx: None,
             cancel: CancellationToken::new(),
             card_id: None,
@@ -6835,17 +6842,27 @@ impl AgentSupervisor {
         if let Some(steps) = spec.steps.as_deref() {
             stage["steps"] = serde_json::Value::String(steps.to_owned());
         }
+        // The prompt rides the command as well as its own frame: tugcode
+        // echoes it on `session_stage`, which is how the deck opens the turn
+        // it is about to watch.
+        stage["prompt"] = serde_json::Value::String(spec.prompt.clone());
         frames.push(code_input_frame(&serde_json::json!({
             "type": "session_command",
             "tug_session_id": tug_session_id.as_str(),
             "command": "new",
             "stage": stage,
         })));
-        frames.push(code_input_frame(&serde_json::json!({
+        // The prompt itself is a `user_message` in the deck's own wire shape —
+        // Anthropic content blocks — and it goes through the dispatcher like
+        // one of the deck's, so it opens a journal row and marks the turn
+        // active exactly as a typed prompt would. Only the prompt takes that
+        // door: the dispatcher reads a `model_change` as the deck's own
+        // selector ([P15]), which a stage's model is not.
+        let prompt = code_input_frame(&serde_json::json!({
             "type": "user_message",
             "tug_session_id": tug_session_id.as_str(),
-            "text": spec.prompt,
-        })));
+            "content": [{ "type": "text", "text": spec.prompt }],
+        }));
 
         // Branch inside the lock, exactly as `do_request_replay` does:
         // `Spawning` enqueues here; `Live` snapshots `input_tx` and sends
@@ -6862,6 +6879,10 @@ impl AgentSupervisor {
                             return Err(StageRefusal::QueueOverflow);
                         }
                     }
+                    drop(entry);
+                    // Queued in order behind the command: the dispatcher
+                    // buffers into the same queue while the entry spawns.
+                    self.dispatch_one(prompt).await;
                     tracing::info!(
                         target: "dev::session-lifecycle",
                         event = "dash_arc.stage_queued",
@@ -6889,6 +6910,7 @@ impl AgentSupervisor {
                 return Err(StageRefusal::SendFailed);
             }
         }
+        self.dispatch_one(prompt).await;
         tracing::info!(
             target: "dev::session-lifecycle",
             event = "dash_arc.stage_sent",
@@ -8254,6 +8276,7 @@ impl AgentSupervisor {
                                 entry.turn_active = true;
                             } else if entry.replay_brackets_open == 0 {
                                 entry.turn_active = false;
+                                entry.turns_ended += 1;
                                 drop(entry);
                                 // The session went idle: a dash parked behind it
                                 // because the gate refuses to move a branch
@@ -8807,6 +8830,7 @@ impl AgentSupervisor {
             // the spawner. The ledger's session_id IS claude's id post
             // session_init.
             entry.claude_session_id = Some(row.session_id.clone());
+            entry.turns_ended = u32::try_from(row.turn_count).unwrap_or(0);
             // Carry the card binding so the live-elsewhere check fires
             // correctly on a cross-card resume request after rebind.
             entry.card_id = Some(card_id.clone());
@@ -12719,11 +12743,22 @@ mod tests {
             "a stage with no plan yet names none"
         );
 
-        let prompt: serde_json::Value = serde_json::from_slice(&sent[2].payload).unwrap();
         assert_eq!(
-            prompt["text"],
+            command["stage"]["prompt"],
+            "/tugplug:plan-devise a plan for dash/some-brief.md",
+            "the command carries the prompt for the deck's benefit"
+        );
+
+        // The prompt frame is in the deck's own wire shape: content blocks,
+        // never a bare `text` — tugcode forwards `content` to claude verbatim,
+        // and a frame without it arrives as an empty message.
+        let prompt: serde_json::Value = serde_json::from_slice(&sent[2].payload).unwrap();
+        assert_eq!(prompt["type"], "user_message");
+        assert_eq!(
+            prompt["content"][0]["text"],
             "/tugplug:plan-devise a plan for dash/some-brief.md"
         );
+        assert!(prompt.get("text").is_none());
     }
 
     #[tokio::test]

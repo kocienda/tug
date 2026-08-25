@@ -1713,6 +1713,9 @@ pub async fn relay_session_io(
                             let (workspace_key, card_id, tag, pending_fork) = {
                                 let mut entry = ledger_entry.lock().await;
                                 if let Some(id) = &claude_id {
+                                    if entry.claude_session_id.as_deref() != Some(id.as_str()) {
+                                        entry.turns_ended = 0;
+                                    }
                                     entry.claude_session_id = Some(id.clone());
                                 }
                                 // A staged fork identity ([P11]) is consumed

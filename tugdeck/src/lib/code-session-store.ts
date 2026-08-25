@@ -1975,6 +1975,13 @@ export class CodeSessionStore {
           ...(typeof ev.steps === "string" && ev.steps.length > 0
             ? { steps: ev.steps }
             : {}),
+          // A live rotation carries the prompt the runner sent behind it;
+          // the turn key is minted here because the reducer is pure.
+          ...(ev.type === "session_stage" &&
+          typeof ev.prompt === "string" &&
+          ev.prompt.length > 0
+            ? { prompt: ev.prompt, turnKey: mintTurnKey() }
+            : {}),
         } as unknown as CodeSessionEvent;
       }
       if (ev.type === "compact_summary") {

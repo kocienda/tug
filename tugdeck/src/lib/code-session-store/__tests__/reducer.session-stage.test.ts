@@ -76,6 +76,42 @@ describe("stageNoteText", () => {
   });
 });
 
+describe("reducer — a stage that carries its prompt", () => {
+  it("opens the turn the deck will watch, without re-sending the prompt", () => {
+    const before = fresh();
+    const { state: after, effects } = reduce(before, {
+      ...stage("devise", "opus", "dash/foo-brief.md"),
+      prompt: "/tugplug:plan-devise dash/foo-brief.md",
+      turnKey: "arc-k1",
+    } as CodeSessionEvent);
+
+    // The divider still lands on the committed transcript, ahead of the turn.
+    expect(effects[0]?.kind).toBe("append-stage-note");
+    // The runner already sent the prompt; the deck must not send it again.
+    expect(effects.some((e) => e.kind === "send-frame")).toBe(false);
+
+    // And the turn is open exactly as a typed one would be, so the stage's
+    // frames have somewhere to land.
+    expect(after.phase).toBe("submitting");
+    expect(after.pendingTurn?.turnKey).toBe("arc-k1");
+    const opener = after.scratch.get("arc-k1")?.messages[0];
+    expect(opener?.kind).toBe("user_message");
+    expect((opener as { text?: string }).text).toBe("/tugplug:plan-devise dash/foo-brief.md");
+  });
+
+  it("only annotates when a turn is already open — the prompt is queued behind it by claude", () => {
+    const sent = reduce(fresh(), SEND).state;
+    const { state: after, effects } = reduce(sent, {
+      ...stage("review", "opus", "dash/foo.md"),
+      prompt: "/tugplug:plan-review dash/foo.md",
+      turnKey: "arc-k2",
+    } as CodeSessionEvent);
+    expect(effects.length).toBe(0);
+    expect(after.pendingTurn?.turnKey).toBe("k1");
+    expect(after.scratch.has("arc-k2")).toBe(false);
+  });
+});
+
 describe("reducer — handleSessionStage", () => {
   it("leaves state unchanged and emits one append-stage-note effect when idle", () => {
     const before = fresh();

@@ -66,6 +66,8 @@ One thing I'd push back on gently: none of this needs a plan yet. Steps 1–4 ea
 
 
 
+/dash Read dash/conductor-brief.md and carry it to a plan and an implementation. The brief names the layer the conductor [B01], keeps the existing verbs seat/rotate/lineage [B02], puts the CLI verb at tugutil session rotate [B03], lets a skill choose the model [B04], fixes the invariant floor of what a rotation carries and makes the rest parameters [B05], and makes the dash arc the conductor's first client rather than its owner [B06]. The plan's first step must be the pure extraction — rotate, drive_stage, and StageSpec out of dash_arc_runner.rs into tugcast/src/conductor/ behind a RotationRequest type — with every existing arc test passing unchanged as the checkpoint. Then the session_rotate op and the tugutil session rotate verb with turn-end placement and a visible receipt; then tuglaws/conductor.md; then convert plan-devise §5 to request the review rotation itself and retire its never-switch-the-model guardrail. Settle the brief's three open questions during devise by reading DashConfig and the arc's stop path, asking me only where the code cannot answer. Plan path: dash/conductor.md.
+
 
 
 

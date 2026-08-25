@@ -79,4 +79,6 @@ The work is to give the layer a name, extract the operation from the arc into so
 4. Convert `plan-devise` §5 to the verb [B08], retire the model guardrail [B04], and update `plan-review`'s hand-off text to match.
 5. Cover it: a Rust test that a `RotationRequest` cannot be built without the invariant floor; an app-test that `tugutil session rotate` from a turn produces the `session_stage` divider at that turn's end on the named model.
 
+The devise round settles the three open questions itself, by reading `DashConfig` and the arc's stop path in `dash_arc_runner.rs`, and asks the user only where the code cannot answer.
+
 The phase boundary is the plan-devise conversion: once one non-arc score works, the second brief in this series (interruption doctrine) can assume the conductor exists.

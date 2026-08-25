@@ -228,6 +228,8 @@ fn retain_done_count(previous: Option<usize>, current: usize, idle: bool) -> Opt
 struct SessionSnapshot {
     live: bool,
     idle: bool,
+    /// The seated claude session has ended at least one turn.
+    turn_ended: bool,
     claude_session_id: Option<String>,
     context_window: Option<i64>,
     context_max: Option<i64>,
@@ -246,7 +248,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     // would stop every in-flight arc on every restart. `Errored` and `Closed`
     // are the states with nothing left to advance.
     let entry_arc = entry_arc?;
-    let (live, idle, claude_session_id, context_window) = {
+    let (live, idle, turn_ended, claude_session_id, context_window) = {
         let entry = entry_arc.lock().await;
         let live = match entry.spawn_state {
             SpawnState::Idle => return None,
@@ -256,6 +258,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         (
             live,
             !entry.turn_active,
+            entry.turns_ended > 0,
             entry.claude_session_id.clone(),
             entry.context_window_tokens,
         )
@@ -271,6 +274,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     Some(SessionSnapshot {
         live,
         idle,
+        turn_ended,
         claude_session_id,
         context_window,
         context_max,
@@ -389,6 +393,7 @@ fn read(
         },
         session_live: session.live,
         session_idle: session.idle,
+        stage_turn_ended: session.turn_ended,
         stage_session_current,
         context_fraction,
         rotate_at: config.rotate_at(),
@@ -591,23 +596,45 @@ fn format_arc_receipt(record: &ArcRecord) -> String {
     out
 }
 
+/// The receipt a stop leaves in the transcript. A stop is not a completion,
+/// so it does not read as one ([P12]) — but it happened on this card, and
+/// the card is where the user is watching, so it says which stage stopped,
+/// why, and what resumes it ([P11]).
+fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: &str) -> String {
+    let why = match reason {
+        "lint" => "the plan does not lint".to_string(),
+        "document missing" => "the document it opened on is gone".to_string(),
+        "plan missing" => "the plan is gone".to_string(),
+        "session gone" => "its session ended".to_string(),
+        other => other.to_string(),
+    };
+    format!(
+        "arc stopped · {} · in {} — {why}\nresume with tugutil dash run {}",
+        record.dash,
+        stage.as_str(),
+        record.dash,
+    )
+}
+
 async fn finish(
     ctx: &ArcContext,
     arc: &BoundArc,
     reading: &ArcReading,
     stopped: Option<(ArcStage, String)>,
 ) {
-    // The receipt is the *done* ending's, and only its ([P12]). A stop is not a
-    // completion, and the arc's face already says it stopped and why ([P11]) —
-    // a receipt there would be ink claiming an arc finished that did not.
-    if stopped.is_none() {
-        ctx.supervisor.record_arc_receipt(
-            arc.session.as_str(),
-            &arc.dash,
-            &arc.project.to_string_lossy(),
-            &format_arc_receipt(&reading.record),
-        );
-    }
+    // Either ending leaves a receipt on the card: the done ending's says the
+    // arc completed ([P12]); a stop's says where it stopped and why, so the
+    // card the user is watching is never the last to know ([L31]).
+    let summary = match stopped.as_ref() {
+        None => format_arc_receipt(&reading.record),
+        Some((stage, reason)) => format_arc_stop_receipt(&reading.record, *stage, reason),
+    };
+    ctx.supervisor.record_arc_receipt(
+        arc.session.as_str(),
+        &arc.dash,
+        &arc.project.to_string_lossy(),
+        &summary,
+    );
     if let Err(refusal) = ctx.supervisor.restore_deck_model(&arc.session).await {
         warn!(
             dash = %arc.dash,
@@ -707,6 +734,8 @@ Some context.
         SessionSnapshot {
             live,
             idle,
+            // The seated session has run; the never-run case builds its own.
+            turn_ended: true,
             claude_session_id: claude.map(str::to_string),
             context_window: None,
             context_max: None,
@@ -779,6 +808,45 @@ Some context.
                 reason: "lint".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn a_seated_stage_that_has_ended_no_turn_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "live", None).unwrap();
+
+        // Idle, current, no plan on disk — the reading a tick takes in the gap
+        // between the stage's spawn and its first frame. The same facts with a
+        // turn behind them stop on lint (the test above); with none, the
+        // stage has not run and nothing may be decided about its documents.
+        let mut session = snapshot(true, true, Some("live"));
+        session.turn_ended = false;
+        let reading = read(root, "demo", &session, None).unwrap();
+        assert!(reading.facts.stage_session_current);
+        assert!(!reading.facts.stage_turn_ended);
+        assert_eq!(arc_action(&reading.record, &reading.facts), None);
+    }
+
+    #[tokio::test]
+    async fn a_tick_before_a_stage_has_ended_a_turn_stops_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        project_with_document(root, "dash/demo-brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+            .unwrap();
+
+        let (ctx, entry, _register_rx) = harness(root).await;
+        entry.lock().await.turns_ended = 0;
+        let state = Arc::new(Mutex::new(HashMap::new()));
+
+        sweep(&ctx, &state).await;
+        assert_eq!(entry.lock().await.queue.len(), 0, "no rotation");
+        let record = tugdash_core::read_arc(root, "demo").unwrap();
+        assert_eq!(record.stopped, None, "and no stop written for a plan the stage has not begun");
     }
 
     #[test]
@@ -959,6 +1027,9 @@ Some context.
         );
         entry.claude_session_id = Some("claude-1".to_string());
         entry.spawn_state = SpawnState::Spawning;
+        // The seated session has run: a stage that has ended no turn is
+        // left alone, and that case has its own test.
+        entry.turns_ended = 1;
         let entry = Arc::new(Mutex::new(entry));
         supervisor
             .ledger

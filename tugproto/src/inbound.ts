@@ -180,6 +180,14 @@ export interface SessionStageSpec {
    * the runner already computed.
    */
   steps?: string;
+  /**
+   * The stage's opening prompt — the `user_message` the runner sends right
+   * behind this command. Echoed on the `session_stage` announcement so the
+   * deck can open the turn it is about to watch: a turn nobody in the deck
+   * submitted has no pending turn there, and the reducer drops every frame
+   * of a turn it did not open.
+   */
+  prompt?: string;
 }
 
 /** Fork / continue / new the conversation ([D10]). */

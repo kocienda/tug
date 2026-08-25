@@ -474,6 +474,11 @@ export interface SessionStage {
   /** The dash name the arc is keyed by. */
   arc: string;
   /**
+   * The stage's opening prompt, echoed from the command so the deck opens the
+   * turn it is about to watch. Absent on a stage the runner sent no prompt for.
+   */
+  prompt?: string;
+  /**
    * The inclusive step range a *continued* implement stage walks, `N-M`.
    * Absent on every other stage, which is what tells the transcript's divider
    * a continued stage from a first one ([P07], [B13]).

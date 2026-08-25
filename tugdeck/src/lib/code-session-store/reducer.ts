@@ -4064,7 +4064,25 @@ function handleSessionStage(
   const turnKey = state.pendingTurn?.turnKey;
   const entry = turnKey === undefined ? undefined : state.scratch.get(turnKey);
   if (turnKey === undefined || entry === undefined) {
-    return { state, effects: [{ kind: "append-stage-note", text }] };
+    const divider: Effect = { kind: "append-stage-note", text };
+    if (event.prompt === undefined || event.turnKey === undefined) {
+      return { state, effects: [divider] };
+    }
+    // The runner's prompt opens the turn the deck will watch, on the path a
+    // typed prompt takes — the same pending turn, the same scratch seed —
+    // less the frame, which the runner already sent. The divider lands on
+    // the committed transcript first, so the new turn reads below it.
+    const opened = handleSend(state, {
+      type: "send",
+      text: event.prompt,
+      atoms: [],
+      content: [{ type: "text", text: event.prompt }],
+      turnKey: event.turnKey,
+    } as SendActionEvent);
+    return {
+      state: opened.state,
+      effects: [divider, ...opened.effects.filter((e) => e.kind !== "send-frame")],
+    };
   }
   const note: SystemNote = {
     kind: "system_note",
