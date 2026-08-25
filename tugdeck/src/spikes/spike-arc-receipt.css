@@ -1,0 +1,234 @@
+/* ============================================================================
+   Arc Receipt spike
+   ========================================================================= */
+
+/**
+ * The two candidate bodies for a `/dash-arc` receipt — the score (an aligned
+ * two-column grid) and the rail (a horizontal run) — plus the small shared
+ * parts both draw with.
+ *
+ * **The receipt declares its own type scale, and that is the whole lesson of
+ * the first pass.** `TugAtomRef` inherits its host's size on purpose, so an
+ * atom dropped into a block body with nothing to inherit from took the body's
+ * own reading size and the two filenames came out twice the size of the stages
+ * they bracket — the loudest thing in a receipt whose subject is the arc. Two
+ * sizes, declared here, and the whole block reads at one voice:
+ *
+ *   - `--sp-arc-size-primary` (13px) — the atoms, the stage words, the resume
+ *     command: the block's nameable things, and the only runs in it worth a
+ *     reading size. 13px is the block family's own code size
+ *     (`--tugx-block-code-font-size`), so a receipt reads at the same voice as
+ *     the tool blocks above it rather than announcing itself.
+ *   - `--sp-arc-size-meta` (12px) — the models and the two leading words. One
+ *     step down, never two: the first pass put `opened on` at 10px beside a
+ *     22px filename, and a label that small stops being a label and becomes
+ *     noise under the thing it names.
+ *
+ * **The rhythm is tight on purpose.** Five rows at a 20px pitch is a receipt;
+ * the same five at 27px is a page of settings. The row gap does almost nothing
+ * and the leading does the rest.
+ */
+
+.sp-arc-score,
+.sp-arc-rail,
+.sp-arc-next {
+  --sp-arc-size-primary: var(--tug-font-size-sm);
+  --sp-arc-size-meta: var(--tug-font-size-xs);
+}
+
+/* --- identity ------------------------------------------------------------ */
+
+.sp-arc-identity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sp-arc-verdict {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  white-space: nowrap;
+}
+
+/* --- treatment A: the score ---------------------------------------------- */
+
+/*
+ * Two columns: a label and its value. Every row is a pair of bare cells, so
+ * the file atoms and the stage runs share one left axis and the stage glyphs
+ * stack into a spine down the label column. `max-content` sizes the label
+ * column off the longest label there actually is — `implement` today, whatever
+ * a fourth stage is called tomorrow — rather than off a number somebody
+ * measured once.
+ */
+.sp-arc-score {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 14px;
+  row-gap: 4px;
+  padding: 8px 2px 6px;
+}
+
+/*
+ * The label column. A stage carries a glyph and reads in the block's own ink;
+ * an end carries none and reads muted and one step smaller — which is the
+ * whole of how the two are told apart, plus a small indent on the stages so
+ * the ends bracket them rather than sitting in the same rank. The ends are
+ * what the stages were about, not stages themselves.
+ */
+.sp-arc-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--sp-arc-size-primary);
+  line-height: 1.3;
+  color: var(--tug7-element-global-text-normal-default-rest);
+  white-space: nowrap;
+}
+
+.sp-arc-label[data-stage] {
+  padding-inline-start: 10px;
+}
+
+.sp-arc-label[data-end] {
+  font-size: var(--sp-arc-size-meta);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* The two ends sit a touch further from the stages than the stages sit from
+ * each other, so the three movements read as one group between them. */
+.sp-arc-label[data-end="opened"],
+.sp-arc-label[data-end="opened"] + .sp-arc-value {
+  padding-block-end: 2px;
+}
+
+.sp-arc-label[data-end="plan"],
+.sp-arc-label[data-end="plan"] + .sp-arc-value {
+  padding-block-start: 2px;
+}
+
+/* The value column — the atoms and the stage meta runs. The atom takes the
+ * primary size from here, because inheriting was exactly the bug. */
+.sp-arc-value {
+  min-width: 0;
+  font-size: var(--sp-arc-size-primary);
+  /* The run's own knob, so its rule and bullets scale with the facts they
+     separate rather than staying at the rail size under 13px neighbours. */
+  --tugx-meta-run-size: var(--sp-arc-size-meta);
+  line-height: 1.3;
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+
+.sp-arc-model {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--sp-arc-size-meta);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/* --- treatment B: the rail ----------------------------------------------- */
+
+.sp-arc-rail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 2px 8px;
+  font-size: var(--sp-arc-size-primary);
+  line-height: 1.3;
+}
+
+.sp-arc-rail-link {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 1px;
+  background: var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.sp-arc-rail-node {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sp-arc-rail-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--sp-arc-size-primary);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  white-space: nowrap;
+}
+
+.sp-arc-rail-model {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  white-space: nowrap;
+}
+
+/* --- the stop's next step ------------------------------------------------ */
+
+.sp-arc-next {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 8px 2px 6px;
+}
+
+.sp-arc-next-word {
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--sp-arc-size-meta);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+/*
+ * The command, in the register the transcript advertises one in: inline code,
+ * a 1px underline at rest, the link treatment on hover.
+ *
+ * These five declarations are `tug-markdown-view.css`'s rule for
+ * `code[data-tug-annotation="shell-command"]`, which only applies inside a
+ * markdown block — an annotated `<code>` anywhere else gets nothing today.
+ * Restated here rather than reached for, because the spikes sandbox owns its
+ * own vocabulary; the graduation move is to lift the rule into
+ * `styles/tug-annotation.css`, where the whole point is that a surface gets
+ * the affordance for free by being annotated.
+ */
+.sp-arc-command {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--sp-arc-size-primary);
+  color: var(--tug7-element-global-text-normal-default-rest);
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-style: solid;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 0.2em;
+}
+
+.sp-arc-command:hover {
+  color: var(--tugx-md-link-color-hover);
+  text-decoration: var(--tugx-md-link-decoration);
+}
+
+/* --- the spike's own prose ----------------------------------------------- */
+
+.sp-arc-caption {
+  margin: 0;
+  max-width: 62ch;
+  font-family: var(--tug-font-family-sans);
+  font-size: var(--tug-font-size-sm);
+  line-height: 1.55;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.sp-arc-caption code {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+}

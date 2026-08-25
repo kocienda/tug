@@ -903,6 +903,7 @@ body {
  * subtype uses rather than by eye — the mark and the buttons that replace it
  * have to agree on the box or the swap steps sideways.
  */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
 .tug-pane-title-bar-rollup-mark {
   display: inline-flex;
   align-items: center;
@@ -913,6 +914,7 @@ body {
   color: var(--tugx-pane-control-off-fg-rest);
 }
 
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
 .tug-pane[data-focused="true"] .tug-pane-title-bar-rollup-mark {
   color: var(--tugx-pane-control-on-fg-rest);
 }
@@ -923,10 +925,12 @@ body {
 }
 
 /* Lit while a verb behind it holds a posture. Colour only — see above. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
 .tug-pane[data-focused="true"] .tug-pane-title-bar-rollup-mark[data-on] {
   color: var(--tugx-pane-control-on-fg-active);
 }
 
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
 .tug-pane:not([data-focused="true"]) .tug-pane-title-bar-rollup-mark[data-on] {
   color: var(--tugx-pane-control-off-fg-active);
 }
