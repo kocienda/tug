@@ -24,7 +24,7 @@
 //! interleave between the ledger mutation and the affinity mutation.
 //!
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
@@ -238,10 +238,15 @@ pub struct PendingFork {
     /// the parent had none. Written through [`SessionLedger::rename`] after
     /// the spawn record exists.
     pub user_name: Option<String>,
-    /// The session this fork was rewind-forked from.
+    /// The session this fork was rewind-forked from, or — for an arc stage —
+    /// the session the rotation replaced.
     pub parent_session_id: String,
-    /// The prompt uuid of the rewind point.
-    pub fork_point: String,
+    /// The prompt uuid of the rewind point, or `None` for a stage rotation.
+    ///
+    /// A stage has no branch point because nothing was copied, and the column
+    /// is written `NULL` rather than given an invented value: the provenance
+    /// columns are what tells a rewind from a rotation.
+    pub fork_point: Option<String>,
 }
 
 /// Per-session ledger record, keyed by [`TugSessionId`] in the supervisor.
@@ -355,6 +360,21 @@ pub struct LedgerEntry {
     /// work only while this is set: Pulse measures the session *working*,
     /// not the idle claude process's event-loop heartbeat.
     pub turn_active: bool,
+    /// The last `model_change` selector a **WebSocket client** sent for this
+    /// session — the deck's own choice ([P15]).
+    ///
+    /// The arc hands the card back on this value when it ends, because
+    /// tugcode records a selector on its manager and reuses it for every later
+    /// spawn: a card whose arc ended on the implement model would otherwise
+    /// stay there. `None` means the deck never sent one, which restores as
+    /// `"default"` — the honest expression of "no `--model`".
+    ///
+    /// Deliberately in memory rather than in the ledger: it is a live fact
+    /// about a running card, and a tugcast restart mid-arc resumes on whatever
+    /// the deck sends next, which its own mount restore already handles.
+    /// Frames the runner originates never write it — only the dispatcher does,
+    /// and the runner bypasses the dispatcher.
+    pub deck_model: Option<String>,
     /// Stdin sender when `Live`.
     pub input_tx: Option<mpsc::Sender<Frame>>,
     /// Cancels the per-session worker on `close_session`.
@@ -389,6 +409,22 @@ pub struct LedgerEntry {
     /// during a bracket; the counter shape is purely defense-in-depth
     /// against bridge-crash-mid-replay leaving stale state.
     pub replay_brackets_open: u32,
+    /// The resident context window after this session's latest turn, in
+    /// tokens — the four-token sum of `cost_update.usage`, which tugcode
+    /// documents as exactly that figure.
+    ///
+    /// The persisted `context_breakdown_latest` row cannot answer this: it
+    /// carries the *static* half of the breakdown (`context_max` plus the
+    /// session-stable categories) and deliberately no total and no `messages`
+    /// category, both of which the deck derives feed-exact. So the arc's
+    /// rotation reading is this window over that row's `context_max`
+    /// ([P07]).
+    ///
+    /// In memory, like [`Self::deck_model`]: a tugcast restart drops it, and
+    /// the runner's declared fallback for a missing reading is not to rotate.
+    /// A `cost_update` arrives at the end of every turn, and the arc rotates
+    /// at a turn boundary, so in practice the reading is one frame old.
+    pub context_window_tokens: Option<i64>,
 }
 
 impl LedgerEntry {
@@ -409,6 +445,8 @@ impl LedgerEntry {
             permission_mode: None,
             tag: None,
             pending_fork: None,
+            deck_model: None,
+            context_window_tokens: None,
             spawn_state: SpawnState::Idle,
             holds_workspace_refcount: false,
             crash_budget,
@@ -570,6 +608,20 @@ pub trait SessionsRecorder: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError>;
+
+    /// The ordered chain of claude session ids this session's line of work
+    /// passed through — oldest ancestor first, `session_id` last ([P10]).
+    ///
+    /// A card with no fork edges answers with itself, which is what makes the
+    /// restore path that reads this a no-op for every session that is not an
+    /// arc. Best-effort by contract: a failed walk answers with what it
+    /// walked, never an error, because a restore that shows less history is a
+    /// worse restore and a restore that fails is no restore at all.
+    fn lineage_chain(&self, session_id: &str) -> Vec<String>;
+
+    /// The dash a session is bound to, if any — the key an arc record is read
+    /// under, so the restore can name each stage in the chain.
+    fn dash_name_for(&self, session_id: &str) -> Option<String>;
 }
 
 /// Production implementation backed by a shared [`SessionLedger`].
@@ -883,6 +935,73 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         }
         Ok(popped)
     }
+
+    fn lineage_chain(&self, session_id: &str) -> Vec<String> {
+        self.ledger.lineage_chain(session_id)
+    }
+
+    fn dash_name_for(&self, session_id: &str) -> Option<String> {
+        match self.ledger.get(session_id) {
+            Ok(row) => row.and_then(|r| r.dash_name),
+            Err(err) => {
+                warn!(error = %err, session_id, "ledger get for the dash binding failed");
+                None
+            }
+        }
+    }
+}
+
+/// The ordered lineage a `request_replay` carries, or `None` when there is
+/// nothing to carry ([P10]).
+///
+/// An arc spreads one line of work across a JSONL per stage, and a card that
+/// replays only its own shows a transcript that begins in the middle. This
+/// walks the fork edges parent-ward and names each session in the chain,
+/// attaching the stage each one runs from the dash-log's `arc-stage` lines —
+/// the same record the runner drives the arc from, so what the transcript
+/// says a stage was and what the arc actually did cannot drift.
+///
+/// `None` on the two cases that are the same case: a chain of one (no forks,
+/// which is nearly every card) and a chain with no arc record behind it (a
+/// rewind-fork lineage, which tugcode already replays correctly by resuming
+/// the tip). Both leave the request byte-identical to today's.
+fn replay_lineage(
+    recorder: &dyn SessionsRecorder,
+    claude_session_id: &str,
+    project_dir: &Path,
+) -> Option<Vec<serde_json::Value>> {
+    let chain = recorder.lineage_chain(claude_session_id);
+    if chain.len() < 2 {
+        return None;
+    }
+    let dash = recorder.dash_name_for(claude_session_id)?;
+    let record = tugdash_core::arc::read_arc(project_dir, &dash)?;
+    let entries: Vec<serde_json::Value> = chain
+        .iter()
+        .map(|session_id| {
+            let stage = record.stages.iter().find(|s| &s.session_id == session_id);
+            let mut entry = serde_json::Map::new();
+            entry.insert("sessionId".into(), serde_json::json!(session_id));
+            if let Some(stage) = stage {
+                entry.insert("stage".into(), serde_json::json!(stage.stage.as_str()));
+                entry.insert(
+                    "model".into(),
+                    serde_json::json!(stage.model.clone().unwrap_or_default()),
+                );
+                entry.insert("arc".into(), serde_json::json!(&dash));
+                if let Some(document) = record.plan.as_ref().or(record.document.as_ref()) {
+                    entry.insert("document".into(), serde_json::json!(document));
+                }
+            }
+            serde_json::Value::Object(entry)
+        })
+        .collect();
+    // A chain whose every entry is stage-less is a fork lineage wearing an
+    // arc's dash binding — nothing to divide, so nothing to send.
+    if entries.iter().all(|e| e.get("stage").is_none()) {
+        return None;
+    }
+    Some(entries)
 }
 
 /// Build the `session_updated` push payload for a row's current state.
@@ -1218,6 +1337,14 @@ pub struct AgentSupervisor {
     /// unrelated commit. Unset in tests and in any boot without the engine,
     /// where the send is simply skipped.
     pub turn_complete_tx: std::sync::OnceLock<mpsc::Sender<String>>,
+    /// The same idle transition, for the arc runner ([P05]).
+    ///
+    /// A sibling channel rather than a second receiver on `turn_complete_tx`:
+    /// an mpsc has one consumer, and the two engines want the same edge for
+    /// unrelated reasons — base-motion to catch a parked dash up, the arc to
+    /// rotate its next stage. Both are fed from the one place the supervisor
+    /// recognizes the transition, so neither re-derives it.
+    pub arc_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
 }
 
 /// Registration sent through [`AgentSupervisor::merger_register_tx`] so the
@@ -2279,6 +2406,119 @@ fn parse_bind_dash_payload(payload: &[u8]) -> Result<BindDashPayload, ControlErr
     })
 }
 
+/// What a stage rotation carries — everything the three frames are composed
+/// from, and nothing a model wrote.
+///
+/// Composed by the arc's runner from the arc record and the project's
+/// `[tugtool.dash]` declarations; the supervisor only sends it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StageSpec {
+    /// `devise` | `review` | `implement`.
+    pub stage: String,
+    /// The document the arc opened on, repo-relative.
+    pub document: String,
+    /// The plan the stage drives, once one exists.
+    pub plan: Option<String>,
+    /// The dash name the arc is keyed by.
+    pub arc: String,
+    /// The model the project declared for this stage, or `None` for the
+    /// account default — which sends no `model_change` frame at all.
+    pub model: Option<String>,
+    /// The inclusive step range a *continued* implement stage walks, `N-M`
+    /// ([P07]). `None` on every other stage, which is what tells the
+    /// transcript's divider a continued stage from a first one ([B13]).
+    pub steps: Option<String>,
+    /// The stage's opening prompt (Spec S09).
+    pub prompt: String,
+}
+
+/// How a rotation's frames reached the card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageDelivery {
+    /// Sent on a live tugcode's stdin.
+    Sent,
+    /// Queued behind a spawn in flight; the promotion drains them in order.
+    Queued,
+}
+
+/// Why a rotation could not happen.
+///
+/// Returned rather than logged: the runner stops the arc with this as the
+/// recorded reason, so a rotation that cannot happen is visible on the card
+/// instead of leaving the arc waiting forever ([L31], [P11]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageRefusal {
+    /// No ledger entry for the session — the card is gone.
+    UnknownSession,
+    /// The session has no claude running to rotate.
+    Idle,
+    Errored,
+    Closed,
+    /// The spawn-window queue was already full of user input.
+    QueueOverflow,
+    /// `Live` with no stdin sender installed.
+    NoInputTx,
+    /// The stdin channel closed under the send.
+    SendFailed,
+}
+
+impl StageRefusal {
+    /// The word recorded in `arc-stop`'s note and shown on the card.
+    pub fn reason(&self) -> &'static str {
+        match self {
+            StageRefusal::UnknownSession => "session gone",
+            StageRefusal::Idle => "session idle",
+            StageRefusal::Errored => "session errored",
+            StageRefusal::Closed => "session closed",
+            StageRefusal::QueueOverflow => "spawn queue full",
+            StageRefusal::NoInputTx => "no stdin",
+            StageRefusal::SendFailed => "stdin closed",
+        }
+    }
+}
+
+/// Build a CODE_INPUT frame from a payload the caller composed.
+fn code_input_frame(payload: &serde_json::Value) -> Frame {
+    Frame::new(
+        FeedId::CODE_INPUT,
+        serde_json::to_vec(payload).expect("stage frame payload serializes"),
+    )
+}
+
+/// The resident context window a `cost_update` reports, in tokens ([P07]).
+///
+/// `usage` on a `cost_update` is the turn's **last** tool-loop iteration, and
+/// tugcode's wire docs state plainly that `input + cache_read +
+/// cache_creation + output` on that iteration is the resident window after the
+/// turn. `result.usage` would be the sum across every API call of the turn,
+/// which over-counts by roughly the number of tool calls — so this reads the
+/// frame's own `usage` and never a total.
+fn parse_context_window(payload: &[u8]) -> Option<i64> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    if value.get("type")?.as_str()? != "cost_update" {
+        return None;
+    }
+    let usage = value.get("usage")?.as_object()?;
+    let total: i64 = [
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    ]
+    .iter()
+    .filter_map(|key| usage.get(*key).and_then(serde_json::Value::as_i64))
+    .sum();
+    (total > 0).then_some(total)
+}
+
+/// The `model` field of a `model_change` CODE_INPUT frame ([P15]). A blank
+/// selector reads as absent — there is no model named "".
+fn parse_model_selector(payload: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(payload).ok()?;
+    let model = value.get("model")?.as_str()?.trim();
+    (!model.is_empty()).then(|| model.to_owned())
+}
+
 fn parse_tug_session_id_payload(payload: &[u8]) -> Result<TugSessionId, ControlError> {
     let value: serde_json::Value =
         serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
@@ -2790,6 +3030,7 @@ impl AgentSupervisor {
             changeset_watch: std::sync::OnceLock::new(),
             draft_tasks: crate::feeds::draft_engine::DraftTaskRegistry::default(),
             turn_complete_tx: std::sync::OnceLock::new(),
+            arc_tick_tx: std::sync::OnceLock::new(),
         };
         (sup, merger_register_rx)
     }
@@ -5419,6 +5660,42 @@ impl AgentSupervisor {
         }
     }
 
+    /// Persist and announce the arc's terminal receipt ([P12]).
+    ///
+    /// The arc has no initiating client — nobody asked for this and no `_ok`
+    /// frame is owed to anybody — so the two halves a landing gets for free
+    /// are done explicitly here: the durable row through the same gateway
+    /// every landing uses (so a relaunch replays it like any other ink), and
+    /// an unsolicited `arc_receipt` CONTROL frame so the card the arc ran on
+    /// paints its live copy now rather than at the next restore. Both carry
+    /// the ledger row's id, which is what keeps the live row and the replayed
+    /// one one transcript turn rather than two receipts for one arc.
+    pub fn record_arc_receipt(&self, session: &str, dash: &str, project_dir: &str, summary: &str) {
+        let receipt_id = Self::record_landing_receipt(
+            self.shell_ledger.as_ref(),
+            self.session_ledger.as_ref(),
+            Some(session),
+            "/dash-arc",
+            summary,
+            project_dir,
+        );
+        let body = serde_json::json!({
+            "action": "arc_receipt",
+            "project_dir": project_dir,
+            "dash": dash,
+            // The card's own session id, deliberately *not* lineage-resolved:
+            // the deck is still bound to the id it was given, and this frame
+            // has to find that card. The durable row keyed itself to the head.
+            "tug_session_id": session,
+            "receipt_id": receipt_id,
+            "summary": summary,
+        });
+        let _ = self.control_tx.send(Frame::new(
+            FeedId::CONTROL,
+            serde_json::to_vec(&body).expect("arc_receipt serializes"),
+        ));
+    }
+
     fn send_changeset_join_err(
         control_tx: &broadcast::Sender<Frame>,
         project_dir: &str,
@@ -6379,19 +6656,40 @@ impl AgentSupervisor {
             }
         };
 
+        // An arc's history is spread across one JSONL per stage, so a card
+        // that replays only its own shows a transcript beginning in the
+        // middle. Walk the fork edges parent-ward and hand tugcode the chain
+        // ([P10]). `None` for every card that is not an arc — which is nearly
+        // all of them, and their request stays byte-identical.
+        let lineage = {
+            let (claude_session_id, project_dir) = {
+                let entry = entry_arc.lock().await;
+                (entry.claude_session_id.clone(), entry.project_dir.clone())
+            };
+            claude_session_id.as_deref().and_then(|id| {
+                replay_lineage(self.sessions_recorder.as_ref(), id, &project_dir)
+            })
+        };
+
         // Build the wire frame once; the body is the same regardless of
         // whether we forward immediately (Live) or queue (Spawning). The
         // optional recency `window` is forwarded verbatim — the supervisor
         // doesn't interpret it; tugcode validates the shape at its handler
-        // boundary. The no-window path stays byte-identical to the legacy
-        // full-replay request.
-        let body: Vec<u8> = match &window {
-            Some(w) => serde_json::to_vec(&serde_json::json!({
-                "type": "request_replay",
-                "window": w,
-            }))
-            .expect("request_replay payload serializes"),
-            None => b"{\"type\":\"request_replay\"}".to_vec(),
+        // boundary. The no-window, no-lineage path stays byte-identical to
+        // the legacy full-replay request.
+        let body: Vec<u8> = if window.is_none() && lineage.is_none() {
+            b"{\"type\":\"request_replay\"}".to_vec()
+        } else {
+            let mut payload = serde_json::Map::new();
+            payload.insert("type".into(), serde_json::json!("request_replay"));
+            if let Some(w) = &window {
+                payload.insert("window".into(), w.clone());
+            }
+            if let Some(l) = &lineage {
+                payload.insert("lineage".into(), serde_json::json!(l));
+            }
+            serde_json::to_vec(&serde_json::Value::Object(payload))
+                .expect("request_replay payload serializes")
         };
         let frame = Frame::new(FeedId::CODE_INPUT, body);
 
@@ -6481,6 +6779,179 @@ impl AgentSupervisor {
             event = "request_replay.dispatched",
             tug_session_id = %tug_session_id,
         );
+    }
+
+    /// Rotate a stage onto a card's own tugcode ([P02], Spec S01).
+    ///
+    /// The three frames are exactly the ones the deck sends when a user picks
+    /// a model and starts a fresh session with a prompt; the only new thing is
+    /// who sends them. Model **first**, because tugcode records the selector
+    /// and its next spawn reuses it — a model set after the spawn would be
+    /// flipped underneath a claude that had already started.
+    ///
+    /// A stage that declares no model sends **two** frames, not a
+    /// `model_change` carrying "default": omitting the frame leaves the card
+    /// on whatever it was, which is what "the account default" means here.
+    ///
+    /// The `SpawnState` matrix is `do_request_replay`'s, with one difference
+    /// that matters: this **returns its refusal** instead of logging and
+    /// dropping it ([L31]). The arc's runner is the caller, and a rotation
+    /// that cannot happen must stop the arc with a reason rather than leave it
+    /// waiting for a stage that will never start.
+    pub async fn drive_stage(
+        &self,
+        tug_session_id: &TugSessionId,
+        spec: &StageSpec,
+    ) -> Result<StageDelivery, StageRefusal> {
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            match ledger.get(tug_session_id) {
+                Some(e) => e.clone(),
+                None => return Err(StageRefusal::UnknownSession),
+            }
+        };
+
+        let mut frames: Vec<Frame> = Vec::with_capacity(3);
+        if let Some(model) = spec.model.as_deref() {
+            frames.push(code_input_frame(&serde_json::json!({
+                "type": "model_change",
+                "tug_session_id": tug_session_id.as_str(),
+                "model": model,
+            })));
+        }
+        let mut stage = serde_json::json!({
+            "name": spec.stage,
+            "document": spec.document,
+            "arc": spec.arc,
+        });
+        if let Some(plan) = spec.plan.as_deref() {
+            stage["plan"] = serde_json::Value::String(plan.to_owned());
+        }
+        if let Some(steps) = spec.steps.as_deref() {
+            stage["steps"] = serde_json::Value::String(steps.to_owned());
+        }
+        frames.push(code_input_frame(&serde_json::json!({
+            "type": "session_command",
+            "tug_session_id": tug_session_id.as_str(),
+            "command": "new",
+            "stage": stage,
+        })));
+        frames.push(code_input_frame(&serde_json::json!({
+            "type": "user_message",
+            "tug_session_id": tug_session_id.as_str(),
+            "text": spec.prompt,
+        })));
+
+        // Branch inside the lock, exactly as `do_request_replay` does:
+        // `Spawning` enqueues here; `Live` snapshots `input_tx` and sends
+        // after the lock is released, so a blocking mpsc send never holds the
+        // per-session mutex.
+        let snapshot = {
+            let mut entry = entry_arc.lock().await;
+            match entry.spawn_state {
+                SpawnState::Spawning => {
+                    // Back-pushed in order so the stage's frames stay in the
+                    // order they were built once the queue drains.
+                    for frame in frames {
+                        if entry.queue.push(frame) == QueuePush::Overflow {
+                            return Err(StageRefusal::QueueOverflow);
+                        }
+                    }
+                    tracing::info!(
+                        target: "dev::session-lifecycle",
+                        event = "dash_arc.stage_queued",
+                        tug_session_id = %tug_session_id,
+                        stage = %spec.stage,
+                        arc = %spec.arc,
+                    );
+                    return Ok(StageDelivery::Queued);
+                }
+                SpawnState::Live => entry.input_tx.clone(),
+                SpawnState::Idle => return Err(StageRefusal::Idle),
+                SpawnState::Errored => return Err(StageRefusal::Errored),
+                SpawnState::Closed => return Err(StageRefusal::Closed),
+            }
+        };
+
+        // `Live` with no `input_tx` is a programming error — the worker
+        // installs the sender before the bridge promotes the entry — but the
+        // arc must not hang on it, so it is a refusal like any other.
+        let Some(tx) = snapshot else {
+            return Err(StageRefusal::NoInputTx);
+        };
+        for frame in frames {
+            if tx.send(frame).await.is_err() {
+                return Err(StageRefusal::SendFailed);
+            }
+        }
+        tracing::info!(
+            target: "dev::session-lifecycle",
+            event = "dash_arc.stage_sent",
+            tug_session_id = %tug_session_id,
+            stage = %spec.stage,
+            arc = %spec.arc,
+        );
+        Ok(StageDelivery::Sent)
+    }
+
+    /// Hand the card back on the deck's own model ([P15]).
+    ///
+    /// Exactly one `model_change` frame, carrying the last selector a
+    /// WebSocket client sent for this session, or `"default"` when it never
+    /// sent one — which `handleModelChange` maps to "no `--model`". Sent at
+    /// `arc-done` and at `arc-stop`, **before** the receipt, so the card the
+    /// user is handed back is already theirs.
+    ///
+    /// Without it [B04] is only half true: tugcode records a selector on its
+    /// manager and every later spawn reuses it, so a card whose arc ended on
+    /// the implement model would stay there — including through the user's own
+    /// `/new`.
+    pub async fn restore_deck_model(&self, tug_session_id: &TugSessionId) -> Result<(), StageRefusal> {
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            match ledger.get(tug_session_id) {
+                Some(e) => e.clone(),
+                None => return Err(StageRefusal::UnknownSession),
+            }
+        };
+        let (model, snapshot) = {
+            let entry = entry_arc.lock().await;
+            let model = entry
+                .deck_model
+                .clone()
+                .unwrap_or_else(|| "default".to_string());
+            match entry.spawn_state {
+                SpawnState::Spawning => {
+                    drop(entry);
+                    let frame = code_input_frame(&serde_json::json!({
+                        "type": "model_change",
+                        "tug_session_id": tug_session_id.as_str(),
+                        "model": model,
+                    }));
+                    let mut entry = entry_arc.lock().await;
+                    if entry.queue.push(frame) == QueuePush::Overflow {
+                        return Err(StageRefusal::QueueOverflow);
+                    }
+                    return Ok(());
+                }
+                SpawnState::Live => (model, entry.input_tx.clone()),
+                SpawnState::Idle => return Err(StageRefusal::Idle),
+                SpawnState::Errored => return Err(StageRefusal::Errored),
+                SpawnState::Closed => return Err(StageRefusal::Closed),
+            }
+        };
+        let Some(tx) = snapshot else {
+            return Err(StageRefusal::NoInputTx);
+        };
+        let frame = code_input_frame(&serde_json::json!({
+            "type": "model_change",
+            "tug_session_id": tug_session_id.as_str(),
+            "model": model,
+        }));
+        if tx.send(frame).await.is_err() {
+            return Err(StageRefusal::SendFailed);
+        }
+        Ok(())
     }
 
     /// Handle a `trash_session` CONTROL request. Refuses if the row is
@@ -7518,6 +7989,20 @@ impl AgentSupervisor {
             }
         }
 
+        // ── the deck's own model selector ───────────────────────────────────
+        //
+        // Every frame a WebSocket client sends passes through here, and only
+        // through here — the arc's runner puts its frames straight on
+        // `input_tx`. So this is the one place that can tell the deck's choice
+        // of model from the arc's, which is exactly the distinction [P15]'s
+        // restore needs: when the arc ends, the card goes back to the last
+        // model its user picked, not the one the last stage ran on.
+        if let Some("model_change") = inspected.as_ref().and_then(|i| i.msg_type()) {
+            if let Some(model) = parse_model_selector(&frame.payload) {
+                entry_arc.lock().await.deck_model = Some(model);
+            }
+        }
+
         // Decide the routing action under the per-session lock. We extract
         // the decision and release the lock before doing any await-heavy
         // work (mpsc send, broadcast publish, spawn_session_worker).
@@ -7739,6 +8224,20 @@ impl AgentSupervisor {
                     // needle but must not end a live turn (`replay_started`
                     // has already incremented the bracket counter by the time
                     // the batch flows through here).
+                    // The turn's resident context window, for the arc's
+                    // rotation reading ([P07]). Captured here because
+                    // `cost_update` is the only frame that carries usage at
+                    // all, and the last iteration's four-token sum *is* the
+                    // window after the turn.
+                    if let Some(window) = parse_context_window(&frame.payload) {
+                        let entry_arc = {
+                            let ledger = self.ledger.lock().await;
+                            ledger.get(&id).cloned()
+                        };
+                        if let Some(entry_arc) = entry_arc {
+                            entry_arc.lock().await.context_window_tokens = Some(window);
+                        }
+                    }
                     if is_turn_end(&frame.payload) || is_wake_started(&frame.payload) {
                         let entry_arc = {
                             let ledger = self.ledger.lock().await;
@@ -7755,6 +8254,13 @@ impl AgentSupervisor {
                                 // because the gate refuses to move a branch
                                 // mid-turn can now be caught up.
                                 if let Some(tx) = self.turn_complete_tx.get() {
+                                    let _ = tx.try_send(id.to_string());
+                                }
+                                // The same edge, for the arc runner ([P05]):
+                                // a stage finishes by finishing a turn, and
+                                // that is the moment its documents have just
+                                // changed.
+                                if let Some(tx) = self.arc_tick_tx.get() {
                                     let _ = tx.try_send(id.to_string());
                                 }
                             }
@@ -8392,6 +8898,12 @@ impl SessionsRecorder for NoopSessionsRecorder {
         _session_id: &str,
     ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
         Ok(None)
+    }
+    fn lineage_chain(&self, session_id: &str) -> Vec<String> {
+        vec![session_id.to_owned()]
+    }
+    fn dash_name_for(&self, _session_id: &str) -> Option<String> {
+        None
     }
 }
 
@@ -10038,6 +10550,36 @@ mod tests {
         );
     }
 
+    /// The arc's receipt is ordinary durable ink, and the census is how that
+    /// gets verified ([P12]).
+    ///
+    /// The point of writing it through `record_landing_receipt` rather than
+    /// through a writer of its own is that it then restores by the same
+    /// machinery `/commit` and `/dash-join` restore by, and shows up in the
+    /// same `GET /api/ink-census` read. Counting DOM rows after a relaunch
+    /// would prove the render; this proves what the render is *of*.
+    #[test]
+    fn the_arc_receipt_lands_as_ink_the_census_counts() {
+        let ledger =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("in-memory ledger"));
+        let session = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
+
+        let id = AgentSupervisor::record_landing_receipt(
+            Some(&ledger),
+            None,
+            Some(session),
+            "/dash-arc",
+            "arc complete · foo\ndevise · opus · claude-a",
+            "/p",
+        );
+        assert!(id.is_some(), "the row identity rides back to the deck");
+
+        let census = ledger.ink_census(Some(session)).expect("census");
+        assert_eq!(census.len(), 1, "one session, one holding");
+        assert_eq!(census[0].rows, 1, "one arc, one receipt");
+        assert_eq!(census[0].tug_session_id, session);
+    }
+
     // ── durable ink follows the line of work ────────────────────────────────
 
     /// A sessions ledger holding `parent` superseded by `fork`, exactly as a
@@ -10054,7 +10596,7 @@ mod tests {
             .record_spawn("fork", "ws", "/proj", "card-1", 2_000, Some("stocky-pixie"))
             .expect("fork spawn");
         sessions
-            .set_fork_provenance("fork", "parent", "point-1")
+            .set_fork_provenance("fork", "parent", Some("point-1"))
             .expect("provenance");
         sessions
     }
@@ -10179,7 +10721,7 @@ mod tests {
         let (sessions, _dir) =
             sessions_with_transcripts(&[("parent", "msg_01PARENT"), ("fork", "msg_01FORK")]);
         sessions
-            .set_fork_provenance("fork", "parent", "point-1")
+            .set_fork_provenance("fork", "parent", Some("point-1"))
             .expect("provenance");
 
         AgentSupervisor::record_landing_receipt(
@@ -12058,6 +12600,277 @@ mod tests {
     }
 
     // ---- handle_control: request_replay during Spawning (Step R4 / [D12]) ----
+
+    // ---- the arc rotates a stage on a card's own tugcode ([P02]) ----------
+
+    fn stage_spec(model: Option<&str>) -> StageSpec {
+        StageSpec {
+            stage: "devise".to_string(),
+            document: "dash/some-brief.md".to_string(),
+            plan: None,
+            arc: "some-dash".to_string(),
+            model: model.map(str::to_owned),
+            steps: None,
+            prompt: "/tugplug:plan-devise a plan for dash/some-brief.md".to_string(),
+        }
+    }
+
+    /// A continued implement stage carries its step range onto the wire, so
+    /// the transcript's divider can say `implement, continued · steps N–M`
+    /// without re-deriving a range the runner already computed ([P07], [B13]).
+    #[tokio::test]
+    async fn a_continued_implement_stage_carries_its_step_range() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let tug_id = TugSessionId::new("sess-steps");
+        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+        let (input_tx, mut input_rx) = mpsc::channel::<Frame>(8);
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Live;
+            entry.input_tx = Some(input_tx);
+        }
+
+        let spec = StageSpec {
+            stage: "implement".to_string(),
+            document: "dash/some-brief.md".to_string(),
+            plan: Some("dash/some.md".to_string()),
+            arc: "some-dash".to_string(),
+            model: None,
+            steps: Some("4-9".to_string()),
+            prompt: "/tugplug:dash-implement dash/some.md Steps 4-9".to_string(),
+        };
+        sup.drive_stage(&tug_id, &spec).await.unwrap();
+
+        let command = input_rx.recv().await.expect("session_command frame");
+        let parsed: serde_json::Value = serde_json::from_slice(&command.payload).unwrap();
+        assert_eq!(parsed["type"], "session_command");
+        assert_eq!(parsed["stage"]["steps"], "4-9");
+
+        // A first implement stage carries none, which is what tells the two
+        // apart on the wire.
+        // Drain the first rotation's remaining frame before the next one.
+        let _first_prompt = input_rx.recv().await;
+
+        let mut first = spec.clone();
+        first.steps = None;
+        sup.drive_stage(&tug_id, &first).await.unwrap();
+        let command = input_rx.recv().await.expect("session_command frame");
+        let parsed: serde_json::Value = serde_json::from_slice(&command.payload).unwrap();
+        assert!(parsed["stage"].get("steps").is_none());
+    }
+
+    /// The `type` of each frame, in order.
+    fn frame_types(frames: &[Frame]) -> Vec<String> {
+        frames
+            .iter()
+            .map(|f| {
+                serde_json::from_slice::<serde_json::Value>(&f.payload).unwrap()["type"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_live_rotation_sends_exactly_the_three_frames_in_order() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let tug_id = TugSessionId::new("sess-stage-live");
+        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+        let (input_tx, mut input_rx) = mpsc::channel::<Frame>(8);
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Live;
+            entry.input_tx = Some(input_tx);
+        }
+
+        let delivery = sup
+            .drive_stage(&tug_id, &stage_spec(Some("opus")))
+            .await
+            .expect("a live card takes the rotation");
+        assert_eq!(delivery, StageDelivery::Sent);
+
+        let mut sent = Vec::new();
+        while let Ok(frame) = input_rx.try_recv() {
+            sent.push(frame);
+        }
+        assert_eq!(
+            frame_types(&sent),
+            vec!["model_change", "session_command", "user_message"],
+            "model first — tugcode records the selector and its next spawn reuses it"
+        );
+
+        let model: serde_json::Value = serde_json::from_slice(&sent[0].payload).unwrap();
+        assert_eq!(model["model"], "opus");
+        assert_eq!(model["tug_session_id"], "sess-stage-live");
+
+        let command: serde_json::Value = serde_json::from_slice(&sent[1].payload).unwrap();
+        assert_eq!(command["command"], "new");
+        assert_eq!(command["stage"]["name"], "devise");
+        assert_eq!(command["stage"]["document"], "dash/some-brief.md");
+        assert_eq!(command["stage"]["arc"], "some-dash");
+        assert!(
+            command["stage"].get("plan").is_none(),
+            "a stage with no plan yet names none"
+        );
+
+        let prompt: serde_json::Value = serde_json::from_slice(&sent[2].payload).unwrap();
+        assert_eq!(
+            prompt["text"],
+            "/tugplug:plan-devise a plan for dash/some-brief.md"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_undeclared_model_sends_two_frames_and_no_model_change() {
+        // Omitting the frame is what "the account default" means: sending
+        // `model_change: "default"` would *change* a card the user had set.
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let tug_id = TugSessionId::new("sess-stage-nomodel");
+        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+        let (input_tx, mut input_rx) = mpsc::channel::<Frame>(8);
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Live;
+            entry.input_tx = Some(input_tx);
+        }
+
+        sup.drive_stage(&tug_id, &stage_spec(None))
+            .await
+            .expect("sent");
+
+        let mut sent = Vec::new();
+        while let Ok(frame) = input_rx.try_recv() {
+            sent.push(frame);
+        }
+        assert_eq!(frame_types(&sent), vec!["session_command", "user_message"]);
+    }
+
+    #[tokio::test]
+    async fn a_spawning_rotation_queues_its_frames_in_order() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let tug_id = TugSessionId::new("sess-stage-spawning");
+        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Spawning;
+        }
+
+        let delivery = sup
+            .drive_stage(&tug_id, &stage_spec(Some("sonnet")))
+            .await
+            .expect("queued behind the spawn");
+        assert_eq!(delivery, StageDelivery::Queued);
+
+        let mut entry = entry_arc.lock().await;
+        let mut queued = Vec::new();
+        while let Some(frame) = entry.queue.pop() {
+            queued.push(frame);
+        }
+        assert_eq!(
+            frame_types(&queued),
+            vec!["model_change", "session_command", "user_message"],
+            "the drain order is the order they were built"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rotation_with_nobody_to_receive_it_returns_its_refusal() {
+        // [L31]: the runner must be able to stop the arc with a reason. A
+        // silent drop here would leave the arc waiting for a stage that is
+        // never going to start.
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+
+        let unknown = TugSessionId::new("sess-stage-nobody");
+        assert_eq!(
+            sup.drive_stage(&unknown, &stage_spec(None)).await,
+            Err(StageRefusal::UnknownSession)
+        );
+
+        let tug_id = TugSessionId::new("sess-stage-idle");
+        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+        for (state, expected) in [
+            (SpawnState::Idle, StageRefusal::Idle),
+            (SpawnState::Errored, StageRefusal::Errored),
+            (SpawnState::Closed, StageRefusal::Closed),
+        ] {
+            entry_arc.lock().await.spawn_state = state;
+            assert_eq!(
+                sup.drive_stage(&tug_id, &stage_spec(None)).await,
+                Err(expected),
+                "an {state:?} card has no claude to rotate"
+            );
+        }
+
+        // Live with no stdin installed is a programming error, but the arc
+        // must surface it rather than hang on it.
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Live;
+            entry.input_tx = None;
+        }
+        assert_eq!(
+            sup.drive_stage(&tug_id, &stage_spec(None)).await,
+            Err(StageRefusal::NoInputTx)
+        );
+
+        // Every refusal carries a word the arc can record and a card can show.
+        for refusal in [
+            StageRefusal::UnknownSession,
+            StageRefusal::Idle,
+            StageRefusal::Errored,
+            StageRefusal::Closed,
+            StageRefusal::QueueOverflow,
+            StageRefusal::NoInputTx,
+            StageRefusal::SendFailed,
+        ] {
+            assert!(!refusal.reason().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn only_a_deck_model_change_is_remembered_for_the_restore() {
+        // [P15]: the dispatcher is the one place every WebSocket-client frame
+        // passes, and the runner bypasses it — so what lands here is by
+        // construction the deck's own choice.
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let tug_id = TugSessionId::new("sess-deck-model");
+        let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+        assert_eq!(entry_arc.lock().await.deck_model, None);
+
+        sup.dispatch_one(Frame::new(
+            FeedId::CODE_INPUT,
+            serde_json::to_vec(&serde_json::json!({
+                "tug_session_id": "sess-deck-model",
+                "type": "model_change",
+                "model": "opus",
+            }))
+            .unwrap(),
+        ))
+        .await;
+        assert_eq!(
+            entry_arc.lock().await.deck_model.as_deref(),
+            Some("opus"),
+            "the deck's selector is what the card goes back to when the arc ends"
+        );
+
+        // A rotation's own frames never touch it — they go straight to
+        // `input_tx` and never reach the dispatcher.
+        let (input_tx, _input_rx) = mpsc::channel::<Frame>(8);
+        {
+            let mut entry = entry_arc.lock().await;
+            entry.spawn_state = SpawnState::Live;
+            entry.input_tx = Some(input_tx);
+        }
+        sup.drive_stage(&tug_id, &stage_spec(Some("sonnet")))
+            .await
+            .expect("sent");
+        assert_eq!(
+            entry_arc.lock().await.deck_model.as_deref(),
+            Some("opus"),
+            "the stage's model is the stage's, not the card's"
+        );
+    }
 
     /// Spawning: request_replay is enqueued at the front of the
     /// per-session queue. The bridge's session_init promote-and-drain
@@ -17310,5 +18123,103 @@ mod tests {
             .handle_control("list_session_state_changes", b"not json", 10)
             .await;
         assert!(matches!(outcome, ControlOutcome::Error(_)));
+    }
+
+    // ── the replay lineage ([P10]) ───────────────────────────────────────────
+
+    /// A real ledger holding a conversation and three stages forked from one
+    /// another, bound to `dash`, with the matching `arc-stage` lines on disk.
+    fn seed_arc_lineage(root: &Path, dash: &str) -> Arc<crate::session_ledger::SessionLedger> {
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        let ids = ["s-conv", "s-devise", "s-review", "s-implement"];
+        for id in ids {
+            ledger
+                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, None)
+                .expect("record_spawn");
+            ledger
+                .set_dash_binding(id, Some(("dash-id", dash)))
+                .expect("dash binding");
+        }
+        for pair in ids.windows(2) {
+            // A stage descends from its parent with no branch point ([P03]).
+            ledger
+                .set_fork_provenance(pair[1], pair[0], None)
+                .expect("provenance");
+        }
+        tugdash_core::arc::append_arc_start(root, dash, "dash/foo-brief.md").expect("arc-start");
+        for (stage, id, model) in [
+            (tugdash_core::arc::ArcStage::Devise, "s-devise", "opus"),
+            (tugdash_core::arc::ArcStage::Review, "s-review", "fable"),
+            (tugdash_core::arc::ArcStage::Implement, "s-implement", "opus"),
+        ] {
+            tugdash_core::arc::append_arc_stage(root, dash, stage, id, Some(model))
+                .expect("arc-stage");
+        }
+        ledger
+    }
+
+    #[test]
+    fn the_lineage_for_a_three_stage_arc_reads_conversation_devise_review_implement() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let ledger = seed_arc_lineage(root, "foo");
+        let recorder = LedgerSessionsRecorder::new(Arc::clone(&ledger));
+
+        let lineage = replay_lineage(&recorder, "s-implement", root).expect("a lineage");
+
+        let ids: Vec<&str> = lineage
+            .iter()
+            .map(|e| e["sessionId"].as_str().expect("sessionId"))
+            .collect();
+        assert_eq!(ids, vec!["s-conv", "s-devise", "s-review", "s-implement"]);
+
+        // The conversation the arc was handed off from ran no stage, so it
+        // gets no divider — everything after it does.
+        let stages: Vec<Option<&str>> = lineage.iter().map(|e| e.get("stage").and_then(|s| s.as_str())).collect();
+        assert_eq!(
+            stages,
+            vec![None, Some("devise"), Some("review"), Some("implement")]
+        );
+        assert_eq!(lineage[1]["model"], "opus");
+        assert_eq!(lineage[2]["model"], "fable");
+        assert_eq!(lineage[1]["arc"], "foo");
+        assert_eq!(lineage[1]["document"], "dash/foo-brief.md");
+    }
+
+    #[test]
+    fn a_session_with_no_forks_carries_no_lineage() {
+        // The overwhelming majority of cards. Their request must stay
+        // byte-identical to what it was before lineage existed.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        ledger
+            .record_spawn("solo", "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .expect("record_spawn");
+        let recorder = LedgerSessionsRecorder::new(ledger);
+        assert!(replay_lineage(&recorder, "solo", root).is_none());
+    }
+
+    #[test]
+    fn a_fork_chain_with_no_arc_record_carries_no_lineage() {
+        // A rewind-fork lineage: real fork edges, no arc behind them. tugcode
+        // already replays these correctly by resuming the tip, and a lineage
+        // with nothing to divide would only add work.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        for id in ["root", "fork"] {
+            ledger
+                .record_spawn(id, "ws", &root.to_string_lossy(), "card-1", 0, None)
+                .expect("record_spawn");
+        }
+        ledger
+            .set_fork_provenance("fork", "root", Some("prompt-uuid"))
+            .expect("provenance");
+        let recorder = LedgerSessionsRecorder::new(ledger);
+        assert!(replay_lineage(&recorder, "fork", root).is_none());
     }
 }

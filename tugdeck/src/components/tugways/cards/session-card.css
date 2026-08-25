@@ -769,6 +769,21 @@
 }
 
 
+/* Stage divider — a dash arc rotated the card onto a fresh claude session.
+   Unlike the notice row (a turn Tug started, marked with an accent rule down
+   its side) this marks a BOUNDARY between two stages, so the rule runs across
+   the row above the quiet line. Soft and unaccented: the arc's stages are the
+   ordinary course of a run, not an intrusion worth an accent. */
+.session-card-transcript-stage {
+  margin-block: var(--tug-space-sm) var(--tug-space-xs);
+  padding-block-start: var(--tug-space-xs);
+  border-block-start: 1px solid var(--tug7-element-global-divider-normal-separator-rest);
+  user-select: none;
+}
+.session-card-transcript-stage .tug-quiet-line-icon {
+  top: -1px;
+}
+
 /* Code-row body — `TugMarkdownBlock`. Width-100% so streaming text
    wraps inside the row column. The default `--tugx-md-block-padding-x`
    is `1rem` (a soft default for stand-alone consumers); inside a

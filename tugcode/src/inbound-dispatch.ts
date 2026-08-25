@@ -121,7 +121,7 @@ export const INBOUND_HANDLERS: InboundHandlers = {
       return;
     }
     console.log(`[dev::replay::request] session_id=${sessionId}`);
-    sessionManager.runReplay(msg.window).catch((err) => {
+    sessionManager.runReplay(msg.window, msg.lineage).catch((err) => {
       console.error("request_replay failed:", err);
     });
   },
@@ -192,7 +192,7 @@ export const INBOUND_HANDLERS: InboundHandlers = {
   session_command: (msg, { sessionManager, writeLine }) => {
     if (!sessionManager) return;
     reportAsync(
-      sessionManager.handleSessionCommand(msg.command),
+      sessionManager.handleSessionCommand(msg.command, msg.stage),
       "Session command failed",
       writeLine,
     );

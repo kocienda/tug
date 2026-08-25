@@ -153,10 +153,45 @@ export interface AddDirectory {
   directory: string;
 }
 
+/**
+ * What a fresh session is *for*, when the server-driven arc starts it rather
+ * than the user.
+ *
+ * Present only on a rotation tugcast originates: a plain `/new` from the deck
+ * carries no stage, and must stay byte-identical on the wire.
+ */
+export interface SessionStageSpec {
+  /** Which stage of the arc this session runs. */
+  name: "devise" | "review" | "implement";
+  /** The document the arc opened on, repo-relative. */
+  document: string;
+  /** The plan the stage drives, once one exists. */
+  plan?: string;
+  /** The dash name the arc is keyed by — what the stage's claude reads as `TUG_DASH_ARC`. */
+  arc: string;
+  /**
+   * The inclusive step range a *continued* implement stage walks, spelled
+   * `N-M` ([P07]). Present only on a rotation the runner composed from a
+   * measured context reading at a step boundary; absent on every other stage,
+   * which is what tells a continued stage from a first one.
+   *
+   * Echoed on the `session_stage` announcement so the transcript's divider can
+   * read `implement, continued · steps N–M` ([B13]) without re-deriving a range
+   * the runner already computed.
+   */
+  steps?: string;
+}
+
 /** Fork / continue / new the conversation ([D10]). */
 export interface SessionCommand {
   type: "session_command";
   command: "fork" | "continue" | "new";
+  /**
+   * Set by an arc rotation on `command: "new"`, announcing the fresh session
+   * as a stage rather than a stranger. Absent on every deck-originated
+   * command.
+   */
+  stage?: SessionStageSpec;
 }
 
 /** Stop a running subagent task. */
@@ -186,6 +221,27 @@ export type ReplayWindow =
   | { lastTurns: number }
   | { turnRange: [number, number] };
 
+/**
+ * One session in a replay's lineage — a stage of a dash arc, or the
+ * conversation the arc was handed off from.
+ *
+ * `stage` and its companions are absent on an entry that ran no stage (the
+ * chain's head, before the arc started), which is what tells the replay
+ * whether to draw a divider above that session's turns.
+ */
+export interface ReplayLineageEntry {
+  /** Claude's own id for the session — the JSONL to replay. */
+  sessionId: string;
+  /** Which stage of the arc this session ran, if any. */
+  stage?: string;
+  /** The model selector the rotation set, or empty for the account default. */
+  model?: string;
+  /** The document the arc opened on, repo-relative. */
+  document?: string;
+  /** The dash name the arc is keyed by. */
+  arc?: string;
+}
+
 /** Ask tugcode to replay the session JSONL ([D12]). */
 export interface RequestReplay {
   type: "request_replay";
@@ -196,6 +252,18 @@ export interface RequestReplay {
    * `hasOlder`). Absent ⇒ the full session (backward-compatible).
    */
   window?: ReplayWindow;
+  /**
+   * Optional ordered lineage — oldest ancestor first, the session being
+   * resumed last. Present only for a dash arc, whose stages each own their
+   * own JSONL: tugcode replays each in order, emitting a stage divider at
+   * every boundary, so a relaunched card re-renders the whole arc rather
+   * than only its last stage ([P10]).
+   *
+   * Absent ⇒ replay this session alone, which is byte-identical to the
+   * behavior before lineage existed. The `window` applies to the session
+   * being resumed; the ancestors replay whole.
+   */
+  lineage?: ReplayLineageEntry[];
 }
 
 /**

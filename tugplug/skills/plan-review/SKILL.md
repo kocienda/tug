@@ -107,7 +107,9 @@ Progress does **not** invalidate a stamp: ledger status cells, commit cells, and
 
 ### 7. Hand off
 
-Report what changed, in a few lines. Then give the next move as a literal command on its own line, **inside backticks**, command and path together in one span:
+**First, check whether an arc is running you.** Run `printenv TUG_DASH_ARC` — when it names a dash, this turn is that arc's **review stage**. The review itself is unchanged, every step of it: lint, read the code, apply the fixups, append the Review Record, stamp last. Only the ending differs — report what changed and stop. **Print no chip.** The stamp you just wrote is the hand-off: the runner reads `tugutil plan status` and rotates to implement on the strength of it, so a command line here is a button nobody will press.
+
+Off an arc, report what changed, in a few lines. Then give the next move as a literal command on its own line, **inside backticks**, command and path together in one span:
 
 `` `/tugplug:dash-implement dash/my-plan.md` ``
 
@@ -123,3 +125,4 @@ The Session card only turns a command line into a clickable chip when it arrives
 - **Respect what moved.** Edits are decisions; `done` rows are frozen. The rules are in the rubric's re-review section, and they outrank your sense of how the plan should have been shaped.
 - **Always append the Review Record**, even on a clean pass — a round that found nothing is a fact worth recording, and a vacuous round is supposed to be visible in the artifact.
 - **The stamp is the last thing you do, and you never type it.** `tugutil plan stamp` computes it; an edit after it makes it a lie.
+- **Under an arc, print no chip.** `TUG_DASH_ARC` in the environment means the runner reads the stamp and rotates to implement itself; the review is otherwise identical.

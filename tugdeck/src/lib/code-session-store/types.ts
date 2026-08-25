@@ -171,11 +171,16 @@ export interface AssistantThinking extends MessageBase {
  * the first user, with `source: "scheduled"`. Future kinds
  * (`compact_boundary` / `wake_summary`) extend the `source` union
  * without changing the substrate shape.
+ *
+ * `stage` is the dash arc's boundary divider: the server rotated this card
+ * onto a fresh claude session for the next stage of an arc, and the row
+ * marks where one stage ended and the next began. Its text is composed by
+ * `stageNoteText` in `stages.ts`.
  */
 export interface SystemNote extends MessageBase {
   kind: "system_note";
   text: string;
-  source: "scheduled" | "compact" | "notice" | "other";
+  source: "scheduled" | "compact" | "notice" | "stage" | "other";
   /**
    * On a `notice`, which subsystem spoke (e.g. `"base-motion"`) — the row's
    * attribution label. Tug started this turn, and the row says so rather than

@@ -141,6 +141,28 @@ export function isDashStep(value: unknown): value is DashStep {
   );
 }
 
+/**
+ * What a server-driven arc is doing on one dash, when one is running it.
+ *
+ * Absent for every hand-driven dash — which is most of them — and from a
+ * server that predates arcs. Read **beside** {@link DashChangesetEntry.stage},
+ * never instead of it: `stage` says what the dash is doing in git, this says
+ * which stage of the arc is driving it, and a stopped arc is precisely the
+ * state where both have to be sayable at once.
+ */
+export interface DashArcState {
+  /** The stage last rotated: `devise` | `review` | `implement`. */
+  stage?: string;
+  /** Why the arc stopped, when it did. Cleared by the next rotation, because
+   *  resuming a stopped arc *is* rotating it again. */
+  stopped?: string;
+  /** The stage it stopped *in* — not necessarily `stage`, since a refused
+   *  rotation stops in the stage it was trying to leave. */
+  stopped_stage?: string;
+  /** Whether the arc reached its terminal line. */
+  done?: boolean;
+}
+
 /** A dash worktree branch and its accumulated base..branch changes. */
 export interface DashChangesetEntry {
   kind: "dash";
@@ -162,6 +184,8 @@ export interface DashChangesetEntry {
   /** Derived lifecycle stage: `created` | `working` | `draft-ready` |
    *  `landing`. */
   stage?: string;
+  /** The arc driving this dash, when one is — see {@link DashArcState}. */
+  arc?: DashArcState;
   /** Live sessions mated to this dash. Empty is how *unbound* reads. */
   bound_sessions?: string[];
   /** Declared step counters, from the latest step declaration. Plan-absolute:
@@ -492,6 +516,18 @@ function isOptionalStringArray(value: unknown): value is string[] | undefined {
  * — the common case, since the wire skips empty collections — passes, and so
  * does an older server that sends none at all.
  */
+function isOptionalDashArcState(value: unknown): value is DashArcState | undefined {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  if (value.stage !== undefined && typeof value.stage !== "string") return false;
+  if (value.stopped !== undefined && typeof value.stopped !== "string") return false;
+  if (value.stopped_stage !== undefined && typeof value.stopped_stage !== "string") {
+    return false;
+  }
+  if (value.done !== undefined && typeof value.done !== "boolean") return false;
+  return true;
+}
+
 function isOptionalDashJoinState(
   value: unknown,
 ): value is DashJoinStateWire | undefined {
@@ -642,6 +678,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       isOptionalStringArray(value.round_subjects) &&
       (value.branch === undefined || typeof value.branch === "string") &&
       (value.stage === undefined || typeof value.stage === "string") &&
+      isOptionalDashArcState(value.arc) &&
       isOptionalStringArray(value.bound_sessions) &&
       (value.step_current === undefined || typeof value.step_current === "number") &&
       (value.step_total === undefined || typeof value.step_total === "number") &&

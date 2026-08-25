@@ -3849,11 +3849,16 @@ impl SessionLedger {
     /// `record_spawn` has created it. The inherited callsign already rode in
     /// as the spawn's tag; these columns record where the fork came from —
     /// which the spelling no longer does, by design.
+    ///
+    /// `fork_point` is `None` for an arc stage rotation, which descends from
+    /// its parent without copying any history and so has no branch point. The
+    /// column is written `NULL` rather than given a stand-in value: these two
+    /// columns are what a reader uses to tell a rewind from a rotation.
     pub fn set_fork_provenance(
         &self,
         session_id: &str,
         forked_from_session_id: &str,
-        fork_point: &str,
+        fork_point: Option<&str>,
     ) -> Result<(), LedgerError> {
         let conn = self.db.lock().expect("ledger mutex");
         let affected = conn.execute(
@@ -3940,6 +3945,67 @@ impl SessionLedger {
             "fork chain exceeds the depth cap; using the id as given"
         );
         session_id.to_owned()
+    }
+
+    /// Follow the fork edges parent-ward from `session_id` and return the
+    /// whole chain in reading order — the oldest ancestor first, `session_id`
+    /// last.
+    ///
+    /// This is [`Self::resolve_to_lineage_head`]'s mirror. That one answers
+    /// "which session is this line of work now?", for a write that must land
+    /// on the tip. This one answers "what did this line of work consist of?",
+    /// for a restore that must replay every session the line passed through —
+    /// an arc's devise, review, and implement stages each own their own JSONL,
+    /// and a card that replays only the last of them shows a transcript that
+    /// begins in the middle.
+    ///
+    /// Total by construction, and for the same reason: an id with no parent
+    /// returns a one-element chain, and an unknown id, a query error, an edge
+    /// cycle, or a chain past the depth cap all return what has been walked so
+    /// far. A restore is best-effort — a partial chain shows less history, a
+    /// failed one shows what it shows today, and neither may fail the replay.
+    pub fn lineage_chain(&self, session_id: &str) -> Vec<String> {
+        /// Same guard, same reasoning as `resolve_to_lineage_head`'s.
+        const MAX_HOPS: usize = 16;
+
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut chain = vec![session_id.to_owned()];
+        let mut visited = HashSet::new();
+        visited.insert(session_id.to_owned());
+        let mut current = session_id.to_owned();
+        for _ in 0..MAX_HOPS {
+            let parent: Option<String> = match conn
+                .query_row(
+                    "SELECT forked_from_session_id FROM sessions WHERE session_id = ?1",
+                    params![current],
+                    |row| row.get(0),
+                )
+                .optional()
+            {
+                Ok(parent) => parent.flatten(),
+                Err(err) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        error = %err,
+                        "lineage chain walk failed; using what was walked"
+                    );
+                    break;
+                }
+            };
+            let Some(parent) = parent else { break };
+            if !visited.insert(parent.clone()) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    revisited = %parent,
+                    "fork edges form a cycle; using what was walked"
+                );
+                break;
+            }
+            chain.push(parent.clone());
+            current = parent;
+        }
+        chain.reverse();
+        chain
     }
 
     /// Record an auto-generated `aiTitle` for a session, live.
@@ -8025,7 +8091,7 @@ mod tests {
             inherited.tag.as_deref(),
         )
         .expect("record_spawn");
-        l.set_fork_provenance(fork_id, parent, fork_point)
+        l.set_fork_provenance(fork_id, parent, Some(fork_point))
             .expect("set_fork_provenance");
         if let Some(name) = inherited.user_name.as_deref() {
             l.rename(fork_id, Some(name)).expect("rename");
@@ -8073,6 +8139,38 @@ mod tests {
             .unwrap();
         assert_eq!(from, "f-3");
         assert_eq!(point, "point-4");
+    }
+
+    #[test]
+    fn a_stages_fork_point_is_null_where_a_rewinds_is_the_prompt_uuid() {
+        // The provenance columns are what tells a rotation from a rewind: a
+        // stage descends from its parent without copying history, so it has no
+        // branch point and the column must be NULL rather than a stand-in.
+        let l = fresh();
+        for id in ["root", "stage", "rewind"] {
+            l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), None)
+                .expect("record_spawn");
+        }
+        l.set_fork_provenance("stage", "root", None)
+            .expect("stage provenance");
+        l.set_fork_provenance("rewind", "root", Some("prompt-uuid"))
+            .expect("rewind provenance");
+
+        let conn = l.db.lock().unwrap();
+        let read = |id: &str| -> (String, Option<String>) {
+            conn.query_row(
+                "SELECT forked_from_session_id, fork_point FROM sessions
+                 WHERE session_id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(read("stage"), ("root".to_string(), None));
+        assert_eq!(
+            read("rewind"),
+            ("root".to_string(), Some("prompt-uuid".to_string()))
+        );
     }
 
     #[test]
@@ -8129,7 +8227,7 @@ mod tests {
             Some("stocky-pixie"),
         )
         .unwrap();
-        l.set_fork_provenance("f-2", "root", "point-2").unwrap();
+        l.set_fork_provenance("f-2", "root", Some("point-2")).unwrap();
         let sibling = l.get("f-2").unwrap().unwrap().tag.expect("fresh tag");
         assert_ne!(sibling, "stocky-pixie");
         assert_is_lexicon_pair(&sibling);
@@ -8474,7 +8572,7 @@ mod tests {
         spawn_fork(&l, "root", "point-1", "f-1");
         l.record_spawn("f-2", WS_A, "/proj", "card-2", millis(0) + 60_000, None)
             .unwrap();
-        l.set_fork_provenance("f-2", "root", "point-2").unwrap();
+        l.set_fork_provenance("f-2", "root", Some("point-2")).unwrap();
         assert_eq!(
             l.resolve_to_lineage_head("root"),
             "f-1",
@@ -8490,8 +8588,8 @@ mod tests {
             l.record_spawn(id, WS_A, "/proj", "card-1", millis(days_ago), None)
                 .unwrap();
         }
-        l.set_fork_provenance("old", "root", "point-1").unwrap();
-        l.set_fork_provenance("new", "root", "point-2").unwrap();
+        l.set_fork_provenance("old", "root", Some("point-1")).unwrap();
+        l.set_fork_provenance("new", "root", Some("point-2")).unwrap();
         assert_eq!(l.resolve_to_lineage_head("root"), "new");
     }
 
@@ -8502,8 +8600,8 @@ mod tests {
             l.record_spawn(id, WS_A, "/proj", "card-1", millis(0), None)
                 .unwrap();
         }
-        l.set_fork_provenance("a", "b", "point-1").unwrap();
-        l.set_fork_provenance("b", "a", "point-2").unwrap();
+        l.set_fork_provenance("a", "b", Some("point-1")).unwrap();
+        l.set_fork_provenance("b", "a", Some("point-2")).unwrap();
         assert_eq!(l.resolve_to_lineage_head("a"), "a");
         assert_eq!(l.resolve_to_lineage_head("b"), "b");
     }

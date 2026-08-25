@@ -610,7 +610,34 @@ pub enum ChangesetEntry {
         /// which reads as "nothing to say" and leaves the face where it was.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         join: Option<DashJoinState>,
+        /// The server-driven arc running this dash, when one is ([P01]).
+        ///
+        /// Beside `stage`, never folded into it: `stage` says what the dash is
+        /// doing in git, this says which stage of the arc is driving it, and a
+        /// stopped arc is exactly the state where the two must both be sayable.
+        /// Absent for every hand-driven dash, and from an older server.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        arc: Option<DashArcState>,
     },
+}
+
+/// What an arc is doing on one dash — the wire spelling of
+/// `tugdash_core::ops::DashArcState`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DashArcState {
+    /// The stage last rotated: `devise` | `review` | `implement`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    /// Why the arc stopped, when it did. Cleared by the next rotation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<String>,
+    /// The stage it stopped *in* — not necessarily `stage`, since a refused
+    /// rotation stops in the stage it was trying to leave.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_stage: Option<String>,
+    /// Whether the arc reached its terminal line.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub done: bool,
 }
 
 /// The join pipeline's state for one dash — the single durable source every
@@ -1718,6 +1745,7 @@ mod tests {
             last_replay: None,
             replay_conflict_paths: vec![],
             join: None,
+            arc: None,
         };
         let json = serde_json::to_string(&dash).unwrap();
         assert!(json.contains(r#""kind":"dash""#));

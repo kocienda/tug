@@ -17,9 +17,11 @@ import type {
   EffortChange,
   AddDirectory,
   SessionCommand,
+  SessionStageSpec,
   StopTask,
   RequestReplay,
   ReplayWindow,
+  ReplayLineageEntry,
   CancelReplay,
   RewindPreview,
   SessionRewind,
@@ -40,9 +42,11 @@ export type {
   EffortChange,
   AddDirectory,
   SessionCommand,
+  SessionStageSpec,
   StopTask,
   RequestReplay,
   ReplayWindow,
+  ReplayLineageEntry,
   CancelReplay,
   RewindPreview,
   SessionRewind,
@@ -442,6 +446,68 @@ export interface SessionFork {
   newSessionId: string;
   /** The rewound-to prompt uuid — the branch point, stable across forks. */
   forkPoint: string;
+}
+
+/**
+ * A stage rotation announcement, emitted just before the stage's synthetic
+ * `session_init`.
+ *
+ * A stage is a fresh session the server started on the same card, and it is
+ * announced as *lineage* rather than as a stranger: tugcast stages the same
+ * identity transfer it stages for a rewind-fork, so the whole arc wears one
+ * callsign and durable ink written in any stage resolves to the same head.
+ * The one difference is the fork point — a stage has none, because nothing
+ * was copied.
+ */
+export interface SessionStage {
+  type: "session_stage";
+  /** The session being rotated away from — claude's own id for it. */
+  parentSessionId: string;
+  /** The stage's freshly minted claude session id. */
+  newSessionId: string;
+  /** Which stage of the arc this session runs. */
+  stage: "devise" | "review" | "implement";
+  /** The model selector the rotation set, or empty for the account default. */
+  model: string;
+  /** The document the arc opened on, repo-relative. */
+  document: string;
+  /** The dash name the arc is keyed by. */
+  arc: string;
+  /**
+   * The inclusive step range a *continued* implement stage walks, `N-M`.
+   * Absent on every other stage, which is what tells the transcript's divider
+   * a continued stage from a first one ([P07], [B13]).
+   */
+  steps?: string;
+  ipc_version: number;
+}
+
+/**
+ * A stage boundary *replayed* — the divider half of {@link SessionStage},
+ * with none of the identity half.
+ *
+ * A live rotation is two facts at once: a new session started (which tugcast
+ * stages as an identity transfer, and records as an `arc-stage` line), and a
+ * boundary happened (which the transcript draws). On restore only the second
+ * is true — the sessions started long ago and are already recorded — so
+ * replay emits its own frame rather than re-emitting `session_stage`. Re-using
+ * that type would make the relay re-stage a transfer and append a duplicate
+ * `arc-stage` line for a rotation that already happened.
+ *
+ * The deck folds this into the same transcript divider a `session_stage`
+ * produces.
+ */
+export interface ReplayStage {
+  type: "replay_stage";
+  /** Which stage of the arc the following turns belong to. */
+  stage: string;
+  /** The model selector the rotation set, or empty for the account default. */
+  model: string;
+  /** The document the arc opened on, repo-relative. */
+  document: string;
+  /** The dash name the arc is keyed by. */
+  arc: string;
+  ipc_version: number;
 }
 
 /**
@@ -1454,6 +1520,8 @@ export type OutboundMessage =
   | ControlRequestForward
   | SystemMetadata
   | SessionFork
+  | SessionStage
+  | ReplayStage
   | SessionTitle
   | SessionCapabilities
   | CostUpdate

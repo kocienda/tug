@@ -920,10 +920,10 @@ fn open_arc(
 
 /// Hand a document to the arc (Spec S06).
 ///
-/// The record is the whole of what this verb writes. **The POST that tells a
-/// live tugcast to start rotating stages is not here** — it lands with the
-/// handler that receives it, so nothing ships whose receiver does not exist.
-/// Until then the verb says the runner is not wired yet.
+/// Writes the record, then tells the instance that owns the calling session
+/// about it over the same `POST /api/dash` route the other session-addressed
+/// verbs use. The server binds the session to the dash and returns; the first
+/// stage rotates on that session's own turn end ([P05]), never on arrival.
 fn run_arc_run(
     name: &str,
     document: Option<&str>,
@@ -934,12 +934,21 @@ fn run_arc_run(
     // The arc runs on a card: every stage is a rotation of the calling
     // session's own tugcode ([B05]). Without a session there is nowhere for a
     // stage to go, so this refuses rather than recording an arc nobody can run.
-    let _session = calling_session_id().map_err(|_| {
+    let session = calling_session_id().map_err(|_| {
         "no session — an arc runs on a Session card, so run this from one or set TUG_SESSION_ID"
             .to_string()
     })?;
-    let root = arc_project_root(project)?;
+    let root = arc_project_root(project.clone())?;
     let (started, resumed, arc) = open_arc(&root, name, document)?;
+
+    // The record is written before the kick, so a tugcast that never hears
+    // about the arc still has one to find on its next pass.
+    post_dash_api(serde_json::json!({
+        "op": "arc_run",
+        "tug_session_id": session,
+        "project_dir": binding_project(project)?.to_string_lossy(),
+        "dash": name,
+    }))?;
 
     if json {
         print_ok(
@@ -968,7 +977,7 @@ fn run_arc_run(
             ),
             (false, false) => println!("Arc on '{}' is already open", name),
         }
-        println!("The runner is not wired yet, so no stage will rotate.");
+        println!("This session is bound to it; the first stage rotates when this turn ends.");
     }
     Ok(())
 }

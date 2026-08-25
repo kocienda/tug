@@ -1,0 +1,144 @@
+/**
+ * Reducer tests for `handleSessionStage` and the `stageNoteText` helper.
+ *
+ * A dash arc rotates a card onto a fresh claude session between stages. The
+ * boundary is display-only: one `system_note` with `source: "stage"` and
+ * nothing else moves — no phase change, no transcript clear, no compaction
+ * state touched. The rotation happens at idle, so the ordinary path is the
+ * effect: `append-stage-note`, which the store wrapper seats on the last
+ * committed turn.
+ *
+ * Pins:
+ *   - idle: state is reference-identical and exactly one `append-stage-note`
+ *     effect carries the composed text,
+ *   - mid-turn: the note lands in the open turn's scratch without displacing
+ *     the `user_message`,
+ *   - a continued implement stage reads its step range, en-dashed,
+ *   - the compaction divider's text is unchanged by any of this.
+ */
+
+import { describe, it, expect } from "bun:test";
+
+import {
+  reduce,
+  createInitialState,
+  type CodeSessionState,
+} from "@/lib/code-session-store/reducer";
+import type { CodeSessionEvent } from "@/lib/code-session-store/events";
+import { stageNoteText } from "@/lib/code-session-store/stages";
+import { compactionNoteText } from "@/lib/code-session-store/compaction";
+import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
+
+function fresh(): CodeSessionState {
+  return createInitialState(FIXTURE_IDS.TUG_SESSION_ID, "test", "new");
+}
+
+const SEND: CodeSessionEvent = {
+  type: "send",
+  text: "hi",
+  atoms: [],
+  content: [{ type: "text" as const, text: "hi" }],
+  turnKey: "k1",
+} as CodeSessionEvent;
+
+function stage(
+  name: string,
+  model: string,
+  document: string,
+  steps?: string,
+): CodeSessionEvent {
+  return {
+    type: "session_stage",
+    stage: name,
+    model,
+    document,
+    arc: "dash-arc",
+    ...(steps !== undefined ? { steps } : {}),
+  } as CodeSessionEvent;
+}
+
+describe("stageNoteText", () => {
+  it("names the stage, the model, and the document", () => {
+    expect(stageNoteText("devise", "opus", "dash/foo-brief.md")).toBe(
+      "devise · opus · dash/foo-brief.md",
+    );
+  });
+
+  it("names a continued implement stage by its step range, en-dashed", () => {
+    expect(stageNoteText("implement", "sonnet", "dash/foo.md", "4-9")).toBe(
+      "implement, continued · sonnet · steps 4–9",
+    );
+  });
+
+  it("leaves out an empty model and an empty document rather than rendering a gap", () => {
+    expect(stageNoteText("review", "", "dash/foo.md")).toBe("review · dash/foo.md");
+    expect(stageNoteText("review", "", "")).toBe("review");
+  });
+});
+
+describe("reducer — handleSessionStage", () => {
+  it("leaves state unchanged and emits one append-stage-note effect when idle", () => {
+    const before = fresh();
+    const { state: after, effects } = reduce(
+      before,
+      stage("devise", "opus", "dash/foo-brief.md"),
+    );
+    // The rotation happens at idle and the committed transcript lives in the
+    // wrapper, not reducer state — so the reducer hands the divider off.
+    expect(after).toBe(before);
+    const notes = effects.filter((e) => e.kind === "append-stage-note");
+    expect(notes.length).toBe(1);
+    if (notes[0] && notes[0].kind === "append-stage-note") {
+      expect(notes[0].text).toBe("devise · opus · dash/foo-brief.md");
+    }
+  });
+
+  it("appends a stage system_note to the active turn mid-turn", () => {
+    let s = fresh();
+    s = reduce(s, SEND).state;
+    s = reduce(s, {
+      type: "assistant_text",
+      msg_id: "m1",
+      block_index: 0,
+      text: "working",
+      is_partial: true,
+    } as CodeSessionEvent).state;
+    const { state, effects } = reduce(s, stage("review", "opus", "dash/foo.md"));
+    expect(effects.length).toBe(0);
+    const entry = state.scratch.get("k1");
+    expect(entry).toBeDefined();
+    const note = entry!.messages.find((m) => m.kind === "system_note");
+    expect(note).toBeDefined();
+    if (note && note.kind === "system_note") {
+      expect(note.source).toBe("stage");
+      expect(note.text).toBe("review · opus · dash/foo.md");
+    }
+    // The opening user_message is still at the head, undisturbed.
+    expect(entry!.messages[0]?.kind).toBe("user_message");
+  });
+
+  it("carries a continued implement stage's step range through to the note", () => {
+    const { effects } = reduce(
+      fresh(),
+      stage("implement", "opus", "dash/foo.md", "4-9"),
+    );
+    const note = effects.find((e) => e.kind === "append-stage-note");
+    expect(note).toBeDefined();
+    if (note && note.kind === "append-stage-note") {
+      expect(note.text).toBe("implement, continued · opus · steps 4–9");
+    }
+  });
+
+  it("touches nothing but the divider — no phase change, no compaction state", () => {
+    const before = fresh();
+    const { state: after } = reduce(before, stage("devise", "", "dash/foo.md"));
+    expect(after.phase).toBe(before.phase);
+    expect(after.compactionSeed).toBe(before.compactionSeed);
+    expect(after.scratch).toBe(before.scratch);
+  });
+
+  it("leaves the compaction divider's text unchanged", () => {
+    expect(compactionNoteText(48_000)).toBe("Session compacted · ~48k tokens");
+    expect(compactionNoteText()).toBe("Session compacted");
+  });
+});

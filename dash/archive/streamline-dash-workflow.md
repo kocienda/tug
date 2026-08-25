@@ -527,18 +527,18 @@ M02 and M04 both change tugcode and Rust, so each ends with `just build-app` bef
 | #step-1 | The arc record grammar and reader | done | `06af4c29a` |
 | #step-2 | `tugutil dash run` and `tugutil dash arc` | done | `7f4c9c8c0` |
 | #step-3 | Stage models in `[tugtool.dash]` | done | `702c79344` |
-| #step-4 | tugcode announces a stage | pending | — |
-| #step-5 | tugcast reads the stage as lineage | pending | — |
-| #step-6 | tugcast originates a stage on a card's tugcode | pending | — |
-| #step-7 | The arc transition predicate | pending | — |
-| #step-8 | The runner: tick, dispatch, resume | pending | — |
-| #step-9 | Implement-stage rotation at step boundaries | pending | — |
-| #step-10 | The skills' endings under an arc | pending | — |
-| #step-11 | The stage divider row | pending | — |
-| #step-12 | Lineage-aware restore | pending | — |
-| #step-13 | Arc faces: receipt, stopped, Z2 and Lens | pending | — |
-| #step-14 | Bare `/dash` hands off | pending | — |
-| #step-15 | Integration Checkpoint | pending | — |
+| #step-4 | tugcode announces a stage | done | `08f125abd` |
+| #step-5 | tugcast reads the stage as lineage | done | `532aae8bc` |
+| #step-6 | tugcast originates a stage on a card's tugcode | done | `aed0d526b` |
+| #step-7 | The arc transition predicate | done | `ae88f153d` |
+| #step-8 | The runner: tick, dispatch, resume | done | `b3ef85cdd` |
+| #step-9 | Implement-stage rotation at step boundaries | done | `9629bf4cf` |
+| #step-10 | The skills' endings under an arc | done | `a0f333a5f` |
+| #step-11 | The stage divider row | done | `791f450fd` |
+| #step-12 | Lineage-aware restore | done | `ddca97f57` |
+| #step-13 | Arc faces: receipt, stopped, Z2 and Lens | done | `b53ff6c1b` |
+| #step-14 | Bare `/dash` hands off | done | `7bd538165` |
+| #step-15 | Integration Checkpoint | done | `dc25fe779` |
 
 ---
 

@@ -13,6 +13,8 @@ pub mod changeset_all;
 pub mod claude_auth;
 pub mod claude_usage;
 pub mod code;
+pub mod dash_arc;
+pub mod dash_arc_runner;
 pub mod defaults;
 pub mod draft_engine;
 pub mod facts_library;

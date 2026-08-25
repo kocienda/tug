@@ -47,8 +47,10 @@ import type {
   RewindPreviewResult,
   RewindResult,
   ReplayWindow,
+  ReplayLineageEntry,
   SideQuestion,
   SideQuestionAnswer,
+  SessionStageSpec,
 } from "./types.ts";
 import { join, dirname, resolve } from "node:path";
 import { realpath, readdir } from "node:fs/promises";
@@ -3188,6 +3190,20 @@ export class SessionManager {
    */
   private currentModel: string | null = null;
   /**
+   * The dash name of the arc this session's claude runs under, or null when it
+   * runs under none.
+   *
+   * Recorded here beside {@link currentModel} rather than in
+   * {@link liveSpawnConfig}, which carries spawn *flags* and not environment:
+   * the variable must survive tugcode's own respawns (an `--effort` change, an
+   * `/add-dir`) exactly as the model does, and {@link spawnClaude} reads it
+   * into the child's environment on every one.
+   *
+   * Per-arc, not per-card: a fresh session started with no stage clears it, so
+   * the first plain `/new` after an arc spawns without `TUG_DASH_ARC`.
+   */
+  private currentArc: string | null = null;
+  /**
    * Working directories added via `/add-dir` ([#step-13c]), in add order. Like
    * {@link currentEffort}, tugcode owns the `--add-dir` flags and re-applies
    * these on every (re)spawn (claude has no live add-directory control verb
@@ -3727,6 +3743,17 @@ export class SessionManager {
     // stats (empirically captured against claude 2.1.158; see
     // dash/transport-exploration.md#rewind-files-control-request).
     scrubbedEnv.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = "true";
+
+    // Under an arc, the stage's claude carries the dash name so the three
+    // stage skills can read it from a Bash step and stop at their natural end
+    // instead of printing a chip or reviewing inline. Set per spawn from
+    // {@link currentArc}, so it survives every respawn the session makes; a
+    // session started with no stage clears the record and spawns without it.
+    if (this.currentArc !== null) {
+      scrubbedEnv.TUG_DASH_ARC = this.currentArc;
+    } else {
+      delete scrubbedEnv.TUG_DASH_ARC;
+    }
 
     return Bun.spawn([claudePath, ...args], {
       stdin: "pipe",
@@ -4616,7 +4643,92 @@ export class SessionManager {
     this.replayAbortResolve?.();
   }
 
-  async runReplay(window?: ReplayWindow): Promise<void> {
+  /**
+   * Translate every session in an arc's lineage *ahead of* the one being
+   * resumed, and return their frames in reading order ([P10]).
+   *
+   * An arc's stages each own their own JSONL, so a card that replays only its
+   * own shows a transcript beginning in the middle. The chain arrives on the
+   * `request_replay` payload, oldest ancestor first, and each entry that ran a
+   * stage is preceded by a `replay_stage` divider — including the last entry,
+   * the session being resumed, whose own turns come from the main pass right
+   * after these frames.
+   *
+   * Two frame kinds are dropped from an ancestor's output. The bracket pair
+   * (`replay_started` / `replay_complete`) belongs to the whole replay, which
+   * is one bracket, not one per session. The metadata frames
+   * (`system_metadata` / `session_capabilities`) describe the *live* session's
+   * model and capabilities, and an ancestor's would overwrite them with a
+   * stage that ended.
+   *
+   * Best-effort throughout: a missing or unreadable ancestor JSONL
+   * contributes its divider and no turns, because a restore that shows less
+   * history is better than one that fails.
+   */
+  private async collectLineagePrefix(
+    lineage: ReplayLineageEntry[],
+    canonicalProjectDir: string,
+  ): Promise<OutboundMessage[]> {
+    const frames: OutboundMessage[] = [];
+    for (let i = 0; i < lineage.length; i++) {
+      const entry = lineage[i]!;
+      if (entry.stage !== undefined && entry.stage !== "") {
+        frames.push({
+          type: "replay_stage",
+          stage: entry.stage,
+          model: entry.model ?? "",
+          document: entry.document ?? "",
+          arc: entry.arc ?? "",
+          ipc_version: 2,
+        });
+      }
+      // The last entry is the session being resumed; the main pass emits its
+      // turns. Only its divider belongs here.
+      if (i === lineage.length - 1) continue;
+
+      const path = jsonlPathFor(
+        this.claudeProjectsRoot,
+        canonicalProjectDir,
+        entry.sessionId,
+      );
+      const read = await this.jsonlReader(path);
+      if (read.kind !== "ok") {
+        logReplay("lineage_entry_unreadable", {
+          session_id: this.sessionId,
+          claude_session_id: entry.sessionId,
+          kind: read.kind,
+        });
+        continue;
+      }
+      const iter = translateJsonlSession(
+        { ...read, claudeSessionId: entry.sessionId },
+        {
+          telemetry: this.replayTelemetry,
+          timeSliceMs: this.replayTimeSliceMs,
+          // An ancestor is finished by definition: any cycle left open at its
+          // end-of-JSONL has no live turn to continue it.
+          synthesizeDanglingTerminal: true,
+        },
+      );
+      for await (const msg of iter) {
+        if (
+          msg.type === "replay_started" ||
+          msg.type === "replay_complete" ||
+          msg.type === "system_metadata" ||
+          msg.type === "session_capabilities"
+        ) {
+          continue;
+        }
+        frames.push(msg);
+      }
+    }
+    return frames;
+  }
+
+  async runReplay(
+    window?: ReplayWindow,
+    lineage?: ReplayLineageEntry[],
+  ): Promise<void> {
     // Pre-Step-5 the early-return `if (this.sessionMode !== "resume") return;`
     // gated runReplay by the original spawn mode. That assumption (mode=new
     // ⇒ no JSONL to replay) holds at the moment of spawn but rots once the
@@ -4746,6 +4858,22 @@ export class SessionManager {
           entries: subagents.reduce((n, t) => n + t.entries.length, 0),
         });
       }
+    }
+
+    // The arc's earlier stages, translated up front so the loop below stays
+    // the single-session loop it has always been: with no lineage this is an
+    // empty array and every byte on the wire is what it was before lineage
+    // existed ([P10]).
+    const lineagePrefix: OutboundMessage[] =
+      lineage !== undefined && lineage.length > 1
+        ? await this.collectLineagePrefix(lineage, canonicalProjectDir)
+        : [];
+    if (lineagePrefix.length > 0) {
+      logReplay("lineage_prefix", {
+        session_id: this.sessionId,
+        sessions: lineage!.length,
+        frames: lineagePrefix.length,
+      });
     }
 
     // Exit race only applies when claude is alive. In Step R0d's
@@ -4948,6 +5076,11 @@ export class SessionManager {
             // anything else. See `injectPendingRowSynthetics`.
             writeRaw(msg);
             bracketOpened = true;
+            // The arc's earlier stages, in order, ahead of this session's own
+            // turns — inside the one bracket, because one restore is one
+            // replay however many JSONLs it read ([P10]). Empty for every
+            // card that is not an arc.
+            for (const frame of lineagePrefix) batch.push(frame);
             if (!pendingRowSyntheticsInjected) {
               pendingRowSyntheticsInjected = true;
               this.injectPendingRowSynthetics(input, (m) => batch.push(m));
@@ -7521,11 +7654,10 @@ export class SessionManager {
         };
       }
       // Announce the parentage BEFORE the synthetic `session_init` that
-      // records the spawn: tugcast allocates the fork's lineage callsign
-      // (`<root>-<Letter><Number>`) against the parent and stages it, so the
-      // fork is recorded under a name that says where it came from instead of
-      // an unrelated fresh pair. The rewound-to prompt uuid is the branch
-      // point — two forks taken there share a letter.
+      // records the spawn: tugcast transfers the parent's callsign to the fork
+      // and stages it, so the fork is recorded as the same line of work rather
+      // than as an unrelated fresh pair. The rewound-to prompt uuid is the
+      // branch point.
       writeLine({
         type: "session_fork",
         parentSessionId: liveId,
@@ -7955,9 +8087,24 @@ export class SessionManager {
   /**
    * Start a fresh session with no prior history.
    * Kills current process and respawns without --resume.
+   *
+   * `stage` is present only when the server-driven arc originated this
+   * rotation. It does two things and nothing else: it records the arc name so
+   * every spawn from here carries `TUG_DASH_ARC`, and it announces the fresh
+   * session as lineage before the synthetic `session_init` — the placement
+   * {@link rewindSession}'s fork announcement already uses, because the bridge
+   * must stage the identity transfer before the `session_init` that consumes
+   * it.
+   *
+   * With no stage the path is byte-identical to what a plain `/new` from the
+   * deck emits today, and the arc record is *cleared* — the variable belongs
+   * to an arc, not to a card.
    */
-  async handleNewSession(): Promise<void> {
+  async handleNewSession(stage?: SessionStageSpec): Promise<void> {
+    const parentSessionId = this.resolveClaudeId();
     await this.killAndCleanup();
+
+    this.currentArc = stage?.arc ?? null;
 
     // Generate a new id for the fresh session and claim it with claude
     // via --session-id so downstream persistence and routing have a
@@ -7965,6 +8112,19 @@ export class SessionManager {
     this.sessionId = crypto.randomUUID();
     this.claudeProcess = this.spawnClaude(this.sessionId, "session-id");
     this.startStdoutDrain(this.claudeProcess);
+    if (stage) {
+      writeLine({
+        type: "session_stage",
+        parentSessionId,
+        newSessionId: this.sessionId,
+        stage: stage.name,
+        model: this.currentModel ?? "",
+        document: stage.document,
+        arc: stage.arc,
+        steps: stage.steps,
+        ipc_version: 2,
+      });
+    }
     // Synthesize a session_init for tugcast immediately — the
     // claude id is known synchronously here (we minted it above), so
     // no need to wait for claude's own emission.
@@ -7974,14 +8134,17 @@ export class SessionManager {
   /**
    * Dispatch a session command to the appropriate session management method.
    */
-  async handleSessionCommand(command: "fork" | "continue" | "new"): Promise<void> {
+  async handleSessionCommand(
+    command: "fork" | "continue" | "new",
+    stage?: SessionStageSpec,
+  ): Promise<void> {
     switch (command) {
       case "fork":
         return this.handleSessionFork();
       case "continue":
         return this.handleSessionContinue();
       case "new":
-        return this.handleNewSession();
+        return this.handleNewSession(stage);
     }
   }
 

@@ -460,7 +460,7 @@ fn apply_draft_request(
 /// terminal join fires). Spec S04, [P04].
 #[derive(serde::Deserialize)]
 struct DashApiRequest {
-    /// `bind` | `unbind` | `dash_gone`.
+    /// `bind` | `arc_run` | `unbind` | `dash_gone`.
     op: String,
     #[serde(default)]
     tug_session_id: Option<String>,
@@ -600,6 +600,32 @@ fn apply_dash_request(
             ) else {
                 return DashApiOutcome::Error(
                     "bind needs tug_session_id, project_dir, and dash".to_string(),
+                );
+            };
+            crate::dash_api::bind(ledger, &project, session, dash)
+        }
+        // The arc runs on the calling card, so arriving is a binding: the tick
+        // resolves "which arc does this session own" through it, and a tugcast
+        // restart resumes by walking the bindings rather than guessing which
+        // projects have logs ([P01]). `ensure_dash_id` mints the owner key as
+        // a git config entry and needs no branch, so a pre-branch arc binds
+        // exactly as a created dash does — and `dash create` later finds the
+        // same id.
+        //
+        // It binds and returns; it never rotates. The request arrives from
+        // inside the conversation session's own turn — the model typing
+        // `tugutil dash run` is mid-turn on the card the arc is about — so
+        // rotating on receipt would kill claude in the middle of the turn that
+        // asked for the arc. The first rotation is that session's own idle
+        // transition ([P05]).
+        "arc_run" => {
+            let (Some(session), Some(project), Some(dash)) = (
+                req.tug_session_id.as_deref(),
+                resolved_project(),
+                req.dash.as_deref(),
+            ) else {
+                return DashApiOutcome::Error(
+                    "arc_run needs tug_session_id, project_dir, and dash".to_string(),
                 );
             };
             crate::dash_api::bind(ledger, &project, session, dash)

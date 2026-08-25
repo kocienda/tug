@@ -248,6 +248,15 @@
   max-width: 100%;
 }
 
+/* A stopped arc, said in the only currency the cell has spare: color. The
+   fraction and the glyph keep saying exactly what they said, because they are
+   still true — the arc stopping does not un-walk a step. What the tint adds is
+   that nothing is going to advance them until somebody resumes it, and the
+   placard's meta line one press away says which stage and why. No box moves. */
+.session-telemetry-status-value-dash[data-arc-stopped="true"] {
+  color: var(--tug7-element-global-text-normal-danger-rest);
+}
+
 /* `tabular-nums` for the reason every other ticking figure in this row has
    it: a fraction that reflowed as its digits changed would jitter the pair. */
 .session-telemetry-status-dash-fraction {

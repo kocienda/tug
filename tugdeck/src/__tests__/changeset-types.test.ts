@@ -279,6 +279,42 @@ describe("aggregate changeset wire contract", () => {
     expect(isChangesetEntry(joinless)).toBe(true);
   });
 
+  test("the arc guard admits absence and every sparse shape, and rejects drift", () => {
+    const withArc = (arc: unknown) => ({
+      kind: "dash",
+      owner_id: "tugdash/x",
+      display_name: "x",
+      base: "main",
+      rounds: 0,
+      worktree: "/repo/.tug/worktrees/x",
+      worktree_dirty: false,
+      files: [],
+      arc,
+    });
+
+    // No arc at all is the ordinary case — most dashes are hand-driven, and a
+    // server that predates arcs sends nothing. Both have to read as an entry.
+    expect(isChangesetEntry(withArc(undefined))).toBe(true);
+    // Every field is optional: an arc that has started but not yet rotated has
+    // no stage to name, and saying so is not drift.
+    expect(isChangesetEntry(withArc({}))).toBe(true);
+    expect(isChangesetEntry(withArc({ stage: "devise" }))).toBe(true);
+    expect(
+      isChangesetEntry(
+        withArc({ stage: "review", stopped: "lint failed", stopped_stage: "review" }),
+      ),
+    ).toBe(true);
+    expect(isChangesetEntry(withArc({ stage: "implement", done: true }))).toBe(true);
+
+    // Drift is rejected rather than passed through, so a surface reading
+    // `arc.stopped` can trust it is a string it can render.
+    expect(isChangesetEntry(withArc({ stage: 3 }))).toBe(false);
+    expect(isChangesetEntry(withArc({ stopped: true }))).toBe(false);
+    expect(isChangesetEntry(withArc({ stopped_stage: 1 }))).toBe(false);
+    expect(isChangesetEntry(withArc({ done: "yes" }))).toBe(false);
+    expect(isChangesetEntry(withArc("devise"))).toBe(false);
+  });
+
   test("the join guard rejects shape drift rather than passing it through", () => {
     const withJoin = (join: unknown) => ({
       kind: "dash",

@@ -279,6 +279,16 @@ const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
   // the live and replay paths. The reducer folds it into `compactionSeed` so
   // the carry-forward block restores; no phase change, no transcript ink.
   "compact_summary",
+  // The server rotated this card onto a fresh claude session for the next
+  // stage of a dash arc. The reducer appends a stage `system_note` divider so
+  // the arc reads as one scroll; no phase change, and the transcript survives
+  // the rotation.
+  "session_stage",
+  // The same boundary, replayed: tugcode emits this between the JSONLs of an
+  // arc's stages during a lineage restore. A separate wire type from
+  // `session_stage` because a replayed rotation is only a divider — the
+  // identity transfer it names already happened.
+  "replay_stage",
   // tugcode's forward-compat catch-all: claude streamed a top-level event
   // type this build doesn't translate. The reducer folds it into
   // `unknownEvent`, driving a soft warn banner; no phase change.
@@ -1952,6 +1962,21 @@ export class CodeSessionStore {
           ...(typeof ev.timestamp === "number" ? { timestamp: ev.timestamp } : {}),
         } as unknown as CodeSessionEvent;
       }
+      if (ev.type === "session_stage" || ev.type === "replay_stage") {
+        // The arc's stage announcement, straight off tugcode's IPC line. Only
+        // the display fields are carried across: the session ids belong to the
+        // bridge's identity transfer, not to the divider.
+        return {
+          type: "session_stage",
+          stage: typeof ev.stage === "string" ? ev.stage : "",
+          model: typeof ev.model === "string" ? ev.model : "",
+          document: typeof ev.document === "string" ? ev.document : "",
+          arc: typeof ev.arc === "string" ? ev.arc : "",
+          ...(typeof ev.steps === "string" && ev.steps.length > 0
+            ? { steps: ev.steps }
+            : {}),
+        } as unknown as CodeSessionEvent;
+      }
       if (ev.type === "compact_summary") {
         // The compaction summary string — folded into `compactionSeed` so
         // the carry-forward block restores (live and on reload).
@@ -2538,6 +2563,30 @@ export class CodeSessionStore {
               ...(typeof effect.compactionPostTotal === "number"
                 ? { compactionPostTotal: effect.compactionPostTotal }
                 : {}),
+            };
+            this._transcript = nextTranscript;
+          }
+          break;
+        }
+        case "append-stage-note": {
+          // The arc rotated at idle, so there is no open turn: seat the stage
+          // divider on the last committed turn, copy-on-write, with a key
+          // minted from that turn's `turnKey` + `messages.length`. Same shape
+          // as `append-compact-note` above; empty transcript ⇒ no-op.
+          if (this._transcript.length > 0) {
+            const lastIndex = this._transcript.length - 1;
+            const turn = this._transcript[lastIndex];
+            const note: SystemNote = {
+              kind: "system_note",
+              messageKey: systemNoteKey(turn.turnKey, turn.messages.length),
+              createdAt: Date.now(),
+              text: effect.text,
+              source: "stage",
+            };
+            const nextTranscript = [...this._transcript];
+            nextTranscript[lastIndex] = {
+              ...turn,
+              messages: [...turn.messages, note],
             };
             this._transcript = nextTranscript;
           }

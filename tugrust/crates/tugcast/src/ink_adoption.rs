@@ -339,7 +339,7 @@ mod tests {
             .record_spawn("fork", "ws", "/proj", "card-1", 2, Some("stocky-pixie"))
             .unwrap();
         sessions
-            .set_fork_provenance("fork", "parent", "point")
+            .set_fork_provenance("fork", "parent", Some("point"))
             .unwrap();
 
         let shell = ShellLedger::open_in_memory().unwrap();
@@ -406,7 +406,7 @@ mod tests {
             .record_spawn("stranger", "ws", "/proj", "card-1", 3, None)
             .unwrap();
         sessions
-            .set_fork_provenance("fork", "parent", "point")
+            .set_fork_provenance("fork", "parent", Some("point"))
             .unwrap();
 
         let shell = ShellLedger::open_in_memory().unwrap();

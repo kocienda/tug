@@ -39,6 +39,7 @@ import type {
   OutputTruncatedEvent,
   CompactBoundaryEvent,
   CompactSummaryEvent,
+  SessionStageEvent,
   UnknownEventEvent,
   AssistantTextEvent,
   CancelQueuedSendActionEvent,
@@ -117,6 +118,7 @@ import type {
 } from "./types";
 import { isInkOrigin } from "./types";
 import { compactionNoteText, isCompactionSubmission } from "./compaction";
+import { stageNoteText } from "./stages";
 import {
   applyJobAgentStructured,
   applyJobChildResult,
@@ -4042,6 +4044,50 @@ function handleCompactBoundary(
 }
 
 /**
+ * `session_stage` reducer handler — appends the arc's stage divider
+ * (`source: "stage"`) and touches nothing else. The rotation replaces the
+ * card's claude session; the transcript deliberately survives it, so the
+ * whole arc is one scroll with named boundaries.
+ *
+ * The runner rotates a session only once it has gone idle, so the ordinary
+ * path is the no-open-turn one: an `append-stage-note` effect the wrapper
+ * seats on the last committed turn (the committed transcript lives there,
+ * not in reducer state — [D04]). The mid-turn branch mirrors
+ * `handleCompactBoundary`'s so a divider is never swallowed by a turn that
+ * happens to be open.
+ */
+function handleSessionStage(
+  state: CodeSessionState,
+  event: SessionStageEvent,
+): { state: CodeSessionState; effects: Effect[] } {
+  const text = stageNoteText(event.stage, event.model, event.document, event.steps);
+  const turnKey = state.pendingTurn?.turnKey;
+  const entry = turnKey === undefined ? undefined : state.scratch.get(turnKey);
+  if (turnKey === undefined || entry === undefined) {
+    return { state, effects: [{ kind: "append-stage-note", text }] };
+  }
+  const note: SystemNote = {
+    kind: "system_note",
+    messageKey: systemNoteKey(turnKey, entry.systemNoteSeq),
+    createdAt: Date.now(),
+    text,
+    source: "stage",
+  };
+  const nextEntry: ScratchEntry = {
+    ...entry,
+    messages: [...entry.messages, note],
+    systemNoteSeq: entry.systemNoteSeq + 1,
+  };
+  return {
+    state: {
+      ...state,
+      scratch: withScratchEntry(state.scratch, turnKey, nextEntry),
+    },
+    effects: [],
+  };
+}
+
+/**
  * `compact_summary` reducer handler — folds the compaction summary into
  * `compactionSeed` so the carry-forward block renders (live and on reload),
  * latest-wins ([P05]). Preserves a `preTokens` a preceding `compact_boundary`
@@ -6064,6 +6110,8 @@ export function reduce(
       return handleCompactBoundary(state, event);
     case "compact_summary":
       return handleCompactSummary(state, event);
+    case "session_stage":
+      return handleSessionStage(state, event);
     case "unknown_event":
       return handleUnknownEvent(state, event);
     case "streaming_usage":

@@ -19,6 +19,13 @@
  * when the server actually sent a summary, so a landing this card merely
  * watched leaves no ink here.
  *
+ * A dash arc's ending rides it too ([P12]), and is the one row here nobody
+ * asked for: the other three settle a round-trip this card started, while an
+ * arc finishes on a server tick with the user reading something else. So its
+ * edge is not a phase but the ledger row's identity appearing, and it is
+ * seeded at mount — a card that opens *after* an arc ended already replayed
+ * that row from the ledger, and must not paint a second copy of it.
+ *
  * Laws: [L22] store→store wiring observes the verb store's own subscription
  * directly (no useSyncExternalStore → useEffect round-trip).
  *
@@ -66,9 +73,19 @@ export function useLandingReceipts(
     const verbStore = getChangesetVerbStore();
     if (verbStore === null) return;
     const commitKey = changesController.entryKey;
+    // Read once, from inside the effect: a store's tug session id is fixed for
+    // its whole life, so this is identity rather than state and needs no
+    // subscription of its own ([L02] governs what React *renders* from).
+    const tugSessionId = codeSessionStore.getSnapshot().tugSessionId;
     let prevCommit: CommitPhase = verbStore.commitState(commitKey).phase;
     let prevJoin: JoinPhase = verbStore.joinState(commitKey).phase;
     let prevDiscard: DiscardPhase = verbStore.discardState(commitKey).phase;
+    // The arc receipt has no phase to watch — it either exists for this
+    // session or it does not — so the edge is the row identity changing.
+    // Seeded with whatever is already there so a card mounting after an arc
+    // ended does not re-append a row its restore has already replayed.
+    let prevArcReceipt: number | null =
+      verbStore.arcReceipt(tugSessionId)?.receiptId ?? null;
 
     /**
      * Append one landing's summary as a shell-exchange row ([D111]), under the
@@ -114,6 +131,14 @@ export function useLandingReceipts(
         append("/dash-discard", discarded.summary, discarded.receiptId);
       }
       prevDiscard = discarded.phase;
+
+      // The arc's ending ([P12]): one receipt row, and no `/join` chip —
+      // the join offer is the shade's to raise ([D147], [D152]).
+      const arc = verbStore.arcReceipt(tugSessionId);
+      if (arc !== null && arc.receiptId !== prevArcReceipt) {
+        append("/dash-arc", arc.summary, arc.receiptId);
+      }
+      prevArcReceipt = arc?.receiptId ?? prevArcReceipt;
     };
 
     return verbStore.subscribe(onChange);

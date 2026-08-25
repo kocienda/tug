@@ -229,6 +229,20 @@ export interface AppendCompactNoteEffect {
 }
 
 /**
+ * Seat an arc stage divider on the LAST committed turn. The counterpart of
+ * {@link AppendCompactNoteEffect} for a `session_stage`, and the ordinary
+ * path rather than the fallback: the runner rotates a session only once it
+ * has gone idle, so there is no open turn to attach to. The committed
+ * transcript lives in the store wrapper, not reducer state ([D04]), so the
+ * reducer asks for the append instead of performing it. An empty transcript
+ * makes it a no-op.
+ */
+export interface AppendStageNoteEffect {
+  kind: "append-stage-note";
+  text: string;
+}
+
+/**
  * Publish the latest live intra-turn token usage to the store's streaming
  * document (`telemetry.liveTurnUsage`) instead of reducer state. Usage
  * frames are pure display telemetry at high frequency; keeping them out of
@@ -256,7 +270,8 @@ export type Effect =
   | RecordTelemetryEffect
   | RecordContextBreakdownEffect
   | TruncateTranscriptEffect
-  | AppendCompactNoteEffect;
+  | AppendCompactNoteEffect
+  | AppendStageNoteEffect;
 
 export function isWriteInflight(e: Effect): e is WriteInflightEffect {
   return e.kind === "write-inflight";

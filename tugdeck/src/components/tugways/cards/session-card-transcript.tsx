@@ -84,6 +84,7 @@ import React, {
 import {
   AlarmClock,
   Megaphone,
+  Milestone,
   Bell,
   CircleDashed,
   ClipboardCheck,
@@ -1238,6 +1239,31 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
                   findable
                 />
               }
+              tone="quiet"
+            />
+          </div>,
+        );
+        continue;
+      }
+      if (message.source === "stage") {
+        // A dash arc's stage boundary: the server rotated this card onto a
+        // fresh claude session, and the row marks where one stage ended and
+        // the next began. The transcript above it is the previous stage's and
+        // stays exactly where it is, which is what makes an arc one scroll.
+        // Same quiet-line substrate as the wake chip and the notice row, with
+        // a rule across the row saying "boundary" rather than "message";
+        // appearance is CSS-only ([L06]).
+        elements.push(
+          <div
+            key={message.messageKey}
+            className="session-card-transcript-stage"
+            data-slot="stage-divider"
+            data-source="stage"
+          >
+            <TugQuietLine
+              icon={<Milestone size={16} aria-hidden="true" />}
+              label="stage"
+              subject={message.text}
               tone="quiet"
             />
           </div>,

@@ -65,6 +65,14 @@ function pathList(paths: ReadonlyArray<string>): string {
  * The line's tone-colored facts, most urgent first — pure, so the ordering
  * and the wording are a table test rather than a DOM one.
  *
+ * A stopped arc leads: it is the one fact on the line that means *nothing is
+ * advancing this dash and nobody has been told* — the arc rotates on a server
+ * tick, so unlike every other fact here there is no gesture whose absence
+ * explains the stillness. A running arc says so quietly at the other end,
+ * because a stage in flight is the ordinary case and needs no urgency; the
+ * arc's terminal `done` says nothing at all, since the join offer is what
+ * speaks then ([P12]).
+ *
  * A conflicted replay is a state somebody has to resolve; base dirt
  * overlapping the dash's own files is a warning about work that is not the
  * machine's to touch; uncommitted worktree bytes are ordinary mid-run and
@@ -78,6 +86,16 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
   const overlap = entry.base_overlap ?? [];
   const ahead = entry.base_ahead ?? 0;
   const settled = entry.last_replay;
+  const arc = entry.arc;
+  if (arc !== undefined && arc.stopped !== undefined) {
+    const stage = arc.stopped_stage ?? arc.stage;
+    facts.push({
+      key: "arc-stopped",
+      label: stage !== undefined ? `arc stopped · ${stage}` : "arc stopped",
+      tooltip: `The arc stopped${stage !== undefined ? ` in its ${stage} stage` : ""}: ${arc.stopped}\nResume it with \`tugutil dash run ${entry.display_name}\`.`,
+      tone: "danger",
+    });
+  }
   if (conflicts.length > 0) {
     facts.push({
       key: "conflicts",
@@ -120,6 +138,19 @@ export function dashMetaFacts(entry: DashChangesetEntry): DashMetaFact[] {
       key: "replayed",
       label: "replayed",
       tooltip: `Replayed ${settled}`,
+      tone: "subtle",
+    });
+  }
+  if (
+    arc !== undefined &&
+    arc.stopped === undefined &&
+    arc.done !== true &&
+    arc.stage !== undefined
+  ) {
+    facts.push({
+      key: "arc",
+      label: `arc · ${arc.stage}`,
+      tooltip: `A dash arc is running this dash; its ${arc.stage} stage is in flight.`,
       tone: "subtle",
     });
   }

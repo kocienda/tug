@@ -19,6 +19,7 @@ import { useMemo } from "react";
 
 import { useChangesetAll } from "./changeset-all-store";
 import type {
+  DashArcState,
   DashChangesetEntry,
   WorkspacesChangesetSnapshot,
 } from "./changeset-types";
@@ -31,6 +32,9 @@ export interface DashSessionFact {
   readonly name: string;
   /** Derived lifecycle stage, or null from a sender that sends none. */
   readonly stage: string | null;
+  /** The arc driving this dash, or null when none is — which is every dash
+   *  somebody started by hand. Beside {@link stage}, never folded into it. */
+  readonly arc: DashArcState | null;
   /** `reviewed` | `stale` | `never-reviewed`, or null when unknown / no plan. */
   readonly review: string | null;
   /** The owning project's directory (`project_dir` from the snapshot). */
@@ -82,6 +86,7 @@ export function buildDashSessionIndex(
         ownerId: entry.owner_id,
         name: entry.display_name,
         stage: entry.stage ?? null,
+        arc: entry.arc ?? null,
         review: entry.review ?? null,
         projectDir: project.project_dir,
         stepCurrent: entry.step_current ?? null,

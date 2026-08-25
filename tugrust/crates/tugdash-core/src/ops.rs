@@ -1002,6 +1002,29 @@ pub struct DashDetailFile {
     pub status: String,
 }
 
+/// What a server-driven arc ([P01]) is doing on this dash, when one is running
+/// it at all — `None` for every dash created by hand.
+///
+/// Reported **beside** [`DashDetail::stage`] and never folded into it.
+/// [`derive_stage`] answers "what is this dash doing in git"; this answers
+/// "which stage of the arc is driving it". The two disagree routinely and both
+/// readings are true: a dash whose git stage reads `working` may be sitting on
+/// an arc that stopped in `review`, and a surface that collapsed them would
+/// have no way to say so.
+#[derive(Debug, Clone, Serialize)]
+pub struct DashArcState {
+    /// The stage last rotated, or `None` before the first rotation lands.
+    pub stage: Option<String>,
+    /// Why the arc stopped, when it did ([P11]). Cleared by the next rotation,
+    /// because resuming a stopped arc *is* rotating it again.
+    pub stopped: Option<String>,
+    /// The stage it stopped *in*, which is not necessarily [`Self::stage`]: a
+    /// refused rotation stops in the stage it was trying to leave.
+    pub stopped_stage: Option<String>,
+    /// Whether the arc reached its terminal line.
+    pub done: bool,
+}
+
 /// Everything a display needs about one dash, composed from git in one place.
 ///
 /// This is the shared composition [`dash_detail_entries_in`] returns — the
@@ -1093,6 +1116,9 @@ pub struct DashDetail {
     /// line for its current generation, ISO-8601 UTC. `None` for a dash created
     /// before creation wrote a birth record and never logged anything since.
     pub last_activity: Option<String>,
+    /// The arc driving this dash ([P01]), when one is. See [`DashArcState`] for
+    /// why it sits beside [`Self::stage`] rather than inside it.
+    pub arc: Option<DashArcState>,
 }
 
 /// Parse `git diff --name-status` output. Rename and copy lines
@@ -1217,10 +1243,20 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
         dash_changed.extend(worktree_dirt_tracked.iter().cloned());
         let overlap = intersect_base_dirt(&base_dirt, &base_untracked, &dash_changed);
 
-        // One dash-log read per dash per recompute — the log is small,
-        // append-only, and parsed line by line. No plan markdown is read here
-        // ([P01]): the declarations are the record this path derives from.
+        // Two dash-log reads per dash per recompute — the declarations and the
+        // arc record, each folding the same small append-only file through its
+        // own typed reader. No plan markdown is read here ([P01]): the
+        // declarations are the record this path derives from.
         let declarations = read_declarations(repo_root, name);
+        let arc = crate::arc::read_arc(repo_root, name).map(|record| DashArcState {
+            stage: record.current_stage().map(|s| s.as_str().to_owned()),
+            stopped_stage: record
+                .stopped
+                .as_ref()
+                .map(|(stage, _)| stage.as_str().to_owned()),
+            stopped: record.stopped.as_ref().map(|(_, reason)| reason.clone()),
+            done: record.done,
+        });
         let run_span = crate::dash::run_fraction(&declarations);
         // The other reading of a join in flight, and deliberately the wide
         // one: any teardown under way — live or left by a crash — means this
@@ -1266,6 +1302,7 @@ pub fn dash_detail_entries_in(repo_root: &Path) -> Vec<DashDetail> {
             worktree_dirty_tracked,
             last_replay: declarations.last_replay.clone(),
             last_activity: declarations.last_activity.clone(),
+            arc,
             base,
             rounds,
             worktree_rel,
@@ -5266,6 +5303,47 @@ Some context.
         let entry = built.iter().find(|d| d.name == "feed-dash").unwrap();
         assert_eq!(entry.stage, "built");
         assert_eq!(entry.step_current, Some(1));
+    }
+
+    /// The arc rides the same composition, **beside** the derived stage rather
+    /// than inside it — the property that lets a face say `implementing` and
+    /// `arc stopped in review` at once, which is exactly what a stopped arc is.
+    #[serial]
+    #[test]
+    fn detail_entries_carry_the_arc_beside_the_derived_stage() {
+        let (_temp, root) = stepped_dash("arc-dash");
+
+        // A hand-driven dash has no arc, and says so by absence.
+        let plain = dash_detail_entries_in(&root);
+        let entry = plain.iter().find(|d| d.name == "arc-dash").unwrap();
+        assert!(entry.arc.is_none(), "no arc lines, nothing to say");
+
+        crate::arc::append_arc_start(&root, "arc-dash", "dash/arc-dash-brief.md").unwrap();
+        crate::arc::append_arc_stage(
+            &root,
+            "arc-dash",
+            crate::arc::ArcStage::Review,
+            "claude-b",
+            Some("opus"),
+        )
+        .unwrap();
+        let running = dash_detail_entries_in(&root);
+        let entry = running.iter().find(|d| d.name == "arc-dash").unwrap();
+        let arc = entry.arc.as_ref().expect("the arc composes");
+        assert_eq!(arc.stage.as_deref(), Some("review"));
+        assert!(arc.stopped.is_none() && !arc.done);
+
+        crate::arc::append_arc_stop(&root, "arc-dash", crate::arc::ArcStage::Review, "lint failed")
+            .unwrap();
+        let stopped = dash_detail_entries_in(&root);
+        let entry = stopped.iter().find(|d| d.name == "arc-dash").unwrap();
+        let arc = entry.arc.as_ref().expect("a stopped arc still composes");
+        assert_eq!(arc.stopped.as_deref(), Some("lint failed"));
+        assert_eq!(arc.stopped_stage.as_deref(), Some("review"));
+        assert_eq!(
+            entry.stage, "working",
+            "the git stage is untouched by the arc's — both readings stand"
+        );
     }
 
     /// The recorded plan path rides the same composition, so a card bound to a

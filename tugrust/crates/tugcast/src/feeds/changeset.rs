@@ -1425,6 +1425,14 @@ async fn dash_entries(
             run_length: detail.run_length,
             step_title: detail.step_title,
             last_activity: detail.last_activity,
+            arc: detail
+                .arc
+                .map(|arc| tugcast_core::types::DashArcState {
+                    stage: arc.stage,
+                    stopped: arc.stopped,
+                    stopped_stage: arc.stopped_stage,
+                    done: arc.done,
+                }),
             plan_path: detail.plan_path,
             review,
             steps,
@@ -3291,6 +3299,7 @@ Some context.
             last_replay: None,
             replay_conflict_paths: Vec::new(),
             join: None,
+            arc: None,
         };
         let demo = dash("tugdash/demo#1723500000000-a1b2c3", "demo");
         let demo2 = dash("tugdash/demo2#1723500000001-d4e5f6", "demo2");
@@ -3375,6 +3384,7 @@ Some context.
                     last_replay: None,
                     replay_conflict_paths: Vec::new(),
                     join: None,
+                    arc: None,
                 },
                 ChangesetEntry::Session {
                     owner_id: "sess-writer".to_owned(),

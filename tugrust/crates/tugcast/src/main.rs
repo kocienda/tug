@@ -1927,6 +1927,23 @@ async fn main() {
         turn_complete_rx,
     ));
 
+    // The arc runner: rotate a server-driven dash arc's next stage onto the
+    // card it is bound to. Its primary wake is the same idle transition
+    // base-motion takes, on a sibling channel because an mpsc has one consumer
+    // ([P05]); the aggregate changeset watch is the slower floor, for a stage
+    // that died without ever ending a turn.
+    let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
+    let _ = supervisor.arc_tick_tx.set(arc_tick_tx);
+    tokio::spawn(feeds::dash_arc_runner::run_arc_engine(
+        feeds::dash_arc_runner::ArcContext {
+            supervisor: Arc::clone(&supervisor),
+            session_ledger: Arc::clone(&ledger),
+            cancel: cancel.clone(),
+        },
+        arc_tick_rx,
+        changeset_all_rx.clone(),
+    ));
+
     // JOTS feed — watches the machine-global `jots.json` and pushes the whole
     // document to every client. The nudge lets `PUT /api/jots` force an
     // immediate rebuild. The migration runs first so a user arriving from a
@@ -2324,8 +2341,14 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
             }
         }
         if let Some(parent) = session.forked_from_session_id.as_deref() {
-            let fork_point = session.fork_point.as_deref().unwrap_or("seeded-fork-point");
-            if let Err(e) = ledger.set_fork_provenance(&session.session_id, parent, fork_point) {
+            // A seeded row's fork point passes through as it was given,
+            // including absent: the column takes `NULL` now, so a stand-in
+            // value would be inventing a branch point the seed never named.
+            if let Err(e) = ledger.set_fork_provenance(
+                &session.session_id,
+                parent,
+                session.fork_point.as_deref(),
+            ) {
                 eprintln!("tugcast: error: set_fork_provenance failed: {e}");
                 std::process::exit(1);
             }

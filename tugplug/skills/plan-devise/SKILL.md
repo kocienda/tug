@@ -89,6 +89,15 @@ Then run the **cold-reader test**: could a fresh session, given only this docume
 
 ### 5. Review it, or hand the review over
 
+**First, check whether an arc is running you.** Run `printenv TUG_DASH_ARC` — when it names a dash, this turn is that arc's **devise stage**, and the whole fork below is off:
+
+- Finish at the natural end — a written plan, lint-clean, at the path you were given — and stop there.
+- **Do not review it, on any model, including Opus.** The review is the arc's *next stage*: its own fresh session, on the model the project declared for it, reading the plan cold. That cold read is the point, and reviewing inline destroys it by handing the review the author's context.
+- **Print no chip and name no next command.** Nobody is going to click it. The runner is watching the documents — it reads `tugutil plan lint` and `tugutil plan status` on the plan you just wrote and rotates the stage itself.
+- Say what you wrote and where, and end the turn. Ending the turn *is* the hand-off.
+
+Everything from here to the end of this section is the hand-driven path, and it reads exactly as it always has when no arc is running.
+
 The plan is not ready when you finish writing it; it is ready when it has been reviewed. Which of those two you do next depends on one thing, and only one: **the model you are running on right now.**
 
 **If you are running on Opus, review it yourself, immediately, in this same turn.** Do not stop, do not ask, do not print a command. Read [`tuglaws/plan-review-rubric.md`](../../../tuglaws/plan-review-rubric.md) and `plan-review`'s own skill text and carry the review out: lint the plan, judge it against the rubric and the real code, apply the fixups in the document, append the Review Record, and stamp it with `tugutil plan stamp` as the last edit. You are the review model; there is nothing to hand off to and nothing to wait for.
@@ -119,5 +128,6 @@ Don't start implementing from the devise skill — authoring and implementing ar
 - **Don't over-ask.** Clarify only design-changing unknowns.
 - **Lint before handing off.** `tugutil plan lint` exit 0 is the bar.
 - **Review it on Opus, hand it over otherwise** — and never declare a plan ready that nothing has reviewed. Never switch the user's model, in either direction.
+- **Under an arc, never review and never print a chip.** `TUG_DASH_ARC` in the environment means the review is the next stage and the runner is reading the documents; the turn ends at the written plan.
 - **Don't auto-implement.** `plan-devise` produces the document; the review turn improves it; `dash-implement` runs it.
 - **Don't auto-enter Plan mode** (`EnterPlanMode`) — just write the plan document.

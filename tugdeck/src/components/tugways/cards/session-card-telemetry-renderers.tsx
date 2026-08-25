@@ -831,12 +831,23 @@ export const SessionTelemetryStatusRow = React.forwardRef<
       : null;
   // The cell shows no name at all; the label carries the whole identity, so a
   // screen reader hears which dash the glyph and the fraction belong to.
+  // The tint the cell paints for an arc is invisible to a screen reader, so
+  // the arc is spelled out here in full — a stopped one first, because that is
+  // the reading nobody should have to open the placard to discover.
+  const dashArcLabel =
+    dashFact?.arc == null
+      ? ""
+      : dashFact.arc.stopped !== undefined
+        ? `, arc stopped in ${dashFact.arc.stopped_stage ?? dashFact.arc.stage ?? "an unnamed stage"}: ${dashFact.arc.stopped}`
+        : dashFact.arc.stage !== undefined && dashFact.arc.done !== true
+          ? `, arc in ${dashFact.arc.stage}`
+          : "";
   const dashCellLabel =
     dashFact === null
       ? ""
       : dashGlance === null
-        ? `dash ${dashFact.name}`
-        : `dash ${dashFact.name}, step ${dashGlance.current} of ${dashGlance.total}`;
+        ? `dash ${dashFact.name}${dashArcLabel}`
+        : `dash ${dashFact.name}, step ${dashGlance.current} of ${dashGlance.total}${dashArcLabel}`;
   // The placard's one exit: this card's own Changes shade, where every decision
   // about a dash already lives ([D152]). The content scope, not the bare card
   // id — `sendToTarget` walks upward from its target and the session card's
@@ -1269,6 +1280,17 @@ export const SessionTelemetryStatusRow = React.forwardRef<
             <span
               className="session-telemetry-status-value session-telemetry-status-value-dash"
               data-slot="session-telemetry-dash-value"
+              // The arc, in the one place the cell has left: attributes the
+              // CSS paints ([L06]), so a stopped arc is a tint on the reading
+              // rather than a fourth thing competing for the box's width. The
+              // *words* live on the placard's meta line, which has room for
+              // them and is one press away.
+              {...(dashFact.arc?.stage !== undefined
+                ? { "data-arc": dashFact.arc.stage }
+                : {})}
+              {...(dashFact.arc?.stopped !== undefined
+                ? { "data-arc-stopped": "true" }
+                : {})}
               aria-label={dashCellLabel}
             >
               {dashGlance !== null ? (

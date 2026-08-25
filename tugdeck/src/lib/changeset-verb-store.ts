@@ -220,6 +220,24 @@ const DISCARD_IDLE: DiscardState = Object.freeze({
 });
 
 /**
+ * An arc's terminal receipt, as the server announced it ([P12]).
+ *
+ * Not a round-trip state and deliberately not shaped like one: it has no
+ * phases, because nothing here asked for it and nothing is waiting on it. The
+ * arc ended on a server tick, the durable row was written before this frame
+ * was sent, and this is the announcement that lets the card paint its live
+ * copy under the same row identity instead of waiting for a restore.
+ */
+export interface ArcReceipt {
+  /** The dash whose arc ended. */
+  dash: string;
+  /** The server-formatted receipt text — the one source both copies read. */
+  summary: string;
+  /** The persisted ledger row's id — see {@link CommitState.receiptId}. */
+  receiptId: number | null;
+}
+
+/**
  * One dash-replay round trip's state, keyed by the initiating card entry.
  *
  * `outcome` is the server's own word — `current`, `replayed`, `recorded`,
@@ -325,6 +343,8 @@ export class ChangesetVerbStore {
   private _replays = new Map<string, ReplayState>();
   /** `verbKey(project_dir, dash)` → the entry key whose replay is in flight. */
   private _replayInflight = new Map<string, string>();
+  /** tug session id → the newest arc receipt the server announced for it. */
+  private _arcReceipts = new Map<string, ArcReceipt>();
   private readonly _decoder = new TextDecoder();
 
   constructor(connection: TugConnection) {
@@ -432,6 +452,22 @@ export class ChangesetVerbStore {
         disclaimed: 0,
         requested: this._disclaims.get(entryKey)?.requested ?? null,
       });
+    } else if (body.action === "arc_receipt") {
+      // The one unsolicited receipt in this store. Every other state here is
+      // half of a round-trip this client started; an arc finishes on a server
+      // tick with nobody waiting, so there is no in-flight entry to settle and
+      // the frame is simply recorded under the session it names. The server
+      // has already written the durable row — this is what lets the card paint
+      // its copy now instead of at the next restore.
+      const session = typeof body.tug_session_id === "string" ? body.tug_session_id : "";
+      const summary = typeof body.summary === "string" ? body.summary : "";
+      if (session.length === 0 || summary.length === 0) return;
+      this._arcReceipts.set(session, {
+        dash: typeof body.dash === "string" ? body.dash : "",
+        summary,
+        receiptId: receiptIdOf(body),
+      });
+      for (const listener of [...this._listeners]) listener();
     } else if (body.action === "changeset_join_ok") {
       const dash = typeof body.dash === "string" ? body.dash : null;
       if (dash === null) return;
@@ -872,6 +908,11 @@ export class ChangesetVerbStore {
 
   clearReplay(entryKey: string): void {
     this._setReplay(entryKey, REPLAY_IDLE);
+  }
+
+  /** The newest arc receipt announced for `tugSessionId`, or null. */
+  arcReceipt(tugSessionId: string): ArcReceipt | null {
+    return this._arcReceipts.get(tugSessionId) ?? null;
   }
 
   dispose(): void {

@@ -39,6 +39,7 @@ use super::attribution::{
 use super::code::{parse_code_input, splice_tug_session_id};
 use crate::path_resolver::CanonicalPath;
 use tugchanges_core::shell_ops::DeclaredKind;
+use tugdash_core::arc::{ArcStage, append_arc_stage};
 
 // ---------------------------------------------------------------------------
 // CrashBudget
@@ -1575,7 +1576,7 @@ pub async fn relay_session_io(
                                                 parent_session_id: fork
                                                     .parent_session_id
                                                     .clone(),
-                                                fork_point: fork.fork_point.clone(),
+                                                fork_point: Some(fork.fork_point.clone()),
                                             },
                                         ));
                                     }
@@ -1583,6 +1584,86 @@ pub async fn relay_session_io(
                                         session = %tug_session_id,
                                         error = %err,
                                         "fork identity transfer failed"
+                                    ),
+                                }
+                            }
+                        }
+
+                        // A stage rotation is the same identity transfer with
+                        // no branch point: the arc's stages are one line of
+                        // work wearing one callsign, so ink written in any
+                        // stage resolves to the same head. Nothing is copied,
+                        // hence `fork_point: None` ([P03]).
+                        if line.contains("\"type\":\"session_stage\"") {
+                            // The `arc-stage` line is written here rather than
+                            // by the runner that dispatched the rotation,
+                            // because the record names the stage's **claude**
+                            // session id and nobody knows that id until claude
+                            // announces it. What the runner asked for and what
+                            // actually started are then the same fact, which
+                            // is what the lineage restore reads back ([P10]).
+                            let announcement = parse_session_stage(line.as_bytes());
+                            if let Some(stage) = announcement.as_ref() {
+                                if let (Some(arc_name), Some(kind)) =
+                                    (stage.arc.as_deref(), ArcStage::parse(&stage.stage))
+                                {
+                                    if let Err(err) = append_arc_stage(
+                                        Path::new(project_dir),
+                                        arc_name,
+                                        kind,
+                                        &stage.new_session_id,
+                                        stage.model.as_deref(),
+                                    ) {
+                                        warn!(
+                                            session = %tug_session_id,
+                                            arc = %arc_name,
+                                            error = %err,
+                                            "arc stage line write failed"
+                                        );
+                                    }
+                                }
+                            }
+                            if let (Some(ledger), Some(stage)) = (session_ledger, announcement) {
+                                let now = crate::session_ledger::now_millis();
+                                match ledger.inherit_fork_identity(
+                                    &stage.parent_session_id,
+                                    &stage.new_session_id,
+                                    now,
+                                ) {
+                                    Ok(inherited) => {
+                                        match inherited.tag.as_deref() {
+                                            Some(tag) => info!(
+                                                session = %tug_session_id,
+                                                parent = %stage.parent_session_id,
+                                                stage = %stage.stage,
+                                                tag = %tag,
+                                                "stage inherited its parent's callsign"
+                                            ),
+                                            None => info!(
+                                                session = %tug_session_id,
+                                                parent = %stage.parent_session_id,
+                                                stage = %stage.stage,
+                                                "stage parent has no callsign to hand \
+                                                 down; the stage spawns as a root"
+                                            ),
+                                        }
+                                        let mut entry = ledger_entry.lock().await;
+                                        entry.pending_fork = Some((
+                                            stage.new_session_id.clone(),
+                                            crate::feeds::agent_supervisor::PendingFork {
+                                                tag: inherited.tag,
+                                                user_name: inherited.user_name,
+                                                parent_session_id: stage
+                                                    .parent_session_id
+                                                    .clone(),
+                                                fork_point: None,
+                                            },
+                                        ));
+                                    }
+                                    Err(err) => warn!(
+                                        session = %tug_session_id,
+                                        error = %err,
+                                        "stage identity transfer failed"
                                     ),
                                 }
                             }
@@ -1731,7 +1812,7 @@ pub async fn relay_session_io(
                                 if let Err(err) = ledger.set_fork_provenance(
                                     record_id,
                                     &fork.parent_session_id,
-                                    &fork.fork_point,
+                                    fork.fork_point.as_deref(),
                                 ) {
                                     warn!(
                                         session = %tug_session_id,
@@ -3020,6 +3101,41 @@ fn parse_session_fork(line: &[u8]) -> Option<SessionForkAnnouncement> {
     })
 }
 
+/// A parsed `session_stage` IPC line — tugcode's announcement that the
+/// server-driven arc rotated a stage onto a fresh session ([P03]).
+struct SessionStageAnnouncement {
+    parent_session_id: String,
+    new_session_id: String,
+    stage: String,
+    /// The dash the arc is keyed by. Present on every rotation the runner
+    /// originates; absent only on a hand-crafted line.
+    arc: Option<String>,
+    /// The model the stage was rotated with, or `None` for the account
+    /// default — which the log spells `-`.
+    model: Option<String>,
+}
+
+/// Parse a `session_stage` IPC line. Parent, id, and stage are required; a
+/// rotation missing any of the three names no lineage edge to stage.
+///
+/// There is deliberately no fork point to read. A stage copies no history, so
+/// it has no branch point, and inventing one would make a rotation look like a
+/// rewind to every reader of the provenance columns.
+fn parse_session_stage(line: &[u8]) -> Option<SessionStageAnnouncement> {
+    let value: serde_json::Value = serde_json::from_slice(line).ok()?;
+    let field = |key: &str| -> Option<String> {
+        let s = value.get(key)?.as_str()?.trim();
+        (!s.is_empty()).then(|| s.to_owned())
+    };
+    Some(SessionStageAnnouncement {
+        parent_session_id: field("parentSessionId")?,
+        new_session_id: field("newSessionId")?,
+        stage: field("stage")?,
+        arc: field("arc"),
+        model: field("model"),
+    })
+}
+
 /// Extract the `title` field from a `session_title` IPC line — claude's
 /// auto-generated `ai-title`, forwarded live by tugcode. Blank titles are
 /// treated as absent; there is nothing to record.
@@ -3635,6 +3751,104 @@ mod tests {
         )
         .await;
         ink
+    }
+
+    /// Drive an arc stage rotation through the real relay: tugcode announces
+    /// the stage, then the stage session's `session_init` consumes the staged
+    /// identity. The mirror of [`drive_fork`], and deliberately built from the
+    /// same parts — the whole claim of [P03] is that a stage travels the fork's
+    /// path with no branch point.
+    async fn drive_stage(
+        parent: &str,
+        stage_session: &str,
+        stage: &str,
+        seed_ink: impl Fn(&crate::shell_ledger::ShellLedger, &crate::refs_ledger::RefsLedger),
+    ) -> (Arc<crate::session_ledger::SessionLedger>, InkLedgers) {
+        let sessions =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("sessions"));
+        for id in [parent, stage_session] {
+            sessions
+                .record_spawn(id, "ws-test", "/proj", "card-1", 1, None)
+                .expect("spawn");
+        }
+        let shell =
+            Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
+        let refs = Arc::new(crate::refs_ledger::RefsLedger::open_in_memory().expect("refs ledger"));
+        seed_ink(&shell, &refs);
+        let ink = InkLedgers {
+            shell: Some(Arc::clone(&shell)),
+            refs: Some(Arc::clone(&refs)),
+        };
+
+        let announcement = format!(
+            r#"{{"type":"session_stage","parentSessionId":"{parent}","newSessionId":"{stage_session}","stage":"{stage}","model":"","document":"dash/brief.md","arc":"some-dash","ipc_version":2}}"#
+        );
+        let init = format!(r#"{{"type":"session_init","session_id":"{stage_session}"}}"#);
+        drive_relay_with_ink(
+            Arc::clone(&sessions),
+            ink.clone(),
+            parent,
+            "/proj",
+            &[&announcement, &init],
+        )
+        .await;
+        (sessions, ink)
+    }
+
+    #[tokio::test]
+    async fn a_stage_becomes_the_lineage_head_of_the_conversation() {
+        // The arc's whole point: every stage is one line of work, so the
+        // ledger must resolve the conversation's id forward to the newest
+        // stage. That edge is what keeps the ink, the callsign, and the
+        // Sessions list reading the arc as one thing rather than three.
+        let (sessions, _) = drive_stage("conversation", "stage-1", "devise", |_, _| {}).await;
+        assert_eq!(
+            sessions.resolve_to_lineage_head("conversation"),
+            "stage-1",
+            "the conversation resolves forward to the stage it rotated into"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stage_carries_the_conversations_durable_ink_across() {
+        // Ink written before the rotation must restore into the same scroll:
+        // `resolve_ink_session` resolves to the lineage head, and the stage is
+        // now that head.
+        let (_sessions, ink) = drive_stage("p-ink-stage", "s-ink-stage", "implement", |shell, _| {
+            shell
+                .record_exchange(&shell_row("p-ink-stage", "/commit"))
+                .expect("record");
+        })
+        .await;
+
+        assert_eq!(
+            ink.shell.expect("shell ledger").session_ids_with_rows().unwrap(),
+            std::collections::HashSet::from(["s-ink-stage".to_string()]),
+            "the conversation's receipts moved to the arc's current head"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stage_line_missing_a_required_field_stages_nothing() {
+        assert!(parse_session_stage(
+            br#"{"type":"session_stage","newSessionId":"n","stage":"devise"}"#
+        )
+        .is_none());
+        assert!(parse_session_stage(
+            br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"","stage":"devise"}"#
+        )
+        .is_none());
+        assert!(parse_session_stage(
+            br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"n"}"#
+        )
+        .is_none());
+        let parsed = parse_session_stage(
+            br#"{"type":"session_stage","parentSessionId":"p","newSessionId":"n","stage":"review"}"#,
+        )
+        .expect("parses");
+        assert_eq!(parsed.parent_session_id, "p");
+        assert_eq!(parsed.new_session_id, "n");
+        assert_eq!(parsed.stage, "review");
     }
 
     fn shell_row(session: &str, command: &str) -> crate::shell_ledger::NewShellExchange {

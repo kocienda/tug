@@ -719,6 +719,37 @@ export interface CompactBoundaryEvent {
 }
 
 /**
+ * `session_stage` — the server rotated this card onto a fresh claude session
+ * for the next stage of a dash arc, announced by tugcode just before the
+ * stage's synthetic `session_init`. Display-only: the reducer appends a
+ * `system_note` (`source: "stage"`) marking the boundary, exactly as
+ * `compact_boundary` does for a compaction — to the active turn when one is
+ * open, and otherwise to the last committed turn, which is the ordinary case
+ * because the runner rotates a session only once it has gone idle.
+ *
+ * Nothing else moves. `handleSessionInit` does not clear the transcript, so
+ * the arc's earlier stages stay on screen and the whole arc reads as one
+ * scroll.
+ */
+export interface SessionStageEvent {
+  type: "session_stage";
+  /** Which stage of the arc the fresh session runs. */
+  stage: string;
+  /** The model selector the rotation set, or empty for the account default. */
+  model: string;
+  /** The document the arc opened on, repo-relative. */
+  document: string;
+  /** The dash name the arc is keyed by. */
+  arc: string;
+  /**
+   * The inclusive step range (`N-M`) a *continued* implement stage walks.
+   * Absent on every other stage, which is what tells the divider a continued
+   * stage from a first one.
+   */
+  steps?: string;
+}
+
+/**
  * `compact_summary` — the compaction summary text, emitted right after
  * `compact_boundary` on both paths (live capture and JSONL replay). The
  * reducer folds it into `compactionSeed` so the carry-forward block restores;
@@ -1396,6 +1427,7 @@ export type CodeSessionEvent =
   | GoalFeedbackEvent
   | CompactBoundaryEvent
   | CompactSummaryEvent
+  | SessionStageEvent
   | UnknownEventEvent
   | WireErrorEvent
   | SessionStateErroredEvent
