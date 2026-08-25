@@ -109,6 +109,7 @@ import { goalIsActive } from "@/lib/code-session-store/select-goal";
 import {
   cellDisplayCount,
   composeJobsCellSummary,
+  dashCellPose,
   formatCellCount,
   formatTaskFraction,
   jobsCellActiveCount,
@@ -979,6 +980,12 @@ export const SessionTelemetryStatusRow = React.forwardRef<
     tasksRecent > 0,
   );
   const tasksSummary = composeTaskSummary(taskCounts);
+  // The DASH reading's flanking dots take the dash's stage, under the
+  // same idle demotion the TASKS pose uses.
+  const dashIndicatorState: TugProgressIndicatorState = dashCellPose(
+    dashFact === null ? null : dashFact.stage,
+    isIdle,
+  );
 
   const jobsRecent = jobsRecentlyDone(jobsLedger, nowMs, WORK_LINGER_MS);
   const jobsActiveCount = jobsCellActiveCount(jobCounts, goal);
@@ -1232,19 +1239,41 @@ export const SessionTelemetryStatusRow = React.forwardRef<
           // it would still be true truncated. The name is on the cell's own
           // `DASH` label as a reading, in the accessible label in full, and on
           // the placard one click away.
-          <span
-            className="session-telemetry-status-value session-telemetry-status-value-dash"
-            data-slot="session-telemetry-dash-value"
-            aria-label={dashCellLabel}
-          >
-            {dashFact.stage !== null && (
-              <DashStageMark stage={dashFact.stage} />
-            )}
-            {dashGlance !== null && (
-              <span className="session-telemetry-status-dash-fraction">
-                {`${dashGlance.current}/${dashGlance.total}`}
-              </span>
-            )}
+          //
+          // The two flanking dots are the cell's own, not TASKS's: the
+          // DASH reading is a composite (a glyph beside a fraction), so
+          // it cannot ride a single indicator's `label` the way TASKS
+          // and JOBS do. They are siblings around it instead, the way
+          // STATE's are, pinned to the same 2px inset — so a session
+          // picking a dash up changes what the cell says, not how it
+          // looks.
+          <span className="session-telemetry-status-dash-row">
+            <TugProgressIndicator
+              variant="pulsing-dot"
+              size={12}
+              state={dashIndicatorState}
+              aria-hidden
+            />
+            <span
+              className="session-telemetry-status-value session-telemetry-status-value-dash"
+              data-slot="session-telemetry-dash-value"
+              aria-label={dashCellLabel}
+            >
+              {dashFact.stage !== null && (
+                <DashStageMark stage={dashFact.stage} />
+              )}
+              {dashGlance !== null && (
+                <span className="session-telemetry-status-dash-fraction">
+                  {`${dashGlance.current}/${dashGlance.total}`}
+                </span>
+              )}
+            </span>
+            <TugProgressIndicator
+              variant="pulsing-dot"
+              size={12}
+              state={dashIndicatorState}
+              aria-hidden
+            />
           </span>
         ) : (
           <TugProgressIndicator

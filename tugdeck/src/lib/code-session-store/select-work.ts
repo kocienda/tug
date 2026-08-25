@@ -114,6 +114,43 @@ export function tasksCellPose(
 }
 
 /**
+ * The stages that are a resting point of the dash arc — the dash has
+ * arrived somewhere and is waiting on a person, not advancing.
+ */
+const DASH_SETTLED_STAGES: ReadonlySet<string> = new Set([
+  "ready",
+  "built",
+  "audited",
+  "draft-ready",
+]);
+
+/**
+ * The DASH reading's indicator pose — the dash lifecycle in the same
+ * three poses the TASKS reading it replaces uses:
+ *
+ *  - no stage, or a dash that has not been worked yet (`created`) →
+ *    `stopped`;
+ *  - a resting point of the arc (`ready` / `built` / `audited` /
+ *    `draft-ready`) → `completed`;
+ *  - anything else — the stages that are work in flight — `running`,
+ *    demoted to `stopped` while the session is idle, on the same
+ *    grounds as TASKS: a dash does not advance between turns, and a
+ *    dot still pulsing over an idle session would say it did.
+ *
+ * An unrecognized stage from an older or newer sender falls into the
+ * in-flight branch rather than a dead pose, so a stage added later
+ * reads as work rather than as nothing.
+ */
+export function dashCellPose(
+  stage: string | null,
+  isIdle: boolean,
+): "stopped" | "running" | "completed" {
+  if (stage === null || stage === "created") return "stopped";
+  if (DASH_SETTLED_STAGES.has(stage)) return "completed";
+  return isIdle ? "stopped" : "running";
+}
+
+/**
  * How many tasks completed within `lingerMs` of `nowMs`. A task with
  * no completion timestamp (a resumed fold) never counts as recent.
  */

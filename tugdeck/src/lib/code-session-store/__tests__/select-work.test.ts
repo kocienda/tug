@@ -22,6 +22,7 @@ import {
   jobsCellDisplayPose,
   jobsRecentlyDone,
   nextLingerExpiryMs,
+  dashCellPose,
   tasksCellPose,
   tasksRecentlyDone,
 } from "@/lib/code-session-store/select-work";
@@ -108,6 +109,27 @@ describe("tasksCellPose", () => {
     const done = { hasTasks: true, allTasksComplete: true, isIdle: true };
     expect(tasksCellPose(done, true)).toBe("completed");
     expect(tasksCellPose(done, false)).toBe("stopped");
+  });
+});
+
+describe("dashCellPose", () => {
+  test("a dash nobody has worked yet is quiet", () => {
+    expect(dashCellPose(null, false)).toBe("stopped");
+    expect(dashCellPose("created", false)).toBe("stopped");
+  });
+
+  test("a resting point of the arc reads finished", () => {
+    for (const stage of ["ready", "built", "audited", "draft-ready"]) {
+      expect(dashCellPose(stage, false)).toBe("completed");
+      expect(dashCellPose(stage, true)).toBe("completed");
+    }
+  });
+
+  test("work in flight runs, and idle demotes it", () => {
+    for (const stage of ["working", "implementing", "joining", "whatever"]) {
+      expect(dashCellPose(stage, false)).toBe("running");
+      expect(dashCellPose(stage, true)).toBe("stopped");
+    }
   });
 });
 

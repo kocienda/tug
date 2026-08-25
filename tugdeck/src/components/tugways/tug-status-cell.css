@@ -216,6 +216,30 @@
 
    `center` rather than `baseline`: a glyph has no baseline to share with a
    numeral, so the two are centred against each other in the line box. */
+/* The DASH reading's value row — its two flanking dots and the composite
+   between them. TASKS and JOBS get their dots from a single indicator that
+   stretches to the cell; a composite value cannot ride an indicator's
+   `label`, so here the row is the flex container and the two indicators are
+   siblings of the value, the way STATE's are. `space-between` plus the same
+   2px inset puts the dots exactly where the other cells' sit, so the row
+   does not move when a session picks a dash up. */
+.session-telemetry-status-dash-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Undo the work-cell rule above for these two: they are dots beside a value,
+   not a whole value row, so they size to their glyph. */
+.session-telemetry-status-cell[data-priority="tasks"]
+  .session-telemetry-status-dash-row
+  .tug-progress-indicator {
+  display: inline-flex;
+  width: auto;
+  margin-inline: 2px;
+}
+
 .session-telemetry-status-value-dash {
   display: inline-flex;
   align-items: center;
