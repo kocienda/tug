@@ -1,5 +1,18 @@
 `Steps 4-6`, `7-9`, `10-12`, `13-15`
 
+
+What happens when I'm in the middle of a dash and I do something to interrupt the complex, interlocking multi-operation procedure of the dash? How do I get the work back on track, say, after I: pause the work to ask a question in that session; use the session for some other little side task; relaunch the app; etc.? Can we support this somehow? What if I want to discard the dash... how do I do that? What if I (inadvisably it seems to me) try to kick off a second dash in a session that's already running one? In all these cases, we need a set of policies and procedures for giving the user properly excellent feedback about what their options are and how we act on the thing that they commmunicate they want. We *can't* leave unfinished work or turds around.
+
+
+Can we possibly do something to pull together the tools we use to create, run, and join dashes? My notes:
+- I'm frustrated in the usage of `tugutil dash [verb] ...`. It seems to me that the feature is important enough in Tug that it warrants a better place in the pantheon of names and code, not buried in a generic/catch-all command
+- Why is `scripts/verify-fit.sh` just a shell script? It feels like this should be a better, more robust piece of infrastructure. It also should cover *all* the code in Tug, not just some directories or sub-projects.
+
+
+
+
+**`scripts/verify-fit.sh`** **has no** **`tugcode/`** **branch.** It only tests `tugrust/` and `tugdeck/`, so the declared fit check was blind to this run’s tugcode and tugproto changes. I covered that half with the plan’s own checkpoint commands (841 tests, tsc clean in both consumers) and left the script alone rather than quietly changing the project’s fit contract mid-run. Worth adding a branch — say the word and it’s a two-line change.
+
 /tugplug:plan-devise The dash paperwork directory (briefs + plans) must stop being a culturally-blessed name and become a per-project config key. Add `docs` under `[tugtool.dash]` in `.tugtool/config.toml` (schema: DashConfig in tugrust/crates/tugutil-core/src/config.rs), with a resolver verb (`tugutil dash docs-dir`) that reports the configured directory, and an unset-behavior contract: skills that need the directory ask the user once, write the answer into config, and never ask again. Update the tugplug skills (plan-devise, plan-review, dash-implement) to resolve the directory through the verb instead of asking every time or naming roadmap/. Then migrate this repository: set docs = "dash", move roadmap/ (13 live files plus roadmap/archive/) to dash/, and update every cross-reference in tuglaws/ and CLAUDE.md in the same pass. Also sweep human-facing UI copy for `tugutil` mentions — a human surface must never name the internal tool (known instance: the Dashes empty state in tugdeck/src/components/lens/sections/dashes-section.tsx, "No dashes. tugutil dash create starts one." — give it interim human copy; a real affordance replaces it in a later phase). Keep `.tug/` (worktrees, workshops) exactly as it is — that decision is settled, machine area stays put. 🢂 roadmap/dash-docs-home.md
 
 

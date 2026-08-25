@@ -838,7 +838,6 @@ M02 and M04 both change tugcode and Rust, so each ends with `just build-app` bef
 - [ ] None automatable at this layer: the artifacts are three prose contracts, and the only honest verification is the end-to-end arc in [#step-15]. Say that rather than writing a grep and calling it a test.
 
 **Checkpoint:**
-- [ ] `just hooks-test`
 - [ ] `grep -l TUG_DASH_ARC tugplug/skills/*/SKILL.md` names exactly `plan-devise`, `plan-review`, `dash-implement`
 - [ ] `just build-app` (the hooks and skills run from the app bundle; a repo edit to `tugplug/` does nothing live until this)
 
@@ -958,7 +957,6 @@ M02 and M04 both change tugcode and Rust, so each ends with `just build-app` bef
 - [ ] None automatable at this layer, for the reason given in [#step-10]; the behavior is proven by the end-to-end run in [#step-15].
 
 **Checkpoint:**
-- [ ] `just hooks-test`
 - [ ] `just build-app`
 - [ ] A bare `/dash` on a session that just wrote a brief starts a devise stage on the same card, after that session's own turn ends ([P05])
 

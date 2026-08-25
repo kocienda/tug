@@ -225,7 +225,7 @@ dash-UI one.
 
 ### Reading the output
 
-**`just app-test` is quiet by default.** It prints the `APP-TEST SUMMARY` block and nothing else — no per-file `bun test` stream. The summary is meant to be complete enough that you never pipe it through `grep` or truncate it with `head`:
+**`just app-test` is quiet by default.** It prints the `APP-TEST SUMMARY` block and nothing else — no per-file `bun test` stream. The summary is meant to be complete enough that piping it through `grep` or truncating it with `head` has nothing left to find:
 
 - **`Per-file results:`** — every file's status and test counts.
 - **`Diagnostics:`** — whatever the tests reported with `note()`, printed for **passing** files as well as failing ones. This is where a probe value belongs; a green run is usually where you want to read one.

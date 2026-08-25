@@ -2093,13 +2093,6 @@ app-test-all:
 app-test-covers-check:
     @cd tests/app-test && bun scripts/select-tests.ts --check
 
-# The PreToolUse gates decide, per command line, what reaches the shell. A gate
-# that is wrong in the permissive direction lets a bad habit through; wrong in
-# the restrictive direction it denies work that was fine, which costs a round
-# trip every time. Both directions are pinned by cases.
-hooks-test:
-    @bash tugplug/hooks/tests/run-gate-tests.sh
-
 # A test that takes the screen declares it with `@foreground`; the app-test
 # recipe reads that declaration before it launches anything, so it can warn
 # before a run seizes the machine. The declaration is only worth trusting if

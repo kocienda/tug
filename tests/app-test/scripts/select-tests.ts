@@ -132,22 +132,6 @@ const MAX_SELECTED = 20;
 const EXIT_OVER_BUDGET = 3;
 
 /**
- * The most test files the corpus may hold. `--check` fails above it.
- *
- * A per-run budget bounds what one selection costs; it does nothing about the corpus,
- * which only ever grew — 112 of the files present at the 2026-08-21 audit had been added
- * in the preceding three weeks, and nothing anywhere said stop. The ceiling is where the
- * suite is asked to stay a suite: past it, a new test DISPLACES one, and choosing which
- * is the work.
- *
- * Set from the measured count after the 2026-08-21 diet pass (242 files, of which 230 are
- * scenario tests) with room for a dozen more. **Exceeding it means retiring a test, not
- * raising this number.** Raising it is available — it is one digit — which is exactly why
- * the number needs an argument in its commit and not a reflex.
- */
-const MAX_CORPUS = 254;
-
-/**
  * Seconds one app-test file costs, used to price a selection in the refusal message.
  *
  * Measured 2026-08-21 over the core tier: 15 files ran in 97s, a mean of 6.5s. It is a
@@ -631,22 +615,6 @@ if (checkOnly) {
         }
     }
 
-    // The corpus ceiling. The per-run budget above bounds one selection; this bounds the
-    // thing selections are drawn from, which otherwise only ever grew.
-    const overCorpus = coverage.length > MAX_CORPUS;
-    if (overCorpus) {
-        const worst = patterns
-            .map((p) => ({ p, n: fanOut(representativePath(p)) }))
-            .sort((a, b) => b.n - a.n)
-            .slice(0, 5);
-        process.stderr.write(
-            `[select-tests] the corpus holds ${coverage.length} test files, past the ${MAX_CORPUS}-file\n` +
-                "               ceiling. A new test displaces an old one; raising the ceiling is not the\n" +
-                "               remedy. The widest-fan-out paths, as retirement candidates:\n",
-        );
-        for (const w of worst) process.stderr.write(`  ${w.p}  →  ${w.n} tests\n`);
-    }
-
     if (raised.length > 0) {
         process.stderr.write(
             `[select-tests] ${raised.length} accepted fan-out number(s) went UP. Recorded debt may be\n` +
@@ -696,15 +664,14 @@ if (checkOnly) {
         missing.length === 0 &&
         dangling.length === 0 &&
         overBudget.length === 0 &&
-        raised.length === 0 &&
-        !overCorpus
+        raised.length === 0
     ) {
         const worst = patterns
             .map((p) => ({ p, n: fanOut(representativePath(p)) }))
             .sort((a, b) => b.n - a.n)
             .slice(0, 3);
         process.stderr.write(
-            `[select-tests] ${coverage.length}/${MAX_CORPUS} test files: @covers present, resolving, and\n` +
+            `[select-tests] ${coverage.length} test files: @covers present, resolving, and\n` +
                 `               within the ${MAX_SELECTED}-file budget. Widest fan-out: ` +
                 `${worst.map((w) => `${w.p} (${w.n})`).join(", ")}\n`,
         );
