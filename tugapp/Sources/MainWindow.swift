@@ -447,6 +447,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.add(self, name: "menuState")
         contentController.add(self, name: "hmrUpdate")
         contentController.add(self, name: "openPath")
+        contentController.add(self, name: "lookUpInDictionary")
         contentController.add(self, name: "trashPath")
         contentController.add(self, name: "restorePath")
         contentController.add(self, name: "thumbnailPath")
@@ -944,6 +945,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         contentController.removeScriptMessageHandler(forName: "menuState")
         contentController.removeScriptMessageHandler(forName: "hmrUpdate")
         contentController.removeScriptMessageHandler(forName: "openPath")
+        contentController.removeScriptMessageHandler(forName: "lookUpInDictionary")
         contentController.removeScriptMessageHandler(forName: "trashPath")
         contentController.removeScriptMessageHandler(forName: "restorePath")
         contentController.removeScriptMessageHandler(forName: "thumbnailPath")
@@ -1375,6 +1377,25 @@ extension MainWindow: WKScriptMessageHandler {
                     }
                 }
             }
+        case "lookUpInDictionary":
+            // Look Up in Dictionary. The web layer sends the selected text and
+            // the viewport (CSS) point its panel should anchor to; AppKit's
+            // `showDefinition(for:at:)` puts up the system definition panel —
+            // Dictionary, Thesaurus, whatever else the user has enabled —
+            // exactly as a native text view would.
+            //
+            // The point crosses unconverted: a WKWebView's coordinate system
+            // is Y-down from the top-left, which is the space the viewport
+            // rect was measured in. `at:` wants the baseline origin of the
+            // first character, and the web layer sends the selection's
+            // bottom-left for it.
+            guard let body = message.body as? [String: Any],
+                  let text = body["text"] as? String, !text.isEmpty else { return }
+            let anchor = NSPoint(
+                x: (body["x"] as? Double) ?? 0,
+                y: (body["y"] as? Double) ?? 0
+            )
+            webView.showDefinition(for: NSAttributedString(string: text), at: anchor)
         case "openPath":
             // `/memory` ([#step-12a]) — hand a memory path to the OS. The web
             // layer sends a `~`-relative or absolute path plus a `kind`; we

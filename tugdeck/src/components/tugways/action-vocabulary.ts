@@ -219,6 +219,21 @@ export const TUG_ACTIONS = {
   MAKE_UPPERCASE: "make-uppercase",
   MAKE_LOWERCASE: "make-lowercase",
 
+  // ---- Text services ----
+  //
+  // LOOK_UP_IN_DICTIONARY: payload — `value: { text: string; x: number;
+  //            y: number }`. Hand the selection to the system dictionary:
+  //            the host answers with AppKit's definition panel, the same one
+  //            every native text view shows. `text` is the selection sampled
+  //            at menu-open time; `x` / `y` are the viewport (CSS) point the
+  //            panel anchors to — the bottom-left of the selection's
+  //            bounding rect, which is where AppKit wants the first
+  //            character's baseline origin. Context-menu only: the verb
+  //            means "this selection", and it is sampled where the sample is
+  //            accurate rather than read back from a chain snapshot that is
+  //            not selection-granular.
+  LOOK_UP_IN_DICTIONARY: "look-up-in-dictionary",
+
   // ---- Editing motion / deletion ----
   //
   // These four actions are dispatched by the substrate-local text-editing

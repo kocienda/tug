@@ -81,6 +81,10 @@ import { selectionGuard } from "@/components/tugways/selection-guard";
 import { copySelectionAsPlainText } from "@/lib/copy-as-plain-text";
 import { openFileInCard } from "@/lib/open-file-in-card";
 import { revealPathInFinder } from "@/lib/os-open";
+import {
+  isDictionaryLookupRequest,
+  lookUpInDictionary,
+} from "@/lib/dictionary-lookup";
 import { openOpenQuickly } from "@/lib/open-quickly-store";
 import { clearRecentDocuments } from "@/lib/recent-documents";
 import { allocateUntitledNumber } from "@/lib/untitled-naming";
@@ -757,6 +761,7 @@ const DECK_CANVAS_VALIDATED_ACTIONS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.CLOSE_ALL,
   TUG_ACTIONS.OPEN_FILE,
   TUG_ACTIONS.REVEAL_IN_FINDER,
+  TUG_ACTIONS.LOOK_UP_IN_DICTIONARY,
   TUG_ACTIONS.MOVE_TO_SLOT,
   TUG_ACTIONS.GO_TO_SLOT,
   TUG_ACTIONS.NUDGE_SLOT,
@@ -1468,6 +1473,16 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       [TUG_ACTIONS.REVEAL_IN_FINDER]: (event: ActionEvent) => {
         if (typeof event.value !== "string" || event.value === "") return;
         revealPathInFinder(event.value);
+      },
+      // Look Up in Dictionary — the selection a text surface's context menu
+      // sampled, handed to the host's `showDefinition`. It lives at the root
+      // for the same reason Reveal in Finder does: the verb carries
+      // everything it needs on the event, so the surface that offers it has
+      // nothing left to contribute, and every text surface in the deck gets
+      // one handler instead of five.
+      [TUG_ACTIONS.LOOK_UP_IN_DICTIONARY]: (event: ActionEvent) => {
+        if (!isDictionaryLookupRequest(event.value)) return;
+        lookUpInDictionary(event.value);
       },
       [TUG_ACTIONS.SHOW_SETTINGS]: (_event: ActionEvent) => {
         // ⌘, — open (or raise) the Settings singleton card. This

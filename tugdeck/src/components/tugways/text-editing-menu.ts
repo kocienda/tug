@@ -1,7 +1,7 @@
 /**
  * text-editing-menu — single source of truth for the standard
- * cut / copy / copy-as-plain-text / paste / paste-as-quote /
- * paste-as-plain-text /
+ * look-up-in-dictionary / cut / copy / copy-as-plain-text / paste /
+ * paste-as-quote / paste-as-plain-text /
  * select-all context menu.
  *
  * The items appear in the same order with the same labels and the
@@ -11,6 +11,8 @@
  * menu. The disabled rules are the only thing that varies, and they
  * vary by capability:
  *
+ *   - Look Up in Dictionary requires a selection the caller could read as
+ *     text (its `lookup` payload).
  *   - Cut requires a selection AND an editable surface.
  *   - Copy requires a selection.
  *   - Copy as Plain Text requires a selection.
@@ -48,6 +50,7 @@ import { validateCommandId } from "./command-registry";
 import type { CommandValidationSource } from "./command-registry";
 import { commandShortcut } from "./keymap-registry";
 import { commandValidationSource } from "@/lib/host-menu-state";
+import type { DictionaryLookupRequest } from "@/lib/dictionary-lookup";
 
 /**
  * What `buildTextEditingMenuItems` reads to decide which items are enabled.
@@ -77,6 +80,13 @@ export interface TextEditingMenuCapabilities {
    * surface other than the focused one.
    */
   source?: CommandValidationSource;
+  /**
+   * The selection's text and the point the definition panel should anchor
+   * to, sampled when the menu opened — the payload Look Up in Dictionary
+   * carries. Omitted (or `null`) when there is nothing selected, in which
+   * case the item is present and dim like every other selection verb.
+   */
+  lookup?: DictionaryLookupRequest | null;
 }
 
 /**
@@ -89,6 +99,12 @@ export interface TextEditingMenuEntry {
   type?: "item" | "separator";
   /** Action to dispatch when the item activates. Omit on separators. */
   action?: TugAction;
+  /**
+   * The `ActionEvent.value` the dispatch carries, for the rows that name
+   * what they act on rather than acting on "whatever is focused". Omit on
+   * separators and on the rows that need no argument.
+   */
+  value?: unknown;
   /** Visible label. Omit on separators. */
   label?: string;
   /** Keyboard-shortcut hint rendered after the label. Display only. */
@@ -140,6 +156,21 @@ export function buildTextEditingMenuItems(
   };
 
   return [
+    // Look Up in Dictionary leads, above its own separator, the way it does
+    // in every native text view: it is the one row that reads the selection
+    // without touching it, so it sits apart from the verbs that move text.
+    // It carries the sampled selection as its value — the chain has no
+    // selection-granular answer to fall back on.
+    {
+      ...row(TUG_ACTIONS.LOOK_UP_IN_DICTIONARY, "Look Up in Dictionary", true),
+      // Dim unless there is something to define. A selection the caller
+      // cannot read as text — the markdown view's CSS-visual select-all
+      // holds no DOM range — is a selection with no word in it, and an
+      // enabled row over it would be a press that does nothing.
+      disabled: off(TUG_ACTIONS.LOOK_UP_IN_DICTIONARY, true) || caps.lookup == null,
+      ...(caps.lookup != null ? { value: caps.lookup } : {}),
+    },
+    { type: "separator" },
     row(TUG_ACTIONS.CUT, "Cut", true),
     row(TUG_ACTIONS.COPY, "Copy", true),
     row(TUG_ACTIONS.COPY_AS_PLAIN_TEXT, "Copy as Plain Text", true),

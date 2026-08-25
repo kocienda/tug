@@ -47,7 +47,10 @@
  *
  *   3. `hasSelection` drives `buildTextEditingMenuItems({ hasSelection, canEdit
  *      })` so Cut / Copy / Paste / Select All enablement is consistent across
- *      every surface.
+ *      every surface. The same step samples what Look Up in Dictionary would
+ *      define — the selected text and the point its panel anchors to — and
+ *      carries it on the item, because a menu dismissal can retire the
+ *      selection before the action's handler runs.
  *
  * Optional `hasSelectionOverride`: a consumer can provide a function
  * that the hook calls *instead of* sampling from the adapter. The
@@ -101,6 +104,7 @@ import {
   type TextEditingMenuCapabilities,
 } from "./text-editing-menu";
 import type { TextSelectionAdapter } from "./text-selection-adapter";
+import type { DictionaryLookupRequest } from "@/lib/dictionary-lookup";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -205,6 +209,40 @@ interface MenuState {
   extra: TugEditorContextMenuEntry[];
   /** When true, show only `extra` — omit the standard editing block. */
   hideStandard: boolean;
+  /**
+   * What Look Up in Dictionary would define, sampled at open time, or `null`
+   * when the selection yields no text. Sampled here rather than read at
+   * dispatch time because the menu's own dismissal can retire the selection
+   * before the handler runs.
+   */
+  lookup: DictionaryLookupRequest | null;
+}
+
+/**
+ * What the selection would hand the system dictionary: its text, and the
+ * point the definition panel anchors to.
+ *
+ * The anchor is the bottom-left of the selection's bounding rect, which
+ * approximates the baseline origin of its first character — what AppKit's
+ * `showDefinition(for:at:)` asks for, so the panel points at the word rather
+ * than at wherever the cursor happened to be. A selection with no measurable
+ * rect falls back to the click point.
+ */
+function sampleDictionaryLookup(
+  adapter: TextSelectionAdapter | null,
+  event: MouseEvent,
+): DictionaryLookupRequest | null {
+  const sel = window.getSelection();
+  const text =
+    adapter !== null ? adapter.getSelectedText() : (sel?.toString() ?? "");
+  if (text.trim() === "") return null;
+  if (sel !== null && sel.rangeCount > 0) {
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    if (rect.width > 0 || rect.height > 0) {
+      return { text, x: rect.left, y: rect.bottom };
+    }
+  }
+  return { text, x: event.clientX, y: event.clientY };
 }
 
 /**
@@ -311,6 +349,7 @@ export function useTextSurfaceContextMenu(
         hasSelection,
         extra: extraEntries?.(event) ?? [],
         hideStandard: hideStandardItems?.(event) ?? false,
+        lookup: sampleDictionaryLookup(adapterRef?.current ?? null, event),
       });
     },
     [adapterRef, hasSelectionOverride, extraEntries, hideStandardItems],
@@ -331,6 +370,7 @@ export function useTextSurfaceContextMenu(
     // because only a menu built at open time can read it accurately.
     const standard = buildTextEditingMenuItems({
       hasSelection: menuState?.hasSelection ?? false,
+      lookup: menuState?.lookup ?? null,
     }) as TugEditorContextMenuEntry[];
     return extra.length > 0
       ? [...extra, { type: "separator" }, ...standard]
@@ -339,6 +379,7 @@ export function useTextSurfaceContextMenu(
     menuState?.hasSelection,
     menuState?.extra,
     menuState?.hideStandard,
+    menuState?.lookup,
   ]);
 
   // Only mount the menu component when there's an open state.

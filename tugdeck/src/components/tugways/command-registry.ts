@@ -2596,6 +2596,10 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.INSERT_INTO_PROMPT,
   TUG_ACTIONS.REVEAL_IN_FINDER,
   TUG_ACTIONS.OPEN_IMAGE_PREVIEW,
+  // The selection the right-click landed on, handed to the system
+  // dictionary. It carries the sampled text AND the point its panel
+  // anchors to, neither of which a chord or a menu-bar item could supply.
+  TUG_ACTIONS.LOOK_UP_IN_DICTIONARY,
   TUG_ACTIONS.DUPLICATE,
 ]);
 
