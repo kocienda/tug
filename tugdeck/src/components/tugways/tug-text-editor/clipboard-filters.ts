@@ -646,17 +646,27 @@ export function insertSidecar(
   view: EditorView,
   sidecar: TugAtomsClipboardPayload,
   bytesStore: AtomBytesStore | null,
+  resolve: PastedCommandResolver | null = null,
 ): void {
   rehydrateSidecarBytes(sidecar, bytesStore);
   const { from, to } = view.state.selection.main;
-  const placedAtoms: PositionedAtom[] = sidecar.atoms.map((a) => ({
+  // A sidecar paste is still a paste: a leading slash command chips here
+  // exactly as it does on the plain-text route. A copy from a Tug surface
+  // carries a sidecar even when it holds no atoms at all — provenance alone
+  // mints one — so without this the same text chips when it comes from
+  // another app and does not when it comes from Tug.
+  const commandPlan =
+    resolve !== null ? planLeadingCommandSidecar(sidecar, from, resolve) : null;
+  const insert = commandPlan?.insert ?? sidecar.text;
+  const atoms = commandPlan?.atoms ?? sidecar.atoms;
+  const placedAtoms: PositionedAtom[] = atoms.map((a) => ({
     position: from + a.position,
     segment: a.segment,
   }));
   view.dispatch({
-    changes: { from, to, insert: sidecar.text },
+    changes: { from, to, insert },
     effects: placedAtoms.length > 0 ? addAtomsEffect.of(placedAtoms) : [],
-    selection: { anchor: from + sidecar.text.length },
+    selection: { anchor: from + insert.length },
     userEvent: "input.paste",
     // Reveal the caret after the paste — without this the sidecar-paste path
     // leaves the caret below the fold on a paste that overflows the visible
@@ -702,7 +712,7 @@ function handlePaste(
   if (sidecarRaw !== "") {
     const sidecar = parseClipboardSidecar(sidecarRaw);
     if (sidecar !== null) {
-      insertSidecar(view, sidecar, bytesStore);
+      insertSidecar(view, sidecar, bytesStore, getPastedCommandResolver());
       // The provenance the copy carried. Reported rather than applied: what to
       // do with a root is the HOST's question — a jot records it, the prompt
       // entry has a project of its own and ignores it.
@@ -738,7 +748,7 @@ function handlePaste(
     void readClipboardViaNative().then(({ text, atoms }) => {
       const sidecar = atoms !== "" ? parseClipboardSidecar(atoms) : null;
       if (sidecar !== null) {
-        insertSidecar(view, sidecar, getBytesStore());
+        insertSidecar(view, sidecar, getBytesStore(), getPastedCommandResolver());
         if (sidecar.origins !== undefined) onPastedOrigins(sidecar.origins);
         return;
       }
@@ -831,7 +841,7 @@ export function planLeadingCommandPaste(
   text: string,
   from: number,
   resolve: PastedCommandResolver,
-): { insert: string; segment: AtomSegment } | null {
+): { insert: string; segment: AtomSegment; consumed: number } | null {
   // Only when the command would occupy the document's first position.
   if (from !== 0) return null;
   const match = /^\/(\S+)/.exec(text);
@@ -842,7 +852,45 @@ export function planLeadingCommandPaste(
   // add the separator only when it doesn't (i.e. the command stood alone).
   const rest = text.slice(match[0].length);
   const sep = /^\s/.test(rest) ? "" : " ";
-  return { insert: TUG_ATOM_CHAR + sep + rest, segment };
+  return {
+    insert: TUG_ATOM_CHAR + sep + rest,
+    segment,
+    consumed: match[0].length,
+  };
+}
+
+/**
+ * The {@link planLeadingCommandPaste} decision for a paste that arrives as a
+ * SIDECAR — a copy from another Tug surface — rather than as plain text.
+ *
+ * The command chips the same way, and the sidecar's own atoms ride along at
+ * their offsets, shifted by however much shorter the chip is than the
+ * `/command` text it replaced. Returns `null` for every case the plain-text
+ * planner returns null for, plus one of its own: an atom sitting INSIDE the
+ * leading token. U+FFFC is not whitespace, so `/⟦atom⟧` matches the token
+ * regex without the token ever having been text — that paste inserts verbatim.
+ *
+ * Positions are relative to the insert, as the sidecar's own are; the caller
+ * offsets them by the paste point. Exported for the test suite.
+ */
+export function planLeadingCommandSidecar(
+  sidecar: TugAtomsClipboardPayload,
+  from: number,
+  resolve: PastedCommandResolver,
+): { insert: string; atoms: readonly PositionedAtom[] } | null {
+  const plan = planLeadingCommandPaste(sidecar.text, from, resolve);
+  if (plan === null) return null;
+  if (sidecar.atoms.some((a) => a.position < plan.consumed)) return null;
+  // Everything after the token keeps its distance from the END of the text,
+  // which is the one measurement the rewrite leaves alone.
+  const atoms: PositionedAtom[] = [{ position: 0, segment: plan.segment }];
+  for (const a of sidecar.atoms) {
+    atoms.push({
+      position: plan.insert.length - (sidecar.text.length - a.position),
+      segment: a.segment,
+    });
+  }
+  return { insert: plan.insert, atoms };
 }
 
 // ---------------------------------------------------------------------------

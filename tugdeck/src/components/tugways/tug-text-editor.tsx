@@ -124,7 +124,6 @@ import { tugTheme } from "./tug-text-editor/theme";
 import { hostFocusMirror } from "./tug-text-editor/host-state";
 import { hostClickToCaret } from "./tug-text-editor/host-click";
 import {
-  addAtomsEffect,
   atomBytesStoreFacet,
   atomDecorationField,
   atomInvertedEffects,
@@ -156,8 +155,8 @@ import { atomTypeOverExt } from "./tug-text-editor/atom-type-over";
 import { atomBindExt } from "./tug-text-editor/atom-bind";
 import {
   clipboardExtension,
+  insertSidecar,
   parseClipboardSidecar,
-  rehydrateSidecarBytes,
   serializeClipboard,
   tryInsertLeadingCommandPaste,
   type PastedCommandResolver,
@@ -2302,11 +2301,11 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
     // Bridge-paste atom round-trip: the bridge returns the Tug-private
     // atom sidecar JSON directly on its `atoms` field, read from the
     // `dev.tug.prompt-atoms` pasteboard type our native copy wrote.
-    // `parseClipboardSidecar` validates it; `rehydrateSidecarBytes`
-    // restores any carried image bytes into this card's store so pasted
-    // image chips reconstitute fully. When `atoms` is empty (external
-    // clipboards, or a Tug copy that carried no atoms), fall through to
-    // inserting `text` verbatim (label-substituted plain text).
+    // `parseClipboardSidecar` validates it and `insertSidecar` places it —
+    // rehydrating any carried image bytes into this card's store so pasted
+    // image chips reconstitute fully, and chipping a leading slash command.
+    // When `atoms` is empty (an external clipboard carries no sidecar at
+    // all), fall through to the plain-text path below.
     const handlePaste = useCallback((): ActionHandlerResult => {
       const view = viewRef.current;
       if (view === null) return;
@@ -2320,20 +2319,15 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
             const { from, to } = live.state.selection.main;
             const sidecar = atoms !== "" ? parseClipboardSidecar(atoms) : null;
             if (sidecar !== null) {
-              rehydrateSidecarBytes(sidecar, attachmentBytesStoreRef.current);
-              const placedAtoms = sidecar.atoms.map((a) => ({
-                position: from + a.position,
-                segment: a.segment,
-              }));
-              live.dispatch({
-                changes: { from, to, insert: sidecar.text },
-                effects: placedAtoms.length > 0
-                  ? addAtomsEffect.of(placedAtoms)
-                  : [],
-                selection: { anchor: from + sidecar.text.length },
-                userEvent: "input.paste",
-                scrollIntoView: true,
-              });
+              // One insert for both routes into an atom paste — this one and
+              // the DOM event's — so a leading slash command chips whichever
+              // way the paste arrived.
+              insertSidecar(
+                live,
+                sidecar,
+                attachmentBytesStoreRef.current,
+                pastedCommandResolverRef.current,
+              );
               // Same report the DOM paste path makes: the roots this text was
               // written against, for a host that keeps the text.
               if (sidecar.origins !== undefined) {

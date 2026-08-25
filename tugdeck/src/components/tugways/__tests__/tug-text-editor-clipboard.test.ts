@@ -13,6 +13,7 @@ import { describe, it, expect } from "bun:test";
 import {
   parseClipboardSidecar,
   planLeadingCommandPaste,
+  planLeadingCommandSidecar,
   rehydrateSidecarBytes,
   serializeClipboard,
 } from "@/components/tugways/tug-text-editor/clipboard-filters";
@@ -360,6 +361,87 @@ describe("planLeadingCommandPaste", () => {
     expect(planLeadingCommandPaste("/unknown thing", 0, resolve)).toBeNull();
     expect(planLeadingCommandPaste("not a command", 0, resolve)).toBeNull();
     expect(planLeadingCommandPaste("/path/to/file.md", 0, resolve)).toBeNull();
+  });
+
+  // A copy from a Tug surface carries a sidecar even when it holds no atoms —
+  // provenance alone mints one — so the sidecar route has to chip the command
+  // too, or the same text behaves one way from another app and another from
+  // Tug.
+  describe("planLeadingCommandSidecar", () => {
+    it("chips the command in an atomless provenance-only sidecar", () => {
+      const plan = planLeadingCommandSidecar(
+        {
+          version: 1,
+          text: "/tugplug:implement dash/foo.md",
+          atoms: [],
+          origins: ["/repo"],
+        },
+        0,
+        resolve,
+      );
+      expect(plan).not.toBeNull();
+      expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} dash/foo.md`);
+      expect(plan!.atoms).toEqual([
+        { position: 0, segment: atomFor("tugplug:implement") },
+      ]);
+    });
+
+    it("carries the sidecar's own atoms across at their shifted offsets", () => {
+      const mention: AtomSegment = {
+        kind: "atom",
+        type: "file",
+        label: "foo.md",
+        value: "dash/foo.md",
+      };
+      // "/implement " is 11 chars; the chip + separator is 2, so the atom at
+      // 11 lands at 2 and the trailing text keeps its distance from the end.
+      const plan = planLeadingCommandSidecar(
+        {
+          version: 1,
+          text: `/implement ${TUG_ATOM_CHAR} now`,
+          atoms: [{ position: 11, segment: mention }],
+        },
+        0,
+        resolve,
+      );
+      expect(plan!.insert).toBe(`${TUG_ATOM_CHAR} ${TUG_ATOM_CHAR} now`);
+      expect(plan!.atoms).toEqual([
+        { position: 0, segment: atomFor("tugplug:implement") },
+        { position: 2, segment: mention },
+      ]);
+    });
+
+    it("inserts verbatim when an atom sits inside the leading token", () => {
+      const chip: AtomSegment = {
+        kind: "atom",
+        type: "command",
+        label: "x",
+        value: "x",
+      };
+      // U+FFFC is not whitespace, so `/⟦atom⟧` matches the token regex — the
+      // token was never text and must not be chipped.
+      expect(
+        planLeadingCommandSidecar(
+          {
+            version: 1,
+            text: `/${TUG_ATOM_CHAR}`,
+            atoms: [{ position: 1, segment: chip }],
+          },
+          0,
+          resolve,
+        ),
+      ).toBeNull();
+    });
+
+    it("returns null for a sidecar that does not land at offset 0", () => {
+      expect(
+        planLeadingCommandSidecar(
+          { version: 1, text: "/implement x", atoms: [] },
+          5,
+          resolve,
+        ),
+      ).toBeNull();
+    });
   });
 });
 
