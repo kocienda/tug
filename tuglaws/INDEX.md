@@ -36,6 +36,7 @@
 ## Changes & commits
 
 - [tracking-changes.md](tracking-changes.md) — How a session's file changes are captured, classified, and committed. The two-layer doctrine (capture annotates, git status decides), the `file_events` ledger, the four capture origins (`exact`/`bash`/`turn`/`replay`), per-file contention (`shared`) and the row-liveness rule, the capture-gap inventory, the three read-side buckets (attributed/foreign/unattributed), and the commit disposition contract (exit-3 refusal, `--tree`, `left_behind`). Read before touching attribution, `tugutil preflight`/`commit`/`draft`, or the draft skill.
+- [tugrevs.md](tugrevs.md) — The `.rev` edit language and its `tugrevs` interpreter: a heredoc-shaped superset of ed/sed/patch verbs that `tugutil` executes so every edit lands as a proof-class receipt instead of an unattributed `python3` heredoc. Grammar, transaction semantics (resolve everything against original bytes, apply all or nothing), count guards, `--preview`, and the gate steer. Read before implementing the interpreter or adding a verb.
 - [ledger-reliability.md](ledger-reliability.md) — The reliability doctrine for Tug's SQLite ledgers: one gateway for every writable open and its pragma set, the ban on foreign SQLite touching a live file, quarantine-and-rebuild on a corruption verdict, and the schema-version regime every shared ledger is gated on. Read before opening, migrating, or inspecting any database under `~/Library/Application Support/Tug/`.
 
 ## Theming, palette, tokens
