@@ -1,4 +1,4 @@
-# tugrevs — the edit language
+# tugrev — the edit language
 
 *A small, interpreted language for editing text files from inside a session, executed by `tugutil` so every edit it makes is attributed with proof. Why it exists, what the session corpus says the model actually does to files, the grammar, the transaction semantics, the receipt, and how the gate steers to it. Read this before implementing the interpreter, before adding a verb, or before deciding that a `python3` heredoc is "fine just this once."*
 
@@ -12,10 +12,10 @@ The attribution grammar in `tugchanges-core::shell_ops` reads a shell command an
 
 The model reaches for those interpreters for a reason, and the reason is not that an attributable verb is missing. `tugutil file edit` exists; it covers one literal substitution per invocation, or a unified diff. The moment an edit is multi-line, touches three files, needs quoting the shell fights, or is *computed* — rename every `foo_` prefix, insert after the third match, replace lines 5873–5882 — the cheapest thing in the model's hands is a heredoc into a general-purpose interpreter. The heredoc is the natural shape for a multi-line program. The failure is only that the program's reader is python instead of Tug.
 
-**tugrevs makes the heredoc the happy path.** A `.rev` program is written into a heredoc exactly as a python script would be, but its reader is `tugutil`, which applies it and emits the `TUG-FILE-RECEIPT` the relay already understands. The habit stays; the attribution becomes proof.
+**tugrev makes the heredoc the happy path.** A `.rev` program is written into a heredoc exactly as a python script would be, but its reader is `tugutil`, which applies it and emits the `TUG-FILE-RECEIPT` the relay already understands. The habit stays; the attribution becomes proof.
 
 ```bash
-tugrevs <<'REV'
+tugrev <<'REV'
 file tugrust/crates/tugdash-core/src/ops.rs
   replace 'entry.stage, "working"' with 'entry.stage, "the git stage"'
   after /^fn redo_replay\b/ insert <<
@@ -41,7 +41,7 @@ The language is shaped by evidence, not taste. Every Claude Code session transcr
 | `awk 'NR…' file > /tmp/x && mv` | 18 | Yes — the `mv` names the destination. | Delete or reorder lines by number. |
 | `head -n $((L-1)) file > /tmp && mv` | 9 | Yes — same. | Truncate a file at a marker line. |
 
-So the attribution problem is one family. The `sed`/`perl`/`cat` rows are in the table because they show what edits the model makes and therefore what the language must express — not because they leak. The 1,322 interpreter-body edits are the only source in the corpus that no grammar change can ever read, because the body is an arbitrary program. That is the gap tugrevs exists to close, and closing it is worth a language only because the same language also makes the other 2,400 edits transactional, count-guarded, and previewable instead of hand-ordered `sed -i` chains.
+So the attribution problem is one family. The `sed`/`perl`/`cat` rows are in the table because they show what edits the model makes and therefore what the language must express — not because they leak. The 1,322 interpreter-body edits are the only source in the corpus that no grammar change can ever read, because the body is an arbitrary program. That is the gap tugrev exists to close, and closing it is worth a language only because the same language also makes the other 2,400 edits transactional, count-guarded, and previewable instead of hand-ordered `sed -i` chains.
 
 Three conclusions drive the design:
 
@@ -55,7 +55,7 @@ What the corpus does **not** contain in any volume is computed replacement (a ca
 
 ## Design stance
 
-**Boring on purpose.** tugrevs is a superset of the verbs the model already knows from `ed`, `sed`, and `patch`: `replace`, `sub`, `insert`, `delete`, addresses that are literals, regexes, or line ranges. A bespoke syntax would be generated less reliably, and a malformed program is exactly the moment the model gives up and reaches for python. Every construct here is one the model can write from memory on the first try. Human readability is not a goal, but it falls out of this stance for free and the Changes card is glad of it.
+**Boring on purpose.** tugrev is a superset of the verbs the model already knows from `ed`, `sed`, and `patch`: `replace`, `sub`, `insert`, `delete`, addresses that are literals, regexes, or line ranges. A bespoke syntax would be generated less reliably, and a malformed program is exactly the moment the model gives up and reaches for python. Every construct here is one the model can write from memory on the first try. Human readability is not a goal, but it falls out of this stance for free and the Changes card is glad of it.
 
 **A program is a transaction.** Every address in the program is resolved against the *original* bytes of every file before a single byte is written. If any op fails to resolve, nothing is written and the run exits non-zero. There is no half-applied multi-file edit, ever. This is the same discipline `tugutil file edit` already holds for the single-substitution case (a no-match exits non-zero with no receipt), extended to a whole program.
 
@@ -190,7 +190,7 @@ A `STR` may be a body: `replace '…' with << … >>` is how a one-line anchor g
 The interpreter runs in four phases, and the phase boundary is the contract.
 
 1. **Parse.** The whole program is parsed before any file is opened. A syntax error names its line and column and aborts the run with nothing read.
-2. **Read.** Every file named by a block is read once. A missing file is an error (except under `create`, where an *existing* file is the error, and `write`, which accepts either). Non-UTF-8 content is an error; tugrevs does not edit binaries.
+2. **Read.** Every file named by a block is read once. A missing file is an error (except under `create`, where an *existing* file is the error, and `write`, which accepts either). Non-UTF-8 content is an error; tugrev does not edit binaries.
 3. **Resolve.** Every address, literal, and regex in every op is resolved against the original bytes of its file. Every failure across the whole program is collected — not just the first — and reported together with the op's source line and the actual match count, so one run tells the model everything that was stale. Any failure aborts with nothing written.
 4. **Apply and write.** Ops within a file are applied bottom-up by resolved position, so no op shifts another; a `move` is a delete at its source and an insert at its anchor, both positioned against the original. Each file is written atomically (write-temp-and-rename in the file's directory, preserving mode). A file whose result is byte-identical to its original is not written and not receipted.
 
@@ -202,7 +202,7 @@ Line endings are detected per file (`\n`, `\r\n`) and preserved; bodies are join
 
 ## Preview and the receipt
 
-`tugrevs --preview` runs phases 1–3, then prints the unified diff the program *would* produce and exits 0 without writing. This is the model's dry run and it should be the reflex before any program with `all`, a regex, a `files` block, or a `move`. Preview emits no receipt and touches no mtime — the same guarantee [`file probe`](tracking-changes.md#verb-receipts) holds, for the same reason: nothing changed, so the ledger must not say otherwise.
+`tugrev --preview` runs phases 1–3, then prints the unified diff the program *would* produce and exits 0 without writing. This is the model's dry run and it should be the reflex before any program with `all`, a regex, a `files` block, or a `move`. Preview emits no receipt and touches no mtime — the same guarantee [`file probe`](tracking-changes.md#verb-receipts) holds, for the same reason: nothing changed, so the ledger must not say otherwise.
 
 A successful apply prints the unified diff of what it did, then a single `TUG-FILE-RECEIPT` line naming every file whose bytes moved (`modified`, or `created` for a `create` or a `write` of a file that did not exist), in the same format `tugutil file edit` emits so the relay's existing scan mints the same proof-class `cmd` rows and hunk ids. There is nothing new for the relay to learn. Forgery remains a non-risk for the reason given in tracking-changes: rows are relay-local, so a session can only attribute files to itself.
 
@@ -225,11 +225,11 @@ The attributable path for both is *compute, then write the result as a rev*: run
 
 | Spelling | Role |
 |----------|------|
-| `tugrevs [--preview] [FILE.rev]` | The shim binary. Reads the program from the named file or stdin. Ships in the app bundle beside `tugutil` and is symlinked into `~/.local/bin` like the rest. |
-| `tugutil file rev [--preview] [FILE.rev]` | The same interpreter as a `tugutil` verb, for scripts that already speak `tugutil`. |
-| `tugrevs-core` | The crate under `tugrust/crates/`: lexer, parser, resolver, applier, diff rendering. No I/O policy — it takes a `FileSource` trait so tests drive it against in-memory content and the CLI drives it against the tree. |
+| `tugutil file rev [--preview] [FILE.rev]` | The entry point. Reads the program from the named file or stdin. This is the spelling the gate's steer and `CLAUDE.md` use. |
+| `tugrev [--preview] [FILE.rev]` | A thin second `[[bin]]` target in the `tugutil` crate that forwards to the same verb. Ships in the app bundle beside `tugutil` and is symlinked into `~/.local/bin` like the rest — and carries the same gotcha: the symlink points at `main`'s build, so a dash-worktree session that changed the interpreter must call it by absolute path. |
+| `tugrev-core` | The one new crate under `tugrust/crates/`: lexer, parser, resolver, applier, diff rendering. No I/O policy — it takes a `FileSource` trait so tests drive it against in-memory content and the CLI drives it against the tree. |
 
-`.rev` is the language's file extension and the language's name in prose ("write a rev"). `tugrevs` is the tool.
+`.rev` is the language's file extension and the language's name in prose ("write a rev"). `tugrev` is the tool. The name is not `rev`: `/usr/bin/rev` reverses lines on every macOS and Linux install, exits 0 on any input, and is what the model already knows the word to mean — a shadowed `rev` would print a program backwards and report success.
 
 ---
 
@@ -237,13 +237,52 @@ The attributable path for both is *compute, then write the result as a rev*: run
 
 A verb the model doesn't reach for attributes nothing. Three levers, all cheap, all part of shipping this:
 
-1. **The gate steers the heredoc interpreters.** Today `gate-file-ops.sh` never denies a `python3` heredoc, because the grammar cannot judge one and most are read-only analysis. That stays true for a bare `python3 script.py`. But a heredoc-fed or `-c`-fed interpreter (`python3 -`, `python3 -c`, `perl -e`, `ruby -e`, `bun -e`, `node -e`, `awk` with a program text) whose command text **or stripped body** names a path under the checkout with a write-shaped call (`open(…, "w")`, `write_text`, `.write(`, `Bun.write`, `writeFileSync`, awk `>` redirection) is denied with a one-line steer — *"write this as a rev — `tugrevs <<'REV' … REV`"* — and a two-op example in the denial message, because the model copies the shape it is shown. The same steer covers the two `/tmp` round trips the corpus shows (`awk … > /tmp/x && mv /tmp/x file`, `head -n … > /tmp/x && mv`), which the grammar *can* read but which would otherwise mint only a `mv` row for the destination. This adds a third `Suggestion` variant (`Rev`) beside `Lifecycle` and `Edit`. The gate still fails open, and a heredoc that names no repo path still passes: this is a steer, not a wall.
-2. **`CLAUDE.md` shows the shape.** The editing section leads with a rev example — the multi-pair, multi-file one, since that is the case where python wins today — and names `tugrevs` before `file edit`. `file edit` remains the right tool for the one-liner.
+1. **The gate steers the heredoc interpreters.** Today `gate-file-ops.sh` never denies a `python3` heredoc, because the grammar cannot judge one and most are read-only analysis. That stays true for a bare `python3 script.py`. But a heredoc-fed or `-c`-fed interpreter (`python3 -`, `python3 -c`, `perl -e`, `ruby -e`, `bun -e`, `node -e`, `awk` with a program text) whose command text **or stripped body** names a path under the checkout with a write-shaped call (`open(…, "w")`, `write_text`, `.write(`, `Bun.write`, `writeFileSync`, awk `>` redirection) is denied with a one-line steer — *"write this as a rev — `tugutil file rev <<'REV' … REV`"* — and a two-op example in the denial message, because the model copies the shape it is shown. The same steer covers the two `/tmp` round trips the corpus shows (`awk … > /tmp/x && mv /tmp/x file`, `head -n … > /tmp/x && mv`), which the grammar *can* read but which would otherwise mint only a `mv` row for the destination. This adds a third `Suggestion` variant (`Rev`) beside `Lifecycle` and `Edit`, and it reads the body under decision R1 below: a scan that can only deny, never attribute. The gate still fails open, and a heredoc that names no repo path still passes: this is a steer, not a wall.
+2. **`CLAUDE.md` shows the shape.** The editing section leads with a rev example — the multi-pair, multi-file one, since that is the case where python wins today — and names `tugrev` before `file edit`. `file edit` remains the right tool for the one-liner.
 3. **The heredoc reader is fast to be right.** Resolve-phase errors report *every* stale address in one run with the op's source line and the actual count, so the round trip to a correct program is one step, not a python retry.
 
 Whether the levers worked is measurable two ways: the size of the UNATTRIBUTED bucket over sessions, which the Changes card already shows, and the mining query above re-run against new transcripts — the interpreter-body count (1,322 over the corpus so far) should stop growing, and the `sed`/`perl` counts should fall as revs replace them. The first number is the feature's acceptance test; the second is a quality signal.
 
 ---
+
+## Decisions
+
+Settled before the dash; a step that wants to reopen one updates this page first.
+
+| # | Decision |
+|---|----------|
+| R1 | **The steer may read what the grammar may not.** The attribution grammar strips heredoc bodies because a body is data, and that stays true for *proof*: nothing scanned in a body ever mints a row. The gate's steer is a different tier — it only ever produces a denial with a suggestion — so it is allowed to scan a body for a write-shaped call and a repo-shaped path. `tracking-changes.md` gets one paragraph saying so, next to the existing "a `python3` heredoc is never denied" sentence, which it replaces. |
+| R2 | **One new crate, no new CLI crate.** `tugrev-core` is the only new crate. `tugutil file rev` is the verb; `tugrev` is a `[[bin]]` in `tugutil`. |
+| R3 | **`expect 1` is the default for `sub` as well as `replace`.** A rename campaign spells `all` on every line. The cost is a word; the benefit is that a regex the model believed specific is caught at resolve time. |
+| R4 | **In a `files` block the count guard holds per file.** A listed file with zero hits fails the program. The model lists what `grep -l` returned, not what it guessed. |
+| R5 | **The gate steer ships in the same dash as the interpreter.** It is the delivery mechanism, not polish: the corpus shows the verb the model was steered to (`file probe`, 321 uses) stuck, and the one it was merely told about (`file edit`) did not close the leak. A dash that lands the language without the steer has not landed the feature. |
+| R6 | **`Edit`/`Write` remain the first choice for a single-file edit.** They attribute with certainty. The rev is for the Bash residue — multi-pair, multi-file, line-range, append — where the model would otherwise reach for an interpreter. `CLAUDE.md` says both. |
+
+---
+
+## Delivery
+
+Three steps, in order; each is a commit on the dash worktree.
+
+**Step 1 — the interpreter.** `tugrev-core` (lexer, parser, resolver, applier, unified-diff rendering, `FileSource` trait); `tugutil file rev` with `--preview`; the `tugrev` bin; bundle and symlink plumbing alongside the other `tug*` binaries. Receipt emission reuses `tugutil::commands::file`'s `RECEIPT_PREFIX` and `ReceiptOp` — not a copy.
+
+**Step 2 — the steer.** `Suggestion::Rev` in `tugchanges-core::shell_ops`; the body scan for heredoc- and `-c`-fed interpreters and the `/tmp` round trips; `tugutil file gate` reports it; `gate-file-ops.sh` renders the denial with the two-op example. The R1 paragraph in `tracking-changes.md`, and this page's row in `INDEX.md` already exists.
+
+**Step 3 — the shape.** `CLAUDE.md`'s "Editing repo files from the shell" section is rewritten to lead with a multi-pair, multi-file rev, name `tugutil file rev` before `file edit`, and state R6. The `tugplug` hooks run from the app bundle, so Step 2's hook change is verified live by copying into the bundle, per the existing practice.
+
+### Tests
+
+- **Language, in memory.** `tugrev-core` unit tests against an in-memory `FileSource`: every op, every address form, `until` vs `..`, `[K]` qualifiers, `in` scope, per-file guards in a `files` block, body dedent by op-line indentation, CRLF and no-trailing-newline preservation, overlap refusal, `move` with an anchor inside its own range, all-failures-reported-at-once, byte-identical result not written.
+- **Verb, on disk.** CLI tests in the style of `tugutil/tests/file_edit_cli.rs`: receipt names only files whose bytes moved; `--preview` leaves bytes *and* mtime untouched and prints no receipt; exit codes 2/3/4; atomic write preserves mode.
+- **Fidelity to the corpus.** A fixture set of real commands lifted from the mined transcripts — a dozen spanning the python multi-pair, `sed` numeric deletes, range-scoped `s///`, `perl -pi` multi-file, `cat >>`, and a two-marker cut — each paired with its rev and the file at the commit the session was on. The test runs both and asserts byte-identical output. This is the test that says the language expresses what the model was actually doing, and it is the one that must not be faked with synthetic content.
+- **Gate.** `shell_ops` tests for the steer: a python heredoc writing a repo path → `Rev`; the same heredoc reading only → passes; `python3 script.py` → passes; `awk … > /tmp/x && mv /tmp/x repo/file` → `Rev`.
+
+### Acceptance
+
+The mining query, re-run against transcripts written after the dash joins: the interpreter-body count stops growing. The Changes card's UNATTRIBUTED bucket is the same fact seen live.
+
+---
+
 
 ## Invariants (the short list)
 
