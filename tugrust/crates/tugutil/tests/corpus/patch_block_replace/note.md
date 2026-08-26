@@ -1,0 +1,1 @@
+The python triple-quoted (old, new) pair expressed as a `patch` hunk — command lifted verbatim from `31e60bd9-2f13-4456-99e4-6f9d5d1bbf39.jsonl`; `tugrust/crates/tugdash-core/src/ops.rs` is `tugrust/crates/tugdash-core/src/ops.rs` at `3ea2971f4`. Captured on macOS (BSD sed/awk).

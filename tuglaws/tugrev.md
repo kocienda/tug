@@ -72,7 +72,7 @@ A program is a sequence of **file blocks**. A block opens with `file <path>` —
 ```
 program    := (block)+
 block      := ('file' path | 'files' path+) NEWLINE (op NEWLINE)+
-op         := replace | sub | insert | append | delete | lines | move | create | write
+op         := replace | sub | patch | insert | append | delete | lines | move | create | write
 ```
 
 Paths are relative to the working directory (the checkout or dash worktree the session runs in), or absolute. A path is a literal — no globs, no variables. The same file may open more than one block; the blocks concatenate. In a `files` block, `expect` counts are checked **per file**: `files a.rs b.rs` + `sub /\bnew_frames\b/ 'new_beats' all` requires at least one hit in each.
@@ -83,6 +83,7 @@ Paths are relative to the working directory (the checkout or dash worktree the s
 |----|------|---------|
 | `replace` | `replace STR with STR [COUNT] [SCOPE]` | Literal substring substitution. Default `expect 1`. |
 | `sub` | `sub REGEX REPL [COUNT] [SCOPE]` | Regex substitution; `$1`-style captures in `REPL`. Default `expect 1`. |
+| `patch` | `patch BODY` | The body is unified-diff hunk lines — ` ` context, `-` removed, `+` added — with no headers and no counts. Each hunk finds its context + `-` lines as whole lines, exactly once, and replaces them with its context + `+` lines. `@@` lines separate hunks and their tails are ignored. The block-replaces-block form. |
 | `insert` | `before ADDR insert [indented] BODY` / `after ADDR insert [indented] BODY` | Insert whole lines adjacent to an addressed line. `indented` prefixes each body line with the anchor line's leading whitespace. |
 | `append` | `append BODY` | Insert after the last line. `cat >> file <<'EOF'` as an op. |
 | `delete` | `delete RANGE` / `delete every ADDR` | Delete the lines in the range, or every line the address matches. |
@@ -130,7 +131,9 @@ A `RANGE` is `ADDR .. ADDR` (inclusive at both ends) or `ADDR until ADDR` (inclu
 
 **One op may carry two bodies, and that is how a block replaces a block.** `replace << … >> with << … >>` is the form; a `>>` line closes its body when nothing follows it, or when what follows opens with the op's own next word — `with` after the first body, `all` / `expect` / `in` after the second. Any other `>>` line is body content, so a markdown blockquote survives being carried in one.
 
-**A body cannot contain a bare `>>` line**, so a rev cannot carry a rev — editing this page's own examples wants `Edit` or a patch. The language has no labelled terminator (`<<REV … REV`) that would fix it; that is a gap rather than a decision, left open until a second case for it turns up.
+**`patch` is the recommended form for a block replacing a block.** Two bodies still work and are not going anywhere, but a hunk puts each line's indentation in a prefix column, so the file's own leading whitespace is a byte the writer copies rather than one they reconstruct — which is where nearly every live refusal landed. `@@` lines separate hunks and their tails are ignored, so a real diff's headers can be pasted in and cost nothing; a `\ No newline at end of file` marker is ignored too. An empty line is a blank context line, and any line whose first byte is not ` `, `-`, `+`, `@@`, or `\` is refused by name at the line that carries it. A hunk needs a `-` or a `+` line, or it would change nothing; a hunk with only `+` lines needs a context line, or it has nowhere to go. A hunk matches exactly once, with the same indent-shift and near-miss hints a `replace` earns, and a refusal names which hunk missed — every failing hunk, in one refusal.
+
+**A body cannot contain a bare `>>` line**, so a rev cannot carry a rev — editing this page's own examples wants `Edit` or a patch. Inside a `patch` hunk a `+>>` or `->>` line does carry one, since the prefix byte keeps it off the terminator's shape; a *context* line whose own content begins `>>` cannot, because a body's `>>` may sit at any indentation and nothing distinguishes it from the terminator — carry that line as a `-`/`+` pair instead. The language has no labelled terminator (`<<REV … REV`) that would fix the general case; that is a gap rather than a decision, left open until a second case for it turns up.
 
 That form exists because block-replaces-block is the commonest edit in the evidence: 928 of the 1,317 interpreter edits carry a triple-quoted multi-line body. It was learned in the field rather than designed. On `tugrev`'s first real outing three of four programs were refused — the model wrote the block as a **multi-line quoted literal**, which the language does not have, and then abandoned the verb. A literal stays one line, because that keeps an unclosed quote refused on the line that opened it instead of swallowing the rest of the program; the refusal names the body form, so the instinct that wrote the literal is answered with the syntax that carries it.
 
@@ -172,19 +175,16 @@ file roadmap/local-model-bringup.md
 file roadmap/animation-tuneup.md
   delete /^### Remaining execution steps/ .. $
 
-# block replaces block (the python triple-quoted pair) — two bodies, one op,
-# each body at the column the file keeps it at
+# block replaces block (the python triple-quoted pair) — one hunk, the file's
+# indentation after each prefix
 file tugdeck/src/deck-manager.ts
-  replace <<
-    return (
-      this.container.clientHeight -
-      IMPOSITION_GAP_PX -
-      IMPOSITION_GAP_BOTTOM_PX
-    );
->> with <<
-    return (
-      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
-    );
+  patch <<
+     return (
+-      this.container.clientHeight -
+-      IMPOSITION_GAP_PX -
+-      IMPOSITION_GAP_BOTTOM_PX
++      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
+     );
 >>
 
 # the apostrophe in prose (a doc table, a comment) — the literal goes in "…"
@@ -285,6 +285,7 @@ Settled before the dash; a step that wants to reopen one updates this page first
 | R4 | **In a `files` block the count guard holds per file.** A listed file with zero hits fails the program. The model lists what `grep -l` returned, not what it guessed. |
 | R5 | **The gate steer ships in the same dash as the interpreter.** It is the delivery mechanism, not polish: the corpus shows the verb the model was steered to (`file probe`, 321 uses) stuck, and the one it was merely told about (`file edit`) did not close the leak. A dash that lands the language without the steer has not landed the feature. |
 | R6 | **`Edit`/`Write` remain the first choice for a single-file edit.** They attribute with certainty. The rev is for the Bash residue — multi-pair, multi-file, line-range, append — where the model would otherwise reach for an interpreter. `CLAUDE.md` says both. |
+| R7 | **`patch` is the recommended block-replaces-block form, and two-body `replace` stays undeprecated.** The prefix column makes each line's indentation visible instead of reconstructed, which is the property the flattened-body refusals were losing. 266 corpus programs use two bodies; nothing about them changes. |
 
 ---
 
@@ -322,6 +323,7 @@ The mining query, re-run against transcripts written after the dash joins: the i
 - A quoted literal is one line; a block spanning several is a `<<` body, and the refusal for a multi-line literal names that form.
 - A `>>` closes its body when nothing follows it, or when the op's own next word does. Any other `>>` line is content.
 - Bodies are verbatim; a `>>` may sit at any indentation. A body that finds nothing names the column at which it would have, or else the first line at which it diverged.
+- A `patch` hunk resolves its context + `-` lines as whole lines, exactly once; `@@` counts are never required or read.
 - A `<<` body is an address anywhere an address goes: `before` takes its first line, `after` its last, and a range end its last.
 - A literal containing `'` goes in `"…"`; `''`, `'"'"'`, and `'\''` are refused by name.
 - `^`/`$` in a regex are line anchors.

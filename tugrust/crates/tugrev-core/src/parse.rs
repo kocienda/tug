@@ -1,11 +1,11 @@
-//! The `.rev` grammar: file blocks and the nine ops.
+//! The `.rev` grammar: file blocks and the ten ops.
 //!
 //! The parser reads the whole program before returning, so a syntax error
 //! aborts with nothing read — phase 1 of the four-phase model, where the phase
 //! boundary is the contract.
 
-use crate::ParseError;
 use crate::lex::Scanner;
+use crate::ParseError;
 
 /// A parsed program: file blocks in source order.
 #[derive(Debug, Clone)]
@@ -45,6 +45,12 @@ pub enum OpKind {
         count: Count,
         scope: Option<Range>,
     },
+    /// A body of unified-diff hunk lines. Each hunk replaces the lines it
+    /// matches with the lines it carries; the counts and headers a real
+    /// unified diff needs are neither written nor read.
+    Patch {
+        hunks: Vec<Hunk>,
+    },
     Insert {
         anchor: Addr,
         side: Side,
@@ -80,6 +86,7 @@ impl OpKind {
         match self {
             OpKind::Replace { .. } => "replace",
             OpKind::Sub { .. } => "sub",
+            OpKind::Patch { .. } => "patch",
             OpKind::Insert { .. } => "insert",
             OpKind::Append { .. } => "append",
             OpKind::Delete { .. } => "delete",
@@ -89,6 +96,19 @@ impl OpKind {
             OpKind::Write { .. } => "write",
         }
     }
+}
+
+/// One hunk of a `patch` body: the lines it expects to find, the lines it
+/// leaves behind, and where it was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hunk {
+    /// The context and `-` lines, in body order, each stripped of its prefix
+    /// byte — what the hunk matches, as whole lines.
+    pub old: Vec<String>,
+    /// The context and `+` lines, same stripping — what stands there after.
+    pub new: Vec<String>,
+    /// 1-based source line of the hunk's first body line.
+    pub line: usize,
 }
 
 /// A `replace`'s operand: a quoted literal, or a body whose lines join with
@@ -273,6 +293,12 @@ fn parse_op(scanner: &mut Scanner) -> Result<Op, ParseError> {
                 body,
             }
         }
+        "patch" => {
+            let body = parse_body(scanner, &[])?;
+            OpKind::Patch {
+                hunks: parse_hunks(&body, line + 1, line, scanner)?,
+            }
+        }
         "append" => OpKind::Append {
             body: parse_body(scanner, &[])?,
         },
@@ -354,6 +380,114 @@ fn parse_body(scanner: &mut Scanner, continues: &[&str]) -> Result<Vec<String>, 
     }
     scanner.col += 2;
     scanner.read_body(continues)
+}
+
+/// A hunk under construction, closed by a `@@` line or by the end of the body.
+#[derive(Default)]
+struct PartialHunk {
+    old: Vec<String>,
+    new: Vec<String>,
+    /// Set by the first line the hunk collects; `None` means it collected none.
+    line: Option<usize>,
+    minus: bool,
+    plus: bool,
+    context: bool,
+}
+
+impl PartialHunk {
+    fn opened_at(&mut self, source_line: usize) {
+        self.line.get_or_insert(source_line);
+    }
+
+    /// Push the finished hunk onto `out` and start a fresh one. A hunk that
+    /// collected no lines is dropped: a separator between nothing and nothing
+    /// is not a hunk.
+    fn close(&mut self, out: &mut Vec<Hunk>, scanner: &Scanner) -> Result<(), ParseError> {
+        let Some(line) = self.line else {
+            return Ok(());
+        };
+        if !self.minus && !self.plus {
+            return Err(scanner.error_at(
+                line,
+                1,
+                "this hunk has no `-` or `+` line, so it would change nothing",
+            ));
+        }
+        if !self.minus && !self.context {
+            return Err(scanner.error_at(
+                line,
+                1,
+                "this hunk has no context or `-` line, so it has nowhere to go",
+            ));
+        }
+        out.push(Hunk {
+            old: std::mem::take(&mut self.old),
+            new: std::mem::take(&mut self.new),
+            line,
+        });
+        *self = Self::default();
+        Ok(())
+    }
+}
+
+/// Split a `patch` body into hunks. `first_line` is the 1-based source line of
+/// the body's first line, so body line `i` is `first_line + i`; `op_line` is
+/// the line the `patch` word sits on.
+fn parse_hunks(
+    lines: &[String],
+    first_line: usize,
+    op_line: usize,
+    scanner: &Scanner,
+) -> Result<Vec<Hunk>, ParseError> {
+    let mut hunks: Vec<Hunk> = Vec::new();
+    let mut current = PartialHunk::default();
+
+    for (i, text) in lines.iter().enumerate() {
+        let source_line = first_line + i;
+        if text.starts_with("@@") {
+            current.close(&mut hunks, scanner)?;
+            continue;
+        }
+        if text.starts_with('\\') {
+            continue;
+        }
+        let mut chars = text.chars();
+        let prefix = chars.next().unwrap_or(' ');
+        let rest = chars.as_str();
+        match prefix {
+            ' ' => {
+                current.opened_at(source_line);
+                current.context = true;
+                current.old.push(rest.to_string());
+                current.new.push(rest.to_string());
+            }
+            '-' => {
+                current.opened_at(source_line);
+                current.minus = true;
+                current.old.push(rest.to_string());
+            }
+            '+' => {
+                current.opened_at(source_line);
+                current.plus = true;
+                current.new.push(rest.to_string());
+            }
+            other => {
+                return Err(scanner.error_at(
+                    source_line,
+                    1,
+                    format!(
+                        "a hunk line starts with ` `, `-`, `+`, or `@@` — this one starts with `{other}`"
+                    ),
+                ));
+            }
+        }
+    }
+    current.close(&mut hunks, scanner)?;
+
+    if hunks.is_empty() {
+        return Err(scanner.error_at(op_line, 1, "`patch` needs at least one hunk"));
+    }
+    Ok(hunks)
 }
 
 fn parse_regex(scanner: &mut Scanner) -> Result<RegexLit, ParseError> {
@@ -523,6 +657,117 @@ mod tests {
 
     fn failure(source: &str) -> ParseError {
         parse(source).expect_err("program is refused")
+    }
+
+    fn hunks(source: &str) -> Vec<Hunk> {
+        match ops(source).into_iter().next().expect("an op").kind {
+            OpKind::Patch { hunks } => hunks,
+            other => panic!("expected patch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_patch_body_parses_into_old_and_new_lines() {
+        let hunks = hunks("file a.txt\n  patch <<\n one\n-two\n+deux\n three\n>>\n");
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].old, vec!["one", "two", "three"]);
+        assert_eq!(hunks[0].new, vec!["one", "deux", "three"]);
+        assert_eq!(hunks[0].line, 3);
+    }
+
+    #[test]
+    fn a_blank_body_line_is_a_blank_context_line() {
+        let hunks = hunks("file a.txt\n  patch <<\n one\n\n-two\n+deux\n>>\n");
+        assert_eq!(hunks[0].old, vec!["one", "", "two"]);
+        assert_eq!(hunks[0].new, vec!["one", "", "deux"]);
+    }
+
+    #[test]
+    fn at_at_lines_separate_hunks_and_their_tails_are_ignored() {
+        let hunks = hunks(concat!(
+            "file a.txt\n",
+            "  patch <<\n",
+            "@@ -1,2 +1,2 @@\n",
+            "-a\n",
+            "+b\n",
+            "@@ -9,2 +9,2 @@\n",
+            "-c\n",
+            "+d\n",
+            "@@\n",
+            ">>\n",
+        ));
+        assert_eq!(hunks.len(), 2);
+        assert_eq!(hunks[0].old, vec!["a"]);
+        assert_eq!(hunks[0].line, 4);
+        assert_eq!(hunks[1].new, vec!["d"]);
+        assert_eq!(hunks[1].line, 7);
+    }
+
+    #[test]
+    fn a_no_newline_marker_is_ignored() {
+        let hunks = hunks(concat!(
+            "file a.txt\n",
+            "  patch <<\n",
+            "-a\n",
+            "+b\n",
+            "\\ No newline at end of file\n",
+            ">>\n",
+        ));
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].old, vec!["a"]);
+        assert_eq!(hunks[0].new, vec!["b"]);
+    }
+
+    #[test]
+    fn a_line_with_no_prefix_is_refused_naming_its_first_byte() {
+        let err = failure("file a.txt\n  patch <<\n one\ntwo\n+x\n>>\n");
+        assert_eq!(err.line, 4);
+        assert_eq!(err.col, 1);
+        assert!(err.message.contains("starts with `t`"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_hunk_that_changes_nothing_is_refused() {
+        let err = failure("file a.txt\n  patch <<\n one\n two\n>>\n");
+        assert_eq!(err.line, 3);
+        assert!(
+            err.message.contains("would change nothing"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn a_hunk_with_nowhere_to_go_is_refused() {
+        let err = failure("file a.txt\n  patch <<\n+one\n>>\n");
+        assert_eq!(err.line, 3);
+        assert!(err.message.contains("nowhere to go"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_body_with_no_hunks_is_refused() {
+        let err = failure("file a.txt\n  patch <<\n@@\n>>\n");
+        assert_eq!(err.line, 2);
+        assert!(
+            err.message.contains("needs at least one hunk"),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn a_context_line_opening_with_gtgt_closes_the_body_and_a_plus_line_carries_it() {
+        let hunks = hunks("file a.txt\n  patch <<\n one\n+>>\n>>\n");
+        assert_eq!(hunks[0].new, vec!["one", ">>"]);
+
+        let err = failure("file a.txt\n  patch <<\n-one\n+two\n >>\n+x\n>>\n");
+        assert!(err.message.contains("unknown op"), "{}", err.message);
+    }
+
+    #[test]
+    fn patch_takes_no_tail() {
+        let err = failure("file a.txt\n  patch <<\n-one\n+two\n>> all\n");
+        assert!(err.message.contains("unterminated body"), "{}", err.message);
     }
 
     #[test]

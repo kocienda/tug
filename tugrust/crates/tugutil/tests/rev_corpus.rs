@@ -123,6 +123,11 @@ fn the_python_multi_pair_edit_with_count_guards() {
 }
 
 #[test]
+fn the_python_block_replaced_by_a_hunk() {
+    run_fixture("patch_block_replace");
+}
+
+#[test]
 fn the_python_two_marker_span_cut() {
     run_fixture("marker_span_cut");
 }

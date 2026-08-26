@@ -90,6 +90,67 @@ fn mtime(path: &Path) -> SystemTime {
 }
 
 #[test]
+fn a_patch_hunk_edits_the_file_and_receipts_it() {
+    let (_dir, root) = init_repo();
+    let out = rev(
+        &root,
+        &[],
+        "file a.txt\n  patch <<\n one\n-two\n+deux\n three\n>>\n",
+    );
+    assert_eq!(code(&out), 0);
+    let ops = receipt_ops(&out);
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0]["op"], "modified");
+    assert_eq!(
+        ops[0]["path"],
+        root.join("a.txt").to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).unwrap(),
+        "one\ndeux\nthree\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("b.txt")).unwrap(),
+        "alpha\nbeta\n"
+    );
+}
+
+#[test]
+fn a_patch_hunk_that_finds_nothing_exits_three_naming_the_hunk_and_writes_nothing() {
+    let (_dir, root) = init_repo();
+    let before = mtime(&root.join("a.txt"));
+    let out = rev(
+        &root,
+        &[],
+        "file a.txt\n  patch <<\n-absent\n+present\n>>\n",
+    );
+    assert_eq!(code(&out), 3);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("patch hunk 1: expected 1 match, found 0"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("nothing was written"), "{stderr}");
+    assert!(!has_receipt(&out));
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).unwrap(),
+        "one\ntwo\nthree\n"
+    );
+    assert_eq!(mtime(&root.join("a.txt")), before);
+}
+
+#[test]
+fn a_patch_hunk_carries_a_gtgt_line_through_stdin() {
+    let (_dir, root) = init_repo();
+    let out = tugrev(&root, &[], "file a.txt\n  patch <<\n one\n+>>\n>>\n");
+    assert_eq!(code(&out), 0);
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).unwrap(),
+        "one\n>>\ntwo\nthree\n"
+    );
+}
+
+#[test]
 fn a_multi_pair_program_edits_one_file_and_receipts_the_regions_it_produced() {
     let (_dir, root) = init_repo();
     let out = rev(

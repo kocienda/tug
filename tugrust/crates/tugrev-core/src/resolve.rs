@@ -302,8 +302,7 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
                     return Err(message);
                 }
                 let want: Vec<String> = needle.split(doc.eol).map(str::to_string).collect();
-                let hint = indent_hint(doc, from, to, &needle)
-                    .or_else(|| doc.near_miss(&want, doc.line_at(from), doc.line_at(to)));
+                let hint = miss_hint(doc, from, to, &want, &needle);
                 return Err(match hint {
                     Some(hint) => format!("{message} — {hint}"),
                     None => message,
@@ -341,6 +340,49 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
             }
             guard(*count, produced.len(), "match")?;
             Ok(produced)
+        }
+        OpKind::Patch { hunks } => {
+            let mut edits: Vec<Edit> = Vec::new();
+            let mut failures: Vec<String> = Vec::new();
+            for (index, hunk) in hunks.iter().enumerate() {
+                let hits = doc.matching_blocks(&hunk.old);
+                if let Err(message) = guard(Count::Expect(1), hits.len(), "match") {
+                    let mut message = format!("patch hunk {}: {message}", index + 1);
+                    if hits.is_empty() {
+                        let needle = hunk.old.join(doc.eol);
+                        if let Some(hint) = miss_hint(doc, 0, doc.text.len(), &hunk.old, &needle) {
+                            message.push_str(" — ");
+                            message.push_str(&hint);
+                        }
+                    }
+                    failures.push(message);
+                    continue;
+                }
+                let first = hits[0];
+                let last = first + hunk.old.len() - 1;
+                let span_end = doc.lines[last].next;
+                let keeps_bare_ending = span_end == doc.text.len() && !doc.final_newline;
+                let replacement = if keeps_bare_ending {
+                    hunk.new.join(doc.eol)
+                } else {
+                    body_as_content(&hunk.new, doc.eol)
+                };
+                let (start, end) = if hunk.new.is_empty() {
+                    doc.cut_span(first, last)
+                } else {
+                    (doc.lines[first].start, span_end)
+                };
+                edits.push(Edit {
+                    op_line: op.line,
+                    start,
+                    end,
+                    replacement,
+                });
+            }
+            if !failures.is_empty() {
+                return Err(failures.join("; "));
+            }
+            Ok(edits)
         }
         OpKind::Insert {
             anchor,
@@ -486,6 +528,15 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
             unreachable!("whole-file ops are resolved before the document is built")
         }
     }
+}
+
+/// The hint pair a whole-line miss earns: the indentation the file would have
+/// matched at, else how far the block got before it diverged. `from` and `to`
+/// are byte offsets; `near_miss` reads lines, and the bridge is here so that
+/// no caller has to remember which unit it is in.
+fn miss_hint(doc: &Doc, from: usize, to: usize, want: &[String], needle: &str) -> Option<String> {
+    indent_hint(doc, from, to, needle)
+        .or_else(|| doc.near_miss(want, doc.line_at(from), doc.line_at(to)))
 }
 
 /// When a `replace` finds nothing, look once more for the same text at every
@@ -1225,6 +1276,99 @@ mod tests {
         let source = Counting(std::cell::Cell::new(0));
         resolve(&program, &source).expect("resolves");
         assert_eq!(source.0.get(), 1);
+    }
+
+    #[test]
+    fn a_hunk_that_matches_twice_is_refused_naming_patch_and_the_count() {
+        let err = refusal(
+            "file a.txt\n  patch <<\n-x\n+y\n>>\n",
+            &[("a.txt", "x\nmid\nx\n")],
+        );
+        assert_eq!(
+            err.failures[0].message,
+            "patch hunk 1: expected 1 match, found 2"
+        );
+    }
+
+    #[test]
+    fn two_failing_hunks_are_both_named_in_one_refusal() {
+        let err = refusal(
+            concat!(
+                "file a.txt\n",
+                "  patch <<\n",
+                "-absent\n",
+                "+one\n",
+                "@@\n",
+                "-mid\n",
+                "+MID\n",
+                "@@\n",
+                "-x\n",
+                "+two\n",
+                ">>\n",
+            ),
+            &[("a.txt", "x\nmid\nx\n")],
+        );
+        assert_eq!(err.failures.len(), 1);
+        let message = &err.failures[0].message;
+        assert!(message.starts_with("patch hunk 1: "), "{message}");
+        assert!(
+            message.contains("; patch hunk 3: expected 1 match, found 2"),
+            "{message}"
+        );
+        assert!(!message.contains("patch hunk 2"), "{message}");
+    }
+
+    #[test]
+    fn a_hunk_at_the_wrong_column_gets_the_indent_hint() {
+        let err = refusal(
+            "file a.txt\n  patch <<\n   return (\n-    x\n+    y\n   );\n>>\n",
+            &[("a.txt", "fn go() {\n    return (\n      x\n    );\n}\n")],
+        );
+        assert_eq!(
+            err.failures[0].message,
+            "patch hunk 1: expected 1 match, found 0 — found 1 at line 2 if it were written 2 columns deeper"
+        );
+    }
+
+    #[test]
+    fn a_flattened_hunk_gets_the_near_miss_hint() {
+        let err = refusal(
+            "file a.txt\n  patch <<\n fn go() {\n-work();\n+rest();\n }\n>>\n",
+            &[("a.txt", "fn go() {\n  work();\n}\n")],
+        );
+        let message = &err.failures[0].message;
+        assert!(
+            message.starts_with("patch hunk 1: expected 1 match, found 0 — "),
+            "{message}"
+        );
+        assert!(
+            message.contains("differs only in indentation: the file indents it"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn overlapping_hunks_are_refused() {
+        let err = refusal(
+            concat!(
+                "file a.txt\n",
+                "  patch <<\n",
+                "-aaa\n",
+                "-bbb\n",
+                "+one\n",
+                "@@\n",
+                "-bbb\n",
+                "-ccc\n",
+                "+two\n",
+                ">>\n",
+            ),
+            &doc(),
+        );
+        assert!(
+            err.failures[0].message.contains("overlaps the one on line"),
+            "{}",
+            err.failures[0].message
+        );
     }
 
     #[test]

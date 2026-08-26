@@ -92,16 +92,13 @@ So write the multi-line edit as a **rev** — a small program `tugutil` executes
 tugutil file rev <<'REV'
 file tugdeck/src/deck-manager.ts
   replace "  // The strip's own stop, one past the picture's." with "  // One stop for the whole strip."
-  replace <<
-    return (
-      this.container.clientHeight -
-      IMPOSITION_GAP_PX -
-      IMPOSITION_GAP_BOTTOM_PX
-    );
->> with <<
-    return (
-      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
-    );
+  patch <<
+     return (
+-      this.container.clientHeight -
+-      IMPOSITION_GAP_PX -
+-      IMPOSITION_GAP_BOTTOM_PX
++      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
+     );
 >>
   delete 166 .. 178
 files tugdeck/src/lib/pulse-store.ts tugdeck/src/lib/local-model-store.ts
@@ -109,7 +106,7 @@ files tugdeck/src/lib/pulse-store.ts tugdeck/src/lib/local-model-store.ts
 REV
 ```
 
-Two rules carry nearly every refusal a rev has ever earned. **A body is the file's bytes, verbatim** — indent every line exactly as the file does, keeping the structure *inside* the block, never squared off under the op line; it is the same thing an `Edit`'s `old_string` is. **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom, and a rev is not a shell string.
+Three rules carry nearly every refusal a rev has ever earned. **A body is the file's bytes, verbatim** — indent every line exactly as the file does, keeping the structure *inside* the block, never squared off under the op line; it is the same thing an `Edit`'s `old_string` is. **A block that replaces a block is a `patch` hunk** — one prefix byte per line (` ` context, `-` out, `+` in) and the file's own indentation after it, which is how the indentation stays visible instead of being reconstructed. **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom, and a rev is not a shell string.
 
 A `<<` body is also an **address**, wherever an address goes — so `after << … >> insert << … >>` anchors past a whole block when no single line in it is worth naming, and beats a line number, which goes stale the moment anything above it moves. `before` takes the block's first line, `after` its last.
 
@@ -124,7 +121,7 @@ tugutil file probe --patch p.diff -- just app-test at0287-….test.ts   # patch,
 tugutil file run -- cargo fmt -p tugrev-core    # run a rewriter, receipt what it moved
 ```
 
-- **`rev`** is for the shape the interpreters were reached for: several literal pairs on one file, a count guard per pair, a region between two markers, the same rename across several files, a numeric line-range delete, a block appended, a span cut.
+- **`rev`** is for the shape the interpreters were reached for: several literal pairs on one file, a count guard per pair, a block replaced by a block, as a `patch` hunk, a region between two markers, the same rename across several files, a numeric line-range delete, a block appended, a span cut.
 - **`edit`** remains right for the one-liner — a single substitution, or a unified diff you already have. It prints the same receipt, and a no-match exits non-zero rather than succeeding quietly.
 - **`probe`** is the patch → run → revert cycle in one command: it restores bytes *and* mtime afterwards and records nothing, which is strictly better than doing it by hand (a hand-rolled probe leaves a spurious hint on the file it touched). Use it instead of `git checkout --` to revert, which would also destroy any uncommitted work already on those paths.
 - **`run`** is for the tool that writes files you did not author: a formatter, a linter's `--fix`, a codegen step. `cargo fmt` names none of its files at all, so nothing can read it — `file run` watches the command instead, fingerprints the repo by content before and after, and receipts exactly what moved. A file the command merely touched is never claimed, and the command's own output and exit status pass straight through. Narrow it with `--scope <path>` when you know where the writes land.

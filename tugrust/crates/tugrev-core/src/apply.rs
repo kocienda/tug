@@ -8,7 +8,7 @@
 //! the receipt — out of the language.
 
 use crate::parse::Program;
-use crate::resolve::{Edit, FileSource, OutcomeKind, ResolveErrors, resolve};
+use crate::resolve::{resolve, Edit, FileSource, OutcomeKind, ResolveErrors};
 
 /// What one file would become.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +86,83 @@ mod tests {
             .next()
             .expect("one file")
             .new_content
+    }
+
+    #[test]
+    fn a_hunk_replaces_its_block_keeping_the_files_indentation() {
+        let out = content(
+            concat!(
+                "file a.txt\n",
+                "  patch <<\n",
+                "     if x {\n",
+                "-        a();\n",
+                "-            deep();\n",
+                "+        one();\n",
+                "         b();\n",
+                "     }\n",
+                ">>\n",
+            ),
+            "fn go() {\n    if x {\n        a();\n            deep();\n        b();\n    }\n}\n",
+        );
+        assert_eq!(
+            out,
+            "fn go() {\n    if x {\n        one();\n        b();\n    }\n}\n"
+        );
+    }
+
+    #[test]
+    fn a_pure_minus_hunk_without_context_deletes_the_lines_and_their_endings() {
+        let out = content("file a.txt\n  patch <<\n-b\n>>\n", "a\nb\nc\n");
+        assert_eq!(out, "a\nc\n");
+    }
+
+    #[test]
+    fn a_pure_plus_hunk_with_context_inserts_after_its_context() {
+        let out = content("file a.txt\n  patch <<\n a\n+b\n>>\n", "a\nc\n");
+        assert_eq!(out, "a\nb\nc\n");
+    }
+
+    #[test]
+    fn two_hunks_in_one_body_resolve_independently_against_original_bytes() {
+        let out = content(
+            concat!(
+                "file a.txt\n",
+                "  patch <<\n",
+                "-one\n",
+                "+1\n",
+                "+2\n",
+                "+3\n",
+                "@@\n",
+                "-four\n",
+                "+IV\n",
+                ">>\n",
+            ),
+            "one\ntwo\nthree\nfour\n",
+        );
+        assert_eq!(out, "1\n2\n3\ntwo\nthree\nIV\n");
+    }
+
+    #[test]
+    fn a_hunk_carries_a_gtgt_line_as_a_plus_line() {
+        let out = content("file a.txt\n  patch <<\n a\n+>>\n>>\n", "a\n");
+        assert_eq!(out, "a\n>>\n");
+    }
+
+    #[test]
+    fn a_hunk_touching_the_last_line_of_a_file_without_a_final_newline_keeps_the_bare_ending() {
+        let replaced = content("file a.txt\n  patch <<\n-b\n+B\n>>\n", "a\nb");
+        assert_eq!(replaced, "a\nB");
+        let deleted = content("file a.txt\n  patch <<\n-b\n>>\n", "a\nb");
+        assert_eq!(deleted, "a");
+    }
+
+    #[test]
+    fn a_crlf_file_keeps_crlf_through_a_hunk() {
+        let out = content(
+            "file a.txt\n  patch <<\n-two\n+deux\n>>\n",
+            "one\r\ntwo\r\n",
+        );
+        assert_eq!(out, "one\r\ndeux\r\n");
     }
 
     #[test]

@@ -1,10 +1,10 @@
 //! `tugrev-core` — the `.rev` edit language.
 //!
 //! A rev is a small program that edits text files: literal and regex
-//! substitution with a count guard, line-addressed insert/delete/move, and
-//! whole-file create/write, grouped into blocks that name the files they act
-//! on. The language and its semantics are specified in `tuglaws/tugrev.md`;
-//! this crate is the interpreter's language half.
+//! substitution with a count guard, unified-diff hunks, line-addressed
+//! insert/delete/move, and whole-file create/write, grouped into blocks that
+//! name the files they act on. The language and its semantics are specified
+//! in `tuglaws/tugrev.md`; this crate is the interpreter's language half.
 //!
 //! The crate performs **no I/O**. It reads through a [`FileSource`] and
 //! returns the content each file would have, so every semantic — addresses,
@@ -18,13 +18,13 @@ mod lex;
 mod parse;
 mod resolve;
 
-pub use apply::{FileOutcome, resolve_and_apply};
+pub use apply::{resolve_and_apply, FileOutcome};
 pub use diff::unified_diff;
 pub use parse::{
-    Addr, Block, Count, DeleteTarget, Op, OpKind, Program, Range, RegexLit, Side, Text, parse,
+    parse, Addr, Block, Count, DeleteTarget, Hunk, Op, OpKind, Program, Range, RegexLit, Side, Text,
 };
 pub use resolve::{
-    Edit, FileSource, OutcomeKind, ResolveErrors, ResolveFailure, ResolvedFile, resolve,
+    resolve, Edit, FileSource, OutcomeKind, ResolveErrors, ResolveFailure, ResolvedFile,
 };
 
 /// Where a program failed to parse: 1-based line and column, as an editor

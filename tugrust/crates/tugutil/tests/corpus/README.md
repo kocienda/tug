@@ -4,7 +4,7 @@ Each directory here is one real edit the model made to a repo file from Bash, li
 
 - `cmd.sh` — the original command, verbatim. Where the transcript's line continued into something that only *displayed* the result (`&& sed -n …`, `&& grep -n …`, `&& bunx tsc`), only the editing half is kept: the fixture is about the edit.
 - `note.md` — which transcript the command came from, and which commit the content is pinned at.
-- `program.rev` — the rev.
+- `program.rev` — the rev. `patch_block_replace` is the triple-quoted `(old, new)` pair expressed as a `patch` hunk, where the prefix column carries the file's own indentation instead of the writer reconstructing it.
 - everything else — the real file content the command ran against, at its real path, pinned from git history at a commit where the command's anchors match.
 
 `rev_corpus.rs` runs the command in one temp dir and `tugrev` in another and asserts the results are byte-identical. The oracle is the real interpreter, so a rev that silently diverges from what the command actually did fails here.
