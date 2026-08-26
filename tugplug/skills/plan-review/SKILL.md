@@ -11,7 +11,7 @@ disallowed-tools: Task, Write
 
 `plan-review` is the **pre-implementation** pass: read a plan, judge it against the real code, and **fix what you find**. It is not a report. The old `vet` skill was read-only by construction, so the only thing it could do with a finding was hand it back — and the answer was invariably "do the fixups". This does the fixups.
 
-The card runs this automatically after `/tugplug:plan-devise`, on the review model, as a visible turn — under an arc and off one alike, because `plan-devise` ends by asking the conductor to seat this stage rather than by handing the user a chip. You can also invoke it by hand on any plan: one devised before this existed, one edited since, one written by hand.
+The card runs this automatically after `/tugplug:plan-devise`, on the review model, as a visible turn — under an arc and off one alike, because `plan-devise` ends by asking the wheel to seat this stage rather than by handing the user a chip. You can also invoke it by hand on any plan: one devised before this existed, one edited since, one written by hand.
 
 **You are the reviewer, in-thread.** Do not spawn sub-agents (`Task`).
 
@@ -109,7 +109,7 @@ Progress does **not** invalidate a stamp: ledger status cells, commit cells, and
 
 **First, check whether an arc is running you.** Run `printenv TUG_DASH_ARC` — when it names a dash, this turn is that arc's **review stage**. The review itself is unchanged, every step of it: lint, read the code, apply the fixups, append the Review Record, stamp last. Only the ending differs — report what changed and stop. **Print no chip.** The stamp you just wrote is the hand-off: the runner reads `tugutil plan status` and rotates to implement on the strength of it, so a command line here is a button nobody will press.
 
-Off an arc, report what changed, in a few lines. This is the ordinary ending, and it is also where a conductor-seated review lands — a rotation with no arc behind it leaves `TUG_DASH_ARC` unset, and nothing downstream is watching the stamp, so the next move has to be said. Give it as a literal command on its own line, **inside backticks**, command and path together in one span:
+Off an arc, report what changed, in a few lines. This is the ordinary ending, and it is also where a wheel-seated review lands — a rotation with no arc behind it leaves `TUG_DASH_ARC` unset, and nothing downstream is watching the stamp, so the next move has to be said. Give it as a literal command on its own line, **inside backticks**, command and path together in one span:
 
 `` `/tugplug:dash-implement my-dash` ``
 

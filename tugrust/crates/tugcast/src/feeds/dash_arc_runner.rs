@@ -54,7 +54,7 @@ use super::dash_arc::{
     ArcAction, ArcFacts, Rotation, StepLedgerFacts, arc_action, context_max_from_breakdown,
     step_range,
 };
-use crate::conductor::{self, RotationRequest};
+use crate::wheel::{self, RotationRequest};
 
 use crate::session_ledger::SessionLedger;
 
@@ -62,9 +62,9 @@ use crate::session_ledger::SessionLedger;
 pub struct ArcContext {
     pub supervisor: Arc<AgentSupervisor>,
     pub session_ledger: Arc<SessionLedger>,
-    /// The conductor's registries — an ending arms a hand-back here rather
+    /// The wheel's registries — an ending arms a hand-back here rather
     /// than sending one, because the stage may be mid-turn.
-    pub conductor: Arc<conductor::ConductorState>,
+    pub wheel: Arc<wheel::WheelState>,
     pub cancel: CancellationToken,
 }
 
@@ -294,7 +294,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
         .and_then(|row| context_max_from_breakdown(&row.payload));
     // Only a rotation writes a `stage_label`, at the `session_init` that
     // follows its announcement, so the label is the durable fact that this
-    // session was seated by the conductor rather than reached by the deck.
+    // session was seated by the wheel rather than reached by the deck.
     let stage_seated = claude_session_id
         .as_deref()
         .is_some_and(|id| ctx.session_ledger.stage_provenance(id).is_some());
@@ -360,7 +360,7 @@ fn read(
     let cited_paths = document_source
         .as_deref()
         .map(|source| {
-            conductor::prompt::cited_paths(source, project, conductor::prompt::CITED_PATHS_CAP)
+            wheel::prompt::cited_paths(source, project, wheel::prompt::CITED_PATHS_CAP)
         })
         .unwrap_or_default();
     // An untracked document has no last commit, so the anchor is when the
@@ -374,7 +374,7 @@ fn read(
                 project,
                 since,
                 &cited_paths,
-                conductor::prompt::COMMITS_CAP,
+                wheel::prompt::COMMITS_CAP,
             )
         })
         .unwrap_or_default();
@@ -484,13 +484,13 @@ fn lints_as_plan(source: &str) -> bool {
 /// about where to start and what has moved.
 ///
 /// The facts were gathered in `read`'s blocking pass; the wording is the
-/// conductor's, so every score composes the same way. Nothing here is a word a
+/// wheel's, so every score composes the same way. Nothing here is a word a
 /// model wrote.
 fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
     let steps = rotation
         .steps
         .map(|(from, through)| step_range(from, through));
-    let ask = conductor::prompt::stage_ask(
+    let ask = wheel::prompt::stage_ask(
         rotation.stage.as_str(),
         reading.record.document.as_deref(),
         &reading.dash,
@@ -504,7 +504,7 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
         .stopped
         .as_ref()
         .map(|(stage, reason)| (stage.as_str(), reason.as_str()));
-    Some(conductor::prompt::compose(
+    Some(wheel::prompt::compose(
         &ask,
         &reading.cited_paths,
         &reading.commits_since,
@@ -582,7 +582,7 @@ async fn rotate(
         );
 
     let dispatched_at = reading.record.stages.len();
-    let outcome = conductor::rotate(&ctx.supervisor, &request).await;
+    let outcome = wheel::rotate(&ctx.supervisor, &request).await;
     {
         let mut map = state.lock().await;
         let entry = map.entry(key.to_string()).or_default();
@@ -674,7 +674,7 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
 /// combination, so a new one cannot inherit a shape nobody chose.
 ///
 /// A closing card is not a caller at all. It has no card left to paint a
-/// receipt on and no hand-back to give (`conductor::hand_back` refuses a
+/// receipt on and no hand-back to give (`wheel::hand_back` refuses a
 /// `Closed` entry by design), so all it does is write its record — see
 /// `dash_api::stop_a_scored_cards_arc_as_closed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -713,7 +713,7 @@ pub(crate) enum HandBack {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn stop_arc_for_session(
     supervisor: &AgentSupervisor,
-    state: &conductor::ConductorState,
+    state: &wheel::WheelState,
     session: &TugSessionId,
     project: &Path,
     dash: &str,
@@ -723,7 +723,7 @@ pub(crate) async fn stop_arc_for_session(
 ) {
     match how.hand_back {
         HandBack::Send => {
-            if let Err(refusal) = conductor::hand_back(supervisor, session).await {
+            if let Err(refusal) = wheel::hand_back(supervisor, session).await {
                 warn!(
                     dash = %dash,
                     reason = refusal.reason(),
@@ -791,7 +791,7 @@ async fn finish(
     if let Some((stage, reason)) = stopped {
         stop_arc_for_session(
             &ctx.supervisor,
-            &ctx.conductor,
+            &ctx.wheel,
             &arc.session,
             &arc.project,
             &arc.dash,
@@ -815,7 +815,7 @@ async fn finish(
         &arc.project.to_string_lossy(),
         &summary,
     );
-    if let Err(refusal) = conductor::hand_back(&ctx.supervisor, &arc.session).await {
+    if let Err(refusal) = wheel::hand_back(&ctx.supervisor, &arc.session).await {
         warn!(
             dash = %arc.dash,
             reason = refusal.reason(),
@@ -834,7 +834,7 @@ async fn finish(
 async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: ArcStopReason) {
     stop_arc_for_session(
         &ctx.supervisor,
-        &ctx.conductor,
+        &ctx.wheel,
         &arc.session,
         &arc.project,
         &arc.dash,
@@ -1142,15 +1142,15 @@ Some context.
     #[test]
     fn review_and_implement_asks_name_the_dash() {
         assert_eq!(
-            conductor::prompt::stage_ask("review", None, "foo", None).as_deref(),
+            wheel::prompt::stage_ask("review", None, "foo", None).as_deref(),
             Some("/tugplug:plan-review foo")
         );
         assert_eq!(
-            conductor::prompt::stage_ask("implement", None, "foo", Some("2-4")).as_deref(),
+            wheel::prompt::stage_ask("implement", None, "foo", Some("2-4")).as_deref(),
             Some("/tugplug:dash-implement foo Steps 2-4")
         );
         assert_eq!(
-            conductor::prompt::stage_ask("implement", None, "foo", None).as_deref(),
+            wheel::prompt::stage_ask("implement", None, "foo", None).as_deref(),
             Some("/tugplug:dash-implement foo")
         );
     }
@@ -1367,7 +1367,7 @@ Some context.
             ArcContext {
                 supervisor,
                 session_ledger: ledger,
-                conductor: Arc::new(conductor::ConductorState::default()),
+                wheel: Arc::new(wheel::WheelState::default()),
                 cancel: CancellationToken::new(),
             },
             entry,
@@ -1470,7 +1470,7 @@ Some context.
     #[tokio::test]
     async fn a_fresh_unseated_session_stops_the_arc_and_hands_the_card_back() {
         // The user reached a fresh session on the card — a `/new`, a reset, a
-        // rewind fork. Nothing the conductor did produced it, so no rotation
+        // rewind fork. Nothing the wheel did produced it, so no rotation
         // goes back onto it.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -1666,7 +1666,7 @@ Some context.
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
-        // A closed entry is what the conductor refuses by name.
+        // A closed entry is what the wheel refuses by name.
         entry.lock().await.spawn_state = SpawnState::Closed;
         let state = Arc::new(Mutex::new(HashMap::new()));
 
@@ -1700,7 +1700,7 @@ Some context.
 
         stop_arc_for_session(
             &ctx.supervisor,
-            &ctx.conductor,
+            &ctx.wheel,
             &TugSessionId::new("claude-1".to_string()),
             root,
             "demo",
@@ -1748,7 +1748,7 @@ Some context.
 
         stop_arc_for_session(
             &ctx.supervisor,
-            &ctx.conductor,
+            &ctx.wheel,
             &TugSessionId::new("claude-1".to_string()),
             root,
             "demo",
@@ -1802,7 +1802,7 @@ Some context.
         ] {
             stop_arc_for_session(
                 &ctx.supervisor,
-                &ctx.conductor,
+                &ctx.wheel,
                 &TugSessionId::new("claude-1".to_string()),
                 root,
                 "demo",
@@ -1822,7 +1822,7 @@ Some context.
                     "arc {word} · demo · the stage's turn will end and the card returns to opus"
                 ),
             );
-            assert!(ctx.conductor.take_hand_back("claude-1"));
+            assert!(ctx.wheel.take_hand_back("claude-1"));
         }
     }
 
@@ -1838,7 +1838,7 @@ Some context.
 
         stop_arc_for_session(
             &ctx.supervisor,
-            &ctx.conductor,
+            &ctx.wheel,
             &TugSessionId::new("claude-1".to_string()),
             root,
             "demo",
@@ -1877,7 +1877,7 @@ Some context.
 
         stop_arc_for_session(
             &ctx.supervisor,
-            &ctx.conductor,
+            &ctx.wheel,
             &TugSessionId::new("claude-1".to_string()),
             root,
             "demo",
@@ -1892,7 +1892,7 @@ Some context.
 
         assert!(queued(&entry).await.is_empty(), "nothing reaches the card yet");
         assert!(
-            ctx.conductor.take_hand_back("claude-1"),
+            ctx.wheel.take_hand_back("claude-1"),
             "the restore is armed for the turn's end",
         );
         assert_eq!(receipts(&mut control_rx).len(), 1, "and the card is told now");

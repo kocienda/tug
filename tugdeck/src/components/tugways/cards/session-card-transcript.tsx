@@ -274,8 +274,8 @@ const ASSISTANT_DEFAULT_IDENTIFIER = "Code";
 
 /** Default identifier shown for `user` rows. */
 const USER_IDENTIFIER = "You";
-/** The `#u` row of a turn the conductor opened — a stage prompt, not the user's words. */
-const CONDUCTOR_IDENTIFIER = "Conductor";
+/** The `#u` row of a turn the wheel opened — a stage prompt, not the user's words. */
+const WHEEL_IDENTIFIER = "Wheel";
 const SHELL_IDENTIFIER = "Shell";
 /** Identifier for a refs row — a `/match` or `/search` run ([P03]). Named for
  *  what the row holds (file references), not for the command that produced it;
@@ -364,9 +364,9 @@ const UserMessageCell = React.memo(function UserMessageCell({
   // out-of-range read.
   const userMessage = row.userMessage;
   // Who spoke: the turn's origin, off the committed entry or the in-flight
-  // projection. A conductor turn lays out as a user turn and is labelled
-  // as the conductor's.
-  const conductor = (row.turn?.origin ?? row.activeTurn?.origin) === "conductor";
+  // projection. A wheel turn lays out as a user turn and is labelled
+  // as the wheel's.
+  const wheel = (row.turn?.origin ?? row.activeTurn?.origin) === "wheel";
   const rawText = userMessage?.text ?? "";
   const strippedTextWithContext = stripUserBodyPrefix(rawText);
   // Split any leading `<tug-context>` sentinel blocks (staged shell / `/btw`
@@ -468,8 +468,8 @@ const UserMessageCell = React.memo(function UserMessageCell({
       <AnnotationScope value={annotation}>
       <div {...cellProps}>
         <TugTranscriptEntry
-          participant={conductor ? "conductor" : "user"}
-          identifier={conductor ? CONDUCTOR_IDENTIFIER : USER_IDENTIFIER}
+          participant={wheel ? "wheel" : "user"}
+          identifier={wheel ? WHEEL_IDENTIFIER : USER_IDENTIFIER}
           timestamp={timestamp === "" ? undefined : timestamp}
           address={address}
           body={

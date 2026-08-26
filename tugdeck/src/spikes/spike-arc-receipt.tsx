@@ -98,8 +98,8 @@ const MINIMAL_SUMMARY = "arc complete · foo\ndevise · account default · claud
 
 /** A stop, which is not a completion and must not read as one ([P12]). */
 const STOPPED_SUMMARY =
-  "arc stopped · conductor · in review — two review rounds ended without stamping the plan\n" +
-  "resume with tugutil dash run conductor";
+  "arc stopped · wheel · in review — two review rounds ended without stamping the plan\n" +
+  "resume with tugutil dash run wheel";
 
 // ---------------------------------------------------------------------------
 // The parse — the candidate for `session-arc-receipt-block.tsx`

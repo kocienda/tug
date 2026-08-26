@@ -80,7 +80,7 @@ It answers the mechanical half — required sections, unique anchors, `[P##]` vs
 
 Then run the **cold-reader test**: could a fresh session, given only this document and the repository, implement every step without asking you anything? Hunt for references that lean on session context — "as discovered above", "the function we looked at", steps that name a change but not its location — and replace each with the concrete paths, symbols, and findings.
 
-### 5. Hand the review to the conductor
+### 5. Hand the review to the wheel
 
 **This stage runs under an arc.** `printenv TUG_DASH_ARC` names the dash whose arc you are the **devise stage** of, and the arc handles the hand-off itself:
 

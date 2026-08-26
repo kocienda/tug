@@ -26,7 +26,7 @@
  *
  * The rows that turn on a **seated stage** — a cancelled devise turn, and a
  * discard or join reaching the card — are not here, and the reason is not
- * scope. A stage is seated by the conductor writing `stage_label` on the
+ * scope. A stage is seated by the wheel writing `stage_label` on the
  * session row at the `session_init` that follows a real rotation; nothing
  * short of a real multi-stage claude run produces one, and a fixture that
  * wrote the column by hand would be asserting against state no code path

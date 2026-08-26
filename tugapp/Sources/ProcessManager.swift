@@ -668,7 +668,7 @@ class ProcessManager {
     /// through to the group SIGKILL and the quiesce report, not hang
     /// this method forever: an unbounded wait would let the one process
     /// that most needs the escalation prevent it. The ladder shares one
-    /// clock: the conductor's drain deadline starts when the shutdown
+    /// clock: the supervisor's drain deadline starts when the shutdown
     /// request is sent, and the later rungs spend whatever remains of it.
     func stop() {
         // Stop the vite dev server first. No ledgers to flush, so it

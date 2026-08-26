@@ -1,4 +1,4 @@
-//! `tugutil session rotate` — ask the conductor to seat a fresh claude
+//! `tugutil session rotate` — ask the wheel to seat a fresh claude
 //! session under this card.
 //!
 //! The verb runs from inside a turn, and the rotation lands at that turn's end.
@@ -189,7 +189,7 @@ fn run_rotate(
         .and_then(|r| r.as_bool())
         .unwrap_or(false);
     // A rotation naming a model pins the card there until somebody restores the
-    // deck's own selector, and no score's ending will — so the conductor hands
+    // deck's own selector, and no score's ending will — so the wheel hands
     // it back one turn later, and the ask says so.
     let hands_back = model.is_some();
 

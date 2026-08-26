@@ -88,12 +88,12 @@ enum InstanceConfig {
     //
     // Swift mirror of `tugcore::quiesce`, which is the source of truth.
     // Its `quiesce_constants_are_mirrored` test reads these exact lines
-    // and fails the Rust build if they drift. Tug.app is the conductor:
+    // and fails the Rust build if they drift. Tug.app is the shutdown supervisor:
     // it asks each service to stop, gives the group its drain deadline,
     // and only then escalates — recording any escalation as a defect.
 
     /// How long the tugcast process group gets to exit on its own after
-    /// SIGTERM before the conductor escalates to SIGKILL. Each service
+    /// SIGTERM before the supervisor escalates to SIGKILL. Each service
     /// enforces a 2 s flush budget on itself, so a healthy group is
     /// always gone well inside this.
     static let quiesceDrainDeadline: TimeInterval = 4.0

@@ -177,10 +177,10 @@ pub struct FeedRouter {
     pub(crate) pending_asks: PendingAsks,
     /// The Haiku `SharedAgent`, once `main` has built one.
     pub(crate) shared_agent: crate::shared_agent::SharedAgentHandle,
-    /// The conductor's pending-rotation and hand-back registries, once `main`
+    /// The wheel's pending-rotation and hand-back registries, once `main`
     /// has built them. `POST /api/session` parks into these; the drain task
     /// spawned beside the arc engine empties them on the turn-end tick.
-    pub(crate) conductor: Option<Arc<crate::conductor::ConductorState>>,
+    pub(crate) wheel: Option<Arc<crate::wheel::WheelState>>,
 }
 
 /// Pending eval requests awaiting responses from the browser.
@@ -219,7 +219,7 @@ impl FeedRouter {
             pending_evals: Arc::new(std::sync::Mutex::new(HashMap::new())),
             pending_asks: Arc::new(std::sync::Mutex::new(HashMap::new())),
             shared_agent: None,
-            conductor: None,
+            wheel: None,
         }
     }
 

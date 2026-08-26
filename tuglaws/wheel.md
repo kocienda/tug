@@ -1,25 +1,20 @@
-# The Conductor
+# The Wheel
 
 *The layer that seats a claude session under a card. What a rotation is, what it may and may not change, when it is allowed to happen, and the three faces it is reachable through.*
 
 Tug mediates every claude session through tugcast and tugcode, and that mediation buys a capability a terminal claude cannot have: tugcast can retire the session seated under a card and seat a fresh one — on a chosen model, at a chosen reasoning effort, opening on a chosen prompt — while the card, its transcript, its callsign, and its durable ink all stay exactly where they were.
 
-That act is a **rotation**, and the conductor is the layer that performs it. It lives at `tugrust/crates/tugcast/src/conductor/`.
+That act is a **rotation**, and the wheel is the layer that performs it. It lives at `tugrust/crates/tugcast/src/wheel/`.
 
 ## Why it is called that
 
-A conductor does not write the music and does not play it. It decides who plays next and brings them in. That is exactly the split this layer holds: something else decides *which* stage runs — the dash arc reads its own record and its own facts and returns a decision — and the conductor performs the seating. The two halves have different reasons to change, and keeping them apart is what lets a second client exist at all.
+A wheel does not choose the destination and does not decide when to sail. It turns the vessel to whatever heading it is given, and it is the only thing that can. That is exactly the split this layer holds: something else decides *which* stage runs — the dash arc reads its own record and its own facts and returns a decision — and the wheel performs the seating. The two halves have different reasons to change, and keeping them apart is what lets a second client exist at all.
 
-The word is taken twice in this repository, and both senses are load-bearing:
-
-- **The shutdown conductor (Tug.app)** in [ledger-reliability.md](ledger-reliability.md) `[LR9]` — the process that waits for the quiesce ladder to drain and escalates when it does not. No symbol is named `conductor` there; the collision is in prose only.
-- **The conductor here** — `tugcast::conductor`, the session-seating layer this document is about.
-
-The deck already ratified this second sense: a turn opened by a rotation carries `TurnOrigin` `"conductor"`, and the transcript labels that row **Conductor** with its own icon. A rotation's opening prompt is nobody's typing, and the row says so.
+The deck says the same thing on the card: a turn opened by a rotation carries `TurnOrigin` `"wheel"`, and the transcript labels that row **Wheel** with its own icon. A rotation's opening prompt is nobody's typing, and the row says so.
 
 ## Three verbs, and no others
 
-The conductor **seats** a session, **rotates** a card from one session to the next, and **holds the lineage** that makes the two read as one scroll. Everything else belongs to somebody else: deciding what runs next is a client's, recording what happened is a client's, and the transcript's rendering is the deck's.
+The wheel **seats** a session, **rotates** a card from one session to the next, and **holds the lineage** that makes the two read as one scroll. Everything else belongs to somebody else: deciding what runs next is a client's, recording what happened is a client's, and the transcript's rendering is the deck's.
 
 ## The three kinds of carried thing
 
@@ -29,7 +24,7 @@ A rotation is defined as much by what it cannot change as by what it carries. `R
 
 - The card. A rotation seats a session *under* a card; it never moves one.
 - The tug session id. `session` names which card rotates, never what it rotates into.
-- The transcript and its durable ink. Both follow from the identity transfer in `agent_bridge.rs` — `inherit_fork_identity` plus `set_fork_provenance(…, None)` — which the conductor never calls and cannot influence.
+- The transcript and its durable ink. Both follow from the identity transfer in `agent_bridge.rs` — `inherit_fork_identity` plus `set_fork_provenance(…, None)` — which the wheel never calls and cannot influence.
 - The lineage chain. Written by that same transfer, with a NULL fork point, which is what distinguishes a rotation from a rewind for every later reader.
 - The callsign, and the `/rename` that rides with it.
 - The user's own model to return to. That is `LedgerEntry::deck_model`, and only a WebSocket client's own `model_change` ever writes it.
@@ -43,7 +38,7 @@ A rotation is defined as much by what it cannot change as by what it carries. `R
 
 **Always dropped.**
 
-- The retiring claude's context. A rotation is a fresh claude session by definition. Carrying context across one is `/compact`'s job, not the conductor's, and a rotation that preserved context would be a different act needing a different name.
+- The retiring claude's context. A rotation is a fresh claude session by definition. Carrying context across one is `/compact`'s job, not the wheel's, and a rotation that preserved context would be a different act needing a different name.
 
 ## The turn-end rule
 
@@ -51,7 +46,7 @@ A rotation is defined as much by what it cannot change as by what it carries. `R
 
 The reason is not scheduling politeness. A rotation retires the claude session seated under the card, and the caller asking for one is a model *running inside that session* — so performing the rotation on receipt would kill the model mid-sentence, in the middle of the turn that asked for it. The request is recorded and the verb returns; the card rotates seconds later, when the turn ends.
 
-The edge it waits for is the idle transition tugcast already computes once, in the supervisor's dispatcher, and fans to sibling channels — base-motion's, the arc runner's, and the conductor's. Three channels rather than three subscribers because an mpsc has one consumer.
+The edge it waits for is the idle transition tugcast already computes once, in the supervisor's dispatcher, and fans to sibling channels — base-motion's, the arc runner's, and the wheel's. Three channels rather than three subscribers because an mpsc has one consumer.
 
 **There is no perform-at-request-time path, and adding one would be a bug.** It is tempting: if the session reads idle, why wait? Because `turn_active` is written true in exactly one place — the dispatcher's `user_message` intercept — so a turn tugcast did not itself open reads *idle while claude is working*. Parking under a wrong reading costs one turn; performing under a wrong reading kills a working session. The asymmetry is the whole argument.
 
@@ -65,7 +60,7 @@ A **score** is what drives a series of rotations. Today there is one: a dash arc
 
 A score ends by handing the card back — one `model_change` frame carrying `deck_model`, so the card the user resumes typing into is on the user's own model. Without it a rotation's model change is permanent: tugcode records the selector on its manager and every later spawn reuses it, including through the user's own `/new`.
 
-**A rotation with no score is a one-stage score, and ends the same way.** It names a model, so it changed one, and no score's ending will ever restore it. The conductor arms a hand-back at the moment it performs such a rotation and fires it on that session's next turn-end tick. One turn is the right window because one turn is what the client asks for: a hand-off of a single review turn ends when that review's turn ends. A rotation naming no model arms nothing — it changed nothing, so there is nothing to restore.
+**A rotation with no score is a one-stage score, and ends the same way.** It names a model, so it changed one, and no score's ending will ever restore it. The wheel arms a hand-back at the moment it performs such a rotation and fires it on that session's next turn-end tick. One turn is the right window because one turn is what the client asks for: a hand-off of a single review turn ends when that review's turn ends. A rotation naming no model arms nothing — it changed nothing, so there is nothing to restore.
 
 **One score per card.** A rotation requested for a card already running a live score is refused by name — `arc running` — rather than queued. Two schedulers driving one card can interleave, and refusing is the one behavior that cannot. A second rotation request on a card that already has one *pending* replaces it, which is the natural reading of a caller changing its mind mid-turn, and the receipt says it replaced one.
 
@@ -96,18 +91,17 @@ The restore reads the row. It consults a score's record only for the two facts t
 |---|---|---|
 | The op | `POST /api/session`, `op: "rotate" \| "rotate_cancel"` | Loopback only, like every tugcast API. Parks the request; refuses a card already running a score; answers an unknown session as a 404 whose body the CLI's port loop reads as "not this instance". |
 | The verb | `tugutil session rotate` | What a model in a turn reaches for. `--prompt` is required; `--stage` defaults to `rotate`; `--cancel` withdraws. Prints a `TUG-ROTATION-RECEIPT:` line naming the stage, the model, when it will happen, and whether the card hands back; every refusal exits 1 with its reason on stderr. |
-| This document | `tuglaws/conductor.md` | The rules above. |
+| This document | `tuglaws/wheel.md` | The rules above. |
 
-The verb is spelled `session rotate` because it is the session that rotates, and the route follows the same reasoning rather than riding `/api/dash` — a rotation names no dash, and putting the conductor's parameter set inside a dash-shaped type would spell it in the wrong vocabulary.
+The verb is spelled `session rotate` because it is the session that rotates, and the route follows the same reasoning rather than riding `/api/dash` — a rotation names no dash, and putting the wheel's parameter set inside a dash-shaped type would spell it in the wrong vocabulary.
 
 **The stage label is the role.** With `--model` omitted, a `--stage` of `devise`, `review`, or `implement` resolves the model the project declared for that stage under `[tugtool.dash]`; any other label means the account default, and `--model` always wins. There is no separate roles table, because a second table mapping roles to models would be the same fact written twice. The resolution happens in the verb rather than the server: the CLI is where the project root is known from cwd.
 
 **The score has no CLI flag yet, and that is deliberate.** `RotationRequest` carries a score and the arc runner fills it, but the verb exposes none. `TUG_DASH_ARC` is read by three skills as "a dash arc is driving you" and by the arc runner as a dash name it will look up — so letting a caller set it to an arbitrary string would make those skills believe an arc runs them and find no record behind the name. Generalizing it is a rename of the environment variable and a widening of what the stage skills read, with its own blast radius. The next score to need one adds the flag together with that widening.
 
-## Two words that mean something else
+## One word that means something else
 
 - **`stage`.** [dash-lifecycle.md](dash-lifecycle.md) uses *stage* for one of the seven derived words describing a dash. A stage here is a rotation of a session. They are unrelated, and neither name is giving way.
-- **`conductor`.** See the shutdown conductor above.
 
 ## The ask is visible where it is made
 
@@ -119,5 +113,5 @@ A pending-rotation note ahead of that divider would be a new action, a new store
 
 - [dash-lifecycle.md](dash-lifecycle.md) — what a dash is, and the other meaning of *stage*.
 - [dash-work-doctrine.md](dash-work-doctrine.md) — how an agent works on a dash worktree.
-- [ledger-reliability.md](ledger-reliability.md) — `[LR9]` and the shutdown conductor.
+- [ledger-reliability.md](ledger-reliability.md) — `[LR9]` and the shutdown supervisor.
 - [turn-lifecycle.md](turn-lifecycle.md) — the turn whose end a rotation waits for.

@@ -359,13 +359,13 @@ export type Message =
  * `shell` it records what the user did, carries exactly one message, and is
  * not part of Claude's context.
  *
- * `conductor` — a turn the conductor opened on the user's behalf: a dash
+ * `wheel` — a turn the wheel opened on the user's behalf: a dash
  * arc's stage prompt, seated by tugcast rather than typed. It lays out
  * exactly as a `user` turn (a `#u` row and an `#a` row) and is part of
  * Claude's context; what differs is who speaks in the `#u` row, which the
  * transcript says rather than letting the row read as the user's words.
  */
-export type TurnOrigin = "user" | "assistant" | "shell" | "refs" | "conductor";
+export type TurnOrigin = "user" | "assistant" | "shell" | "refs" | "wheel";
 
 /**
  * True for an origin whose turns are **non-context ink**: a record of what

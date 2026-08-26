@@ -8250,7 +8250,7 @@ export class SessionManager {
    * `graceMs` bounds how long a healthy claude gets to exit on its own
    * after EOF. Shutdown passes the `tug-quiesce` flush budget: waiting
    * out the full respawn-sized grace is what used to push tugcode past
-   * the conductor's drain deadline and earn it a SIGKILL.
+   * the supervisor's drain deadline and earn it a SIGKILL.
    */
   async shutdown(opts?: { graceMs?: number }): Promise<void> {
     this.closeSessionsDb();

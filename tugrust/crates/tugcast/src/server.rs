@@ -581,7 +581,7 @@ async fn dash_handler(
             // born carrying. The receipt on the card is the whole record,
             // which is the right outcome for a dash that no longer exists.
             let gesture = crate::dash_api::DashGoneReason::parse(reason.as_deref());
-            if let Some(conductor) = router.conductor.as_ref() {
+            if let Some(wheel) = router.wheel.as_ref() {
                 for stage in &seated {
                     info!(
                         dash = %stage.dash_name,
@@ -591,7 +591,7 @@ async fn dash_handler(
                     );
                     crate::feeds::dash_arc_runner::stop_arc_for_session(
                         supervisor,
-                        conductor,
+                        wheel,
                         &tugcast_core::protocol::TugSessionId::new(stage.session_id.clone()),
                         std::path::Path::new(&stage.project_dir),
                         &stage.dash_name,
@@ -617,12 +617,12 @@ async fn dash_handler(
             session_id,
             project_dir,
         } => {
-            let Some(conductor) = router.conductor.as_ref() else {
-                return err(StatusCode::SERVICE_UNAVAILABLE, "no conductor");
+            let Some(wheel) = router.wheel.as_ref() else {
+                return err(StatusCode::SERVICE_UNAVAILABLE, "no wheel");
             };
             crate::feeds::dash_arc_runner::stop_arc_for_session(
                 supervisor,
-                conductor,
+                wheel,
                 &tugcast_core::protocol::TugSessionId::new(session_id),
                 std::path::Path::new(&project_dir),
                 &dash,
@@ -742,11 +742,11 @@ fn apply_dash_request(
     }
 }
 
-/// Request payload for POST /api/session — the conductor's door ([S03]).
+/// Request payload for POST /api/session — the wheel's door ([S03]).
 ///
 /// A rotation names no dash, so it does not ride `DashApiRequest`: putting
 /// `model`, `prompt`, `stage`, and `effort` on a type whose name says it is
-/// about dashes would spell the conductor's whole parameter set in the wrong
+/// about dashes would spell the wheel's whole parameter set in the wrong
 /// vocabulary ([P03]).
 #[derive(serde::Deserialize)]
 struct SessionApiRequest {
@@ -800,8 +800,8 @@ async fn session_handler(
     let Some(ledger) = supervisor.session_ledger.clone() else {
         return err(StatusCode::SERVICE_UNAVAILABLE, "no session ledger");
     };
-    let Some(conductor) = router.conductor.clone() else {
-        return err(StatusCode::SERVICE_UNAVAILABLE, "no conductor");
+    let Some(wheel) = router.wheel.clone() else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "no wheel");
     };
     let req: SessionApiRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
@@ -833,7 +833,7 @@ async fn session_handler(
                 tokio::task::spawn_blocking(move || {
                     let known = matches!(ledger.get(&session_id), Ok(Some(_)));
                     let scored =
-                        known && crate::conductor::score_is_running(&ledger, &session_id);
+                        known && crate::wheel::score_is_running(&ledger, &session_id);
                     (known, scored)
                 })
                 .await
@@ -853,7 +853,7 @@ async fn session_handler(
             if scored {
                 return err(
                     StatusCode::CONFLICT,
-                    crate::conductor::Refusal::ArcRunning.reason(),
+                    crate::wheel::Refusal::ArcRunning.reason(),
                 );
             }
             // Resolved for the same reason every other project path is, even
@@ -862,14 +862,14 @@ async fn session_handler(
             if let Some(dir) = req.project_dir.as_deref() {
                 let _ = crate::path_resolver::resolve_to_claude_form(std::path::Path::new(dir));
             }
-            let request = crate::conductor::RotationRequest::new(
+            let request = crate::wheel::RotationRequest::new(
                 tugcast_core::protocol::TugSessionId::new(session_id),
                 prompt,
                 stage,
             )
             .model(req.model.clone().filter(|m| !m.is_empty()))
             .effort(req.effort.clone().filter(|e| !e.is_empty()));
-            let replaced = conductor.park(request);
+            let replaced = wheel.park(request);
             (
                 StatusCode::OK,
                 axum::Json(
@@ -879,7 +879,7 @@ async fn session_handler(
                 .into_response()
         }
         "rotate_cancel" => {
-            let cancelled = conductor.withdraw(&session_id);
+            let cancelled = wheel.withdraw(&session_id);
             (
                 StatusCode::OK,
                 axum::Json(serde_json::json!({ "status": "ok", "cancelled": cancelled })),

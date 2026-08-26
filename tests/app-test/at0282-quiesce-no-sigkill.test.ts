@@ -4,7 +4,7 @@
  * The shutdown contract (dash/graceful-termination-plan.md, grounds in
  * [LR3]/[LR4]) says every Tug service gets a flush window before anything
  * forceful happens: on quiesce it stops accepting work, checkpoints its
- * ledgers, and exits 0 inside its own 2 s budget; the conductor (Tug.app)
+ * ledgers, and exits 0 inside its own 2 s budget; the shutdown supervisor (Tug.app)
  * waits 4 s for the group to drain and only then escalates. A SIGKILL
  * that actually fires is a defect — it means some service was cut off
  * mid-flush, which is exactly how a WAL is left for the next process to
@@ -50,7 +50,7 @@ describe.skipIf(!SHOULD_RUN)("at0282: quiesce teardown fires no SIGKILL", () => 
 
         const report = app.quiesceReport();
         expect(report).not.toBeNull();
-        // The conductor's deadline is the shared one, not a local guess —
+        // The supervisor's deadline is the shared one, not a local guess —
         // the harness constant is pinned by the Rust mirror test.
         expect(report!.drainDeadlineMs).toBe(QUIESCE_DRAIN_DEADLINE_MS);
         // The whole point: nothing had to be forced.

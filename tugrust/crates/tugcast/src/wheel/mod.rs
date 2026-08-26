@@ -1,4 +1,4 @@
-//! The conductor — the layer that seats a claude session under a card.
+//! The wheel — the layer that seats a claude session under a card.
 //!
 //! tugcast can retire the claude session seated under a card and seat a fresh
 //! one — on a chosen model, with a chosen opening prompt — while the card, its
@@ -12,9 +12,9 @@
 //! `dash_arc.rs` keeps every decision it makes; the runner keeps its re-read
 //! guard, its in-flight bookkeeping, and everything it records.
 //!
-//! The conductor borrows a [`AgentSupervisor`] rather than owning one: it needs
+//! The wheel borrows a [`AgentSupervisor`] rather than owning one: it needs
 //! that supervisor's per-session ledger, its spawn queue, and its dispatcher,
-//! and a conductor that owned them would be a second supervisor.
+//! and a wheel that owned them would be a second supervisor.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -45,14 +45,14 @@ pub mod prompt;
 ///   rotated session keeps its callsign, its name, and its ink — a rotation is
 ///   not a fork — and the lineage follows from the provenance edge
 ///   `agent_bridge.rs` writes (`set_fork_provenance(…, None)`), which the
-///   conductor never calls and cannot parameterize; the
+///   wheel never calls and cannot parameterize; the
 ///   model to return to is `LedgerEntry::deck_model`, which only a WebSocket
 ///   client's own `model_change` ever writes.
 /// - **Parameters** — the model, the effort, the prompt, the stage label, the
 ///   score, and the divider facts a score supplies. Those are the fields below.
 /// - **Always dropped** — the retiring claude's context. A rotation is a fresh
 ///   claude session by definition; carrying context across one is `/compact`'s
-///   job, not the conductor's.
+///   job, not the wheel's.
 ///
 /// `session` names *which card rotates*. It is never a parameter of what the
 /// card rotates *into*.
@@ -211,7 +211,7 @@ impl Refusal {
     }
 }
 
-/// The conductor's own state: what a card has been promised, and what it is
+/// The wheel's own state: what a card has been promised, and what it is
 /// owed back.
 ///
 /// Both maps are in memory and both are dropped by a tugcast restart, on
@@ -220,7 +220,7 @@ impl Refusal {
 /// it, so a request that survived would fire into a session that never finished
 /// the work it was scheduled behind.
 #[derive(Default)]
-pub struct ConductorState {
+pub struct WheelState {
     /// At most one rotation per tug session id. A second request replaces the
     /// first — the natural reading of a caller changing its mind mid-turn.
     pending: StdMutex<HashMap<String, RotationRequest>>,
@@ -230,7 +230,7 @@ pub struct ConductorState {
     hand_backs: StdMutex<HashSet<String>>,
 }
 
-impl ConductorState {
+impl WheelState {
     /// Park `request` against its session. `true` means it replaced one.
     pub fn park(&self, request: RotationRequest) -> bool {
         let key = request.session.as_str().to_string();
@@ -280,9 +280,9 @@ pub fn score_is_running(ledger: &crate::session_ledger::SessionLedger, session_i
 }
 
 /// What the drain task needs to run.
-pub struct ConductorContext {
+pub struct WheelContext {
     pub supervisor: Arc<AgentSupervisor>,
-    pub state: Arc<ConductorState>,
+    pub state: Arc<WheelState>,
     pub cancel: CancellationToken,
 }
 
@@ -295,7 +295,7 @@ pub struct ConductorContext {
 /// parked — there is no perform-at-request-time path, because `turn_active`
 /// reads idle for a turn tugcast did not itself open, and parking is safe under
 /// a wrong reading where performing is not.
-pub async fn run_conductor(ctx: ConductorContext, mut tick_rx: mpsc::Receiver<String>) {
+pub async fn run_wheel(ctx: WheelContext, mut tick_rx: mpsc::Receiver<String>) {
     loop {
         tokio::select! {
             _ = ctx.cancel.cancelled() => return,
@@ -312,7 +312,7 @@ pub async fn run_conductor(ctx: ConductorContext, mut tick_rx: mpsc::Receiver<St
 /// A tick performs a rotation **or** a hand-back, never both: the rotation's
 /// own turn has not ended yet, so the card it seats is owed nothing until the
 /// next edge.
-async fn on_tick(ctx: &ConductorContext, session_id: &str) {
+async fn on_tick(ctx: &WheelContext, session_id: &str) {
     if let Some(request) = ctx.state.take(session_id) {
         // A scoreless rotation onto a named model is a one-stage score, so its
         // ending is scheduled here — nothing else will ever end it. A
@@ -327,7 +327,7 @@ async fn on_tick(ctx: &ConductorContext, session_id: &str) {
                     session = session_id,
                     stage = %request.stage,
                     ?delivery,
-                    "conductor rotated a session",
+                    "wheel rotated a session",
                 );
             }
             // Logged and dropped rather than retried: the refusal already
@@ -336,7 +336,7 @@ async fn on_tick(ctx: &ConductorContext, session_id: &str) {
                 session = session_id,
                 stage = %request.stage,
                 reason = refusal.reason(),
-                "conductor rotation refused",
+                "wheel rotation refused",
             ),
         }
         return;
@@ -347,7 +347,7 @@ async fn on_tick(ctx: &ConductorContext, session_id: &str) {
             warn!(
                 session = session_id,
                 reason = refusal.reason(),
-                "conductor could not hand the card back",
+                "wheel could not hand the card back",
             );
         }
     }
@@ -459,7 +459,7 @@ pub async fn rotate(
                 supervisor.dispatch_one(prompt).await;
                 tracing::info!(
                     target: "dev::session-lifecycle",
-                    event = "conductor.stage_queued",
+                    event = "wheel.stage_queued",
                     tug_session_id = %tug_session_id,
                     stage = %request.stage,
                     arc = request.score.as_deref().unwrap_or(""),
@@ -487,7 +487,7 @@ pub async fn rotate(
     supervisor.dispatch_one(prompt).await;
     tracing::info!(
         target: "dev::session-lifecycle",
-        event = "conductor.stage_sent",
+        event = "wheel.stage_sent",
         tug_session_id = %tug_session_id,
         stage = %request.stage,
         arc = request.score.as_deref().unwrap_or(""),
@@ -564,11 +564,11 @@ mod tests {
     use crate::feeds::agent_supervisor::{insert_ledger_entry_for_tests, test_minimal_supervisor};
     use tokio::sync::mpsc;
 
-    /// Every refusal the conductor can return becomes a stop the receipt can
+    /// Every refusal the wheel can return becomes a stop the receipt can
     /// explain. Total, not injective: `UnknownSession` and a session that is
     /// simply gone say the same thing, and they share the reason that says it.
     #[test]
-    fn every_conductor_refusal_maps_to_a_stop_reason() {
+    fn every_wheel_refusal_maps_to_a_stop_reason() {
         const ALL: &[Refusal] = &[
             Refusal::UnknownSession,
             Refusal::Idle,
@@ -914,9 +914,9 @@ mod tests {
                 entry.spawn_state = SpawnState::Spawning;
                 entry.turn_active = turn_active;
             }
-            let ctx = ConductorContext {
+            let ctx = WheelContext {
                 supervisor: Arc::clone(&sup),
-                state: Arc::new(ConductorState::default()),
+                state: Arc::new(WheelState::default()),
                 cancel: CancellationToken::new(),
             };
 
@@ -944,7 +944,7 @@ mod tests {
     }
 
     /// A scoreless rotation onto a named model is a one-stage score: nothing
-    /// else will ever end it, so the conductor ends it itself, one turn later.
+    /// else will ever end it, so the wheel ends it itself, one turn later.
     #[tokio::test]
     async fn a_scoreless_rotation_onto_a_model_hands_the_card_back_one_turn_later() {
         let (sup, _register_rx) = test_minimal_supervisor();
@@ -957,9 +957,9 @@ mod tests {
             entry.input_tx = Some(input_tx);
             entry.deck_model = Some("sonnet".to_string());
         }
-        let ctx = ConductorContext {
+        let ctx = WheelContext {
             supervisor: Arc::clone(&sup),
-            state: Arc::new(ConductorState::default()),
+            state: Arc::new(WheelState::default()),
             cancel: CancellationToken::new(),
         };
 
@@ -988,9 +988,9 @@ mod tests {
     #[tokio::test]
     async fn a_rotation_with_no_model_and_a_scored_one_arm_no_hand_back() {
         let (sup, _register_rx) = test_minimal_supervisor();
-        let ctx = ConductorContext {
+        let ctx = WheelContext {
             supervisor: Arc::clone(&sup),
-            state: Arc::new(ConductorState::default()),
+            state: Arc::new(WheelState::default()),
             cancel: CancellationToken::new(),
         };
 
@@ -1031,9 +1031,9 @@ mod tests {
             entry.spawn_state = SpawnState::Spawning;
             entry.deck_model = Some("sonnet".to_string());
         }
-        let ctx = ConductorContext {
+        let ctx = WheelContext {
             supervisor: Arc::clone(&sup),
-            state: Arc::new(ConductorState::default()),
+            state: Arc::new(WheelState::default()),
             cancel: CancellationToken::new(),
         };
 
@@ -1060,7 +1060,7 @@ mod tests {
 
     #[test]
     fn a_second_request_replaces_the_first_and_a_withdrawal_leaves_nothing() {
-        let state = ConductorState::default();
+        let state = WheelState::default();
         let id = TugSessionId::new("sess-registry");
 
         assert!(!state.park(RotationRequest::new(id.clone(), "first", "review")));
@@ -1086,9 +1086,9 @@ mod tests {
         let tug_id = TugSessionId::new("sess-withdrawn");
         let entry_arc = insert_ledger_entry_for_tests(&sup, &tug_id).await;
         entry_arc.lock().await.spawn_state = SpawnState::Spawning;
-        let ctx = ConductorContext {
+        let ctx = WheelContext {
             supervisor: Arc::clone(&sup),
-            state: Arc::new(ConductorState::default()),
+            state: Arc::new(WheelState::default()),
             cancel: CancellationToken::new(),
         };
 

@@ -54,7 +54,7 @@
 ## Working on a dash
 
 - [dash-lifecycle.md](dash-lifecycle.md) — What a dash *is*: the four things it is made of, the owner-key identity model, the seven stages and the derive-vs-declare rule that assigns them, and what a binding means. Read this for "why does this dash read as parked"; read the doctrine below for "may I write here".
-- [conductor.md](conductor.md) — The layer that seats a claude session under a card. What a rotation is, the three kinds of carried thing (invariants, parameters, always-dropped) and why the invariants are expressed as absence, the turn-end rule and why there is no perform-at-request-time path, how a score ends and hands the card back, what survives a relaunch, and the three faces (`POST /api/session`, `tugutil session rotate`, this doc). Read before changing how a session is seated or retired.
+- [wheel.md](wheel.md) — The layer that seats a claude session under a card. What a rotation is, the three kinds of carried thing (invariants, parameters, always-dropped) and why the invariants are expressed as absence, the turn-end rule and why there is no perform-at-request-time path, how a score ends and hands the card back, what survives a relaunch, and the three faces (`POST /api/session`, `tugutil session rotate`, this doc). Read before changing how a session is seated or retired.
 - [dash-work-doctrine.md](dash-work-doctrine.md) — How an agent works on a dash worktree: the one-and-only-working-root rule, the verification bar, test discipline including the banned shapes, law discipline, round mechanics, the stop-before-join obligation and its join draft, no plan numbers in durable artifacts. Cited by the dash-lane skills so the discipline lives in exactly one file.
 
 ## Templates

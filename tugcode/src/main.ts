@@ -234,8 +234,8 @@ let stubReplay: StubReplayEngine | null = null;
  * `quiesce_constants_are_mirrored` fails the build if this drifts.
  *
  * The budget is enforced by tugcode on itself so a hung flush costs the
- * conductor nothing: it exits on its own terms well inside the
- * conductor's drain deadline, and never has to be SIGKILLed.
+ * the shutdown supervisor nothing: it exits on its own terms well inside the
+ * supervisor's drain deadline, and never has to be SIGKILLed.
  */
 const QUIESCE_FLUSH_BUDGET_MS = 2000;
 
@@ -308,7 +308,7 @@ async function quiesce(reason: string, code = 0): Promise<void> {
 }
 
 // Graceful signal handlers, all routed through the same quiesce path.
-// SIGTERM is the conductor's quiesce request (tugcast signals its
+// SIGTERM is the supervisor's quiesce request (tugcast signals its
 // process group at shutdown). The orphaned-parent case is covered by
 // the stdin-EOF path (the for-await loop below exits when the pipe
 // closes); SIGHUP is belt-and-suspenders for anything that still

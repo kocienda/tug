@@ -48,7 +48,7 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const DIVIDER = '[data-slot="stage-divider"]';
 const USER_ROW = '[data-testid="session-card-transcript-user-body"]';
-const CONDUCTOR_ROW = '.tug-transcript-entry[data-participant="conductor"]';
+const WHEEL_ROW = '.tug-transcript-entry[data-participant="wheel"]';
 const STAGE_PROMPT =
   "/tugplug:plan-devise a plan for .tug/dashes/foo/brief.md";
 /** What the transcript paints as prose once the command becomes a chip. */
@@ -165,13 +165,13 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           // The stage's prompt opens the turn the card will watch, and the row
-          // says who spoke: the conductor, never "You" — nobody typed it.
+          // says who spoke: the wheel, never "You" — nobody typed it.
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(CONDUCTOR_ROW)}) !== null`,
+            `document.querySelector(${JSON.stringify(WHEEL_ROW)}) !== null`,
             { timeoutMs: 6000 },
           );
-          const conductorRow = await app.evalJS<string>(
-            `(document.querySelector(${JSON.stringify(CONDUCTOR_ROW)})||{}).textContent || ""`,
+          const wheelRow = await app.evalJS<string>(
+            `(document.querySelector(${JSON.stringify(WHEEL_ROW)})||{}).textContent || ""`,
           );
           // The prompt opens with a command the runner invoked, so the row
           // shows it as the same command chip a typed command gets, not as
@@ -179,13 +179,13 @@ describe.skipIf(!SHOULD_RUN)(
           // written.
           const chipLabel = await app.evalJS<string>(
             `(document.querySelector(${JSON.stringify(
-              `${CONDUCTOR_ROW} [data-atom-label]`,
+              `${WHEEL_ROW} [data-atom-label]`,
             )})||{ getAttribute: () => "" }).getAttribute("data-atom-label")`,
           );
           expect(chipLabel).toBe("tugplug:plan-devise");
-          expect(conductorRow).toContain(STAGE_PROMPT_ARGS);
-          expect(conductorRow).toContain("Conductor");
-          expect(conductorRow).not.toContain("You");
+          expect(wheelRow).toContain(STAGE_PROMPT_ARGS);
+          expect(wheelRow).toContain("Wheel");
+          expect(wheelRow).not.toContain("You");
           const label = await app.evalJS<string>(
             `(document.querySelector(${JSON.stringify(DIVIDER)})||{}).textContent || ""`,
           );
@@ -239,11 +239,11 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a rotation with no score behind it draws its divider and leaves the transcript alone",
       async () => {
-        // The conductor's primitive is not the arc's. A rotation nobody is
+        // The wheel's primitive is not the arc's. A rotation nobody is
         // scoring carries no `arc` and no `document`, and the boundary must
         // still be visible and still be a boundary — a divider naming the
         // stage and the model, with everything above it exactly where it was.
-        const app = await launchTugApp({ testName: "at0474-conductor-rotation" });
+        const app = await launchTugApp({ testName: "at0474-wheel-rotation" });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });

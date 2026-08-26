@@ -135,7 +135,7 @@ pub(crate) fn bind(
     // fire on the arc's own binds: `score_is_running` is false with no
     // binding, no arc record, or a `done`/`stopped` one, and a bind naming the
     // dash already running is the resume path, which is a no-op here.
-    if crate::conductor::score_is_running(ledger, tug_session_id)
+    if crate::wheel::score_is_running(ledger, tug_session_id)
         && row.dash_name.as_deref() != Some(dash)
     {
         let running = row.dash_name.as_deref().unwrap_or("a dash");
@@ -179,7 +179,7 @@ pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> DashApiOut
 /// seated by a live arc's stage. A no-op for every other card.
 ///
 /// **No receipt and no hand-back.** There is no card left to paint one on: the
-/// entry is going `Closed`, and `conductor::hand_back` refuses `Closed` by
+/// entry is going `Closed`, and `wheel::hand_back` refuses `Closed` by
 /// design. That is not a silent failure — the record says it, `tugutil dash
 /// arc` says it, and the Lens says it. The only surface missing is one that
 /// does not exist.

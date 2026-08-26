@@ -50,7 +50,7 @@ What the key buys is that two incarnations of a reused name are distinct: discar
 
 An arc is a dash's **score**: a schedule of rotations that carries one dash from a brief through devise, review, and implement without anybody clicking between them. A *stage* there is a rotation of the card's claude session — a fresh session seated under the same card, on a chosen model, opening on a composed prompt — and it is **not** one of the seven derived words above. The two senses share a spelling and nothing else: a dash is `implementing` because a `dash step` declaration says so, and an arc is in its `review` stage because that is the session currently seated.
 
-What a rotation is, what it cannot change, and when it is allowed to happen live in [conductor.md](conductor.md).
+What a rotation is, what it cannot change, and when it is allowed to happen live in [wheel.md](wheel.md).
 
 ## Interruptions
 
@@ -73,7 +73,7 @@ Two things hold across every row, so they are said once rather than per row. **T
 | **Closing the card** | records `card closed` before the row goes closed, while the binding still names the dash | nothing on the card, because there is no card; the record, `tugutil dash arc`, and the Lens all say it | `tugutil dash run <name>` from any card — `closing_a_card_seated_by_a_stage_stops_its_arc` |
 | **`dash unbind`** on a scored card | the same act with the same reason: `card closed` | as above | `tugutil dash run <name>` — `unbinding_a_scored_card_stops_the_arc_as_card_closed` |
 | A **tugcast relaunch** mid-stage | waits; the startup rebind seeds the recorded claude id, so the stage reads as current and nothing stops | nothing | the arc picks up on the card's first idle after it spawns — `a_card_that_has_not_spawned_since_startup_is_a_wait_not_a_stop` |
-| A **pending rotation** lost to a relaunch | the promise is dropped on purpose; a restart ended the turn it was a promise about | nothing | the next tick decides afresh; the rule is in [conductor.md](conductor.md) — `a_card_that_has_not_spawned_since_startup_is_a_wait_not_a_stop` |
+| A **pending rotation** lost to a relaunch | the promise is dropped on purpose; a restart ended the turn it was a promise about | nothing | the next tick decides afresh; the rule is in [wheel.md](wheel.md) — `a_card_that_has_not_spawned_since_startup_is_a_wait_not_a_stop` |
 | A **side question** inside a stage (`/btw`, an `AskUserQuestion`) | nothing at all: the documents are untouched, so the predicate sees no edge | nothing beyond the question itself | the stage carries on — no test of its own; every "no document changed" predicate test asserts it |
 
 The side-question row is the **only** one whose middle cell is not a receipt, and that is what the row is for: nothing happens, and the table says so rather than leaving a reader to wonder whether it was forgotten.
@@ -84,7 +84,7 @@ The vocabulary is closed, and the compiler enforces it: `ArcStopReason` in `tugd
 
 `lint` · `api error` · `review did not stamp` · `document missing` · `plan missing` · `session gone` · `card taken` · `card closed` · `stopped by user` · `discarded` · `joined` · `prompt unavailable` · `session idle` · `session errored` · `session closed` · `spawn queue full` · `no stdin` · `stdin closed` · `arc running`
 
-The last seven are the conductor's own refusals, mapped through `Refusal::stop_reason`. `discarded` and `joined` exist for their sentence alone — nothing writes them to the dash-log, because the ending's own terminal line has already closed the arc's generation.
+The last seven are the wheel's own refusals, mapped through `Refusal::stop_reason`. `discarded` and `joined` exist for their sentence alone — nothing writes them to the dash-log, because the ending's own terminal line has already closed the arc's generation.
 
 ## Binding
 
@@ -180,7 +180,7 @@ An operation is spelled the same everywhere, and that spelling is its `tugutil` 
 
 ## See also
 
-- [conductor.md](conductor.md) — what a rotation is, when it may happen, and the other meaning of *stage*. The [Interruptions](#interruptions) table above is what happens when something gets in one's way.
+- [wheel.md](wheel.md) — what a rotation is, when it may happen, and the other meaning of *stage*. The [Interruptions](#interruptions) table above is what happens when something gets in one's way.
 - [dash-work-doctrine.md](dash-work-doctrine.md) — how an agent behaves on a dash worktree.
 - [tracking-changes.md](tracking-changes.md) — the capture and commit layer beneath a dash, and the landing doctrine.
 - [D112] (scope axiom), [D113], [D116] (the landing workflow), [D138] (derive vs declare), [D139] (one plan home).

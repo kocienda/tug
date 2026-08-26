@@ -1,7 +1,7 @@
 //! The `tug-quiesce` shutdown contract — one ladder, one set of numbers.
 //!
 //! Every Tug **service** (tugcast, tugcode, tugpulse; Tug.app as the
-//! conductor) shuts down the same way:
+//! shutdown supervisor) shuts down the same way:
 //!
 //! 1. **Quiesce request** — the parent asks the child to stop: an explicit
 //!    `shutdown` message where a control channel exists, `SIGTERM`
@@ -12,7 +12,7 @@
 //!    [`FLUSH_BUDGET_MS`], which it enforces on *itself*: a hung flush
 //!    must never wedge shutdown, so the budget expiring means exit
 //!    anyway, loudly.
-//! 3. **Escalation** — the conductor waits [`DRAIN_DEADLINE_MS`] for the
+//! 3. **Escalation** — the supervisor waits [`DRAIN_DEADLINE_MS`] for the
 //!    group to drain, then `SIGKILL`s the remainder and records which
 //!    PIDs needed it. A SIGKILL that actually fires is a defect signal
 //!    ([`QUIESCE_REPORT_FILENAME`]), not routine housekeeping.
@@ -29,7 +29,7 @@ use std::path::PathBuf;
 /// enforced by the service on itself.
 pub const FLUSH_BUDGET_MS: u64 = 2_000;
 
-/// How long the conductor waits for a service group to drain before it
+/// How long the shutdown supervisor waits for a service group to drain before it
 /// escalates to `SIGKILL`. Twice the per-service budget, so a service
 /// that spends its whole budget still exits on its own terms.
 pub const DRAIN_DEADLINE_MS: u64 = 4_000;
@@ -40,11 +40,11 @@ pub const DRAIN_DEADLINE_MS: u64 = 4_000;
 pub const STALE_RECLAIM_GRACE_MS: u64 = 1_000;
 
 /// Outer bound an external supervisor (the app-test harness) gives a
-/// whole Tug.app teardown: the conductor's own deadline plus room for
+/// whole Tug.app teardown: the supervisor's own deadline plus room for
 /// the app's save-flush and the OS teardown around it.
 pub const TEARDOWN_DEADLINE_MS: u64 = 8_000;
 
-/// Filename of the per-instance quiesce report the conductor writes on
+/// Filename of the per-instance quiesce report the supervisor writes on
 /// every shutdown, in [`crate::instance::data_dir`]. Its `sigkills`
 /// array is the defect signal: steady state is empty.
 pub const QUIESCE_REPORT_FILENAME: &str = "quiesce-report.json";

@@ -373,7 +373,7 @@ export interface CommandAtomSegment {
  * is: the annotator marks only whole inline `<code>` spans, and nothing
  * in the substrate says these particular characters were an invocation.
  * Two submissions arrive that way — a command line typed out instead of
- * accepted from the completion popup, and the conductor's stage prompt,
+ * accepted from the completion popup, and the wheel's stage prompt,
  * which the runner composes as text. Both are *invocations*: somebody ran
  * a command, they did not write about one, and `entity-presentation.md`'s
  * rule is that a placed thing renders as an atom.
@@ -397,7 +397,7 @@ export interface CommandAtomSegment {
  *
  * There is no known-command gate here, and the callers explain why they
  * need none: the composer has already dispatched or refused every local,
- * hidden and unknown name before it submits, and the conductor's prompt
+ * hidden and unknown name before it submits, and the wheel's prompt
  * is a command the runner is running. Pure.
  */
 export function mintLeadingCommandAtom<A extends { kind: "atom"; type: string }>(

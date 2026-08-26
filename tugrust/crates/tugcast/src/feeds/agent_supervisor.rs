@@ -1417,12 +1417,12 @@ pub struct AgentSupervisor {
     /// rotate its next stage. Both are fed from the one place the supervisor
     /// recognizes the transition, so neither re-derives it.
     pub arc_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
-    /// The same idle transition again, for the conductor ([P04]).
+    /// The same idle transition again, for the wheel ([P04]).
     ///
     /// A third sibling for the reason there is a second: an mpsc has one
     /// consumer, and a rotation asked for mid-turn must land at *that* turn's
     /// end — the edge computed here and nowhere else.
-    pub conductor_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
+    pub wheel_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
 }
 
 /// Registration sent through [`AgentSupervisor::merger_register_tx`] so the
@@ -3060,7 +3060,7 @@ impl AgentSupervisor {
             draft_tasks: crate::feeds::draft_engine::DraftTaskRegistry::default(),
             turn_complete_tx: std::sync::OnceLock::new(),
             arc_tick_tx: std::sync::OnceLock::new(),
-            conductor_tick_tx: std::sync::OnceLock::new(),
+            wheel_tick_tx: std::sync::OnceLock::new(),
         };
         (sup, merger_register_rx)
     }
@@ -8212,12 +8212,12 @@ impl AgentSupervisor {
                                 if let Some(tx) = self.arc_tick_tx.get() {
                                     let _ = tx.try_send(id.to_string());
                                 }
-                                // And again for the conductor ([P04]): a
+                                // And again for the wheel ([P04]): a
                                 // rotation asked for from inside this turn was
                                 // parked rather than performed, precisely so
                                 // it lands here instead of killing the claude
                                 // that asked for it.
-                                if let Some(tx) = self.conductor_tick_tx.get() {
+                                if let Some(tx) = self.wheel_tick_tx.get() {
                                     let _ = tx.try_send(id.to_string());
                                 }
                             }

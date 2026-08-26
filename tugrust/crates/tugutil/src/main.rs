@@ -113,7 +113,7 @@ fn main() -> ExitCode {
         Some(Commands::Plan(cmd)) => plan::dispatch(cmd, json),
         Some(Commands::Host(cmd)) => host::dispatch(cmd, json, quiet),
 
-        // The conductor's door: rotate this card at the turn's end.
+        // The wheel's door: rotate this card at the turn's end.
         Some(Commands::Session(cmd)) => session::dispatch(cmd, json),
 
         // The app-test results ledger.

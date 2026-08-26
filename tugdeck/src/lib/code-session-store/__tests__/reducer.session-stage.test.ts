@@ -77,7 +77,7 @@ describe("stageNoteText", () => {
   });
 
   it("names a rotation with no score behind it by its stage and its model", () => {
-    // A conductor rotation nobody is scoring carries no document, because
+    // A wheel rotation nobody is scoring carries no document, because
     // there is no score for it to have opened on. The divider is the label
     // and the model, and reads as a boundary all the same.
     expect(stageNoteText("review", "opus", "")).toBe("review · opus");
@@ -96,7 +96,7 @@ describe("reducer — a rotation with no score behind it", () => {
       turnKey: "rot-k1",
     }) as CodeSessionEvent;
 
-  it("folds into a divider and a conductor-origin turn, with no score anywhere in the path", () => {
+  it("folds into a divider and a wheel-origin turn, with no score anywhere in the path", () => {
     const { state: after, effects } = reduce(fresh(), scoreless("review", "opus"));
 
     const note = effects.find((e) => e.kind === "append-stage-note");
@@ -105,7 +105,7 @@ describe("reducer — a rotation with no score behind it", () => {
     expect(effects.some((e) => e.kind === "send-frame")).toBe(false);
 
     expect(after.pendingTurn?.turnKey).toBe("rot-k1");
-    expect(after.pendingTurn?.origin).toBe("conductor");
+    expect(after.pendingTurn?.origin).toBe("wheel");
   });
 });
 
@@ -127,8 +127,8 @@ describe("reducer — a stage that carries its prompt", () => {
     // frames have somewhere to land.
     expect(after.phase).toBe("submitting");
     expect(after.pendingTurn?.turnKey).toBe("arc-k1");
-    // Nobody in the deck typed this: the row says the conductor did.
-    expect(after.pendingTurn?.origin).toBe("conductor");
+    // Nobody in the deck typed this: the row says the wheel did.
+    expect(after.pendingTurn?.origin).toBe("wheel");
     // The prompt opens with a command the runner invoked, so it arrives as
     // a command atom rather than as characters — the same substrate the
     // composer submits for a typed command, and the same one replay
@@ -161,16 +161,16 @@ describe("reducer — a stage that carries its prompt", () => {
   });
 });
 
-describe("reducer — a replayed stage marks its opener as the conductor's", () => {
+describe("reducer — a replayed stage marks its opener as the wheel's", () => {
   const addUser = (turnKey: string, text: string): CodeSessionEvent =>
     ({ type: "add_user_message", text, atoms: [], turnKey }) as CodeSessionEvent;
 
-  it("the first replayed user message after a stage divider is the conductor's, the next is the user's", () => {
+  it("the first replayed user message after a stage divider is the wheel's, the next is the user's", () => {
     const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
     const divided = reduce(replaying, stage("devise", "opus", "dash/foo-brief.md")).state;
 
     const opened = reduce(divided, addUser("r1", "/tugplug:plan-devise dash/foo-brief.md")).state;
-    expect(opened.pendingTurn?.origin).toBe("conductor");
+    expect(opened.pendingTurn?.origin).toBe("wheel");
 
     // A follow-up in the same stage is a person typing.
     const closed = { ...opened, pendingTurn: null } as CodeSessionState;

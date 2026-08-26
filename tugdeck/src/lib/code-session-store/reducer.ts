@@ -666,10 +666,10 @@ export interface CodeSessionState {
   replayPrependActive: boolean;
   /**
    * Set by a replayed stage divider and consumed by the next replayed
-   * `add_user_message`, which is the stage's opening prompt: the conductor's
+   * `add_user_message`, which is the stage's opening prompt: the wheel's
    * words, not the user's. Internal-only — not surfaced on the snapshot.
    */
-  conductorPromptPending: boolean;
+  wheelPromptPending: boolean;
   /**
    * Replay-clock derived flags. Exposed through the snapshot identically-
    * named (`replayPreflightActive`, `replaySoftBudgetElapsed`,
@@ -928,7 +928,7 @@ export function createInitialState(
     replayWindow: null,
     sessionCreatedAtMs: null,
     replayPrependActive: false,
-    conductorPromptPending: false,
+    wheelPromptPending: false,
     replayPreflightActive: false,
     replaySoftBudgetElapsed: false,
     replayTimeoutDwellActive: false,
@@ -4071,9 +4071,9 @@ function handleSessionStage(
   const text = stageNoteText(event.stage, event.model, event.document, event.steps);
   // A replayed rotation carries no prompt — the stage's JSONL does, as the
   // first user message after the divider — so the divider marks the next
-  // replayed opener as the conductor's rather than the user's.
+  // replayed opener as the wheel's rather than the user's.
   if (state.phase === "replaying") {
-    state = { ...state, conductorPromptPending: true };
+    state = { ...state, wheelPromptPending: true };
   }
   const turnKey = state.pendingTurn?.turnKey;
   const entry = turnKey === undefined ? undefined : state.scratch.get(turnKey);
@@ -4093,7 +4093,7 @@ function handleSessionStage(
     const minted = mintLeadingCommandAtom(event.prompt, [], TUG_ATOM_CHAR);
     const opened = handleSend(state, {
       type: "send",
-      origin: "conductor",
+      origin: "wheel",
       text: minted?.text ?? event.prompt,
       atoms: minted?.atoms ?? [],
       content: [{ type: "text", text: event.prompt }],
@@ -4794,7 +4794,7 @@ function handleReplayComplete(
         prevPhase: null,
         pendingTurn: null,
         replayPrependActive: false,
-        conductorPromptPending: false,
+        wheelPromptPending: false,
         replayEverCompleted: true,
         replayPreflightActive: false,
         replaySoftBudgetElapsed: false,
@@ -5076,11 +5076,11 @@ function handleAddUserMessage(
   return {
     state: {
       ...base,
-      conductorPromptPending: false,
+      wheelPromptPending: false,
       pendingTurn: {
         turnKey: event.turnKey,
         submitAt: now,
-        origin: state.conductorPromptPending ? "conductor" : "user",
+        origin: state.wheelPromptPending ? "wheel" : "user",
         // A canceled `/compact`'s throwaway summarization turn, replayed from
         // the discarded session's JSONL — mark it suppressed so its
         // `turn_complete` drops the transcript append (it must never commit).

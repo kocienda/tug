@@ -121,7 +121,7 @@ pub struct ArcFacts {
     ///
     /// Only a rotation writes one — `set_stage_provenance` is called from one
     /// place, on the `session_init` that follows a rotation's announcement — so
-    /// this is the durable, unambiguous answer to "did the conductor seat
+    /// this is the durable, unambiguous answer to "did the wheel seat
     /// this session?". It is keyed on the *outcome* rather than on any one
     /// door, because the deck reaches a fresh session through several: a
     /// `/new` reset, a rewind fork, a re-spawn onto a picked session.
@@ -242,7 +242,7 @@ pub fn arc_action(record: &ArcRecord, facts: &ArcFacts) -> Option<ArcAction> {
     // an earlier one; the runner's in-flight guard is what keeps the
     // window between a dispatch and its `arc-stage` line from reading as this.
     //
-    // **Not seated** — nothing the conductor did produced this session, so the
+    // **Not seated** — nothing the wheel did produced this session, so the
     // user reached a fresh one on the card: a `/new`, a reset, a rewind fork.
     // Rotating the stage back onto the card they just cleared is the taking
     // going unnoticed; the arc stops and says so.
@@ -663,7 +663,7 @@ mod tests {
     #[test]
     fn a_session_no_rotation_seated_is_a_card_taken_back() {
         // A `/new`, a reset, a rewind fork: whatever the door, the session on
-        // the card carries no stage label, so the conductor did not put it
+        // the card carries no stage label, so the wheel did not put it
         // there and the arc must not rotate its stage back onto it.
         for stage in [ArcStage::Devise, ArcStage::Review, ArcStage::Implement] {
             let mut facts = facts();

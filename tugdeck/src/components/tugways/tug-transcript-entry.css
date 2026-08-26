@@ -101,9 +101,9 @@ body {
      wears — both are the AI speaking). */
   --tugx-transcript-icon-color-observer: var(--tug7-element-tone-icon-normal-data-rest);
   --tugx-transcript-icon-color-operator: var(--tug7-element-tone-icon-normal-active-rest);
-  /* The conductor speaks for the user, so it wears the accent You wears —
+  /* The wheel speaks for the user, so it wears the accent You wears —
      the glyph, not the hue, is what tells the two apart. */
-  --tugx-transcript-icon-color-conductor: var(--tug7-element-tone-icon-normal-accent-rest);
+  --tugx-transcript-icon-color-wheel: var(--tug7-element-tone-icon-normal-accent-rest);
 
   /* Icon legibility halo — grounds the colored speaker icon against the
    * header surface. The light/dark decision lives in the theme: the light
@@ -214,8 +214,8 @@ body {
 .tug-transcript-entry[data-participant="operator"] {
   --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-operator);
 }
-.tug-transcript-entry[data-participant="conductor"] {
-  --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-conductor);
+.tug-transcript-entry[data-participant="wheel"] {
+  --tugx-transcript-icon-color: var(--tugx-transcript-icon-color-wheel);
 }
 
 /* Trailing header slot — per-row chrome that belongs with the attribution

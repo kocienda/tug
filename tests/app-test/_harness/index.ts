@@ -248,7 +248,7 @@ interface ResolvedLaunch {
 const QUIESCE_TEARDOWN_DEADLINE_MS = 8000;
 
 /**
- * The conductor's process-group drain deadline, as tests assert it in
+ * The shutdown supervisor's process-group drain deadline, as tests assert it in
  * `quiesce-report.json`. Mirror of `tugcore::quiesce::DRAIN_DEADLINE_MS`,
  * pinned by the same build-failing Rust mirror test.
  */

@@ -272,7 +272,7 @@ pub enum Commands {
     #[command(subcommand)]
     Apptest(ApptestCommands),
 
-    /// This card's claude session — ask the conductor to seat a fresh one.
+    /// This card's claude session — ask the wheel to seat a fresh one.
     #[command(subcommand)]
     Session(SessionCommands),
 }

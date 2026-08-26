@@ -4,7 +4,7 @@ mod auth;
 mod changes_journal;
 mod changes_writer;
 mod cli;
-mod conductor;
+mod wheel;
 mod control;
 mod dash_api;
 mod dead_branch;
@@ -1951,7 +1951,7 @@ async fn main() {
     // base-motion takes, on a sibling channel because an mpsc has one consumer
     // ([P05]); the aggregate changeset watch is the slower floor, for a stage
     // that died without ever ending a turn.
-    // The conductor: perform the rotations `POST /api/session` parked, on the
+    // The wheel: perform the rotations `POST /api/session` parked, on the
     // same idle transition, on a third sibling channel ([P04]). A request is
     // always parked and never performed at request time — a rotation mid-turn
     // kills the claude that asked for it.
@@ -1959,8 +1959,8 @@ async fn main() {
     // Built before the arc engine because the engine holds it: every stopper
     // goes through one path, and an ending arms a hand-back on these
     // registries rather than sending one.
-    let conductor_state = Arc::new(conductor::ConductorState::default());
-    feed_router.conductor = Some(Arc::clone(&conductor_state));
+    let wheel_state = Arc::new(wheel::WheelState::default());
+    feed_router.wheel = Some(Arc::clone(&wheel_state));
 
     let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
     let _ = supervisor.arc_tick_tx.set(arc_tick_tx);
@@ -1968,22 +1968,22 @@ async fn main() {
         feeds::dash_arc_runner::ArcContext {
             supervisor: Arc::clone(&supervisor),
             session_ledger: Arc::clone(&ledger),
-            conductor: Arc::clone(&conductor_state),
+            wheel: Arc::clone(&wheel_state),
             cancel: cancel.clone(),
         },
         arc_tick_rx,
         changeset_all_rx.clone(),
     ));
 
-    let (conductor_tick_tx, conductor_tick_rx) = mpsc::channel::<String>(64);
-    let _ = supervisor.conductor_tick_tx.set(conductor_tick_tx);
-    tokio::spawn(conductor::run_conductor(
-        conductor::ConductorContext {
+    let (wheel_tick_tx, wheel_tick_rx) = mpsc::channel::<String>(64);
+    let _ = supervisor.wheel_tick_tx.set(wheel_tick_tx);
+    tokio::spawn(wheel::run_wheel(
+        wheel::WheelContext {
             supervisor: Arc::clone(&supervisor),
-            state: conductor_state,
+            state: wheel_state,
             cancel: cancel.clone(),
         },
-        conductor_tick_rx,
+        wheel_tick_rx,
     ));
 
     // JOTS feed — watches the machine-global `jots.json` and pushes the whole
@@ -2197,7 +2197,7 @@ async fn main() {
     // children are signalled regardless of how we got here. tugcode's
     // SIGTERM handler then shuts claude down and exits cleanly. Signalled
     // BEFORE our own ledger flush so every service's flush window runs in
-    // parallel — serial flushes would consume the conductor's whole drain
+    // parallel — serial flushes would consume the wheel's whole drain
     // deadline with zero headroom. (Our own SIGTERM is absorbed by the
     // still-installed handler; the select above has already resolved.)
     info!("Killing process group before exit");
@@ -2210,7 +2210,7 @@ async fn main() {
     // possibly by a different build — starts from a clean, WAL-less state
     // instead of running recovery. Bounded by the tug-quiesce flush
     // budget, enforced on ourselves: a hung checkpoint must never wedge
-    // shutdown into the conductor's SIGKILL — the budget expiring means
+    // shutdown into the wheel's SIGKILL — the budget expiring means
     // exit anyway, loudly.
     let (flush_done_tx, flush_done_rx) = std::sync::mpsc::channel::<()>();
     let flush_ledger = Arc::clone(&ledger);
