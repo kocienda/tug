@@ -542,12 +542,11 @@ pub enum ChangesetEntry {
         /// creation wrote a birth record is the ordinary case.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last_activity: Option<String>,
-        /// The plan this dash is driving, relative to its **worktree** — the
-        /// copy a run edits and whose ledger the step verbs rewrite, which is
-        /// what makes it the copy a review of a bound dash has to read. Compose
-        /// an absolute path as `worktree` / `plan_path`, and nothing else.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        plan_path: Option<String>,
+        /// Which of this dash's documents exist, as **absolute** paths ([D138]).
+        /// The deck composes nothing: the server resolves them where the main
+        /// root is known and hands them over whole.
+        #[serde(default, skip_serializing_if = "DashDocuments::is_empty")]
+        documents: DashDocuments,
         /// What that plan's Review Record says about the document on disk now:
         /// `reviewed` | `stale` | `never-reviewed`, `tugutil_core::plan::
         /// ReviewState::as_str` verbatim. Absent when the dash records no plan,
@@ -937,36 +936,66 @@ pub struct ChangesetSnapshot {
     pub orphaned: Vec<OrphanedFile>,
 }
 
-/// One plan document waiting in the project's configured docs directory — the
-/// front half of the dash arc, made machine-visible.
+/// Which of a dash's documents exist, with the first heading of each.
 ///
-/// Present only for documents `tugutil_core::plan::parse` accepts, found at the
-/// docs directory's top level: there is no filename convention and no recursion,
-/// so archived paperwork in a subdirectory stays filed ([P01]). A plan already
-/// adopted onto a dash never appears, because adoption commits the document on
-/// the dash branch and cleans the base copy ([D139]) — so the listing needs no
-/// dedup against dash entries.
+/// Absolute paths, present only when the file is on disk. The title rides along
+/// because the deck has no filesystem: a surface that wants to name a document
+/// cannot open it ([F07]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DashDocuments {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_title: Option<String>,
+}
+
+impl DashDocuments {
+    /// True when the dash has neither document — the shape that is omitted
+    /// from the wire rather than sent empty.
+    pub fn is_empty(&self) -> bool {
+        self.brief.is_none() && self.plan.is_none()
+    }
+}
+
+/// A dash that exists only as documents: `.tug/dashes/<name>/` with no
+/// `tugdash/<name>` branch yet ([P04]).
+///
+/// This is the planning phase in flight — a brief written, a plan being
+/// devised — made visible as a dash rather than as loose paperwork. It is
+/// deliberately *not* a `ChangesetEntry::Dash`: that entry carries a worktree,
+/// a base, rounds, and files, none of which a branchless dash has. A
+/// `dash create` turns this row into a live one rather than adding a second.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PlanDocEntry {
-    /// Repo-relative path, e.g. "dash/dash-cockpit.md" — what the next
-    /// gesture's prompt cites verbatim.
-    pub path: String,
-    /// The file stem, e.g. "dash-cockpit" — the row's display identity.
+pub struct DocumentDashEntry {
+    /// `dash_owner_key(repo, name)` — the same identity a live dash wears, so
+    /// a card bound before the branch exists still finds its own row (R01).
+    pub owner_id: String,
+    /// The dash name, which is also its display identity.
     pub display_name: String,
-    /// `reviewed` | `stale` | `never-reviewed` — `plan::review_state`'s
-    /// spellings, the same vocabulary `DashChangesetEntry.review` wears.
-    pub review: String,
-    /// How many execution steps the document declares — the cockpit row's
-    /// size cue. 0 for a plan whose steps failed to enumerate.
+    /// The documents themselves. Never empty — a directory holding neither is
+    /// not listed.
+    pub documents: DashDocuments,
+    /// `reviewed` | `stale` | `never-reviewed` for the plan, when there is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
+    /// Ledger rows the plan declares. 0 when there is no plan yet.
     pub step_total: u32,
-    /// Ledger rows whose status is `done`. The numerator of the fraction a
-    /// begun row shows.
+    /// Ledger rows reading `done`.
     pub steps_done: u32,
-    /// Ledger rows whose status is anything but `pending` — done *or* in
-    /// progress. Two facts, two fields: a plan whose first row is `in
-    /// progress` with nothing finished is begun (`0` done) rather than
-    /// unstarted, and the gesture keys off this one.
+    /// Ledger rows reading anything but `pending` — done *or* in progress.
+    /// Two facts, two fields: a plan whose first row is `in progress` with
+    /// nothing finished is begun rather than unstarted.
     pub steps_begun: u32,
+    /// The arc driving this dash, when one is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arc: Option<DashArcState>,
+    /// Sessions bound to this dash.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bound_sessions: Vec<String>,
 }
 
 /// One project's slice of the account-global aggregate changeset snapshot.
@@ -997,10 +1026,9 @@ pub struct ProjectChangeset {
     /// S10), when one exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattributed_draft: Option<ChangesetDraft>,
-    /// Plan documents waiting in the project's configured docs directory,
-    /// sorted by path. Empty when the project declares no docs directory.
+    /// Dashes that exist only as documents — no branch yet — sorted by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub plans: Vec<PlanDocEntry>,
+    pub document_dashes: Vec<DocumentDashEntry>,
 }
 
 /// The account-global aggregate changeset snapshot, delivered process-level on
@@ -1746,7 +1774,7 @@ mod tests {
             run_length: None,
             step_title: None,
             last_activity: None,
-            plan_path: None,
+            documents: DashDocuments::default(),
             review: None,
             steps: vec![],
             base: "main".to_string(),
@@ -1927,7 +1955,7 @@ mod tests {
                 orphaned: vec![],
             },
             unattributed_draft: None,
-            plans: vec![],
+            document_dashes: vec![],
         };
         let json = serde_json::to_string(&project).unwrap();
         assert!(json.contains(r#""project_dir":"/tmp/proj""#));
@@ -1935,29 +1963,58 @@ mod tests {
         assert!(json.contains(r#""branch":"main""#));
         // Exactly one workspace_key in the flattened output.
         assert_eq!(json.matches("workspace_key").count(), 1);
-        // A project with no waiting paperwork carries no `plans` key at all,
-        // so older readers see the payload they already understand.
-        assert!(!json.contains("plans"));
+        // A project with no document-only dash carries no `document_dashes`
+        // key at all, so older readers see the payload they already understand.
+        assert!(!json.contains("document_dashes"));
     }
 
     #[test]
-    fn test_project_changeset_carries_plan_docs() {
+    fn test_project_changeset_carries_document_dashes() {
         let snapshot: WorkspacesChangesetSnapshot =
             serde_json::from_str(WORKSPACES_CHANGESET_GOLDEN).unwrap();
         let repo = &snapshot.projects[0];
-        assert_eq!(repo.plans.len(), 2);
-        assert_eq!(repo.plans[0].path, "dash/dash-cockpit.md");
-        assert_eq!(repo.plans[0].display_name, "dash-cockpit");
-        assert_eq!(repo.plans[0].review, "reviewed");
-        assert_eq!(repo.plans[0].step_total, 5);
+        assert_eq!(repo.document_dashes.len(), 2);
+        let first = &repo.document_dashes[0];
+        assert_eq!(first.display_name, "dash-cockpit");
+        // Absolute, and composed nowhere but the server ([D138]).
+        assert_eq!(
+            first.documents.plan.as_deref(),
+            Some("/repo/.tug/dashes/dash-cockpit/plan.md")
+        );
+        assert_eq!(first.documents.brief_title.as_deref(), Some("The dash cockpit"));
+        assert_eq!(first.review.as_deref(), Some("reviewed"));
+        assert_eq!(first.step_total, 5);
         // Begun, not finished: the fraction's numerator and the gesture's
         // trigger are separate fields, so a row can read "1 of 5 done" while
         // two rows have been opened.
-        assert_eq!((repo.plans[0].steps_done, repo.plans[0].steps_begun), (1, 2));
-        assert_eq!(repo.plans[1].review, "never-reviewed");
-        assert_eq!((repo.plans[1].steps_done, repo.plans[1].steps_begun), (0, 0));
-        // The non-repo project declares no docs home, so the key is absent and
+        assert_eq!((first.steps_done, first.steps_begun), (1, 2));
+        // A dash whose devise stage has not run has a plan and no brief.
+        let second = &repo.document_dashes[1];
+        assert_eq!(second.review.as_deref(), Some("never-reviewed"));
+        assert!(second.documents.brief.is_none());
+        // The non-repo project has no dashes at all, so the key is absent and
         // decodes as empty rather than as missing data.
-        assert!(snapshot.projects[1].plans.is_empty());
+        assert!(snapshot.projects[1].document_dashes.is_empty());
+    }
+
+    /// The live dash carries its documents on the same object, absolute.
+    #[test]
+    fn test_dash_entry_carries_absolute_document_paths() {
+        let snapshot: WorkspacesChangesetSnapshot =
+            serde_json::from_str(WORKSPACES_CHANGESET_GOLDEN).unwrap();
+        let documents = snapshot.projects[0]
+            .snapshot
+            .changesets
+            .iter()
+            .find_map(|entry| match entry {
+                ChangesetEntry::Dash { documents, .. } => Some(documents),
+                _ => None,
+            })
+            .expect("the golden carries one dash");
+        assert_eq!(
+            documents.plan.as_deref(),
+            Some("/repo/.tug/dashes/fix-join/plan.md")
+        );
+        assert!(!documents.is_empty());
     }
 }

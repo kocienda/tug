@@ -4,7 +4,7 @@
 
 > **Platform scope.** This document is **macOS-only**. The whole pipeline is structured around Apple's TCC database, the `security` CLI, the `codesign` tool, Xcode's build settings, macOS Accessibility (AX) permissions, and `notarytool`. None of it has a meaningful analogue on Linux or Windows.
 
-*Cross-references: `[D##]` → decisions in [`dash/tug-multi-instance.md`](../dash/tug-multi-instance.md). The plan close-out captures per-step implementation history; this document is the durable reference.*
+*Cross-references: `[D##]` → decisions from the *multi-instance* work. This document is the durable reference.*
 
 ---
 
@@ -272,7 +272,7 @@ When `just app-test` starts failing with `AccessibilityPermissionMissingError` o
 
 ## Design decisions
 
-These live in [`dash/tug-multi-instance.md`](../dash/tug-multi-instance.md). The most relevant are:
+These came from the *multi-instance* work. The most relevant are:
 
 - **[D11]** — Apple Developer ID + notarization + hardened runtime. All builds (debug and release) sign with the Developer ID Application certificate. Notarization is release-only.
 - **[D16]** — Per-binary entitlements; inside-out signing replaces `--deep`. The bash-coded contract in `sign-bundle.sh` is the single source of signing truth.
@@ -315,7 +315,7 @@ just notarize        →  build-app.sh           →  sign-bundle.sh    (inside-
 
 `tugrust/scripts/notarize.sh` is the canonical notarizer. It packs the bundle via `ditto -c -k --keepParent`, submits to Apple's notary service with `--wait --timeout 30m` (typical wait: 5-15 min; ceiling: 30 min), staples the ticket via `xcrun stapler staple`, validates via `xcrun stapler validate`, and confirms Gatekeeper acceptance via `spctl --assess --type execute --verbose`.
 
-Auth uses the `tug-notary` keychain profile (see [#apple-prereqs](../dash/tug-multi-instance.md#apple-prereqs) step 5), not inline `APPLE_ID` / `TEAM_ID` / `NOTARY_PASSWORD` env vars. The profile stores the credentials in the user's login keychain once; the script references it by name. Never put the app-specific password in command history, env files, or CI logs.
+Auth uses the `tug-notary` keychain profile (see #apple-prereqs below), not inline `APPLE_ID` / `TEAM_ID` / `NOTARY_PASSWORD` env vars. The profile stores the credentials in the user's login keychain once; the script references it by name. Never put the app-specific password in command history, env files, or CI logs.
 
 On CI there is no login keychain, so the nightly workflow creates an ephemeral one, provisions the same `tug-notary` profile into it via `notarytool store-credentials`, and destroys it at the end of the job. `notarize.sh` reads `TUG_NOTARY_KEYCHAIN` to find it; unset — every developer machine — means the login keychain and unchanged behavior. The profile therefore remains the only auth mechanism the script knows about, on every machine.
 
@@ -392,7 +392,6 @@ spctl --assess --type execute --verbose /tmp/Tug-quarantine-test.app
 
 ## Cross-references
 
-- [`dash/tug-multi-instance.md`](../dash/tug-multi-instance.md) — `[D11]`, `[D16]`, `#signing-flow`, `#apple-prereqs`; full design rationale.
 - [`tests/app-test/README.md`](../tests/app-test/README.md) — test-author-facing usage + failure-mode diagnosis.
 - [`scripts/setup-dev-signing.sh`](../scripts/setup-dev-signing.sh) — the per-machine verifier.
 - [`tugrust/scripts/sign-bundle.sh`](../tugrust/scripts/sign-bundle.sh) — heavy comments explaining each phase.

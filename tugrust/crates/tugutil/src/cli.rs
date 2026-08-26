@@ -475,10 +475,6 @@ pub enum DashCommands {
         /// Description of the work.
         #[arg(long)]
         description: Option<String>,
-        /// Plan document the dash adopts at birth: it is committed on the dash
-        /// branch and the base copy is cleaned, so there is one live copy.
-        #[arg(long)]
-        plan: Option<String>,
         /// Move the base checkout's uncommitted work into the new worktree,
         /// leaving it uncommitted there — for when work already under way on
         /// the base turns out to belong to this dash. Content is carried, not
@@ -492,15 +488,6 @@ pub enum DashCommands {
         /// Ignored when the dash already exists — a base is set at birth.
         #[arg(long)]
         base: Option<String>,
-    },
-    /// Adopt a plan into an existing dash: the worktree copy becomes the only
-    /// live one, with the worktree's ledger progress replayed onto it.
-    AdoptPlan {
-        /// Dash name.
-        name: String,
-        /// Plan path; required only when the dash has no plan recorded.
-        #[arg(long)]
-        plan: Option<String>,
     },
     /// Commit the dash worktree (if dirty) and append a dash-log line.
     ///
@@ -615,20 +602,6 @@ pub enum DashCommands {
     /// project that declares nothing (or has no config file at all) is not an
     /// error: every key reports as undeclared and the verb exits 0.
     Config,
-    /// Report where this project keeps its dash paperwork — briefs and plans —
-    /// or record it.
-    ///
-    /// The directory is the project's to choose: there is no blessed name.
-    /// Undeclared is not an error; the report says so and exits 0, which is
-    /// what lets an authoring skill ask once and record the answer with
-    /// `--set` instead of asking on every invocation.
-    DocsDir {
-        /// Record the declaration (a project-root-relative directory),
-        /// creating the directory if it does not exist. Without this flag the
-        /// verb only reports.
-        #[arg(long)]
-        set: Option<String>,
-    },
     /// List every active dash, derived from git.
     List,
     /// Show one dash's metadata, rounds, and worktree dirt.
@@ -668,25 +641,35 @@ pub enum DashCommands {
         #[arg(long)]
         note: Option<String>,
     },
-    /// Hand a document to the server-driven arc: record that this dash's work
-    /// runs as rotating devise / review / implement stages on the calling card.
+    /// Hand this dash's documents to the server-driven arc: record that its
+    /// work runs as rotating devise / review / implement stages on the calling
+    /// card.
     ///
-    /// With `--document`, opens an arc on that document. Without one, resumes
-    /// an arc that stopped — the documents hold the progress, so a resume
-    /// re-runs the stopped stage and never restarts from the top ([P11]).
+    /// Opens on the dash's brief, or on its plan when only that exists. A dash
+    /// whose arc stopped is resumed instead — the documents hold the progress,
+    /// so a resume re-runs the stopped stage and never restarts from the top.
     ///
     /// The arc runs *on a card*, so the verb refuses without a calling
     /// session: there would be nowhere for a stage to rotate.
     Run {
         /// Dash name — the arc's key, valid before any branch exists.
         name: String,
-        /// The document the arc opens on: a brief, a note, an idea.
-        #[arg(long)]
-        document: Option<String>,
         /// Project directory (default: cwd). Travels as your own spelling —
         /// the server canonicalizes it ([L29]).
         #[arg(long)]
         project: Option<std::path::PathBuf>,
+    },
+    /// Report where a dash's documents live and which of them exist.
+    ///
+    /// A dash with no documents directory is a state, not an error: the verb
+    /// exits 0 and says both are absent. `--ensure` creates the directory (and
+    /// keeps `.tug/` out of git), so a skill can write into it after one call.
+    Documents {
+        /// Dash name.
+        name: String,
+        /// Create the documents directory if it does not exist.
+        #[arg(long)]
+        ensure: bool,
     },
     /// Report one dash's arc — document, plan, stages, stopped reason, done.
     ///
@@ -756,10 +739,6 @@ pub enum StepAction {
     Start {
         /// Step number, matching the ledger's `#step-<n>` anchor.
         step: u32,
-        /// The plan to drive, absolute or relative to the dash worktree.
-        /// Required the first time; recorded and reused after that.
-        #[arg(long)]
-        plan: Option<String>,
         /// The final step of this run's selection. Required: the join arc arms
         /// from it, so a run that does not say where it ends cannot be told
         /// from one that stopped early.

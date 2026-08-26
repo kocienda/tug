@@ -313,14 +313,16 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
 
 /// Everything one tick read, kept together so the act does not read it again.
 struct ArcReading {
+    /// The dash this reading is of — how every stage after devise is asked.
+    dash: String,
     record: ArcRecord,
     facts: ArcFacts,
     /// How many ledger rows read `done` — the next tick's comparison point.
     done_count: usize,
-    /// The plan path as the stage's prompt should name it, from the card's own
-    /// project dir.
+    /// How a stage's prompt names the plan: the dash's name ([P10]). `None`
+    /// when there is no plan yet, which is what a devise stage means.
     plan_for_prompt: Option<String>,
-    /// Where the devise stage should write its plan: `<docs>/<dash>.md`.
+    /// Where the devise stage should write its plan, repo-relative.
     devise_target: Option<String>,
     /// The repo-relative paths the document cites.
     cited_paths: Vec<String>,
@@ -361,50 +363,33 @@ fn read(
             conductor::prompt::cited_paths(source, project, conductor::prompt::CITED_PATHS_CAP)
         })
         .unwrap_or_default();
-    let commits_since = record
-        .document
-        .as_deref()
-        .and_then(|doc| tugdash_core::ops::last_commit_touching(project, doc))
+    // An untracked document has no last commit, so the anchor is when the
+    // author wrote it: the file's own modification time.
+    let commits_since = document_abs
+        .as_ref()
+        .and_then(|p| p.metadata().ok())
+        .and_then(|m| m.modified().ok())
         .map(|since| {
-            tugdash_core::ops::commits_touching_since(
+            tugdash_core::ops::commits_touching_after(
                 project,
-                &since,
+                since,
                 &cited_paths,
                 conductor::prompt::COMMITS_CAP,
             )
         })
         .unwrap_or_default();
 
-    // Where the plan lives *now*: the worktree copy from adoption on,
-    // the base copy before it. The git read is scoped to this one dash and
-    // only happens once the arc has reached implement.
-    let detail = (record.current_stage() == Some(ArcStage::Implement))
-        .then(|| tugdash_core::ops::dash_detail_entry_in(project, dash))
-        .flatten();
-    let (plan_abs, plan_for_prompt) = match detail
-        .as_ref()
-        .and_then(|d| d.plan_path.as_ref().map(|p| (d, p)))
-    {
-        Some((detail, rel)) => {
-            let abs = Path::new(&detail.worktree_abs).join(rel);
-            let spelling = abs.to_string_lossy().into_owned();
-            (Some(abs), Some(spelling))
-        }
-        None => match record.plan.as_ref() {
-            Some(rel) => (Some(project.join(rel)), Some(rel.clone())),
-            // The input document is itself the plan: it is where
-            // the review and implement prompts point until adoption moves it.
-            None if input_is_plan => match record.document.as_ref() {
-                Some(rel) => (Some(project.join(rel)), Some(rel.clone())),
-                None => (None, None),
-            },
-            None => (None, None),
-        },
-    };
+    // The plan is at the dash's own address or it does not exist; there is no
+    // residence to discover and nothing to record.
+    let plan_abs = tugdash_core::plan_file(project, dash);
+    let plan_abs = plan_abs.is_file().then_some(plan_abs);
+    // Every stage after devise names the *dash*, not a path ([P10]): the
+    // skills resolve a name, so a stage cannot be pointed at the wrong file.
+    let plan_for_prompt = plan_abs.as_ref().map(|_| dash.to_string());
 
+    let plan_abs_display = plan_abs.as_ref().map(|p| p.to_string_lossy().into_owned());
     let plan_source = plan_abs
         .as_ref()
-        .filter(|p| p.is_file())
         .and_then(|p| std::fs::read_to_string(p).ok());
     let doc = plan_source.as_deref().and_then(|s| plan::parse(s).ok());
     let lint_ok = doc
@@ -445,11 +430,10 @@ fn read(
     let facts = ArcFacts {
         document_exists,
         input_is_plan,
-        plan_path: plan_source.is_some().then(|| {
-            plan_for_prompt
-                .clone()
-                .unwrap_or_else(|| dash.to_string())
-        }),
+        plan_path: plan_source
+            .is_some()
+            .then(|| plan_abs_display.clone())
+            .flatten(),
         lint_ok,
         review,
         ledger: StepLedgerFacts {
@@ -469,17 +453,12 @@ fn read(
         rotate_at: config.rotate_at(),
     };
 
-    let devise_target = project_config
-        .docs_dir(project)
-        .map(|dir| dir.join(format!("{dash}.md")))
-        .and_then(|abs| {
-            abs.strip_prefix(project)
-                .ok()
-                .map(|rel| rel.to_string_lossy().into_owned())
-                .or_else(|| Some(abs.to_string_lossy().into_owned()))
-        });
+    // Where devise writes: the dash's own `plan.md`, repo-relative, which is
+    // also what the record and the stage divider carry.
+    let devise_target = Some(format!(".tug/dashes/{dash}/plan.md"));
 
     Some(ArcReading {
+        dash: dash.to_string(),
         record,
         facts,
         done_count,
@@ -514,8 +493,7 @@ fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
     let ask = conductor::prompt::stage_ask(
         rotation.stage.as_str(),
         reading.record.document.as_deref(),
-        reading.devise_target.as_deref(),
-        reading.plan_for_prompt.as_deref(),
+        &reading.dash,
         steps.as_deref(),
     )?;
     // A stopped arc that is rotating again is resuming, and the stage it opens
@@ -873,6 +851,7 @@ async fn stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage, reason: ArcStop
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, SystemTime};
 
     /// A plan that parses and lints clean — the fact `lints_as_plan` reads.
     /// Local rather than a repository document: a plan under `dash/` is
@@ -950,9 +929,12 @@ Some context.
         }
     }
 
+    /// A project whose dash has a brief at its own address, which is where
+    /// every document lives now.
     fn project_with_document(root: &Path, document: &str) {
-        std::fs::create_dir_all(root.join("dash")).unwrap();
-        std::fs::write(root.join(document), "# A brief\n\nSome prose.\n").unwrap();
+        let path = root.join(document);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "# A brief\n\nSome prose.\n").unwrap();
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
     }
 
@@ -960,8 +942,8 @@ Some context.
     fn an_opened_arc_reads_its_document_and_wants_devise() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
         assert!(reading.facts.document_exists);
@@ -980,8 +962,8 @@ Some context.
     fn a_stage_whose_session_is_not_the_one_running_is_rotated_again() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "gone", None).unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, Some("fresh")), None).unwrap();
@@ -1000,8 +982,8 @@ Some context.
     fn a_stage_still_running_its_own_session_is_not_re_rotated() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "live", None).unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, Some("live")), None).unwrap();
@@ -1022,8 +1004,8 @@ Some context.
     fn a_seated_stage_that_has_ended_no_turn_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "live", None).unwrap();
 
         // Idle, current, no plan on disk — the reading a tick takes in the gap
@@ -1042,8 +1024,8 @@ Some context.
     async fn a_tick_before_a_stage_has_ended_a_turn_stops_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
 
@@ -1061,14 +1043,15 @@ Some context.
     fn a_document_that_already_lints_as_a_plan_skips_devise() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join("dash")).unwrap();
-        std::fs::write(root.join("dash/demo.md"), LINTING_PLAN).unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo.md").unwrap();
+        std::fs::create_dir_all(root.join(".tug/dashes/demo")).unwrap();
+        std::fs::write(root.join(".tug/dashes/demo/plan.md"), LINTING_PLAN).unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/plan.md").unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
         assert!(reading.facts.input_is_plan);
-        // The document is the plan, so the review prompt has a path to name.
-        assert_eq!(reading.plan_for_prompt.as_deref(), Some("dash/demo.md"));
+        // The document is the plan, and every stage after devise names the
+        // dash rather than a path.
+        assert_eq!(reading.plan_for_prompt.as_deref(), Some("demo"));
         let review = Rotation {
             stage: ArcStage::Review,
             steps: None,
@@ -1076,7 +1059,7 @@ Some context.
         };
         assert_eq!(
             opening_prompt(&reading, &review).as_deref(),
-            Some("/tugplug:plan-review dash/demo.md")
+            Some("/tugplug:plan-review demo")
         );
         assert_eq!(
             arc_action(&reading.record, &reading.facts),
@@ -1092,8 +1075,8 @@ Some context.
     fn a_dead_card_stops_the_arc() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "s", None).unwrap();
 
         let reading = read(root, "demo", &snapshot(false, true, Some("s")), None).unwrap();
@@ -1110,8 +1093,8 @@ Some context.
     fn a_mid_turn_card_yields_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "s", None).unwrap();
 
         let reading = read(root, "demo", &snapshot(true, false, Some("s")), None).unwrap();
@@ -1122,8 +1105,8 @@ Some context.
     fn a_stopped_arc_is_not_resumed_by_a_tick() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "s", None).unwrap();
         tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint).unwrap();
 
@@ -1132,16 +1115,11 @@ Some context.
     }
 
     #[test]
-    fn the_devise_prompt_names_the_document_and_the_declared_docs_dir() {
+    fn the_devise_ask_names_the_brief_and_targets_the_dash() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        std::fs::write(
-            root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\ndocs = \"dash\"\n",
-        )
-        .unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
         let prompt = opening_prompt(
@@ -1155,8 +1133,94 @@ Some context.
         .unwrap();
         assert_eq!(
             prompt,
-            "/tugplug:plan-devise a plan for dash/demo-brief.md, honoring every [B##] decision it records 🢂 dash/demo.md"
+            "/tugplug:plan-devise a plan for .tug/dashes/demo/brief.md, honoring every [B##] decision it records 🢂 demo"
         );
+    }
+
+    /// Every stage after devise names the dash, so the skill resolves the
+    /// address rather than being handed one it could write past.
+    #[test]
+    fn review_and_implement_asks_name_the_dash() {
+        assert_eq!(
+            conductor::prompt::stage_ask("review", None, "foo", None).as_deref(),
+            Some("/tugplug:plan-review foo")
+        );
+        assert_eq!(
+            conductor::prompt::stage_ask("implement", None, "foo", Some("2-4")).as_deref(),
+            Some("/tugplug:dash-implement foo Steps 2-4")
+        );
+        assert_eq!(
+            conductor::prompt::stage_ask("implement", None, "foo", None).as_deref(),
+            Some("/tugplug:dash-implement foo")
+        );
+    }
+
+    /// The document has no last commit to key on — it is not tracked — so the
+    /// "what changed" clause is anchored on when the author wrote it.
+    #[test]
+    fn what_changed_is_keyed_on_the_documents_mtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".tug/dashes/demo")).unwrap();
+        std::fs::create_dir_all(root.join(".tugtool")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        for args in [
+            vec!["init", "-b", "main"],
+            vec!["config", "user.name", "Test User"],
+            vec!["config", "user.email", "test@example.com"],
+        ] {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(&args)
+                .output()
+                .unwrap();
+        }
+        std::fs::write(root.join("src/a.rs"), "fn a() {}\n").unwrap();
+        let brief = root.join(".tug/dashes/demo/brief.md");
+        std::fs::write(&brief, "# A brief\n\n[F01] `src/a.rs` holds it.\n").unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+
+        let commit = |message: &str| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["add", "-A"])
+                .output()
+                .unwrap();
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["commit", "-m", message])
+                .output()
+                .unwrap();
+        };
+
+        // Written an hour ago, so the change that lands now is after it.
+        std::fs::File::options()
+            .write(true)
+            .open(&brief)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(3600))
+            .unwrap();
+        std::fs::write(root.join("src/a.rs"), "fn a() { todo!() }\n").unwrap();
+        commit("change the cited file");
+
+        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        assert_eq!(reading.commits_since.len(), 1, "{:?}", reading.commits_since);
+        assert!(reading.commits_since[0].contains("change the cited file"));
+
+        // A brief rewritten after that commit landed has nothing behind it.
+        // Two seconds rather than none, because git commit timestamps have
+        // one-second granularity and `--since` on the same second still hits.
+        std::fs::File::options()
+            .write(true)
+            .open(&brief)
+            .unwrap()
+            .set_modified(SystemTime::now() + Duration::from_secs(2))
+            .unwrap();
+        let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
+        assert!(reading.commits_since.is_empty(), "{:?}", reading.commits_since);
     }
 
     /// A stage opens on a part, not a title. The document names where
@@ -1166,22 +1230,17 @@ Some context.
     fn a_devise_prompt_names_the_files_its_document_cites() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        std::fs::create_dir_all(root.join("dash")).unwrap();
+        std::fs::create_dir_all(root.join(".tug/dashes/demo")).unwrap();
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(root.join("src/a.rs"), "fn a() {}\n").unwrap();
         std::fs::write(root.join("src/b.ts"), "export const b = 1;\n").unwrap();
         std::fs::write(
-            root.join("dash/demo-brief.md"),
+            root.join(".tug/dashes/demo/brief.md"),
             "# A brief\n\n[F01] `src/a.rs` holds it, `src/b.ts` reads it, `src/gone.rs` does not exist.\n",
         )
         .unwrap();
-        std::fs::write(
-            root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\ndocs = \"dash\"\n",
-        )
-        .unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
         assert_eq!(
@@ -1197,7 +1256,7 @@ Some context.
             },
         )
         .unwrap();
-        assert!(prompt.starts_with("/tugplug:plan-devise a plan for dash/demo-brief.md"));
+        assert!(prompt.starts_with("/tugplug:plan-devise a plan for .tug/dashes/demo/brief.md"));
         assert!(prompt.contains("start there: src/a.rs, src/b.ts"));
         assert!(
             !prompt.contains("src/gone.rs"),
@@ -1211,9 +1270,9 @@ Some context.
     fn a_continued_implement_prompt_carries_its_step_range() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
-        tugdash_core::arc::append_arc_plan(root, "demo", "dash/demo.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+        std::fs::write(root.join(".tug/dashes/demo/plan.md"), LINTING_PLAN).unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
         let prompt = opening_prompt(
@@ -1225,16 +1284,16 @@ Some context.
             },
         )
         .unwrap();
-        assert_eq!(prompt, "/tugplug:dash-implement dash/demo.md Steps 4-9");
+        assert_eq!(prompt, "/tugplug:dash-implement demo Steps 4-9");
     }
 
     #[test]
     fn a_first_implement_prompt_carries_no_selector() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
-        tugdash_core::arc::append_arc_plan(root, "demo", "dash/demo.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
+        std::fs::write(root.join(".tug/dashes/demo/plan.md"), LINTING_PLAN).unwrap();
 
         let reading = read(root, "demo", &snapshot(true, true, None), None).unwrap();
         let prompt = opening_prompt(
@@ -1246,7 +1305,7 @@ Some context.
             },
         )
         .unwrap();
-        assert_eq!(prompt, "/tugplug:dash-implement dash/demo.md");
+        assert_eq!(prompt, "/tugplug:dash-implement demo");
     }
 
     /// A real supervisor with one session parked in `Spawning`, a real
@@ -1320,13 +1379,13 @@ Some context.
     async fn two_ticks_for_one_arc_produce_one_rotation() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
+        project_with_document(root, ".tug/dashes/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
             "[tugtool.dash]\ndocs = \"dash\"\n",
         )
         .unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -1350,8 +1409,8 @@ Some context.
     async fn a_tick_during_an_open_turn_produces_no_rotation() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         entry.lock().await.turn_active = true;
@@ -1365,8 +1424,8 @@ Some context.
     async fn a_stopped_arc_is_not_resumed_by_a_tick_at_the_dispatcher() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
         tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint).unwrap();
@@ -1383,13 +1442,13 @@ Some context.
     async fn a_restart_re_rotates_the_recorded_stage_exactly_once() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
+        project_with_document(root, ".tug/dashes/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
             "[tugtool.dash]\ndocs = \"dash\"\n",
         )
         .unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         // A stage recorded against a session that is no longer the one on the
         // card — what a tugcast restart leaves behind.
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "gone", None).unwrap();
@@ -1415,13 +1474,13 @@ Some context.
         // goes back onto it.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
+        project_with_document(root, ".tug/dashes/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
             "[tugtool.dash]\ndocs = \"dash\"\n",
         )
         .unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "gone", None).unwrap();
 
         // No `set_stage_provenance` for `claude-1`: the session on the card
@@ -1460,8 +1519,8 @@ Some context.
         // every tugcast restart.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "gone", None).unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
@@ -1500,10 +1559,9 @@ Some context.
         // one before it, and not nothing.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        std::fs::write(root.join("dash/demo.md"), LINTING_PLAN).unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
-        tugdash_core::arc::append_arc_plan(root, "demo", "dash/demo.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        std::fs::write(root.join(".tug/dashes/demo/plan.md"), LINTING_PLAN).unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
         tugdash_core::arc::append_arc_stop(root, "demo", ArcStage::Review, ArcStopReason::SpawnQueueFull)
@@ -1531,8 +1589,8 @@ Some context.
     async fn a_stop_hands_the_card_back_on_the_decks_own_model() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         // A devise stage on the card's own session that produced no plan: the
         // documents say stop.
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
@@ -1598,13 +1656,13 @@ Some context.
         // and handed back but said nothing on the card.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
+        project_with_document(root, ".tug/dashes/demo/brief.md");
         std::fs::write(
             root.join(".tugtool/config.toml"),
             "[tugtool.dash]\ndocs = \"dash\"\n",
         )
         .unwrap();
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -1631,8 +1689,8 @@ Some context.
         // not arrival-order: the two travel different channels.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
 
@@ -1679,8 +1737,8 @@ Some context.
         // stop performs, so a stop the user asked for is not a lesser one.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
             .unwrap();
 
@@ -1729,8 +1787,8 @@ Some context.
         // the card comes back to, and it says which gesture ended the dash.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "claude-1", None)
             .unwrap();
 
@@ -1772,8 +1830,8 @@ Some context.
     async fn an_ending_on_a_card_with_no_model_names_the_account_default() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -1809,8 +1867,8 @@ Some context.
         // line after it would open a phantom one.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "claude-1", None)
             .unwrap();
 
@@ -1849,8 +1907,8 @@ Some context.
     async fn a_card_that_never_chose_a_model_is_handed_back_the_default() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        project_with_document(root, "dash/demo-brief.md");
-        tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
+        project_with_document(root, ".tug/dashes/demo/brief.md");
+        tugdash_core::arc::append_arc_start(root, "demo", ".tug/dashes/demo/brief.md").unwrap();
         tugdash_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
             .unwrap();
 
@@ -1861,80 +1919,6 @@ Some context.
         let frame = entry.lock().await.queue.pop().unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         assert_eq!(parsed["model"], "default");
-    }
-
-    /// Adoption commits the plan on the dash branch and **cleans the
-    /// base copy**, so a runner that kept reading the devise path would see
-    /// "plan gone" and stop a healthy arc. A real checkout with a real linked
-    /// worktree, because the path being tested is the one `DashDetail`
-    /// composes from git.
-    #[test]
-    fn after_adoption_the_facts_come_from_the_worktree_copy() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("checkout");
-        // `.tug/worktrees/<name>` is where tugdash-core composes a dash's
-        // worktree path from, so that is where the linked worktree has to be
-        // for `DashDetail` to find it.
-        let worktree = root.join(".tug/worktrees/demo");
-        std::fs::create_dir_all(&root).unwrap();
-        let git = |args: &[&str]| {
-            let ok = std::process::Command::new("git")
-                .arg("-C")
-                .arg(&root)
-                .args(args)
-                .output()
-                .expect("git runs")
-                .status
-                .success();
-            assert!(ok, "git {args:?} failed");
-        };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@example.com"]);
-        git(&["config", "user.name", "T"]);
-        std::fs::create_dir_all(root.join("dash")).unwrap();
-        std::fs::write(root.join("dash/demo-brief.md"), "# A brief\n").unwrap();
-        git(&["add", "-A"]);
-        git(&["commit", "-qm", "seed"]);
-        git(&[
-            "worktree",
-            "add",
-            "-q",
-            "-b",
-            "tugdash/demo",
-            worktree.to_str().unwrap(),
-        ]);
-
-        // The plan as adoption leaves it: in the worktree, gone from the base
-        // checkout, and its path recorded on the branch.
-        std::fs::create_dir_all(worktree.join("dash")).unwrap();
-        std::fs::write(worktree.join("dash/demo.md"), LINTING_PLAN).unwrap();
-        tugdash_core::ops::set_dash_plan_path(&root, "demo", "dash/demo.md").unwrap();
-
-        tugdash_core::arc::append_arc_start(&root, "demo", "dash/demo-brief.md").unwrap();
-        tugdash_core::arc::append_arc_plan(&root, "demo", "dash/demo.md").unwrap();
-        tugdash_core::arc::append_arc_stage(&root, "demo", ArcStage::Implement, "claude-1", None)
-            .unwrap();
-        assert!(
-            !root.join("dash/demo.md").exists(),
-            "the base copy is gone, which is the whole point"
-        );
-
-        let reading = read(&root, "demo", &snapshot(true, true, Some("claude-1")), None).unwrap();
-        assert!(
-            reading
-                .plan_for_prompt
-                .as_deref()
-                .is_some_and(|p| p.ends_with("dash/demo.md") && p != "dash/demo.md"),
-            "the prompt names the worktree copy by absolute path, got {:?}",
-            reading.plan_for_prompt
-        );
-        assert!(reading.facts.lint_ok, "and the facts came from it");
-        assert_eq!(
-            arc_action(&reading.record, &reading.facts),
-            None,
-            "an implement stage with steps left and no reading sits still — \
-             the base path's absence is not a stop"
-        );
     }
 
     use tugdash_core::arc::ArcStageLine;

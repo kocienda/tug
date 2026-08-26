@@ -68,7 +68,7 @@ const FFFC = "￼";
 
 /** The command atom stores the BARE name; the slash belongs to the chip. */
 const COMMAND = "tugplug:dash";
-const BRIEF = "dash/verify-surfaces-brief.md";
+const BRIEF = ".tug/dashes/verify-surfaces/brief.md";
 /** The prompt as submitted: two chips with a word between them. */
 const PROMPT_TEXT = `${FFFC} on ${FFFC}`;
 /** What the user read on screen — and must get back on the clipboard. */

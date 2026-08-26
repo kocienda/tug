@@ -66,7 +66,7 @@ export interface TugCardDelegate {
 }
 ```
 
-<!-- TODO: candidate law? plan doc disagrees on X — `dash/tugplan-lifecycle-delegates.md` shows older method signatures with geometry payloads on `cardWillMove` / `cardDidMove` / `cardWillResize` / `cardDidResize`. The current source ([D07]) carries only `cardId`; pre-mutation geometry comes from the observer pre-phase, post-mutation geometry from the store. -->
+<!-- TODO: candidate law? the original lifecycle-delegates plan showed older method signatures with geometry payloads on `cardWillMove` / `cardDidMove` / `cardWillResize` / `cardDidResize`. The current source ([D07]) carries only `cardId`; pre-mutation geometry comes from the observer pre-phase, post-mutation geometry from the store. -->
 
 ### Observer vs. delegate
 
@@ -106,7 +106,7 @@ Why a `MessageChannel` rather than React's `setState → useEffect` pipeline or 
 
 - **Macrotask, not microtask.** `MessageChannel.postMessage` queues a macrotask that runs after the current task completes — past WebKit's gesture focus-lock, which fires on `pointerdown`/`mousedown` and reverts focus changes that land within the same task as a `preventDefault()`-ed pointer event.
 - **No `setTimeout(0)` 4 ms clamp.** `MessageChannel` queues a macrotask directly, skipping the timer subsystem and its throttling in background tabs.
-- **Independent of React commits.** Closures queued here survive component unmount between fire and drain — the dying card's own `cardWillBeginDestruction` delegate fires reliably even though its component has already unmounted (this was hole H1 in the reliability study; see [`dash/lifecycle-delegate-reliability.md`](../dash/lifecycle-delegate-reliability.md)).
+- **Independent of React commits.** Closures queued here survive component unmount between fire and drain — the dying card's own `cardWillBeginDestruction` delegate fires reliably even though its component has already unmounted (this was hole H1 in the reliability study).
 
 The queue is snapshot-and-cleared on each drain (`delegateQueue.splice(0)`) so callbacks that enqueue further work run on the next drain, preserving order within a tick and preventing runaway reentrant drains.
 
@@ -199,8 +199,6 @@ Secondary implementation source — where the lifecycle is wired up in practice.
 
 Historical / secondary planning — kept for context, not authoritative.
 
-- [`dash/tugplan-lifecycle-delegates.md`](../dash/tugplan-lifecycle-delegates.md) — Original lifecycle-delegates plan. Some method signatures in older sections do not match the current `TugCardDelegate` interface; follow the source per [D07].
-- [`dash/lifecycle-delegate-reliability.md`](../dash/lifecycle-delegate-reliability.md) — The reliability study that motivated the `MessageChannel` drain queue. Background on WebKit's gesture focus-lock, the microtask vs. macrotask distinction, and hole H1 (dying-card delegate loss) which the queue closes.
 
 ---
 

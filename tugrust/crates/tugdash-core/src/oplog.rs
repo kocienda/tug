@@ -48,7 +48,7 @@ use tugutil_core::session::now_iso8601;
 use crate::dash::refuse_unredirected_temp_repo;
 use crate::ops::{
     base_config_key, branch_name, config_get, dash_base, description_config_key, git_output,
-    git_stdout, plan_config_key, tugid_config_key, worktree_path, write_atomic,
+    git_stdout, tugid_config_key, worktree_path, write_atomic,
 };
 
 /// How many operations a repository keeps.
@@ -100,7 +100,7 @@ impl OpVerb {
 ///
 /// `git branch -D` takes the whole `branch.<name>.*` section with it, so
 /// recreating the branch alone would restore a dash that had forgotten its own
-/// base, description, id, and plan.
+/// base, description, and id.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -109,8 +109,6 @@ pub struct OpConfig {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tugid: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plan: Option<String>,
 }
 
 /// The world as the verb found it.
@@ -388,7 +386,6 @@ pub fn capture_before(repo: &Path, name: &str) -> Result<OpBefore, String> {
             tugbase: config_get(repo, &base_config_key(name)),
             description: config_get(repo, &description_config_key(name)),
             tugid: config_get(repo, &tugid_config_key(name)),
-            plan: config_get(repo, &plan_config_key(name)),
         },
         candidate: crate::resolve::read_candidate(repo, name),
         conflict: crate::resolve::read_conflict(repo, name).map(|c| c.tip),
@@ -840,7 +837,7 @@ pub fn undo_in(repo: &Path, dash: Option<&str>) -> Result<UndoOutcome, String> {
 
     let outcome = match op.verb {
         OpVerb::Join => undo_join(repo, &op, &after, &mut warnings),
-        OpVerb::Replay => undo_replay(&op, &after),
+        OpVerb::Replay => undo_replay(repo, &op, &after),
         OpVerb::Discard => undo_discard(repo, &op, &mut warnings),
         OpVerb::Undo | OpVerb::Redo => {
             unreachable!("reversal records are filtered out of the candidates")
@@ -1015,7 +1012,7 @@ pub fn redo_in(repo: &Path, dash: Option<&str>) -> Result<RedoOutcome, String> {
 
     let outcome = match original.verb {
         OpVerb::Join => redo_join(repo, &original, &original_after, &mut warnings),
-        OpVerb::Replay => redo_replay(&original, &original_after),
+        OpVerb::Replay => redo_replay(repo, &original, &original_after),
         OpVerb::Discard => redo_discard(repo, &original, &mut warnings),
         OpVerb::Undo | OpVerb::Redo => {
             unreachable!("a reversal is never the operation an undo reversed")
@@ -1162,6 +1159,7 @@ fn redo_join(
 /// than redundant, because it can land a bookkeeping commit that leaves the tip
 /// *past* the recorded one and makes the next undo's CAS refuse `tip-moved`.
 fn redo_replay(
+    repo: &Path,
     op: &OpPayload,
     after: &OpAfter,
 ) -> Result<(Option<String>, Option<String>), String> {
@@ -1178,7 +1176,12 @@ fn redo_replay(
         .ok_or("incomplete-op: the replay recorded no resulting dash tip")?;
 
     match crate::replay::cas_reset(&worktree, &op.before.dash_tip, target)? {
-        None => Ok((Some(target.to_string()), None)),
+        None => {
+            // The forward half of the undo's reversal: the cells move with the
+            // branch only because something moves them.
+            crate::replay::remap_ledger_cells(repo, &op.dash, &after.mapping);
+            Ok((Some(target.to_string()), None))
+        }
         Some(crate::replay::ReplayOutcome::Deferred { reason, detail }) => {
             Err(format!("{reason}: {detail}"))
         }
@@ -1335,6 +1338,7 @@ fn restore_conflict_ref(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>)
 /// re-validates it: validity is head equality, and the heads the chain names
 /// are the ones this reset just reinstated.
 fn undo_replay(
+    repo: &Path,
     op: &OpPayload,
     after: &OpAfter,
 ) -> Result<(Option<String>, Option<String>), String> {
@@ -1354,7 +1358,18 @@ fn undo_replay(
     // direction. Its refusals are outcomes rather than errors, so they are
     // translated into this module's vocabulary rather than dropped.
     match crate::replay::cas_reset(&worktree, expected, &op.before.dash_tip)? {
-        None => Ok((Some(op.before.dash_tip.clone()), None)),
+        None => {
+            // The ledger lives outside every tree git watches, so moving the
+            // branch back does not move its commit cells back with it. The
+            // replay's own mapping, read in reverse, is the exact answer.
+            let reversed: Vec<(String, String)> = after
+                .mapping
+                .iter()
+                .map(|(old, new)| (new.clone(), old.clone()))
+                .collect();
+            crate::replay::remap_ledger_cells(repo, &op.dash, &reversed);
+            Ok((Some(op.before.dash_tip.clone()), None))
+        }
         Some(crate::replay::ReplayOutcome::Deferred { reason, detail }) => {
             Err(format!("{reason}: {detail}"))
         }
@@ -1414,7 +1429,7 @@ fn restore_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resu
     }
 
     // `branch -D` took the whole `branch.<name>.*` section with it, so a
-    // recreated branch has forgotten its base, description, id, and plan.
+    // recreated branch has forgotten its base, description, and id.
     let facts = [
         (crate::ops::base_config_key(&op.dash), &op.before.config.tugbase),
         (
@@ -1422,7 +1437,6 @@ fn restore_dash(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resu
             &op.before.config.description,
         ),
         (crate::ops::tugid_config_key(&op.dash), &op.before.config.tugid),
-        (crate::ops::plan_config_key(&op.dash), &op.before.config.plan),
     ];
     for (key, value) in facts {
         if let Some(value) = value {
@@ -1506,7 +1520,6 @@ mod tests {
                 tugbase: Some("main".to_string()),
                 description: Some("d".to_string()),
                 tugid: Some("id".to_string()),
-                plan: Some("dash/p.md".to_string()),
             },
             candidate: None,
             conflict: None,
@@ -1523,7 +1536,6 @@ mod tests {
         assert_eq!(read.seq, seq);
         assert_eq!(read.verb, OpVerb::Join);
         assert_eq!(read.dash, "demo");
-        assert_eq!(read.before.config.plan.as_deref(), Some("dash/p.md"));
         // Per-verb fields absent on a fresh record, and absent from the JSON.
         assert!(read.after.is_none());
         assert!(read.undone_by.is_none());

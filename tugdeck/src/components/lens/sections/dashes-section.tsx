@@ -115,8 +115,8 @@ import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { usePromptTarget } from "./dash-prompt-target";
 import { DashesStartControl } from "./dashes-start-sheet";
 import {
-  planNextGestureLabel,
-  planNextGesturePrompt,
+  documentDashNextGestureLabel,
+  documentDashNextGesturePrompt,
   submitPromptToCard,
 } from "@/lib/dash-prompts";
 import { getConnection } from "@/lib/connection-singleton";
@@ -129,7 +129,7 @@ import {
 import { useSessionIdentity } from "@/lib/session-identity";
 import type {
   DashChangesetEntry,
-  PlanDocEntry,
+  DocumentDashEntry,
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
@@ -267,11 +267,11 @@ export function dashRowsFromSnapshot(
  * lists a document only when no dash has adopted it and its ledger is not
  * wholly `done`.
  */
-export interface PlanRow {
-  /** Project dir plus repo-relative path — unique across every open project. */
+export interface DocumentDashRow {
+  /** Project dir plus dash name — unique across every open project. */
   key: string;
   /** The wire entry: the row reads it directly. */
-  entry: PlanDocEntry;
+  entry: DocumentDashEntry;
   /** The project the path is relative to — what the prompt's target must match. */
   projectDir: string;
   /** That project's name, for the cross-project refusal sentence. */
@@ -285,13 +285,13 @@ const PLAN_REVIEW_RANK: Record<string, number> = {
   "never-reviewed": 0,
 };
 
-/** An unrecognized review spelling sorts last and never throws. */
+/** An unrecognized review spelling — or none at all — sorts last. */
 function reviewRank(review: string): number {
   return PLAN_REVIEW_RANK[review] ?? -1;
 }
 
 /** Work already on the ledger — done or in progress. */
-export function planIsBegun(entry: PlanDocEntry): boolean {
+export function documentDashIsBegun(entry: DocumentDashEntry): boolean {
   return entry.steps_begun > 0;
 }
 
@@ -304,10 +304,15 @@ export function planIsBegun(entry: PlanDocEntry): boolean {
  * among the unstarted a reviewed plan is one press from becoming a dash while
  * an unreviewed one still needs a turn spent on it.
  */
-export function comparePlanRows(a: PlanRow, b: PlanRow): number {
-  const byBegun = Number(planIsBegun(b.entry)) - Number(planIsBegun(a.entry));
+export function compareDocumentDashRows(
+  a: DocumentDashRow,
+  b: DocumentDashRow,
+): number {
+  const byBegun =
+    Number(documentDashIsBegun(b.entry)) - Number(documentDashIsBegun(a.entry));
   if (byBegun !== 0) return byBegun;
-  const byReview = reviewRank(b.entry.review) - reviewRank(a.entry.review);
+  const byReview =
+    reviewRank(b.entry.review ?? "") - reviewRank(a.entry.review ?? "");
   if (byReview !== 0) return byReview;
   return a.entry.display_name.localeCompare(b.entry.display_name);
 }
@@ -323,18 +328,18 @@ export function comparePlanRows(a: PlanRow, b: PlanRow): number {
  * inert now and actionable the moment a card in that project is followed, and
  * its affordance says exactly that ([L31]).
  */
-export function planRowsFromSnapshot(
+export function documentDashRowsFromSnapshot(
   snapshot: WorkspacesChangesetSnapshot,
-): PlanRow[] {
+): DocumentDashRow[] {
   const rows = snapshot.projects.flatMap((project) =>
-    (project.plans ?? []).map((entry) => ({
-      key: `${project.project_dir}:${entry.path}`,
+    (project.document_dashes ?? []).map((entry) => ({
+      key: `${project.project_dir}:${entry.display_name}`,
       entry,
       projectDir: project.project_dir,
       projectLabel: project.display_name,
     })),
   );
-  return rows.sort(comparePlanRows);
+  return rows.sort(compareDocumentDashRows);
 }
 
 /**
@@ -346,14 +351,14 @@ export function planRowsFromSnapshot(
  */
 export function dashesCollapsedSummary(
   rows: readonly DashRow[],
-  plans: readonly PlanRow[] = [],
+  planning: readonly DocumentDashRow[] = [],
 ): string {
   const parts: string[] = [];
   if (rows.length > 0) {
     parts.push(rows.length === 1 ? "1 dash" : `${rows.length} dashes`);
   }
-  if (plans.length > 0) {
-    parts.push(plans.length === 1 ? "1 plan" : `${plans.length} plans`);
+  if (planning.length > 0) {
+    parts.push(`${planning.length} planning`);
   }
   return parts.length === 0 ? "No dashes" : parts.join(" · ");
 }
@@ -372,7 +377,7 @@ export function dashesCollapsedSummary(
 class CockpitRowsDataSource implements TugListViewDataSource {
   constructor(
     readonly rows: readonly DashRow[],
-    readonly plans: readonly PlanRow[],
+    readonly plans: readonly DocumentDashRow[],
   ) {}
   numberOfItems(): number {
     return this.rows.length + this.plans.length;
@@ -380,14 +385,14 @@ class CockpitRowsDataSource implements TugListViewDataSource {
   idForIndex(index: number): string {
     const dash = this.rows[index];
     if (dash !== undefined) return dash.ownerId;
-    // Namespaced so an owner key and a plan path can never collide.
-    return `plan:${this.plans[index - this.rows.length]!.key}`;
+    // Namespaced so an owner key and a document-dash key can never collide.
+    return `doc:${this.plans[index - this.rows.length]!.key}`;
   }
   kindForIndex(index: number): string {
     return index < this.rows.length ? "dash" : "plan";
   }
-  /** The plan at a list index, or undefined for a dash index. */
-  planAt(index: number): PlanRow | undefined {
+  /** The document-only dash at a list index, or undefined for a dash index. */
+  planAt(index: number): DocumentDashRow | undefined {
     return this.plans[index - this.rows.length];
   }
   subscribe(): () => void {
@@ -761,9 +766,15 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   });
   if (row === undefined) return null;
   const entry = row.entry;
-  const begun = planIsBegun(entry);
-  const label = planNextGestureLabel(entry.review, begun);
-  const prompt = planNextGesturePrompt(entry.review, entry.path, begun);
+  const begun = documentDashIsBegun(entry);
+  const hasPlan = entry.documents.plan !== undefined;
+  const label = documentDashNextGestureLabel(entry.review, begun, hasPlan);
+  const prompt = documentDashNextGesturePrompt(
+    entry.review,
+    entry.display_name,
+    begun,
+    hasPlan,
+  );
   // A begun plan states how far it got; an unstarted one states how far it
   // goes. The same cell, two readings, because a fraction on a plan nobody has
   // touched is a zero pretending to be progress.
@@ -772,13 +783,16 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
     : entry.step_total === 1
       ? "1 step"
       : `${entry.step_total} steps`;
+  // A dash whose devise stage has not run has no plan facts to state — the
+  // brief is the whole of what it is so far.
+  const facts = hasPlan ? `plan · ${entry.review} · ${steps}` : "brief";
   return (
     <TugListRow
       className="lens-dashes-row lens-plans-row"
       variant="flush"
       density="compact"
-      data-slot="lens-plans-row"
-      data-plan={entry.path}
+      data-slot="lens-document-dash-row"
+      data-dash={entry.display_name}
       data-review={entry.review}
       data-begun={begun ? "true" : "false"}
     >
@@ -801,7 +815,7 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
               disabled={target.cardId === null}
               title={target.reason ?? undefined}
               aria-label={
-                target.reason ?? `${label} the plan ${entry.display_name}`
+                target.reason ?? `${label} the dash ${entry.display_name}`
               }
               onClick={() => {
                 if (target.cardId === null) return;
@@ -814,7 +828,7 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
         </span>
         <span className="lens-dashes-meta-line lens-plans-meta">
           <span data-slot="lens-plans-facts">
-            {`plan · ${entry.review} · ${steps}`}
+            {facts}
           </span>
         </span>
       </span>
@@ -829,9 +843,9 @@ function useDashRows(): DashRow[] {
   return useMemo(() => dashRowsFromSnapshot(snapshot), [snapshot]);
 }
 
-function usePlanRows(): PlanRow[] {
+function usePlanRows(): DocumentDashRow[] {
   const snapshot = useChangesetAll();
-  return useMemo(() => planRowsFromSnapshot(snapshot), [snapshot]);
+  return useMemo(() => documentDashRowsFromSnapshot(snapshot), [snapshot]);
 }
 
 function DashesCollapsedSummary(): React.ReactElement {

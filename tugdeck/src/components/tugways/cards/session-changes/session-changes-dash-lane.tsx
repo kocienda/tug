@@ -64,6 +64,7 @@ import { replayDisabledReason, useDashRowMenu } from "./dash-row-menu";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
+import { SessionChangesDashDocuments } from "./session-changes-dash-documents";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { DashMetaLine } from "@/components/tugways/dash-meta-line";
 import { DashJoinRegister } from "@/components/tugways/dash-join-register";
@@ -76,7 +77,10 @@ import {
   type DashJoinActions,
 } from "./session-changes-dash-join";
 import type { DiffDescriptor } from "@/lib/git-diff-store";
-import type { DashChangesetEntry } from "@/lib/changeset-types";
+import type {
+  DashChangesetEntry,
+  DocumentDashEntry,
+} from "@/lib/changeset-types";
 import type { JoinState } from "@/lib/changeset-verb-store";
 import type { ResolveState } from "@/lib/changeset-join-store";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
@@ -252,8 +256,8 @@ export function discardConfirmMessage(entry: DashChangesetEntry): string {
       `Uncommitted files in the worktree are handed back to ${entry.base}.`,
     );
   }
-  if (entry.plan_path !== undefined) {
-    clauses.push(`The plan is restored to ${entry.base}.`);
+  if (entry.documents !== undefined) {
+    clauses.push(`Its documents stay at .tug/dashes/${entry.display_name}/.`);
   }
   return clauses.join(" ");
 }
@@ -505,6 +509,33 @@ function DashRow({
           nothing to show, and rounds and draft mount only with content. */}
       {expanded ? (
         <div className="session-changes-dash-detail">
+          {/* The dash's own documents, first: what it was asked for and what
+              it decided to do outrank what it has done so far. They were
+              readable because they were files in the tree, and they still are
+              files — the strip is the same act on the same bytes ([B08]). */}
+          {entry.documents !== undefined ? (
+            <div
+              className="session-changes-dash-documents-block"
+              data-slot="session-changes-dash-documents-block"
+            >
+              <TugSectionLabel
+                label={{ name: "documents" }}
+                slot="session-changes-dash-documents-label"
+              />
+              <SessionChangesDashDocuments
+                documents={entry.documents}
+                review={entry.review}
+                steps={
+                  entry.steps === undefined || entry.steps.length === 0
+                    ? undefined
+                    : {
+                        done: entry.steps.filter((s) => s.status === "done").length,
+                        total: entry.steps.length,
+                      }
+                }
+              />
+            </div>
+          ) : null}
           {joinFace !== null ? (
             <SessionChangesDashJoin
               entry={entry}
@@ -596,6 +627,101 @@ function DashRow({
 // The lane
 // ---------------------------------------------------------------------------
 
+/**
+ * The fronted row for a dash that has documents and no branch yet — the
+ * planning phase, on the card that is working it.
+ *
+ * It is deliberately not a {@link DashRow}: a branchless dash has no worktree,
+ * no base, no rounds and no files, so the diff, the join and the discard
+ * affordances would every one of them be a control over nothing. What it does
+ * have is an identity, an arc, and its documents, and those are what it shows.
+ * Unbind stands because binding is the one thing a card can still undo here.
+ */
+function DocumentDashRow({
+  entry,
+  binding,
+}: {
+  entry: DocumentDashEntry;
+  binding: DashLaneBinding | null;
+}): React.ReactElement {
+  // `DashMetaLine` reads a dash entry's optional facts and states only the
+  // ones present, so the sparse shape a branchless dash has is exactly what it
+  // is built to take — the arc line reads the same here as on a live row.
+  const asEntry = {
+    kind: "dash",
+    owner_id: entry.owner_id,
+    display_name: entry.display_name,
+    documents: entry.documents,
+    ...(entry.review !== undefined ? { review: entry.review } : {}),
+    ...(entry.arc !== undefined ? { arc: entry.arc } : {}),
+    ...(entry.bound_sessions !== undefined
+      ? { bound_sessions: entry.bound_sessions }
+      : {}),
+  } as unknown as DashChangesetEntry;
+
+  return (
+    <div
+      className="session-changes-dash-row"
+      data-slot="session-changes-dash-row"
+      data-dash={entry.display_name}
+      data-fronted="true"
+      data-branchless="true"
+      data-expanded="true"
+    >
+      <TugListRow
+        variant="flush"
+        density="compact"
+        leading={
+          <TugDashName
+            name={entry.display_name}
+            review={entry.review ?? null}
+            boundSessions={entry.bound_sessions ?? []}
+            slot="session-changes-dash-name"
+            workerSlot="session-changes-dash-worker"
+            atomSize="sm"
+          />
+        }
+        trailing={
+          binding !== null ? (
+            <TugPushButton
+              size="2xs"
+              emphasis="ghost"
+              data-slot="session-changes-dash-unbind"
+              aria-label={`Unbind the dash ${entry.display_name}`}
+              onClick={() => binding.unbind(asEntry)}
+            >
+              Unbind
+            </TugPushButton>
+          ) : undefined
+        }
+      />
+      <span className="session-changes-dash-meta">
+        <DashMetaLine entry={asEntry} size="sm" />
+      </span>
+      <div className="session-changes-dash-detail">
+        <div
+          className="session-changes-dash-documents-block"
+          data-slot="session-changes-dash-documents-block"
+        >
+          <TugSectionLabel
+            label={{ name: "documents" }}
+            slot="session-changes-dash-documents-label"
+          />
+          <SessionChangesDashDocuments
+            documents={entry.documents}
+            review={entry.review}
+            steps={
+              entry.step_total > 0
+                ? { done: entry.steps_done, total: entry.step_total }
+                : undefined
+            }
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export interface SessionChangesDashLaneProps {
   /** The project's dash entries, in snapshot order. */
   dashes: readonly DashChangesetEntry[];
@@ -628,6 +754,9 @@ export interface SessionChangesDashLaneProps {
   /** Replay, on the same terms for every row; omitted leaves the lane
    *  read-only. */
   replay?: DashLaneReplay;
+  /** The bound dash when it has documents and no branch yet — the planning
+   *  phase. Fronted in place of a dash row, since there is no branch to show. */
+  documentDash?: DocumentDashEntry | null;
 }
 
 export function SessionChangesDashLane({
@@ -640,6 +769,7 @@ export function SessionChangesDashLane({
   binding,
   discard,
   replay,
+  documentDash,
 }: SessionChangesDashLaneProps): React.ReactElement | null {
   // Per-dash expansion overrides. The default is "expanded exactly when this
   // is the card's own dash", so a bind that arrives while the shade is open
@@ -663,7 +793,9 @@ export function SessionChangesDashLane({
     setPendingDiscard({ entry, anchor });
   };
 
-  if (dashes.length === 0) return null;
+  // A branchless bound dash is a lane with something to say and no dash
+  // entries at all — the planning phase, before any branch is cut.
+  if (dashes.length === 0 && documentDash == null) return null;
 
   const { fronted, rest } = orderDashLane(
     dashes,
@@ -678,6 +810,19 @@ export function SessionChangesDashLane({
 
   return (
     <div className="session-changes-dash-lane" data-slot="session-changes-dash-lane">
+      {fronted === null && documentDash != null ? (
+        <>
+          <TugSectionLabel
+            label={dashFrontedLabel(true)}
+            slot="session-changes-dash-lane-fronted-label"
+          />
+          <DocumentDashRow
+            key={documentDash.owner_id}
+            entry={documentDash}
+            binding={binding ?? null}
+          />
+        </>
+      ) : null}
       {fronted !== null ? (
         <>
           <TugSectionLabel

@@ -547,9 +547,30 @@ function fixturePlan(rows: number, statuses: readonly string[] = []): string {
 }
 
 /**
+ * The dash's documents home — `<project>/.tug/dashes/<name>/` — created on
+ * demand. Every dash document lives here and nothing is tracked, so a fixture
+ * writes a brief or a plan by writing a file and nothing else.
+ */
+export function dashDocumentsDir(projectDir: string, name: string): string {
+  const dir = join(projectDir, ".tug", "dashes", name);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** The dash's `plan.md`, with its directory in place. */
+export function dashPlanPath(projectDir: string, name: string): string {
+  return join(dashDocumentsDir(projectDir, name), "plan.md");
+}
+
+/** The dash's `brief.md`, with its directory in place. */
+export function dashBriefPath(projectDir: string, name: string): string {
+  return join(dashDocumentsDir(projectDir, name), "brief.md");
+}
+
+/**
  * A parseable plan document with `rows` execution steps — the same document
- * {@link recordStampedPlan} writes into a dash worktree, for fixtures that
- * want one sitting in a project's *docs directory* instead.
+ * {@link recordStampedPlan} writes into a dash's documents home, for fixtures
+ * that want one sitting somewhere else.
  *
  * `statuses` sets the ledger's status cells from the first row forward,
  * `pending` for anything it does not reach — which is what lets a fixture ask
@@ -620,7 +641,7 @@ export function recordStampedPlan(
 ): string {
   const rows = opts.rows ?? 1;
   const through = opts.through ?? rows;
-  const planPath = join(worktree, "plan.md");
+  const planPath = dashPlanPath(projectDir, name);
   writeFileSync(planPath, fixturePlan(rows));
   // The run's selection must be declared: a run that does not say where it
   // ends cannot be told from one that stopped early ([D147]). By default it
@@ -636,8 +657,6 @@ export function recordStampedPlan(
       "1",
       "--through",
       String(through),
-      "--plan",
-      "plan.md",
     ],
     {
       cwd: projectDir,
@@ -724,24 +743,18 @@ export function silenceJoinPrompt(projectDir: string, name: string): void {
  * Give a dash a plan it is driving with **no step started** — the state a
  * surface has to say something about rather than fall silent on.
  *
- * `adopt-plan` with the worktree copy already written has nothing to
- * transplant, so it only records the path: the dash carries a `plan_path` and
- * no step declaration, which is exactly the split the missing-step fact
- * exists to catch.
+ * Writing the file is the whole act: a dash *has* a plan when one is at its own
+ * address, so this leaves a dash carrying a plan and no step declaration, which
+ * is exactly the split the missing-step fact exists to catch.
  */
 export function recordAdoptedPlan(
   projectDir: string,
   name: string,
-  worktree: string,
+  _worktree: string,
   opts: DashFixtureOpts = {},
 ): string {
-  const planPath = join(worktree, "plan.md");
+  const planPath = dashPlanPath(projectDir, name);
   writeFileSync(planPath, fixturePlan(opts.rows ?? 1));
-  tugutil(["dash", "adopt-plan", name, "--plan", "plan.md", "--json"], {
-    cwd: projectDir,
-    binaryRoot: opts.binaryRoot,
-    env: opts.env,
-  });
   return planPath;
 }
 

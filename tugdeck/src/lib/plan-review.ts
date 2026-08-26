@@ -66,10 +66,9 @@ export interface PlanReviewTargetInput {
   projectDir: string;
   /** The plan this card last reviewed, or `null`. */
   lastReviewed: string | null;
-  /** The bound dash's worktree (**absolute**, as the changeset entry carries
-   *  it) and recorded plan path (worktree-relative), when this card is bound to
-   *  one that records a plan. */
-  boundDash: { worktree: string; planPath: string } | null;
+  /** The bound dash's plan, **absolute**, when this card is bound to a dash
+   *  that has one. */
+  boundDash: { plan: string } | null;
 }
 
 /** Where a `/plan-review` invocation points, or a refusal. */
@@ -86,12 +85,10 @@ export type PlanReviewTarget = { path: string } | { refused: true };
  * which is the failure this whole lane exists to kill. The dash is not lost: it
  * is step 2, and it is the only answer a fresh card bound to a running dash has.
  *
- * The dash branch joins `plan_path` onto the dash's worktree, which arrives
- * absolute, and so lands on the **worktree** copy — the one a run edits and
- * whose ledger the step verbs rewrite, which is the copy the run's own stale
- * gate reads. `projectDir` does not enter into it: a card's project directory
- * may itself be a linked worktree, and the dash path is resolved against the
- * main repository root, which only the server knows.
+ * The dash branch takes the plan's path verbatim: the server hands it over
+ * absolute, resolved against the main repository root, and the deck composes
+ * nothing. `projectDir` does not enter into it — a card's project directory may
+ * itself be a linked worktree, and only the server knows the main root.
  *
  * Pure: the card has no filesystem, so nothing here stats, normalizes, or
  * round-trips. A path that does not exist is the review turn's report to make.
@@ -107,9 +104,7 @@ export function resolvePlanReviewTarget(
     return { path: input.lastReviewed };
   }
   if (input.boundDash !== null) {
-    return {
-      path: joinPath(input.boundDash.worktree, input.boundDash.planPath),
-    };
+    return { path: input.boundDash.plan };
   }
   return { refused: true };
 }

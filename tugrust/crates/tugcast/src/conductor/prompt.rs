@@ -96,21 +96,23 @@ fn looks_like_a_path(token: &str) -> bool {
 pub fn stage_ask(
     stage: &str,
     document: Option<&str>,
-    target: Option<&str>,
-    plan: Option<&str>,
+    dash: &str,
     steps: Option<&str>,
 ) -> Option<String> {
     match stage {
+        // The devise ask keeps a readable path because the brief is what the
+        // stage opens; the *target* is the dash name, so the skill resolves
+        // where to write rather than being told and cannot write anywhere else.
         "devise" => Some(format!(
-            "/tugplug:plan-devise a plan for {}, honoring every [B##] decision it records 🢂 {}",
-            document?, target?
+            "/tugplug:plan-devise a plan for {}, honoring every [B##] decision it records 🢂 {dash}",
+            document?
         )),
-        "review" => Some(format!("/tugplug:plan-review {}", plan?)),
+        "review" => Some(format!("/tugplug:plan-review {dash}")),
         "implement" => Some(match steps {
             // No selector on the first implement stage: the whole plan, and
             // `dash-implement`'s own setup declares `--through`.
-            None => format!("/tugplug:dash-implement {}", plan?),
-            Some(steps) => format!("/tugplug:dash-implement {} Steps {steps}", plan?),
+            None => format!("/tugplug:dash-implement {dash}"),
+            Some(steps) => format!("/tugplug:dash-implement {dash} Steps {steps}"),
         }),
         _ => None,
     }

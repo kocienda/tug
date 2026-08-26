@@ -4,12 +4,11 @@ This directory holds the **authoritative machine-readable golden fixtures** for 
 
 > **Layer caveat [D07].** Fixtures reflect the layer that `CodeSessionStore` actually consumes — *after* tugcast framing and *after* tugcode wrapping — not raw `claude` stream-json. Drift in any of the three layers (claude itself, tugcode's wrapper, tugcast's framing) is equally disruptive to the reducer, so one fixture catalog catches all three.
 
-**Source of truth.** The originating design — the [`#deep-version-bump-runbook`](../../../../../../dash/archive/tugplan-golden-stream-json-catalog.md#deep-version-bump-runbook) deep dive in [`dash/archive/tugplan-golden-stream-json-catalog.md`](../../../../../../dash/archive/tugplan-golden-stream-json-catalog.md) — has shipped and is archived. **This README is the living reference** for the catalog as it stands. Where the differ has evolved since the original plan (e.g. the `shape_sequence` order reduction described under "Classification criteria" below), this file is authoritative and the archived tugplan is historical context.
+**Source of truth.** The originating design — the `#deep-version-bump-runbook` deep dive in the *tugplan-golden-stream-json-catalog* work — has shipped and is archived. **This README is the living reference** for the catalog as it stands. Where the differ has evolved since the original plan (e.g. the `shape_sequence` order reduction described under "Classification criteria" below), this file is authoritative and the archived tugplan is historical context.
 
 **Cross-links:**
-- [`dash/tide.md#p2-followup-golden-catalog`](../../../../../../dash/tide.md#p2-followup-golden-catalog) — the originating §T0.5 tide item
-- [`dash/transport-exploration.md`](../../../../../../dash/transport-exploration.md) — human-readable prose catalog of stream-json event types (may lag behind these fixtures; see its version banner)
-- [`dash/archive/tugplan-golden-stream-json-catalog.md`](../../../../../../dash/archive/tugplan-golden-stream-json-catalog.md) — the archived originating design for this catalog, the differ, and the runbook below
+- the *transport-exploration* work — human-readable prose catalog of stream-json event types (may lag behind these fixtures; see its version banner)
+- the *tugplan-golden-stream-json-catalog* work — the archived originating design for this catalog, the differ, and the runbook below
 
 ## Fixture layout
 
@@ -37,7 +36,7 @@ tugrust/crates/tugcast/tests/fixtures/stream-json-catalog/
 
 ## Placeholder vocabulary
 
-Every fixture is processed by `normalize_event` ([#deep-normalization](../../../../../../dash/tugplan-golden-stream-json-catalog.md#deep-normalization)) so that re-captures produce byte-identical output where the raw protocol carries varying values (UUIDs, timestamps, costs, paths). Placeholders appear in both JSONL event streams and the `manifest.json` / `schema.json` metadata.
+Every fixture is processed by `normalize_event` (#deep-normalization) so that re-captures produce byte-identical output where the raw protocol carries varying values (UUIDs, timestamps, costs, paths). Placeholders appear in both JSONL event streams and the `manifest.json` / `schema.json` metadata.
 
 | Placeholder | Replaces | When it fires |
 |-------------|----------|---------------|

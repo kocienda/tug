@@ -94,7 +94,7 @@ export function buildDashSessionIndex(
         runPosition: entry.run_position ?? null,
         runLength: entry.run_length ?? null,
         stepTitle: entry.step_title ?? null,
-        hasPlan: entry.plan_path !== undefined,
+        hasPlan: entry.documents?.plan !== undefined,
         entry,
       };
       for (const sessionId of sessions) {

@@ -327,135 +327,7 @@ fn test_dash_config_missing_file_is_undeclared_not_an_error() {
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
     assert_eq!(json["data"]["surfaces"].as_array().unwrap().len(), 0);
     assert!(json["data"]["build"].is_null());
-    assert!(json["data"]["docs"].is_null());
     assert_eq!(json["data"]["post_create"].as_array().unwrap().len(), 0);
-}
-
-/// The paperwork home is the project's to choose, and the verb reports the
-/// choice as a path the caller can use directly.
-#[test]
-fn test_dash_docs_dir_reports_the_declaration() {
-    let temp = setup_test_project();
-    std::fs::write(
-        temp.path().join(".tugtool").join("config.toml"),
-        "[tugtool.dash]\ndocs = \"paperwork\"\n",
-    )
-    .expect("failed to write config");
-
-    let output = Command::new(tug_binary())
-        .arg("dash")
-        .arg("docs-dir")
-        .arg("--json")
-        .current_dir(temp.path())
-        .output()
-        .expect("failed to run tugutil dash docs-dir");
-
-    assert!(output.status.success(), "docs-dir should succeed");
-    let json: serde_json::Value =
-        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
-    assert_eq!(json["command"], "dash docs-dir");
-    assert_eq!(json["data"]["docs"], "paperwork");
-    assert_eq!(json["data"]["declared"], true);
-    assert!(
-        json["data"]["path"]
-            .as_str()
-            .expect("a declared docs dir reports its path")
-            .ends_with("paperwork")
-    );
-}
-
-/// Undeclared is a state, not an error: the authoring skills read it to decide
-/// whether to ask, so it has to be cheap and it has to exit 0.
-#[test]
-fn test_dash_docs_dir_undeclared_is_not_an_error() {
-    let temp = setup_test_project();
-
-    let output = Command::new(tug_binary())
-        .arg("dash")
-        .arg("docs-dir")
-        .arg("--json")
-        .current_dir(temp.path())
-        .output()
-        .expect("failed to run tugutil dash docs-dir");
-
-    assert!(
-        output.status.success(),
-        "an undeclared project must exit 0: {:?}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let json: serde_json::Value =
-        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
-    assert_eq!(json["data"]["declared"], false);
-    assert!(json["data"]["docs"].is_null());
-    assert!(json["data"]["path"].is_null());
-}
-
-/// `--set` is what makes asking once possible: the answer lands in the
-/// project's own config, and the directory it names exists afterwards.
-#[test]
-fn test_dash_docs_dir_set_records_and_creates() {
-    let temp = setup_test_project();
-
-    let output = Command::new(tug_binary())
-        .arg("dash")
-        .arg("docs-dir")
-        .arg("--set")
-        .arg("paperwork")
-        .arg("--json")
-        .current_dir(temp.path())
-        .output()
-        .expect("failed to run tugutil dash docs-dir --set");
-
-    assert!(
-        output.status.success(),
-        "recording a legal value should succeed: {:?}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let json: serde_json::Value =
-        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
-    assert_eq!(json["data"]["docs"], "paperwork");
-    assert_eq!(json["data"]["created_dir"], true);
-    assert!(temp.path().join("paperwork").is_dir());
-
-    // The reporter now answers from the file the setter wrote.
-    let readback = Command::new(tug_binary())
-        .arg("dash")
-        .arg("docs-dir")
-        .arg("--json")
-        .current_dir(temp.path())
-        .output()
-        .expect("failed to re-run tugutil dash docs-dir");
-    let json: serde_json::Value =
-        serde_json::from_str(&String::from_utf8_lossy(&readback.stdout)).expect("valid JSON");
-    assert_eq!(json["data"]["docs"], "paperwork");
-}
-
-/// A value that cannot be joined onto the project root is refused before
-/// anything is written.
-#[test]
-fn test_dash_docs_dir_set_refuses_an_escaping_path() {
-    let temp = setup_test_project();
-
-    let output = Command::new(tug_binary())
-        .arg("dash")
-        .arg("docs-dir")
-        .arg("--set")
-        .arg("../elsewhere")
-        .current_dir(temp.path())
-        .output()
-        .expect("failed to run tugutil dash docs-dir --set");
-
-    assert!(!output.status.success(), "an escaping path must be refused");
-    // The template's own commented example mentions `docs`; what must not
-    // appear is a live declaration.
-    let config = std::fs::read_to_string(temp.path().join(".tugtool").join("config.toml"))
-        .unwrap_or_default();
-    assert!(
-        !config
-            .lines()
-            .any(|l| l.trim_start().starts_with("docs") && l.contains('=')),
-        "a refused value must not reach the config: {config}"
-    );
 }
 
 #[test]
@@ -476,4 +348,127 @@ fn test_init_check_force_mutually_exclusive() {
         !output.status.success(),
         "init --check --force should fail due to mutually exclusive flags"
     );
+}
+
+/// A git repository with a first commit, so the `dash`/`plan` verbs that
+/// resolve a root from the cwd have one to find.
+fn git_project() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().expect("failed to create temp dir");
+    let path = temp.path();
+    for args in [
+        vec!["init", "-b", "main"],
+        vec!["config", "user.name", "Test User"],
+        vec!["config", "user.email", "test@example.com"],
+    ] {
+        Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(&args)
+            .output()
+            .expect("git");
+    }
+    std::fs::write(path.join("README.md"), "# Test\n").expect("write README");
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["add", "-A"])
+        .output()
+        .expect("git add");
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["commit", "-m", "init"])
+        .output()
+        .expect("git commit");
+    temp
+}
+
+/// The name is the address: a bare argument resolves to that dash's own
+/// `plan.md`, and the answer names the absolute file rather than the argument.
+#[test]
+fn test_plan_status_accepts_a_dash_name() {
+    let temp = git_project();
+    let plan_dir = temp.path().join(".tug").join("dashes").join("named");
+    std::fs::create_dir_all(&plan_dir).expect("documents dir");
+    std::fs::write(
+        plan_dir.join("plan.md"),
+        "## A plan {#a-plan}\n\n### Execution Steps {#execution-steps}\n\n\
+         #### Step Status Ledger {#step-status-ledger}\n\n\
+         | Step | Title | Status | Commit |\n|---|---|---|---|\n\
+         | #step-1 | The only step | pending | — |\n\n\
+         #### Step 1: The only step {#step-1}\n\nBody.\n",
+    )
+    .expect("write plan");
+
+    let output = Command::new(tug_binary())
+        .args(["plan", "status", "named", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .expect("failed to run tugutil plan status");
+
+    assert!(
+        output.status.success(),
+        "a name that is a dash must resolve: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(
+        json["data"]["path"]
+            .as_str()
+            .expect("the resolved path is reported"),
+        std::fs::canonicalize(plan_dir.join("plan.md"))
+            .expect("canonical plan path")
+            .display()
+            .to_string(),
+    );
+    assert_eq!(json["data"]["steps"]["total"], 1);
+}
+
+/// A dash whose documents directory does not exist yet is a state, not an
+/// error — every `/dash` invocation starts there.
+#[test]
+fn test_dash_documents_reports_a_state_not_an_error() {
+    let temp = git_project();
+
+    let output = Command::new(tug_binary())
+        .args(["dash", "documents", "unwritten", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .expect("failed to run tugutil dash documents");
+
+    assert!(
+        output.status.success(),
+        "an absent documents directory must exit 0: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(json["data"]["brief_exists"], false);
+    assert_eq!(json["data"]["plan_exists"], false);
+    assert!(
+        json["data"]["dir"]
+            .as_str()
+            .expect("the directory is named even when absent")
+            .ends_with(".tug/dashes/unwritten")
+    );
+    assert!(!temp.path().join(".tug/dashes/unwritten").exists());
+
+    // `--ensure` is what makes it writable in one call, and it keeps `.tug/`
+    // out of git on a project that never declared it.
+    let output = Command::new(tug_binary())
+        .args(["dash", "documents", "unwritten", "--ensure", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .expect("failed to run tugutil dash documents --ensure");
+    assert!(output.status.success());
+    assert!(temp.path().join(".tug/dashes/unwritten").is_dir());
+
+    let porcelain = Command::new("git")
+        .arg("-C")
+        .arg(temp.path())
+        .args(["status", "--porcelain"])
+        .output()
+        .expect("git status");
+    assert_eq!(String::from_utf8_lossy(&porcelain.stdout).trim(), "");
 }

@@ -205,7 +205,7 @@ const FRONTED = dash("changes-and-dashes", {
   step_current: 2,
   step_total: 5,
   step_title: "The header treatments, side by side",
-  plan_path: "dash/changes-and-dashes.md",
+  documents: { plan: "/repo/.tug/dashes/changes-and-dashes/plan.md" },
   rounds: 4,
 });
 

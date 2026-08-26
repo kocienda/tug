@@ -17,8 +17,8 @@ use serde::Serialize;
 
 use crate::dash::append_dash_log;
 use crate::ops::{
-    branch_exists, branch_name, dash_base, dash_plan_path, git_output, git_stdout, join_in_flight,
-    main_repo_root, worktree_path, write_atomic,
+    branch_exists, branch_name, dash_base, git_output, git_stdout, join_in_flight, main_repo_root,
+    plan_file, worktree_path, write_atomic,
 };
 use crate::resolve::{commit_tree, git_supports_merge_base_flag};
 
@@ -54,8 +54,6 @@ pub enum ReplayOutcome {
     Replayed {
         base_head: String,
         mapping: Vec<(String, String)>,
-        /// The remap round, when a plan ledger had cells to rewrite.
-        bookkeeping_commit: Option<String>,
     },
     /// The branch already descends from the base tip and the record needed
     /// repair — after a rebase made by hand or by an agent.
@@ -107,9 +105,7 @@ impl OpenOp {
     }
 
     /// The branch moved: read the tip back rather than trusting what was
-    /// computed. `reconcile_ledger_cells` can land a remap round *after* the
-    /// swap, so the tip a replay leaves is one commit past the mapping's tail
-    /// whenever the ledger had cells to rewrite.
+    /// computed.
     fn complete(&self, repo: &Path, branch: &str, mapping: Vec<(String, String)>) {
         let after = crate::oplog::OpAfter {
             dash_tip: git_stdout(repo, &["rev-parse", branch]).ok(),
@@ -185,14 +181,13 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String
     // made by hand leaves the record pointing at commits that are no longer
     // there, and this is where that gets repaired.
     if is_ancestor(repo, &base_head, &branch) {
-        // The bookkeeping arm still commits — `reconcile_ledger_cells` lands a
-        // remap round when the plan ledger had cells to rewrite — so it records
-        // like any other mutation. It is a separate site because this arm
-        // returns before the branch move below ever runs; a record placed only
-        // there would miss every repair of a hand-rebased dash.
+        // The bookkeeping arm records like any other mutation. It is a separate
+        // site because this arm returns before the branch move below ever runs;
+        // a record placed only there would miss every repair of a hand-rebased
+        // dash.
         let op = OpenOp::begin(repo, name)?;
         let reconciled =
-            reconcile_ledger_cells(repo, name, &worktree, &branch, &base_branch, None)?;
+            reconcile_ledger_cells(repo, name, &branch, &base_branch, None)?;
         if !reconciled.touched_anything() {
             // Nothing moved, so nothing is recorded: `Current` is the outcome
             // that leaves the repository exactly as it found it, and an op
@@ -238,19 +233,11 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, String
                 name,
                 &replayed_note(repo, &base_head, &replayed.mapping),
             )?;
-            let reconciled = reconcile_ledger_cells(
-                repo,
-                name,
-                &worktree,
-                &branch,
-                &base_branch,
-                Some(&replayed.mapping),
-            )?;
+            reconcile_ledger_cells(repo, name, &branch, &base_branch, Some(&replayed.mapping))?;
             op.complete(repo, &branch, replayed.mapping.clone());
             Ok(ReplayOutcome::Replayed {
                 base_head,
                 mapping: replayed.mapping,
-                bookkeeping_commit: reconciled.commit,
             })
         }
     }
@@ -392,8 +379,6 @@ pub(crate) struct Reconciled {
     /// Anchors whose recorded commit is off the branch and could not be matched
     /// to exactly one round — left exactly as they were.
     pub unmapped: Vec<String>,
-    /// The round that committed the rewritten plan, when anything changed.
-    pub commit: Option<String>,
 }
 
 impl Reconciled {
@@ -413,17 +398,13 @@ impl Reconciled {
 pub(crate) fn reconcile_ledger_cells(
     repo: &Path,
     name: &str,
-    worktree: &Path,
     branch: &str,
     base_branch: &str,
     mapping: Option<&[(String, String)]>,
 ) -> Result<Reconciled, String> {
     let mut out = Reconciled::default();
-    let Some(rel) = dash_plan_path(repo, name) else {
-        return Ok(out);
-    };
-    let plan_file = worktree.join(&rel);
-    let Ok(source) = std::fs::read_to_string(&plan_file) else {
+    let plan = plan_file(repo, name);
+    let Ok(source) = std::fs::read_to_string(&plan) else {
         return Ok(out);
     };
     let Ok(doc) = tugutil_core::plan::parse(&source) else {
@@ -462,10 +443,29 @@ pub(crate) fn reconcile_ledger_cells(
     }
 
     if !out.remapped.is_empty() {
-        write_atomic(&plan_file, &edited)?;
-        out.commit = Some(commit_remap(worktree, name)?);
+        write_atomic(&plan, &edited)?;
     }
     Ok(out)
+}
+
+/// Move a dash's ledger commit cells along `mapping`, in whichever direction
+/// the pairs are given.
+///
+/// The undo and redo of a replay both need this, because the plan lives outside
+/// every tree git watches: moving the branch no longer moves its ledger cells
+/// with it. The mapping the replay recorded is the exact answer in both
+/// directions — reversed for an undo, forward for a redo — so neither falls back
+/// on subject matching. Best-effort: bookkeeping that cannot be done must not
+/// turn a completed branch move into a failure.
+pub(crate) fn remap_ledger_cells(repo: &Path, name: &str, mapping: &[(String, String)]) {
+    if mapping.is_empty() {
+        return;
+    }
+    let branch = branch_name(name);
+    let Ok(base) = dash_base(repo, name) else {
+        return;
+    };
+    let _ = reconcile_ledger_cells(repo, name, &branch, &base, Some(mapping));
 }
 
 /// `(commit, subject)` for every round of `branch` above `base_branch`.
@@ -509,36 +509,6 @@ fn abbreviate(repo: &Path, commit: &str, width: usize) -> String {
     let width = width.clamp(7, 40);
     git_stdout(repo, &["rev-parse", &format!("--short={width}"), commit])
         .unwrap_or_else(|_| commit.chars().take(width).collect())
-}
-
-/// Commit the rewritten plan as an ordinary round.
-///
-/// `commit_worktree_dirt` cannot stand in for this: it writes the join arc's
-/// preflight sweep, which carries a `Tug-Sweep` trailer and is therefore
-/// excluded from the dash's rounds. A remap IS a round. A clean worktree here
-/// means the rewrite changed no bytes, which is not an error — there is simply
-/// no round to make.
-fn commit_remap(worktree: &Path, name: &str) -> Result<String, String> {
-    let dirt = git_stdout(worktree, &["status", "--porcelain"])?;
-    if dirt.trim().is_empty() {
-        return git_stdout(worktree, &["rev-parse", "HEAD"]);
-    }
-    let add = git_output(worktree, &["add", "-A"])?;
-    if !add.status.success() {
-        return Err(format!(
-            "replay: git add in the dash worktree failed: {}",
-            String::from_utf8_lossy(&add.stderr).trim()
-        ));
-    }
-    let msg = format!("tugdash({}): remap round ids after base replay", name);
-    let c = git_output(worktree, &["commit", "-m", &msg])?;
-    if !c.status.success() {
-        return Err(format!(
-            "replay: the remap commit failed: {}",
-            String::from_utf8_lossy(&c.stderr).trim()
-        ));
-    }
-    git_stdout(worktree, &["rev-parse", "HEAD"])
 }
 
 /// The dash-log's record of a replay (Spec S02) — the one thing git cannot say
@@ -695,20 +665,15 @@ mod tests {
         for (anchor, title, sha) in cells {
             doc.push_str(&format!("| #{anchor} | {title} | done | `{sha}` |\n"));
         }
-        set(&f.worktree(), "roadmap/p.md", &doc);
-        let wt = f.worktree();
-        git(&wt, &["add", "-A"]);
-        git(&wt, &["commit", "-m", "record the plan"]);
-        git(
-            f.path(),
-            &["config", "branch.tugdash/demo.tugplan", "roadmap/p.md"],
-        );
-        "roadmap/p.md".to_string()
+        let plan = plan_file(f.path(), "demo");
+        std::fs::create_dir_all(plan.parent().unwrap()).unwrap();
+        std::fs::write(&plan, &doc).unwrap();
+        plan.display().to_string()
     }
 
-    /// Every commit cell in the worktree's plan, in ledger order.
+    /// Every commit cell in the dash's plan, in ledger order.
     fn cells(f: &Fixture) -> Vec<String> {
-        let source = std::fs::read_to_string(f.worktree().join("roadmap/p.md")).unwrap();
+        let source = std::fs::read_to_string(plan_file(f.path(), "demo")).unwrap();
         tugutil_core::plan::parse(&source)
             .unwrap()
             .ledger_rows
@@ -719,32 +684,20 @@ mod tests {
 
     #[test]
     #[serial]
-    fn a_replay_records_the_tip_it_actually_left_not_the_mapping_tail() {
-        // The ledger's cell points at the round, so reconciliation rewrites it
-        // and lands a remap round *after* the branch move. That commit is the
-        // tip a later undo must compare against; the mapping's tail is one
-        // commit short of it, and an undo built on the tail would refuse every
-        // remapped replay as `tip-moved`.
+    fn a_replay_records_the_tip_it_actually_left() {
+        // Reconciliation rewrites the ledger's cell in place, outside every
+        // tree git watches, so the tip a replay leaves is the mapping's tail
+        // and an undo compares against exactly that.
         let f = init(&[("g.txt", "dash\n", "add g")]);
         let round = f.tip("tugdash/demo");
         plan_with_cells(&f, &[("step-1", "One", &round[..9])]);
-        // `plan_with_cells` commits the plan as a further round, so the
-        // pre-replay tip is that commit rather than the round above it.
         let pre_replay = f.tip("tugdash/demo");
         f.advance_base("f.txt", "B\n", "base moves");
 
         let outcome = replay_onto(f.path(), "demo").unwrap();
-        let ReplayOutcome::Replayed {
-            mapping,
-            bookkeeping_commit,
-            ..
-        } = &outcome
-        else {
+        let ReplayOutcome::Replayed { mapping, .. } = &outcome else {
             panic!("expected a replay, got {outcome:?}");
         };
-        let bookkeeping = bookkeeping_commit
-            .clone()
-            .expect("the ledger cell was rewritten, so a remap round landed");
 
         let op = crate::oplog::list_ops(f.path())
             .into_iter()
@@ -758,11 +711,10 @@ mod tests {
             f.tip("tugdash/demo"),
             "the record names the branch tip as it actually stands"
         );
-        assert_eq!(recorded_tip, bookkeeping, "which is the remap round");
-        assert_ne!(
+        assert_eq!(
             recorded_tip,
             mapping.last().unwrap().1,
-            "and is one commit past the mapping's tail — the case this guards"
+            "which is the mapping's tail, since rewriting the ledger commits nothing"
         );
         assert_eq!(
             op.before.dash_tip, pre_replay,
@@ -1051,23 +1003,24 @@ mod tests {
 
     #[test]
     #[serial]
-    fn a_replay_remaps_the_ledger_and_commits_the_remap() {
+    fn a_replay_remaps_the_ledger_without_committing() {
         let f = init(&[]);
         let round = f.round("g.txt", "dash\n", "add g");
         plan_with_cells(&f, &[("step-1", "Add g", &round[..9])]);
         f.advance_base("f.txt", "B\n", "base moves");
+        let tip_before = f.tip("tugdash/demo");
 
         let outcome = replay_onto(f.path(), "demo").unwrap();
-        let ReplayOutcome::Replayed {
-            bookkeeping_commit, ..
-        } = &outcome
-        else {
+        let ReplayOutcome::Replayed { mapping, .. } = &outcome else {
             panic!("expected a replay, got {outcome:?}");
         };
-        let remap = bookkeeping_commit.as_ref().expect("a remap round");
+        // The plan lives outside every tree git watches, so rewriting it is not
+        // a round: the branch tip is the mapping's tail and the worktree clean.
+        assert_eq!(f.tip("tugdash/demo"), mapping.last().unwrap().1);
+        assert_ne!(f.tip("tugdash/demo"), tip_before);
         assert_eq!(
-            git_stdout(&f.worktree(), &["log", "-1", "--format=%s", remap]).unwrap(),
-            "tugdash(demo): remap round ids after base replay"
+            git_stdout(&f.worktree(), &["status", "--porcelain"]).unwrap(),
+            ""
         );
 
         // Every cell now names a commit that is actually on the branch, and the
@@ -1144,18 +1097,12 @@ mod tests {
 
     #[test]
     #[serial]
-    fn no_plan_recorded_still_records_the_replay() {
+    fn a_dash_with_no_plan_still_records_the_replay() {
         let f = init(&[("g.txt", "dash\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
 
         let outcome = replay_onto(f.path(), "demo").unwrap();
-        let ReplayOutcome::Replayed {
-            bookkeeping_commit, ..
-        } = &outcome
-        else {
-            panic!("expected a replay, got {outcome:?}");
-        };
-        assert!(bookkeeping_commit.is_none(), "nothing to remap, no round");
+        assert!(matches!(outcome, ReplayOutcome::Replayed { .. }));
         assert!(f.dash_log().contains("replayed"));
     }
 

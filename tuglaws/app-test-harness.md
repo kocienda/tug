@@ -2,7 +2,7 @@
 
 *The integration-test harness that drives a real `Tug.app` subprocess via the DEBUG-only `TestHarness` Unix-socket bridge. Why it exists, what it can and cannot assert, the lifecycle model, the trusted-event surface, and how it relates to the macOS code-signing pipeline. Read this before changing the harness, before classifying a new test as smoke vs. scenario, or before claiming a behavior has been "covered" by app-test.*
 
-*Cross-references: `[D##]` → [design-decisions.md](design-decisions.md). `[L##]` → [tuglaws.md](tuglaws.md). Harness-internal `[D##]` references resolve in [`dash/tugplan-in-app-bridge.md`](../dash/tugplan-in-app-bridge.md) and [`dash/tugplan-harness-extensions.md`](../dash/tugplan-harness-extensions.md).*
+*Cross-references: `[D##]` → [design-decisions.md](design-decisions.md). `[L##]` → [tuglaws.md](tuglaws.md).*
 
 ---
 
@@ -63,8 +63,6 @@ What the harness *can* assert is the union of:
 - **Subprocess-level guarantees.** Cold-boot persistence, app-reload state restoration, `quitGracefully` flush, cross-process tugbank reads.
 
 When a bug falls outside the envelope, mark the residual as "manual verification required" in the test comment. Do not paper over an out-of-envelope assertion with a weaker proxy — a passing weaker proxy is worse than an honest skip, because the skip surfaces in code review while the proxy hides indefinitely.
-
-The full envelope spec lives in the "Fidelity limits" section of [`dash/tugplan-in-app-bridge.md`](../dash/tugplan-in-app-bridge.md).
 
 ---
 
@@ -358,9 +356,6 @@ Procedural reference for test authors.
 ## Cross-Links
 
 - [code-signing-mac.md](code-signing-mac.md) — The signing pipeline that keeps the AX grant stable across rebuilds. The harness depends on it transitively for every native-gesture test.
-- [`dash/tugplan-in-app-bridge.md`](../dash/tugplan-in-app-bridge.md) — Design rationale. Decisions [D01]–[D14], transport choreography, the trusted-event problem in detail, the fidelity-envelope spec.
-- [`dash/tugplan-harness-extensions.md`](../dash/tugplan-harness-extensions.md) — Phase A native-event family (CGEvent gestures, keyboard, app-lifecycle), tugcode subprocess control.
-- [`dash/tugplan-app-test-cleanup.md`](../dash/tugplan-app-test-cleanup.md) — The 2026-04-27 cleanup that produced the current `tests/app-test/` layout and the `at{NNNN}-` filename convention.
 - [tuglaws.md](tuglaws.md) — [L11] (responder chain — the action paths the harness exercises end-to-end), [L23] (state preservation across bookkeeping — the contract `harness-smoke/smoke-capture-phase-save.test.ts` gates).
 - [state-preservation.md](state-preservation.md) — The [A9] protocol whose capture-phase invariant is gated by `harness-smoke/smoke-capture-phase-save.test.ts`.
 - [lifecycle-delegates.md](lifecycle-delegates.md) — The deck-level event pipe whose ordering is exercised by AT0008 / AT0019 and the cross-card scenarios.

@@ -8,7 +8,7 @@ A dash is four things and no more:
 
 1. **A git branch**, `tugdash/<name>`.
 2. **A worktree**, conventionally `.tug/worktrees/<name>` under the main repository root.
-3. **Branch config** — `branch.tugdash/<name>.{tugbase,description,tugid,tugplan}`. Each key is spelled in exactly one place (`base_config_key`, `description_config_key`, `tugid_config_key`, `plan_config_key` in `tugdash-core/src/ops.rs`); they hang off the **raw** dash name, not the sanitized spelling worktree directories use.
+3. **Branch config** — `branch.tugdash/<name>.{tugbase,description,tugid}`. Each key is spelled in exactly one place (`base_config_key`, `description_config_key`, `tugid_config_key` in `tugdash-core/src/ops.rs`); they hang off the **raw** dash name, not the sanitized spelling worktree directories use.
 4. **A dash-log**, the append-only record of rounds and declarations.
 
 There is no dash database. Every fact any surface renders about a dash is read from one of those four on demand, which is why `tugutil dash list` and the Changes card cannot disagree: both call `dash_detail_entries_in` (`tugdash-core/src/ops.rs`), which is the one composition.
@@ -97,16 +97,16 @@ A **bind** mates a live session to a dash. It is a UI concept: git has no idea i
 - A bind is **never a join authority**. It says who is working; it does not say who may join.
 - The store moves on the **broadcast**, never on the gesture: `bind_dash_ok` / `unbind_dash_ok` are the only movers of `cardSessionBindingStore`, which is what leaves a card correctly bound to what it was when a bind is refused.
 
-## Plan adoption
+## The dash's documents
 
-A dash that implements a plan **owns** that plan: the worktree copy is the only live one, and only a verb moves it ([D139]). Nothing in the dash lane instructs anyone to copy a plan file by hand, because a hand-copy leaves two live copies with no receipt and no way to notice they have diverged.
+A dash's brief and its plan live at `<main-repo>/.tug/dashes/<name>/` — `brief.md` and `plan.md` — and the **name** is their address on every verb ([D139]). `.tug/` is gitignored, so the documents are never tracked, never on a diff, and never in a worktree.
 
-- **Adoption at birth.** `tugutil dash create <name> --plan <path>` resolves the plan in either root, commits its bytes on the dash branch, records `branch.tugdash/<name>.tugplan`, and cleans the base copy. Re-running it over a live dash is the repair path, not an error, and `tugutil dash adopt-plan <name>` is the same transplant on its own.
-- **What "clean the base copy" means.** A tracked path is restored with `git checkout HEAD -- <rel>`; an untracked one is removed. A *committed, clean* base copy is left alone — that is not a second live copy, it is ordinary branch divergence the join squash resolves like any other file.
-- **The ordering is the safety property.** The engine reads base, writes and commits on the branch, and only then touches base. On any failure the base copy is exactly as the user left it.
-- **Divergence is a refusal, never a silent state.** `dash step` refuses while a base copy is dirty or untracked, and the join preflight names the plan and `tugutil dash adopt-plan <name>` — because the generic "commit or stash it" is wrong here: committing a stale base copy enshrines a fork, and stashing hides it to detonate later.
-- **Progress is never the casualty.** When bodies differ, the base body wins and the worktree's ledger progress is replayed onto it row by row. `content_stamp` excludes status and commit cells, so a plan that was `reviewed` before adoption is `reviewed` after it.
-- **Discard hands the plan back.** Adoption removed the base copy and discard deletes the branch holding the only one, so `discard_in` writes the plan back to the repo root before teardown and the discard receipt says so. The plan comes in when the dash adopts it and goes back out when the dash is discarded — a plan is not the work, it is the authored document that predates the dash and outlives it ([L23]).
+- **One copy because one home.** There is no residence to choose and therefore nothing to record: "this dash has a plan" is `plan.md` existing, read fresh on every composition ([D138]). Nothing transplants a document, restores one, archives one, or detects divergence between copies, because there is only ever one.
+- **The name is the address.** `tugutil dash run|step|documents <name>` take names only; `tugutil plan lint|status|stamp` take a name *or* a path, and the argument's shape decides — a separator, a leading `.`, or a trailing `.md` is a path, anything else is a dash. `tugutil dash documents <name>` reports the directory and both files, and `--ensure` creates the directory so a skill can write into it after one call.
+- **The main root, from any checkout.** Every document path normalizes through the main repository root, so a verb run from inside a dash worktree resolves the same file the base checkout would. Without that a run would write a second ledger nothing reads.
+- **The ledger is written in place.** `dash step start|done` and the replay's reconciliation rewrite `plan.md` where it lies; none of it is a commit, so a run's whole walk leaves the dash worktree byte-for-byte clean. A replay's undo and redo move the ledger's commit cells along the recorded mapping, because moving the branch no longer moves them.
+- **The join removes them; the discard keeps them.** A joined dash's record is its squash commit, and the documents have nothing to add to it, so `finish_join_teardown` removes the directory and names the removal in the receipt. A discarded dash's documents are the only trace of decisions the user may return to, so discard leaves them and says where — `tugutil dash run <name>` reopens on them, and a later `dash create` of the same name starts from what it finds ([L23]).
+- **`.tug/` stays out of git without anyone declaring it.** `ensure_tug_excluded` writes an anchored `/.tug/` into the repository's shared `info/exclude`, inside its own marked block, the first time a verb needs it — so a project with no `.gitignore` at all still has a clean `git status` after a dash writes a document.
 
 ## The operation log, and undoing
 
@@ -135,7 +135,7 @@ A discard's handed-back files are the one half no undo reverses: they were *copi
 
 **A redo is always materially possible while the undo's record stands.** An undo records itself before it acts, so its own keepalive parents the operation's *after*-tips: the landed join commit survives its own undo because the undo recorded it. Every refusal is therefore about consent rather than capability. That is why `worktree-dirty` refuses rather than sweeping: a redo of a join or discard deletes the worktree the undo gave back, and work started there in the meantime is the user's. `discard` hands such work to the base instead of refusing, but that is a teardown the user asked for while looking at it; a redo is bookkeeping, and moving somebody's files as its side effect is what this engine does not do.
 
-Redo of a replay is a compare-and-swap on the branch and nothing else — no forward ledger reconcile. The plan ledger's commit cells are committed content *on the branch*, so moving the branch moves them, which is why undo does no ledger work either. A reconcile would also be actively wrong: it can land a bookkeeping commit that leaves the tip past the recorded one, so the next undo would refuse `tip-moved` against a world the redo itself created.
+Undo and redo of a replay are each a compare-and-swap on the branch **plus** a walk of the plan ledger's commit cells along the replay's own recorded mapping — reversed for the undo, forward for the redo. The mapping is exact, so neither falls back on subject matching. The ledger needs the second half because it lives outside every tree git watches: moving the branch does not move its cells with it, and a cell naming a commit the undo just made unreachable would be a wrong sha in the record rather than a stale one.
 
 ## Occupancy — the lease
 

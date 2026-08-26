@@ -157,7 +157,7 @@ describe("buildDashSessionIndex", () => {
       ...GOLDEN_DASH,
       bound_sessions: ["sess-a"],
     };
-    delete planless.plan_path;
+    delete planless.documents;
     expect(
       buildDashSessionIndex({ projects: [projectWith([planless])] }).get(
         "sess-a",
@@ -166,7 +166,7 @@ describe("buildDashSessionIndex", () => {
 
     const planned: DashChangesetEntry = {
       ...planless,
-      plan_path: "dash/some-plan.md",
+      documents: { plan: "/repo/.tug/dashes/some/plan.md" },
     };
     expect(
       buildDashSessionIndex({ projects: [projectWith([planned])] }).get(

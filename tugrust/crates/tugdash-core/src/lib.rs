@@ -52,12 +52,12 @@ pub use dash::{
     detect_default_branch, is_terminal, read_declarations, split_log_line, validate_dash_name,
 };
 pub use ops::{
-    BaseDirtPath, CommitOutcome, CreateOutcome, DashDetail, DashDetailFile, DashDraftKey,
-    DashListItem, DashStatus, DiscardOutcome, JoinBlocker, JoinOptions, JoinOutcome, JoinStrategy,
-    MarkOutcome, RoundItem, ShowOutcome, StepOutcome, commit, create, dash_detail_entries_in,
-    dash_draft_key, dash_plan_path, derive_stage, discard, discard_in, join, join_in,
-    join_in_flight, join_in_with_progress, join_preflight_in, list, mark, show, status, status_in,
-    step_done, step_start,
+    BaseDirtPath, CommitOutcome, CreateOutcome, DashDetail, DashDetailFile, DashDocuments,
+    DashDraftKey, DashListItem, DashStatus, DiscardOutcome, DocumentArgument, JoinBlocker,
+    JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, RoundItem, ShowOutcome, StepOutcome,
+    brief_file, commit, create, dash_detail_entries_in, dash_draft_key, derive_stage, discard, discard_in, document_dashes, documents_dir, ensure_tug_excluded, join,
+    join_in, join_in_flight, join_in_with_progress, join_preflight_in, list, mark, plan_file, show,
+    status, status_in, step_done, step_start,
 };
 pub use oplog::{
     JoinPhase, JoinProgress, OpAfter, OpBefore, OpConfig, OpPayload, OpVerb, RedoOutcome,

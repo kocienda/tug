@@ -1393,7 +1393,7 @@ pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
     parts.join("\n\n")
 }
 
-/// The adopted plan document as the dash branch holds it ([D139]), size-bounded.
+/// The dash's plan as it stands at its own address ([D139]), size-bounded.
 ///
 /// A plan runs to hundreds of lines of execution steps, and the steps are the
 /// least useful half for adjudicating a conflict — the prose above them is what
@@ -1401,8 +1401,8 @@ pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
 /// heading rather than mid-sentence, and only hard-truncated when it has no
 /// such heading to cut at.
 fn dash_plan_text(repo: &Path, branch: &str) -> Option<String> {
-    let rel = config_get(repo, &format!("branch.{}.tugplan", branch))?;
-    let text = git_stdout(repo, &["show", &format!("{}:{}", branch, rel)]).ok()?;
+    let name = branch.strip_prefix("tugdash/")?;
+    let text = std::fs::read_to_string(crate::ops::plan_file(repo, name)).ok()?;
     if text.trim().is_empty() {
         return None;
     }

@@ -42,7 +42,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { realpathSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -53,6 +53,7 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   createDash,
+  dashBriefPath,
   makeDashScratchRepo,
   rmDashScratchRepo,
   rmScratchSession,
@@ -73,7 +74,8 @@ const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 const DASH_NAME = "at0476-stop";
 const OTHER_DASH = "at0476-other";
 const THIRD_DASH = "at0476-third";
-const BRIEF = "dash/at0476-brief.md";
+/** Every dash's brief lives at its own address, so there is nothing to name. */
+const BRIEF_BODY = "# A brief\n\nSome prose the arc opens on.\n";
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -83,14 +85,14 @@ const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeDashScratchRepo({
-    prefix: "at0476",
-    checkout: CHECKOUT,
-    files: { [BRIEF]: "# A brief\n\nSome prose the arc opens on.\n" },
-  });
+  scratch = makeDashScratchRepo({ prefix: "at0476", checkout: CHECKOUT });
   createDash(projectDir(), DASH_NAME, "at0476 stop fixture", scratch.cli);
   createDash(projectDir(), OTHER_DASH, "at0476 second dash", scratch.cli);
   createDash(projectDir(), THIRD_DASH, "at0476 third dash", scratch.cli);
+  // The arc opens on the dash's own brief, so each one that runs gets one.
+  for (const name of [DASH_NAME, OTHER_DASH]) {
+    writeFileSync(dashBriefPath(projectDir(), name), BRIEF_BODY);
+  }
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -210,7 +212,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // told, in words, on the surface the user is watching.
         await shellUntil(
           app,
-          `${cli} dash run ${DASH_NAME} --document ${BRIEF} && ${cli} dash stop ${DASH_NAME}`,
+          `${cli} dash run ${DASH_NAME} && ${cli} dash stop ${DASH_NAME}`,
           "you stopped it",
         );
 
@@ -275,7 +277,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // question being asked.
         await shellAndSettle(
           app,
-          `${cli} dash run ${OTHER_DASH} --document ${BRIEF} && ${cli} dash bind ${THIRD_DASH}`,
+          `${cli} dash run ${OTHER_DASH} && ${cli} dash bind ${THIRD_DASH}`,
         );
 
         // ── The interruption that is refused rather than described ────────

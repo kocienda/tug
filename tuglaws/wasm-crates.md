@@ -11,7 +11,7 @@ Tugdeck is a JS/TypeScript app. Most parsing, formatting, and rendering work sta
 - **Markdown lexing / parsing.** `tugmark-wasm` wraps `pulldown-cmark`. Block-level lex is hot during streaming render; pulldown-cmark is the fastest correct CommonMark+GFM lexer available.
 - **Diff computation.** `tugdiff-wasm` wraps `imara-diff`. 10–30× faster than JS alternatives on large inputs; pathological-input safe via histogram + Myers heuristics.
 
-If a candidate workload doesn't have that profile (ANSI parsing, JSON-tree rendering, KaTeX, Mermaid), it stays in JS. See [tide-assistant-rendering.md `[D06]`](../dash/tide-assistant-rendering.md#d06-wasm-where-earns) for the full rationale.
+If a candidate workload doesn't have that profile (ANSI parsing, JSON-tree rendering, KaTeX, Mermaid), it stays in JS.
 
 ---
 
@@ -178,7 +178,6 @@ The build script and Vite watcher pick up the new crate automatically. `cargo te
 
 ## Cross-references
 
-- [`dash/tide-assistant-rendering.md`](../dash/tide-assistant-rendering.md) `[D06]`, `[D09]`, `[D10]`, `[#step-9](#step-9)`, `[#step-10-5](#step-10-5)` — the decisions and steps that shaped this convention.
 - [`tugdeck/crates/tugmark-wasm/`](../tugdeck/crates/tugmark-wasm/) — reference implementation #1 (boot dependency, statically imported).
 - [`tugdeck/crates/tugdiff-wasm/README.md`](../tugdeck/crates/tugdiff-wasm/README.md) — reference implementation #2 (lazy-loaded; serde-wasm-bindgen for structured returns).
 - [`scripts/build-wasm.sh`](../scripts/build-wasm.sh) — the build driver (heavy comments explaining each step).

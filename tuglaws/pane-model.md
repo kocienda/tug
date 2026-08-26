@@ -464,7 +464,7 @@ The distinction is **the relationship to the host Pane**:
 - *"Anchored"* (transient) — the surface points at a control inside a Pane but may need to extend past the Pane's edges (a popover at the Pane's right edge is allowed to paint over the canvas grid beyond). Portal into canvas overlay.
 - *"Whole canvas"* (app-modal) — the surface blocks all interaction across all Panes and the canvas. Portal into canvas overlay.
 
-Modal scope is the Pane stacking context, not the canvas-overlay tier — picking canvas-overlay for a surface that is supposed to be modal-to-one-Pane sets up an entire class of bleed bugs that no amount of measurement-based confinement can fully fix. See [tugplan-tide-picker-redesign §D20 and Step 9.6](../dash/tugplan-tide-picker-redesign.md#step-9-6) for the architectural narrative this section formalizes.
+Modal scope is the Pane stacking context, not the canvas-overlay tier — picking canvas-overlay for a surface that is supposed to be modal-to-one-Pane sets up an entire class of bleed bugs that no amount of measurement-based confinement can fully fix.
 
 ---
 

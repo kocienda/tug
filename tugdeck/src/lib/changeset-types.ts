@@ -208,10 +208,10 @@ export interface DashChangesetEntry {
    *  creation wrote a birth record is the ordinary case; a surface shows no
    *  age rather than guessing one. */
   last_activity?: string;
-  /** The plan this dash is driving, relative to its **worktree** — the copy a
-   *  run edits and whose ledger the step verbs rewrite. Absolute path is
-   *  `worktree` / `plan_path`, and involves no third component. */
-  plan_path?: string;
+  /** Which of this dash's documents exist, as **absolute** paths. The server
+   *  resolves them where the main repository root is known and hands them over
+   *  whole; nothing here composes a path. Absent when the dash has neither. */
+  documents?: DashDocuments;
   /** What that plan's Review Record says about the document on disk now — one
    *  of `reviewed` | `stale` | `never-reviewed`, the same spellings
    *  `tugutil plan status` reports. Absent when the dash records no plan, or
@@ -705,7 +705,7 @@ export function isChangesetEntry(value: unknown): value is ChangesetEntry {
       (value.run_length === undefined || typeof value.run_length === "number") &&
       (value.step_title === undefined || typeof value.step_title === "string") &&
       (value.last_activity === undefined || typeof value.last_activity === "string") &&
-      (value.plan_path === undefined || typeof value.plan_path === "string") &&
+      isOptionalDashDocuments(value.documents) &&
       (value.steps === undefined ||
         (Array.isArray(value.steps) && value.steps.every(isDashStep))) &&
       (value.base_ahead === undefined || typeof value.base_ahead === "number") &&
@@ -755,51 +755,87 @@ export interface ProjectChangeset extends ChangesetSnapshot {
   /** The maintained draft for this project's unattributed bucket (Spec S10). */
   unattributed_draft?: ChangesetDraft;
   /**
-   * Plan documents waiting in the project's configured docs directory, sorted
-   * by path. Absent when the project declares no docs directory or none of its
-   * documents parse as plans.
+   * Dashes that exist only as documents — a `.tug/dashes/<name>/` with no
+   * branch yet — sorted by name. Absent when there are none.
    */
-  plans?: PlanDocEntry[];
+  document_dashes?: DocumentDashEntry[];
 }
 
 /**
- * One plan document waiting in a project's configured docs directory — the
- * front half of the dash arc, made machine-visible.
+ * Which of a dash's documents exist, with the first heading of each.
  *
- * Only documents the plan parser accepts, at the docs directory's top level,
- * and only those still waiting: the producer drops a plan whose ledger is
- * wholly `done` and a plan a live dash has adopted. Both filters live at the
- * scan, so this list *is* the actionable paperwork and no reader subtracts
- * anything from it.
+ * Absolute paths. The title rides along because the deck has no filesystem: a
+ * surface that wants to name a document cannot open it to find out.
  */
-export interface PlanDocEntry {
-  /** Repo-relative path, e.g. `dash/dash-cockpit.md`. */
-  path: string;
-  /** The file stem — the row's display identity. */
+export interface DashDocuments {
+  /** Absolute path of `brief.md`, when it exists. */
+  brief?: string;
+  /** Its first heading's text. */
+  brief_title?: string;
+  /** Absolute path of `plan.md`, when it exists. */
+  plan?: string;
+  /** Its first heading's text. */
+  plan_title?: string;
+}
+
+export function isDashDocuments(value: unknown): value is DashDocuments {
+  return (
+    isRecord(value) &&
+    (value.brief === undefined || typeof value.brief === "string") &&
+    (value.brief_title === undefined || typeof value.brief_title === "string") &&
+    (value.plan === undefined || typeof value.plan === "string") &&
+    (value.plan_title === undefined || typeof value.plan_title === "string")
+  );
+}
+
+function isOptionalDashDocuments(value: unknown): boolean {
+  return value === undefined || isDashDocuments(value);
+}
+
+/**
+ * A dash that exists only as documents: a `.tug/dashes/<name>/` with no
+ * `tugdash/<name>` branch yet — the planning phase in flight.
+ *
+ * Deliberately not a `DashChangesetEntry`: that carries a worktree, a base,
+ * rounds, and files, none of which a branchless dash has. Creating the dash
+ * turns this row into a live one rather than adding a second.
+ */
+export interface DocumentDashEntry {
+  /** The dash's owner key — the same identity a live dash wears. */
+  owner_id: string;
+  /** The dash name, which is also its display identity. */
   display_name: string;
-  /** `reviewed` | `stale` | `never-reviewed`. */
-  review: string;
-  /** How many execution steps the document declares. */
+  /** The documents themselves. Never empty. */
+  documents: DashDocuments;
+  /** `reviewed` | `stale` | `never-reviewed` for the plan, when there is one. */
+  review?: string;
+  /** Ledger rows the plan declares. 0 when there is no plan yet. */
   step_total: number;
-  /** Ledger rows marked `done` — the fraction a begun row shows. */
+  /** Ledger rows reading `done`. */
   steps_done: number;
   /**
-   * Ledger rows marked anything but `pending`. The gesture keys off this,
+   * Ledger rows reading anything but `pending`. The gesture keys off this,
    * never off `steps_done`: a plan whose first row is in progress with nothing
    * finished has begun, and Resume is what it wants.
    */
   steps_begun: number;
+  /** The arc driving this dash, when one is open. */
+  arc?: DashArcState;
+  /** Sessions bound to this dash. */
+  bound_sessions?: string[];
 }
 
-export function isPlanDocEntry(value: unknown): value is PlanDocEntry {
+export function isDocumentDashEntry(value: unknown): value is DocumentDashEntry {
   return (
     isRecord(value) &&
-    typeof value.path === "string" &&
+    typeof value.owner_id === "string" &&
     typeof value.display_name === "string" &&
-    typeof value.review === "string" &&
+    isDashDocuments(value.documents) &&
+    (value.review === undefined || typeof value.review === "string") &&
     typeof value.step_total === "number" &&
     typeof value.steps_done === "number" &&
-    typeof value.steps_begun === "number"
+    typeof value.steps_begun === "number" &&
+    isOptionalStringArray(value.bound_sessions)
   );
 }
 
@@ -823,8 +859,9 @@ export function isProjectChangeset(value: unknown): value is ProjectChangeset {
     typeof value.display_name === "string" &&
     typeof value.no_repo === "boolean" &&
     isOptionalChangesetDraft(value.unattributed_draft) &&
-    (value.plans === undefined ||
-      (Array.isArray(value.plans) && value.plans.every(isPlanDocEntry))) &&
+    (value.document_dashes === undefined ||
+      (Array.isArray(value.document_dashes) &&
+        value.document_dashes.every(isDocumentDashEntry))) &&
     isChangesetSnapshot(value)
   );
 }

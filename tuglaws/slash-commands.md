@@ -118,7 +118,7 @@ support), classify it deliberately:
 Worked examples: `/insights` is a pass-through (a prompt expansion; zero Tug
 code). `/model` is supported-local (the model picker is the surface; the upstream
 TUI picker is meaningless over the bridge). `/vim` is hidden (pure TUI state).
-The slash-command plan (`dash/slash-command-plan.md`) exercised every path
+The slash-command work exercised every path
 on probe evidence: `/goal` and `/loop` graduated from hidden-as-marker to
 pass-throughs with lifecycle plumbing (goal state tracking, wake-trigger
 chips); `/tasks` and `/bashes` graduated to supported-local, each with its own

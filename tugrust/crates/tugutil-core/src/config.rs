@@ -54,14 +54,6 @@ pub struct DashConfig {
     #[serde(default)]
     pub build: Option<String>,
 
-    /// The project's dash paperwork directory (briefs + plans), relative to
-    /// the project root. Read by plan search and reported by `dash docs-dir` /
-    /// `dash config`. Absent means undeclared: search runs on `.tugtool/`
-    /// alone, and the authoring skills ask the user once and record the answer
-    /// here.
-    #[serde(default)]
-    pub docs: Option<String>,
-
     /// The model the arc's devise stage runs on ([P13]). Absent means the
     /// account default — a project declares a stage model, it never inherits
     /// one, and the arc's receipt says which stages ran unspecified rather
@@ -132,9 +124,8 @@ impl DashConfig {
 /// The config file a project starts with: an empty hydration list and a
 /// commented example for every optional declaration.
 ///
-/// It lives here rather than beside `tugutil init` because two writers need
-/// it — the init verb, and [`set_docs_dir`] seeding a file that does not exist
-/// yet. Two templates would be two contracts free to drift.
+/// It lives here rather than beside `tugutil init` so the template has one
+/// home; two copies would be two contracts free to drift.
 pub const DEFAULT_CONFIG: &str = r#"[tugtool.dash]
 # Commands run from a new dash worktree to hydrate it (deps, etc.).
 # A git worktree never inherits gitignored files, so these install what a
@@ -166,11 +157,6 @@ post_create = []
 # The command that produces an inspectable instance from this worktree.
 # Declare none and no build is offered.
 # build = "make app"
-
-# Where dash paperwork (briefs, plans) lives, relative to the project root.
-# Consumed by plan search and by the authoring skills. Declare none and search
-# runs on .tugtool/ alone; the skills ask once and record the answer here.
-# docs = "dash"
 
 # The models the server-driven arc runs each stage on. Declare none and a stage
 # runs on the account default, which the arc's receipt says out loud.
@@ -334,130 +320,7 @@ impl DashConfig {
 
         Ok(())
     }
-}/// Why a proposed docs directory was refused. The value is written into a
-/// committed config file and then joined onto the project root, so it is
-/// checked before it is believed rather than after.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DocsDirRejection {
-    /// An empty or whitespace-only value.
-    Empty,
-    /// An absolute path. The declaration is project-root-relative, always.
-    Absolute,
-    /// A path escaping the project root via `..`.
-    Escapes,
-    /// `.tug` or `.tugtool` — machine and canonical areas, not paperwork homes.
-    Reserved,
-}
-
-impl std::fmt::Display for DocsDirRejection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let msg = match self {
-            Self::Empty => "the docs directory cannot be empty",
-            Self::Absolute => "the docs directory is relative to the project root, not absolute",
-            Self::Escapes => "the docs directory cannot escape the project root",
-            Self::Reserved => {
-                ".tug and .tugtool are machine areas — paperwork needs its own directory"
-            }
-        };
-        f.write_str(msg)
-    }
-}
-
-/// Check a proposed docs directory before anything writes or joins it.
-///
-/// Returns the normalized value (trimmed, trailing slash removed) on success.
-pub fn validate_docs_dir(value: &str) -> Result<String, DocsDirRejection> {
-    let trimmed = value.trim().trim_end_matches('/');
-    if trimmed.is_empty() || trimmed == "." {
-        return Err(DocsDirRejection::Empty);
-    }
-    let path = Path::new(trimmed);
-    if path.is_absolute() {
-        return Err(DocsDirRejection::Absolute);
-    }
-    if path
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
-        return Err(DocsDirRejection::Escapes);
-    }
-    if matches!(trimmed, ".tug" | ".tugtool") {
-        return Err(DocsDirRejection::Reserved);
-    }
-    Ok(trimmed.to_string())
-}
-
-/// What [`set_docs_dir`] did, so the verb can print a receipt rather than a
-/// claim.
-#[derive(Debug, Clone)]
-pub struct DocsDirWrite {
-    /// The config file written.
-    pub config_path: PathBuf,
-    /// The normalized value recorded.
-    pub docs: String,
-    /// The absolute directory the declaration names.
-    pub path: PathBuf,
-    /// True when the directory did not exist and was created.
-    pub created_dir: bool,
-}
-
-/// Record the docs directory in the project's `.tugtool/config.toml`, creating
-/// the directory it names.
-///
-/// The write goes through `toml_edit` because the file is mostly comments — a
-/// serde round-trip would silently delete the documentation the project wrote
-/// for itself. A file that does not exist yet is seeded from
-/// [`DEFAULT_CONFIG`], so a bare `--set` still leaves a well-commented config.
-pub fn set_docs_dir(project_root: &Path, value: &str) -> Result<DocsDirWrite, TugError> {
-    let docs = validate_docs_dir(value).map_err(|e| TugError::Config(e.to_string()))?;
-
-    let tugtool_dir = project_root.join(".tugtool");
-    let config_path = tugtool_dir.join("config.toml");
-    let existing = if config_path.exists() {
-        fs::read_to_string(&config_path)
-            .map_err(|e| TugError::Config(format!("failed to read config file: {}", e)))?
-    } else {
-        DEFAULT_CONFIG.to_string()
-    };
-
-    let mut doc = existing
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|e| TugError::Config(format!("failed to parse config file: {}", e)))?;
-    doc["tugtool"]["dash"]["docs"] = toml_edit::value(docs.as_str());
-
-    fs::create_dir_all(&tugtool_dir).map_err(TugError::Io)?;
-    write_atomic(&config_path, &doc.to_string())?;
-
-    let path = project_root.join(&docs);
-    let created_dir = !path.exists();
-    if created_dir {
-        fs::create_dir_all(&path).map_err(TugError::Io)?;
-    }
-
-    Ok(DocsDirWrite {
-        config_path,
-        docs,
-        path,
-        created_dir,
-    })
-}
-
-/// Write `contents` over `path` via a sibling temp file and a rename, so a
-/// failure never leaves a half-written config behind.
-fn write_atomic(path: &Path, contents: &str) -> Result<(), TugError> {
-    let dir = path
-        .parent()
-        .ok_or_else(|| TugError::Config(format!("{} has no parent directory", path.display())))?;
-    fs::create_dir_all(dir).map_err(TugError::Io)?;
-    let tmp = dir.join(".config.toml.tugtmp");
-    fs::write(&tmp, contents).map_err(TugError::Io)?;
-    fs::rename(&tmp, path).map_err(|e| {
-        let _ = fs::remove_file(&tmp);
-        TugError::Io(e)
-    })
-}
-
-impl Config {
+}impl Config {
     /// Load configuration from a file
     pub fn load(path: &Path) -> Result<Self, TugError> {
         let content = fs::read_to_string(path)
@@ -472,17 +335,6 @@ impl Config {
         Ok(config)
     }
 
-    /// The project's declared docs directory as an absolute path, when it
-    /// declares one and the value is legal.
-    pub fn docs_dir(&self, project_root: &Path) -> Option<PathBuf> {
-        self.tugtool
-            .dash
-            .docs
-            .as_deref()
-            .and_then(|d| validate_docs_dir(d).ok())
-            .map(|d| project_root.join(d))
-    }
-
     /// Load configuration from .tug/config.toml in the given project root
     pub fn load_from_project(project_root: &Path) -> Result<Self, TugError> {
         let config_path = project_root.join(".tugtool").join("config.toml");
@@ -492,35 +344,6 @@ impl Config {
             Ok(Config::default())
         }
     }
-}
-
-/// Reserved file names that are not treated as plan files
-pub(crate) const RESERVED_FILES: &[&str] = &["tugplan-implementation-log.md"];
-
-/// Directories searched for plan files, in priority order.
-///
-/// `.tugtool/` is always first: it marks the project root and holds
-/// engine-adjacent plans, so an entry there shadows one of the same name
-/// elsewhere. The second entry is whatever the project declared as its
-/// paperwork home — there is no blessed name, and a project that declares
-/// none is searched in `.tugtool/` alone.
-pub(crate) fn plan_search_dirs(project_root: &Path) -> Vec<String> {
-    let mut dirs = vec![".tugtool".to_string()];
-    if let Some(docs) = Config::load_from_project(project_root)
-        .ok()
-        .and_then(|c| c.tugtool.dash.docs)
-        .and_then(|d| validate_docs_dir(&d).ok())
-    {
-        if docs != ".tugtool" {
-            dirs.push(docs);
-        }
-    }
-    dirs
-}
-
-/// Check if a filename is reserved (not a plan file)
-pub(crate) fn is_reserved_file(filename: &str) -> bool {
-    RESERVED_FILES.contains(&filename)
 }
 
 /// Find the project root by searching upward for `.tug/` directory
@@ -547,72 +370,6 @@ pub(crate) fn find_project_root_from(start: PathBuf) -> Result<PathBuf, TugError
             None => return Err(TugError::NotInitialized),
         }
     }
-}
-
-/// Find all plan files in the project plan directories
-///
-/// Per [D03], plan files match the configured prefix (e.g. plan-*.md) except reserved files.
-/// Searches every directory [`plan_search_dirs`] derives. `.tugtool/` must exist (it
-/// defines the project root); the project's declared paperwork directory is scanned
-/// only if present.
-pub fn find_tugplans(project_root: &Path) -> Result<Vec<PathBuf>, TugError> {
-    let search_dirs = plan_search_dirs(project_root);
-    let primary_dir = project_root.join(&search_dirs[0]);
-    if !primary_dir.is_dir() {
-        return Err(TugError::NotInitialized);
-    }
-
-    let mut tugplans = Vec::new();
-    for search_dir in &search_dirs {
-        let dir = project_root.join(search_dir);
-        if !dir.is_dir() {
-            continue;
-        }
-        tugplans.extend(find_tugplans_in_dir(&dir)?);
-    }
-
-    // Sort by full path for consistent ordering
-    tugplans.sort();
-    Ok(tugplans)
-}
-
-/// Enumerate plan files in a single directory. Returns only files matching
-/// `tugplan-*.md` and not in [`RESERVED_FILES`].
-fn find_tugplans_in_dir(dir: &Path) -> Result<Vec<PathBuf>, TugError> {
-    let mut tugplans = Vec::new();
-    let entries = fs::read_dir(dir).map_err(TugError::Io)?;
-
-    for entry in entries {
-        let entry = entry.map_err(TugError::Io)?;
-        let path = entry.path();
-        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-            if filename.starts_with("tugplan-")
-                && filename.ends_with(".md")
-                && !is_reserved_file(filename)
-            {
-                tugplans.push(path);
-            }
-        }
-    }
-
-    Ok(tugplans)
-}
-
-/// Extract plan name from filename (remove prefix and extension)
-///
-/// e.g., "tugplan-1.md" -> "1", "plan-feature-x.md" -> "feature-x"
-pub fn tugplan_name_from_path(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .and_then(|filename| {
-            if filename.starts_with("tugplan-") && filename.ends_with(".md") {
-                let name = &filename[8..filename.len() - 3]; // Remove "tugplan-" and ".md"
-                if !name.is_empty() {
-                    return Some(name.to_string());
-                }
-            }
-            None
-        })
 }
 
 #[cfg(test)]
@@ -823,29 +580,15 @@ mod tests {
             config.tugtool.dash.retired_verify.is_none(),
             "the retired key would make this config unloadable"
         );
-    }    #[test]
-    fn test_is_reserved_file() {
-        assert!(is_reserved_file("tugplan-implementation-log.md"));
-        assert!(!is_reserved_file("tugplan-1.md"));
-        assert!(!is_reserved_file("tugplan-feature.md"));
     }
 
+    /// A checkout still carrying the retired `docs` declaration loads: serde
+    /// ignores unknown keys, so nobody has to edit a config file to upgrade.
     #[test]
-    fn test_tugplan_name_from_path() {
-        assert_eq!(
-            tugplan_name_from_path(Path::new("tugplan-1.md")),
-            Some("1".to_string())
-        );
-        assert_eq!(
-            tugplan_name_from_path(Path::new("tugplan-feature-x.md")),
-            Some("feature-x".to_string())
-        );
-        assert_eq!(
-            tugplan_name_from_path(Path::new(".tugtool/tugplan-refactor.md")),
-            Some("refactor".to_string())
-        );
-        assert_eq!(tugplan_name_from_path(Path::new("other.md")), None);
-        assert_eq!(tugplan_name_from_path(Path::new("tugplan-.md")), None);
+    fn a_stale_docs_key_is_ignored() {
+        let config: Config = toml::from_str("[tugtool.dash]\ndocs = \"dash\"\n")
+            .expect("a config carrying a retired key still parses");
+        assert!(config.tugtool.dash.build.is_none());
     }
 
     #[test]
@@ -931,112 +674,6 @@ mod tests {
                 "the template must document {key}"
             );
         }
-    }
-
-    #[test]
-    fn docs_declaration_parses_and_defaults_to_none() {
-        let declared: Config = toml::from_str("[tugtool.dash]\ndocs = \"paperwork\"\n")
-            .expect("declaring docs should parse");
-        assert_eq!(declared.tugtool.dash.docs.as_deref(), Some("paperwork"));
-
-        let silent: Config = toml::from_str("[tugtool.dash]\npost_create = []\n").unwrap();
-        assert!(silent.tugtool.dash.docs.is_none());
-    }
-
-    #[test]
-    fn docs_dir_resolves_against_the_project_root() {
-        let root = Path::new("/tmp/project");
-        let declared: Config = toml::from_str("[tugtool.dash]\ndocs = \"paperwork\"\n").unwrap();
-        assert_eq!(
-            declared.docs_dir(root),
-            Some(PathBuf::from("/tmp/project/paperwork"))
-        );
-
-        // An undeclared project has no docs directory, and an illegal
-        // declaration is treated as none rather than joined blindly.
-        let silent = Config::default();
-        assert_eq!(silent.docs_dir(root), None);
-        let escaping: Config = toml::from_str("[tugtool.dash]\ndocs = \"../elsewhere\"\n").unwrap();
-        assert_eq!(escaping.docs_dir(root), None);
-    }
-
-    #[test]
-    fn validate_docs_dir_refuses_what_cannot_be_joined() {
-        assert_eq!(validate_docs_dir("dash").unwrap(), "dash");
-        assert_eq!(validate_docs_dir("  docs/plans/  ").unwrap(), "docs/plans");
-
-        assert_eq!(validate_docs_dir(""), Err(DocsDirRejection::Empty));
-        assert_eq!(validate_docs_dir("."), Err(DocsDirRejection::Empty));
-        assert_eq!(validate_docs_dir("/etc"), Err(DocsDirRejection::Absolute));
-        assert_eq!(
-            validate_docs_dir("../elsewhere"),
-            Err(DocsDirRejection::Escapes)
-        );
-        assert_eq!(validate_docs_dir(".tug"), Err(DocsDirRejection::Reserved));
-        assert_eq!(
-            validate_docs_dir(".tugtool"),
-            Err(DocsDirRejection::Reserved)
-        );
-    }
-
-    #[test]
-    fn set_docs_dir_preserves_comments_and_creates_the_directory() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        fs::create_dir_all(root.join(".tugtool")).unwrap();
-        fs::write(
-            root.join(".tugtool/config.toml"),
-            "[tugtool.dash]\n# hydration, explained at length\npost_create = [\"echo hi\"]\n",
-        )
-        .unwrap();
-
-        let write = set_docs_dir(root, "paperwork").expect("a legal value should be recorded");
-        assert_eq!(write.docs, "paperwork");
-        assert!(write.created_dir);
-        assert!(root.join("paperwork").is_dir());
-
-        let body = fs::read_to_string(root.join(".tugtool/config.toml")).unwrap();
-        assert!(
-            body.contains("# hydration, explained at length"),
-            "the project's own comments must survive the write: {body}"
-        );
-        assert!(body.contains("echo hi"));
-
-        let reloaded = Config::load_from_project(root).unwrap();
-        assert_eq!(reloaded.tugtool.dash.docs.as_deref(), Some("paperwork"));
-        assert_eq!(
-            reloaded.tugtool.dash.post_create,
-            vec!["echo hi".to_string()]
-        );
-    }
-
-    #[test]
-    fn set_docs_dir_seeds_a_config_that_does_not_exist_yet() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-
-        set_docs_dir(root, "dash").expect("a project with no config should still record");
-
-        let body = fs::read_to_string(root.join(".tugtool/config.toml")).unwrap();
-        assert!(body.contains("docs = \"dash\""));
-        assert!(
-            body.contains("post_create"),
-            "the seeded file should carry the standard template: {body}"
-        );
-    }
-
-    #[test]
-    fn set_docs_dir_refuses_without_writing() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-
-        assert!(set_docs_dir(root, "/absolute").is_err());
-        assert!(set_docs_dir(root, "../escape").is_err());
-        assert!(set_docs_dir(root, ".tugtool").is_err());
-        assert!(
-            !root.join(".tugtool/config.toml").exists(),
-            "a refused value must leave no config behind"
-        );
     }
 
     #[test]

@@ -945,7 +945,7 @@ There is no current fix for the document-shrink-clamp case. When a click *shrink
 
 **What still works after retirement.** `usePositionStableClick` continues to keep the click target stable for layout changes that don't shrink the document — Copy buttons, view-toggle swaps, Find row mounts, icon swaps. The hook's scope is unchanged; only the spacer-backed "even collapsing fold cues work" guarantee is gone.
 
-**Reference: the retirement.** See `dash/archive/tide-assistant-turns.md` Step 20.3.5 for the full spike record (git archaeology on `d8da960a`, identification of "document-shrink-clamp protection" as the original cause, cost/benefit re-evaluation, and the decision to retire).
+**Reference: the retirement.** The spike that retired it identified "document-shrink-clamp protection" as the original cause by git archaeology on `d8da960a`, re-evaluated the cost against the benefit, and retired it.
 
 ### Emphasis × Role
 
@@ -1099,7 +1099,7 @@ Cell renderers in `TugListView` are pure render functions. The contract is enfor
 | Trailing icon actions (trash, more, info) | Dispatch a chain action via `TugIconButton` (`dispatch={...}`); the responder handles the action |
 | Cell DOM ref (e.g. for `IntersectionObserver`) | The list view itself owns the ref; cells render markup only |
 
-**Anti-patterns:** raw `<button>` for trailing actions (use `TugIconButton`), per-cell `TugConfirmPopover` instances (hoist to the form, address by data id), `useState` for popover-open visual styling (drive `data-*` attributes from upstream state). The session picker's session-forget flow is the case study and reference implementation — see [tugplan-tide-picker-redesign §D17](../dash/tugplan-tide-picker-redesign.md#d17-pure-renderer-rule).
+**Anti-patterns:** raw `<button>` for trailing actions (use `TugIconButton`), per-cell `TugConfirmPopover` instances (hoist to the form, address by data id), `useState` for popover-open visual styling (drive `data-*` attributes from upstream state). The session picker's session-forget flow is the case study and reference implementation.
 
 ---
 
@@ -1117,8 +1117,6 @@ For trash / more / info / dismiss icon buttons that sit at the trailing edge of 
 - **Direct-action** (fallback): `onClick={callback}` for one-off side effects that don't fit the chain vocabulary. Mutually exclusive with `dispatch`; setting both dev-warns.
 
 **Sender id:** `senderId` defaults to `useId()`. Pass an explicit value only for tests that need deterministic chain logging — the payload usually carries the discriminator (e.g. a sessionId).
-
-See [tugplan-tide-picker-redesign §D16](../dash/tugplan-tide-picker-redesign.md#d16-tug-icon-button) for the rationale and the picker's reference usage.
 
 ---
 
@@ -1338,7 +1336,7 @@ Components that paint above the pane stack — typeahead popups, popovers, dropd
 
 **Popup-class primitives portal to the canvas overlay root, not their host pane.** A single `<CanvasOverlayRoot />` is mounted inside `DeckCanvas` as a sibling of the pane container; popup-class CSS lands above it via the `--tug-z-overlay-*` tier tokens defined in `chrome.css`.
 
-Use `useCanvasOverlay` from `lib/use-canvas-overlay.ts` for the portal target. The hook lives under `lib/` (not `chrome/`) so substrates can import it without inverting the chrome-imports-substrate layering — see [D09] in `dash/tugplan-tide-overlay-tier.md`. The hook returns the registered root, or `document.body` as a fallback when no root is mounted (test mounts, gallery cards).
+Use `useCanvasOverlay` from `lib/use-canvas-overlay.ts` for the portal target. The hook lives under `lib/` (not `chrome/`) so substrates can import it without inverting the chrome-imports-substrate layering ([D09] of the *overlay tier* work). The hook returns the registered root, or `document.body` as a fallback when no root is mounted (test mounts, gallery cards).
 
 ```tsx
 import { createPortal } from "react-dom";

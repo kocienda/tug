@@ -1,0 +1,52 @@
+/**
+ * The fronted dash's documents strip.
+ *
+ * Sits inside the dash row's fold, above the rounds, and borrows the fold's own
+ * measurements — this is a face on facts that already live here, not a card of
+ * its own. Role and review paint through data attributes ([L06]); nothing here
+ * is set from React state.
+ */
+
+.session-changes-dash-documents {
+  display: flex;
+  flex-direction: column;
+}
+
+.session-changes-dash-document {
+  cursor: pointer;
+}
+
+.session-changes-dash-document-glyph {
+  color: var(--tugx-text-muted);
+  flex: none;
+}
+
+.session-changes-dash-document-block {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tugx-space-2);
+  min-width: 0;
+}
+
+.session-changes-dash-document-title {
+  color: var(--tugx-text);
+  font-size: var(--tugx-font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-changes-dash-document-facts {
+  color: var(--tugx-text-muted);
+  font-size: var(--tugx-font-size-xs);
+  white-space: nowrap;
+}
+
+/* A plan nothing has vouched for says so in the caution tone the rest of the
+   shade uses for the same fact. */
+.session-changes-dash-document[data-review="never-reviewed"]
+  .session-changes-dash-document-facts,
+.session-changes-dash-document[data-review="stale"]
+  .session-changes-dash-document-facts {
+  color: var(--tugx-caution);
+}

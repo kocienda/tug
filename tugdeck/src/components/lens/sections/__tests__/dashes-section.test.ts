@@ -21,12 +21,12 @@ import {
   compareDashRows,
   dashRowsFromSnapshot,
   dashesCollapsedSummary,
-  comparePlanRows,
-  planRowsFromSnapshot,
+  compareDocumentDashRows,
+  documentDashRowsFromSnapshot,
   resolveBindTarget,
   resolveWorkerCard,
   type DashRow,
-  type PlanRow,
+  type DocumentDashRow,
 } from "../dashes-section";
 
 const DATA = golden as WorkspacesChangesetSnapshot;
@@ -358,55 +358,56 @@ describe("dashesCollapsedSummary", () => {
     expect(dashesCollapsedSummary([])).toBe("No dashes");
   });
 
-  test("waiting plans count too, so a folded band still shows the front half", () => {
-    const plans = planRowsFromSnapshot(DATA);
-    expect(plans).toHaveLength(2);
-    expect(dashesCollapsedSummary([], plans)).toBe("2 plans");
-    expect(dashesCollapsedSummary([], [plans[0]!])).toBe("1 plan");
+  test("dashes still planning count too, so a folded band shows the front half", () => {
+    const planning = documentDashRowsFromSnapshot(DATA);
+    expect(planning).toHaveLength(2);
+    expect(dashesCollapsedSummary([], planning)).toBe("2 planning");
+    expect(dashesCollapsedSummary([], [planning[0]!])).toBe("1 planning");
   });
 
   test("both kinds read as one line, and a zero bucket drops", () => {
     const rows = dashRowsFromSnapshot({ projects: [projectWith([UNBOUND])] });
-    const plans = planRowsFromSnapshot(DATA);
-    expect(dashesCollapsedSummary(rows, plans)).toBe("1 dash · 2 plans");
-    // No plans at all is the old sentence, unchanged.
+    const planning = documentDashRowsFromSnapshot(DATA);
+    expect(dashesCollapsedSummary(rows, planning)).toBe("1 dash · 2 planning");
+    // No planning dashes at all is the old sentence, unchanged.
     expect(dashesCollapsedSummary(rows, [])).toBe("1 dash");
   });
 });
 
-describe("planRowsFromSnapshot — the waiting paperwork", () => {
-  test("every project's plans are rows, keyed uniquely across projects", () => {
-    const rows = planRowsFromSnapshot(DATA);
-    expect(rows.map((r) => r.entry.path)).toEqual([
-      "dash/dash-cockpit.md",
-      "dash/dash-hardening.md",
+describe("documentDashRowsFromSnapshot — the planning phase in flight", () => {
+  test("every project's document dashes are rows, keyed uniquely", () => {
+    const rows = documentDashRowsFromSnapshot(DATA);
+    expect(rows.map((r) => r.entry.display_name)).toEqual([
+      "dash-cockpit",
+      "dash-hardening",
     ]);
-    // The key namespaces the path under its project: two projects may both
-    // carry `dash/plan.md`, and they are different rows.
-    expect(rows[0]!.key).toBe(`${DATA.projects[0]!.project_dir}:dash/dash-cockpit.md`);
+    // The key namespaces the name under its project: two projects may both
+    // carry a dash called `plan`, and they are different rows.
+    expect(rows[0]!.key).toBe(`${DATA.projects[0]!.project_dir}:dash-cockpit`);
     expect(rows[0]!.projectDir).toBe(DATA.projects[0]!.project_dir);
     expect(rows[0]!.projectLabel).toBe(DATA.projects[0]!.display_name);
   });
 
-  test("a project that declares no docs directory contributes nothing", () => {
-    // The golden's second project carries no `plans` key at all — the shape an
-    // older sender or an undeclared docs home produces.
-    expect(DATA.projects[1]!.plans).toBeUndefined();
-    const rows = planRowsFromSnapshot({ projects: [DATA.projects[1]!] });
+  test("a project with no document-only dash contributes nothing", () => {
+    // The golden's second project carries no `document_dashes` key at all —
+    // the shape an older sender or a project with no dashes produces.
+    expect(DATA.projects[1]!.document_dashes).toBeUndefined();
+    const rows = documentDashRowsFromSnapshot({ projects: [DATA.projects[1]!] });
     expect(rows).toEqual([]);
   });
 });
 
-describe("comparePlanRows — nearest to starting work first", () => {
+describe("compareDocumentDashRows — nearest to starting work first", () => {
   const row = (
     review: string,
     name: string,
     progress?: { done: number; begun: number },
-  ): PlanRow => ({
-    key: `/p:${name}.md`,
+  ): DocumentDashRow => ({
+    key: `/p:${name}`,
     entry: {
-      path: `dash/${name}.md`,
+      owner_id: `tugdash/${name}`,
       display_name: name,
+      documents: { plan: `/p/.tug/dashes/${name}/plan.md` },
       review,
       step_total: 3,
       steps_done: progress?.done ?? 0,
@@ -419,21 +420,21 @@ describe("comparePlanRows — nearest to starting work first", () => {
   // Work in flight is nearer done than work not started — the same
   // nearest-to-done principle the dash rows encode. A begun plan whose review
   // went stale still outranks a freshly reviewed one nobody has touched.
-  test("a begun plan outranks every unstarted one", () => {
+  test("a begun dash outranks every unstarted one", () => {
     const rows = [
       row("reviewed", "a"),
       row("stale", "b", { done: 1, begun: 2 }),
       row("never-reviewed", "c"),
-    ].sort(comparePlanRows);
+    ].sort(compareDocumentDashRows);
     expect(rows.map((r) => r.entry.display_name)).toEqual(["b", "a", "c"]);
   });
 
-  test("among begun plans, review rank then name still decide", () => {
+  test("among begun dashes, review rank then name still decide", () => {
     const rows = [
       row("stale", "z", { done: 1, begun: 1 }),
       row("reviewed", "y", { done: 2, begun: 3 }),
       row("stale", "a", { done: 0, begun: 1 }),
-    ].sort(comparePlanRows);
+    ].sort(compareDocumentDashRows);
     expect(rows.map((r) => r.entry.display_name)).toEqual(["y", "a", "z"]);
   });
 
@@ -442,7 +443,7 @@ describe("comparePlanRows — nearest to starting work first", () => {
       row("never-reviewed", "c"),
       row("reviewed", "a"),
       row("stale", "b"),
-    ].sort(comparePlanRows);
+    ].sort(compareDocumentDashRows);
     expect(rows.map((r) => r.entry.review)).toEqual([
       "reviewed",
       "stale",
@@ -452,14 +453,14 @@ describe("comparePlanRows — nearest to starting work first", () => {
 
   test("within a review state, by name", () => {
     const rows = [row("reviewed", "zulu"), row("reviewed", "alpha")].sort(
-      comparePlanRows,
+      compareDocumentDashRows,
     );
     expect(rows.map((r) => r.entry.display_name)).toEqual(["alpha", "zulu"]);
   });
 
   test("an unrecognized review spelling sorts last and never throws", () => {
     const rows = [row("who-knows", "a"), row("never-reviewed", "b")].sort(
-      comparePlanRows,
+      compareDocumentDashRows,
     );
     expect(rows.map((r) => r.entry.review)).toEqual([
       "never-reviewed",

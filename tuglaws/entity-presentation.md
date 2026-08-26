@@ -2,8 +2,6 @@
 
 A file path in the transcript could once be painted four different ways and a commit sha three, and which one you got was decided by the container the entity arrived in — an editor atom, a tool input, a ref list, a pair of backticks the model happened to type. The container is a fact about our plumbing that the reader cannot see and does not care about. This doc is the rule that replaced it, and it is a rule about **authorship**.
 
-Origin: `dash/entity-presentation.md`, which carries the full argument and the record of what was auditioned on the bench.
-
 ## The rule
 
 **An atom is something someone _placed_. A mention is something someone _wrote_.**

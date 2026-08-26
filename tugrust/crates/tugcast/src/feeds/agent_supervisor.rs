@@ -6273,7 +6273,7 @@ impl AgentSupervisor {
                     dash = %outcome.name,
                     rounds = discarded_rounds,
                     files = discarded_files,
-                    plan_restored = outcome.plan_restored.is_some(),
+                    documents_kept = outcome.documents_kept.is_some(),
                     "dash-discard: completed"
                 );
                 // The discarded dash's join draft dies with it ([P14]) — a
@@ -6292,7 +6292,7 @@ impl AgentSupervisor {
                     discarded_rounds,
                     discarded_files,
                     &round_subjects,
-                    outcome.plan_restored.as_deref(),
+                    outcome.documents_kept.as_deref(),
                 );
                 let receipt_id = Self::record_landing_receipt(
                     self.shell_ledger.as_ref(),
@@ -9439,7 +9439,6 @@ mod tests {
         let replayed = serde_json::to_value(ReplayOutcome::Replayed {
             base_head: "abc123".to_string(),
             mapping: vec![("old".to_string(), "new".to_string())],
-            bookkeeping_commit: None,
         })
         .unwrap();
         assert_eq!(replayed["outcome"], "replayed");
@@ -11215,7 +11214,7 @@ mod tests {
                     orphaned: vec![],
                 },
                 unattributed_draft: None,
-                plans: vec![],
+                document_dashes: vec![],
             }],
         }
     }

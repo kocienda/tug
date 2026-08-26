@@ -7,9 +7,6 @@ post_create = ["bun install --cwd tugdeck", "bun install --cwd tugcode"]
 # The build offered at the end of a run with a face.
 build = "just app-debug"
 
-# Where this project's dash paperwork — briefs and plans — lives.
-docs = "dash"
-
 # The models the server-driven arc runs each stage on. Declaring one is a
 # choice about this project's work, so all four are left undeclared here: a
 # stage runs on the account default until somebody says otherwise.
@@ -69,7 +66,7 @@ check = ["cd tests/app-test && bunx tsc --noEmit", "just app-test-changed {paths
 
 [[tugtool.dash.surface]]
 name  = "prose"
-paths = ["tuglaws/", "dash/", "CLAUDE.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
+paths = ["tuglaws/", "CLAUDE.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
 check = []
 
 [[tugtool.dash.surface]]

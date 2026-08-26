@@ -1980,10 +1980,9 @@ Some context.
     }
 
     /// The rules must stay honest against the documents people actually write.
-    /// The corpus is wherever this project declared its paperwork lives, read
-    /// from the config the same way every other consumer reads it — so the
-    /// test follows a project that renames its directory, and skips cleanly
-    /// when there is no declaration at all.
+    /// The corpus is every dash's own `plan.md` under `.tug/dashes/`, walked
+    /// directly rather than through a declaration — there is no home to
+    /// declare — and skipped cleanly on a checkout that holds no dashes.
     #[test]
     fn the_real_corpus_carries_no_errors() {
         let Ok(project_root) = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1992,22 +1991,13 @@ Some context.
         else {
             return;
         };
-        let Some(docs) = crate::config::Config::load_from_project(&project_root)
-            .ok()
-            .and_then(|c| c.docs_dir(&project_root))
-        else {
-            return;
-        };
-        let Ok(entries) = std::fs::read_dir(&docs) else {
+        let Ok(entries) = std::fs::read_dir(project_root.join(".tug").join("dashes")) else {
             return;
         };
         let mut linted = 0usize;
         let mut claimed = 0usize;
         for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
+            let path = entry.path().join("plan.md");
             let Ok(source) = std::fs::read_to_string(&path) else {
                 continue;
             };

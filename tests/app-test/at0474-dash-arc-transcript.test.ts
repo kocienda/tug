@@ -49,10 +49,12 @@ const TEST_TIMEOUT_MS = 120_000;
 const DIVIDER = '[data-slot="stage-divider"]';
 const USER_ROW = '[data-testid="session-card-transcript-user-body"]';
 const CONDUCTOR_ROW = '.tug-transcript-entry[data-participant="conductor"]';
-const STAGE_PROMPT = "/tugplug:plan-devise a plan for dash/foo-brief.md";
+const STAGE_PROMPT =
+  "/tugplug:plan-devise a plan for .tug/dashes/foo/brief.md";
 /** What the transcript paints as prose once the command becomes a chip. */
-const STAGE_PROMPT_ARGS = "a plan for dash/foo-brief.md";
-const REVIEW_PROMPT = "/tugplug:plan-review dash/foo.md";
+const STAGE_PROMPT_ARGS = "a plan for .tug/dashes/foo/brief.md";
+// Every stage after devise names the dash, never a path.
+const REVIEW_PROMPT = "/tugplug:plan-review foo";
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 const PROMPT = "write the brief";
@@ -150,7 +152,7 @@ describe.skipIf(!SHOULD_RUN)(
               newSessionId: "claude-devise",
               stage: "devise",
               model: "opus",
-              document: "dash/foo-brief.md",
+              document: ".tug/dashes/foo/brief.md",
               arc: "foo",
               prompt: STAGE_PROMPT,
               ipc_version: 2,
@@ -189,7 +191,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(label).toContain("devise");
           expect(label).toContain("opus");
-          expect(label).toContain("dash/foo-brief.md");
+          expect(label).toContain(".tug/dashes/foo/brief.md");
 
           await app.driveSession("A", {
             op: "ingestFrame",
@@ -296,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)(
           // was not given: the text ends at the model, with no trailing
           // separator and no blank where a document would be.
           expect(label.trim().endsWith("review · opus")).toBe(true);
-          expect(label).not.toContain("dash/");
+          expect(label).not.toContain(".tug/");
 
           await app.driveSession("A", {
             op: "ingestFrame",
@@ -378,7 +380,7 @@ describe.skipIf(!SHOULD_RUN)(
             type: "replay_stage",
             stage: "devise",
             model: "opus",
-            document: "dash/foo-brief.md",
+            document: ".tug/dashes/foo/brief.md",
             arc: "foo",
           });
           await replayTurn("r2", "write the plan");

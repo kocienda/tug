@@ -2,7 +2,7 @@
 
 *The single keyboard-focus model every interactive surface in the app obeys: the visual signature of focus and selection, the two planes keyboard motion moves on, and how commit is separated from movement. Read this before adding a focusable control, a dialog/sheet/alert, or any surface a keyboard user navigates.*
 
-*Cross-references: `[L##]` → [tuglaws.md](tuglaws.md). `[D##]` → [design-decisions.md](design-decisions.md). The visual overview lives in the **Focus Language** gallery card (`gallery-focus-language.tsx`); the full design history is `dash/tugplan-focus-language.md`.*
+*Cross-references: `[L##]` → [tuglaws.md](tuglaws.md). `[D##]` → [design-decisions.md](design-decisions.md). The visual overview lives in the **Focus Language** gallery card (`gallery-focus-language.tsx`).*
 
 ---
 

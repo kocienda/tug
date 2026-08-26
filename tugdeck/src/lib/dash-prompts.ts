@@ -54,34 +54,44 @@ export function startDashPrompt(idea: string, name?: string | null): string {
 }
 
 /**
- * The next gesture for a plan document sitting in the docs directory.
+ * The next gesture for a dash that exists only as documents.
  *
- * A plan nothing has vouched for wants the review turn — which is its own turn
- * on its own model, deliberately, so the user can choose one. A reviewed plan
- * wants implementing. `stale` is the same answer as `never-reviewed`: a review
- * that predates an edit vouches for a document that no longer exists.
+ * Every verb takes the **name**: a dash's documents live at one address, so the
+ * skills resolve where to read and a prompt cannot point at the wrong file.
  *
- * **Begun outranks all of it.** A document with work already on its ledger
- * wants resuming whatever its review says, and the same `dash-implement` line
- * carries it: the skill resumes at the first row that is not `done`, and its
- * own setup gate re-checks the review and raises the ask if the plan went
- * stale — so a deck that sent the reader to a review first would pre-empt a
- * decision the skill already owns. What puts a plan in that state is a run
- * that stopped short of its own plan and joined: `dash-implement` takes a step
- * selector, so steps 1–3 can land `done` with 4–5 still `pending`.
+ * A dash with a brief and no plan wants the arc's front door, which is where a
+ * plan gets devised. A plan nothing has vouched for wants the review turn —
+ * its own turn on its own model, deliberately, so the user can choose one. A
+ * reviewed plan wants implementing. `stale` is the same answer as
+ * `never-reviewed`: a review that predates an edit vouches for a document that
+ * no longer exists.
+ *
+ * **Begun outranks all of it.** A dash with work already on its ledger wants
+ * resuming whatever its review says, and the same `dash-implement` line carries
+ * it: the skill resumes at the first row that is not `done`, and its own setup
+ * gate re-checks the review and raises the ask if the plan went stale — so a
+ * deck that sent the reader to a review first would pre-empt a decision the
+ * skill already owns.
  */
-export function planNextGesturePrompt(
-  review: string,
-  path: string,
+export function documentDashNextGesturePrompt(
+  review: string | undefined,
+  name: string,
   begun: boolean,
+  hasPlan: boolean,
 ): string {
+  if (!hasPlan) return `/tugplug:dash ${name}`;
   return begun || review === "reviewed"
-    ? `/tugplug:dash-implement ${path}`
-    : `/tugplug:plan-review ${path}`;
+    ? `/tugplug:dash-implement ${name}`
+    : `/tugplug:plan-review ${name}`;
 }
 
-/** What a plan row's affordance says, given its review state and its ledger. */
-export function planNextGestureLabel(review: string, begun: boolean): string {
+/** What the row's affordance says, given its review state and its ledger. */
+export function documentDashNextGestureLabel(
+  review: string | undefined,
+  begun: boolean,
+  hasPlan: boolean,
+): string {
+  if (!hasPlan) return "Devise";
   if (begun) return "Resume";
   return review === "reviewed" ? "Implement" : "Review";
 }

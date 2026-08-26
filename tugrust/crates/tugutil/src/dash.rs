@@ -23,21 +23,9 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         DashCommands::Create {
             name,
             description,
-            plan,
             carry,
             base,
-        } => run_create(
-            &name,
-            description,
-            plan.as_deref(),
-            carry,
-            base.as_deref(),
-            json,
-            quiet,
-        ),
-        DashCommands::AdoptPlan { name, plan } => {
-            run_adopt_plan(&name, plan.as_deref(), json, quiet)
-        }
+        } => run_create(&name, description, carry, base.as_deref(), json, quiet),
         DashCommands::Commit { name, message } => run_commit(&name, &message, json, quiet),
         DashCommands::Join {
             name,
@@ -84,7 +72,6 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         }
         DashCommands::Discard { name, break_lease } => run_discard(&name, break_lease, json, quiet),
         DashCommands::Config => run_config(json, quiet),
-        DashCommands::DocsDir { set } => run_docs_dir(set, json, quiet),
         DashCommands::List => run_list(json, quiet),
         DashCommands::Show { name } => run_show(&name, json, quiet),
         DashCommands::Status { name } => run_status(&name, json, quiet),
@@ -92,11 +79,8 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
         DashCommands::Mark { name, stage, note } => {
             run_mark(&name, stage.into(), note, json, quiet)
         }
-        DashCommands::Run {
-            name,
-            document,
-            project,
-        } => run_arc_run(&name, document.as_deref(), project, json, quiet),
+        DashCommands::Run { name, project } => run_arc_run(&name, project, json, quiet),
+        DashCommands::Documents { name, ensure } => run_documents(&name, ensure, json, quiet),
         DashCommands::Arc { name, project } => run_arc_report(&name, project, json, quiet),
         DashCommands::Bind { name, project } => run_bind(&name, project, json, quiet),
         DashCommands::Stop { name, project } => run_arc_stop(&name, project, json, quiet),
@@ -112,53 +96,15 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
     }
 }
 
-/// One line naming what the transplant did with each copy of the plan.
-fn adopt_receipt_line(data: &ops::AdoptOutcome) -> String {
-    let commit = match data.commit.as_deref() {
-        Some(sha) => format!("commit {sha}"),
-        None => "no commit needed".to_string(),
-    };
-    let base = match data.base_copy.as_str() {
-        "restored" => "base copy restored",
-        "removed" => "base copy removed",
-        _ => "base copy untouched",
-    };
-    format!("Adopted plan {} ({commit}, {base})", data.plan_path)
-}
-
-fn print_adopt_receipt(data: &ops::AdoptOutcome) {
-    println!("{}", adopt_receipt_line(data));
-    if !data.dropped_rows.is_empty() {
-        println!(
-            "  Ledger rows not replayed: {}",
-            data.dropped_rows.join(", ")
-        );
-    }
-    for warning in &data.warnings {
-        println!("  warning: {warning}");
-    }
-}
-
-fn run_adopt_plan(name: &str, plan: Option<&str>, json: bool, quiet: bool) -> Result<(), String> {
-    let data = ops::adopt_plan(name, plan)?;
-    if json {
-        print_ok("dash adopt-plan", &data);
-    } else if !quiet {
-        print_adopt_receipt(&data);
-    }
-    Ok(())
-}
-
 fn run_create(
     name: &str,
     description: Option<String>,
-    plan: Option<&str>,
     carry: bool,
     base: Option<&str>,
     json: bool,
     quiet: bool,
 ) -> Result<(), String> {
-    let data = ops::create(name, description, plan, carry, base)?;
+    let data = ops::create(name, description, carry, base)?;
     claim_dash(name);
     if json {
         print_ok("dash create", &data);
@@ -171,9 +117,6 @@ fn run_create(
         println!("  Worktree: {}", data.worktree);
         println!("  Branch: {}", data.branch);
         println!("  Base: {}", data.base_branch);
-        if let Some(adopted) = data.plan.as_ref() {
-            print_adopt_receipt(adopted);
-        }
         print_base_census(&data);
     }
     Ok(())
@@ -444,8 +387,11 @@ fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result
         print_ok("dash discard", &data);
     } else if !quiet {
         println!("Discarded dash '{}'", data.name);
-        if let Some(plan) = data.plan_restored.as_deref() {
-            println!("  Plan returned to the base checkout: {plan}");
+        if let Some(dir) = data.documents_kept.as_deref() {
+            println!(
+                "  Documents kept at {dir} — tugutil dash run {} reopens on them",
+                data.name
+            );
         }
         if !data.work_restored.is_empty() {
             println!(
@@ -512,16 +458,12 @@ fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), String> {
 
 /// Drive one ledger row and its dash-log line (Spec S02).
 ///
-/// Every refusal — an unknown dash, an unrecorded plan, a document that does
+/// Every refusal — an unknown dash, a dash with no plan, a document that does
 /// not parse, a row that cannot make the transition — exits 1 with the plan and
 /// the row named, and leaves the plan file untouched.
 fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), String> {
     let data = match action {
-        StepAction::Start {
-            step,
-            plan,
-            through,
-        } => {
+        StepAction::Start { step, through } => {
             let through = through.ok_or_else(|| {
                 "dash step start requires --through <m>: the final step of this run's selection \
                  (the machine arms the join from it)"
@@ -530,7 +472,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             // Opening a step is the resume path's "I am working this dash".
             // A run that picks a plan up mid-way never calls `create`, so this
             // is the only place the claim can be made for it.
-            let outcome = ops::step_start(name, step, plan.as_deref(), through)?;
+            let outcome = ops::step_start(name, step, through)?;
             claim_dash(name);
             outcome
         }
@@ -545,7 +487,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
         };
         println!(
             "Step {}/{} of {} is {}{through}",
-            data.step, data.total, data.plan_path, data.status
+            data.step, data.total, data.plan, data.status
         );
         if let Some(commit) = &data.commit {
             println!("Commit: {}", commit);
@@ -912,11 +854,7 @@ fn short(sha: &str) -> &str {
 
 fn print_replay(name: &str, outcome: &ReplayOutcome) {
     match outcome {
-        ReplayOutcome::Replayed {
-            base_head,
-            mapping,
-            bookkeeping_commit,
-        } => {
+        ReplayOutcome::Replayed { base_head, mapping } => {
             println!(
                 "Replayed {} round{} of {} onto {}",
                 mapping.len(),
@@ -926,9 +864,6 @@ fn print_replay(name: &str, outcome: &ReplayOutcome) {
             );
             for (old, new) in mapping {
                 println!("  {} → {}", short(old), short(new));
-            }
-            if let Some(sha) = bookkeeping_commit {
-                println!("  plan ledger remapped in {}", short(sha));
             }
         }
         ReplayOutcome::Recorded {
@@ -1006,42 +941,90 @@ fn arc_project_root(project: Option<std::path::PathBuf>) -> Result<std::path::Pa
     }
 }
 
-/// Open an arc on `document`, or resume one that stopped.
+/// Open an arc on the dash's own documents, or resume one that stopped.
+///
+/// The document is the dash's brief, or its plan when only that exists — the
+/// arc has no address to be given, because a dash's documents live at one
+/// place. An arc that already exists is resumed whatever its document, since
+/// the record is the arc's identity and a second `arc-start` would make one arc
+/// read as two.
 ///
 /// Separated from the verb so the decision is testable over a synthesized log
-/// with no session, no instance, and no git.
-fn open_arc(
-    root: &std::path::Path,
-    dash: &str,
-    document: Option<&str>,
-) -> Result<(bool, bool, ArcRecord), String> {
+/// with no session and no instance.
+fn open_arc(root: &std::path::Path, dash: &str) -> Result<(bool, bool, ArcRecord), String> {
     tugdash_core::validate_dash_name(dash).map_err(|e| e.to_string())?;
-    let existing = tugdash_core::read_arc(root, dash);
-
-    match (document, existing) {
-        // A second `run` on the same document is the same arc, not a new one:
-        // the record is the arc's identity, so writing another `arc-start`
-        // would make one arc read as two.
-        (Some(document), Some(arc)) if arc.document.as_deref() == Some(document) => {
-            resume_arc(root, dash, arc)
-        }
-        (Some(document), Some(arc)) => Err(format!(
-            "dash '{dash}' already has an arc on {} — finish or stop that one before opening an \
-             arc on {document}",
-            arc.document.as_deref().unwrap_or("an unrecorded document")
-        )),
-        (Some(document), None) => {
-            tugdash_core::append_arc_start(root, dash, document).map_err(|e| e.to_string())?;
-            let arc = tugdash_core::read_arc(root, dash)
-                .ok_or_else(|| format!("wrote the arc for '{dash}' but could not read it back"))?;
-            Ok((true, false, arc))
-        }
-        (None, Some(arc)) => resume_arc(root, dash, arc),
-        (None, None) => Err(format!(
-            "dash '{dash}' has no arc to resume — open one with `tugutil dash run {dash} \
-             --document <path>`"
-        )),
+    if let Some(arc) = tugdash_core::read_arc(root, dash) {
+        return resume_arc(root, dash, arc);
     }
+
+    let file = if tugdash_core::brief_file(root, dash).is_file() {
+        "brief.md"
+    } else if tugdash_core::plan_file(root, dash).is_file() {
+        "plan.md"
+    } else {
+        return Err(format!(
+            "dash '{dash}' has no brief or plan at {} — write one first",
+            tugdash_core::documents_dir(root, dash).display()
+        ));
+    };
+    // Repo-relative in the record, which is what the stage divider shows and
+    // what the runner resolves against the main root.
+    let relative = format!(".tug/dashes/{dash}/{file}");
+
+    tugdash_core::append_arc_start(root, dash, &relative).map_err(|e| e.to_string())?;
+    let arc = tugdash_core::read_arc(root, dash)
+        .ok_or_else(|| format!("wrote the arc for '{dash}' but could not read it back"))?;
+    Ok((true, false, arc))
+}
+
+/// Report where a dash's documents live and which of them exist ([P01]).
+///
+/// A dash with no directory is a state rather than an error: exit 0, both
+/// absent. `--ensure` creates the directory and keeps `.tug/` out of git, so a
+/// skill that is about to write a brief needs one call, not three.
+fn run_documents(name: &str, ensure: bool, json: bool, quiet: bool) -> Result<(), String> {
+    tugdash_core::validate_dash_name(name).map_err(|e| e.to_string())?;
+    let root = tugutil_core::find_repo_root().map_err(|e| e.to_string())?;
+    let dir = tugdash_core::documents_dir(&root, name);
+
+    if ensure {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        tugdash_core::ensure_tug_excluded(&root);
+    }
+
+    let brief = tugdash_core::brief_file(&root, name);
+    let plan = tugdash_core::plan_file(&root, name);
+    let payload = DocumentsPayload {
+        dash: name.to_string(),
+        dir: dir.display().to_string(),
+        brief: brief.display().to_string(),
+        plan: plan.display().to_string(),
+        brief_exists: brief.is_file(),
+        plan_exists: plan.is_file(),
+    };
+
+    if json {
+        print_ok("dash documents", &payload);
+    } else if !quiet {
+        let mark = |there: bool| if there { "exists" } else { "absent" };
+        println!("dash:   {}", payload.dash);
+        println!("dir:    {}", payload.dir);
+        println!("brief:  {} ({})", payload.brief, mark(payload.brief_exists));
+        println!("plan:   {} ({})", payload.plan, mark(payload.plan_exists));
+    }
+    Ok(())
+}
+
+/// `dash documents` — the directory and both files, with existence.
+#[derive(Debug, Serialize)]
+struct DocumentsPayload {
+    dash: String,
+    dir: String,
+    brief: String,
+    plan: String,
+    brief_exists: bool,
+    plan_exists: bool,
 }
 
 /// Pick a stopped arc back up: write `arc-resume` naming the stage it stopped
@@ -1070,7 +1053,6 @@ fn resume_arc(
 /// stage rotates on that session's own turn end ([P05]), never on arrival.
 fn run_arc_run(
     name: &str,
-    document: Option<&str>,
     project: Option<std::path::PathBuf>,
     json: bool,
     quiet: bool,
@@ -1083,7 +1065,7 @@ fn run_arc_run(
             .to_string()
     })?;
     let root = arc_project_root(project.clone())?;
-    let (started, resumed, arc) = open_arc(&root, name, document)?;
+    let (started, resumed, arc) = open_arc(&root, name)?;
 
     // The record is written before the kick, so a tugcast that never hears
     // about the arc still has one to find on its next pass.
@@ -1125,8 +1107,8 @@ fn run_arc_run(
     Ok(())
 }
 
-/// Report the arc (Spec S07). No arc exits 0 with `arc: null`, matching
-/// `dash docs-dir`'s precedent: a dash without an arc is a state.
+/// Report the arc (Spec S07). No arc exits 0 with `arc: null`: a dash without
+/// an arc is a state, not an error.
 fn run_arc_report(
     name: &str,
     project: Option<std::path::PathBuf>,
@@ -1500,30 +1482,10 @@ struct ConfigPayload {
     surfaces: Vec<SurfacePayload>,
     build: Option<String>,
     post_create: Vec<String>,
-    docs: Option<String>,
     devise_model: Option<String>,
     review_model: Option<String>,
     implement_model: Option<String>,
     implement_rotate_at: Option<f32>,
-}
-
-#[derive(Serialize)]
-struct DocsDirPayload {
-    /// The declared value, verbatim, or null when the project declares none.
-    docs: Option<String>,
-    /// The absolute directory the declaration names, or null.
-    path: Option<String>,
-    /// False when the project declares nothing — a state, not an error.
-    declared: bool,
-}
-
-#[derive(Serialize)]
-struct DocsDirSetPayload {
-    docs: String,
-    path: String,
-    config_path: String,
-    /// True when the directory did not exist and this write created it.
-    created_dir: bool,
 }
 
 /// Read the declarations the run's ending and the build offer consume.
@@ -1549,7 +1511,6 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
             .collect(),
         build: dash.build,
         post_create: dash.post_create,
-        docs: dash.docs,
         devise_model: dash.devise_model,
         review_model: dash.review_model,
         implement_model: dash.implement_model,
@@ -1591,10 +1552,6 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
             println!("post_create:  {}", payload.post_create.join("; "));
         }
         println!(
-            "docs:         {}",
-            payload.docs.as_deref().unwrap_or(undeclared)
-        );
-        println!(
             "devise_model:    {}",
             payload.devise_model.as_deref().unwrap_or(undeclared)
         );
@@ -1613,54 +1570,6 @@ fn run_config(json: bool, quiet: bool) -> Result<(), String> {
                 undeclared,
                 tugutil_core::config::IMPLEMENT_ROTATE_AT_DEFAULT
             ),
-        }
-    }
-    Ok(())
-}
-
-/// Report the project's dash paperwork directory, or record it.
-///
-/// Undeclared reports as such and exits 0: a project that has not chosen a
-/// paperwork home is in a state, not in error, and the ask-once contract in
-/// the authoring skills is built on being able to read that state cheaply.
-fn run_docs_dir(set: Option<String>, json: bool, quiet: bool) -> Result<(), String> {
-    let root = tugutil_core::config::find_project_root().map_err(|e| e.to_string())?;
-
-    if let Some(value) = set {
-        let write = tugutil_core::config::set_docs_dir(&root, &value).map_err(|e| e.to_string())?;
-        let payload = DocsDirSetPayload {
-            docs: write.docs,
-            path: write.path.display().to_string(),
-            config_path: write.config_path.display().to_string(),
-            created_dir: write.created_dir,
-        };
-        if json {
-            print_ok("dash docs-dir", payload);
-        } else if !quiet {
-            println!("docs: {} ({})", payload.docs, payload.path);
-            println!("recorded in {}", payload.config_path);
-            if payload.created_dir {
-                println!("created {}", payload.path);
-            }
-        }
-        return Ok(());
-    }
-
-    let config =
-        tugutil_core::config::Config::load_from_project(&root).map_err(|e| e.to_string())?;
-    let path = config.docs_dir(&root);
-    let payload = DocsDirPayload {
-        docs: config.tugtool.dash.docs.clone(),
-        path: path.as_ref().map(|p| p.display().to_string()),
-        declared: path.is_some(),
-    };
-
-    if json {
-        print_ok("dash docs-dir", payload);
-    } else if !quiet {
-        match (&payload.docs, &payload.path) {
-            (Some(docs), Some(path)) => println!("docs: {} ({})", docs, path),
-            _ => println!("docs: (not declared)"),
         }
     }
     Ok(())
@@ -1730,7 +1639,6 @@ mod tests {
             replay_exit_status(&ReplayOutcome::Replayed {
                 base_head: "abc".into(),
                 mapping: Vec::new(),
-                bookkeeping_commit: None,
             }),
             0
         );
@@ -1769,7 +1677,6 @@ mod tests {
             "any-dash",
             StepAction::Start {
                 step: 1,
-                plan: None,
                 through: None,
             },
             false,
@@ -1808,6 +1715,22 @@ mod tests {
                 .collect()
         }
 
+        /// Write a brief into the dash's own documents home.
+        fn write_brief(&self, dash: &str) {
+            self.write_document(dash, "brief.md");
+        }
+
+        /// Write a plan there.
+        fn write_plan(&self, dash: &str) {
+            self.write_document(dash, "plan.md");
+        }
+
+        fn write_document(&self, dash: &str, file: &str) {
+            let dir = self.root().join(".tug").join("dashes").join(dash);
+            std::fs::create_dir_all(&dir).expect("documents dir");
+            std::fs::write(dir.join(file), "# Fixture\n").expect("write document");
+        }
+
         fn write_log(&self, lines: &str) {
             let state = tugutil_core::paths::project_state_dir(self.root());
             std::fs::create_dir_all(&state).expect("state dir");
@@ -1832,11 +1755,11 @@ mod tests {
     #[serial_test::serial]
     fn opening_an_arc_writes_one_start_line() {
         let fixture = arc_fixture();
-        let (started, resumed, arc) =
-            open_arc(fixture.root(), "demo", Some("dash/idea.md")).expect("opened");
+        fixture.write_brief("demo");
+        let (started, resumed, arc) = open_arc(fixture.root(), "demo").expect("opened");
         assert!(started);
         assert!(!resumed);
-        assert_eq!(arc.document.as_deref(), Some("dash/idea.md"));
+        assert_eq!(arc.document.as_deref(), Some(".tug/dashes/demo/brief.md"));
         let starts = fixture
             .log_lines()
             .iter()
@@ -1847,11 +1770,12 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn opening_the_same_document_twice_is_one_arc() {
+    fn opening_the_same_dash_twice_is_one_arc() {
         let fixture = arc_fixture();
-        open_arc(fixture.root(), "demo", Some("dash/idea.md")).expect("opened");
-        let (started, _, _) = open_arc(fixture.root(), "demo", Some("dash/idea.md")).expect("reopened");
-        assert!(!started, "a second run on the same document opens nothing");
+        fixture.write_brief("demo");
+        open_arc(fixture.root(), "demo").expect("opened");
+        let (started, _, _) = open_arc(fixture.root(), "demo").expect("reopened");
+        assert!(!started, "a second run on the same dash opens nothing");
         let starts = fixture
             .log_lines()
             .iter()
@@ -1860,26 +1784,31 @@ mod tests {
         assert_eq!(starts, 1);
     }
 
+    /// The document is the dash's own, and the brief comes first — a dash that
+    /// has reached devise opens on what it was briefed with, not on its output.
     #[test]
     #[serial_test::serial]
-    fn a_second_document_on_a_live_arc_is_refused_by_name() {
+    fn open_arc_opens_on_the_brief_then_the_plan() {
         let fixture = arc_fixture();
-        open_arc(fixture.root(), "demo", Some("dash/idea.md")).expect("opened");
-        let err = open_arc(fixture.root(), "demo", Some("dash/other.md")).unwrap_err();
-        assert!(
-            err.contains("dash/idea.md") && err.contains("dash/other.md"),
-            "the refusal must name both documents: {err}"
-        );
+        fixture.write_plan("plan-only");
+        let (_, _, arc) = open_arc(fixture.root(), "plan-only").expect("opened");
+        assert_eq!(arc.document.as_deref(), Some(".tug/dashes/plan-only/plan.md"));
+
+        let fixture = arc_fixture();
+        fixture.write_brief("both");
+        fixture.write_plan("both");
+        let (_, _, arc) = open_arc(fixture.root(), "both").expect("opened");
+        assert_eq!(arc.document.as_deref(), Some(".tug/dashes/both/brief.md"));
     }
 
     #[test]
     #[serial_test::serial]
-    fn resuming_without_an_arc_says_how_to_open_one() {
+    fn a_dash_with_no_documents_says_to_write_one() {
         let fixture = arc_fixture();
-        let err = open_arc(fixture.root(), "demo", None).unwrap_err();
+        let err = open_arc(fixture.root(), "empty").unwrap_err();
         assert!(
-            err.contains("--document"),
-            "the refusal must name the way forward: {err}"
+            err.contains("has no brief or plan") && err.contains(".tug/dashes/empty"),
+            "the refusal must name the address to write to: {err}"
         );
     }
 
@@ -1893,7 +1822,7 @@ mod tests {
             "2026-08-24T10:05:00Z  demo  arc-stop  review lint failed\n"
         ));
         let before = fixture.log_lines().len();
-        let (started, resumed, arc) = open_arc(fixture.root(), "demo", None).expect("resumed");
+        let (started, resumed, arc) = open_arc(fixture.root(), "demo").expect("resumed");
         assert!(!started);
         assert!(resumed);
         assert_eq!(arc.stopped, None, "the stop is cleared");
@@ -1911,7 +1840,7 @@ mod tests {
         // An arc that is not stopped has nothing to resume, and a second run
         // on it writes nothing.
         let after = fixture.log_lines().len();
-        let (_, resumed, _) = open_arc(fixture.root(), "demo", None).expect("still open");
+        let (_, resumed, _) = open_arc(fixture.root(), "demo").expect("still open");
         assert!(!resumed);
         assert_eq!(fixture.log_lines().len(), after);
     }
@@ -1956,7 +1885,6 @@ mod tests {
             surfaces: Vec::new(),
             build: None,
             post_create: Vec::new(),
-            docs: None,
             devise_model: None,
             review_model: None,
             implement_model: None,
@@ -2006,7 +1934,7 @@ mod tests {
         )
         .unwrap();
 
-        let (opened, resumed, arc) = open_arc(root, "demo", None).expect("resume");
+        let (opened, resumed, arc) = open_arc(root, "demo").expect("resume");
         assert!(!opened, "the arc is the same one, not a second");
         assert!(resumed, "and it resumes rather than reporting nothing to do");
         assert_eq!(arc.stopped, None, "the resume clears the stop");

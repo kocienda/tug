@@ -43,14 +43,13 @@ Free text. A sentence, a paragraph, a pasted error, or nothing at all — each i
 Before asking the user anything, find out what is already in flight. Three cheap reads answer it:
 
 ```bash
-tugutil dash docs-dir --json     # where this project keeps its paperwork
 tugutil dash status              # what this card is bound to, if anything
 tugutil dash list --json         # what dashes exist
 ```
 
-On `docs-dir`, `declared: false` is a **state, not an error**: the project has never said where its paperwork lives. Ask once, propose a name, and record the answer with `tugutil dash docs-dir --set <answer>` — the verb writes the key and creates the directory, and nobody is asked again. Never hand-edit the config.
+There is no paperwork home to resolve: a dash's documents live at `.tug/dashes/<name>/`, and `tugutil dash documents <name> --json` says which of them exist. A dash with no directory is a **state, not an error** — the verb exits 0 with both absent, which is where every new dash starts.
 
-Then look for an arc mid-flight. Glob `<docs>/*.md`, run `tugutil plan status <path> --json` over the candidates, and read `data.review`. A plan that is `reviewed` and whose steps are all `pending` is a reviewed-but-unadopted plan — a hand-driven arc's most common resting place, because off Opus the review is a turn boundary ([the review gate](#5-stop-at-the-review-gate)). Name it and offer to carry it into `dash-implement`.
+Then look for an arc mid-flight. For each name `dash list` reports, and each directory under `.tug/dashes/`, `tugutil plan status <name> --json` reads its plan; `data.review` is the answer. A plan that is `reviewed` and whose steps are all `pending` is a reviewed plan nobody has started — a hand-driven arc's most common resting place, because off Opus the review is a turn boundary ([the review gate](#5-stop-at-the-review-gate)). Name it and offer to carry it into `dash-implement`.
 
 **A stopped arc is the one thing here that will never announce itself.** A server-driven arc rotates on a tick, so when one stops there is no gesture nobody made to explain the stillness — the card's faces say so, but only to somebody looking at them. So read it:
 
@@ -58,7 +57,7 @@ Then look for an arc mid-flight. Glob `<docs>/*.md`, run `tugutil plan status <p
 tugutil dash arc <name> --json     # per dash from `dash list`; no arc exits 0 with `arc: null`
 ```
 
-`data.arc.stopped` names the stage and the reason. Say both, and offer the resume — which is the *same verb*, with no `--document`, because the documents hold the progress:
+`data.arc.stopped` names the stage and the reason. Say both, and offer the resume — which is the *same verb*, because the documents hold the progress:
 
 ```bash
 tugutil dash run <name>
@@ -66,13 +65,7 @@ tugutil dash run <name>
 
 That re-rotates the stopped stage and nothing earlier ([P11]). A stage never re-runs work that already landed; the plan's own ledger is what it resumes against.
 
-**Find what this conversation already wrote.** The arc opens on a *document*, so before asking the user for anything, find out whether one exists — this session may already have written the brief that is the whole hand-off:
-
-```bash
-tugutil changes --json     # data.files: what this session is attributed with
-```
-
-Intersect the attributed paths with the docs directory `docs-dir` reported. A brief or plan there that this session wrote is the arc's input, and naming it is usually the entire Orient stage: *"you wrote `dash/foo-brief.md` this session — hand it to the arc?"*
+**Find what is already written.** The arc opens on a *document*, so before asking the user for anything, find out whether one exists. Documents are not tracked and so never appear in `tugutil changes` — the filesystem is the record, and `tugutil dash documents <name>` reads it. Run it for each name `dash list` reports and each directory under `.tug/dashes/`; a dash whose brief exists is the arc's input, and naming it is usually the entire Orient stage: *"`foo` already has a brief — hand it to the arc?"*
 
 **A lone argument that names an existing dash is a continuation, not a new idea.** `/dash <name>` was the retired spelling of `/dash-bind` for long enough to be muscle memory, and what a user types there — a bare slug, no verb, no sentence — is exactly what an existing dash is called. So before reading a short argument as an idea, check it against `tugutil dash list`. On a hit, say which dash it is and offer to continue it: resume its plan through `dash-implement`, or bind this card to it with `/dash-bind` when the binding is all they wanted. Guessing "new idea" here starts a second dash beside the one they meant.
 
@@ -86,9 +79,9 @@ What is worth asking is bounded by the doctrine's [never-ask list](../../../tugl
 
 Read enough code to ask a good question. An idea sharpened against the real files ("this touches the store or the card — which did you mean?") is worth three rounds of sharpening it in the abstract.
 
-**Sharpening ends in a document, and for the arc route that is not optional.** An arc opens on a file, never on an idea string — the whole design rests on each stage being startable cold from what the last one wrote ([B14]), and a sentence in a conversation is not something a fresh session can read. So when the arc route is chosen and this session has written nothing, **write the brief here, in this conversation, on the user's own model, as an ordinary interactive turn**: against `tuglaws/brief-skeleton.md`, into the docs directory, before any hand-off. That turn is the one place in the whole arc where the user's judgment and the model they chose are both in the room, and spending it is the point rather than a delay.
+**Sharpening ends in a document, and for the arc route that is not optional.** An arc opens on a file, never on an idea string — the whole design rests on each stage being startable cold from what the last one wrote ([B14]), and a sentence in a conversation is not something a fresh session can read. So when the arc route is chosen and this session has written nothing, **write the brief here, in this conversation, on the user's own model, as an ordinary interactive turn**: against `tuglaws/brief-skeleton.md`, into the dash's own `.tug/dashes/<name>/brief.md`, before any hand-off. That turn is the one place in the whole arc where the user's judgment and the model they chose are both in the room, and spending it is the point rather than a delay.
 
-Then hand off. Never `tugutil dash run --document` a path that does not exist yet, and never invent an idea file to satisfy the verb.
+Then hand off. Never `tugutil dash run` a dash with no brief and no plan — the verb refuses, and inventing a document to satisfy it is inventing the decisions it was supposed to carry.
 
 ### 3. Route
 
@@ -114,13 +107,15 @@ Two of the four routes are contracts you carry out yourself. Read the sibling's 
 
 The plan routes are different, and the difference is the whole of this stage: **you do not run the plan arc, you hand it to something that does.**
 
-**The brief comes first either way.** For the brief-first route it is the point; for the plan route it is the input the arc needs and cannot invent. Write it in the docs directory resolved in stage 1, against `tuglaws/brief-skeleton.md` — findings as `[F##]`, decisions as `[B##]` — and keep it a brief rather than a small plan: no execution steps, no ledger, no checkpoints. The boundary is mechanical rather than conventional, because `tugutil plan lint` detects a plan *positively* by its `{#execution-steps}` section and exits 2 on anything else. An input that already lints as a plan is fine and skips the arc's devise stage; the arc reads that for itself.
+**The brief comes first either way.** For the brief-first route it is the point; for the plan route it is the input the arc needs and cannot invent. Settle the dash's name first, then `tugutil dash documents <name> --ensure --json` and write the brief to the `brief` path it prints, against `tuglaws/brief-skeleton.md` — findings as `[F##]`, decisions as `[B##]` — and keep it a brief rather than a small plan: no execution steps, no ledger, no checkpoints. The boundary is mechanical rather than conventional, because `tugutil plan lint` detects a plan *positively* by its `{#execution-steps}` section and exits 2 on anything else. An input that already lints as a plan is fine and skips the arc's devise stage; the arc reads that for itself.
 
-**Then settle the name and hand the document over.** The dash name is whatever Orient and Sharpen already settled on — a short slug from the work, the same one `dash create` would have taken. It is the arc's key and is valid before any branch exists ([B16]), so nothing needs creating first:
+**Then hand it over.** The dash name is whatever Orient and Sharpen already settled on — a short slug from the work, the same one `dash create` would have taken. It is the arc's key, it is the address its documents live at, and it is valid before any branch exists ([B16]), so nothing needs creating first:
 
 ```bash
-tugutil dash run <name> --document <docs>/<slug>-brief.md
+tugutil dash run <name>
 ```
+
+The verb takes no document: it opens on the dash's own brief, or on its plan when only that exists, and refuses by name when there is neither.
 
 The verb refuses without a calling session, because an arc runs *on a card* and there would otherwise be nowhere for a stage to rotate. It records the arc, binds this session to the dash, and returns — **and the first rotation happens when this turn ends, not on arrival** ([P05]). That ordering is not incidental: the request is issued from inside your own turn, and rotating on receipt would kill the session mid-sentence.
 
@@ -155,8 +150,8 @@ This is the stage `/dash` owns outright, because nothing else in the arc will sp
 - **Delegate by reading, never by restating.** A stage's mechanics live in the sibling's `SKILL.md`; reproducing them here creates a second copy to drift.
 - **Own the narration, not the machinery.** `/dash` creates no worktree, commits nothing, and joins nothing. The delegated contract's guardrails govern while it runs.
 - **Ask about the design, never the process.** The routing question is one question. Everything else is bounded by the doctrine's never-ask list — nothing with a conventional default, and never "should I continue?".
-- **Resolve the paperwork home; never assume one.** `tugutil dash docs-dir`, asked once per project and recorded with `--set`. There is no blessed directory name.
-- **An arc opens on a document, never on an idea.** Write the brief in this conversation first, on the user's model. `tugutil dash run --document` takes a path that exists.
+- **A dash's documents live at its own address.** `.tug/dashes/<name>/`, never in the working tree, and `tugutil dash documents <name>` is what reports them. Nothing is declared and nothing is asked.
+- **An arc opens on a document, never on an idea.** Write the brief in this conversation first, on the user's model. `tugutil dash run <name>` needs one to exist.
 - **Hand off by ending the turn.** The first rotation happens at *this* turn's end, so issuing `dash run` is the last thing you do — never wait on it, never poll it, never print a command to start it.
 - **Under an arc there is no review gate.** The review is a stage on its own fresh session, reading the plan cold. Off the arc, the fork below still stands: print the chip and stop; do not review on a model that is not the review model.
 - **Landing is the user's act.** Stop before the join, every time.

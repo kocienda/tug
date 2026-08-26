@@ -1,7 +1,7 @@
 ---
 name: dash-implement
 description: Implement a plan into a tested build on an isolated dash worktree — walk a single step, a step range, or the whole plan; agentless, in-thread, committing per step, stopping for review before merge
-argument-hint: "[plan-path] [Step N | Steps N-M]"
+argument-hint: "[dash-name] [Step N | Steps N-M]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 disallowed-tools: Task
@@ -17,9 +17,9 @@ disallowed-tools: Task
 
 ## Input
 
-`/tugplug:dash-implement <plan-path> [step-selector]`
+`/tugplug:dash-implement <name> [step-selector]`
 
-- `<plan-path>` — an **explicit path** to a plan written against the devise skeleton. There is no default location — the path is always given.
+- `<name>` — the **dash** whose plan to walk. Its plan lives at `.tug/dashes/<name>/plan.md`, which `tugutil dash documents <name>` prints and every `plan` verb resolves from the name alone. A path is accepted for a plan outside any dash, but the name is the address.
 - `[step-selector]` (optional) — **which steps to walk this invocation**:
   - *(omitted)* — walk the **whole plan** from the first unfinished step to the end.
   - `Step N` — walk a **single** step (e.g. `Step 3`).
@@ -32,36 +32,36 @@ The **Step Status Ledger** at the top of the plan's Execution Steps is the sourc
 
 **If the plan has no Step Status Ledger** (an older or hand-written plan), the step verbs cannot drive it. Fall back gracefully: with no selector, walk from Step 1; infer which steps are already done from `tug log` on the dash branch if the dash exists, and confirm with the user before skipping any. Offer to add a ledger to the plan (on the worktree) so future runs resume — and so the verbs can drive it.
 
-If no plan exists yet, author one first with `/tugplug:plan-devise`, or write it inline — then point this skill at it.
+If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, and carries the arc through devise and review to here.
 
 ## The five phases
 
 ### 1. Setup
 
 1. Read the **Step Status Ledger** and resolve the step selector into a concrete list of steps to walk this run.
-2. Derive a short dash name from the plan slug. `tugutil dash create <name> --description "<one line>" --plan <plan-path> --json`. **Capture the absolute `worktree` path** and `branch` from the response. If the dash already exists (resuming a later step range), `create` is idempotent and returns it — and `--plan` on a live dash is the repair path, not an error, so pass it every time.
+2. `tugutil dash create <name> --description "<one line>" --json`. **Capture the absolute `worktree` path** and `branch` from the response. If the dash already exists (resuming a later step range), `create` is idempotent and returns it.
 
-   `--plan` is what puts the plan **inside the worktree**, and it is the only thing that may: the dash adopts the document ([D139]), committing its bytes on the branch and cleaning the base copy, so there is one live copy from second zero. **Never copy a plan file by hand.** A hand-copy leaves two live copies with no receipt and no divergence detection, which is the failure this verb exists to make impossible. The receipt names the adoption commit and what happened to the base copy; from here you drive the worktree copy only.
+   The plan lives at `.tug/dashes/<name>/plan.md` and nothing copies it anywhere ([D139]). `tugutil dash documents <name>` prints that path; **never copy a plan file by hand**, and never write one into the worktree.
 
    `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` — in Tugtool, `bun install` for the web surfaces — so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
 
    You do not bind the dash to this session, and there is nothing to remember here: `create` and `dash step start` each record the claim themselves, so both starting a plan and resuming one mid-way are covered. That matters because boundness is what the server reads to decide whether to work the join arc at all — an unbound dash is never reconciled, never checked, and never offered — and a rule that load-bearing does not belong in prose a run can skip.
-3. **Check that the plan's review covers the plan.** Against the **worktree** copy — the one you are about to drive:
+3. **Check that the plan's review covers the plan.**
 
    ```bash
-   tugutil plan status <worktree-plan-path> --json
+   tugutil plan status <name> --json
    ```
 
    Read `data.review`. On `reviewed`, say nothing and carry on.
 
    On **`stale`** or **`never-reviewed`**, raise an `AskUserQuestion` — never a hard refusal, because the plan is the user's:
 
-   - *"Review now (Recommended)"* — print `` `/tugplug:plan-review <path>` `` as its own backticked chip and **stop**. You do not review inline; the review is its own turn on its own model.
+   - *"Review now (Recommended)"* — print `` `/tugplug:plan-review <name>` `` as its own backticked chip and **stop**. You do not review inline; the review is its own turn on its own model.
    - *"Proceed as-is"* — carry on and say nothing further about it.
 
    The message names which verdict it is, and on `stale` quotes `data.last_round`'s date and model, so the user is deciding against a fact rather than a warning. Implementing a plan nobody reviewed is strictly worse than implementing one whose review predates an edit, so both raise the same gate.
 
-   The gate reads the worktree copy and needs no comparison against a base one: adoption left exactly one live copy, and replaying ledger progress does not move a plan's content stamp, so a `reviewed` plan is still `reviewed` after the transplant.
+   The gate reads the one copy there is, and needs no comparison against another: the plan has one home, and moving a ledger row does not move a plan's content stamp, so a `reviewed` plan stays `reviewed` for the length of a run.
 4. Establish a green baseline with the project's own test commands — the ones the plan's step checkpoints name — so you know what "still green" means. In Tugtool that is `bun test`, plus `cd tugrust && cargo nextest run` for Rust changes. When the plan names none and the project has no test command to run, say the baseline is unestablished and proceed on that footing — never invent one.
 5. **The Step Status Ledger is the progress surface.** `dash step start` and `dash step done` move its rows, and the Lens, the Changes card, and the Z2 placard all read from it. There is no second list to keep: the ledger is the record of where the run is, and the verbs are what move it.
 
@@ -71,9 +71,9 @@ Walk the resolved steps in dependency order. For each step:
 
 - **Open the step.**
   ```bash
-  tugutil dash step <name> start <n> --through <m> [--plan <path>]
+  tugutil dash step <name> start <n> --through <m>
   ```
-  This moves the ledger row to `in progress` and records the step in the dash-log, which is what makes the dash read as `implementing (i/N)` in the Lens and the Changes card while you work. `create --plan` already recorded which plan this dash drives, so `--plan` here is only for a dash that never adopted one.
+  This moves the ledger row to `in progress` and records the step in the dash-log, which is what makes the dash read as `implementing (i/N)` in the Lens and the Changes card while you work.
 
   **`--through <m>` is the last step of the selection you resolved in Setup**, and it is required. It is how the machine can tell a run that finished from a run that stopped early: when step `m` goes `done`, the dash is finished, the join arc arms itself, and the user is offered the join without anybody having to remember to say so. A run that never declared where it ends can only ever look like a run still in progress. Pass the same `m` on every step of the run — re-declaring the same value is a no-op.
 - Read the step's Tasks / References / Checkpoint.
@@ -95,11 +95,10 @@ Walk the resolved steps in dependency order. For each step:
   ```
   This writes the ledger row's status *and* its commit cell and appends the paired log line. Omit `--commit` to record the dash branch's tip. Ledger and commit move together, and the verb is what keeps them together.
 
-**Two spellings are house rules, not taste.** A round's commit subject is `tugdash(<name>): <imperative summary>` — the same scope-colon form the engine's own dash commits (`adopt plan`, `remap round ids`) carry, so `tug log` on the branch reads as one voice. And when you *name* a landed commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word itself: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone, which costs the reader the standard form. See `tuglaws/entity-presentation.md`.
+**Two spellings are house rules, not taste.** A round's commit subject is `tugdash(<name>): <imperative summary>` — the same scope-colon form the engine's own dash commits (`remap round ids`) carry, so `tug log` on the branch reads as one voice. And when you *name* a landed commit in the transcript, write the **bare sha in backticks** — `` `63de5762a` ``, never `commit 63de5762a` — because the app supplies the word itself: a confirmed sha displays as `commit:63de5762a`, and a sentence that already said "commit" makes the app yield its word and show the hash alone, which costs the reader the standard form. See `tuglaws/entity-presentation.md`.
 
 Pragmatics:
 
-- **`dash step` refusing over a diverging base plan copy has exactly one right answer, so it is not an ask-fork.** The message names it: run `tugutil dash adopt-plan <name>` and retry the step. It means the user edited the base checkout's copy of the plan mid-run; the transplant folds their edits in, replays your ledger progress onto them, and cleans base. Do it and carry on.
 - **A refused `dash step` is telling you about the document, not the tool.** It exits 1, names the plan and the row, and leaves the file untouched — a plan that does not strictly parse, a missing ledger row, an anchor that is not `#step-<n>`, or a `done` row you tried to reopen.
 
   Raise the refusal as an `AskUserQuestion` rather than picking a repair yourself, because the wrong guess corrupts the durable record: *"Fix the plan and retry"* / *"Hand-edit the ledger this run"*. Quote what the verb said. A malformed document usually wants fixing; a document that genuinely cannot be made to parse wants the hand-edit — and which one this is depends on what the plan is *for*, which is the user's to know.

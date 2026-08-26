@@ -4,12 +4,17 @@
 //! `{schema_version, command, status, data, issues}` envelope) or a plain
 //! read-out.
 //!
-//! The path is explicit. There is no `resolve_plan` cascade here and no search
-//! across the project's plan directories — a linter that guesses which document
-//! you meant is worse than one that asks.
+//! The argument is an exact address, never a search. A bare **name** is a
+//! dash, and resolves to that dash's own `plan.md`; anything carrying a
+//! separator, starting with `.`, or ending in `.md` is a path, resolved against
+//! the cwd. There is no cascade and no guessing between them — the argument's
+//! shape decides, and a linter that guessed which document you meant would be
+//! worse than one that asks.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use tugdash_core::DocumentArgument;
 
 use serde::Serialize;
 use tugutil_core::plan::{self, Severity};
@@ -22,10 +27,47 @@ use crate::output::{JsonIssue, JsonResponse};
 /// diagnostic, 2 when the document cannot be read or is not a plan.
 pub fn dispatch(cmd: PlanCommands, json: bool) -> ExitCode {
     changes::finish(match cmd {
-        PlanCommands::Lint { path } => run_lint(Path::new(&path), json),
-        PlanCommands::Status { path } => run_status(Path::new(&path), json),
-        PlanCommands::Stamp { path } => run_stamp(Path::new(&path), json),
+        PlanCommands::Lint { path } => {
+            resolve_document_argument(&path).and_then(|p| run_lint(&p, json))
+        }
+        PlanCommands::Status { path } => {
+            resolve_document_argument(&path).and_then(|p| run_status(&p, json))
+        }
+        PlanCommands::Stamp { path } => {
+            resolve_document_argument(&path).and_then(|p| run_stamp(&p, json))
+        }
     })
+}
+
+/// The document a `plan` verb's argument names.
+///
+/// A `Name` resolves to that dash's `plan.md`. `plan_file` normalizes to the
+/// main repository root itself, so a cwd inside a dash worktree resolves to the
+/// same file the base checkout would — but `find_repo_root_from` does not walk
+/// up parent directories, so a cwd *below* the root is not a repository at all
+/// and the refusal says which of the two forms still works from there.
+fn resolve_document_argument(arg: &str) -> Result<PathBuf, AppError> {
+    match DocumentArgument::parse(arg) {
+        DocumentArgument::Path(path) => Ok(path),
+        DocumentArgument::Name(name) => {
+            let cwd = std::env::current_dir()
+                .map_err(|e| AppError::Exit2(format!("cannot read the current directory: {e}")))?;
+            let root = tugutil_core::find_repo_root_from(&cwd).map_err(|_| {
+                AppError::Exit2(
+                    "not in a git repository — run from the checkout root, or pass the plan's path"
+                        .to_string(),
+                )
+            })?;
+            let plan = tugdash_core::plan_file(&root, &name);
+            if !plan.is_file() {
+                return Err(AppError::Exit2(format!(
+                    "dash '{name}' has no plan at {}",
+                    plan.display()
+                )));
+            }
+            Ok(plan)
+        }
+    }
 }
 
 /// `--json` payload for `plan lint`. The diagnostics themselves ride in the

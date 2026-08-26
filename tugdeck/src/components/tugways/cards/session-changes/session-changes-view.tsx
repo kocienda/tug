@@ -183,6 +183,14 @@ export function SessionChangesView({
   // fronted row's alone, so fronting by the binding would leave a named join
   // live in the composer with nothing in the room to explain a refusal.
   const frontedDashId = dashJoin?.dashId ?? boundDashId;
+  // A card can be bound to a dash before its branch exists — the planning
+  // phase. It has no changeset entry, so the lane fronts its document row
+  // instead of falling silent about the dash the card is working.
+  const documentDash =
+    boundDashId === null ||
+    snap.dashes.some((entry) => entry.owner_id === boundDashId)
+      ? null
+      : (snap.documentDashes.find((row) => row.owner_id === boundDashId) ?? null);
   const frontedDash =
     frontedDashId !== null
       ? (snap.dashes.find((entry) => entry.owner_id === frontedDashId) ?? null)
@@ -535,6 +543,7 @@ export function SessionChangesView({
         binding={laneBinding}
         discard={laneDiscard}
         replay={laneReplay}
+        documentDash={documentDash}
       />
     </div>,
     headerActions,

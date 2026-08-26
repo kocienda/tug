@@ -386,9 +386,9 @@ export function DashMetaLine({
       ) : null}
       {note !== null ? (
         <span className="tug-dash-meta-note">{note}</span>
-      ) : entry.plan_path === undefined ? (
+      ) : entry.documents?.plan === undefined ? (
         <span className="tug-dash-meta-note" data-empty="true">
-          no plan adopted
+          no plan yet
         </span>
       ) : null}
       {age !== null ? <span className="tug-dash-meta-age">{age}</span> : null}

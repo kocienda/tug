@@ -545,15 +545,16 @@ pub fn read_declarations(repo_root: &Path, dash: &str) -> DashDeclarations {
 /// step verb rewrites the ledger row *after* the round commits, so a finished
 /// run always ends with its plan dirty, and counting that would leave every
 /// completed selection permanently unready.
-/// Tracked dirt that represents *unfinished work*, which is all of it except
-/// the plan the dash is driving.
+/// Tracked dirt that represents *unfinished work*, which is now all of it.
 ///
-/// The ledger row a step verb writes lands after the round it describes has
-/// already been committed, so the last `done` of every run leaves the plan
-/// dirty. That is the machine's own bookkeeping catching up, not work in
-/// flight, and the join's preamble commits it either way.
-pub fn unfinished_tracked_dirt(dirt: &[String], plan_path: Option<&str>) -> bool {
-    dirt.iter().any(|path| Some(path.as_str()) != plan_path)
+/// This once excluded the plan the dash was driving, because the ledger row a
+/// step verb writes lands after the round it describes has already been
+/// committed and a finished run would otherwise end with its plan dirty. The
+/// plan is no longer in the worktree — it lives at
+/// `<repo>/.tug/dashes/<name>/plan.md`, outside every tree git watches — so a
+/// tracked edit in the worktree is work in flight and nothing else.
+pub fn unfinished_tracked_dirt(dirt: &[String]) -> bool {
+    !dirt.is_empty()
 }
 
 pub fn join_ready(

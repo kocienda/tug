@@ -40,8 +40,12 @@
             "updated_at": 1752264130000,
             "edited": true,
             "selection": {
-              "include": ["notes/scratch.md"],
-              "exclude": ["tugrust/crates/tugcast/src/feeds/changeset.rs"]
+              "include": [
+                "notes/scratch.md"
+              ],
+              "exclude": [
+                "tugrust/crates/tugcast/src/feeds/changeset.rs"
+              ]
             }
           }
         },
@@ -51,7 +55,9 @@
           "display_name": "fix-join",
           "branch": "tugdash/fix-join",
           "stage": "draft-ready",
-          "bound_sessions": ["sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901"],
+          "bound_sessions": [
+            "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901"
+          ],
           "base": "main",
           "rounds": 3,
           "worktree": "/Users/dev/src/tugtool/.tug/worktrees/tugdash__fix-join",
@@ -104,6 +110,10 @@
               }
             ],
             "reviewed": false
+          },
+          "documents": {
+            "plan": "/repo/.tug/dashes/fix-join/plan.md",
+            "plan_title": "Fix the join"
           }
         }
       ],
@@ -111,7 +121,9 @@
         {
           "path": "notes/scratch.md",
           "git_status": "??",
-          "hinted_by": ["sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901"]
+          "hinted_by": [
+            "sess-0197a2b4-c8d1-7e02-9f3a-b5c6d7e8f901"
+          ]
         }
       ],
       "orphaned": [
@@ -130,18 +142,28 @@
         "message": "Add scratch notes",
         "updated_at": 1752264090000
       },
-      "plans": [
+      "document_dashes": [
         {
-          "path": "dash/dash-cockpit.md",
+          "owner_id": "tugdash/dash-cockpit",
           "display_name": "dash-cockpit",
+          "documents": {
+            "brief": "/repo/.tug/dashes/dash-cockpit/brief.md",
+            "brief_title": "The dash cockpit",
+            "plan": "/repo/.tug/dashes/dash-cockpit/plan.md",
+            "plan_title": "Dash cockpit"
+          },
           "review": "reviewed",
           "step_total": 5,
           "steps_done": 1,
           "steps_begun": 2
         },
         {
-          "path": "dash/dash-hardening.md",
+          "owner_id": "tugdash/dash-hardening",
           "display_name": "dash-hardening",
+          "documents": {
+            "plan": "/repo/.tug/dashes/dash-hardening/plan.md",
+            "plan_title": "Dash hardening"
+          },
           "review": "never-reviewed",
           "step_total": 3,
           "steps_done": 0,

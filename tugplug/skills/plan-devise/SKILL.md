@@ -19,30 +19,23 @@ disallowed-tools: Task
 
 ## Input
 
-`/tugplug:plan-devise <idea> [→ <output-path>]` — a free-text description of what to build, and **where to write the plan**.
+`/tugplug:plan-devise <idea> [🢂 <name-or-path>]` — a free-text description of what to build, and **which dash the plan belongs to** (or an explicit path).
 
-## Where the plan goes (declared, never assumed)
+## Where the plan goes
 
-A plan is just a markdown file at an **explicit path**, and **an explicit path in the invocation always wins** — write it exactly there, report the path you wrote, and skip the rest of this section.
+A plan is a markdown file, and its address is the dash. **An explicit path in the invocation always wins** — write it exactly there, report the path you wrote, and skip the rest of this section.
 
-When the invocation names none, the project's own config answers:
+Otherwise the target is a **dash name**, and one verb resolves it:
 
 ```bash
-tugutil dash docs-dir --json
+tugutil dash documents <name> --ensure --json
 ```
 
-- **Declared** (`declared: true`) — propose `<docs>/<slug>.md` and proceed. **Do not ask.** The project already said where its paperwork lives.
-- **Undeclared** (`declared: false`, exit 0 — a state, not an error) — ask the user **once** where dash paperwork should live, proposing a name, then record the answer:
+`--ensure` creates `.tug/dashes/<name>/` (and keeps `.tug/` out of git) so the write needs no second call; the `plan` field it prints is where the plan goes. Nothing is declared, nothing is asked, and there is no directory name to choose — a dash's documents live at its own address or nowhere.
 
-  ```bash
-  tugutil dash docs-dir --set <answer>
-  ```
+With neither a path nor a name, ask once for the name. That is the only question this section can raise, and it is a question about *which dash*, never about *where*.
 
-  The verb writes the key into `.tugtool/config.toml` (preserving the file's comments) and creates the directory. Then write the plan there.
-
-The question is asked **once per project, ever** — the answer is committed config from then on, so no later run pays the toll. Never hand-edit the config to record it; the verb prints a receipt and validates the value, and a skill editing TOML by hand is a shell-edit-discipline violation waiting to happen.
-
-There is still **no blessed directory name**. `roadmap/`, `docs/`, `.tugtool/` — none of them is assumed, and the machinery no longer treats any name specially. Whether and where the plan is committed to git remains the user's call.
+The documents are **not tracked**. `.tug/` is gitignored, so a plan lands on no diff, needs no commit, and is never something the user has to clean up.
 
 ## The flow
 
@@ -107,7 +100,7 @@ Don't start implementing from the devise skill — authoring and implementing ar
 ## Guardrails
 
 - **No sub-agents.** Research and write in-thread.
-- **Explicit path wins; otherwise the declaration answers.** The plan goes exactly where the user says. Never hardcode or default to a directory name — resolve through `tugutil dash docs-dir`, and ask only when the project has declared nothing yet, recording the answer with `--set` so nobody is asked twice.
+- **Explicit path wins; otherwise the name answers.** The plan goes exactly where the user says, or at the named dash's own address. Never hardcode a directory and never invent one — `tugutil dash documents <name> --ensure` is the resolver, and the only thing worth asking about is which dash.
 - **Conform to the skeleton.** `tuglaws/devise-skeleton.md` is the format contract, upheld by authorship and review.
 - **Ground the plan in the real code.** Read before you design.
 - **Standalone always.** The plan must be implementable from any session with zero conversation context — bake every investigation finding into the document.

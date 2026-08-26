@@ -147,7 +147,7 @@ describe("discardConfirmMessage", () => {
     rounds: 0,
     files: [],
     worktree_dirty: false,
-    plan_path: undefined,
+    documents: undefined,
   };
 
   test("names the dash and what teardown deletes, always", () => {
@@ -185,12 +185,15 @@ describe("discardConfirmMessage", () => {
     expect(discardConfirmMessage(base)).not.toContain("handed back");
   });
 
-  test("a dash driving a plan says where the plan goes", () => {
-    // `restore_plan_to_base` runs before teardown precisely so discarding a
-    // dash can never destroy the authored plan document.
-    const planned: DashChangesetEntry = { ...base, plan_path: "dash/x.md" };
+  test("a dash with documents says they stay", () => {
+    // A discard keeps the dash's documents precisely so it can never destroy
+    // decisions the user may want back; the message says where they are.
+    const planned: DashChangesetEntry = {
+      ...base,
+      documents: { plan: "/repo/.tug/dashes/sporty-snail/plan.md" },
+    };
     expect(discardConfirmMessage(planned)).toContain(
-      "The plan is restored to main.",
+      "Its documents stay at .tug/dashes/sporty-snail/.",
     );
   });
 

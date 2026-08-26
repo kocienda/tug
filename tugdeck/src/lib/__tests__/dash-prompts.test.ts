@@ -13,8 +13,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  planNextGestureLabel,
-  planNextGesturePrompt,
+  documentDashNextGestureLabel,
+  documentDashNextGesturePrompt,
   resolvePromptTarget,
   startDashPrompt,
 } from "../dash-prompts";
@@ -41,41 +41,46 @@ describe("startDashPrompt", () => {
   });
 });
 
-describe("planNextGesturePrompt — the next gesture ladder (Table T01)", () => {
-  test("a reviewed plan is one press from a dash", () => {
-    expect(planNextGesturePrompt("reviewed", "dash/x.md", false)).toBe(
-      "/tugplug:dash-implement dash/x.md",
+describe("documentDashNextGesturePrompt — the next gesture ladder", () => {
+  test("every verb takes the name, never a path", () => {
+    expect(documentDashNextGesturePrompt("reviewed", "x", false, true)).toBe(
+      "/tugplug:dash-implement x",
     );
-    expect(planNextGestureLabel("reviewed", false)).toBe("Implement");
+    expect(documentDashNextGestureLabel("reviewed", false, true)).toBe(
+      "Implement",
+    );
   });
 
   // Stale and never-reviewed get the same answer: a review that predates an
   // edit vouches for a document that no longer exists.
   test("anything short of reviewed wants the review turn", () => {
     for (const review of ["never-reviewed", "stale"]) {
-      expect(planNextGesturePrompt(review, "dash/x.md", false)).toBe(
-        "/tugplug:plan-review dash/x.md",
+      expect(documentDashNextGesturePrompt(review, "x", false, true)).toBe(
+        "/tugplug:plan-review x",
       );
-      expect(planNextGestureLabel(review, false)).toBe("Review");
+      expect(documentDashNextGestureLabel(review, false, true)).toBe("Review");
     }
   });
 
   // Work already on the ledger outranks every review state: `dash-implement`
   // resumes at the first row that is not done, and its own setup gate re-asks
   // about a review that went stale.
-  test("a begun plan wants resuming, whatever its review says", () => {
+  test("a begun dash wants resuming, whatever its review says", () => {
     for (const review of ["reviewed", "stale", "never-reviewed"]) {
-      expect(planNextGesturePrompt(review, "dash/x.md", true)).toBe(
-        "/tugplug:dash-implement dash/x.md",
+      expect(documentDashNextGesturePrompt(review, "x", true, true)).toBe(
+        "/tugplug:dash-implement x",
       );
-      expect(planNextGestureLabel(review, true)).toBe("Resume");
+      expect(documentDashNextGestureLabel(review, true, true)).toBe("Resume");
     }
   });
 
-  test("the path is cited verbatim", () => {
-    expect(planNextGesturePrompt("reviewed", "docs/plans/a b.md", false)).toBe(
-      "/tugplug:dash-implement docs/plans/a b.md",
+  // A brief and no plan is the planning phase before devise: the arc's front
+  // door is what writes the plan, so that is where the row points.
+  test("a dash with no plan yet wants the arc's front door", () => {
+    expect(documentDashNextGesturePrompt(undefined, "x", false, false)).toBe(
+      "/tugplug:dash x",
     );
+    expect(documentDashNextGestureLabel(undefined, false, false)).toBe("Devise");
   });
 });
 

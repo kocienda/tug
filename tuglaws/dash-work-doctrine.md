@@ -11,11 +11,10 @@ This document covers **how the work is done**. The dash's state model — what `
 A dash *is* a git branch (`tugdash/<name>`) plus a worktree. `tugutil dash create <name> --json` returns that worktree's absolute path. **Capture it.** From that moment it is the only working root:
 
 - Address **every** read, write, edit, and test by absolute path into the worktree. A shell's cwd silently reverts to the base checkout between tool calls; a relative path is a coin flip.
-- **Never write to the base checkout.** Not code, not a plan, not a ledger, not a scratch file. The base branch is the user's; the only path back is their join gesture.
+- **Never write to the base checkout's working tree.** Not code, not a scratch file. The base branch is the user's; the only path back is their join gesture. The dash's own `.tug/dashes/<name>/` is not an exception to that rule but the reason there is nothing left to except: it is gitignored, invisible to `git status`, reached only through a verb, and so is not part of the tree the rule protects.
 - A stray write to the base root also *blocks* the join — the join preflight requires the base clean where it intersects the dash's files.
-- If the document a run is driving lives on the base branch, a **verb** moves it into the worktree — `tugutil dash create <name> --plan <path>`, or `tugutil dash adopt-plan <name>` for a dash that already exists. Never copy it by hand: the dash owns its plan and there is exactly one live copy ([D139], [dash-lifecycle.md](dash-lifecycle.md#plan-adoption)).
 
-There is no canonical directory for anything, and no blessed name. Where a project keeps its dash paperwork is something the project declares for itself — `[tugtool.dash].docs`, read through `tugutil dash docs-dir` — so a home is resolved or handed to you, never assumed from a name you recognize.
+A dash's documents live at `<main-repo>/.tug/dashes/<name>/` — `brief.md` and `plan.md` — and the **name** is their address on every verb ([D139]). They are never tracked and never in the worktree, so nothing transplants them, nothing detects divergence between copies, and nothing has to clean them up: `tugutil dash documents <name>` reports them, and `--ensure` creates the directory to write into. There is no directory to declare, assume, or ask about.
 
 ## Starting from a dirty base
 
@@ -25,7 +24,7 @@ So `dash create` ends by saying what it left behind — the uncommitted paths, c
 
 When the work on the base *is* the work the dash is for — the "I was half-way through this before I realised it should be a dash" case — `--carry` moves it into the new worktree, uncommitted, and cleans the base. Uncommitted because it is in progress by definition: the dash's first round commits it with intent, rather than a machine writing a message for work it did not do. Content is carried, not index state, so a staged edit arrives unstaged.
 
-`dash discard` is the inverse and needs no flag: it returns the worktree's uncommitted work to the base before teardown, the same way it already returns an adopted plan. If the base has since acquired its own uncommitted edit to one of those paths, discard refuses and leaves the dash standing — the work stays reachable rather than being destroyed to complete a teardown. Commit or stash the base changes and discard again.
+`dash discard` is the inverse and needs no flag: it returns the worktree's uncommitted work to the base before teardown. If the base has since acquired its own uncommitted edit to one of those paths, discard refuses and leaves the dash standing — the work stays reachable rather than being destroyed to complete a teardown. Commit or stash the base changes and discard again.
 
 ## When the base moves
 

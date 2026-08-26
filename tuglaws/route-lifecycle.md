@@ -141,7 +141,6 @@ Secondary implementation source — where the pipe is wired up.
 
 Planning history — kept for context, not authoritative.
 
-- [`dash/tugplan-tide-prompt-entry-zones.md`](../dash/tugplan-tide-prompt-entry-zones.md) — the plan that introduced `RouteLifecycle`, the `Z4A` / `Z4B` toolbar split, and tugcast host facts.
 
 ---
 

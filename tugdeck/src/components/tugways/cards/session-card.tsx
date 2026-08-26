@@ -4307,14 +4307,21 @@ export function SessionCardBody({
           : changesController
               .getSnapshot()
               .dashes.find((row) => row.display_name === boundName);
+      // A dash the card is bound to may still be branchless — its plan is on
+      // the document-dash list rather than on a changeset entry.
+      const boundPlan =
+        entry?.documents?.plan ??
+        (boundName === undefined
+          ? undefined
+          : changesController
+              .getSnapshot()
+              .documentDashes.find((row) => row.display_name === boundName)
+              ?.documents.plan);
       const target = resolvePlanReviewTarget({
         args,
         projectDir: binding.projectDir,
         lastReviewed: readLastReviewedPlan(cardId),
-        boundDash:
-          entry?.plan_path === undefined
-            ? null
-            : { worktree: entry.worktree, planPath: entry.plan_path },
+        boundDash: boundPlan === undefined ? null : { plan: boundPlan },
       });
       if ("refused" in target) {
         notify?.caution("Name the plan — /plan-review <path>");

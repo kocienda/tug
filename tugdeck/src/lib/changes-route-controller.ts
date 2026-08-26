@@ -40,6 +40,7 @@ import { getChangesetVerbStore } from "./changeset-verb-store";
 import type {
   ChangesetDraftSelection,
   DashChangesetEntry,
+  DocumentDashEntry,
   OrphanedFile,
   ProjectChangeset,
   SessionChangesetEntry,
@@ -70,6 +71,12 @@ export interface ChangesRouteSnapshot {
   entry: SessionChangesetEntry | null;
   /** Dash worktree entries in this workspace (their own Join affordance). */
   dashes: DashChangesetEntry[];
+  /**
+   * Dashes in this workspace that exist only as documents — a brief or a plan
+   * written, no branch cut yet. A card can be bound to one of these, so they
+   * are a peer of `dashes` rather than a detail of it.
+   */
+  documentDashes: DocumentDashEntry[];
   /** Dirty files no owner claims. */
   unattributed: UnattributedFile[];
   /** Dirty files owned only by non-live sessions — claimable orphans ([D120]). */
@@ -162,6 +169,7 @@ export function deriveChangesRouteSnapshot(
   return {
     entry,
     dashes,
+    documentDashes: project.document_dashes ?? [],
     unattributed: project.unattributed,
     orphaned: project.orphaned ?? [],
     project,

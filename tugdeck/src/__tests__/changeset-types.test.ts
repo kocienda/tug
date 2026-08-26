@@ -14,6 +14,7 @@ import {
   isChangesetFile,
   isChangesetSnapshot,
   isOptionalChangesetDraft,
+  isDocumentDashEntry,
   isProjectChangeset,
   isWorkspacesChangesetSnapshot,
   type ChangesetSnapshot,
@@ -91,11 +92,22 @@ describe("changeset wire contract", () => {
     );
     expect(isChangesetEntry({ ...base, run_position: "2" })).toBe(false);
     expect(isChangesetEntry({ ...base, run_length: null })).toBe(false);
-    // `plan_path` is optional both ways: absent on every dash no run has
-    // stepped, a worktree-relative string once one has.
-    expect(isChangesetEntry({ ...base, plan_path: "dash/plan.md" })).toBe(true);
-    expect(isChangesetEntry({ ...base, plan_path: 7 })).toBe(false);
-    expect(isChangesetEntry({ ...base, plan_path: null })).toBe(false);
+    // `documents` is optional both ways: absent on a dash with neither
+    // document, an object of absolute paths and titles once one exists. Each
+    // field inside it is optional and, when present, a string.
+    expect(
+      isChangesetEntry({
+        ...base,
+        documents: { plan: "/repo/.tug/dashes/x/plan.md", plan_title: "X" },
+      }),
+    ).toBe(true);
+    expect(isChangesetEntry({ ...base, documents: {} })).toBe(true);
+    expect(isChangesetEntry({ ...base, documents: { plan: 7 } })).toBe(false);
+    expect(isChangesetEntry({ ...base, documents: { brief: null } })).toBe(
+      false,
+    );
+    expect(isChangesetEntry({ ...base, documents: 7 })).toBe(false);
+    expect(isChangesetEntry({ ...base, documents: null })).toBe(false);
     // The ledger is optional both ways: the wire skips it entirely for a dash
     // driving no plan, and a whole array of `{title, status}` arrives once one
     // is. A row missing either half is drift, not a sparse row — a step list
@@ -223,6 +235,31 @@ describe("aggregate changeset wire contract", () => {
     expect(nonRepo.no_repo).toBe(true);
     expect(nonRepo.branch).toBe("");
     expect(nonRepo.changesets).toHaveLength(0);
+  });
+
+  test("a document-only dash rides the aggregate, guarded field for field", () => {
+    const snapshot = aggregateGolden as WorkspacesChangesetSnapshot;
+    const planning = snapshot.projects[0]!.document_dashes;
+    expect(planning).toHaveLength(2);
+    const first = planning![0]!;
+    expect(first.display_name).toBe("dash-cockpit");
+    // Absolute, because the deck composes nothing: it is handed the path.
+    expect(first.documents.plan).toBe("/repo/.tug/dashes/dash-cockpit/plan.md");
+    expect(first.documents.brief_title).toBe("The dash cockpit");
+    expect(first.review).toBe("reviewed");
+    expect([first.steps_done, first.steps_begun]).toEqual([1, 2]);
+    // A project with none carries no key at all, so an older sender decodes.
+    expect(snapshot.projects[1]!.document_dashes).toBeUndefined();
+
+    expect(isDocumentDashEntry(first)).toBe(true);
+    // The documents object is required — a row with no document is not a row.
+    const { documents: _dropped, ...documentless } = first;
+    expect(isDocumentDashEntry(documentless)).toBe(false);
+    expect(isDocumentDashEntry({ ...first, step_total: "3" })).toBe(false);
+    expect(isDocumentDashEntry({ ...first, owner_id: 7 })).toBe(false);
+    // `review` is optional: a dash with a brief and no plan has none.
+    const { review: _review, ...unreviewed } = first;
+    expect(isDocumentDashEntry(unreviewed)).toBe(true);
   });
 
   test("aggregate guards reject shape drift", () => {

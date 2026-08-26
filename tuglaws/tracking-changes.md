@@ -2,7 +2,7 @@
 
 *How a session's file changes are captured, classified, and committed. The two-layer doctrine: **capture annotates, git status decides** — the attribution ledger records who changed what at the moment of change (best-effort by construction), and the read/commit side treats the working tree as the universe so a capture gap can narrow *attribution* but can never hide a file or shrink a commit.*
 
-*Cross-references: `[D##]` → [design-decisions.md](design-decisions.md), principally [D112] (point-of-change attribution, provenance-only capture, per-file contention, row liveness) and [D113] (the aggregate changeset feed). Plan lineage: `dash/changesets-plan.md` (capture), `dash/commit-tool-fixes.md` (the join inversion, buckets, and refusal contract).*
+*Cross-references: `[D##]` → [design-decisions.md](design-decisions.md), principally [D112] (point-of-change attribution, provenance-only capture, per-file contention, row liveness) and [D113] (the aggregate changeset feed).*
 
 ---
 

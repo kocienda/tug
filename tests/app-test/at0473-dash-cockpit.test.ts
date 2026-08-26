@@ -76,7 +76,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -90,6 +90,8 @@ import {
   createDash,
   discardDash,
   fixturePlanDocument,
+  dashBriefPath,
+  dashPlanPath,
   makeDashScratchRepo,
   recordStampedPlan,
   rmDashScratchRepo,
@@ -108,12 +110,11 @@ const SID_A = "a7c0d1ea-0000-4000-8000-000000000473";
 const SID_B = "a7c0d1ea-0000-4000-8000-000000000474";
 
 const SECTION = '.lens-section[data-lens-section="dashes"]';
-const PLAN_ROWS = `${SECTION} [data-slot="lens-plans-row"]`;
+const PLAN_ROWS = `${SECTION} [data-slot="lens-document-dash-row"]`;
 const EMPTY = `${SECTION} [data-slot="lens-dashes-empty"]`;
-const planRow = (path: string): string =>
-  `${PLAN_ROWS}[data-plan="${path}"]`;
-const gesture = (path: string): string =>
-  `${planRow(path)} [data-slot="lens-plans-gesture"]`;
+const planRow = (name: string): string => `${PLAN_ROWS}[data-dash="${name}"]`;
+const gesture = (name: string): string =>
+  `${planRow(name)} [data-slot="lens-plans-gesture"]`;
 
 /** The band's `+` — `headerActions`' first consumer anywhere in the Lens. */
 const BAND_START = `${SECTION} [data-slot="lens-dashes-start"][data-placement="band"]`;
@@ -130,18 +131,18 @@ const DASH_NAME = "at0473-cockpit";
 /** This checkout — the build under test, and never a tree a fixture writes in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
 
-/** The docs directory both scratch projects declare. */
-const DOCS = "paperwork";
-const REVIEWED = `${DOCS}/settled.md`;
-const FRESH = `${DOCS}/unread.md`;
-const OTHER = `${DOCS}/elsewhere.md`;
-/** A plan a run stopped short of: one row done, one open, one waiting. */
-const BEGUN = `${DOCS}/underway.md`;
-/** A plan whose every row landed — history, and never a row. */
-const FINISHED = `${DOCS}/settled-long-ago.md`;
+// Every dash's documents live at its own address, so a document-only dash IS
+// its name — there is no path to name it by.
+const REVIEWED = "settled";
+const FRESH = "unread";
+const OTHER = "elsewhere";
+/** A dash a run stopped short of: one row done, one open, one waiting. */
+const BEGUN = "underway";
+/** A dash with a brief and no plan yet — the planning phase before devise. */
+const BRIEFED = "sketched";
 
-/** The dash that adopts a docs-directory plan out from under its own row. */
-const ADOPTER = "at0473-adopter";
+/** The dash whose branch turns its document row into a live one. */
+const ADOPTER = "unread";
 
 let projectA: DashScratchRepo | null = null;
 let projectB: DashScratchRepo | null = null;
@@ -150,46 +151,52 @@ let fixtureB = "";
 const dirA = (): string => projectA?.repo ?? "";
 const dirB = (): string => projectB?.repo ?? "";
 
-/** One plan document a scratch project holds: its path, its size, its ledger. */
+/** One dash's plan: the dash's name, the plan's size, its ledger. */
 interface PaperworkPlan {
-  path: string;
+  name: string;
   rows: number;
   /** Ledger statuses from the first row forward; the rest stay `pending`. */
   statuses?: readonly string[];
 }
 
 /**
- * A scratch project declaring `docs = "<DOCS>"` and holding `plans` documents
- * there, unstamped. The stamping is a separate act because a review stamp is
- * computed, never authored — the fixture runs the real verb rather than
- * writing a hash it cannot compute.
+ * A scratch project whose dashes hold plans at their own addresses, unstamped.
+ *
+ * The documents are written **after** the scratch repo's first commit, and
+ * never through its `files` map: `.tug/` is not tracked, and a fixture that
+ * committed a plan would be testing a world this plan deleted. The stamping is
+ * a separate act too, because a review stamp is computed rather than authored —
+ * the fixture runs the real verb rather than writing a hash it cannot compute.
  */
 function makePaperworkProject(
   prefix: string,
   plans: readonly PaperworkPlan[],
 ): DashScratchRepo {
-  const files: Record<string, string> = {
-    ".tugtool/config.toml": `[tugtool.dash]\ndocs = "${DOCS}"\n`,
-  };
+  const project = makeDashScratchRepo({ prefix, checkout: CHECKOUT });
   for (const plan of plans) {
-    files[plan.path] = fixturePlanDocument(plan.rows, plan.statuses);
+    writeFileSync(
+      dashPlanPath(project.repo, plan.name),
+      fixturePlanDocument(plan.rows, plan.statuses),
+    );
   }
-  return makeDashScratchRepo({ prefix, checkout: CHECKOUT, files });
+  return project;
 }
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   // Distinct step counts so the row's size cue is worth asserting on.
   projectA = makePaperworkProject("at0473a", [
-    { path: REVIEWED, rows: 1 },
-    { path: FRESH, rows: 2 },
-    { path: BEGUN, rows: 3, statuses: ["done", "in progress"] },
-    { path: FINISHED, rows: 2, statuses: ["done", "done"] },
+    { name: REVIEWED, rows: 1 },
+    { name: FRESH, rows: 2 },
+    { name: BEGUN, rows: 3, statuses: ["done", "in progress"] },
   ]);
-  projectB = makePaperworkProject("at0473b", [{ path: OTHER, rows: 1 }]);
-  // One of A's two documents gets a real review stamp, so the two rows differ
-  // in exactly the fact the next-gesture ladder reads.
-  tugutil(["plan", "stamp", join(dirA(), REVIEWED)], {
+  // A brief and no plan: the planning phase before devise has run.
+  writeFileSync(dashBriefPath(dirA(), BRIEFED), "# A sketch\n\nProse.\n");
+  projectB = makePaperworkProject("at0473b", [{ name: OTHER, rows: 1 }]);
+  // One of A's dashes gets a real review stamp, so the rows differ in exactly
+  // the fact the next-gesture ladder reads. Stamped **by name**, which is the
+  // address every plan verb now takes.
+  tugutil(["plan", "stamp", REVIEWED], {
     cwd: dirA(),
     binaryRoot: CHECKOUT,
     env: projectA.cli.env,
@@ -239,7 +246,7 @@ function deckShape() {
 }
 
 interface PlanRowReading {
-  path: string | null;
+  dash: string | null;
   review: string | null;
   name: string;
   facts: string;
@@ -254,7 +261,7 @@ const readPlanRows = (app: App): Promise<PlanRowReading[]> =>
     `Array.from(document.querySelectorAll(${JSON.stringify(PLAN_ROWS)})).map((row) => {
        const button = row.querySelector('[data-slot="lens-plans-gesture"]');
        return {
-         path: row.getAttribute("data-plan"),
+         dash: row.getAttribute("data-dash"),
          review: row.getAttribute("data-review"),
          name: (row.querySelector('[data-slot="lens-plans-name"]')?.textContent ?? "").trim(),
          facts: (row.querySelector('[data-slot="lens-plans-facts"]')?.textContent ?? "").trim(),
@@ -298,11 +305,11 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // gives the Lens something to be about, and without it every
         // affordance here correctly refuses with "Focus a session card".
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
-        // Four rows, not five: project A holds four documents, and the one
-        // whose ledger is wholly `done` is finished work rather than waiting
-        // paperwork, so the producer never sends it.
+        // Five rows: A's four dashes — three with plans, one with only a
+        // brief — plus B's one. Every one of them is a dash that exists
+        // without a branch, which is the planning phase made visible.
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(PLAN_ROWS)}).length === 4`,
+          `document.querySelectorAll(${JSON.stringify(PLAN_ROWS)}).length === 5`,
           { timeoutMs: 40000 },
         );
         await app.waitForCondition<boolean>(
@@ -322,28 +329,30 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           ),
         ).toBe(0);
 
-        // ── Every open project contributes; finished work does not ────────
-        expect(rows.map((r) => r.path).sort()).toEqual(
-          [REVIEWED, FRESH, BEGUN, OTHER].sort(),
+        // ── Every open project contributes ────────────────────────────────
+        expect(rows.map((r) => r.dash).sort()).toEqual(
+          [REVIEWED, FRESH, BEGUN, BRIEFED, OTHER].sort(),
         );
-        expect(rows.some((r) => r.path === FINISHED)).toBe(false);
 
         // ── Work in flight first, then nearest to starting ────────────────
         // A plan a run stopped short of outranks even a reviewed one nobody
         // has touched: it is nearer done, the same principle the dash rows
         // encode.
-        expect(rows[0]!.path).toBe(BEGUN);
+        expect(rows[0]!.dash).toBe(BEGUN);
         expect(rows[1]!.review).toBe("reviewed");
-        expect(rows[1]!.path).toBe(REVIEWED);
+        expect(rows[1]!.dash).toBe(REVIEWED);
 
-        const settled = rows.find((r) => r.path === REVIEWED)!;
-        const unread = rows.find((r) => r.path === FRESH)!;
-        const underway = rows.find((r) => r.path === BEGUN)!;
-        const elsewhere = rows.find((r) => r.path === OTHER)!;
+        const settled = rows.find((r) => r.dash === REVIEWED)!;
+        const unread = rows.find((r) => r.dash === FRESH)!;
+        const underway = rows.find((r) => r.dash === BEGUN)!;
+        const sketched = rows.find((r) => r.dash === BRIEFED)!;
+        const elsewhere = rows.find((r) => r.dash === OTHER)!;
 
         // ── The next-gesture ladder, in the DOM ───────────────────────────
-        expect(settled.name).toBe("settled");
+        expect(settled.name).toBe(REVIEWED);
         expect(settled.label).toBe("Implement");
+        // Every gesture names the dash, never a path: the skills resolve the
+        // address, so a prompt cannot point at the wrong file.
         expect(settled.prompt).toBe(`/tugplug:dash-implement ${REVIEWED}`);
         expect(settled.facts).toBe("plan · reviewed · 1 step");
         expect(settled.disabled).toBe(false);
@@ -353,6 +362,13 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         expect(unread.prompt).toBe(`/tugplug:plan-review ${FRESH}`);
         expect(unread.facts).toBe("plan · never-reviewed · 2 steps");
         expect(unread.disabled).toBe(false);
+
+        // A brief and no plan is the planning phase before devise: the row
+        // says what it has, and points at the arc's front door.
+        expect(sketched.label).toBe("Devise");
+        expect(sketched.prompt).toBe(`/tugplug:dash ${BRIEFED}`);
+        expect(sketched.facts).toBe("brief");
+        expect(sketched.disabled).toBe(false);
 
         // A begun plan states how far it got, and wants resuming whatever its
         // review says — `dash-implement` re-enters at the first row that is
@@ -368,24 +384,21 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         expect(elsewhere.title).toContain("belongs to");
         note("at0473 cockpit", (await app.screenshot()).path);
 
-        // ── A plan a live dash has adopted leaves the listing ─────────────
-        // The act the first cut of this section got wrong. Adoption commits
-        // the plan on the dash branch and leaves a *committed, clean* base
-        // copy exactly where it was ([D139]) — so the file is still in the
-        // docs directory, still parses, and its ledger is still all-`pending`,
-        // because the run's progress goes to the worktree copy. Nothing about
-        // the document can say a dash owns it; only the dash's own recorded
-        // plan path can. Driven with the real verbs, so the base copy is
-        // genuinely still on disk when the row disappears.
+        // ── Cutting the branch turns the row live; it never doubles ───────
+        // One dash, one row, before and after `create`. The documents do not
+        // move — they are already at the dash's own address — so what changes
+        // is only which list the name is on. Driven with the real verbs.
         const adopter = createDash(dirA(), ADOPTER, "at0473 adopter", projectA!.cli);
-        tugutil(
-          ["dash", "step", ADOPTER, "start", "1", "--through", "2", "--plan", FRESH],
-          { cwd: dirA(), binaryRoot: CHECKOUT, env: projectA!.cli.env },
-        );
+        tugutil(["dash", "step", ADOPTER, "start", "1", "--through", "2"], {
+          cwd: dirA(),
+          binaryRoot: CHECKOUT,
+          env: projectA!.cli.env,
+        });
         note("at0473 adopter worktree", adopter.worktree);
-        expect(existsSync(join(dirA(), FRESH))).toBe(true);
+        // The plan stayed exactly where it was — nothing transplanted it.
+        expect(existsSync(dashPlanPath(dirA(), ADOPTER))).toBe(true);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(PLAN_ROWS)}).length === 3`,
+          `document.querySelectorAll(${JSON.stringify(PLAN_ROWS)}).length === 4`,
           { timeoutMs: 40000 },
         );
         expect(
@@ -394,8 +407,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           ),
         ).toBe(0);
         // And the work is not gone from the section — it moved to the row that
-        // tells the truth about it, which carries the live step counter the
-        // frozen base copy never could.
+        // tells the truth about it, which carries the live step counter.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${SECTION} [data-slot="lens-dashes-row"][data-dash="${ADOPTER}"]`)}) !== null`,
           { timeoutMs: 40000 },
@@ -524,6 +536,11 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           binaryRoot: CHECKOUT,
           env: { ...projectA!.cli.env, TUG_SESSION_ID: SID_A },
         });
+        // Real work in the worktree, so the placard has a divergence fact to
+        // state. The plan is not one: it lives at the dash's own address,
+        // outside every tree git watches, so a run's whole ledger walk leaves
+        // the worktree clean.
+        writeFileSync(join(dash.worktree, "in-flight.txt"), "mid-round\n");
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-status-dash-fraction")?.textContent ?? "").trim() === "1/3"`,
           { timeoutMs: 60000 },
