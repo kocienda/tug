@@ -101,7 +101,10 @@ fn a_multi_pair_program_edits_one_file_and_receipts_the_regions_it_produced() {
     let ops = receipt_ops(&out);
     assert_eq!(ops.len(), 1);
     assert_eq!(ops[0]["op"], "modified");
-    assert_eq!(ops[0]["path"], root.join("a.txt").to_string_lossy().as_ref());
+    assert_eq!(
+        ops[0]["path"],
+        root.join("a.txt").to_string_lossy().as_ref()
+    );
     assert!(
         !ops[0]["hunks"].as_array().expect("hunks").is_empty(),
         "a modification names the regions it produced"
@@ -139,7 +142,7 @@ fn a_files_block_receipts_each_file_that_moved_and_no_file_that_did_not() {
 fn create_and_write_receipt_the_right_op_for_what_they_did() {
     let (_dir, root) = init_repo();
 
-    let out = rev(&root, &[], "file made.txt\n  create <<\n  fresh\n  >>\n");
+    let out = rev(&root, &[], "file made.txt\n  create <<\nfresh\n>>\n");
     assert_eq!(code(&out), 0);
     assert_eq!(receipt_ops(&out)[0]["op"], "created");
     assert_eq!(
@@ -147,10 +150,10 @@ fn create_and_write_receipt_the_right_op_for_what_they_did() {
         "fresh\n"
     );
 
-    let out = rev(&root, &[], "file written.txt\n  write <<\n  fresh\n  >>\n");
+    let out = rev(&root, &[], "file written.txt\n  write <<\nfresh\n>>\n");
     assert_eq!(receipt_ops(&out)[0]["op"], "created");
 
-    let out = rev(&root, &[], "file a.txt\n  write <<\n  whole\n  >>\n");
+    let out = rev(&root, &[], "file a.txt\n  write <<\nwhole\n>>\n");
     assert_eq!(receipt_ops(&out)[0]["op"], "modified");
     assert_eq!(
         std::fs::read_to_string(root.join("a.txt")).unwrap(),
@@ -165,9 +168,16 @@ fn preview_leaves_bytes_and_mtime_untouched_and_prints_no_receipt() {
     let before = std::fs::read(&target).unwrap();
     let stamp = mtime(&target);
 
-    let out = rev(&root, &["--preview"], "file a.txt\n  replace 'two' with 'deux'\n");
+    let out = rev(
+        &root,
+        &["--preview"],
+        "file a.txt\n  replace 'two' with 'deux'\n",
+    );
     assert_eq!(code(&out), 0);
-    assert!(!has_receipt(&out), "a preview changed nothing to testify to");
+    assert!(
+        !has_receipt(&out),
+        "a preview changed nothing to testify to"
+    );
     assert!(
         String::from_utf8_lossy(&out.stdout).contains("+deux"),
         "a preview shows the diff it would make"
@@ -206,6 +216,10 @@ fn a_resolve_failure_exits_three_reporting_every_stale_address_and_writing_nothi
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("line 3"), "{stderr}");
     assert!(stderr.contains("line 4"), "{stderr}");
+    assert!(
+        stderr.contains("nothing was written — 1 op resolved and 2 did not"),
+        "the refusal says in words that the op which did resolve is still pending: {stderr}"
+    );
     assert_eq!(
         std::fs::read_to_string(root.join("a.txt")).unwrap(),
         "one\ntwo\nthree\n",
@@ -265,7 +279,7 @@ fn a_files_mode_survives_the_atomic_write() {
 fn tugrev_and_tugutil_file_rev_are_the_same_verb() {
     let (_dir_one, one) = init_repo();
     let (_dir_two, two) = init_repo();
-    let program = "file a.txt\n  replace 'two' with 'deux'\n  append <<\n  four\n  >>\n";
+    let program = "file a.txt\n  replace 'two' with 'deux'\n  append <<\nfour\n>>\n";
 
     let through_tugutil = rev(&one, &["--preview"], program);
     let through_tugrev = tugrev(&two, &["--preview"], program);
@@ -286,7 +300,11 @@ fn tugrev_and_tugutil_file_rev_are_the_same_verb() {
 #[test]
 fn a_program_reads_from_a_named_file_as_well_as_from_stdin() {
     let (_dir, root) = init_repo();
-    std::fs::write(root.join("edit.rev"), "file a.txt\n  replace 'two' with 'deux'\n").unwrap();
+    std::fs::write(
+        root.join("edit.rev"),
+        "file a.txt\n  replace 'two' with 'deux'\n",
+    )
+    .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_tugrev"))
         .current_dir(&root)
         .arg("edit.rev")

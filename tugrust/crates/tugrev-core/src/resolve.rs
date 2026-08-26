@@ -297,7 +297,12 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
                 hits.push(from + cursor + at);
                 cursor += at + needle.len();
             }
-            guard(*count, hits.len(), "match")?;
+            if let Err(message) = guard(*count, hits.len(), "match") {
+                return Err(match indent_hint(doc, from, to, &needle) {
+                    Some(hint) if hits.is_empty() => format!("{message} — {hint}"),
+                    _ => message,
+                });
+            }
             Ok(hits
                 .into_iter()
                 .map(|start| Edit {
@@ -467,6 +472,72 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
             unreachable!("whole-file ops are resolved before the document is built")
         }
     }
+}
+
+/// When a `replace` finds nothing, look once more for the same text at every
+/// other indentation the file offers it at. A body is far more often written
+/// at the wrong column than written wrong, so the refusal names the column
+/// that would have matched instead of leaving the model to guess at it.
+fn indent_hint(doc: &Doc, from: usize, to: usize, needle: &str) -> Option<String> {
+    let lines: Vec<&str> = needle.split(doc.eol).collect();
+    let strip = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| leading_whitespace(l))
+        .min()?;
+    let core: Vec<&str> = lines
+        .iter()
+        .map(|l| if l.trim().is_empty() { "" } else { &l[strip..] })
+        .collect();
+    let key = core.iter().position(|l| !l.is_empty())?;
+    let key_indent = leading_whitespace(core[key]);
+    let hay = &doc.text[from..to];
+    let mut tried: Vec<&str> = Vec::new();
+    for span in &doc.lines {
+        if span.start < from || span.start >= to {
+            continue;
+        }
+        let text = doc.text[span.start..span.next].trim_end_matches(['\r', '\n']);
+        let lead = leading_whitespace(text);
+        if lead < key_indent || text[lead - key_indent..] != *core[key] {
+            continue;
+        }
+        let pad = &text[..lead - key_indent];
+        if pad.len() == strip || tried.contains(&pad) {
+            continue;
+        }
+        tried.push(pad);
+        let candidate = core
+            .iter()
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("{pad}{l}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(doc.eol);
+        let Some(first) = hay.find(&candidate) else {
+            continue;
+        };
+        let found = hay.matches(&candidate).count();
+        let line = doc.lines.partition_point(|l| l.start <= from + first);
+        let (by, way) = if pad.len() > strip {
+            (pad.len() - strip, "deeper")
+        } else {
+            (strip - pad.len(), "shallower")
+        };
+        return Some(format!(
+            "found {found} at line {line} if it were written {by} column{} {way}",
+            if by == 1 { "" } else { "s" }
+        ));
+    }
+    None
+}
+
+fn leading_whitespace(s: &str) -> usize {
+    s.len() - s.trim_start_matches([' ', '\t']).len()
 }
 
 fn guard(count: Count, found: usize, noun: &str) -> Result<(), String> {
@@ -953,20 +1024,20 @@ mod tests {
         let err = refusal("file gone.txt\n  delete 1\n", &[]);
         assert_eq!(err.failures[0].message, "no such file");
 
-        let created = plan("file new.txt\n  create <<\n  hello\n  >>\n", &[]);
+        let created = plan("file new.txt\n  create <<\nhello\n>>\n", &[]);
         assert_eq!(created[0].kind, OutcomeKind::Created);
         assert_eq!(created[0].whole.as_deref(), Some("hello\n"));
 
-        let written = plan("file new.txt\n  write <<\n  hello\n  >>\n", &[]);
+        let written = plan("file new.txt\n  write <<\nhello\n>>\n", &[]);
         assert_eq!(written[0].kind, OutcomeKind::Created);
 
-        let over = plan("file a.txt\n  write <<\n  hello\n  >>\n", &doc());
+        let over = plan("file a.txt\n  write <<\nhello\n>>\n", &doc());
         assert_eq!(over[0].kind, OutcomeKind::Modified);
     }
 
     #[test]
     fn create_refuses_a_file_that_already_exists() {
-        let err = refusal("file a.txt\n  create <<\n  hello\n  >>\n", &doc());
+        let err = refusal("file a.txt\n  create <<\nhello\n>>\n", &doc());
         assert!(
             err.failures[0].message.contains("already exists"),
             "{}",
@@ -1010,5 +1081,33 @@ mod tests {
         let source = Counting(std::cell::Cell::new(0));
         resolve(&program, &source).expect("resolves");
         assert_eq!(source.0.get(), 1);
+    }
+
+    #[test]
+    fn text_found_nowhere_names_the_column_it_would_have_matched_at() {
+        // The commonest miss in the field: a body written two columns off the
+        // file's own indentation. The count is still wrong and the op still
+        // fails — but the retry is one edit rather than a guess.
+        let err = refusal(
+            "file a.txt\n  replace <<\n  return (\n    x\n  );\n  >> with <<\n  return x;\n  >>\n",
+            &[("a.txt", "fn go() {\n    return (\n      x\n    );\n}\n")],
+        );
+        assert_eq!(
+            err.failures[0].message,
+            "expected 1 match, found 0 — found 1 at line 2 if it were written 2 columns deeper"
+        );
+        let err = refusal(
+            "file a.txt\n  replace '      x' with 'y'\n",
+            &[("a.txt", "fn go() {\n    x\n}\n")],
+        );
+        assert_eq!(
+            err.failures[0].message,
+            "expected 1 match, found 0 — found 1 at line 2 if it were written 2 columns shallower"
+        );
+        let err = refusal(
+            "file a.txt\n  replace 'absent' with 'y'\n",
+            &[("a.txt", "fn go() {\n    x\n}\n")],
+        );
+        assert_eq!(err.failures[0].message, "expected 1 match, found 0");
     }
 }

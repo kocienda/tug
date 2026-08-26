@@ -7,12 +7,14 @@
 //! `tugutil file edit` emits, from the same code.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use tugrev_core::{FileOutcome, FileSource, OutcomeKind, resolve_and_apply, unified_diff};
+use tugrev_core::{
+    FileOutcome, FileSource, OutcomeKind, Program, ResolveErrors, resolve_and_apply, unified_diff,
+};
 
 use crate::receipt::{Receipt, current_hunk_ids, hunks_this_edit_produced};
 
@@ -81,10 +83,11 @@ pub fn read_program(source: Option<&str>) -> Result<String, RevError> {
 /// bytes *and* mtime untouched and emitting no receipt — nothing changed, so
 /// the ledger must not say otherwise.
 pub fn run(program: &str, preview: bool) -> Result<(), RevError> {
-    let parsed = tugrev_core::parse(program).map_err(|e| RevError::Parse(e.to_string()))?;
+    let parsed = tugrev_core::parse(program)
+        .map_err(|e| RevError::Parse(format!("{e}\nnothing was written")))?;
     let tree = Tree::new();
-    let outcomes =
-        resolve_and_apply(&parsed, &tree).map_err(|e| RevError::Resolve(e.to_string()))?;
+    let outcomes = resolve_and_apply(&parsed, &tree)
+        .map_err(|e| RevError::Resolve(nothing_written(&parsed, &e)))?;
 
     // Byte-identical is not a change: it is neither written nor receipted, and
     // it has no diff to show.
@@ -95,7 +98,10 @@ pub fn run(program: &str, preview: bool) -> Result<(), RevError> {
 
     for outcome in &moved {
         let before = tree.was_read_as(&outcome.path).unwrap_or_default();
-        print!("{}", unified_diff(&outcome.path, &before, &outcome.new_content));
+        print!(
+            "{}",
+            unified_diff(&outcome.path, &before, &outcome.new_content)
+        );
     }
 
     if preview {
@@ -147,6 +153,26 @@ pub fn run(program: &str, preview: bool) -> Result<(), RevError> {
     }
 }
 
+/// The refusal's last line. A rev is all-or-nothing, and a model reading a
+/// refusal tends to carry on as though the ops that did resolve had landed —
+/// its next program then addresses text this one never wrote. So the refusal
+/// counts what resolved and says, in so many words, that none of it is done.
+fn nothing_written(program: &Program, errors: &ResolveErrors) -> String {
+    let failed: BTreeSet<usize> = errors.failures.iter().map(|f| f.op_line).collect();
+    let ops: BTreeSet<usize> = program
+        .blocks
+        .iter()
+        .flat_map(|block| block.ops.iter().map(|op| op.line))
+        .collect();
+    let resolved = ops.iter().filter(|line| !failed.contains(line)).count();
+    format!(
+        "{errors}\nnothing was written — {resolved} op{} resolved and {} did not, so every op in \
+         this program is still pending",
+        if resolved == 1 { "" } else { "s" },
+        failed.len()
+    )
+}
+
 /// Write-temp-and-rename inside the target's own directory, preserving mode.
 /// The rename is what makes each file's write atomic, which is why an exit 4
 /// leaves whole files rather than half of one.
@@ -184,9 +210,7 @@ fn absolute(path: &str) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
     } else {
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join(path)
+        std::env::current_dir().unwrap_or_default().join(path)
     }
 }
 
@@ -217,7 +241,9 @@ impl FileSource for Tree {
             Err(e) => Err(format!("{}: {e}", target.display())),
             Ok(bytes) => match String::from_utf8(bytes) {
                 Ok(text) => {
-                    self.seen.borrow_mut().insert(path.to_string(), text.clone());
+                    self.seen
+                        .borrow_mut()
+                        .insert(path.to_string(), text.clone());
                     Ok(Some(text))
                 }
                 Err(_) => Err(format!(

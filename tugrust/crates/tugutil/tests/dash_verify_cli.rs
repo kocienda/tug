@@ -130,12 +130,18 @@ fn an_unclaimed_path_refuses_before_anything_runs() {
     let output = verify(tmp.path(), &root, &[]);
     let text = stdout_of(&output);
     assert_eq!(output.status.code(), Some(2), "unclaimed exits 2: {text}");
-    assert!(text.contains("other/b.ts"), "the path must be named: {text}");
+    assert!(
+        text.contains("other/b.ts"),
+        "the path must be named: {text}"
+    );
     assert!(
         text.contains("[[tugtool.dash.surface]]") && text.contains("\"other/\""),
         "the refusal must print a declaration to paste: {text}"
     );
-    assert!(text.contains("TUG-VERIFY-RECEIPT: unclaimed 1 paths"), "{text}");
+    assert!(
+        text.contains("TUG-VERIFY-RECEIPT: unclaimed 1 paths"),
+        "{text}"
+    );
     assert!(
         !worktree.join("ran.sentinel").exists(),
         "a refusal must run no check at all"
@@ -157,7 +163,8 @@ fn a_red_surface_does_not_stop_the_run() {
     let text = stdout_of(&output);
     assert_eq!(output.status.code(), Some(1), "a red check exits 1: {text}");
     assert!(
-        text.contains("TUG-VERIFY-RECEIPT: red 1 surfaces") && text.contains("first: `false` (exit 1)"),
+        text.contains("TUG-VERIFY-RECEIPT: red 1 surfaces")
+            && text.contains("first: `false` (exit 1)"),
         "the receipt must quote the failing command: {text}"
     );
     assert!(
@@ -175,7 +182,11 @@ fn a_project_with_no_surfaces_exits_zero_and_says_so() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     std::fs::create_dir_all(&root).unwrap();
-    project(&root, "[tugtool.dash]\npost_create = []\n", &[("a.rs", "a\n")]);
+    project(
+        &root,
+        "[tugtool.dash]\npost_create = []\n",
+        &[("a.rs", "a\n")],
+    );
 
     let output = verify(tmp.path(), &root, &[]);
     let text = stdout_of(&output);
@@ -201,7 +212,10 @@ fn an_empty_range_reports_the_range_and_runs_nothing() {
     let output = verify(tmp.path(), &root, &["--base", &head, "--head", &head]);
     let text = stdout_of(&output);
     assert_eq!(output.status.code(), Some(0), "{text}");
-    assert!(text.contains("TUG-VERIFY-RECEIPT: nothing in range"), "{text}");
+    assert!(
+        text.contains("TUG-VERIFY-RECEIPT: nothing in range"),
+        "{text}"
+    );
     assert!(
         !worktree.join("ran.sentinel").exists(),
         "an empty range runs nothing"
@@ -239,11 +253,7 @@ fn the_derived_range_is_the_dashs_own_contribution_and_the_overrides_narrow_it()
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("repo");
     std::fs::create_dir_all(&root).unwrap();
-    let worktree = project(
-        &root,
-        TWO_SURFACES,
-        &[("src/a.rs", "a\n")],
-    );
+    let worktree = project(&root, TWO_SURFACES, &[("src/a.rs", "a\n")]);
     // A second round, so the derived range spans both and an override can
     // name just one.
     std::fs::create_dir_all(worktree.join("docs")).unwrap();
@@ -251,12 +261,9 @@ fn the_derived_range_is_the_dashs_own_contribution_and_the_overrides_narrow_it()
     git(&worktree, &["add", "-A"]);
     git(&worktree, &["commit", "-m", "second round"]);
 
-    let derived: serde_json::Value = serde_json::from_str(&stdout_of(&verify(
-        tmp.path(),
-        &root,
-        &["--json"],
-    )))
-    .expect("valid JSON");
+    let derived: serde_json::Value =
+        serde_json::from_str(&stdout_of(&verify(tmp.path(), &root, &["--json"])))
+            .expect("valid JSON");
     let merge_base = git_stdout(&root, &["merge-base", "main", "tugdash/demo"]);
     let tip = git_stdout(&root, &["rev-parse", "tugdash/demo"]);
     assert_eq!(derived["data"]["base"], merge_base);

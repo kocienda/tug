@@ -62,7 +62,10 @@ fn lay_out(fixture: &Path, into: &Path) {
 }
 
 fn run_fixture(name: &str) {
-    run_program(name, &std::fs::read_to_string(corpus(name).join("program.rev")).expect("program"));
+    run_program(
+        name,
+        &std::fs::read_to_string(corpus(name).join("program.rev")).expect("program"),
+    );
 }
 
 /// Run the fixture's oracle and the given rev side by side, and insist they

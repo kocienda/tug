@@ -1,10 +1,10 @@
 file crates/tugcast/src/feeds/session_overview.rs
   after 'mod tests {' insert <<
 
-      /// The register normalizer's text alone. Every production path wants the
-      /// report; these tests are about the string it produces.
-      fn headline_register(raw: &str) -> String {
-          headline_register_report(raw).text
-      }
+    /// The register normalizer's text alone. Every production path wants the
+    /// report; these tests are about the string it produces.
+    fn headline_register(raw: &str) -> String {
+        headline_register_report(raw).text
+    }
 
   >>

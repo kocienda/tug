@@ -137,7 +137,13 @@ fn fingerprint_universe(root: &Path, scopes: &[PathBuf]) -> Result<Fingerprints,
     let out = Command::new("git")
         .arg("-C")
         .arg(root)
-        .args(["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
         .output()
         .map_err(|e| AppError::Exit1(format!("git ls-files: {e}")))?;
     if !out.status.success() {

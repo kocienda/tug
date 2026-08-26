@@ -73,7 +73,11 @@ struct RotateCancelPayload {
 ///
 /// Resolved here rather than on the server because the CLI is where the project
 /// root is known from cwd.
-fn resolve_model(stage: &str, model: Option<String>, project: Option<std::path::PathBuf>) -> Option<String> {
+fn resolve_model(
+    stage: &str,
+    model: Option<String>,
+    project: Option<std::path::PathBuf>,
+) -> Option<String> {
     if let Some(model) = model.filter(|m| !m.is_empty()) {
         return Some(model);
     }
@@ -158,7 +162,9 @@ fn run_rotate(
     let Some(prompt) = prompt.filter(|p| !p.is_empty()) else {
         return Err("a rotation needs --prompt: it is what the fresh session opens on".to_string());
     };
-    let stage = stage.filter(|s| !s.is_empty()).unwrap_or_else(|| "rotate".to_string());
+    let stage = stage
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "rotate".to_string());
     let model = resolve_model(&stage, model, project.clone());
     let effort = effort.filter(|e| !e.is_empty());
 

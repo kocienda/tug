@@ -67,7 +67,7 @@ What the corpus does **not** contain in any volume is computed replacement (a ca
 
 ## The language
 
-A program is a sequence of **file blocks**. A block opens with `file <path>` — or `files <path> <path> …`, which applies the same ops to each file independently — and holds one or more **ops**. Ops are indented by convention; the indentation of an op line is significant only in that bodies are dedented by it (below). Blank lines and `#` comments are ignored outside string and body literals.
+A program is a sequence of **file blocks**. A block opens with `file <path>` — or `files <path> <path> …`, which applies the same ops to each file independently — and holds one or more **ops**. Ops are indented by convention, and the indentation means nothing — a body is verbatim whatever column its op sits at (below). Blank lines and `#` comments are ignored outside string and body literals.
 
 ```
 program    := (block)+
@@ -120,10 +120,10 @@ A `RANGE` is `ADDR .. ADDR` (inclusive at both ends) or `ADDR until ADDR` (inclu
 
 | Form | Notes |
 |------|-------|
-| `'…'` | Single-quoted string, and **one line** — a block spanning several goes in a body instead. The only escapes are `\'`, `\\`, `\n`, `\t`. Everything else is literal — no shell interpolation is possible because the program arrives in a quoted heredoc. A doubled `''` is not an escape and is refused by name, because it is the shell and SQL convention and the model reaches for it. |
-| `"…"` | Double-quoted string, identical rules. Offered so a literal containing `'` need no escaping. |
+| `'…'` | Single-quoted string, and **one line** — a block spanning several goes in a body instead. The only escapes are `\'`, `\\`, `\n`, `\t`, which is the one way a literal is *not* the file's bytes as a body is: a backslash-n that stands in the source is written `\\n`. Everything else is literal — no shell interpolation is possible because the program arrives in a quoted heredoc. **A literal that contains `'` goes in `"…"`.** A doubled `''` and the shell's `'"'"'` and `'\''` are each refused by name, because they are the SQL and shell conventions the model writes from habit, and each refusal points at `"…"`. |
+| `"…"` | Double-quoted string, identical rules. The form for any literal containing `'` — which is most prose: a comment, a doc table row, the apostrophe in a CSS comment. |
 | `/…/` | Regex, Rust `regex` crate syntax. `\/` escapes a slash. `^` and `$` are **line** anchors (multi-line mode is on, as in `sed` and `perl -p`); `\A` and `\z` anchor the file. `\b` is the word boundary — BSD sed's `[[:<:]]`/`[[:>:]]` have no place here. Flags after the closing slash: `i`, `s` (dot matches newline). |
-| `<<` … `>>` | A **body**: the lines between the `<<` line and the `>>` line. Each body line is dedented by exactly the indentation of the op line that opened it; what remains is literal, so relative indentation inside the body is preserved. |
+| `<<` … `>>` | A **body**: the lines between the `<<` line and the `>>` line, **verbatim** — every byte of every line, indentation included, exactly as it stands or will stand in the file. A body is the same thing an `Edit`'s `old_string` is. The `>>` may sit at any indentation. |
 
 **One op may carry two bodies, and that is how a block replaces a block.** `replace << … >> with << … >>` is the form; a `>>` line closes its body when nothing follows it, or when what follows opens with the op's own next word — `with` after the first body, `all` / `expect` / `in` after the second. Any other `>>` line is body content, so a markdown blockquote survives being carried in one.
 
@@ -131,7 +131,7 @@ A `RANGE` is `ADDR .. ADDR` (inclusive at both ends) or `ADDR until ADDR` (inclu
 
 That form exists because block-replaces-block is the commonest edit in the evidence: 928 of the 1,317 interpreter edits carry a triple-quoted multi-line body. It was learned in the field rather than designed. On `tugrev`'s first real outing three of four programs were refused — the model wrote the block as a **multi-line quoted literal**, which the language does not have, and then abandoned the verb. A literal stays one line, because that keeps an unclosed quote refused on the line that opened it instead of swallowing the rest of the program; the refusal names the body form, so the instinct that wrote the literal is answered with the syntax that carries it.
 
-The body rule is the only deliberate cleverness in the language. The model indents ops under their `file` line and bodies under their ops; stripping the op's own indentation lets it write the body as it will appear in the file, offset by a constant, and the constant is one it can see. Bodies are never trimmed of blank lines, so an appended CSS rule keeps its leading blank line.
+**A body is verbatim because the alternative was tried and failed in the field.** The first version dedented each body by its op line's indentation — write the body under the op, and the constant comes back off — and it was the largest single cause of `found 0` in the language's first week. The model holds two other rules already, YAML's (content is relative to its own first line) and `Edit`'s (the bytes are the bytes), and under either it writes the file's real indentation beneath a two-space op and loses two columns. Verbatim deletes a rule rather than adding one. And when a `replace` finds nothing, the refusal looks once more at every other indentation the file offers the same text at and says so — `found 1 at line 412 if it were written 2 columns deeper` — so a body at the wrong column costs one edit rather than a guess. Bodies are never trimmed of blank lines, so an appended CSS rule keeps its leading blank line.
 
 ### Regex replacement
 
@@ -149,13 +149,13 @@ files tugrust/crates/tugdash-core/src/ops.rs tugrust/crates/tugdash-core/src/rep
 # the multi-pair edit with guards (python3 heredoc with s.count(a) == 1)
 file tugdeck/src/main.tsx
   replace 'import { attachPulseStore } from "./lib/pulse-store";' with <<
-    import { attachPulseStore } from "./lib/pulse-store";
-    import { attachLocalModelStore } from "./lib/local-model-store";
-  >>
+import { attachPulseStore } from "./lib/pulse-store";
+import { attachLocalModelStore } from "./lib/local-model-store";
+>>
   after 'attachPulseStore(connection);' insert indented <<
 
-    attachLocalModelStore(connection);
-  >>
+attachLocalModelStore(connection);
+>>
 
 # the numeric deletes (sed -i '' '835,849d' && '521,522d' && '166d')
 file tugdeck/src/components/lens/sections/layouts-section.tsx
@@ -169,20 +169,24 @@ file roadmap/local-model-bringup.md
 file roadmap/animation-tuneup.md
   delete /^### Remaining execution steps/ .. $
 
-# block replaces block (the python triple-quoted pair) — two bodies, one op
-file tugdeck/src/components/tugways/dash-lifecycle-line.css
+# block replaces block (the python triple-quoted pair) — two bodies, one op,
+# each body at the column the file keeps it at
+file tugdeck/src/deck-manager.ts
   replace <<
-  .tug-dash-lifecycle-line {
-    display: flex;
-    min-width: 0;
-  }
-  >> with <<
-  .tug-dash-lifecycle-line {
-    display: flex;
-    min-width: 0;
-    overflow: hidden;
-  }
-  >>
+    return (
+      this.container.clientHeight -
+      IMPOSITION_GAP_PX -
+      IMPOSITION_GAP_BOTTOM_PX
+    );
+>> with <<
+    return (
+      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
+    );
+>>
+
+# the apostrophe in prose (a doc table, a comment) — the literal goes in "…"
+file tuglaws/pane-model.md
+  replace "| `FlowStrip` — the deck's arrangement drawn to scale in the bottom band |" with "| `FlowStrip` — the deck's arrangement drawn to scale under the plan |"
 
 # the scoped rename (sed -i '' '350,900s/railSplit/placeSplit/g')
 file tugdeck/src/components/chrome/tug-pane.tsx
@@ -192,14 +196,14 @@ file tugdeck/src/components/chrome/tug-pane.tsx
 file tugdeck/src/components/tugways/cards/gallery-motion-bench.css
   append <<
 
-    .gmb-escaped {
-      position: fixed;
-    }
-  >>
+.gmb-escaped {
+  position: fixed;
+}
+>>
 file tests/model-eval/verbs.txt
   create <<
-    add audit author
-  >>
+add audit author
+>>
 ```
 
 A `STR` may be a body on either side, or both: `replace '…' with << … >>` grows a one-line anchor into a block, and `replace << … >> with << … >>` replaces a block with a block.
@@ -212,7 +216,7 @@ The interpreter runs in four phases, and the phase boundary is the contract.
 
 1. **Parse.** The whole program is parsed before any file is opened. A syntax error names its line and column and aborts the run with nothing read.
 2. **Read.** Every file named by a block is read once. A missing file is an error (except under `create`, where an *existing* file is the error, and `write`, which accepts either). Non-UTF-8 content is an error; tugrev does not edit binaries.
-3. **Resolve.** Every address, literal, and regex in every op is resolved against the original bytes of its file. Every failure across the whole program is collected — not just the first — and reported together with the op's source line and the actual match count, so one run tells the model everything that was stale. Any failure aborts with nothing written.
+3. **Resolve.** Every address, literal, and regex in every op is resolved against the original bytes of its file. Every failure across the whole program is collected — not just the first — and reported together with the op's source line and the actual match count, so one run tells the model everything that was stale. Any failure aborts with nothing written — and the refusal's last line says so in words, counting the ops that did resolve, because a model reading a refusal otherwise carries on as though those had landed and its next program addresses text this one never wrote.
 4. **Apply and write.** Ops within a file are applied bottom-up by resolved position, so no op shifts another; a `move` is a delete at its source and an insert at its anchor, both positioned against the original. Each file is written atomically (write-temp-and-rename in the file's directory, preserving mode). A file whose result is byte-identical to its original is not written and not receipted.
 
 Line endings are detected per file (`\n`, `\r\n`) and preserved; bodies are joined with the file's own ending. A file with no trailing newline stays that way unless an op appends past its last line, in which case one is added — the same rule `patch` follows.
@@ -293,7 +297,7 @@ Three steps, in order; each is a commit on the dash worktree.
 
 ### Tests
 
-- **Language, in memory.** `tugrev-core` unit tests against an in-memory `FileSource`: every op, every address form, `until` vs `..`, `[K]` qualifiers, `in` scope, per-file guards in a `files` block, body dedent by op-line indentation, CRLF and no-trailing-newline preservation, overlap refusal, `move` with an anchor inside its own range, all-failures-reported-at-once, byte-identical result not written.
+- **Language, in memory.** `tugrev-core` unit tests against an in-memory `FileSource`: every op, every address form, `until` vs `..`, `[K]` qualifiers, `in` scope, per-file guards in a `files` block, bodies verbatim under an indented op, the indent hint on a `found 0`, the shell-idiom and doubled-quote refusals, CRLF and no-trailing-newline preservation, overlap refusal, `move` with an anchor inside its own range, all-failures-reported-at-once, byte-identical result not written.
 - **Verb, on disk.** CLI tests in the style of `tugutil/tests/file_edit_cli.rs`: receipt names only files whose bytes moved; `--preview` leaves bytes *and* mtime untouched and prints no receipt; exit codes 2/3/4; atomic write preserves mode.
 - **Fidelity to the corpus.** A fixture set of real commands lifted from the mined transcripts — a dozen spanning the python multi-pair, `sed` numeric deletes, range-scoped `s///`, `perl -pi` multi-file, `cat >>`, and a two-marker cut — each paired with its rev and the file at the commit the session was on. The test runs both and asserts byte-identical output. This is the test that says the language expresses what the model was actually doing, and it is the one that must not be faked with synthetic content.
 - **Gate.** `shell_ops` tests for the steer: a python heredoc writing a repo path → `Rev`; the same heredoc reading only → passes; `python3 script.py` → passes; `awk … > /tmp/x && mv /tmp/x repo/file` → `Rev`.
@@ -308,12 +312,14 @@ The mining query, re-run against transcripts written after the dash joins: the i
 ## Invariants (the short list)
 
 - A program either applies entirely or writes nothing. The only exception is an I/O failure mid-write, which is reported file-by-file.
+- A refusal ends by saying nothing was written and how many ops did resolve.
 - Every address resolves against original bytes; ops never observe each other.
 - `expect 1` is the default; a match count the program did not declare is an error. In a `files` block the guard holds per file.
 - Overlapping spans in one file are refused.
 - A quoted literal is one line; a block spanning several is a `<<` body, and the refusal for a multi-line literal names that form.
 - A `>>` closes its body when nothing follows it, or when the op's own next word does. Any other `>>` line is content.
-- Bodies are dedented by their op line's indentation and otherwise verbatim.
+- Bodies are verbatim; a `>>` may sit at any indentation. A `replace` that finds nothing names the column at which it would have, when there is one.
+- A literal containing `'` goes in `"…"`; `''`, `'"'"'`, and `'\''` are refused by name.
 - `^`/`$` in a regex are line anchors.
 - A byte-identical result is neither written nor receipted.
 - `--preview` writes nothing, touches no mtime, emits no receipt.

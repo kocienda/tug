@@ -296,7 +296,10 @@ fn test_dash_config_reports_declarations() {
     assert_eq!(json["data"]["surfaces"][0]["check"][0], "make check");
     assert_eq!(json["data"]["surfaces"][1]["name"], "docs");
     assert_eq!(
-        json["data"]["surfaces"][1]["check"].as_array().unwrap().len(),
+        json["data"]["surfaces"][1]["check"]
+            .as_array()
+            .unwrap()
+            .len(),
         0
     );
     assert_eq!(json["data"]["build"], "make app");

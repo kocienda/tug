@@ -257,8 +257,14 @@ fn dash_join_names_a_live_resolve_and_break_lease_lands_it() {
     let out = refused.output().unwrap();
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("A resolve may still be running"), "{stderr}");
-    assert_eq!(conflict_tip(&root, "demo").as_deref(), Some(marker.as_str()));
+    assert!(
+        stderr.contains("A resolve may still be running"),
+        "{stderr}"
+    );
+    assert_eq!(
+        conflict_tip(&root, "demo").as_deref(),
+        Some(marker.as_str())
+    );
 
     // The base takes its own edit back, so the dash merges cleanly; the chain
     // is stale but the lease reads the tip, not validity.
@@ -278,9 +284,10 @@ fn dash_join_names_a_live_resolve_and_break_lease_lands_it() {
     let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let warnings = body["data"]["warnings"].as_array().expect("warnings");
     assert!(
-        warnings
-            .iter()
-            .any(|w| w.as_str().unwrap_or_default().contains("Broke the resolve lease")),
+        warnings.iter().any(|w| w
+            .as_str()
+            .unwrap_or_default()
+            .contains("Broke the resolve lease")),
         "{body}"
     );
 
@@ -310,7 +317,10 @@ fn dash_join_resolve_refuses_over_a_live_chain_and_leaves_it_standing() {
     let out = resolve.output().unwrap();
     assert_eq!(out.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("A resolve may still be running"), "{stderr}");
+    assert!(
+        stderr.contains("A resolve may still be running"),
+        "{stderr}"
+    );
     assert!(stderr.contains("to resolve anyway"), "{stderr}");
 
     assert_eq!(
@@ -507,16 +517,10 @@ fn kill_join_at(tmp: &Path, root: &Path, name: &str, pause_on: &str) {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
-    let real_git = String::from_utf8(
-        Command::new("which")
-            .arg("git")
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap()
-    .trim()
-    .to_string();
+    let real_git = String::from_utf8(Command::new("which").arg("git").output().unwrap().stdout)
+        .unwrap()
+        .trim()
+        .to_string();
     let paused = shim_dir.join("paused");
     let gate = shim_dir.join("gate");
 
@@ -674,7 +678,10 @@ fn a_join_killed_before_its_worktree_goes_is_resumed_by_continue() {
 
     kill_join_at(&tmp_path, &root, "demo", "worktree remove");
 
-    assert!(root.join(".tug/worktrees/demo").exists(), "worktree still there");
+    assert!(
+        root.join(".tug/worktrees/demo").exists(),
+        "worktree still there"
+    );
     assert!(branch_exists(&root, "tugdash/demo"), "branch still there");
     let listing = oplog_list(&tmp_path, &root);
     assert!(

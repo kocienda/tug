@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn crlf_content_stays_crlf() {
         let out = content(
-            "file a.txt\n  after 1 insert <<\n  fresh\n  >>\n",
+            "file a.txt\n  after 1 insert <<\nfresh\n>>\n",
             "one\r\ntwo\r\n",
         );
         assert_eq!(out, "one\r\nfresh\r\ntwo\r\n");
@@ -123,7 +123,7 @@ mod tests {
             "one\ntwo"
         );
         assert_eq!(
-            content("file a.txt\n  append <<\n  four\n  >>\n", "one\ntwo\nthree"),
+            content("file a.txt\n  append <<\nfour\n>>\n", "one\ntwo\nthree"),
             "one\ntwo\nthree\nfour\n"
         );
     }
@@ -133,14 +133,14 @@ mod tests {
         let before = "fn go() {\n    call();\n}\n";
         assert_eq!(
             content(
-                "file a.txt\n  after 'call();' insert indented <<\n  other();\n  >>\n",
+                "file a.txt\n  after 'call();' insert indented <<\nother();\n>>\n",
                 before
             ),
             "fn go() {\n    call();\n    other();\n}\n"
         );
         assert_eq!(
             content(
-                "file a.txt\n  after 'call();' insert <<\n  other();\n  >>\n",
+                "file a.txt\n  after 'call();' insert <<\nother();\n>>\n",
                 before
             ),
             "fn go() {\n    call();\nother();\n}\n"
@@ -179,7 +179,7 @@ mod tests {
     fn a_body_replacement_joins_with_the_files_own_line_ending() {
         assert_eq!(
             content(
-                "file a.txt\n  replace 'one' with <<\n  one\n  uno\n  >>\n",
+                "file a.txt\n  replace 'one' with <<\none\nuno\n>>\n",
                 "one\r\ntwo\r\n"
             ),
             "one\r\nuno\r\ntwo\r\n"
@@ -190,7 +190,7 @@ mod tests {
     fn lines_replace_swaps_a_range_for_a_body_and_an_empty_body_cuts_it() {
         assert_eq!(
             content(
-                "file a.txt\n  lines 2 .. 3 replace <<\n  only\n  >>\n",
+                "file a.txt\n  lines 2 .. 3 replace <<\nonly\n>>\n",
                 "one\ntwo\nthree\nfour\n"
             ),
             "one\nonly\nfour\n"
@@ -206,12 +206,12 @@ mod tests {
 
     #[test]
     fn create_and_write_produce_whole_files() {
-        let created = run("file new.txt\n  create <<\n  hello\n  >>\n", &[]);
+        let created = run("file new.txt\n  create <<\nhello\n>>\n", &[]);
         assert_eq!(created[0].kind, OutcomeKind::Created);
         assert_eq!(created[0].new_content, "hello\n");
 
         let written = run(
-            "file a.txt\n  write <<\n  fresh\n  >>\n",
+            "file a.txt\n  write <<\nfresh\n>>\n",
             &[("a.txt", "old\nold\n")],
         );
         assert_eq!(written[0].kind, OutcomeKind::Modified);
@@ -233,7 +233,7 @@ mod tests {
     fn two_insertions_at_one_anchor_keep_the_order_the_program_wrote_them_in() {
         assert_eq!(
             content(
-                "file a.txt\n  before 2 insert <<\n  first\n  >>\n  before 2 insert <<\n  second\n  >>\n",
+                "file a.txt\n  before 2 insert <<\nfirst\n>>\n  before 2 insert <<\nsecond\n>>\n",
                 "one\ntwo\n"
             ),
             "one\nfirst\nsecond\ntwo\n"

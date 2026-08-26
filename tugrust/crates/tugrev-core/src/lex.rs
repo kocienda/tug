@@ -204,11 +204,18 @@ impl Scanner {
                 }
                 Some(c) if c == quote => {
                     self.col += 1;
+                    let other = if quote == '\'' { '"' } else { '\'' };
                     if self.peek() == Some(quote) {
                         return Err(self.error(format!(
-                            "a doubled quote does not escape a quote — write \\{quote} inside a \
-                             {quote}…{quote} literal"
+                            "a doubled quote does not escape a quote — put a literal that \
+                             contains {quote} inside {other}…{other}, or write \\{quote}"
                         )));
+                    }
+                    if quote == '\'' && self.shell_apostrophe_idiom_follows() {
+                        return Err(self.error(
+                            "that is the shell's apostrophe idiom, and a rev literal is not a \
+                             shell string — put a literal that contains ' inside \"…\"",
+                        ));
                     }
                     return Ok(out);
                 }
@@ -240,6 +247,15 @@ impl Scanner {
                 }
             }
         }
+    }
+
+    /// Whether the text at the cursor is `"'"'` or `\''` — the two ways a
+    /// shell writes an apostrophe inside a single-quoted string. The model
+    /// writes them inside a rev literal from habit, and what the parser would
+    /// otherwise see is a closed literal followed by noise it cannot name.
+    fn shell_apostrophe_idiom_follows(&self) -> bool {
+        let rest: String = (0..4).filter_map(|i| self.peek_at(i)).collect();
+        rest.starts_with("\"'\"'") || rest.starts_with("\\''")
     }
 
     /// A `/…/` literal and its flags. `\/` is a literal slash; every other
@@ -327,9 +343,10 @@ impl Scanner {
     }
 
     /// The lines between a `<<` the caller has just consumed and its `>>`,
-    /// each dedented by `indent` — the indentation of the op line that opened
-    /// the body. What remains is verbatim, blank lines included, so relative
-    /// indentation inside the body survives.
+    /// **verbatim** — every byte of every line, indentation included, exactly
+    /// as it will stand in the file. A body is the same thing an `Edit`'s
+    /// `old_string` is, and that is the rule the model already holds; the `>>`
+    /// may sit at any indentation.
     ///
     /// Leaves the scanner on the `>>` line, just past it, so the caller
     /// finishes the op line the same way it would for a body-less op.
@@ -340,11 +357,7 @@ impl Scanner {
     /// follows it, or when what follows opens with one of those words; any
     /// other `>>` line is body content, so a quoted markdown blockquote
     /// survives being carried in a body.
-    pub(crate) fn read_body(
-        &mut self,
-        indent: usize,
-        continues: &[&str],
-    ) -> Result<Vec<String>, ParseError> {
+    pub(crate) fn read_body(&mut self, continues: &[&str]) -> Result<Vec<String>, ParseError> {
         let open_line = self.line + 1;
         let open_col = self.col + 1;
         self.skip_spaces();
@@ -371,7 +384,7 @@ impl Scanner {
                 self.col = leading + 2;
                 return Ok(body);
             }
-            body.push(dedent(line, indent));
+            body.push(line.iter().collect());
             self.advance_line();
         }
     }
@@ -390,14 +403,4 @@ fn terminates(after: &str, continues: &[&str]) -> bool {
         .next()
         .unwrap_or_default();
     continues.contains(&word)
-}
-
-/// Strip at most `indent` leading whitespace characters. A body line indented
-/// less than its op is not an error — it simply loses what it has.
-fn dedent(line: &[char], indent: usize) -> String {
-    let mut i = 0;
-    while i < indent && matches!(line.get(i), Some(' ' | '\t')) {
-        i += 1;
-    }
-    line[i..].iter().collect()
 }

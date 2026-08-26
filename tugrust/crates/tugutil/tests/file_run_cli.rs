@@ -91,7 +91,11 @@ fn a_file_only_touched_is_not_in_the_receipt() {
     // mtime: a build step that rewrites a file identically, or merely stats and
     // touches it, has not earned a row.
     let (_dir, root) = init_repo();
-    let out = run(&root, &[], "touch keep.txt; cp change.txt /tmp/x; cat keep.txt");
+    let out = run(
+        &root,
+        &[],
+        "touch keep.txt; cp change.txt /tmp/x; cat keep.txt",
+    );
     assert!(out.status.success());
     assert_eq!(receipt(&out), "", "a touch-only run receipted something");
 }
@@ -101,7 +105,10 @@ fn a_run_that_changes_nothing_prints_no_receipt() {
     let (_dir, root) = init_repo();
     let out = run(&root, &[], "echo hello");
     assert!(out.status.success());
-    assert!(stdout(&out).contains("hello"), "the child's own output passes through");
+    assert!(
+        stdout(&out).contains("hello"),
+        "the child's own output passes through"
+    );
     assert_eq!(receipt(&out), "");
 }
 

@@ -90,19 +90,28 @@ So write the multi-line edit as a **rev** — a small program `tugutil` executes
 
 ```bash
 tugutil file rev <<'REV'
-files tugdeck/src/lib/pulse-store.ts tugdeck/src/lib/local-model-store.ts
-  replace 'PulseFrame' with 'LocalModelFrame' all
-  sub /\bpulse_(\w+)/ 'local_model_$1' all
-file tugdeck/src/main.tsx
-  replace 'attachPulseStore(connection);' with 'attachLocalModelStore(connection);'
-  after 'import { attachPulseStore } from "./lib/pulse-store";' insert <<
-  import { attachLocalModelStore } from "./lib/local-model-store";
-  >>
+file tugdeck/src/deck-manager.ts
+  replace "  // The strip's own stop, one past the picture's." with "  // One stop for the whole strip."
+  replace <<
+    return (
+      this.container.clientHeight -
+      IMPOSITION_GAP_PX -
+      IMPOSITION_GAP_BOTTOM_PX
+    );
+>> with <<
+    return (
+      this.container.clientHeight - IMPOSITION_GAP_PX - impositionGapBottomPx()
+    );
+>>
   delete 166 .. 178
+files tugdeck/src/lib/pulse-store.ts tugdeck/src/lib/local-model-store.ts
+  sub /\bpulse_(\w+)/ 'local_model_$1' all
 REV
 ```
 
-Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugutil file rev --preview`, which touches no bytes and no mtime and emits no receipt. `tugrev` is the same verb under its own name. The language is specified in [tuglaws/tugrev.md](tuglaws/tugrev.md).
+Two rules carry nearly every refusal a rev has ever earned. **A body is the file's bytes, verbatim** — indent it exactly as the file does, never under the op line; it is the same thing an `Edit`'s `old_string` is. **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom, and a rev is not a shell string.
+
+Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once — its last line says so, counting the ops that did resolve, and every one of them is still to do. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugutil file rev --preview`, which touches no bytes and no mtime and emits no receipt. `tugrev` is the same verb under its own name. The language is specified in [tuglaws/tugrev.md](tuglaws/tugrev.md).
 
 The rest of the verbs:
 

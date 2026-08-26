@@ -35,9 +35,7 @@ pub fn dispatch(cmd: DashCommands, json: bool, quiet: bool) -> ExitCode {
             continue_join,
             resolve,
             break_lease,
-        } if resolve => {
-            run_join_resolve(&name, message, strategy.into(), break_lease, json, quiet)
-        }
+        } if resolve => run_join_resolve(&name, message, strategy.into(), break_lease, json, quiet),
         DashCommands::Join {
             name,
             message,
@@ -298,8 +296,7 @@ fn run_join_resolve(
     // whole window after any resolver crash ([P06]).
     let repo_root = tugutil_core::find_repo_root().map_err(|e| e.to_string())?;
     if !break_lease
-        && let Some(lease) =
-            resolve::resolve_lease(&repo_root, name, std::time::SystemTime::now())
+        && let Some(lease) = resolve::resolve_lease(&repo_root, name, std::time::SystemTime::now())
     {
         return Err(ops::live_resolve_detail(name, &lease, "resolve"));
     }
@@ -564,7 +561,13 @@ fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
 /// The report is a finished document: the per-surface table, then exactly one
 /// receipt line. There is nothing a filter can extract that the receipt has
 /// not already extracted.
-fn run_verify(name: &str, base: Option<String>, head: Option<String>, json: bool, quiet: bool) -> ExitCode {
+fn run_verify(
+    name: &str,
+    base: Option<String>,
+    head: Option<String>,
+    json: bool,
+    quiet: bool,
+) -> ExitCode {
     let repo = match tugutil_core::find_repo_root() {
         Ok(r) => r,
         Err(e) => {
@@ -673,7 +676,8 @@ fn declaration_hint(unclaimed: &[String]) -> String {
         .map(|p| format!("\"{}\"", p))
         .collect::<Vec<_>>()
         .join(", ")
-}fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
+}
+fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
     let repo = match tugutil_core::find_repo_root() {
         Ok(r) => r,
         Err(e) => {
@@ -1403,11 +1407,7 @@ impl DashGone {
 
 /// The `dash_gone` request body, as one value the broadcast sends to every
 /// live instance.
-fn dash_gone_body(
-    project: &std::path::Path,
-    dash_id: &str,
-    reason: DashGone,
-) -> serde_json::Value {
+fn dash_gone_body(project: &std::path::Path, dash_id: &str, reason: DashGone) -> serde_json::Value {
     serde_json::json!({
         "op": "dash_gone",
         "project_dir": project.to_string_lossy(),
@@ -1792,7 +1792,10 @@ mod tests {
         let fixture = arc_fixture();
         fixture.write_plan("plan-only");
         let (_, _, arc) = open_arc(fixture.root(), "plan-only").expect("opened");
-        assert_eq!(arc.document.as_deref(), Some(".tug/dashes/plan-only/plan.md"));
+        assert_eq!(
+            arc.document.as_deref(),
+            Some(".tug/dashes/plan-only/plan.md")
+        );
 
         let fixture = arc_fixture();
         fixture.write_brief("both");
@@ -1936,7 +1939,10 @@ mod tests {
 
         let (opened, resumed, arc) = open_arc(root, "demo").expect("resume");
         assert!(!opened, "the arc is the same one, not a second");
-        assert!(resumed, "and it resumes rather than reporting nothing to do");
+        assert!(
+            resumed,
+            "and it resumes rather than reporting nothing to do"
+        );
         assert_eq!(arc.stopped, None, "the resume clears the stop");
         assert_eq!(
             arc.resume,

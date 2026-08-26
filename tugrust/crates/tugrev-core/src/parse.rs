@@ -152,14 +152,14 @@ pub fn parse(source: &str) -> Result<Program, ParseError> {
     let mut scanner = Scanner::new(source);
     let mut blocks: Vec<Block> = Vec::new();
 
-    while let Some(indent) = scanner.next_content_line() {
+    while scanner.next_content_line().is_some() {
         match scanner.peek_word().as_deref() {
             Some("file") | Some("files") => {
                 let block = parse_block_header(&mut scanner)?;
                 blocks.push(block);
             }
             Some(_) => {
-                let op = parse_op(&mut scanner, indent)?;
+                let op = parse_op(&mut scanner)?;
                 match blocks.last_mut() {
                     Some(block) => block.ops.push(op),
                     None => {
@@ -214,16 +214,16 @@ fn parse_block_header(scanner: &mut Scanner) -> Result<Block, ParseError> {
     })
 }
 
-fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
+fn parse_op(scanner: &mut Scanner) -> Result<Op, ParseError> {
     let line = scanner.line + 1;
     let at = scanner.col;
     let word = scanner.read_word().unwrap_or_default();
 
     let kind = match word.as_str() {
         "replace" => {
-            let find = parse_text(scanner, indent, &CONTINUES_WITH)?;
+            let find = parse_text(scanner, &CONTINUES_WITH)?;
             scanner.expect_word("with")?;
-            let with = parse_text(scanner, indent, &CONTINUES_TAIL)?;
+            let with = parse_text(scanner, &CONTINUES_TAIL)?;
             let count = parse_count(scanner)?;
             let scope = parse_scope(scanner)?;
             OpKind::Replace {
@@ -259,7 +259,7 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
             } else {
                 false
             };
-            let body = parse_body(scanner, indent, &[])?;
+            let body = parse_body(scanner, &[])?;
             OpKind::Insert {
                 anchor,
                 side,
@@ -268,7 +268,7 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
             }
         }
         "append" => OpKind::Append {
-            body: parse_body(scanner, indent, &[])?,
+            body: parse_body(scanner, &[])?,
         },
         "delete" => {
             if scanner.peek_word().as_deref() == Some("every") {
@@ -285,7 +285,7 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
         "lines" => {
             let range = parse_range(scanner)?;
             scanner.expect_word("replace")?;
-            let body = parse_body(scanner, indent, &[])?;
+            let body = parse_body(scanner, &[])?;
             OpKind::Lines { range, body }
         }
         "move" => {
@@ -310,10 +310,10 @@ fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
             }
         }
         "create" => OpKind::Create {
-            body: parse_body(scanner, indent, &[])?,
+            body: parse_body(scanner, &[])?,
         },
         "write" => OpKind::Write {
-            body: parse_body(scanner, indent, &[])?,
+            body: parse_body(scanner, &[])?,
         },
         other => {
             return Err(scanner.error_at(line, at + 1, format!("unknown op `{other}`")));
@@ -332,30 +332,22 @@ const CONTINUES_WITH: [&str; 1] = ["with"];
 /// and the `in` scope, both optional and both tail of the op.
 const CONTINUES_TAIL: [&str; 3] = ["all", "expect", "in"];
 
-fn parse_text(
-    scanner: &mut Scanner,
-    indent: usize,
-    continues: &[&str],
-) -> Result<Text, ParseError> {
+fn parse_text(scanner: &mut Scanner, continues: &[&str]) -> Result<Text, ParseError> {
     scanner.skip_spaces();
     match scanner.peek() {
         Some('\'') | Some('"') => Ok(Text::Str(scanner.read_quoted()?)),
-        Some('<') => Ok(Text::Body(parse_body(scanner, indent, continues)?)),
+        Some('<') => Ok(Text::Body(parse_body(scanner, continues)?)),
         _ => Err(scanner.error("expected a quoted string or a `<<` body")),
     }
 }
 
-fn parse_body(
-    scanner: &mut Scanner,
-    indent: usize,
-    continues: &[&str],
-) -> Result<Vec<String>, ParseError> {
+fn parse_body(scanner: &mut Scanner, continues: &[&str]) -> Result<Vec<String>, ParseError> {
     scanner.skip_spaces();
     if !(scanner.peek() == Some('<') && scanner.peek_at(1) == Some('<')) {
         return Err(scanner.error("expected a `<<` body"));
     }
     scanner.col += 2;
-    scanner.read_body(indent, continues)
+    scanner.read_body(continues)
 }
 
 fn parse_regex(scanner: &mut Scanner) -> Result<RegexLit, ParseError> {
@@ -568,13 +560,13 @@ mod tests {
         let ops = ops(concat!(
             "file tugdeck/src/main.tsx\n",
             "  replace 'import { attachPulseStore } from \"./lib/pulse-store\";' with <<\n",
-            "  import { attachPulseStore } from \"./lib/pulse-store\";\n",
-            "  import { attachLocalModelStore } from \"./lib/local-model-store\";\n",
-            "  >>\n",
+            "import { attachPulseStore } from \"./lib/pulse-store\";\n",
+            "import { attachLocalModelStore } from \"./lib/local-model-store\";\n",
+            ">>\n",
             "  after 'attachPulseStore(connection);' insert indented <<\n",
             "\n",
-            "  attachLocalModelStore(connection);\n",
-            "  >>\n",
+            "attachLocalModelStore(connection);\n",
+            ">>\n",
         ));
         assert_eq!(ops.len(), 2);
         match &ops[0].kind {
@@ -716,14 +708,14 @@ mod tests {
             "file gallery-motion-bench.css\n",
             "  append <<\n",
             "\n",
-            "  .gmb-escaped {\n",
-            "    position: fixed;\n",
-            "  }\n",
-            "  >>\n",
+            ".gmb-escaped {\n",
+            "  position: fixed;\n",
+            "}\n",
+            ">>\n",
             "file tests/model-eval/verbs.txt\n",
             "  create <<\n",
-            "  add audit author\n",
-            "  >>\n",
+            "add audit author\n",
+            ">>\n",
         ));
         match &p.blocks[0].ops[0].kind {
             OpKind::Append { body } => {
@@ -747,7 +739,7 @@ mod tests {
 
     #[test]
     fn write_and_lines_replace_and_delete_every_parse() {
-        let write = ops("file a.txt\n  write <<\n  whole\n  >>\n");
+        let write = ops("file a.txt\n  write <<\nwhole\n>>\n");
         assert!(
             matches!(&write[0].kind, OpKind::Write { body } if body == &vec!["whole".to_string()])
         );
@@ -792,15 +784,31 @@ mod tests {
     }
 
     #[test]
-    fn a_body_is_dedented_by_its_op_lines_indentation_and_no_further() {
-        let ops = ops("file a.txt\n  append <<\n\n    kept two\n      kept four\n  >>\n");
+    fn a_body_is_verbatim_whatever_its_op_line_is_indented_by() {
+        // The body is the file's bytes, as an `Edit`'s `old_string` is. Nothing
+        // about the op line's own indentation is subtracted from it, and the
+        // `>>` may sit wherever the writer put it.
+        let ops = ops("file a.txt\n  append <<\n\n    kept four\n      kept six\n>>\n");
         match &ops[0].kind {
             OpKind::Append { body } => assert_eq!(
                 body,
-                &vec!["".to_string(), "  kept two".into(), "    kept four".into()]
+                &vec![
+                    "".to_string(),
+                    "    kept four".into(),
+                    "      kept six".into()
+                ]
             ),
             other => panic!("expected append, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_shell_apostrophe_idiom_is_named_rather_than_left_as_trailing_text() {
+        let err = failure("file a.txt\n  replace 'the deck'\"'\"'s edge' with 'x'\n");
+        assert!(err.message.contains("shell's apostrophe idiom"), "{err}");
+        assert!(err.message.contains("inside \"…\""), "{err}");
+        let err = failure("file a.txt\n  replace 'the deck'\\''s edge' with 'x'\n");
+        assert!(err.message.contains("shell's apostrophe idiom"), "{err}");
     }
 
     #[test]
@@ -902,18 +910,18 @@ mod tests {
                 assert_eq!(
                     find,
                     &Text::Body(vec![
-                        ".tug-dash-lifecycle-line {".into(),
-                        "  display: flex;".into(),
-                        "}".into(),
+                        "  .tug-dash-lifecycle-line {".into(),
+                        "    display: flex;".into(),
+                        "  }".into(),
                     ])
                 );
                 assert_eq!(
                     with,
                     &Text::Body(vec![
-                        ".tug-dash-lifecycle-line {".into(),
-                        "  display: flex;".into(),
-                        "  overflow: hidden;".into(),
-                        "}".into(),
+                        "  .tug-dash-lifecycle-line {".into(),
+                        "    display: flex;".into(),
+                        "    overflow: hidden;".into(),
+                        "  }".into(),
                     ])
                 );
                 assert_eq!(*count, Count::Expect(1));
@@ -958,7 +966,7 @@ mod tests {
         let ops = ops("file a.md\n  append <<\n  >> quoted\n  text\n  >>\n");
         match &ops[0].kind {
             OpKind::Append { body } => {
-                assert_eq!(body, &vec![">> quoted".to_string(), "text".into()]);
+                assert_eq!(body, &vec!["  >> quoted".to_string(), "  text".into()]);
             }
             other => panic!("expected append, got {other:?}"),
         }
