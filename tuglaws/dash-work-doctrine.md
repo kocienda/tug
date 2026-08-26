@@ -198,6 +198,8 @@ A skill in this lane may raise a dialog at a real decision point — an unsettle
 - Never ask permission to write the join draft.
 - Never ask "should I continue?" between ordinary steps.
 - Never ask anything with a conventional default.
+- Never ask which route or which shape the work takes when the invocation, or a design the session already holds, has settled it.
+- Never ask the user to choose between readings of the codebase. Read the code; the answer is a decision in the brief.
 
 Join's other stops — a conflict, a missing draft, a named blocker — stay stops. They are correct refusals with one right answer, not unasked questions.
 

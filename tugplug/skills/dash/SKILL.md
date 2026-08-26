@@ -73,9 +73,9 @@ Invoked bare with nothing in flight, ask what to work on. That is the whole of t
 
 ### 2. Sharpen
 
-Converse about the idea until it is concrete enough to route. This is a conversation, not an intake form: a few sharp questions beat a checklist, and an already-specific idea passes straight through to the routing gate without a single question.
+Converse about the idea until it is concrete enough to route. This is a conversation, not an intake form: a few sharp questions beat a checklist, and an already-specific idea passes straight through to routing without a single question. **An idea is already specific when this session already holds its design** — a spike card the user had you read, a brief or plan they pointed at, a thread of decisions made in this conversation. The invocation then names what to do with that design, and the design itself is the sharpened idea; nothing about it is asked again.
 
-What is worth asking is bounded by the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default. Where that document is absent, that sentence is the boundary.
+What is worth asking is bounded by the doctrine's [never-ask list](../../../tuglaws/dash-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default. Where that document is absent, that sentence is the boundary. **A question the code can answer is not a question for the user** — a wire field that is missing, a hook that skips a case, a component with no remaining mount. Read the code and write the answer into the brief as a `[B##]`; that is what the brief is for, and a dialog that asks the user to choose between two readings of the codebase is the brief's work handed back to them.
 
 Read enough code to ask a good question. An idea sharpened against the real files ("this touches the store or the card — which did you mean?") is worth three rounds of sharpening it in the abstract.
 
@@ -85,7 +85,7 @@ Then hand off. Never `tugutil dash run` a dash with no brief and no plan — the
 
 ### 3. Route
 
-One `AskUserQuestion`, four options, the recommended one first:
+Route from the sharpened idea. **The default is to route without asking**: read the shape off what the user said and what the session holds, name the route in one sentence as you take it, and go. The routes:
 
 - **Poke** — `poke`. Small and concrete; the work is clear and a plan, a review, or an arc would be ceremony.
 - **Plan arc** — a brief written here, then handed to the arc, which rotates devise → review → implement on this card. Enough parts that the order matters.
@@ -94,7 +94,7 @@ One `AskUserQuestion`, four options, the recommended one first:
 
 Recommend from the sharpened idea rather than from a rule: small and concrete leans quick, visual leans spike, decision-heavy leans brief-first, many-moving-parts leans plan. The user chooses; the recommendation is a reading, not a verdict.
 
-**Skip the question when the invocation already names the shape.** "spike this", "quick fix:", "plan this out", "write me a brief" are answers already given, and asking anyway is the ceremony this skill exists to remove.
+**Ask only when the reading is genuinely split** — a one-sentence idea that could be a poke or could be a plan, and nothing in the session tips it. Then, and only then, one `AskUserQuestion`, four options, the recommended one first. Everything else is already answered: "spike this", "quick fix:", "plan this out", "write me a brief" name a route outright; "roll out", "across the codebase", "introduce components", or an invocation on a design the session already holds name the plan arc, because a settled design with many mount sites is what the arc exists for. Asking anyway is the ceremony this skill exists to remove, and a dialog whose first option is marked *Recommended* over a design the user just walked you through is that ceremony at its most expensive.
 
 ### 4. Hand off, or delegate
 
@@ -149,7 +149,7 @@ This is the stage `/dash` owns outright, because nothing else in the arc will sp
 - **No sub-agents.** Orchestrate, delegate, and work in-thread.
 - **Delegate by reading, never by restating.** A stage's mechanics live in the sibling's `SKILL.md`; reproducing them here creates a second copy to drift.
 - **Own the narration, not the machinery.** `/dash` creates no worktree, commits nothing, and joins nothing. The delegated contract's guardrails govern while it runs.
-- **Ask about the design, never the process.** The routing question is one question. Everything else is bounded by the doctrine's never-ask list — nothing with a conventional default, and never "should I continue?".
+- **Ask about the design, never the process.** Routing is read, not asked, unless the reading is genuinely split — and then it is one question. Everything else is bounded by the doctrine's never-ask list — nothing with a conventional default, nothing the code can answer, and never "should I continue?".
 - **A dash's documents live at its own address.** `.tug/dashes/<name>/`, never in the working tree, and `tugutil dash documents <name>` is what reports them. Nothing is declared and nothing is asked.
 - **An arc opens on a document, never on an idea.** Write the brief in this conversation first, on the user's model. `tugutil dash run <name>` needs one to exist.
 - **Hand off by ending the turn.** The first rotation happens at *this* turn's end, so issuing `dash run` is the last thing you do — never wait on it, never poll it, never print a command to start it.
