@@ -1016,16 +1016,33 @@ fn rev_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Option<St
                 mine.push(inline);
             }
             for program in &mine {
-                if writes_shaped(program, &head) {
-                    if let Some(path) = quoted_pieces(program)
+                let targets = write_targets(program, &head);
+                if targets.is_empty() {
+                    continue;
+                }
+                // A write whose target is spelled out is judged on that target
+                // alone: `Path('/tmp/x').write_text(Path('repo').read_text())`
+                // writes nothing the ledger cares about. Only a write to a
+                // variable falls back to the program's path literals at large.
+                let named = targets
+                    .iter()
+                    .flatten()
+                    .find(|t| is_repo_shaped(t, base_dir, &root))
+                    .cloned();
+                let unknown = targets.iter().any(|t| t.is_none());
+                let path = named.or_else(|| {
+                    if !unknown {
+                        return None;
+                    }
+                    quoted_pieces(program)
                         .into_iter()
                         .find(|literal| is_repo_shaped(literal, base_dir, &root))
-                    {
-                        return Some(format!(
-                            "this {head} writes `{path}` from a program the change ledger cannot read, \
-                             so the edit would land unattributed"
-                        ));
-                    }
+                });
+                if let Some(path) = path {
+                    return Some(format!(
+                        "this {head} writes `{path}` from a program the change ledger cannot read, \
+                         so the edit would land unattributed"
+                    ));
                 }
             }
         }
@@ -1090,36 +1107,95 @@ fn inline_program(head: &str, words: &[&Word]) -> Option<String> {
 
 /// Whether a program text writes anything. `awk`'s writes are redirections
 /// inside the program rather than calls.
-fn writes_shaped(program: &str, head: &str) -> bool {
+/// What a program's write-shaped calls write to. Empty means it writes
+/// nothing. Each entry is the call's literal target when one can be read at
+/// the call site, or `None` when the target is a variable — and a variable
+/// target is the case the corpus's dominant shape has (`p = Path(…)` then
+/// `p.write_text(s)`), so it is not ignored; it falls back to the whole
+/// program's path literals.
+fn write_targets(program: &str, head: &str) -> Vec<Option<String>> {
     // A program that only prints is not writing a file, however it spells it.
     let text = program
         .replace("stdout.write(", "")
         .replace("stderr.write(", "");
-    if WRITE_CALLS.iter().any(|call| text.contains(call)) {
-        return true;
-    }
-    if head == "awk" && (text.contains('>') || text.contains(">>")) {
-        return true;
-    }
-    opens_for_writing(&text)
-}
+    let mut targets: Vec<Option<String>> = Vec::new();
 
-/// `open(…, "w")` and its relatives — judged on the mode argument, so a
-/// read-only `open(path)` passes.
-fn opens_for_writing(text: &str) -> bool {
+    for call in WRITE_CALLS {
+        let mut from = 0;
+        while let Some(at) = text[from..].find(call) {
+            let start = from + at;
+            let after = &text[start + call.len()..];
+            let line_before = &text[..start];
+            let line_before = &line_before[line_before.rfind('\n').map_or(0, |i| i + 1)..];
+            // A method writes to its receiver; a function writes to its
+            // first argument.
+            let method = call.starts_with('.')
+                || (start > 0 && text.as_bytes()[start - 1] == b'.');
+            if method {
+                // `open(…).write(…)` is the open's write; that branch owns it.
+                if line_before.contains("open(") {
+                    from = start + call.len();
+                    continue;
+                }
+                targets.push(receiver_literal(line_before));
+            } else {
+                targets.push(leading_literal(after));
+            }
+            from = start + call.len();
+        }
+    }
+
     let mut from = 0;
     while let Some(at) = text[from..].find("open(") {
         let start = from + at + "open(".len();
         let window = &text[start..text.len().min(start + 200)];
         let end = window.find(')').unwrap_or(window.len());
-        for mode in quoted_pieces(&window[..end]) {
-            if mode.len() <= 3 && (mode.contains('w') || mode.contains('a')) {
-                return true;
-            }
+        let args = &window[..end];
+        let writes = quoted_pieces(args)
+            .into_iter()
+            .skip(1)
+            .any(|mode| mode.len() <= 3 && (mode.contains('w') || mode.contains('a')))
+            || args.contains("mode='w") || args.contains("mode=\"w") || args.contains("mode='a") || args.contains("mode=\"a");
+        if writes {
+            targets.push(leading_literal(args));
         }
         from = start;
     }
-    false
+
+    if head == "awk" {
+        let mut from = 0;
+        while let Some(at) = text[from..].find('>') {
+            let start = from + at + 1;
+            let rest = text[start..].trim_start_matches('>');
+            targets.push(leading_literal(rest));
+            from = start;
+        }
+    }
+
+    targets
+}
+
+/// The literal a method call is invoked on: `Path('x').write_text(` reads
+/// back to `'x'`; `p.write_text(` reads a variable and yields `None`.
+fn receiver_literal(before: &str) -> Option<String> {
+    let trimmed = before.trim_end().trim_end_matches('.').trim_end();
+    let inner = trimmed.strip_suffix(')')?.trim_end();
+    if inner.ends_with('\'') || inner.ends_with('"') {
+        quoted_pieces(inner).pop()
+    } else {
+        None
+    }
+}
+
+/// The literal a call's argument list opens with: `writeFileSync('x', …` reads
+/// `'x'`; `writeFileSync(target, …` reads a variable and yields `None`.
+fn leading_literal(after: &str) -> Option<String> {
+    let trimmed = after.trim_start();
+    if trimmed.starts_with('\'') || trimmed.starts_with('"') {
+        quoted_pieces(trimmed).into_iter().next()
+    } else {
+        None
+    }
 }
 
 /// A path literal is repo-shaped when it is a literal (no expansion), resolves
@@ -1618,6 +1694,52 @@ mod tests {
         assert_steered(
             dir.path(),
             "cat > /tmp/a <<'A'\nnothing here\nA\npython3 - <<'B'\nopen('src/main.tsx','w').write(x)\nB",
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_named_scratch_target_passes_even_when_the_body_reads_a_repo_file() {
+        let dir = checkout();
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nimport pathlib\npathlib.Path('/tmp/out.txt').write_text(pathlib.Path('src/main.tsx').read_text()[:40])\nEOF",
+        );
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nopen('/tmp/out.json', 'w').write(open('src/main.tsx').read())\nEOF",
+        );
+        assert_not_steered(
+            dir.path(),
+            "node -e \"writeFileSync('/tmp/out.json', readFileSync('src/main.tsx'))\"",
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_named_repo_target_is_steered_whatever_else_the_body_does() {
+        let dir = checkout();
+        assert_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nopen('src/main.tsx', 'w').write(open('/tmp/in.txt').read())\nEOF",
+        );
+        assert_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nimport pathlib\npathlib.Path('src/main.tsx').write_text('x')\nEOF",
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_variable_target_falls_back_to_the_bodys_path_literals() {
+        let dir = checkout();
+        // The corpus's dominant shape: the path is bound first, the write
+        // goes through the name.
+        assert_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nimport pathlib\np = pathlib.Path('src/main.tsx')\ns = p.read_text()\np.write_text(s.replace('a', 'b'))\nEOF",
+        );
+        // …and the same shape bound to a scratch path is left alone.
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nimport pathlib\np = pathlib.Path('/tmp/report.md')\np.write_text('x')\nEOF",
         );
     }
 
