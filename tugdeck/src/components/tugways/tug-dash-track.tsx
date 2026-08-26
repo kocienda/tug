@@ -1,0 +1,214 @@
+/**
+ * TugDashTrack — a dash's whole life as one cap-height strip.
+ *
+ * Five cells in lifecycle order — brief · devise · review · implement · join —
+ * with implement subdivided into one tick per plan step. A poke, which has no
+ * documents and no arc, is the last two cells. Each cell wears one of four
+ * states the CSS paints ([L06]): `pending`, `active`, `done`, `stopped`. A stop
+ * is the one fact that outranks the rest: the cell it stopped in paints danger
+ * and its tooltip says why, in the arc receipt's own words.
+ *
+ * The strip is the height of the line's cap, so it rides any line box an atom
+ * already sits on — the masthead's title line, the Lens's meta line, the
+ * transcript footer's status cell — without growing it. The ring beside it
+ * stays the session's own indicator; this is the dash's.
+ *
+ * The model is derived, never sent: {@link dashTrackModel} reads the fields
+ * the changeset feed already carries — `documents`, `arc`, `steps`, `stage` —
+ * and {@link dashTrackModelFromEntry} adapts a wire entry to it. Both are pure,
+ * so the derivation is a table test rather than a DOM one.
+ *
+ * Two variants of one model: `track` (segmented, the default) and `pips`
+ * (numbered discs, which read the count without a fraction and grow wide past
+ * about a dozen steps).
+ *
+ * Laws: [L06] state is `data-state`; [L19] `.tsx`/`.css` pair, `data-slot`;
+ * [L20] composes `TugTooltip`, owns `--tugx-dash-track-*`.
+ *
+ * @module components/tugways/tug-dash-track
+ */
+
+import "./tug-dash-track.css";
+
+import React from "react";
+
+import { TugTooltip } from "./tug-tooltip";
+import type { DashArcState, DashChangesetEntry, DashStep } from "@/lib/changeset-types";
+
+/** The phases, in lifecycle order. */
+export type DashPhase = "brief" | "devise" | "review" | "implement" | "join";
+export const DASH_PHASES: readonly DashPhase[] = ["brief", "devise", "review", "implement", "join"];
+
+export type DashCellState = "pending" | "active" | "done" | "stopped";
+
+/** What the feed says about a dash, as the derivation reads it. */
+export interface DashTrackInput {
+  /** Which documents exist. Absent (or both absent) with no arc is a poke. */
+  documents?: { brief?: string; plan?: string } | undefined;
+  arc?: DashArcState | null | undefined;
+  /** The plan's ledger, in source order. */
+  steps?: readonly DashStep[] | undefined;
+  /** The derived git stage: `created` | `working` | `implementing` | `ready` | `built` | `audited` | `draft-ready` | `joining` | `landing`. */
+  stage?: string | null | undefined;
+  /** Whether a join is on the record for this dash. */
+  joining?: boolean | undefined;
+}
+
+export interface DashTrackSteps {
+  total: number;
+  done: number;
+  /** The step in progress, 1-based, or null when none is. */
+  current: number | null;
+}
+
+export interface DashTrackModel {
+  poke: boolean;
+  phase: DashPhase;
+  /** Why the arc stopped, when it did. */
+  stopped: string | null;
+  steps: DashTrackSteps | null;
+}
+
+const JOIN_STAGES: ReadonlySet<string> = new Set([
+  "ready",
+  "built",
+  "audited",
+  "draft-ready",
+  "joining",
+  "landing",
+]);
+
+export function dashTrackSteps(steps: readonly DashStep[] | undefined): DashTrackSteps | null {
+  if (steps === undefined || steps.length === 0) return null;
+  const current = steps.findIndex((s) => s.status === "in progress");
+  return {
+    total: steps.length,
+    done: steps.filter((s) => s.status === "done").length,
+    current: current === -1 ? null : current + 1,
+  };
+}
+
+/** The model, from what the feed carries. Pure. */
+export function dashTrackModel(input: DashTrackInput): DashTrackModel {
+  const documents = input.documents ?? {};
+  const arc = input.arc ?? null;
+  const poke = documents.brief === undefined && documents.plan === undefined && arc === null;
+  const steps = dashTrackSteps(input.steps);
+  const stage = input.stage ?? null;
+  const stopped = arc?.stopped ?? null;
+  const begun = steps !== null && (steps.done > 0 || steps.current !== null);
+  const walked = steps !== null && steps.done === steps.total;
+
+  let phase: DashPhase;
+  if (input.joining === true || (stage !== null && JOIN_STAGES.has(stage)) || arc?.done === true) {
+    phase = "join";
+  } else if (poke) {
+    phase = "implement";
+  } else if (stopped !== null && arc?.stopped_stage !== undefined) {
+    phase = arcPhase(arc.stopped_stage);
+  } else if (arc?.stage !== undefined) {
+    phase = walked ? "join" : arcPhase(arc.stage);
+  } else if (begun || stage === "implementing") {
+    phase = walked ? "join" : "implement";
+  } else if (documents.plan !== undefined) {
+    phase = "review";
+  } else {
+    phase = "brief";
+  }
+  return { poke, phase, stopped, steps };
+}
+
+function arcPhase(stage: string): DashPhase {
+  return stage === "devise" || stage === "review" || stage === "implement" ? stage : "implement";
+}
+
+/** {@link dashTrackModel} over a wire entry. */
+export function dashTrackModelFromEntry(entry: DashChangesetEntry): DashTrackModel {
+  return dashTrackModel({
+    documents: entry.documents,
+    arc: entry.arc,
+    steps: entry.steps,
+    stage: entry.stage,
+    joining: entry.join !== undefined,
+  });
+}
+
+/** The state one cell wears under the model. */
+export function dashCellState(model: DashTrackModel, phase: DashPhase): DashCellState {
+  const at = DASH_PHASES.indexOf(phase);
+  const now = DASH_PHASES.indexOf(model.phase);
+  if (at === now) return model.stopped !== null ? "stopped" : "active";
+  return at < now ? "done" : "pending";
+}
+
+function tickState(model: DashTrackModel, n: number): DashCellState {
+  const steps = model.steps!;
+  if (n <= steps.done) return "done";
+  if (n === steps.current) return model.stopped !== null ? "stopped" : "active";
+  return "pending";
+}
+
+function cellTip(model: DashTrackModel, phase: DashPhase, state: DashCellState): string {
+  const word =
+    phase === "implement" && model.steps !== null
+      ? `implement · ${model.steps.done} of ${model.steps.total} steps done`
+      : phase;
+  return state === "stopped" ? `${word} — stopped: ${model.stopped}` : `${word} · ${state}`;
+}
+
+export interface TugDashTrackProps {
+  model: DashTrackModel;
+  /** `rail` beside other rails (the Lens, the footer); `read` on a reading surface. */
+  size?: "rail" | "read";
+  variant?: "track" | "pips";
+  "aria-label"?: string;
+}
+
+export function TugDashTrack({
+  model,
+  size = "rail",
+  variant = "track",
+  "aria-label": ariaLabel,
+}: TugDashTrackProps): React.ReactElement {
+  const phases: readonly DashPhase[] = model.poke ? ["implement", "join"] : DASH_PHASES;
+  return (
+    <span
+      className="tug-dash-track"
+      data-slot="tug-dash-track"
+      data-size={size}
+      data-variant={variant}
+      data-phase={model.phase}
+      data-stopped={model.stopped !== null ? "true" : undefined}
+      aria-label={ariaLabel ?? cellTip(model, model.phase, dashCellState(model, model.phase))}
+    >
+      {phases.map((phase) => {
+        const state = dashCellState(model, phase);
+        const ticks =
+          phase === "implement" && model.steps !== null
+            ? Array.from({ length: model.steps.total }, (_, i) => i + 1)
+            : null;
+        return (
+          <TugTooltip key={phase} content={cellTip(model, phase, state)}>
+            <span
+              className="tug-dash-track-cell"
+              data-slot="tug-dash-track-cell"
+              data-phase={phase}
+              data-state={state}
+              data-steps={ticks !== null ? "true" : undefined}
+            >
+              {ticks !== null
+                ? ticks.map((n) => (
+                    <span key={n} className="tug-dash-track-tick" data-state={tickState(model, n)}>
+                      {variant === "pips" ? n : null}
+                    </span>
+                  ))
+                : variant === "pips"
+                  ? phase[0]
+                  : null}
+            </span>
+          </TugTooltip>
+        );
+      })}
+    </span>
+  );
+}

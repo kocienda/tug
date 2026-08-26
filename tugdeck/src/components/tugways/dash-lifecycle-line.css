@@ -1,0 +1,51 @@
+/* dash-lifecycle-line.css — packing and tones for the line. The note is the
+   only run that gives way; everything else is a fixed-width fact. */
+
+.tug-dash-lifecycle-line {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+  font-size: var(--tug-font-size-2xs);
+}
+
+.tug-dash-lifecycle-line[data-size="read"] {
+  gap: var(--tug-space-sm);
+  font-size: var(--tug-font-size-sm);
+  line-height: calc(var(--tug-font-size-sm) * 1.6);
+  --tugx-step-fraction-font-size: var(--tug-font-size-xs);
+}
+
+/* @tug-renders-on var(--tug7-surface-global-primary-normal-default-rest) */
+.tug-dash-lifecycle-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.tug-dash-lifecycle-line[data-stopped="true"] .tug-dash-lifecycle-note {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.tug-dash-lifecycle-fact {
+  flex: 0 0 auto;
+}
+
+.tug-dash-lifecycle-fact[data-tone="danger"] {
+  color: var(--tug7-element-tone-icon-normal-danger-rest);
+}
+
+.tug-dash-lifecycle-fact[data-tone="caution"] {
+  color: var(--tug7-element-tone-icon-normal-caution-rest);
+}
+
+.tug-dash-lifecycle-fact[data-tone="muted"] {
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.tug-dash-lifecycle-fact[data-tone="subtle"] {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}

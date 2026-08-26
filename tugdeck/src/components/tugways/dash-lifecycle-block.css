@@ -1,0 +1,32 @@
+/* dash-lifecycle-block.css — two lines, a hairline between the identities. */
+
+.tug-dash-lifecycle-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tug-dash-lifecycle-block[data-size="read"] {
+  gap: 4px;
+}
+
+.tug-dash-lifecycle-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-width: 0;
+}
+
+.tug-dash-lifecycle-rule {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 1px;
+  background: var(--tug7-element-global-border-normal-default-rest);
+}
+
+/* The line indents to the atom's text, so the two lines share a left edge. */
+.tug-dash-lifecycle-block > .tug-dash-lifecycle-line {
+  padding-inline-start: var(--tugx-session-atom-text-inset-2xs);
+}

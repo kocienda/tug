@@ -2,7 +2,7 @@
 
 The Changes shade, the Lens's Dashes section, and the `/dash-bind` picker are three surfaces that answer overlapping questions about the same objects. Each one arrived separately, so each one spelled the same three things its own way: a header over a bucket of rows, a run of small facts after a row's name, and a dash's name. This doc is what they agreed on, and it is a rule about **which component**, not about which numbers.
 
-Origin: the design spike in `gallery-changes-dashes`, which is the rendering reference. This is the written one.
+Origin: a design spike, since deleted, whose findings this document carries. This is the written one.
 
 ## The rule
 

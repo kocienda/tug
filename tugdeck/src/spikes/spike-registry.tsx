@@ -40,10 +40,9 @@ import { spike as pinnedHeadersSpike } from "./spike-pinned-headers";
 import { spike as commitSurfacesSpike } from "./spike-commit-surfaces";
 import { spike as placeCoordinateSpike } from "./spike-place-coordinate";
 import { spike as cardChromeSpike } from "./spike-card-chrome";
-import { spike as changesDashesSpike } from "./spike-changes-dashes";
 import { spike as modalHeadersSpike } from "./spike-modal-headers";
 import { spike as focusLanguageSpike } from "./spike-focus-language";
-import { spike as arcReceiptSpike } from "./spike-arc-receipt";
+import { spike as dashLifecycleSpike } from "./spike-dash-lifecycle";
 
 /**
  * One design spike. The shape a spike file exports as `spike`.
@@ -109,13 +108,12 @@ export const SPIKES: readonly SpikeDef[] = [
   pinnedHeadersSpike,
   commitSurfacesSpike,
   placeCoordinateSpike,
-  arcReceiptSpike,
+  dashLifecycleSpike,
   // Settled references: these began as spikes and closed into the reference
   // for their subject. They stay here rather than becoming permanent gallery
   // furniture, so the graduation path — durable content into tuglaws/, file
   // deleted — stays visible.
   cardChromeSpike,
-  changesDashesSpike,
   modalHeadersSpike,
   focusLanguageSpike,
 ];

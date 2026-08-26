@@ -1,0 +1,130 @@
+/* spike-dash-lifecycle.css — the study's frames only. Everything a dash wears
+   is its component's own stylesheet. */
+
+.spdl-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spdl-caption {
+  user-select: none;
+}
+
+.spdl-prose {
+  margin: 0;
+  max-width: 72ch;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spdl-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spdl-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  min-block-size: 18px;
+}
+
+.spdl-legend-word {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spdl-surfaces {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+}
+
+.spdl-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--tug7-element-global-border-normal-muted-rest);
+  border-radius: 6px;
+}
+
+.spdl-surface[data-today="true"] {
+  border-style: dashed;
+}
+
+.spdl-surface-name {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  user-select: none;
+}
+
+.spdl-today-nothing {
+  font-size: var(--tug-font-size-xs);
+  font-style: italic;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+
+/* The masthead's title line at its shipping height: 36px, one line. */
+.spdl-masthead {
+  display: flex;
+  align-items: center;
+  gap: var(--tug-space-sm);
+  block-size: 36px;
+  min-width: 0;
+  padding-inline: var(--tug-space-xs);
+}
+
+.spdl-masthead-dot {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 999px;
+  background: var(--tug7-element-global-border-normal-accent-rest);
+  flex: 0 0 auto;
+}
+
+.spdl-lineup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tug-space-md);
+}
+
+.spdl-today-masthead {
+  font-size: 15px;
+}
+
+.spdl-today-footer {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spdl-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+}
+
+.spdl-survey {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 80ch;
+  font-size: var(--tug-font-size-xs);
+  line-height: 1.5;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.spdl-survey b {
+  color: var(--tug7-element-global-text-normal-rest);
+  font-weight: var(--tug-font-weight-semibold);
+}
