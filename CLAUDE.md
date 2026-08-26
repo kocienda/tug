@@ -109,7 +109,9 @@ files tugdeck/src/lib/pulse-store.ts tugdeck/src/lib/local-model-store.ts
 REV
 ```
 
-Two rules carry nearly every refusal a rev has ever earned. **A body is the file's bytes, verbatim** — indent it exactly as the file does, never under the op line; it is the same thing an `Edit`'s `old_string` is. **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom, and a rev is not a shell string.
+Two rules carry nearly every refusal a rev has ever earned. **A body is the file's bytes, verbatim** — indent every line exactly as the file does, keeping the structure *inside* the block, never squared off under the op line; it is the same thing an `Edit`'s `old_string` is. **A literal that contains `'` goes in `"…"`** — never `'"'"'` or `'\''`, which are the shell's idiom, and a rev is not a shell string.
+
+A `<<` body is also an **address**, wherever an address goes — so `after << … >> insert << … >>` anchors past a whole block when no single line in it is worth naming, and beats a line number, which goes stale the moment anything above it moves. `before` takes the block's first line, `after` its last.
 
 Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once — its last line says so, counting the ops that did resolve, and every one of them is still to do. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugutil file rev --preview`, which touches no bytes and no mtime and emits no receipt. `tugrev` is the same verb under its own name. The language is specified in [tuglaws/tugrev.md](tuglaws/tugrev.md).
 

@@ -129,6 +129,12 @@ pub enum Addr {
     Regex(RegexLit, Option<i64>),
     /// The line containing the literal, same qualifier.
     Literal(String, Option<i64>),
+    /// The run of lines equal to a `<<` body, same qualifier. An address is a
+    /// place, and a block of lines is how the model says where when no single
+    /// line is distinctive: `after << … >> insert << … >>` anchors past a whole
+    /// function. `before` takes its first line and `after` its last, which is
+    /// also how it reads as a range end.
+    Block(Vec<String>, Option<i64>),
     /// The file's last line.
     Last,
 }
@@ -251,7 +257,7 @@ fn parse_op(scanner: &mut Scanner) -> Result<Op, ParseError> {
             } else {
                 Side::After
             };
-            let anchor = parse_addr(scanner)?;
+            let anchor = parse_addr(scanner, &["insert"])?;
             scanner.expect_word("insert")?;
             let indented = if scanner.peek_word().as_deref() == Some("indented") {
                 scanner.read_word();
@@ -274,22 +280,22 @@ fn parse_op(scanner: &mut Scanner) -> Result<Op, ParseError> {
             if scanner.peek_word().as_deref() == Some("every") {
                 scanner.read_word();
                 OpKind::Delete {
-                    target: DeleteTarget::Every(parse_addr(scanner)?),
+                    target: DeleteTarget::Every(parse_addr(scanner, &[])?),
                 }
             } else {
                 OpKind::Delete {
-                    target: DeleteTarget::Range(parse_range(scanner)?),
+                    target: DeleteTarget::Range(parse_range(scanner, &[])?),
                 }
             }
         }
         "lines" => {
-            let range = parse_range(scanner)?;
+            let range = parse_range(scanner, &["replace"])?;
             scanner.expect_word("replace")?;
             let body = parse_body(scanner, &[])?;
             OpKind::Lines { range, body }
         }
         "move" => {
-            let range = parse_range(scanner)?;
+            let range = parse_range(scanner, &["before", "after"])?;
             let at = scanner.col;
             let side = match scanner.read_word().as_deref() {
                 Some("before") => Side::Before,
@@ -302,7 +308,7 @@ fn parse_op(scanner: &mut Scanner) -> Result<Op, ParseError> {
                     ));
                 }
             };
-            let anchor = parse_addr(scanner)?;
+            let anchor = parse_addr(scanner, &[])?;
             OpKind::Move {
                 range,
                 side,
@@ -397,12 +403,23 @@ fn parse_scope(scanner: &mut Scanner) -> Result<Option<Range>, ParseError> {
         return Ok(None);
     }
     scanner.read_word();
-    Ok(Some(parse_range(scanner)?))
+    Ok(Some(parse_range(scanner, &[])?))
 }
 
-fn parse_addr(scanner: &mut Scanner) -> Result<Addr, ParseError> {
+/// `continues` names the words that may follow the `>>` of a block address —
+/// the op's own next word, exactly as for a `replace`'s two bodies.
+fn parse_addr(scanner: &mut Scanner, continues: &[&str]) -> Result<Addr, ParseError> {
     scanner.skip_spaces();
     match scanner.peek() {
+        Some('<') => {
+            // `"["` lets the body close on its own `[K]` qualifier; see
+            // `lex::terminates`.
+            let mut closing: Vec<&str> = vec!["["];
+            closing.extend_from_slice(continues);
+            let body = parse_body(scanner, &closing)?;
+            let qualifier = scanner.read_qualifier()?;
+            Ok(Addr::Block(body, qualifier))
+        }
         Some('$') => {
             scanner.col += 1;
             Ok(Addr::Last)
@@ -429,12 +446,17 @@ fn parse_addr(scanner: &mut Scanner) -> Result<Addr, ParseError> {
             }
             Ok(Addr::Line(n))
         }
-        _ => Err(scanner.error("expected an address: a line number, /regex/, 'literal', or $")),
+        _ => Err(scanner
+            .error("expected an address: a line number, /regex/, 'literal', a `<<` block, or $")),
     }
 }
 
-fn parse_range(scanner: &mut Scanner) -> Result<Range, ParseError> {
-    let start = parse_addr(scanner)?;
+/// `tail` names the words that may follow the whole range, which a block
+/// address at either end needs in order to know where its body stops.
+fn parse_range(scanner: &mut Scanner, tail: &[&str]) -> Result<Range, ParseError> {
+    let mut opening: Vec<&str> = vec!["..", "until"];
+    opening.extend_from_slice(tail);
+    let start = parse_addr(scanner, &opening)?;
     scanner.skip_spaces();
     let exclusive_end = if scanner.peek() == Some('.') && scanner.peek_at(1) == Some('.') {
         scanner.col += 2;
@@ -450,7 +472,7 @@ fn parse_range(scanner: &mut Scanner) -> Result<Range, ParseError> {
             exclusive_end: false,
         });
     };
-    let end = parse_addr(scanner)?;
+    let end = parse_addr(scanner, tail)?;
     Ok(Range {
         start,
         end,
@@ -1051,5 +1073,55 @@ mod tests {
             }
             other => panic!("expected sub, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_block_is_an_address_wherever_an_address_goes() {
+        let ops = ops(concat!(
+            "file a.ts\n",
+            "  after <<\n",
+            "}\n",
+            ">> insert <<\n",
+            "next\n",
+            ">>\n",
+            "  delete <<\n",
+            "gone\n",
+            ">>[2]\n",
+            "  lines <<\n",
+            "start\n",
+            ">> .. <<\n",
+            "end\n",
+            ">> replace <<\n",
+            "fresh\n",
+            ">>\n",
+        ));
+        assert_eq!(ops.len(), 3);
+        assert!(matches!(
+            &ops[0].kind,
+            OpKind::Insert { anchor: Addr::Block(b, None), .. } if b == &vec!["}".to_string()]
+        ));
+        assert!(matches!(
+            &ops[1].kind,
+            OpKind::Delete {
+                target: DeleteTarget::Every(_) | DeleteTarget::Range(_)
+            }
+        ));
+        match &ops[2].kind {
+            OpKind::Lines { range, .. } => {
+                assert!(
+                    matches!(&range.start, Addr::Block(b, None) if b == &vec!["start".to_string()])
+                );
+                assert!(
+                    matches!(&range.end, Addr::Block(b, None) if b == &vec!["end".to_string()])
+                );
+            }
+            other => panic!("expected lines, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_address_refusal_names_the_block_form() {
+        let err = failure("file a.ts\n  after nope insert <<\nx\n>>\n");
+        assert!(err.message.contains("a `<<` block"), "{}", err.message);
     }
 }

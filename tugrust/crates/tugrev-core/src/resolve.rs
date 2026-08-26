@@ -298,9 +298,15 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
                 cursor += at + needle.len();
             }
             if let Err(message) = guard(*count, hits.len(), "match") {
-                return Err(match indent_hint(doc, from, to, &needle) {
-                    Some(hint) if hits.is_empty() => format!("{message} — {hint}"),
-                    _ => message,
+                if !hits.is_empty() {
+                    return Err(message);
+                }
+                let want: Vec<String> = needle.split(doc.eol).map(str::to_string).collect();
+                let hint = indent_hint(doc, from, to, &needle)
+                    .or_else(|| doc.near_miss(&want, doc.line_at(from), doc.line_at(to)));
+                return Err(match hint {
+                    Some(hint) => format!("{message} — {hint}"),
+                    None => message,
                 });
             }
             Ok(hits
@@ -342,7 +348,11 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
             indented,
             body,
         } => {
-            let line = doc.line_of(anchor)?;
+            let (first, last) = doc.span_of(anchor)?;
+            let line = match side {
+                Side::Before => first,
+                Side::After => last,
+            };
             let pad = if *indented {
                 doc.leading_whitespace(line)
             } else {
@@ -395,11 +405,11 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
                 }])
             }
             DeleteTarget::Every(addr) => {
-                let lines = doc.every_line_of(addr)?;
-                Ok(lines
+                let spans = doc.every_span_of(addr)?;
+                Ok(spans
                     .into_iter()
-                    .map(|line| {
-                        let (start, end) = doc.cut_span(line, line);
+                    .map(|(first, last)| {
+                        let (start, end) = doc.cut_span(first, last);
                         Edit {
                             op_line: op.line,
                             start,
@@ -437,7 +447,11 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
             anchor,
         } => {
             let (first, last) = doc.range_of(range)?;
-            let landing = doc.line_of(anchor)?;
+            let (anchor_first, anchor_last) = doc.span_of(anchor)?;
+            let landing = match side {
+                Side::Before => anchor_first,
+                Side::After => anchor_last,
+            };
             if landing >= first && landing <= last {
                 return Err(format!(
                     "the anchor on line {} lies inside the range this op moves",
@@ -534,6 +548,29 @@ fn indent_hint(doc: &Doc, from: usize, to: usize, needle: &str) -> Option<String
         ));
     }
     None
+}
+
+/// How a block address names itself in a refusal: by its first line, which is
+/// what the reader will look for.
+fn block_label(body: &[String]) -> String {
+    format!(
+        "the {}-line block opening `{}`",
+        body.len(),
+        clip(body.first().map(String::as_str).unwrap_or_default())
+    )
+}
+
+fn no_block_match(body: &[String]) -> String {
+    format!("no lines match {}", block_label(body))
+}
+
+/// A line as a refusal shows it: one line, and short enough to read.
+fn clip(line: &str) -> String {
+    const WIDTH: usize = 56;
+    if line.chars().count() <= WIDTH {
+        return line.to_string();
+    }
+    format!("{}…", line.chars().take(WIDTH).collect::<String>())
 }
 
 fn leading_whitespace(s: &str) -> usize {
@@ -667,8 +704,8 @@ impl<'a> Doc<'a> {
     }
 
     fn range_of(&self, range: &Range) -> Result<(usize, usize), String> {
-        let first = self.line_of(&range.start)?;
-        let mut last = self.line_of(&range.end)?;
+        let first = self.span_of(&range.start)?.0;
+        let mut last = self.span_of(&range.end)?.1;
         if range.exclusive_end {
             if last == 0 {
                 return Err(
@@ -712,11 +749,118 @@ impl<'a> Doc<'a> {
                 let hits = self.matching_lines(|line| line.contains(literal.as_str()));
                 pick(hits, *qualifier, &format!("`{literal}`"))
             }
+            Addr::Block(..) => Ok(self.span_of(addr)?.0),
         }
     }
 
-    /// Every line an address matches — the `delete every` shape, and the one
-    /// place an unqualified address may match many times.
+    /// The run of lines an address names: `(first, last)`, equal for every
+    /// address but a block. `before` takes the first and `after` the last,
+    /// which is also how a block reads at either end of a range.
+    fn span_of(&self, addr: &Addr) -> Result<(usize, usize), String> {
+        let Addr::Block(body, qualifier) = addr else {
+            let line = self.line_of(addr)?;
+            return Ok((line, line));
+        };
+        if body.is_empty() {
+            return Err("an empty block addresses nothing".to_string());
+        }
+        let hits = self.matching_blocks(body);
+        if hits.is_empty() {
+            let refusal = no_block_match(body);
+            let last = self.lines.len().saturating_sub(1);
+            return Err(match self.near_miss(body, 0, last) {
+                Some(hint) => format!("{refusal} — {hint}"),
+                None => refusal,
+            });
+        }
+        let first = pick(hits, *qualifier, &block_label(body))?;
+        Ok((first, first + body.len() - 1))
+    }
+
+    /// Every line where `body` stands in full.
+    fn matching_blocks(&self, body: &[String]) -> Vec<usize> {
+        if body.is_empty() || body.len() > self.lines.len() {
+            return Vec::new();
+        }
+        (0..=self.lines.len() - body.len())
+            .filter(|i| (0..body.len()).all(|k| self.line_text(i + k) == body[k]))
+            .collect()
+    }
+
+    /// The line a byte offset falls on.
+    fn line_at(&self, byte: usize) -> usize {
+        self.lines
+            .partition_point(|l| l.start <= byte)
+            .saturating_sub(1)
+    }
+
+    /// How far a multi-line block got before it stopped matching, and how the
+    /// line that broke it differs. A body that misses is far more often wrong
+    /// in one line than in all of them — most often in that line's
+    /// indentation — so naming the first divergence turns a blind retry into a
+    /// targeted one.
+    fn near_miss(&self, want: &[String], from: usize, to: usize) -> Option<String> {
+        if want.len() < 2 {
+            return None;
+        }
+        let mut best = (0usize, 0usize);
+        for start in from..=to.min(self.lines.len().saturating_sub(1)) {
+            let run = (0..want.len())
+                .take_while(|k| {
+                    start + k < self.lines.len() && self.line_text(start + k) == want[*k]
+                })
+                .count();
+            if run > best.0 {
+                best = (run, start);
+            }
+        }
+        let (run, start) = best;
+        if run == 0 || start + run >= self.lines.len() {
+            return None;
+        }
+        let theirs = &want[run];
+        let ours = self.line_text(start + run);
+        let lead = format!(
+            "the body's first {run} line{} at line {}, then body line {}",
+            if run == 1 { " matches" } else { "s match" },
+            start + 1,
+            run + 1
+        );
+        if theirs.trim() == ours.trim() {
+            Some(format!(
+                "{lead} differs only in indentation: the file indents it {}, the body {}",
+                leading_whitespace(ours),
+                leading_whitespace(theirs)
+            ))
+        } else {
+            Some(format!(
+                "{lead} differs: the file has `{}` where the body has `{}`",
+                clip(ours),
+                clip(theirs)
+            ))
+        }
+    }
+
+    /// Every run an address matches — the `delete every` shape, and the one
+    /// place an unqualified address may match many times. A block matches as a
+    /// whole run; every other address matches one line at a time.
+    fn every_span_of(&self, addr: &Addr) -> Result<Vec<(usize, usize)>, String> {
+        if let Addr::Block(body, None) = addr {
+            let hits = self.matching_blocks(body);
+            return if hits.is_empty() {
+                Err(no_block_match(body))
+            } else {
+                Ok(hits.into_iter().map(|i| (i, i + body.len() - 1)).collect())
+            };
+        }
+        Ok(self
+            .every_line_of(addr)?
+            .into_iter()
+            .map(|line| (line, line))
+            .collect())
+    }
+
+    /// Every single line an address matches.
     fn every_line_of(&self, addr: &Addr) -> Result<Vec<usize>, String> {
         match addr {
             Addr::Regex(pattern, None) => {
@@ -1109,5 +1253,83 @@ mod tests {
             &[("a.txt", "fn go() {\n    x\n}\n")],
         );
         assert_eq!(err.failures[0].message, "expected 1 match, found 0");
+    }
+
+    #[test]
+    fn a_block_addresses_the_run_of_lines_it_equals() {
+        // The shape the field reached for unprompted: anchor past a whole
+        // function when no single line in it is distinctive enough to name.
+        let doc = &[("a.ts", "one\nfn go() {\n  work();\n}\ntail\n")];
+        let out = plan(
+            "file a.ts\n  after <<\nfn go() {\n  work();\n}\n>> insert <<\nafter\n>>\n",
+            doc,
+        );
+        assert_eq!(
+            out[0].edits[0].start, 26,
+            "lands past the block's LAST line"
+        );
+
+        let out = plan(
+            "file a.ts\n  before <<\nfn go() {\n  work();\n}\n>> insert <<\nbefore\n>>\n",
+            doc,
+        );
+        assert_eq!(out[0].edits[0].start, 4, "lands at the block's FIRST line");
+    }
+
+    #[test]
+    fn a_block_reads_as_a_range_end_and_as_a_delete_target() {
+        let doc = &[("a.ts", "one\ntwo\nthree\nfour\nfive\n")];
+        let out = plan("file a.ts\n  delete <<\ntwo\nthree\n>>\n", doc);
+        assert_eq!((out[0].edits[0].start, out[0].edits[0].end), (4, 14));
+
+        // A range whose end is a block ends on the block's last line.
+        let out = plan(
+            "file a.ts\n  lines 1 .. <<\nthree\nfour\n>> replace <<\nonly\n>>\n",
+            doc,
+        );
+        assert_eq!(out[0].edits[0].end, 19);
+    }
+
+    #[test]
+    fn a_block_that_matches_nowhere_names_the_line_that_broke_it() {
+        // The field's commonest miss now that bodies are verbatim: the model
+        // flattens the block's own relative indentation.
+        let err = refusal(
+            "file a.ts\n  replace <<\n  const g = f({\n  kind,\n>> with <<\n  const g = f({\n  kind: 1,\n>>\n",
+            &[("a.ts", "x\n  const g = f({\n    kind,\n  });\n")],
+        );
+        assert_eq!(
+            err.failures[0].message,
+            "expected 1 match, found 0 — the body's first 1 line matches at line 2, then body \
+             line 2 differs only in indentation: the file indents it 4, the body 2"
+        );
+
+        // And when the text itself differs, the file's version is quoted.
+        let err = refusal(
+            "file a.ts\n  replace <<\nalpha\nbeta\n>> with <<\nx\n>>\n",
+            &[("a.ts", "alpha\ngamma\n")],
+        );
+        assert!(
+            err.failures[0]
+                .message
+                .contains("the file has `gamma` where the body has `beta`"),
+            "{}",
+            err.failures[0].message
+        );
+    }
+
+    #[test]
+    fn a_block_address_that_matches_nothing_says_which_block() {
+        let err = refusal(
+            "file a.ts\n  after <<\nnope\nalso nope\n>> insert <<\nx\n>>\n",
+            &[("a.ts", "one\ntwo\n")],
+        );
+        assert!(
+            err.failures[0]
+                .message
+                .contains("no lines match the 2-line block opening `nope`"),
+            "{}",
+            err.failures[0].message
+        );
     }
 }

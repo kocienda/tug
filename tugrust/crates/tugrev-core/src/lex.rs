@@ -393,9 +393,16 @@ impl Scanner {
 /// Whether what follows a `>>` closes the body. Nothing but whitespace or a
 /// comment closes it; so does one of the op's own continuation words. Anything
 /// else means this line is body content that happens to start with `>>`.
+///
+/// `"["` among the continuations means the body is an ADDRESS, whose `[K]`
+/// match qualifier binds to the `>>` with no space: `>>[2]`. Only an address
+/// passes it, so a text body carrying a `>>[…]` line keeps it as content.
 fn terminates(after: &str, continues: &[&str]) -> bool {
     let after = after.trim_start();
     if after.is_empty() || after.starts_with('#') {
+        return true;
+    }
+    if after.starts_with('[') && continues.contains(&"[") {
         return true;
     }
     let word = after
