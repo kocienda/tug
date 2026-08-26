@@ -14,7 +14,8 @@
  *
  * Laws: [L02] the worker atom's identity is its own subscription; [L19]
  * `.tsx`/`.css` pair, `data-slot`; [L20] composes the atom, the identity, and
- * the line.
+ * the line, and publishes {@link DashWorkerAtom} for the dash picker, which
+ * wears the eyebrow's grammar without wearing the whole block.
  *
  * @module components/tugways/dash-lifecycle-block
  */
@@ -35,7 +36,16 @@ export interface DashLifecycleBlockProps extends DashLifecycleLineProps {
   trailing?: React.ReactNode;
 }
 
-function WorkerAtom({ sessionId, size }: { sessionId: string; size: "sm" | "2xs" }): React.ReactElement {
+/**
+ * One bound worker as a mini atom — the session's display name behind its live
+ * dot, with no callsign and no dash run, because the atom beside it already
+ * names the dash.
+ *
+ * Exported because the dash picker's row wears the same eyebrow grammar
+ * without wearing the whole block: composing this is what keeps it from
+ * re-declaring a chip identity by hand ([L20]).
+ */
+export function DashWorkerAtom({ sessionId, size }: { sessionId: string; size: "sm" | "2xs" }): React.ReactElement {
   const identity = useSessionIdentity(sessionId);
   return (
     <TugSessionIdentity
@@ -66,7 +76,7 @@ export function DashLifecycleBlock({
         <TugDashAtom name={name} review={review} size={atomSize} slot="tug-dash-lifecycle-name" />
         <span className="tug-dash-lifecycle-rule" aria-hidden="true" />
         {workers.map((sessionId) => (
-          <WorkerAtom key={sessionId} sessionId={sessionId} size={atomSize} />
+          <DashWorkerAtom key={sessionId} sessionId={sessionId} size={atomSize} />
         ))}
         {trailing}
       </span>

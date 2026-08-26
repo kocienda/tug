@@ -1,0 +1,24 @@
+/**
+ * tug-step-fraction.css — the counters' type and tones.
+ */
+
+.tug-step-fraction {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: var(--tug-font-family-mono);
+  /* The knob's default lives at the point of use: a host line set at a
+     reading scale raises the fraction one step without reaching into this
+     component's own element. */
+  font-size: var(--tugx-step-fraction-font-size, var(--tug-font-size-2xs));
+  flex: 0 0 auto;
+}
+
+.tug-step-fraction-i {
+  color: var(--tug7-element-global-text-normal-rest);
+}
+
+.tug-step-fraction-slash,
+.tug-step-fraction-n {
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}

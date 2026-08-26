@@ -13,14 +13,21 @@
  * shade's collapsed dash row wears:
  *
  *   [^dash-atom] ──────────────────────── [worker atom] ⋯
- *     ring · stage icon · count · note · age · divergence
+ *     track · fraction · note · divergence
  *
- * The EYEBROW holds the identities and one opener: the dash atom at the left,
- * the hairline, the "who" at the right — the bound worker as a mini atom (no
- * callsign, no dash run: the row already names both) — and the `⋯` that holds
- * the row's rare verbs. The dash pill wears no review tint here: that yellow is
- * the WAITING color, and a dash is not waiting for anyone. Beneath it,
- * `DashMetaLine` carries everything the dash is DOING.
+ * Every row is one `DashLifecycleBlock`, the grammar every dash surface wears.
+ * Its EYEBROW holds the identities and the row's own trailing control: the
+ * dash atom at the left, the hairline, the "who" at the right — each bound
+ * worker as a mini atom (no callsign, no dash run: the row already names
+ * both). The dash pill wears no review tint here: that yellow is the WAITING
+ * color, and a dash is not waiting for anyone. Beneath it, the lifecycle line
+ * carries everything the dash is DOING.
+ *
+ * A dash with no branch yet — a brief being written, a plan being devised or
+ * reviewed — is the SAME block, over `documentDashAsEntry`, with its track
+ * model from `documentDashTrackModel` so a plan already under way reads
+ * `implement` with the ledger's own counts. Its trailing control is the next
+ * gesture rather than the row menu; the two never share an eyebrow.
  *
  * The Lens is the account-global surface and `ChangesetAllStore` is the
  * account-global snapshot it already reads, so this section is a projection
@@ -73,7 +80,8 @@
  * [L03] the section's content declaration is a `useLayoutEffect`; [L06] tones
  * are CSS on DOM attributes, never React state; [L19] rows compose
  * `TugListView` / `TugListRow` rather than hand-rolling list focus; [L20] the
- * blocks compose `DashSigil`, `TugSessionIdentity`, and `DashMetaLine`.
+ * blocks compose `DashLifecycleBlock`, which owns the atom, the workers, and
+ * the line.
  *
  * @module components/lens/sections/dashes-section
  */
@@ -86,14 +94,20 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { EllipsisVertical, FileText, GitBranch } from "lucide-react";
+import { EllipsisVertical, GitBranch } from "lucide-react";
 
 import { LENS_LIST_PRESENTATION } from "@/components/lens/lens-list-presentation";
 import { setSectionContent } from "@/components/lens/lens-section-content";
-import { DashMetaLine } from "@/components/tugways/dash-meta-line";
+import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
+import { dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
+import { dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
+import { dashMetaFacts } from "@/lib/dash-meta-facts";
+import {
+  documentDashAsEntry,
+  documentDashTrackModel,
+} from "@/lib/document-dash-entry";
 import { DashJoinRegister } from "@/components/tugways/dash-join-register";
 import { useChangesetJoinLand } from "@/lib/changeset-join-store";
-import { DashSigil } from "@/components/tugways/dash-sigil";
 import { registerLensSection } from "@/components/lens/lens-section-registry";
 import type { LensSectionHost } from "@/components/lens/lens-section-registry";
 import { TugListRow } from "@/components/tugways/tug-list-row";
@@ -106,7 +120,6 @@ import type {
 } from "@/components/tugways/tug-list-view";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { useLensFollowedCard } from "@/components/lens/lens-followed-card";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -125,7 +138,6 @@ import {
   replayDisabledReason,
   useDashRowMenu,
 } from "@/components/tugways/cards/session-changes/dash-row-menu";
-import { useSessionIdentity } from "@/lib/session-identity";
 import type {
   DashChangesetEntry,
   DocumentDashEntry,
@@ -634,27 +646,6 @@ function DashRowMenuControl({ row }: { row: DashRow }): React.ReactElement | nul
 // The block
 // ---------------------------------------------------------------------------
 
-/**
- * The eyebrow's "who": one bound worker as a mini atom — the session's
- * display name behind its live dot, with no callsign and no dash run. The
- * callsign removal is `sessionTitleParts`' own rule; the dash suppression is
- * this surface's, because the eyebrow's leading atom already names the dash.
- */
-function WorkerAtom({ sessionId }: { sessionId: string }): React.ReactElement {
-  const identity = useSessionIdentity(sessionId);
-  return (
-    <TugSessionIdentity
-      identity={identity}
-      tier="chip"
-      size="2xs"
-      dash={false}
-      tooltip={false}
-      className="lens-dashes-worker"
-      data-slot="lens-dashes-worker"
-    />
-  );
-}
-
 const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   index,
   dataSource,
@@ -670,6 +661,7 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
   // CSS on this bit, never React state). An inert row never invited the press,
   // so it owes no refusal.
   const activatable = useWorkerCard(entry) !== null;
+  const model = dashTrackModelFromEntry(entry);
   return (
     <TugListRow
       className="lens-dashes-row"
@@ -681,31 +673,25 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       data-activatable={activatable ? "true" : undefined}
     >
       <span className="lens-dashes-block">
-        {/* The eyebrow holds the identities and nothing else: the dash atom,
-            the hairline, the "who". The pill wears no review tint — that
-            yellow means WAITING, and a dash is not waiting for anyone. */}
-        <span className="lens-dashes-eyebrow">
-          <DashSigil
-            name={entry.display_name}
-            review={null}
-            slot="lens-dashes-name"
-            atom
-            atomSize="2xs"
-          />
-          <span className="lens-dashes-eyebrow-rule" />
-          {workers.map((sessionId) => (
-            <WorkerAtom key={sessionId} sessionId={sessionId} />
-          ))}
-          {/* Every row carries the opener, held or not: Replay reaches a bound
-              dash on the same terms as an unbound one, and a menu that came and
-              went with the binding would be the section's old wart in
-              miniature. */}
-          <DashRowMenuControl row={row} />
-        </span>
-        {/* Everything the dash is DOING, in the one shared metadata line. */}
-        <span className="lens-dashes-meta-line">
-          <DashMetaLine entry={entry} />
-        </span>
+        {/* The dash's whole life in the one block: the atom and the workers
+            over the track, the fraction, the note, and the divergence facts.
+            The pill wears no review tint — that yellow means WAITING, and a
+            dash is not waiting for anyone.
+
+            Every row carries the menu opener, held or not: Replay reaches a
+            bound dash on the same terms as an unbound one, and a menu that
+            came and went with the binding would be the section's old wart in
+            miniature. */}
+        <DashLifecycleBlock
+          name={entry.display_name}
+          review={null}
+          workers={workers}
+          model={model}
+          note={dashLifecycleNote(model, entry.step_title ?? null)}
+          facts={dashMetaFacts(entry)}
+          size="rail"
+          trailing={<DashRowMenuControl row={row} />}
+        />
         {/* And what its JOIN is doing, in the one shared register — the same
             sentence the shade and the composer show, because all three call
             one derivation. Renders nothing until there is a join. */}
@@ -774,20 +760,13 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
     begun,
     hasPlan,
   );
-  // A begun plan states how far it got; an unstarted one states how far it
-  // goes. The same cell, two readings, because a fraction on a plan nobody has
-  // touched is a zero pretending to be progress.
-  const steps = begun
-    ? `${entry.steps_done} of ${entry.step_total} done`
-    : entry.step_total === 1
-      ? "1 step"
-      : `${entry.step_total} steps`;
-  // A dash whose devise stage has not run has no plan facts to state — the
-  // brief is the whole of what it is so far.
-  const facts = hasPlan ? `plan · ${entry.review} · ${steps}` : "brief";
+  // The counted steps, never the composed ones: `dashTrackModelFromEntry` over
+  // the adapted entry would find no `steps` at all and read `review` for a
+  // plan already half walked.
+  const model = documentDashTrackModel(entry);
   return (
     <TugListRow
-      className="lens-dashes-row lens-plans-row"
+      className="lens-dashes-row"
       variant="flush"
       density="compact"
       data-slot="lens-document-dash-row"
@@ -796,40 +775,39 @@ const PlanCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
       data-begun={begun ? "true" : "false"}
     >
       <span className="lens-dashes-block">
-        <span className="lens-dashes-eyebrow">
-          <FileText size={13} className="lens-plans-glyph" aria-hidden />
-          <span className="lens-plans-name" data-slot="lens-plans-name">
-            {entry.display_name}
-          </span>
-          <span className="lens-dashes-eyebrow-rule" />
-          <span className="lens-dashes-verbs">
-            <TugPushButton
-              size="2xs"
-              emphasis="ghost"
-              data-slot="lens-plans-gesture"
-              // The exact line a press submits, carried on the control rather
-              // than composed at press time — one string, rendered once, so
-              // what the button says it will do and what it does cannot drift.
-              data-prompt={prompt}
-              disabled={target.cardId === null}
-              title={target.reason ?? undefined}
-              aria-label={
-                target.reason ?? `${label} the dash ${entry.display_name}`
-              }
-              onClick={() => {
-                if (target.cardId === null) return;
-                submitPromptToCard(target.cardId, prompt);
-              }}
-            >
-              {label}
-            </TugPushButton>
-          </span>
-        </span>
-        <span className="lens-dashes-meta-line lens-plans-meta">
-          <span data-slot="lens-plans-facts">
-            {facts}
-          </span>
-        </span>
+        <DashLifecycleBlock
+          name={entry.display_name}
+          review={null}
+          workers={entry.bound_sessions ?? []}
+          model={model}
+          note={dashLifecycleNote(model, null)}
+          facts={dashMetaFacts(documentDashAsEntry(entry))}
+          size="rail"
+          trailing={
+            <span className="lens-dashes-verbs">
+              <TugPushButton
+                size="2xs"
+                emphasis="ghost"
+                data-slot="lens-plans-gesture"
+                // The exact line a press submits, carried on the control rather
+                // than composed at press time — one string, rendered once, so
+                // what the button says it will do and what it does cannot drift.
+                data-prompt={prompt}
+                disabled={target.cardId === null}
+                title={target.reason ?? undefined}
+                aria-label={
+                  target.reason ?? `${label} the dash ${entry.display_name}`
+                }
+                onClick={() => {
+                  if (target.cardId === null) return;
+                  submitPromptToCard(target.cardId, prompt);
+                }}
+              >
+                {label}
+              </TugPushButton>
+            </span>
+          }
+        />
       </span>
     </TugListRow>
   );

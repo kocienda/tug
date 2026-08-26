@@ -26,7 +26,8 @@
  * `~/.local/bin/tugutil` is a symlink into the *main* checkout's build, which
  * would run a `tugutil` with no `verify` subcommand at all.
  *
- * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
+ * @covers tugdeck/src/lib/dash-meta-facts.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugrust/crates/tugdash-core/src/ops.rs
  * @covers tugrust/crates/tugdash-core/src/surfaces.rs
@@ -66,7 +67,7 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
 const DASH_NAME = "at0478-fit";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
-const FIT_MARK = `${ROW} [data-slot="tug-dash-meta-fact"][data-fact="fit"]`;
+const FIT_MARK = `${ROW} [data-slot="tug-dash-lifecycle-fact"][data-fact="fit"]`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));

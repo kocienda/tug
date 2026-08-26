@@ -29,7 +29,8 @@ import "./dash-picker-sheet.css";
 import React, { useMemo, useRef } from "react";
 
 import { TugListRow } from "@/components/tugways/tug-list-row";
-import { TugDashName } from "@/components/tugways/tug-dash-name";
+import { TugDashAtom } from "@/components/tugways/tug-dash-atom";
+import { DashWorkerAtom } from "@/components/tugways/dash-lifecycle-block";
 import { TugMetaRun } from "@/components/tugways/tug-meta-run";
 import {
   TugListView,
@@ -99,19 +100,22 @@ const DashPickerCell: TugListViewCellRenderer<DashPickerDataSource> = ({
       data-slot="dash-picker-row"
       data-dash={entry.display_name}
       data-current={current ? "true" : undefined}
-      // The register carries the fact this picker exists to weigh. A dash
-      // somebody is working leads with that worker's atom; one nobody is
-      // working takes the mono run. Reading it off `title` as bare text made
-      // every candidate look identical in the one place a reader is choosing
-      // between them.
+      // The eyebrow's identities, in the grammar every dash surface wears: the
+      // dash atom, then one worker atom per bound session. Who is working a
+      // dash is the fact this picker exists to weigh, and reading it off
+      // `title` as bare text made every candidate look identical in the one
+      // place a reader is choosing between them.
       leading={
-        <TugDashName
-          name={entry.display_name}
-          review={entry.review ?? null}
-          boundSessions={entry.bound_sessions}
-          slot="dash-picker-name"
-          workerSlot="dash-picker-worker"
-        />
+        <span className="dash-picker-identity">
+          <TugDashAtom
+            name={entry.display_name}
+            review={entry.review ?? null}
+            size="2xs"
+          />
+          {(entry.bound_sessions ?? []).map((sessionId) => (
+            <DashWorkerAtom key={sessionId} sessionId={sessionId} size="2xs" />
+          ))}
+        </span>
       }
       trailing={
         current ? (

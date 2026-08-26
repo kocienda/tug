@@ -4,13 +4,13 @@
  *
  * A dash is a different species from a claimed file, so it gets a different
  * row. This pins that grammar end to end: a real `tugutil dash create` in the
- * project under test composes into `snapshot.dashes`, the lane renders the
- * name's atom over the shared `DashMetaLine` (ring · stage icon · count ·
- * note · age · divergence — the same element the Lens's Dashes section
- * renders, [D141]), the expanded face carries the worktree's dirty files and
- * the maintained join draft as read-only ink, and nowhere in the lane is
- * there a claim, disclaim, or hunk-election affordance — the whole point of
- * not reusing `TugChangesList`'s rows.
+ * project under test composes into `snapshot.dashes`, the lane renders one
+ * `DashLifecycleBlock` at reading scale — the atom and the workers over the
+ * track, the note and the divergence facts, the same block the Lens's Dashes
+ * section renders at the rail ([D141]) — the expanded face carries the
+ * worktree's dirty files and the maintained join draft as read-only ink, and
+ * nowhere in the lane is there a claim, disclaim, or hunk-election affordance
+ * — the whole point of not reusing `TugChangesList`'s rows.
  *
  * The draft has two grammars and the server decides which one stands: a dash
  * the join has armed shows what the join would land, under `lands as`
@@ -62,8 +62,10 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
  * @covers tugdeck/src/lib/changes-route-controller.ts
- * @covers tugdeck/src/components/tugways/tug-dash-name.tsx
- * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
+ * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
+ * @covers tugdeck/src/lib/document-dash-entry.ts
  * @covers tugdeck/src/components/tugways/tug-section-label.tsx
  */
 
@@ -407,24 +409,20 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // ── The row reads in dash grammar ─────────────────────────────────
         const row = await app.evalJS<{
           badge: string;
-          stage: string | null;
-          stageWord: string | null;
+          phase: string | null;
           note: string;
-          noteEmpty: string | null;
           popOuts: number;
           claimish: number;
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              const lane = document.querySelector(${JSON.stringify(LANE)});
-             const mark = row.querySelector('[data-slot="tug-dash-stage-mark"]');
-             const noteEl = row.querySelector(".tug-dash-meta-note");
+             const track = row.querySelector('[data-slot="tug-dash-track"]');
+             const noteEl = row.querySelector('[data-slot="tug-dash-lifecycle-note"]');
              return {
-               badge: (row.querySelector('[data-slot="session-changes-dash-name"]')?.textContent ?? "").trim(),
-               stage: mark?.getAttribute("data-stage") ?? null,
-               stageWord: mark?.getAttribute("aria-label") ?? null,
+               badge: (row.querySelector('[data-slot="tug-dash-lifecycle-name"]')?.textContent ?? "").trim(),
+               phase: track?.getAttribute("data-phase") ?? null,
                note: (noteEl?.textContent ?? "").trim(),
-               noteEmpty: noteEl?.getAttribute("data-empty") ?? null,
                popOuts: row.querySelectorAll('[data-testid="tug-changes-list-diff-popout"]').length,
                claimish: lane.querySelectorAll(
                  '[data-testid^="tug-changes-list-claim"], [data-testid^="tug-changes-list-disclaim"], .tug-changes-list-claim, .tug-changes-list-disclaim',
@@ -438,15 +436,14 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         // blockifies them and would put a line break between the sigil and
         // the name it belongs to.
         expect(row.badge).toBe(`^${DASH_NAME}`);
-        // The derived stage, as the glyph whose word rides the hover ([D141]).
-        // One committed round, no plan and a clean worktree is `ready`: with
-        // no declared selection to finish, a landed round is the whole of the
-        // intent, and the server arms the join from it ([D147]).
-        expect(row.stage).toBe("ready");
-        expect(row.stageWord).toBe("ready");
-        // No plan, said aloud rather than as silence.
-        expect(row.note).toBe("no plan yet");
-        expect(row.noteEmpty).toBe("true");
+        // Where the dash stands in its life, as the strip's own last cell.
+        // One committed round, no plan and a clean worktree derives `ready`:
+        // with no declared selection to finish, a landed round is the whole of
+        // the intent, and the server arms the join from it ([D147]) — so the
+        // track stands at `join`, the phase every arming stage reads as. With
+        // no step open the note is that phase word and nothing more.
+        expect(row.phase).toBe("join");
+        expect(row.note).toBe(row.phase);
         expect(row.popOuts).toBe(1);
         // The lane is read-only by construction: no claim grammar reaches it.
         expect(row.claimish).toBe(0);
@@ -495,7 +492,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
                const slots = [...row.querySelectorAll("[data-slot]")].map((el) => el.getAttribute("data-slot"));
                return {
                  expanded: row.getAttribute("data-expanded"),
-                 stage: row.querySelector('[data-slot="tug-dash-stage-mark"]')?.getAttribute("data-stage") ?? null,
+                 phase: row.querySelector('[data-slot="tug-dash-track"]')?.getAttribute("data-phase") ?? null,
                  slots: [...new Set(slots)].join(","),
                };
              })()`,
@@ -588,8 +585,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              const L = (el) => Math.round(el.getBoundingClientRect().left * 10) / 10;
              return {
-               name: L(row.querySelector(".tug-session-identity-dash")),
-               mark: L(row.querySelector(".session-changes-dash-meta .tug-dash-meta-line > *")),
+               name: L(row.querySelector('[data-slot="tug-dash-lifecycle-name"]')),
+               mark: L(row.querySelector('[data-slot="tug-dash-lifecycle-line"] > *')),
              };
            })()`,
         );

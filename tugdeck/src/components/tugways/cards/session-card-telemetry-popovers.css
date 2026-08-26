@@ -311,21 +311,17 @@
    Dash — the cockpit detail's header block
    ========================================================================= */
 
-/* The dash's identity over its metadata line, above the checklist. A block
-   rather than a popup-list item: it is the placard's subject, not one of its
-   rows, and the items beneath it are the run's steps. */
-/* The head and the step rows below it share an inline padding, and that used
-   to be the *whole* of their alignment — but a shared left edge is not a shared
-   column. The head's meta line leads with a 16px ring; each row leads with a
-   14px dot; so two marks that read as one column were drawn off centre from
-   each other by the difference, which is exactly how it looked.
-
-   One lead box, declared once and spent twice: the head centres its leading
-   mark in it, the rows centre their dot in it. Retuning either mark now moves
-   both together instead of reopening the gap. Which mark leads the meta line is
-   the meta line's business — the ring when the dash declared counters, the
-   stage glyph when it did not — so the rule takes whichever one is first
-   rather than naming one and shifting the line when it is absent. */
+/* The dash as one `DashLifecycleBlock`, above the checklist. A block rather
+   than a popup-list item: it is the placard's subject, not one of its rows,
+   and the items beneath it are the run's steps. Everything inside it — the
+   atom, the workers, the track, the note — is the block's own; the head only
+   says where it sits. */
+/* The lead column is the step ROWS' alone. The head used to lead with a 16px
+   ring, and centring that in a shared box with each row's 14px dot was what
+   kept the two from reading as one column. The head now leads with a strip
+   rather than a mark, and a strip forced into a 16px box would be clipped —
+   so the box stays with the rows, which are the only things still lining a
+   mark up. */
 [data-slot="session-dash-popover-body"] {
   --tugx-dash-popover-lead-width: 16px;
 }
@@ -338,12 +334,6 @@
   padding: var(--tug-space-xs) var(--tug-space-sm);
 }
 
-.session-dash-popover-head .tug-dash-meta-line > :first-child {
-  flex: 0 0 auto;
-  display: inline-flex;
-  justify-content: center;
-  inline-size: var(--tugx-dash-popover-lead-width);
-}
 
 [data-slot="session-dash-popover-body"] .tug-popup-list-item-lead {
   justify-content: center;

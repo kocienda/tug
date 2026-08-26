@@ -31,7 +31,8 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-documents.css
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-dash-lane.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-view.tsx
- * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
+ * @covers tugdeck/src/lib/document-dash-entry.ts
  * @covers tugdeck/src/lib/changes-route-controller.ts
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs

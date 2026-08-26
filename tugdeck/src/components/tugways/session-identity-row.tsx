@@ -90,8 +90,8 @@ import React, {
 
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
 import { TugDashTrack, dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
-import { TugStepFraction } from "@/components/tugways/tug-step-ring";
-import { dashGlanceFraction } from "@/components/tugways/dash-meta-line";
+import { TugStepFraction } from "@/components/tugways/tug-step-fraction";
+import { dashGlanceFraction } from "@/lib/dash-meta-facts";
 import { PulseBeatText } from "@/components/tugways/pulse-beat-text";
 import { SessionActivitySparkline } from "@/components/tugways/session-activity-sparkline";
 import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
@@ -760,7 +760,9 @@ export function SessionIdentityRow({
   // glyph could only name the stage GIT had reached, so a card devising or
   // reviewing a plan showed nothing at all — the half of a dash's life that
   // happens before a branch exists was invisible on the surface most likely to
-  // be watching it.
+  // be watching it. The guard is the binding itself for the same reason: a
+  // branchless dash has no `stage`, and gating on one kept the track off
+  // exactly the half the track was built to show.
   //
   // The fraction stays beside it because the two count different things: the
   // numerals count the RUN somebody asked for, the track draws the PLAN and
@@ -769,7 +771,7 @@ export function SessionIdentityRow({
   //
   // The step's TITLE stays off this line — it lives in the Dashes section.
   const progress =
-    dashFact !== null && dashFact.stage !== null ? (
+    dashFact !== null ? (
       <span
         className="session-identity-row-progress"
         data-slot="session-identity-row-progress"

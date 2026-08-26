@@ -63,6 +63,10 @@
 
  * @covers tugdeck/src/components/lens/sections/dash-prompt-target.ts
  * @covers tugdeck/src/lib/dash-prompts.ts
+ * @covers tugdeck/src/lib/document-dash-entry.ts
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
+ * @covers tugdeck/src/components/tugways/tug-dash-track.css
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.css
@@ -244,7 +248,9 @@ interface PlanRowReading {
   dash: string | null;
   review: string | null;
   name: string;
-  facts: string;
+  phase: string | null;
+  fraction: string;
+  ticks: (string | null)[];
   label: string;
   prompt: string | null;
   disabled: boolean;
@@ -255,11 +261,21 @@ const readPlanRows = (app: App): Promise<PlanRowReading[]> =>
   app.evalJS<PlanRowReading[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(PLAN_ROWS)})).map((row) => {
        const button = row.querySelector('[data-slot="lens-plans-gesture"]');
+       const track = row.querySelector('[data-slot="tug-dash-track"]');
+       const cell = track?.querySelector(
+         '[data-slot="tug-dash-track-cell"][data-phase="implement"]',
+       );
        return {
          dash: row.getAttribute("data-dash"),
          review: row.getAttribute("data-review"),
-         name: (row.querySelector('[data-slot="lens-plans-name"]')?.textContent ?? "").trim(),
-         facts: (row.querySelector('[data-slot="lens-plans-facts"]')?.textContent ?? "").trim(),
+         name: (row.querySelector('[data-slot="tug-dash-lifecycle-name"]')?.textContent ?? "").trim(),
+         phase: track?.getAttribute("data-phase") ?? null,
+         fraction: (row.querySelector('[data-slot="tug-step-fraction"]')?.textContent ?? "").trim(),
+         ticks: cell
+           ? Array.from(cell.querySelectorAll(".tug-dash-track-tick")).map(
+               (el) => el.getAttribute("data-state"),
+             )
+           : [],
          label: (button?.textContent ?? "").trim(),
          prompt: button?.getAttribute("data-prompt") ?? null,
          disabled: button?.hasAttribute("disabled") ?? false,
@@ -344,34 +360,44 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         const elsewhere = rows.find((r) => r.dash === OTHER)!;
 
         // ── The next-gesture ladder, in the DOM ───────────────────────────
-        expect(settled.name).toBe(REVIEWED);
+        // The row wears the same lifecycle grammar a live dash does: the atom
+        // names the dash with its sigil, and the track says where in its life
+        // it stands. A plan nobody has touched stands at `review`, whatever
+        // the review verdict is — the phase is how far the WORK got, and the
+        // gesture button is what spells the verdict.
+        expect(settled.name).toBe(`^${REVIEWED}`);
+        expect(settled.phase).toBe("review");
         expect(settled.label).toBe("Implement");
         // Every gesture names the dash, never a path: the skills resolve the
         // address, so a prompt cannot point at the wrong file.
         expect(settled.prompt).toBe(`/tugplug:dash-implement ${REVIEWED}`);
-        expect(settled.facts).toBe("plan · reviewed · 1 step");
         expect(settled.disabled).toBe(false);
 
         expect(unread.review).toBe("never-reviewed");
+        expect(unread.phase).toBe("review");
         expect(unread.label).toBe("Review");
         expect(unread.prompt).toBe(`/tugplug:dash-review ${FRESH}`);
-        expect(unread.facts).toBe("plan · never-reviewed · 2 steps");
         expect(unread.disabled).toBe(false);
 
-        // A brief and no plan is the planning phase before devise: the row
-        // says what it has, and points at the arc's front door.
+        // A brief and no plan is the planning phase before devise: the track
+        // stands at `brief`, and the row points at the arc's front door.
+        expect(sketched.phase).toBe("brief");
         expect(sketched.label).toBe("Devise");
         expect(sketched.prompt).toBe(`/tugplug:dash ${BRIEFED}`);
-        expect(sketched.facts).toBe("brief");
         expect(sketched.disabled).toBe(false);
 
-        // A begun plan states how far it got, and wants resuming whatever its
-        // review says — `dash-implement` re-enters at the first row that is
-        // not done, and its own setup gate owns the review question.
+        // A begun plan is being IMPLEMENTED, branch or no branch — and the
+        // ticks are the plan's own ledger rows, one done, one open, one to go.
+        // The counts are the wire's; nothing here invents a step.
         expect(underway.review).toBe("never-reviewed");
+        expect(underway.phase).toBe("implement");
+        expect(underway.ticks).toEqual(["done", "active", "pending"]);
+        expect(underway.fraction).toBe("2/3");
+        // It wants resuming whatever its review says — `dash-implement`
+        // re-enters at the first row that is not done, and its own setup gate
+        // owns the review question.
         expect(underway.label).toBe("Resume");
         expect(underway.prompt).toBe(`/tugplug:dash-implement ${BEGUN}`);
-        expect(underway.facts).toBe("plan · never-reviewed · 1 of 3 done");
         expect(underway.disabled).toBe(false);
 
         // ── A cross-project row refuses by name, never silently ───────────
@@ -426,17 +452,27 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         expect(tasksBox.label).toBe("TASKS");
         expect(tasksBox.width).toBeGreaterThan(0);
 
-        // The cell's value, its stage glyph, its fraction, and the pose of the
-        // two dots flanking them — read the same way at both readings below.
+        // The cell's value, the strip inside it, whether that strip fits its
+        // box, and the pose of the dot beside it — read the same way at every
+        // reading below.
         const PROBE_DASH_CELL = `(() => {
              const cell = document.querySelector(${JSON.stringify(CELL)});
              const value = cell?.querySelector('[data-slot="session-telemetry-dash-value"]');
+             const track = value?.querySelector('[data-slot="tug-dash-track"]');
+             const steps = track?.querySelector('[data-slot="tug-dash-track-cell"][data-phase="implement"][data-steps="true"]');
              return {
                label: (cell?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim(),
                width: cell?.getBoundingClientRect().width ?? 0,
                text: (value?.textContent ?? "").trim(),
-               stage: value?.querySelector('[data-slot="tug-dash-stage-mark"]')?.getAttribute("data-stage") ?? null,
-               fraction: (value?.querySelector(".session-telemetry-status-dash-fraction")?.textContent ?? "").trim(),
+               phase: track?.getAttribute("data-phase") ?? null,
+               ticks: steps ? steps.querySelectorAll(".tug-dash-track-tick").length : 0,
+               fractions: value?.querySelectorAll('[data-slot="tug-step-fraction"]').length ?? 0,
+               // The fit, as the box itself reports it: a strip wider than its
+               // span would be clipped from its END, cutting the implement
+               // ticks and the join cell — the two that say the work is nearly
+               // over.
+               scrollWidth: value?.scrollWidth ?? 0,
+               clientWidth: value?.clientWidth ?? 0,
                aria: value?.getAttribute("aria-label") ?? null,
                dots: Array.from(cell?.querySelectorAll('.session-telemetry-status-dash-row [data-slot="tug-progress-indicator"]') ?? [])
                  .map((d) => d.getAttribute("data-state")),
@@ -446,16 +482,19 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           label: string;
           width: number;
           text: string;
-          stage: string | null;
-          fraction: string;
+          phase: string | null;
+          ticks: number;
+          fractions: number;
+          scrollWidth: number;
+          clientWidth: number;
           aria: string | null;
           dots: Array<string | null>;
         }
 
         // A real dash on project A, bound to the followed card's session — the
-        // fixture runs the same verbs a run does. No plan yet, which is the
-        // half of the arc the glyph is for: with no step count to show, the
-        // stage IS the value.
+        // fixture runs the same verbs a run does. No documents and no arc, so
+        // the strip reads it as the poke it is indistinguishable from: two
+        // cells, nothing done.
         const dash = createDash(dirA(), DASH_NAME, "at0473 fixture", projectA!.cli);
         bindDash(dirA(), DASH_NAME, SID_A, {
           binaryRoot: CHECKOUT,
@@ -465,14 +504,17 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "DASH"`,
           { timeoutMs: 60000 },
         );
-        const glyphOnly = await app.evalJS<DashCellProbe>(PROBE_DASH_CELL);
-        note("at0473 Z2 as DASH, no count", JSON.stringify(glyphOnly));
-        expect(glyphOnly.label).toBe("DASH");
-        expect(glyphOnly.stage).toBe("created");
-        expect(glyphOnly.fraction).toBe("");
-        // Both dots, and both quiet: a dash nobody has worked yet is not work
-        // in flight, and a dot pulsing over it would say it was.
-        expect(glyphOnly.dots).toEqual(["stopped", "stopped"]);
+        const bare = await app.evalJS<DashCellProbe>(PROBE_DASH_CELL);
+        note("at0473 Z2 as DASH, no plan", JSON.stringify(bare));
+        expect(bare.label).toBe("DASH");
+        expect(bare.phase).toBe("implement");
+        expect(bare.ticks).toBe(0);
+        expect(bare.fractions).toBe(0);
+        // ONE dot, and quiet: a dash nobody has worked yet is not work in
+        // flight, and a dot pulsing over it would say it was. The pill with
+        // its label and its `00/00` reservation is the TASKS reading's alone.
+        expect(bare.dots).toEqual(["stopped"]);
+        expect(bare.scrollWidth).toBeLessThanOrEqual(bare.clientWidth);
 
         // Now a real plan and a real step declaration — and the count takes
         // the value over.
@@ -488,21 +530,27 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         // the worktree clean.
         writeFileSync(join(dash.worktree, "in-flight.txt"), "mid-round\n");
         await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-status-dash-fraction")?.textContent ?? "").trim() === "1/3"`,
+          `document.querySelectorAll(${JSON.stringify(`${CELL} [data-slot="session-telemetry-dash-value"] [data-slot="tug-dash-track-cell"][data-steps="true"] .tug-dash-track-tick`)}).length === 3`,
           { timeoutMs: 60000 },
         );
 
         const dashBox = await app.evalJS<DashCellProbe>(PROBE_DASH_CELL);
         note("at0473 Z2 as DASH", JSON.stringify(dashBox));
         expect(dashBox.label).toBe("DASH");
-        expect(dashBox.fraction).toBe("1/3");
-        // **The glyph yields to the count.** Both at once put three circles in
-        // a ~96px cell and read as clutter; the position in the run is the
-        // fact that moves while somebody watches, so it takes the box alone.
-        // The stage is still here — as the accessible label's step phrasing,
-        // and as the placard's own reading a click away.
-        expect(dashBox.stage).toBeNull();
-        expect(dashBox.dots.length).toBe(2);
+        // The strip says both things a glyph and a fraction each said half of:
+        // where in its life the dash stands, and how much of the plan is done.
+        expect(dashBox.phase).toBe("implement");
+        expect(dashBox.ticks).toBe(3);
+        // No numerals in this box — the strip is the whole reading, and the
+        // exact count is in the accessible label and on the masthead one row
+        // up, which renders the same track with room for it.
+        expect(dashBox.fractions).toBe(0);
+        expect(dashBox.dots).toEqual(["stopped"]);
+        // ── The fit, at the first of two plan lengths ([P10]) ─────────────
+        expect(
+          dashBox.scrollWidth,
+          "the strip fits its box on a three-step plan",
+        ).toBeLessThanOrEqual(dashBox.clientWidth);
         // And the *name is not in the cell at all*. A name is the one fact
         // here that can be arbitrarily long, and in a ~110px box it elided
         // away the facts that actually move. Nothing left in the cell can be
@@ -524,33 +572,31 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
         const placard = await app.evalJS<{
           text: string;
           rows: Array<{ text: string; status: string | null }>;
-          headMark: number;
-          rowMark: number;
+          blocks: number;
+          tracks: number;
         }>(
           `(() => {
              const body = document.querySelector(${JSON.stringify(DASH_PLACARD)});
              const steps = Array.from(body?.querySelectorAll('[data-slot="session-dash-popover-step"]') ?? []);
-             const centre = (el) => {
-               if (el === null || el === undefined) return -1;
-               const box = el.getBoundingClientRect();
-               return box.left + box.width / 2;
-             };
+
              return {
                text: (body?.textContent ?? "").trim(),
                rows: steps.map((row) => ({
                  text: (row.querySelector(".tug-popup-list-item-primary")?.textContent ?? "").trim(),
                  status: row.getAttribute("data-status"),
                })),
-               headMark: centre(body?.querySelector('[data-slot="tug-dash-meta-line"]')?.firstElementChild),
-               rowMark: centre(steps[0]?.querySelector(".tug-popup-list-item-lead")?.firstElementChild),
+               blocks: body?.querySelectorAll('[data-slot="tug-dash-lifecycle-block"]').length ?? 0,
+               tracks: body?.querySelectorAll('[data-slot="tug-dash-track"]').length ?? 0,
              };
            })()`,
         );
         note("at0473 dash placard", JSON.stringify(placard));
-        // The cockpit detail: the dash's own atom, the run fraction, the step
+        // The cockpit detail heads with the same block the Lens row and the
+        // Changes shade wear: the atom, the track, the run fraction, the step
         // it is on, and the divergence facts — every mark composed from the
-        // same components the Lens row and the Changes shade render, so the
-        // three readings of one dash cannot disagree.
+        // same components, so the three readings of one dash cannot disagree.
+        expect(placard.blocks).toBe(1);
+        expect(placard.tracks).toBe(1);
         expect(placard.text).toContain(DASH_NAME);
         expect(placard.text).toContain("1/3");
         expect(placard.text).toContain("uncommitted");
@@ -573,16 +619,32 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           "pending",
         ]);
         expect(placard.text).not.toContain("None");
-        // One lead column, measured. The head's ring and the rows' dots are
-        // different sizes, so sharing an inline padding left them off centre
-        // from each other by the difference — a shared left edge is not a
-        // shared column.
-        expect(placard.headMark).toBeGreaterThan(0);
-        expect(
-          Math.abs(placard.headMark - placard.rowMark),
-          "the head's mark is centred in the column the step dots sit in",
-        ).toBeLessThanOrEqual(1);
         note("at0473 Z2 dash placard", (await app.screenshot()).path);
+
+        // ── The fit again, on a plan four times as long ([P10]) ───────────
+        // A constant-width claim tested at one length is not tested. The
+        // implement cell is pinned at this box, so its ticks divide a fixed
+        // strip and simply get thinner — the reading is the same width at one
+        // step or at thirty, and the cell never has to clip. Last, because
+        // re-stamping the plan replaces the ledger the placard just read.
+        recordStampedPlan(dirA(), DASH_NAME, dash.worktree, {
+          rows: 12,
+          through: 12,
+          binaryRoot: CHECKOUT,
+          env: { ...projectA!.cli.env, TUG_SESSION_ID: SID_A },
+        });
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(`${CELL} [data-slot="session-telemetry-dash-value"] [data-slot="tug-dash-track-cell"][data-steps="true"] .tug-dash-track-tick`)}).length === 12`,
+          { timeoutMs: 60000 },
+        );
+        const longBox = await app.evalJS<DashCellProbe>(PROBE_DASH_CELL);
+        note("at0473 Z2 as DASH, twelve steps", JSON.stringify(longBox));
+        expect(longBox.ticks).toBe(12);
+        expect(
+          longBox.scrollWidth,
+          "the strip fits its box on a twelve-step plan too",
+        ).toBeLessThanOrEqual(longBox.clientWidth);
+        expect(longBox.width).toBe(tasksBox.width);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

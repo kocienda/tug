@@ -39,7 +39,8 @@
  * @covers tugrust/crates/tugcast-core/src/types.rs
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/lib/dash-session-index.ts
- * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
+ * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  */
 
@@ -74,7 +75,13 @@ const DASH_VALUE =
 const DASH_CELL =
   '[data-card-id="A"] [data-slot="tug-status-cell"][data-priority="tasks"]';
 const PLACARD = '[data-slot="session-dash-popover-body"]';
-const ARC_FACT = `${PLACARD} [data-slot="tug-dash-meta-fact"][data-fact="arc-stopped"]`;
+/** The placard's own reading of a stopped arc: the note leads with the stop,
+ *  and the strip tints the cell it stopped in. The line drops the two arc
+ *  FACTS on purpose — the track already says the arc is running, and the note
+ *  already says it stopped, so a fact restating either would be a third voice
+ *  on one subject. */
+const ARC_NOTE = `${PLACARD} [data-slot="tug-dash-lifecycle-note"]`;
+const ARC_TRACK = `${PLACARD} [data-slot="tug-dash-track"][data-stopped="true"]`;
 
 let project: DashScratchRepo | null = null;
 let fixture = "";
@@ -212,17 +219,18 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         // The words are on the placard, which is where there is room for them.
         await app.click(DASH_CELL);
         await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ARC_FACT)}) !== null`,
+          `document.querySelector(${JSON.stringify(ARC_TRACK)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        const fact = JSON.parse(
-          await app.evalJS<string>(
-            `(() => { const el = document.querySelector(${JSON.stringify(ARC_FACT)});
-              return JSON.stringify({ text: (el.textContent||"").trim(), tone: el.getAttribute("data-tone") }); })()`,
-          ),
-        ) as { text: string; tone: string | null };
-        expect(fact.text).toBe("arc stopped · review");
-        expect(fact.tone).toBe("danger");
+        const stopNote = await app.evalJS<string>(
+          `(document.querySelector(${JSON.stringify(ARC_NOTE)})?.textContent ?? "").trim()`,
+        );
+        note("at0475 placard note", stopNote);
+        // The note leads with the stop and then says why, in the arc receipt's
+        // own words — which is more than the retired fact's `arc stopped ·
+        // review` said, and in the one place there is room to say it.
+        expect(stopNote.startsWith("stopped · ")).toBe(true);
+        expect(stopNote).toContain("the plan did not lint");
 
         // And the reading the arc must never overwrite: the placard's footer
         // carries the *git* stage, derived exactly as it always was. A dash

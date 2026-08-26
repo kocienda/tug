@@ -3,8 +3,14 @@
    Four states on one ladder, chosen to family with the step ring and the
    pulsing dot: `pending` is the ring's own unfilled stroke, `done` the muted
    text tone, `active` the theme accent, and the join — the one cell that is a
-   destination rather than a stage — the theme's selection color. The geometry
-   is four knobs the host may retune at the point of use.
+   destination rather than a stage — the theme's selection color.
+
+   The geometry is knobs — `--tugx-dash-track-cell-w`, `-cell-h`, `-tick-w`,
+   `-steps-w`, `-out` — and their defaults live in the `var(--x, default)` that
+   READS them, never on `.tug-dash-track` itself. A declaration on the
+   component's own element always beats one on an ancestor, so knobs declared
+   there could not be retuned by a host at all: the promise was undeliverable
+   until the defaults moved to their points of use.
 
    Laws: [L06] state is data-*; [L20] owns `--tugx-dash-track-*`. */
 
@@ -13,15 +19,6 @@
   align-items: center;
   gap: 2px;
   flex: 0 0 auto;
-  --tugx-dash-track-cell-h: 7px;
-  --tugx-dash-track-cell-w: 14px;
-  --tugx-dash-track-tick-w: 5px;
-}
-
-.tug-dash-track[data-size="read"] {
-  --tugx-dash-track-cell-h: 9px;
-  --tugx-dash-track-cell-w: 18px;
-  --tugx-dash-track-tick-w: 6px;
 }
 
 /* The air a strip keeps from whatever is set after it. A track is a graphic,
@@ -36,10 +33,15 @@
   display: inline-flex;
   align-items: stretch;
   gap: 1px;
-  inline-size: var(--tugx-dash-track-cell-w);
-  block-size: var(--tugx-dash-track-cell-h);
+  inline-size: var(--tugx-dash-track-cell-w, 14px);
+  block-size: var(--tugx-dash-track-cell-h, 7px);
   border-radius: 2px;
   background: var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.tug-dash-track[data-size="read"] .tug-dash-track-cell {
+  inline-size: var(--tugx-dash-track-cell-w, 18px);
+  block-size: var(--tugx-dash-track-cell-h, 9px);
 }
 
 .tug-dash-track-cell[data-phase="brief"],
@@ -53,16 +55,27 @@
   border-end-end-radius: 999px;
 }
 
-.tug-dash-track-cell[data-steps="true"] {
-  inline-size: auto;
+/* The implement cell is as wide as its ticks by default — the plan's shape at
+   full size. A host with a fixed box pins it instead and lets the ticks divide
+   what it gives them; the cell is already `align-items: stretch`, so they
+   simply get thinner as the plan grows.
+
+   Selected through the track so it outranks the per-size cell rules above,
+   which are one attribute more specific than a bare `[data-steps]` would be. */
+.tug-dash-track .tug-dash-track-cell[data-steps="true"] {
+  inline-size: var(--tugx-dash-track-steps-w, auto);
   background: transparent;
   border-radius: 0;
 }
 
 .tug-dash-track-tick {
-  inline-size: var(--tugx-dash-track-tick-w);
+  inline-size: var(--tugx-dash-track-tick-w, 5px);
   border-radius: 1px;
   background: var(--tug7-element-global-border-normal-muted-rest);
+}
+
+.tug-dash-track[data-size="read"] .tug-dash-track-tick {
+  inline-size: var(--tugx-dash-track-tick-w, 6px);
 }
 
 .tug-dash-track-cell[data-state="done"],

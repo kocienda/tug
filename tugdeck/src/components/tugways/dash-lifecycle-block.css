@@ -29,7 +29,15 @@
   background: var(--tug7-element-global-border-normal-default-rest);
 }
 
-/* The line indents to the atom's text, so the two lines share a left edge. */
+/* The line indents to the atom's text, so the two lines share a left edge.
+   Not a space token: the indent is the one the atom above holds its NAME in
+   from the pill's edge, and it is a different inset at each atom size. A
+   near-miss is worse than no indent at all — the eye reads two lines that
+   almost line up as a mistake. */
 .tug-dash-lifecycle-block > .tug-dash-lifecycle-line {
   padding-inline-start: var(--tugx-session-atom-text-inset-2xs);
+}
+
+.tug-dash-lifecycle-block[data-size="read"] > .tug-dash-lifecycle-line {
+  padding-inline-start: var(--tugx-session-atom-text-inset);
 }

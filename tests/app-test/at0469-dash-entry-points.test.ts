@@ -220,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // The held row waits for the binding to reach the aggregate — the atom
         // is the positive signal, and it is also what makes the row a door.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${lensRow(HELD)} [data-slot="lens-dashes-worker"]') !== null`,
+          `document.querySelector('${lensRow(HELD)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
         await app.waitForCondition<boolean>(
@@ -298,12 +298,12 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // repository's dashes have autoreplay off.
         bindDash(projectDir(), BEHIND, SID, scratch?.cli ?? {});
         await app.waitForCondition<boolean>(
-          `document.querySelector('${lensRow(BEHIND)} [data-slot="lens-dashes-worker"]') !== null`,
+          `document.querySelector('${lensRow(BEHIND)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
 
         // The row knows it is behind before anything is pressed.
-        const BEHIND_MARK = `${lensRow(BEHIND)} [data-slot="tug-dash-meta-fact"][data-fact="behind"]`;
+        const BEHIND_MARK = `${lensRow(BEHIND)} [data-slot="tug-dash-lifecycle-fact"][data-fact="behind"]`;
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BEHIND_MARK)}) !== null`,
           { timeoutMs: 30000 },

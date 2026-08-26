@@ -57,7 +57,7 @@ const LANE = `${SHEET} [data-slot="session-changes-dash-lane"]`;
 
 const DASH_NAME = "at0427-marks";
 const ROW = `${LANE} [data-slot="session-changes-dash-row"][data-dash="${DASH_NAME}"]`;
-const OVERLAP_MARK = `${ROW} [data-slot="tug-dash-meta-fact"][data-fact="overlap"]`;
+const OVERLAP_MARK = `${ROW} [data-slot="tug-dash-lifecycle-fact"][data-fact="overlap"]`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", ".."));
@@ -204,7 +204,7 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the dash lane's divergence marks", () => {
         // a replay on it.
         const others = await app.evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(
-            `${ROW} [data-slot="tug-dash-meta-fact"]:not([data-fact="overlap"])`,
+            `${ROW} [data-slot="tug-dash-lifecycle-fact"]:not([data-fact="overlap"])`,
           )}).length`,
         );
         expect(others).toBe(0);

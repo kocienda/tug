@@ -130,8 +130,10 @@ import {
   type GoalState,
 } from "@/lib/code-session-store/select-goal";
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
-import { DashMetaLine } from "@/components/tugways/dash-meta-line";
-import { DashSigil } from "@/components/tugways/dash-sigil";
+import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
+import { dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
+import { dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
+import { dashMetaFacts } from "@/lib/dash-meta-facts";
 import type { DashStep } from "@/lib/changeset-types";
 import type { DashSessionFact } from "@/lib/dash-session-index";
 
@@ -1328,12 +1330,12 @@ export function DashStepItems({
  * driving a dash, in place of the `TASKS` reading.
  *
  * The cockpit detail for one dash, in the vocabulary the Lens and the Changes
- * shade already speak: the dash's own atom, then `DashMetaLine` at the reading
- * scale (the step ring with its run band, the stage glyph, the round count, the
- * current step's title, the age, and every divergence fact the dash carries),
- * then **the plan's ledger** — the dash's own step list. Composed, not restated
- * — every mark here is the same component the row surfaces render, so the three
- * readings of one dash cannot disagree.
+ * shade already speak: `DashLifecycleBlock` at the reading scale — the atom
+ * and the workers over the track, the fraction, the current step's title, and
+ * every divergence fact the dash carries — then **the plan's ledger**, the
+ * dash's own step list. Composed, not restated: every mark here is the same
+ * component the row surfaces render, so the three readings of one dash cannot
+ * disagree.
  *
  * The list is the ledger and not the [D100] task list, which is what it used to
  * be. A run creates one task per step, so the two coincide when everything goes
@@ -1367,6 +1369,7 @@ export function DashPopoverContent({
   onShowInChanges: () => void;
 }): React.ReactElement {
   const steps = fact.entry.steps ?? [];
+  const model = dashTrackModelFromEntry(fact.entry);
   return (
     <TugPopupListFrame
       kind="item"
@@ -1384,19 +1387,20 @@ export function DashPopoverContent({
       }
     >
       <TugPopupListScroller data-slot="session-dash-popover-body">
+        {/* The placard's heading is the same block every dash surface wears,
+            at the reading scale this list is set in: the atom and the workers
+            over the track, the fraction, the note and the divergence facts.
+            The steps below are the plan's rows; this is the dash. */}
         <div className="session-dash-popover-head">
-          <DashSigil
+          <DashLifecycleBlock
             name={fact.name}
             review={null}
-            slot="session-dash-popover-name"
-            atom
-            atomSize="2xs"
+            workers={fact.entry.bound_sessions ?? []}
+            model={model}
+            note={dashLifecycleNote(model, fact.stepTitle)}
+            facts={dashMetaFacts(fact.entry)}
+            size="read"
           />
-          {/* The meta line's ring rides the same lead column the rows below
-              put their dots in, so the head reads as this list's heading
-              rather than as a stray line above it. The column is the grid's,
-              declared once in CSS — never a margin on the mark. */}
-          <DashMetaLine entry={fact.entry} size="sm" />
         </div>
         {steps.length > 0 ? (
           <DashStepItems steps={steps} idle={idle} />

@@ -2,17 +2,18 @@
  * at0407-lens-dashes-section.test.ts — the marks the Lens's Dashes section
  * paints, over real dashes.
  *
- * The section holds EVERY dash in every state ([D141]); which register a row
- * wears is the eyebrow's business. An unbound dash's eyebrow carries the dash
- * atom, the hairline, and the Bind and Discard verbs — no worker atom, and no
- * phase dot anywhere on the row, because a dash with a phase to report has a
- * session bound to it and that session's atom is what would carry the dot.
+ * The section holds EVERY dash in every state ([D141]), and every row is one
+ * `DashLifecycleBlock`. Its eyebrow carries the dash atom, the hairline, one
+ * worker atom per bound session, and the row's menu opener — an unbound dash
+ * shows no worker atom and no phase dot anywhere on the row, because a dash
+ * with a phase to report has a session bound to it and that session's atom is
+ * what would carry the dot.
  *
- * Beneath the eyebrow, `DashMetaLine` says what the dash is DOING. A freshly
- * created dash with no plan says so aloud — "no plan yet" — because
- * silence there is how a whole run's missing declarations went unnoticed
- * once. A dash driving a stepped plan shows the ring, the stage GLYPH with
- * its word on the hover, and the `i/N` count.
+ * Beneath the eyebrow, the lifecycle line says what the dash is DOING: the
+ * track, the fraction while a step is open, the note, and the divergence
+ * facts. The track is the whole reading — a dash driving a stepped plan
+ * stands at `implement` with one tick per plan row, and the note is that
+ * step's title.
  *
  * Two decisions of [D141] are pinned as absences: the dash pill wears no
  * review tint here (that yellow means WAITING, and a dash is not waiting for
@@ -24,10 +25,13 @@
  *
  * @covers tugdeck/src/components/lens/sections/dashes-section.tsx
  * @covers tugdeck/src/components/lens/sections/dashes-section.css
- * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
- * @covers tugdeck/src/components/tugways/dash-meta-line.css
- * @covers tugdeck/src/components/tugways/dash-stage-mark.tsx
- * @covers tugdeck/src/components/tugways/tug-step-ring.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-block.css
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-line.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-line.css
+ * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
+ * @covers tugdeck/src/components/tugways/tug-dash-track.css
+ * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
  * @covers tugdeck/src/lib/changeset-all-store.ts
  * @covers tugdeck/src/lib/changeset-types.ts
  * @covers tugdeck/src/lib/dash-review.ts
@@ -153,15 +157,14 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
           workers: number;
           dots: number;
           bound: string | null;
-          stage: string | null;
+          phase: string | null;
           note: string;
-          noteEmpty: string | null;
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
-             const atom = row.querySelector('[data-slot="lens-dashes-name"]');
-             const mark = row.querySelector('[data-slot="tug-dash-stage-mark"]');
-             const note = row.querySelector(".tug-dash-meta-note");
+             const atom = row.querySelector('[data-slot="tug-dash-lifecycle-name"]');
+             const track = row.querySelector('[data-slot="tug-dash-track"]');
+             const note = row.querySelector('[data-slot="tug-dash-lifecycle-note"]');
              return {
                atomText: (atom?.textContent ?? "").trim(),
                // The pill never wears the review tint here — that yellow
@@ -169,12 +172,11 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
                reviewTinted: atom?.hasAttribute("data-review") === true,
                reviewGlyphs: row.querySelectorAll('[data-slot="lens-dashes-review"]').length,
                menus: row.querySelectorAll('[data-slot="lens-dashes-row-menu-open"]').length,
-               workers: row.querySelectorAll('[data-slot="lens-dashes-worker"]').length,
+               workers: row.querySelectorAll('[data-slot="tug-dash-lifecycle-worker"]').length,
                dots: row.querySelectorAll('[data-slot="tug-progress-indicator"]').length,
                bound: row.getAttribute("data-bound"),
-               stage: mark?.getAttribute("data-stage") ?? null,
+               phase: track?.getAttribute("data-phase") ?? null,
                note: (note?.textContent ?? "").trim(),
-               noteEmpty: note?.getAttribute("data-empty") ?? null,
              };
            })()`,
         );
@@ -190,11 +192,12 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         // has a session bound to it, and that session's atom carries the dot.
         expect(unbound.dots).toBe(0);
         expect(unbound.bound).toBeNull();
-        // A freshly created dash with no round and no dirt is `created`, said
-        // as a glyph; and with no plan the note says so aloud.
-        expect(unbound.stage).toBe("created");
-        expect(unbound.note).toBe("no plan yet");
-        expect(unbound.noteEmpty).toBe("true");
+        // A freshly created dash has no documents and no arc, so the track
+        // reads it as the poke it is indistinguishable from: nothing has
+        // happened to it yet but the work itself. With no step open the note
+        // is the phase word and nothing more — the line has no empty state.
+        expect(unbound.phase).toBe("implement");
+        expect(unbound.note).toBe(unbound.phase);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
@@ -229,54 +232,42 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         );
 
         const meta = await app.evalJS<{
-          stage: string | null;
-          stageWord: string | null;
+          phase: string | null;
           fraction: string;
-          rings: number;
-          ringLabel: string | null;
-          segments: number;
-          outside: number;
-          inBand: number;
+          tracks: number;
+          ticks: string[];
           noteText: string;
         }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(PLAN_ROW)});
-             const mark = row.querySelector('[data-slot="tug-dash-stage-mark"]');
+             const track = row.querySelector('[data-slot="tug-dash-track"]');
              const fraction = row.querySelector('[data-slot="tug-step-fraction"]');
-             const ring = row.querySelector('[data-slot="tug-step-ring"]');
-             const note = row.querySelector(".tug-dash-meta-note");
-             const segs = ring ? Array.from(ring.querySelectorAll(".tug-step-ring-seg")) : [];
-             const state = (s) => segs.filter((el) => el.getAttribute("data-state") === s).length;
+             const note = row.querySelector('[data-slot="tug-dash-lifecycle-note"]');
+             const cell = track?.querySelector(
+               '[data-slot="tug-dash-track-cell"][data-phase="implement"]',
+             );
              return {
-               stage: mark?.getAttribute("data-stage") ?? null,
-               stageWord: mark?.getAttribute("aria-label") ?? null,
+               phase: track?.getAttribute("data-phase") ?? null,
                fraction: (fraction?.textContent ?? "").trim(),
-               rings: row.querySelectorAll('[data-slot="tug-step-ring"]').length,
-               ringLabel: ring?.getAttribute("aria-label") ?? null,
-               segments: segs.length,
-               outside: state("outside"),
-               inBand: state("done") + state("current") + state("todo"),
+               tracks: row.querySelectorAll('[data-slot="tug-dash-track"]').length,
+               ticks: cell
+                 ? Array.from(cell.querySelectorAll(".tug-dash-track-tick")).map(
+                     (el) => el.getAttribute("data-state"),
+                   )
+                 : [],
                noteText: (note?.textContent ?? "").trim(),
              };
            })()`,
         );
         note("at0407 stepped meta line", JSON.stringify(meta));
-        // A step is open on this dash, so it derives `implementing` — the
-        // glyph carries the word on hover rather than spending line width.
-        expect(meta.stage).toBe("implementing");
-        expect(meta.stageWord).toBe("implementing");
-        // The numerals count the declared run — two steps were asked for out
-        // of a three-row plan, and this is the first of them.
-        expect(meta.fraction).toBe("1/2");
-        expect(meta.rings).toBe(1);
-        // The ring carries the part the numerals leave out: three segments for
-        // the plan's three rows, two of them the run's band and one outside it.
-        expect(meta.segments).toBe(3);
-        expect(meta.inBand).toBe(2);
-        expect(meta.outside).toBe(1);
-        expect(meta.ringLabel).toBe(
-          "step 1 of 2 in this run, steps 1–2 of 3 in the plan",
-        );
+        // A step is open on this dash, so the strip stands at `implement`.
+        expect(meta.phase).toBe("implement");
+        expect(meta.tracks).toBe(1);
+        // The numerals count the PLAN — the step in progress over the rows the
+        // plan holds. The track draws that same plan as ticks, one per row, so
+        // the two readings cannot disagree.
+        expect(meta.fraction).toBe("1/3");
+        expect(meta.ticks).toEqual(["active", "pending", "pending"]);
         // The note is the current step's title, straight off the declaration.
         expect(meta.noteText).toBe("The only step");
         note("at0407 meta line", await app.screenshot().then((s) => s.path));
@@ -302,8 +293,8 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
              const L = (el) => Math.round(el.getBoundingClientRect().left * 10) / 10;
              const first = rows[0];
              return {
-               name: L(first.querySelector('[data-slot="lens-dashes-name"]')),
-               mark: L(first.querySelector(".lens-dashes-meta-line .tug-dash-meta-line > *")),
+               name: L(first.querySelector('[data-slot="tug-dash-lifecycle-name"]')),
+               mark: L(first.querySelector('[data-slot="tug-dash-lifecycle-line"] > *')),
                blocks: rows.map((r) => {
                  const b = r.getBoundingClientRect();
                  return [Math.round(b.top), Math.round(b.bottom)];

@@ -208,31 +208,34 @@
    geometry cannot shift when a session picks a dash up.
 
    Nothing in here gives way under pressure, because nothing in here can: the
-   value is one fixed-width face — the run fraction, or the stage glyph on the
-   stages that have no count — and either would be a lie clipped. That is what
-   taking the dash's *name* out of the cell bought — the one fact here that
-   could grow without bound, and the one the reader already knows, since they
-   are the one who started it. The name is the cell's accessible label in full
-   and the placard's own heading one click away.
+   value is one graphic — the lifecycle track — and a strip clipped from its
+   end loses the implement ticks and the join cell, the two that say the work
+   is nearly over. So the strip is made to FIT rather than cut to fit, by the
+   knobs the track publishes. That is also what taking the dash's *name* out of
+   the cell bought — the one fact here that could grow without bound, and the
+   one the reader already knows, since they are the one who started it. The
+   name is the cell's accessible label in full and the placard's own heading
+   one click away.
 
-   `center` rather than `baseline`: on the glyph stages there is no baseline to
-   share, so the value is centred against the flanking dots in the line box. */
-/* The DASH reading's value row — its two flanking dots and the reading between
-   them. TASKS and JOBS get their dots from a single indicator that stretches
-   to the cell, but the DASH value is a glyph on half the arc and so cannot
-   ride an indicator's `label`; here the row is the flex container and the two
-   indicators are siblings of the value, the way STATE's are. `space-between`
-   plus the same 2px inset puts the dots exactly where the other cells' sit, so
-   the row does not move when a session picks a dash up. */
+   `center` rather than `baseline`: the value is a graphic with no baseline to
+   share, so it is centred against the dot in the line box. */
+/* The DASH reading's value row — one pulsing dot, then the reading. TASKS and
+   JOBS get their dots from a single indicator that stretches to the cell, but
+   the DASH value is a graphic and cannot ride an indicator's `label`; here the
+   row is the flex container and the indicator is a sibling of the value, the
+   way STATE's are. `flex-start` with the same 2px inset puts the dot exactly
+   where the other cells' sit, so the row does not move when a session picks a
+   dash up. */
 .session-telemetry-status-dash-row {
   display: flex;
   width: 100%;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: var(--tug-space-2xs);
 }
 
-/* Undo the work-cell rule above for these two: they are dots beside a value,
-   not a whole value row, so they size to their glyph. */
+/* Undo the work-cell rule above for this one: it is a dot beside a value, not
+   a whole value row, so it sizes to its glyph. */
 .session-telemetry-status-cell[data-priority="tasks"]
   .session-telemetry-status-dash-row
   .tug-progress-indicator {
@@ -241,28 +244,45 @@
   margin-inline: 2px;
 }
 
+/* The strip, retuned to this box.
+
+   The cell is 14ch against the row's 10px font — about 78px, a width measured
+   to clear the 68px TASKS face. The track's shipped rail geometry needs about
+   101px for a three-step plan and grows ~6px per step, because its implement
+   cell is `auto` over fixed-width ticks. So both are answered here: the cells
+   and the ticks come down, and the implement cell is PINNED — its ticks then
+   divide a fixed box and simply get thinner as the plan grows. Four cells at
+   8px, a 14px implement cell and four 2px gaps is ~54px; with the dot and the
+   row's gap the reading is ~74px inside ~78px at one step or at thirty.
+
+   A tick as narrow as a pixel is the honest reading for a strip in this box.
+   The exact count is in `aria-label` whole, and on the masthead one row up,
+   which renders the same track at reading scale with room for it. */
 .session-telemetry-status-value-dash {
   display: inline-flex;
   align-items: center;
   gap: var(--tug-space-2xs);
   max-width: 100%;
+  min-width: 0;
+  --tugx-dash-track-cell-w: 8px;
+  --tugx-dash-track-cell-h: 6px;
+  --tugx-dash-track-steps-w: 14px;
+  /* The track ends the row, so it claims no trailing air. */
+  --tugx-dash-track-out: 0;
 }
 
-/* A stopped arc, said in the only currency the cell has spare: color. The
-   fraction and the glyph keep saying exactly what they said, because they are
-   still true — the arc stopping does not un-walk a step. What the tint adds is
-   that nothing is going to advance them until somebody resumes it, and the
-   placard's meta line one press away says which stage and why. No box moves. */
-.session-telemetry-status-value-dash[data-arc-stopped="true"] {
-  color: var(--tug7-element-global-text-normal-danger-rest);
+.session-telemetry-status-value-dash .tug-dash-track-tick {
+  flex: 1 1 0;
+  inline-size: auto;
+  min-inline-size: 1px;
 }
 
-/* `tabular-nums` for the reason every other ticking figure in this row has
-   it: a fraction that reflowed as its digits changed would jitter the pair. */
-.session-telemetry-status-dash-fraction {
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-}
+/* A stopped arc paints inside the strip rather than over it: the track wears
+   `data-stopped` and tints the cell it stopped in danger, which says WHERE it
+   stopped as well as that it did. A `color` on this span would reach nothing —
+   every part of the strip is a background — so the arc attributes here are the
+   cell's own record of the fact, and the paint is the track's. The words are
+   on the placard one press away, which has room for them. No box moves. */
 
 /* Dim the indicator + label when the cell is empty so it reads as a
    quiet placeholder. */

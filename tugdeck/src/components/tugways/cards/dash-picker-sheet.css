@@ -35,3 +35,13 @@
   font-size: var(--tug-font-size-2xs);
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
+
+/* The row's identities: the dash atom and one worker atom per bound session,
+   the same run the lifecycle block's eyebrow leads with. The atoms carry their
+   own skins; this only seats them on one line and lets them shrink. */
+.dash-picker-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tug-space-2xs);
+  min-width: 0;
+}

@@ -34,8 +34,7 @@
  * @covers tugdeck/src/components/lens/lens-content.tsx
  * @covers tugdeck/src/components/lens/lens-section-registry.ts
  * @covers tugdeck/src/components/tugways/dash-sigil.tsx
- * @covers tugdeck/src/components/tugways/dash-meta-line.tsx
- * @covers tugdeck/src/lib/dash-age.ts
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-changes/dash-row-menu.tsx
  */
 
@@ -74,10 +73,10 @@ const DASH_NAME = "at0438-unbound";
 
 const SECTION = '.lens-section[data-lens-section="dashes"]';
 const ROW = `${SECTION} [data-slot="lens-dashes-row"][data-dash="${DASH_NAME}"]`;
-const ROW_ATOM = `${ROW} [data-slot="lens-dashes-name"]`;
+const ROW_ATOM = `${ROW} [data-slot="tug-dash-lifecycle-name"]`;
 /** The row's `⋯` opener — the Lens row's verbs live behind it now. */
 const MENU_OPEN = `${ROW} [data-slot="lens-dashes-row-menu-open"]`;
-const WORKER = `${ROW} [data-slot="lens-dashes-worker"]`;
+const WORKER = `${ROW} [data-slot="tug-dash-lifecycle-worker"]`;
 
 const CARDS = '.lens-section[data-lens-section="cards"]';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;

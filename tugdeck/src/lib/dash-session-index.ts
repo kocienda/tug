@@ -13,6 +13,11 @@
  * memoizes the result on snapshot identity — one build per snapshot, shared
  * by every reader. A bind or unbind moves the aggregate, the map rebuilds,
  * and every surface repaints at once.
+ *
+ * Both of the aggregate's dash lists are projected. A card can be bound to a
+ * dash before its branch exists — the brief/devise/review half of a dash's
+ * life — and a session whose binding only appeared once a worktree did would
+ * have no dash to show for the half it spent planning.
  */
 
 import { useMemo } from "react";
@@ -23,6 +28,7 @@ import type {
   DashChangesetEntry,
   WorkspacesChangesetSnapshot,
 } from "./changeset-types";
+import { documentDashAsEntry } from "./document-dash-entry";
 
 /** What one session's dash binding looks like to an identity surface. */
 export interface DashSessionFact {
@@ -96,6 +102,34 @@ export function buildDashSessionIndex(
         stepTitle: entry.step_title ?? null,
         hasPlan: entry.documents?.plan !== undefined,
         entry,
+      };
+      for (const sessionId of sessions) {
+        if (index.has(sessionId)) continue;
+        index.set(sessionId, fact);
+      }
+    }
+    // The documents-only dashes of the same project, after its live entries so
+    // the first-claim rule keeps the live reading for a session that somehow
+    // appears on both. `stepTotal` is the one counter a branchless dash really
+    // has; the run counters are positions within a declared run, which it has
+    // none of.
+    for (const dash of project.document_dashes ?? []) {
+      const sessions = dash.bound_sessions ?? [];
+      if (sessions.length === 0) continue;
+      const fact: DashSessionFact = {
+        ownerId: dash.owner_id,
+        name: dash.display_name,
+        stage: null,
+        arc: dash.arc ?? null,
+        review: dash.review ?? null,
+        projectDir: project.project_dir,
+        stepCurrent: null,
+        stepTotal: dash.step_total,
+        runPosition: null,
+        runLength: null,
+        stepTitle: null,
+        hasPlan: dash.documents.plan !== undefined,
+        entry: documentDashAsEntry(dash),
       };
       for (const sessionId of sessions) {
         if (index.has(sessionId)) continue;

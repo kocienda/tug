@@ -14,7 +14,7 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { dashWalkComplete } from "@/components/tugways/dash-meta-line";
+import { dashWalkComplete } from "@/lib/dash-meta-facts";
 
 describe("a full counter, read against the stage", () => {
   test("a finished run resting at `ready` reads as a completed walk", () => {

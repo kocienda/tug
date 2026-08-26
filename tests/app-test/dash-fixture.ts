@@ -517,6 +517,11 @@ export function markDashBuilt(
  * and carries a `#step-1` ledger row.
  */
 function fixturePlan(rows: number, statuses: readonly string[] = []): string {
+  if (rows > STEP_TITLES.length) {
+    throw new Error(
+      `fixturePlan: ${rows} rows asked for, ${STEP_TITLES.length} titles available — add more to STEP_TITLES`,
+    );
+  }
   const ledger = Array.from(
     { length: rows },
     (_, i) =>
@@ -591,6 +596,14 @@ const STEP_TITLES = [
   "The second step",
   "The third step",
   "The fourth step",
+  "The fifth step",
+  "The sixth step",
+  "The seventh step",
+  "The eighth step",
+  "The ninth step",
+  "The tenth step",
+  "The eleventh step",
+  "The twelfth step",
 ];
 
 const FIXTURE_PLAN_TEMPLATE = `## A Fixture Plan {#fixture-plan}

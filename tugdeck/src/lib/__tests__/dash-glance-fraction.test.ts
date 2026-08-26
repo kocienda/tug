@@ -18,7 +18,7 @@ import { describe, test, expect } from "bun:test";
 import {
   dashGlanceFraction,
   dashRunScope,
-} from "@/components/tugways/dash-meta-line";
+} from "@/lib/dash-meta-facts";
 
 describe("the pair the numerals count", () => {
   test("a declared run wins over the plan's own counters", () => {

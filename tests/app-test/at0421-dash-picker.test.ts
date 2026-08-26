@@ -27,7 +27,8 @@
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/lib/card-session-binding-store.ts
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
- * @covers tugdeck/src/components/tugways/tug-dash-name.tsx
+ * @covers tugdeck/src/components/tugways/tug-dash-atom.tsx
+ * @covers tugdeck/src/components/tugways/dash-lifecycle-block.tsx
  * @covers tugdeck/src/components/tugways/tug-meta-run.tsx
  */
 
@@ -183,6 +184,25 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
         const listed = await namesIn(app);
         for (const name of DASHES) expect(listed).toContain(name);
         note("at0421 picker rows", listed.join(", "));
+
+        // Every row names its dash with the atom every dash surface wears,
+        // and carries a worker atom per bound session — none here, because
+        // nothing is holding any of these yet, and that absence IS how
+        // *unbound* reads on a picker whose whole job is to weigh who has
+        // what.
+        // Counted by ROW, not by element: `TugDashAtom` is a seat around a
+        // `DashSigil` whose default slot is the same word, so a row holds two
+        // of them and an element count would say six where there are three.
+        const identity = await app.evalJS<{ atomRows: number; workers: number }>(
+          `(() => ({
+             atomRows: Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
+               .filter((row) => row.querySelector('[data-slot="tug-dash-atom"]') !== null).length,
+             workers: document.querySelectorAll(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-dash-lifecycle-worker"]`)}).length,
+           }))()`,
+        );
+        note("at0421 picker identity", JSON.stringify(identity));
+        expect(identity.atomRows).toBe(listed.length);
+        expect(identity.workers).toBe(0);
         note("at0421 picker", (await app.screenshot()).path);
 
         // ── Escape dismisses, and the binding is untouched ────────────────
@@ -222,6 +242,30 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /dash-bind picker", () => {
         // the identity's grammar, so the comparison goes through `chipText`.
         expect(rows.map(chipText)).toContain(bound);
         expect(bound).not.toBe(chipText(rows[0]));
+
+        // ── Re-opened, the bound row wears its worker ─────────────────────
+        // The same eyebrow grammar the Lens and the shade lead with, which is
+        // the fact this picker exists to weigh: somebody is on that one.
+        await runCommand(app, "/dash-bind");
+        await app.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-dash-lifecycle-worker"]`)}).length === 1`,
+          { timeoutMs: 15000 },
+        );
+        const heldRow = await app.evalJS<string | null>(
+          `document.querySelector(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-dash-lifecycle-worker"]`)})
+             ?.closest('[data-slot="dash-picker-row"]')?.getAttribute("data-dash") ?? null`,
+        );
+        note("at0421 held row", String(heldRow));
+        expect(heldRow).not.toBeNull();
+        expect(chipText(heldRow!)).toBe(bound);
+        // And it is the row the picker marks as this card's own.
+        expect(
+          await app.evalJS<string | null>(
+            `document.querySelector(${JSON.stringify(`${PICKER_ROWS} [data-slot="dash-picker-current"]`)})
+               ?.closest('[data-slot="dash-picker-row"]')?.getAttribute("data-dash") ?? null`,
+          ),
+        ).toBe(heldRow);
+        await app.nativeKey("Escape");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

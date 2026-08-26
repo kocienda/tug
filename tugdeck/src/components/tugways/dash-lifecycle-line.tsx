@@ -30,9 +30,9 @@ import "./dash-lifecycle-line.css";
 
 import React from "react";
 
-import type { DashMetaFact } from "./dash-meta-line";
+import type { DashMetaFact } from "@/lib/dash-meta-facts";
 import { TugDashTrack, type DashTrackModel } from "./tug-dash-track";
-import { TugStepFraction } from "./tug-step-ring";
+import { TugStepFraction } from "./tug-step-fraction";
 import { TugTooltip } from "./tug-tooltip";
 
 /** The note under the model. Pure. */

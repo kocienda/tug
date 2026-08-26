@@ -1,10 +1,10 @@
 /**
- * The arc on the shared dash metadata line.
+ * The arc among a dash's metadata facts.
  *
- * One derivation feeds three surfaces — the Lens Dashes row, the Changes
- * shade's collapsed dash row, and the Z2 placard — because all three render
- * `DashMetaLine`. So what the arc *says* is settled here, as a pure function
- * over a wire entry, rather than three times over three DOMs.
+ * One derivation feeds every surface that names a dash — the Lens Dashes row,
+ * the Changes shade's collapsed dash row, the DASH placard — because all of
+ * them read `dashMetaFacts`. So what the arc *says* is settled here, as a pure
+ * function over a wire entry, rather than three times over three DOMs.
  *
  * The claims:
  *
@@ -21,7 +21,7 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { dashMetaFacts } from "@/components/tugways/dash-meta-line";
+import { dashMetaFacts } from "@/lib/dash-meta-facts";
 import type { DashArcState, DashChangesetEntry } from "@/lib/changeset-types";
 
 function entry(arc?: DashArcState): DashChangesetEntry {

@@ -329,7 +329,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready dash summons the shade", () => {
         // row the pilot will read. The atom is the positive signal — an absent
         // Bind would also be true of a row that never rendered.
         await app.waitForCondition<boolean>(
-          `document.querySelector('${lensRow(DASH)} [data-slot="lens-dashes-worker"]') !== null`,
+          `document.querySelector('${lensRow(DASH)} [data-slot="tug-dash-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
         note("at0445 bound: the ledger row landed and the Lens row saw it");

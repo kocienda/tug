@@ -37,17 +37,18 @@ import type { SpikeDef } from "./spike-registry";
 
 import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
 import { DashLifecycleLine, dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
-import { DashMetaLine, dashMetaFacts } from "@/components/tugways/dash-meta-line";
+
+import { dashMetaFacts } from "@/lib/dash-meta-facts";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TugDashAtom } from "@/components/tugways/tug-dash-atom";
-import { TugDashName } from "@/components/tugways/tug-dash-name";
+
 import { TugDashTrack, dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugListRow } from "@/components/tugways/tug-list-row";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
-import { TugStepRing } from "@/components/tugways/tug-step-ring";
+
 import type { DashChangesetEntry, DashStep } from "@/lib/changeset-types";
 import type { DashSessionFact } from "@/lib/dash-session-index";
 import { useSessionIdentity } from "@/lib/session-identity";
@@ -292,18 +293,7 @@ export function SpikeDashLifecycle(): React.ReactElement {
     <div className="sp-content spdl" data-testid="spike-dash-lifecycle">
       <section className="sp-section">
         <h2 className="sp-section-title">1 · The atom, once — TugDashAtom</h2>
-        <Stage caption="Today — four spellings of one dash: masthead title run · Lens pill · shade unbound (mono) · shade bound · transcript footer">
-          <div className="spdl-lineup">
-            <span className="spdl-today-masthead">
-              <TugSessionIdentity identity={worker} tier="line" dot={false} dash={{ name: DASH, review: null }} tooltip={false} />
-            </span>
-            <TugDashName name={DASH} review={null} slot="spdl-lineup-lens" workerSlot="spdl-lineup-lw" atomSize="2xs" />
-            <TugDashName name={DASH} review={null} slot="spdl-lineup-unbound" workerSlot="spdl-lineup-w" atomSize="sm" />
-            <TugDashName name={DASH} review={null} boundSessions={[WORKER]} slot="spdl-lineup-b" workerSlot="spdl-lineup-bw" atomSize="sm" />
-            <span className="spdl-today-footer">4/10</span>
-          </div>
-        </Stage>
-        <Stage caption="Proposed — one skin, two sizes (rail 2xs · reading sm), proportional everywhere; who is on it is the atom beside it. A poke is a dash to the atom: both are work on a worktree">
+        <Stage caption="One skin, two sizes (rail 2xs · reading sm), proportional everywhere; who is on it is the atom beside it. A poke is a dash to the atom: both are work on a worktree">
           <div className="spdl-lineup">
             <TugDashAtom name={DASH} size="2xs" />
             <TugDashAtom name={DASH} size="sm" />
@@ -333,23 +323,18 @@ export function SpikeDashLifecycle(): React.ReactElement {
             })}
           </div>
         </Stage>
-        <Stage caption="The division of labour. A dash counts its steps in the track and nowhere else; the segmented ring now uniquely means a task list that is NOT a dash">
+        <Stage caption="The division of labour. A dash counts its steps in the track and nowhere else">
           <div className="spdl-legend-row">
             <TugProgressIndicator variant="pulsing-dot" size={12} state="running" aria-hidden />
             <TugDashTrack model={dashTrackModelFromEntry(AT_WORK.entry)} size="read" />
             <span className="spdl-legend-word">on a dash — the bare phase dot, and the track</span>
           </div>
-          <div className="spdl-legend-row">
-            <TugStepRing current={4} total={10} role="action" size={16} />
-            <span className="spdl-legend-word">a task list off a dash — the segmented ring, unchanged</span>
-          </div>
         </Stage>
         <p className="spdl-prose">
-          The row's indicator stays a bare phase dot for the whole of a dash. It used to become the segmented step ring
-          once counters existed, and beside the track that was two marks drawing one step count in two geometries — free
-          to disagree whenever one of them lagged. The ring yields the subject entirely rather than being tuned to agree.
-          A stop is the one fact that outranks the track: the cell paints danger and the note says why, in the arc
-          receipt's words.
+          The row's indicator is a bare phase dot for the whole of a dash. A second mark drawing the same step count in
+          another geometry would be free to disagree whenever one of them lagged, so the track has the subject alone.
+          A stop is the one fact that outranks it: the cell paints danger and the note says why, in the arc receipt's
+          words.
         </p>
       </section>
 
@@ -386,14 +371,7 @@ export function SpikeDashLifecycle(): React.ReactElement {
                     activityOverride={m.prompt}
                   />
                 </div>
-                <div className="spdl-surface" data-today="true">
-                  <span className="spdl-surface-name">Today · DashMetaLine</span>
-                  {m.branched ? (
-                    <DashMetaLine entry={m.entry} size="sm" />
-                  ) : (
-                    <span className="spdl-today-nothing">nothing — the dash has no branch yet</span>
-                  )}
-                </div>
+
               </div>
             </Stage>
           );
@@ -404,32 +382,31 @@ export function SpikeDashLifecycle(): React.ReactElement {
         <h2 className="sp-section-title">4 · Where each one mounts</h2>
         <ul className="spdl-survey">
           <li>
-            <b>Session masthead</b> — <i>done, and live in the app.</i> `SessionIdentityRow` renders `TugDashTrack` in
-            its title run where `DashStageMark` stood, so a card devising or reviewing a plan now says so instead of
-            showing nothing; the `i/N` fraction stays beside it, counting the declared run. Its indicator is now always
-            the bare phase dot — the segmented `SessionStepRing` is gone from dash rows, leaving it to mean a task list
-            that is not a dash. The row also gained a `dash` prop — the binding in hand rather than a second read by id,
-            the same seam `row` already had — which is what lets this card mount the real thing.
+            <b>Session masthead</b> — `SessionIdentityRow` renders `TugDashTrack` in its title run, with the `i/N`
+            fraction beside it counting the declared run. Its indicator is the bare phase dot. The row takes a `dash`
+            prop — the binding in hand rather than a second read by id, the same seam `row` already had — which is what
+            lets this card mount the real thing.
           </li>
           <li>
-            <b>Lens · Dashes</b> — `DashLifecycleBlock size=rail` replaces the row's eyebrow + `DashMetaLine`, and the
-            documents-only `lens-plans-row` grammar goes: one row from the brief onward. The row menu is the block's
-            `trailing`.
+            <b>Lens · Dashes</b> — `DashLifecycleBlock size=rail` on every row, branch or documents-only: one grammar
+            from the brief onward. The row menu is the block's `trailing`, and a documents-only row's next-gesture
+            button takes the same slot.
           </li>
           <li>
-            <b>Changes shade · dash lane</b> — `DashLifecycleBlock size=read` replaces `TugDashName` + `DashMetaLine`
-            on the collapsed row; the fold cue is `trailing`. The lane also lists the documents-only entry.
+            <b>Changes shade · dash lane</b> — `DashLifecycleBlock size=read` on the collapsed row and on the
+            documents-only row; the fold cue and the Unbind are `trailing`.
           </li>
           <li>
-            <b>Transcript footer STATUS cell</b> — `TugDashTrack size=rail` replaces the bare fraction / stage glyph.
+            <b>Transcript footer STATUS cell</b> — `TugDashTrack size=rail`, one pulsing dot beside it, retuned by the
+            track's own knobs so the strip is constant-width in a 14ch box at any plan length.
           </li>
           <li>
-            <b>Everywhere a dash is named</b> — `TugDashAtom`; `TugDashName`'s mono register and `formatDashAge` are
-            deleted.
+            <b>DASH placard and the dash picker</b> — the block at `read` heads the placard; the picker's rows lead with
+            `TugDashAtom` and one `DashWorkerAtom` per bound session.
           </li>
           <li>
-            <b>Wire</b> — no new field. `useDashForSession` and the shade read the documents-only entry too;
-            `dashTrackModelFromEntry` does the rest.
+            <b>Wire</b> — no new field. `useDashForSession` and the shade read the documents-only entry too, through
+            `documentDashAsEntry` and `documentDashTrackModel`; `dashTrackModelFromEntry` does the rest.
           </li>
         </ul>
       </section>

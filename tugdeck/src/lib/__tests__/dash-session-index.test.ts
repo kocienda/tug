@@ -13,6 +13,7 @@ import { describe, expect, test } from "bun:test";
 import golden from "@/__tests__/fixtures/workspaces-changeset-snapshot.golden.json";
 import type {
   DashChangesetEntry,
+  DocumentDashEntry,
   ProjectChangeset,
   WorkspacesChangesetSnapshot,
 } from "@/lib/changeset-types";
@@ -215,5 +216,101 @@ describe("dashForSession", () => {
   test("answers the dash for a bound session", () => {
     const bound = GOLDEN_DASH.bound_sessions![0]!;
     expect(dashForSession(DATA, bound)!.name).toBe(GOLDEN_DASH.display_name);
+  });
+});
+
+describe("the documents-only half of a dash's life", () => {
+  /** A branchless dash: documents on disk, no `tugdash/<name>` branch yet. */
+  function documentDash(
+    over: Partial<DocumentDashEntry> = {},
+  ): DocumentDashEntry {
+    return {
+      owner_id: "tugdash/planning#1",
+      display_name: "planning",
+      documents: { brief: "/repo/.tug/dashes/planning/brief.md" },
+      step_total: 0,
+      steps_done: 0,
+      steps_begun: 0,
+      bound_sessions: ["sess-d"],
+      ...over,
+    };
+  }
+
+  test("a session bound before the branch exists still finds its dash", () => {
+    const index = buildDashSessionIndex({
+      projects: [
+        {
+          ...projectWith([]),
+          document_dashes: [documentDash()],
+        },
+      ],
+    });
+    const fact = index.get("sess-d");
+    expect(fact).toBeDefined();
+    expect(fact!.name).toBe("planning");
+    expect(fact!.entry.display_name).toBe("planning");
+    expect(fact!.stage).toBeNull();
+    expect(fact!.hasPlan).toBe(false);
+    expect(fact!.stepTotal).toBe(0);
+  });
+
+  test("`hasPlan` and `stepTotal` are the plan's own, not invented", () => {
+    const index = buildDashSessionIndex({
+      projects: [
+        {
+          ...projectWith([]),
+          document_dashes: [
+            documentDash({
+              documents: {
+                brief: "/repo/.tug/dashes/planning/brief.md",
+                plan: "/repo/.tug/dashes/planning/plan.md",
+              },
+              step_total: 3,
+              steps_done: 1,
+              steps_begun: 2,
+            }),
+          ],
+        },
+      ],
+    });
+    const fact = index.get("sess-d")!;
+    expect(fact.hasPlan).toBe(true);
+    expect(fact.stepTotal).toBe(3);
+    // Plan-absolute run counters are positions within a declared run, which a
+    // branchless dash has none of.
+    expect(fact.stepCurrent).toBeNull();
+    expect(fact.runPosition).toBeNull();
+    expect(fact.runLength).toBeNull();
+    expect(fact.stepTitle).toBeNull();
+  });
+
+  test("a document dash with no bound session claims nothing", () => {
+    const index = buildDashSessionIndex({
+      projects: [
+        {
+          ...projectWith([]),
+          document_dashes: [documentDash({ bound_sessions: [] })],
+        },
+      ],
+    });
+    expect(index.size).toBe(0);
+  });
+
+  test("a live entry outranks a document entry claiming the same session", () => {
+    const live: DashChangesetEntry = {
+      ...GOLDEN_DASH,
+      display_name: "live-one",
+      stage: "working",
+      bound_sessions: ["sess-d"],
+    };
+    const index = buildDashSessionIndex({
+      projects: [
+        {
+          ...projectWith([live]),
+          document_dashes: [documentDash()],
+        },
+      ],
+    });
+    expect(index.get("sess-d")!.name).toBe("live-one");
   });
 });

@@ -2,12 +2,12 @@
  * `SessionChangesDashLane` — the Changes shade's dash lane.
  *
  * A dash is not a claim. Rendered in session-file grammar a dash branch reads
- * as one — so it gets its own species of row: the name's atom on its own
- * line, and beneath it the one metadata grammar every collapsed dash surface
- * wears (`DashMetaLine`: ring · stage icon · count · note · age ·
- * divergence) — the same line the Lens's Dashes section renders, so the two
- * surfaces speak one language. The row keeps its per-row fold, and no claim,
- * disclaim, or hunk-election affordance appears anywhere inside it. The
+ * as one — so it gets its own species of row: one `DashLifecycleBlock` at the
+ * READING scale, the same block the Lens's Dashes section renders at the
+ * rail, so the two surfaces speak one language. Line 1 is who — the dash atom
+ * and one worker atom per bound session; line 2 is what the dash is doing —
+ * track · fraction · note · divergence. The row keeps its per-row fold, and no
+ * claim, disclaim, or hunk-election affordance appears anywhere inside it. The
  * lane's one diff affordance is the whole-range pop-out, because the server's
  * range diff takes no pathspec and the dash is the unit anyway.
  *
@@ -46,8 +46,8 @@
  *
  * Laws: [L02] the lane takes its data as props from the view's
  * `useSyncExternalStore` reads; [L06] tone and state paint through CSS and
- * data attributes; [L19] the row composes `TugDashName` / `TugListRow` /
- * `BlockFoldCue` / `PopOutDiffButton` rather than hand-rolling chrome.
+ * data attributes; [L19] the row composes `DashLifecycleBlock` / `TugListRow`
+ * / `BlockFoldCue` / `PopOutDiffButton` rather than hand-rolling chrome.
  *
  * @module components/tugways/cards/session-changes/session-changes-dash-lane
  */
@@ -66,11 +66,13 @@ import { PopOutDiffButton } from "@/components/tugways/tug-changes-list";
 import { TugSectionLabel } from "@/components/tugways/tug-section-label";
 import { SessionChangesDashDocuments } from "./session-changes-dash-documents";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
-import { DashMetaLine } from "@/components/tugways/dash-meta-line";
+import { DashLifecycleBlock } from "@/components/tugways/dash-lifecycle-block";
+import { dashLifecycleNote } from "@/components/tugways/dash-lifecycle-line";
+import { dashTrackModelFromEntry } from "@/components/tugways/tug-dash-track";
+import { dashMetaFacts } from "@/lib/dash-meta-facts";
 import { DashJoinRegister } from "@/components/tugways/dash-join-register";
 import { useChangesetJoinLand } from "@/lib/changeset-join-store";
 import { dashFrontedLabel, dashRestLabel } from "./changes-section-labels";
-import { TugDashName } from "@/components/tugways/tug-dash-name";
 import {
   SessionChangesDashJoin,
   discardPreflightLine,
@@ -81,6 +83,10 @@ import type {
   DashChangesetEntry,
   DocumentDashEntry,
 } from "@/lib/changeset-types";
+import {
+  documentDashAsEntry,
+  documentDashTrackModel,
+} from "@/lib/document-dash-entry";
 import type { JoinState } from "@/lib/changeset-verb-store";
 import type { ResolveState } from "@/lib/changeset-join-store";
 import type { JoinOutcome } from "@/lib/join-mode-controller";
@@ -394,6 +400,7 @@ function DashRow({
             perform: () => replay.replay(entry),
           },
   });
+  const model = dashTrackModelFromEntry(entry);
 
   return (
     <div
@@ -407,34 +414,26 @@ function DashRow({
       <TugListRow
         variant="flush"
         density="compact"
-        // A session is always shown WITH its bound dash, so a worked dash
-        // leads with the worker's own atom and the dash rides inside it, where
-        // it rides on every other identity surface. Splitting the two would
-        // state the pairing twice and let them drift apart on the line.
-        //
-        // The dash is passed rather than looked up: this row IS that dash, so
-        // making the atom re-derive it from the changeset store would put a
-        // fact the row was built from behind a feed arriving.
-        //
-        // An unbound dash has no atom to ride, and takes the mono caret run —
-        // which is the differentiator, not a fallback. Sans in a pill means a
-        // session is working this; mono means nobody is.
-        leading={
-          <TugDashName
-            name={entry.display_name}
-            review={entry.review ?? null}
-            boundSessions={entry.bound_sessions}
-            slot="session-changes-dash-name"
-            workerSlot="session-changes-dash-worker"
-            // The chip tier's own size, not the rail's 2xs: the shade is a
-            // reading surface, and the lines beneath are set at `sm` — an
-            // atom a step smaller than the facts it heads reads as a caption
-            // over its own content. The Lens keeps the compact scale; that is
-            // the one place the two surfaces differ.
-            atomSize="sm"
-          />
-        }
-        trailing={
+      >
+        {/* The dash's whole life in the one block the Lens's rows wear, here
+            at the reading scale — the shade is the surface you came to read,
+            and a line a step smaller than the register beneath it would read
+            as a footnote to its own block. Line 1 is who: the dash atom and
+            one worker atom per bound session, an unbound dash showing none.
+            Line 2 is what the dash is DOING.
+
+            The entry is passed rather than looked up: this row IS that dash,
+            so making the block re-derive it from the changeset store would
+            put a fact the row was built from behind a feed arriving. */}
+        <DashLifecycleBlock
+          name={entry.display_name}
+          review={entry.review ?? null}
+          workers={entry.bound_sessions ?? []}
+          model={model}
+          note={dashLifecycleNote(model, entry.step_title ?? null)}
+          facts={dashMetaFacts(entry)}
+          size="read"
+          trailing={
           <span className="session-changes-dash-row-trailing">
             {/* The row's rare verbs, behind one opener. Bind/Unbind and
                 Discard are real and reachable and almost never pressed, and
@@ -472,16 +471,9 @@ function DashRow({
               data-slot="session-changes-dash-fold"
             />
           </span>
-        }
-      />
-      {/* The one metadata grammar every collapsed dash surface wears — the
-          Lens's Dashes section renders the same element, at the rail scale.
-          Here it wears the reading scale: all three lines of the block are one
-          size. Indented under the atom: line 1 is who, line 2 is what the
-          dash is doing. */}
-      <span className="session-changes-dash-meta">
-        <DashMetaLine entry={entry} size="sm" />
-      </span>
+          }
+        />
+      </TugListRow>
       {/* What the JOIN is doing, in the one shared register — the same
           sentence the Lens row and the composer show, because all three call
           one derivation. It states and never asks: every act in the arc lives
@@ -644,20 +636,8 @@ function DocumentDashRow({
   entry: DocumentDashEntry;
   binding: DashLaneBinding | null;
 }): React.ReactElement {
-  // `DashMetaLine` reads a dash entry's optional facts and states only the
-  // ones present, so the sparse shape a branchless dash has is exactly what it
-  // is built to take — the arc line reads the same here as on a live row.
-  const asEntry = {
-    kind: "dash",
-    owner_id: entry.owner_id,
-    display_name: entry.display_name,
-    documents: entry.documents,
-    ...(entry.review !== undefined ? { review: entry.review } : {}),
-    ...(entry.arc !== undefined ? { arc: entry.arc } : {}),
-    ...(entry.bound_sessions !== undefined
-      ? { bound_sessions: entry.bound_sessions }
-      : {}),
-  } as unknown as DashChangesetEntry;
+  const asEntry = documentDashAsEntry(entry);
+  const model = documentDashTrackModel(entry);
 
   return (
     <div
@@ -668,36 +648,34 @@ function DocumentDashRow({
       data-branchless="true"
       data-expanded="true"
     >
-      <TugListRow
-        variant="flush"
-        density="compact"
-        leading={
-          <TugDashName
-            name={entry.display_name}
-            review={entry.review ?? null}
-            boundSessions={entry.bound_sessions ?? []}
-            slot="session-changes-dash-name"
-            workerSlot="session-changes-dash-worker"
-            atomSize="sm"
-          />
-        }
-        trailing={
-          binding !== null ? (
-            <TugPushButton
-              size="2xs"
-              emphasis="ghost"
-              data-slot="session-changes-dash-unbind"
-              aria-label={`Unbind the dash ${entry.display_name}`}
-              onClick={() => binding.unbind(asEntry)}
-            >
-              Unbind
-            </TugPushButton>
-          ) : undefined
-        }
-      />
-      <span className="session-changes-dash-meta">
-        <DashMetaLine entry={asEntry} size="sm" />
-      </span>
+      <TugListRow variant="flush" density="compact">
+        {/* The same block a branch row wears, over the same counted model the
+            Lens's documents-only row uses — never `dashTrackModelFromEntry`
+            over the adapted entry, which carries no steps and would read
+            `review` for a plan already half walked. */}
+        <DashLifecycleBlock
+          name={entry.display_name}
+          review={entry.review ?? null}
+          workers={entry.bound_sessions ?? []}
+          model={model}
+          note={dashLifecycleNote(model, null)}
+          facts={dashMetaFacts(asEntry)}
+          size="read"
+          trailing={
+            binding !== null ? (
+              <TugPushButton
+                size="2xs"
+                emphasis="ghost"
+                data-slot="session-changes-dash-unbind"
+                aria-label={`Unbind the dash ${entry.display_name}`}
+                onClick={() => binding.unbind(asEntry)}
+              >
+                Unbind
+              </TugPushButton>
+            ) : undefined
+          }
+        />
+      </TugListRow>
       <div className="session-changes-dash-detail">
         <div
           className="session-changes-dash-documents-block"

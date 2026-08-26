@@ -19,10 +19,10 @@
    sets of metrics kept equal by hand. A reader scanning the shade cannot tell
    that two components drew them, because in the part that shows, one did. */
 
-/* The name is `TugDashName` — both registers, the wrapping worker row, the
-   optical outdent and the monospace that distinguishes an unworked dash all
-   live there now, so the picker and this lane cannot drift apart on any of
-   them. Nothing about the name is authored here. */
+/* The identities and the metadata line are `DashLifecycleBlock`'s — the atom,
+   the hairline, the worker atoms, the track, and the indent between the
+   block's own two lines all live there, so every dash surface cannot drift
+   apart on any of them. Nothing about them is authored here. */
 
 /* ---- The row ---- */
 
@@ -41,38 +41,28 @@
   gap: var(--tug-space-2xs);
 }
 
-/* Where the lines UNDER the atom start.
+/* Where the lines OUTSIDE the block start.
 
-   The metadata line and the join register are siblings of the row, not
-   children of it, so they begin at the row's BORDER box while the atom above
-   them begins at its content box — and the atom is then optically outdented
-   on top of that. Three offsets, none of which a space token knows about:
-   before this the lines took `--tug-space-sm` and landed nine pixels left of
-   the name they hang under, which is what made the shade's dash read as two
-   lines that missed each other.
+   The join register and the fold's detail are siblings of the list row, not
+   children of it, so they begin at the row's BORDER box while the block inside
+   it begins at the row's content box — and the block's atom then holds its
+   name one text inset further in. Three offsets, none of which a space token
+   knows about: before this the lines took `--tug-space-sm` and landed nine
+   pixels left of the name they hang under, which is what made the shade's dash
+   read as lines that missed each other.
 
    So the indent is the arithmetic itself, in the terms each part is authored
-   in. Change the row's density, the atom's padding, or the name's outdent and
-   this follows; a literal would be right until the first of those moved. */
+   in. Change the row's density or the atom's padding and this follows; a
+   literal would be right until the first of those moved. */
 body {
   --tugx-dash-stack-indent: calc(
     var(--tugx-list-row-padding-inline-compact) +
       var(--tugx-list-row-indicator-gutter) +
-      var(--tugx-session-atom-text-inset) - var(--tugx-dash-name-outdent)
+      var(--tugx-session-atom-text-inset)
   );
 }
 
-/* The metadata line beneath the atom — `DashMetaLine`, the same element the
-   Lens's Dashes section renders, with its own type and tones. What is this
-   lane's to say is only where it sits: on the atom's own left margin, so
-   line 1 reads as who and line 2 as what the dash is doing. */
-.session-changes-dash-meta {
-  display: flex;
-  min-width: 0;
-  padding-inline-start: var(--tugx-dash-stack-indent);
-}
-
-/* The join register sits under the metadata line, on the same indent: line 1
+/* The join register sits under the block, on the same indent: line 1
    is who, line 2 is what the dash is doing, line 3 is what its join is doing.
    Empty until there is a join — the register returns null before then, so
    this box collapses rather than reserving a blank row. */

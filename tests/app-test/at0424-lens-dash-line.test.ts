@@ -37,8 +37,8 @@
  * @covers tugdeck/src/components/lens/sections/cards-session-cell.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.tsx
  * @covers tugdeck/src/components/tugways/session-identity-row.css
- * @covers tugdeck/src/components/tugways/tug-step-ring.tsx
- * @covers tugdeck/src/components/tugways/tug-step-ring.css
+ * @covers tugdeck/src/components/tugways/tug-step-fraction.tsx
+ * @covers tugdeck/src/components/tugways/tug-step-fraction.css
  * @covers tugdeck/src/components/tugways/tug-dash-track.tsx
  * @covers tugdeck/src/components/tugways/tug-dash-track.css
  * @covers tugdeck/src/lib/dash-session-index.ts
@@ -47,7 +47,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { realpathSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -58,6 +58,7 @@ import {
 } from "./_harness/tugbank-helpers";
 import {
   createDash,
+  dashBriefPath,
   makeDashScratchRepo,
   recordAdoptedPlan,
   rmDashScratchRepo,
@@ -80,12 +81,14 @@ const CARDS = '.lens-section[data-lens-section="cards"]';
 const SESSION_ROW = `${CARDS} [data-session-id="${SID}"]`;
 const SESSION_ROW_DASH = `${SESSION_ROW} [data-slot="session-identity-dash"]`;
 const DASH_NAME = "at0424-line";
+/** A dash that is only documents — a brief on disk and no branch behind it. */
+const BRIEF_ONLY = "at0424-brief";
 /** The retired fourth line — pinned at zero forever. */
 const DASH_LINE = `${SESSION_ROW} [data-slot="tug-session-row-dashline"]`;
 const PROGRESS = `${SESSION_ROW} [data-slot="session-identity-row-progress"]`;
 const TRACK = `${PROGRESS} [data-slot="tug-dash-track"]`;
 const FRACTION = `${PROGRESS} [data-slot="tug-step-fraction"]`;
-const RING = `${SESSION_ROW} [data-slot="tug-step-ring"]`;
+
 const LIST_CELLS = `${CARDS} .tug-list-view-cell`;
 
 /** This checkout — the build under test, and never the tree a dash is cut in. */
@@ -108,6 +111,14 @@ beforeAll(() => {
     ...scratch.cli,
     rows: 3,
   });
+  // A dash that never got a branch: a brief at its own address and nothing
+  // else. Writing the file is the whole act — a dash HAS a brief when one is
+  // at its address, so this is the state a card is in while it is being
+  // written.
+  writeFileSync(
+    dashBriefPath(projectDir(), BRIEF_ONLY),
+    "# at0424 brief\n\nThe idea, before there is a plan for it.\n",
+  );
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -178,7 +189,6 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           { timeoutMs: 20000 },
         );
         expect(await count(app, PROGRESS)).toBe(0);
-        expect(await count(app, RING)).toBe(0);
         const bareCells = await listCellCount(app);
 
         // ── Bind, for real ────────────────────────────────────────────────
@@ -194,7 +204,6 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           stage: string | null;
           stageWord: string | null;
           fractions: number;
-          rings: number;
         }>(
           `(() => {
              const cluster = document.querySelector(${JSON.stringify(PROGRESS)});
@@ -212,7 +221,6 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
                    ?.querySelector('[data-state="active"]')
                    ?.getAttribute("data-phase") ?? null,
                fractions: document.querySelectorAll(${JSON.stringify(FRACTION)}).length,
-               rings: document.querySelectorAll(${JSON.stringify(RING)}).length,
              };
            })()`,
         );
@@ -227,10 +235,9 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         expect(cluster.stage).toBe("review");
         // Exactly one cell is active, and it is that phase's.
         expect(cluster.stageWord).toBe("review");
-        // No step started: no counters, so no fraction and no ring yet —
-        // the dot stays a bare dot.
+        // No step started: no counters, so no fraction yet — the dot stays a
+        // bare dot.
         expect(cluster.fractions).toBe(0);
-        expect(cluster.rings).toBe(0);
 
         // The retired fourth line never renders, and the list did not grow a
         // row: same cells, same three lines, whatever the binding state.
@@ -255,7 +262,6 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
 
         const stepped = await app.evalJS<{
           fraction: string;
-          rings: number;
           phase: string | null;
           ticks: number;
           ticksActive: number;
@@ -270,8 +276,6 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
              const state = (s) => ticks.filter((el) => el.getAttribute("data-state") === s).length;
              return {
                fraction: (fraction?.textContent ?? "").trim(),
-               // The segmented ring is gone from a dash row entirely.
-               rings: document.querySelectorAll(${JSON.stringify(RING)}).length,
                phase: track?.getAttribute("data-phase") ?? null,
                ticks: ticks.length,
                ticksActive: state("active"),
@@ -296,9 +300,6 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
         expect(stepped.ticks).toBe(3);
         expect(stepped.ticksActive).toBe(1);
         expect(stepped.ticksDone).toBe(0);
-        // The step ring never appears on a dash row: two marks counting one
-        // walk in two geometries is the thing this retired.
-        expect(stepped.rings).toBe(0);
         // One dot on the row, and no ring around it.
         expect(stepped.monitorDots).toBe(1);
         // Still no fourth line, still the same cells.
@@ -312,9 +313,74 @@ describe.skipIf(!SHOULD_RUN)("AT0424: dash progress on the session's row", () =>
           `document.querySelectorAll(${JSON.stringify(PROGRESS)}).length === 0`,
           { timeoutMs: 30000 },
         );
-        expect(await count(app, RING)).toBe(0);
         expect(await listCellCount(app)).toBe(bareCells);
         expect(await dashRunsOnSessionRow(app)).toBe(0);
+      } finally {
+        await app.close();
+        rmTempTugbank(tugbankPath);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a dash that is only documents gets the same cluster, before any branch",
+    async () => {
+      const tugbankPath = mkTempTugbank();
+      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
+      const app = await launchTugApp({
+        testName: "at0424-lens-dash-line-documents",
+        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
+      });
+      try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+        await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
+        await app.awaitEngineReady("A", { timeoutMs: 15000 });
+
+        await app.dispatchControlAction("toggle-lens");
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
+          { timeoutMs: 20000 },
+        );
+        expect(await count(app, PROGRESS)).toBe(0);
+
+        // Binding needs no branch: the owner key is a git config entry, so a
+        // card can hold a dash from the first line of its brief.
+        await shellAndSettle(app, `${tugutilPath(CHECKOUT)} dash bind ${BRIEF_ONLY}`);
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
+          { timeoutMs: 30000 },
+        );
+
+        const documentsOnly = await app.evalJS<{
+          phase: string | null;
+          fractions: number;
+          dashRuns: number;
+        }>(
+          `(() => {
+             const track = document.querySelector(${JSON.stringify(TRACK)});
+             return {
+               phase: track?.getAttribute("data-phase") ?? null,
+               fractions: document.querySelectorAll(${JSON.stringify(FRACTION)}).length,
+               dashRuns: document.querySelectorAll(${JSON.stringify(SESSION_ROW_DASH)}).length,
+             };
+           })()`,
+        );
+        note("at0424 documents-only cluster", JSON.stringify(documentsOnly));
+        // This is the half of a dash's life the old stage glyph could not see
+        // at all: no branch means no git stage, and the cluster used to wait
+        // for one. A brief and no plan stands at `brief`; a plan would stand
+        // at `review`.
+        expect(["brief", "review"]).toContain(documentsOnly.phase);
+        // No steps declared against a branchless dash, so no counters.
+        expect(documentsOnly.fractions).toBe(0);
+        // And the row names the dash exactly once, as it does for a live one.
+        expect(documentsOnly.dashRuns).toBe(1);
+        note("at0424 documents-only masthead", (await app.screenshot()).path);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

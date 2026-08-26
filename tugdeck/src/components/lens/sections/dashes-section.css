@@ -1,10 +1,11 @@
 /* The Lens Dashes section — appearance only ([L06]), tokens scoped to this
    section's own slots ([L20]).
 
-   Each dash is a two-line block: the eyebrow (identities) over the metadata
-   line (the work). The eyebrow's hairline is what separates dash from dash,
-   so it takes the default border tone rather than a muted divider. The
-   metadata line's own type and tones are `dash-meta-line.css`'s. */
+   Each dash is one `DashLifecycleBlock`, which owns its own two lines, its
+   hairline, and its indent — everything a row wears inside the block belongs
+   to `dash-lifecycle-block.css` and `dash-lifecycle-line.css`. What is left
+   here is the section's own: the row, the block's air, the join register
+   beneath it, and the trailing verb cluster. */
 
 .lens-dashes-section {
   display: flex;
@@ -51,44 +52,6 @@
   padding-block: var(--tug-space-md);
 }
 
-/* The eyebrow: the dash atom at the left, hairline through the rest, the
-   "who" at the right — the Changes shade's header grammar, quiet and
-   hueless. */
-.lens-dashes-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  min-width: 0;
-}
-
-/* Visible on purpose: the hairline is what separates dash from dash, so it
-   takes the default border tone rather than a muted divider, and it never
-   collapses below a readable run. */
-.lens-dashes-eyebrow-rule {
-  flex: 1 1 auto;
-  min-width: 24px;
-  height: 1px;
-  background: var(--tug7-element-global-border-normal-default-rest);
-}
-
-/* The worker's mini atom: the chip skin does the rest; this only caps it so
-   a long session name cannot push the hairline out of the row. */
-.lens-dashes-worker {
-  max-width: 180px;
-}
-
-/* The metadata line, on the atom's own left margin.
-
-   Not a space token: the indent that makes this read as a second column is
-   the one the atom above it holds its NAME in from the pill's edge, so it is
-   that inset it takes. A near-miss here is worse than no indent at all — the
-   eye reads two lines that almost line up as a mistake. */
-.lens-dashes-meta-line {
-  display: flex;
-  min-width: 0;
-  padding-inline-start: var(--tugx-session-atom-text-inset-2xs);
-}
-
 /* What the dash's JOIN is doing, on the metadata line's margin: line 1 is
    who, line 2 is what the dash is doing, line 3 is what its join is doing.
    Empty until there is a join — the register returns null before then, so
@@ -112,29 +75,3 @@
   align-items: center;
   gap: var(--tug-space-2xs);
 }
-
-/* A waiting plan document, in the dash row's grammar and one tone quieter:
-   paperwork is not work in progress, and the section's live rows should still
-   read first. A plan row opens nothing, so it never takes the pointer or the
-   hover wash — the `data-activatable` rule above already covers that, since a
-   plan row never carries the attribute. */
-.lens-plans-glyph {
-  flex: 0 0 auto;
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-.lens-plans-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--tug-font-size-sm);
-  color: var(--tug7-element-global-text-normal-default-rest);
-}
-
-.lens-plans-meta {
-  font-size: var(--tug-font-size-2xs);
-  color: var(--tug7-element-global-text-normal-subtle-rest);
-}
-
-
