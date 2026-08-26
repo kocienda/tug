@@ -2712,6 +2712,46 @@ pub async fn relay_session_io(
                                         // exists), and any `tugutil file`
                                         // receipt the output carries.
                                         let mut recorded = false;
+                                        // A verb receipt is proof (`cmd`), and
+                                        // it is read FIRST — before the bracket
+                                        // delta below writes its weak `bash`
+                                        // hint for the same file. The insert is
+                                        // ON CONFLICT (session, tool_use_id,
+                                        // file_path) DO NOTHING, so whichever
+                                        // origin lands first wins the row; proof
+                                        // must, or a `tugutil file`/`tugrev`
+                                        // edit to an in-tree file loses its
+                                        // receipt to the hint and reads as
+                                        // UNATTRIBUTED. Read from any successful
+                                        // Bash result, whatever ran it — the
+                                        // verb says exactly which files it
+                                        // touched.
+                                        if !tr.is_error && tr.output.contains(RECEIPT_MARKER) {
+                                            let at = if in_replay {
+                                                tr.timestamp.unwrap_or_else(
+                                                    crate::session_ledger::now_millis,
+                                                )
+                                            } else {
+                                                crate::session_ledger::now_millis()
+                                            };
+                                            for path in mint_receipt_rows(
+                                                &tr.output,
+                                                &tr.tool_use_id,
+                                                at,
+                                                tug_session_id,
+                                                &canonical_project_dir,
+                                                &mut repo_root_cache,
+                                                project_dir,
+                                                ledger,
+                                            )
+                                            .await
+                                            {
+                                                if open_turn.is_some() {
+                                                    turn_recorded_paths.insert(path);
+                                                }
+                                                recorded = true;
+                                            }
+                                        }
                                         if let Some(bracket) = open_bash.remove(&tr.tool_use_id) {
                                         // Bash call: close the bracket and
                                         // attribute the delta — regardless of
@@ -2841,37 +2881,7 @@ pub async fn relay_session_io(
                                                 recorded = true;
                                             }
                                         }
-                                        // A verb receipt is read from any
-                                        // successful Bash result, whatever ran
-                                        // it — the verb expanded what the
-                                        // grammar could not and says exactly
-                                        // which files it touched.
-                                        if !tr.is_error && tr.output.contains(RECEIPT_MARKER) {
-                                            let at = if in_replay {
-                                                tr.timestamp.unwrap_or_else(
-                                                    crate::session_ledger::now_millis,
-                                                )
-                                            } else {
-                                                crate::session_ledger::now_millis()
-                                            };
-                                            for path in mint_receipt_rows(
-                                                &tr.output,
-                                                &tr.tool_use_id,
-                                                at,
-                                                tug_session_id,
-                                                &canonical_project_dir,
-                                                &mut repo_root_cache,
-                                                project_dir,
-                                                ledger,
-                                            )
-                                            .await
-                                            {
-                                                if open_turn.is_some() {
-                                                    turn_recorded_paths.insert(path);
-                                                }
-                                                recorded = true;
-                                            }
-                                        }
+
                                         if recorded {
                                             changeset_bumper.bump(Path::new(project_dir));
                                         }
@@ -5103,6 +5113,126 @@ mod tests {
             assert_eq!(r.tool_name, "Bash");
             assert!(!r.ambiguous);
         }
+    }
+
+    /// The regression: a `tugutil file`/`tugrev` edit to a file in the
+    /// session's own live tree. The command is opaque to the grammar, so the
+    /// bracket delta sees the file move and would attribute it a weak `bash`
+    /// hint — but the result carries a receipt naming that same file. Both
+    /// name the same `(session, tool_use_id, file_path)` key, and the insert
+    /// is `ON CONFLICT DO NOTHING`, so the row belongs to whichever origin is
+    /// written first. Proof must win: the receipt is read before the bracket,
+    /// so the row is `cmd`, not `bash`. Before the fix it was `bash`, and the
+    /// file read as UNATTRIBUTED with the receipt silently discarded.
+    #[tokio::test]
+    async fn a_receipt_beats_the_bracket_hint_for_the_same_file() {
+        use crate::feeds::agent_supervisor::NoopSessionsRecorder;
+        use crate::feeds::workspace_registry::WorkspaceKey;
+        use tokio::io::AsyncWriteExt;
+
+        let repo = tempfile::tempdir().expect("tempdir");
+        let root = repo.path().to_path_buf();
+        let git = |args: &[&str]| {
+            assert!(
+                std::process::Command::new("git")
+                    .args(args)
+                    .current_dir(&root)
+                    .output()
+                    .expect("git")
+                    .status
+                    .success(),
+                "git {args:?}"
+            );
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@t.test"]);
+        git(&["config", "user.name", "t"]);
+        std::fs::write(root.join("a.txt"), "one\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&["commit", "-q", "-m", "init"]);
+
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        let project_dir = root.to_str().unwrap().to_string();
+        let abs_a = root.join("a.txt");
+        let abs_a = abs_a.to_str().unwrap().to_string();
+
+        let tug_session_id = TugSessionId::new("tug-receipt".to_string());
+        let ledger_entry = Arc::new(Mutex::new(
+            crate::feeds::agent_supervisor::LedgerEntry::new(
+                tug_session_id.clone(),
+                WorkspaceKey::from_test_str("ws-test"),
+                PathBuf::from(&project_dir),
+                SessionMode::New,
+                CrashBudget::new(3, Duration::from_secs(60)),
+            ),
+        ));
+        let (_input_tx, mut input_rx) = mpsc::channel::<Frame>(16);
+        let (merger_tx, mut _merger_rx) = mpsc::channel::<Frame>(256);
+        let (state_tx, _state_rx) = broadcast::channel::<Frame>(64);
+        let cancel = CancellationToken::new();
+        let (relay_stdin_w, _tugcode_stdin_r) = tokio::io::duplex(64 * 1024);
+        let (relay_stdout_r, mut feed_w) = tokio::io::duplex(256 * 1024);
+        let reader: Box<dyn AsyncRead + Send + Unpin> = Box::new(relay_stdout_r);
+        let lines = BufReader::new(reader).lines();
+
+        let ledger_for_relay = ledger.clone();
+        let relay = tokio::spawn(async move {
+            let recorder = NoopSessionsRecorder;
+            relay_session_io(
+                &tug_session_id,
+                &ledger_entry,
+                &mut input_rx,
+                &merger_tx,
+                &state_tx,
+                Box::new(relay_stdin_w),
+                lines,
+                &project_dir,
+                &recorder,
+                Some(ledger_for_relay.as_ref()),
+                &InkLedgers::default(),
+                &crate::feeds::changeset::ChangesetBumper::disconnected(),
+                &cancel,
+            )
+            .await
+        });
+
+        feed_w
+            .write_all(b"{\"type\":\"protocol_ack\"}\n")
+            .await
+            .unwrap();
+        // An opaque command: the grammar names no file, so the bracket can
+        // only offer a `bash` hint for whatever the window observed move.
+        feed_w
+            .write_all(b"{\"type\":\"tool_use\",\"tool_name\":\"Bash\",\"tool_use_id\":\"tu-r\",\"input\":{\"command\":\"tugrev edit.rev\"}}\n")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        std::fs::write(root.join("a.txt"), "one\ntwo\n").unwrap();
+        // The result carries the receipt a rev prints, naming the absolute
+        // path — exactly what `tugutil file rev` emits.
+        let receipt = format!(
+            "TUG-FILE-RECEIPT: {{\\\"ops\\\":[{{\\\"op\\\":\\\"modified\\\",\\\"path\\\":\\\"{abs_a}\\\"}}]}}"
+        );
+        let result = format!(
+            "{{\"type\":\"tool_result\",\"tool_use_id\":\"tu-r\",\"output\":\"{receipt}\",\"is_error\":false}}\n"
+        );
+        feed_w.write_all(result.as_bytes()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        drop(feed_w);
+        let _ = relay.await.expect("relay task");
+
+        let rows = ledger.file_events_for_session("tug-receipt").unwrap();
+        let a_rows: Vec<_> = rows.iter().filter(|r| r.file_path == "a.txt").collect();
+        assert_eq!(
+            a_rows.len(),
+            1,
+            "one row per (session, tool_use, file); got {a_rows:?}"
+        );
+        assert_eq!(
+            a_rows[0].origin, "cmd",
+            "the receipt is proof and must beat the bracket's `bash` hint"
+        );
+        assert_eq!(a_rows[0].op, "modified");
     }
 
     #[tokio::test]
