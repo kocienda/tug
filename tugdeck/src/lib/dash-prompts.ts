@@ -1,8 +1,8 @@
 /**
  * dash-prompts.ts — the cockpit's affordances, as prompts.
  *
- * Every graphical gesture the dash cockpit offers — start a dash, review a
- * plan, implement a plan — is a **prompt submitted into a real session**, never
+ * Every graphical gesture the dash cockpit offers — review a plan, implement a
+ * plan — is a **prompt submitted into a real session**, never
  * a call into machinery. `tugutil` is the engine's and the models' tool, so a
  * button that ran one would be a graphical surface doing the machine's job
  * behind the reader's back; a submitted prompt is an ordinary, visible,
@@ -35,23 +35,7 @@ import type { CodeSessionPhase } from "@/lib/code-session-store/types";
 // Templates
 // ---------------------------------------------------------------------------
 
-/**
- * Start a dash from an idea, and optionally a name.
- *
- * `/tugplug:dash` is the arc's conversational on-ramp: it sizes the idea,
- * decides brief-or-not, devises, stops at the review gate, and carries the
- * reviewed plan into implementation. The sheet's job is only to hand it a
- * sentence.
- *
- * The name rides as prose rather than as a flag, because the receiver is a
- * skill reading English, not a CLI parsing argv.
- */
-export function startDashPrompt(idea: string, name?: string | null): string {
-  const trimmedIdea = idea.trim();
-  const trimmedName = (name ?? "").trim();
-  if (trimmedName.length === 0) return `/tugplug:dash ${trimmedIdea}`;
-  return `/tugplug:dash ${trimmedIdea} — name it ${trimmedName}`;
-}
+
 
 /**
  * The next gesture for a dash that exists only as documents.

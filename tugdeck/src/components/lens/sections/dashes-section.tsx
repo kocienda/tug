@@ -113,7 +113,6 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { usePromptTarget } from "./dash-prompt-target";
-import { DashesStartControl } from "./dashes-start-sheet";
 import {
   documentDashNextGestureLabel,
   documentDashNextGesturePrompt,
@@ -952,27 +951,14 @@ function DashesSectionBody({ host }: { host: LensSectionHost }): React.ReactElem
     return { onSelect: activate, onActivate: activate };
   }, [chain, dataSource]);
 
-  // The empty state keeps the band, at the shared empty label's height and
-  // tone — but it names the way in rather than saying "None".
-  //
-  // An empty Cards section is self-evident and self-correcting: the reader has
-  // no cards and knows how to open one. An empty Dashes band is the one place
-  // a reader may not know the way in at all, and a section whose whole argument
-  // is that it holds a fixed address is worth one sentence that earns it.
-  //
-  // The sentence names a gesture the reader can make, never a command they are
-  // expected to type: `tugutil` is machinery for the engine and the models, and
-  // a graphical surface that spells it is telling a human to do the machine's
-  // job. So the line is a real affordance — the same act the band's `+` carries,
-  // put where a reader with nothing to look at cannot miss it.
+  // The empty state keeps the band, reading exactly as every other Lens
+  // section's does: the shared word, centered, on one row's worth of height.
+  // A dash starts in a session card, so there is nothing to press here and no
+  // way in to name — the band is a fixed address to glance at, not a door.
   if (!populated) {
     return (
-      <div
-        className="lens-section-empty lens-dashes-empty lens-dashes-empty-start"
-        data-slot="lens-dashes-empty"
-      >
-        <span>No dashes yet.</span>
-        <DashesStartControl placement="empty" />
+      <div className="lens-section-empty" data-slot="lens-dashes-empty">
+        None
       </div>
     );
   }
@@ -1036,11 +1022,6 @@ export function registerDashesSection(): void {
     title: "Dashes",
     collapsedSummary: () => <DashesCollapsedSummary />,
     body: (host) => <DashesSectionBody host={host} />,
-    // The way in, on the band itself — the registry's own answer to "a section
-    // contributes a control", and this hook's first consumer. The band renders
-    // it only while the section is expanded, which is why the empty state
-    // carries the same act rather than relying on this one alone.
-    headerActions: () => <DashesStartControl placement="band" />,
     // No `presence`: the section is always on. A band that comes and goes has
     // no fixed address, and no other Lens section works that way.
   });

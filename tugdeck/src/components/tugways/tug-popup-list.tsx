@@ -439,9 +439,7 @@ export function TugPopupListFooter({
  * The split is not decoration. A single word is a *reading*, so it
  * belongs on the axis a value would occupy and italics make it read as
  * an aside; a sentence is a remark, and centering one turns it into a
- * caption. The Lens settled the same distinction from the other side —
- * its `lens-dashes-empty` un-centers itself precisely because that
- * empty is a sentence naming a command.
+ * caption.
  *
  * @selector [data-form="<form>"]
  */

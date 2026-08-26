@@ -9,7 +9,7 @@
  * session bound to it and that session's atom is what would carry the dot.
  *
  * Beneath the eyebrow, `DashMetaLine` says what the dash is DOING. A freshly
- * created dash with no plan says so aloud — "no plan adopted" — because
+ * created dash with no plan says so aloud — "no plan yet" — because
  * silence there is how a whole run's missing declarations went unnoticed
  * once. A dash driving a stepped plan shows the ring, the stage GLYPH with
  * its word on the hover, and the `i/N` count.
@@ -193,7 +193,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Lens Dashes section", () => {
         // A freshly created dash with no round and no dirt is `created`, said
         // as a glyph; and with no plan the note says so aloud.
         expect(unbound.stage).toBe("created");
-        expect(unbound.note).toBe("no plan adopted");
+        expect(unbound.note).toBe("no plan yet");
         expect(unbound.noteEmpty).toBe("true");
       } finally {
         await app.close();

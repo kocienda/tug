@@ -20,7 +20,7 @@
  * session's phase, through {@link SessionStepRing}) and quiet otherwise; a
  * plan fully walked reads success either way. The stage is a glyph with its
  * word on hover; the note is the current step's title, else the join draft's
- * subject, else the honest "no plan adopted". The divergence facts are
+ * subject, else the honest "no plan yet". The divergence facts are
  * tone-colored words, most urgent first, each carrying its detail on hover.
  *
  * Laws: [L02] callers hand in the entry their own subscription produced;

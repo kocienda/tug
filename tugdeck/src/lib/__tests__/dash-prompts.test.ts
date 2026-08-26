@@ -16,30 +16,7 @@ import {
   documentDashNextGestureLabel,
   documentDashNextGesturePrompt,
   resolvePromptTarget,
-  startDashPrompt,
 } from "../dash-prompts";
-
-describe("startDashPrompt", () => {
-  test("an idea alone invokes the on-ramp with the sentence", () => {
-    expect(startDashPrompt("make the Lens list waiting plans")).toBe(
-      "/tugplug:dash make the Lens list waiting plans",
-    );
-  });
-
-  test("a name rides as prose, because the receiver reads English", () => {
-    expect(startDashPrompt("list waiting plans", "plan-rows")).toBe(
-      "/tugplug:dash list waiting plans — name it plan-rows",
-    );
-  });
-
-  test("both fields are trimmed, and an all-space name is no name", () => {
-    expect(startDashPrompt("  an idea  ", "   ")).toBe("/tugplug:dash an idea");
-    expect(startDashPrompt("an idea", null)).toBe("/tugplug:dash an idea");
-    expect(startDashPrompt("an idea", "  spaced  ")).toBe(
-      "/tugplug:dash an idea — name it spaced",
-    );
-  });
-});
 
 describe("documentDashNextGesturePrompt — the next gesture ladder", () => {
   test("every verb takes the name, never a path", () => {

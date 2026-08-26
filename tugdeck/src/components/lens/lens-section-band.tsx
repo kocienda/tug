@@ -275,11 +275,7 @@ export function LensSection({
                 focusOrder={LENS_BAND_FILTER_FOCUS_ORDER}
               />
             )}
-            {/* Section-contributed controls sit LEFT of the chevron and,
-                like the tool header's body-kind portal, show only while the
-                section is expanded — the controls act on the visible body.
-                The fold chevron itself is always present. */}
-            {collapsed ? null : def.headerActions?.(host)}
+
             <BlockFoldCue
               collapsed={collapsed}
               onToggle={(next) => lensStore.setCollapsed(def.kind, next)}

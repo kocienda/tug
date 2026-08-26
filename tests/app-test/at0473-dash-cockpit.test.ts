@@ -60,8 +60,7 @@
  *
  * @covers tugdeck/src/components/lens/sections/dashes-section.tsx
  * @covers tugdeck/src/components/lens/sections/dashes-section.css
- * @covers tugdeck/src/components/lens/sections/dashes-start-sheet.tsx
- * @covers tugdeck/src/components/lens/sections/dashes-start-sheet.css
+
  * @covers tugdeck/src/components/lens/sections/dash-prompt-target.ts
  * @covers tugdeck/src/lib/dash-prompts.ts
  * @covers tugdeck/src/lib/changeset-types.ts
@@ -116,11 +115,7 @@ const planRow = (name: string): string => `${PLAN_ROWS}[data-dash="${name}"]`;
 const gesture = (name: string): string =>
   `${planRow(name)} [data-slot="lens-plans-gesture"]`;
 
-/** The band's `+` — `headerActions`' first consumer anywhere in the Lens. */
-const BAND_START = `${SECTION} [data-slot="lens-dashes-start"][data-placement="band"]`;
-const SHEET = '[data-slot="lens-start-dash"]';
-const IDEA = `${SHEET} [data-slot="lens-start-dash-idea"]`;
-const SUBMIT = `${SHEET} [data-slot="lens-start-dash-submit"]`;
+
 
 /** The Z2 work cell — TASKS or DASH, one `data-priority` either way. */
 const CELL =
@@ -413,56 +408,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
           { timeoutMs: 40000 },
         );
 
-        // ── The way in is on the band, and it opens the sheet ─────────────
-        // The band's control is `headerActions`' first consumer, so nothing
-        // else proves the hook renders at all.
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(BAND_START)}) !== null`,
-          { timeoutMs: 10000 },
-        );
-        await app.click(BAND_START);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
-          { timeoutMs: 10000 },
-        );
 
-        // Start refuses an empty idea by name — there is no sentence to send,
-        // and a control that declines without saying why is what this whole
-        // surface exists to retire ([L31]).
-        const empty = await app.evalJS<{
-          disabled: boolean;
-          title: string | null;
-          where: string;
-        }>(
-          `(() => {
-             const button = document.querySelector(${JSON.stringify(SUBMIT)});
-             return {
-               disabled: button?.hasAttribute("disabled") ?? false,
-               title: button?.getAttribute("title") ?? null,
-               where: (document.querySelector('[data-slot="lens-start-dash-where"]')?.textContent ?? "").trim(),
-             };
-           })()`,
-        );
-        note("at0473 sheet, empty", JSON.stringify(empty));
-        expect(empty.disabled).toBe(true);
-        expect(empty.title).toBe("Describe the work to start a dash");
-        // And it names where the prompt would land, before it lands there.
-        expect(empty.where).toContain("Asks the focused session, in ");
-
-        // A described idea arms it. The press itself is not driven: it would
-        // submit a real prompt into a real tugcode session and start a model
-        // turn against the network. What it *would* send is table-tested.
-        await app.type(IDEA, "make the cockpit list waiting plans");
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SUBMIT)})?.hasAttribute("disabled") === false`,
-          { timeoutMs: 10000 },
-        );
-        note("at0473 start sheet", (await app.screenshot()).path);
-        await app.click(`${SHEET} [data-slot="lens-start-dash-cancel"]`);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(SHEET)}) === null`,
-          { timeoutMs: 10000 },
-        );
 
         // ── Z2: the fourth cell reads DASH, in the box TASKS held ─────────
         // The TASKS reading first, so the geometry assertion has something
