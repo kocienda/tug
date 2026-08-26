@@ -34,7 +34,7 @@ A rotation is defined as much by what it cannot change as by what it carries. `R
 - The model. Absent means the account default, which sends *no* `model_change` frame at all rather than one carrying `"default"`.
 - The reasoning effort. Absent leaves the level as it is.
 - The opening prompt, and the stage label the transcript's divider renders.
-- The score this rotation belongs to (below), and the divider facts a score supplies: the document, the plan, the step range.
+- The course this rotation belongs to (below), and the divider facts a course supplies: the document, the plan, the step range.
 
 **Always dropped.**
 
@@ -52,30 +52,30 @@ The edge it waits for is the idle transition tugcast already computes once, in t
 
 A caller who is genuinely not in a turn is asking about the next one, and the receipt says so. Nothing is lost — a request is a promise about a turn's end, and there is always a next turn.
 
-## Scores, and how a card is handed back
+## Courses, and how a card is handed back
 
-A **score** is what drives a series of rotations. Today there is one: a dash arc, whose score name is the dash, which reaches tugcode as the stage object's `arc` field and the child process's `TUG_DASH_ARC`.
+A **course** is what drives a series of rotations. Today there is one: a dash arc, whose course name is the dash, which reaches tugcode as the stage object's `arc` field and the child process's `TUG_DASH_ARC`.
 
 **A client may name the model for the stage it asks for.** That is not switching the user's model, and the older guardrail saying never to is retired by this layer: a rotation names the model for *its* stage, and the card returns to the user's own when the stage is over. What the hand-back guarantees is what makes the naming safe.
 
-A score ends by handing the card back — one `model_change` frame carrying `deck_model`, so the card the user resumes typing into is on the user's own model. Without it a rotation's model change is permanent: tugcode records the selector on its manager and every later spawn reuses it, including through the user's own `/new`.
+A course ends by handing the card back — one `model_change` frame carrying `deck_model`, so the card the user resumes typing into is on the user's own model. Without it a rotation's model change is permanent: tugcode records the selector on its manager and every later spawn reuses it, including through the user's own `/new`.
 
-**A rotation with no score is a one-stage score, and ends the same way.** It names a model, so it changed one, and no score's ending will ever restore it. The wheel arms a hand-back at the moment it performs such a rotation and fires it on that session's next turn-end tick. One turn is the right window because one turn is what the client asks for: a hand-off of a single review turn ends when that review's turn ends. A rotation naming no model arms nothing — it changed nothing, so there is nothing to restore.
+**A rotation with no course is a one-stage course, and ends the same way.** It names a model, so it changed one, and no course's ending will ever restore it. The wheel arms a hand-back at the moment it performs such a rotation and fires it on that session's next turn-end tick. One turn is the right window because one turn is what the client asks for: a hand-off of a single review turn ends when that review's turn ends. A rotation naming no model arms nothing — it changed nothing, so there is nothing to restore.
 
-**One score per card.** A rotation requested for a card already running a live score is refused by name — `arc running` — rather than queued. Two schedulers driving one card can interleave, and refusing is the one behavior that cannot. A second rotation request on a card that already has one *pending* replaces it, which is the natural reading of a caller changing its mind mid-turn, and the receipt says it replaced one.
+**One course per card.** A rotation requested for a card already running a live course is refused by name — `arc running` — rather than queued. Two schedulers driving one card can interleave, and refusing is the one behavior that cannot. A second rotation request on a card that already has one *pending* replaces it, which is the natural reading of a caller changing its mind mid-turn, and the receipt says it replaced one.
 
 **A pending rotation does not survive a tugcast restart, and should not.** It is a promise about the end of a turn that is in flight right now; a restart ends that turn by killing the claude running it, so a request that survived would fire into a session that never finished the work it was scheduled behind.
 
-**A pending rotation is withdrawable.** `--cancel` clears it and says whether there was one; cancelling with nothing pending is a state, not an error. Withdrawing leaves nothing behind, which is the correct amount of ceremony for a promise about the next few seconds — unlike a score's stop, which is a durable record with a resume path because a score is a document-driven schedule.
+**A pending rotation is withdrawable.** `--cancel` clears it and says whether there was one; cancelling with nothing pending is a state, not an error. Withdrawing leaves nothing behind, which is the correct amount of ceremony for a promise about the next few seconds — unlike a course's stop, which is a durable record with a resume path because a course is a document-driven schedule.
 
-## A score hands over a part, not a title
+## A course hands over a part, not a title
 
 A stage opens on a prompt, and every character of that prompt is composed from documents. Four clauses, each omitted when its fact is absent:
 
 1. **The ask** — the slash command the stage's skill answers to, naming the document it is about.
 2. **Where to start** — the repo-relative paths the document's own findings cite, extracted mechanically from its backticked tokens and kept only where they resolve to a file that exists.
 3. **What moved** — what git says has changed in those paths since the document was last written.
-4. **Where the score is** — for a score that stopped and is resuming, which stage it stopped in and why.
+4. **Where the course is** — for a course that stopped and is resuming, which stage it stopped in and why.
 
 Nothing here is a sentence a model wrote about the work. A summary would be a claim nobody could check, and it would drift from the documents the moment they changed. A document citing nothing, in a repo git has never seen, produces exactly the bare ask — which is what makes the composition a safe replacement for one.
 
@@ -83,13 +83,13 @@ Nothing here is a sentence a model wrote about the work. A summary would be a cl
 
 A rotation's transcript is an invariant, and an invariant that only held while the process lived would not be one. So what a rotation seated a session as is written on the session's own row — `stage_label` and `stage_model` in `sessions.db`, beside the fork edge, from the same announcement and at the same moment.
 
-The restore reads the row. It consults a score's record only for the two facts that are genuinely the score's — the arc name and the document it opened on — and only where a score seated that entry. That is why a card rotated with nothing driving it replays as one scroll: there is no arc record to consult, and none is needed.
+The restore reads the row. It consults a course's record only for the two facts that are genuinely the course's — the arc name and the document it opened on — and only where a course seated that entry. That is why a card rotated with nothing driving it replays as one scroll: there is no arc record to consult, and none is needed.
 
 ## The three faces
 
 | Face | Where | What it is for |
 |---|---|---|
-| The op | `POST /api/session`, `op: "rotate" \| "rotate_cancel"` | Loopback only, like every tugcast API. Parks the request; refuses a card already running a score; answers an unknown session as a 404 whose body the CLI's port loop reads as "not this instance". |
+| The op | `POST /api/session`, `op: "rotate" \| "rotate_cancel"` | Loopback only, like every tugcast API. Parks the request; refuses a card already running a course; answers an unknown session as a 404 whose body the CLI's port loop reads as "not this instance". |
 | The verb | `tugutil session rotate` | What a model in a turn reaches for. `--prompt` is required; `--stage` defaults to `rotate`; `--cancel` withdraws. Prints a `TUG-ROTATION-RECEIPT:` line naming the stage, the model, when it will happen, and whether the card hands back; every refusal exits 1 with its reason on stderr. |
 | This document | `tuglaws/wheel.md` | The rules above. |
 
@@ -97,7 +97,7 @@ The verb is spelled `session rotate` because it is the session that rotates, and
 
 **The stage label is the role.** With `--model` omitted, a `--stage` of `devise`, `review`, or `implement` resolves the model the project declared for that stage under `[tugtool.dash]`; any other label means the account default, and `--model` always wins. There is no separate roles table, because a second table mapping roles to models would be the same fact written twice. The resolution happens in the verb rather than the server: the CLI is where the project root is known from cwd.
 
-**The score has no CLI flag yet, and that is deliberate.** `RotationRequest` carries a score and the arc runner fills it, but the verb exposes none. `TUG_DASH_ARC` is read by three skills as "a dash arc is driving you" and by the arc runner as a dash name it will look up — so letting a caller set it to an arbitrary string would make those skills believe an arc runs them and find no record behind the name. Generalizing it is a rename of the environment variable and a widening of what the stage skills read, with its own blast radius. The next score to need one adds the flag together with that widening.
+**The course has no CLI flag yet, and that is deliberate.** `RotationRequest` carries a course and the arc runner fills it, but the verb exposes none. `TUG_DASH_ARC` is read by three skills as "a dash arc is driving you" and by the arc runner as a dash name it will look up — so letting a caller set it to an arbitrary string would make those skills believe an arc runs them and find no record behind the name. Generalizing it is a rename of the environment variable and a widening of what the stage skills read, with its own blast radius. The next course to need one adds the flag together with that widening.
 
 ## One word that means something else
 

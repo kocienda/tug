@@ -49,7 +49,7 @@ pub mod prompt;
 ///   model to return to is `LedgerEntry::deck_model`, which only a WebSocket
 ///   client's own `model_change` ever writes.
 /// - **Parameters** — the model, the effort, the prompt, the stage label, the
-///   score, and the divider facts a score supplies. Those are the fields below.
+///   course, and the divider facts a course supplies. Those are the fields below.
 /// - **Always dropped** — the retiring claude's context. A rotation is a fresh
 ///   claude session by definition; carrying context across one is `/compact`'s
 ///   job, not the wheel's.
@@ -61,7 +61,7 @@ pub struct RotationRequest {
     /// The card's tug session id — the session that rotates.
     session: TugSessionId,
     /// The stage's opening prompt. Composed from documents, never a caller's
-    /// sentence, when the caller is a score.
+    /// sentence, when the caller is a course.
     prompt: String,
     /// The stage label — free text. `devise` / `review` / `implement` are the
     /// arc's three, and the divider renders whatever it is given.
@@ -73,10 +73,10 @@ pub struct RotationRequest {
     /// It rides the `session_command`, so tugcode applies it before the spawn
     /// rather than respawning behind one.
     effort: Option<String>,
-    /// The score driving this rotation — today a dash name, reaching tugcode
+    /// The course driving this rotation — today a dash name, reaching tugcode
     /// as `arc` and the child as `TUG_DASH_ARC`.
-    score: Option<String>,
-    /// The document the score opened on, repo-relative.
+    course: Option<String>,
+    /// The document the course opened on, repo-relative.
     document: Option<String>,
     /// The plan the stage drives, once one exists.
     plan: Option<String>,
@@ -99,7 +99,7 @@ impl RotationRequest {
             stage: stage.into(),
             model: None,
             effort: None,
-            score: None,
+            course: None,
             document: None,
             plan: None,
             steps: None,
@@ -118,13 +118,13 @@ impl RotationRequest {
         self
     }
 
-    /// The score this rotation belongs to — a dash name today.
-    pub fn score(mut self, score: Option<String>) -> Self {
-        self.score = score;
+    /// The course this rotation belongs to — a dash name today.
+    pub fn course(mut self, course: Option<String>) -> Self {
+        self.course = course;
         self
     }
 
-    /// The document the score opened on.
+    /// The document the course opened on.
     pub fn document(mut self, document: Option<String>) -> Self {
         self.document = document;
         self
@@ -171,7 +171,7 @@ pub enum Refusal {
     NoInputTx,
     /// The stdin channel closed under the send.
     SendFailed,
-    /// The card is already running a score, and a card runs at most one.
+    /// The card is already running a course, and a card runs at most one.
     /// Two schedulers driving one card can interleave, and refusing
     /// is the one behavior that cannot.
     ArcRunning,
@@ -224,9 +224,9 @@ pub struct WheelState {
     /// At most one rotation per tug session id. A second request replaces the
     /// first — the natural reading of a caller changing its mind mid-turn.
     pending: StdMutex<HashMap<String, RotationRequest>>,
-    /// Tug session ids owed a hand-back: a scoreless rotation onto a named
+    /// Tug session ids owed a hand-back: a courseless rotation onto a named
     /// model pins the card there permanently unless somebody restores the
-    /// deck's own selector, and no score's ending will.
+    /// deck's own selector, and no course's ending will.
     hand_backs: StdMutex<HashSet<String>>,
 }
 
@@ -260,13 +260,13 @@ impl WheelState {
     }
 }
 
-/// Whether the card `session_id` sits on is already running a score.
+/// Whether the card `session_id` sits on is already running a course.
 ///
 /// Read the same way the arc runner reads it: the session's dash binding names
 /// a project and a dash, and that dash's arc record is live unless it is `done`
-/// or `stopped`. No binding, no record, or a finished one all mean no score is
+/// or `stopped`. No binding, no record, or a finished one all mean no course is
 /// running, so a rotation is free to park.
-pub fn score_is_running(ledger: &crate::session_ledger::SessionLedger, session_id: &str) -> bool {
+pub fn course_is_running(ledger: &crate::session_ledger::SessionLedger, session_id: &str) -> bool {
     let Ok(Some(row)) = ledger.get(session_id) else {
         return false;
     };
@@ -314,10 +314,10 @@ pub async fn run_wheel(ctx: WheelContext, mut tick_rx: mpsc::Receiver<String>) {
 /// next edge.
 async fn on_tick(ctx: &WheelContext, session_id: &str) {
     if let Some(request) = ctx.state.take(session_id) {
-        // A scoreless rotation onto a named model is a one-stage score, so its
+        // A courseless rotation onto a named model is a one-stage course, so its
         // ending is scheduled here — nothing else will ever end it. A
         // rotation naming no model changed nothing and has nothing to restore.
-        let owes_hand_back = request.model.is_some() && request.score.is_none();
+        let owes_hand_back = request.model.is_some() && request.course.is_none();
         match rotate(&ctx.supervisor, &request).await {
             Ok(delivery) => {
                 if owes_hand_back {
@@ -380,8 +380,8 @@ pub fn frames_for(request: &RotationRequest) -> (Vec<Frame>, Frame) {
     if let Some(document) = request.document.as_deref() {
         stage["document"] = serde_json::Value::String(document.to_owned());
     }
-    if let Some(score) = request.score.as_deref() {
-        stage["arc"] = serde_json::Value::String(score.to_owned());
+    if let Some(course) = request.course.as_deref() {
+        stage["arc"] = serde_json::Value::String(course.to_owned());
     }
     if let Some(plan) = request.plan.as_deref() {
         stage["plan"] = serde_json::Value::String(plan.to_owned());
@@ -462,7 +462,7 @@ pub async fn rotate(
                     event = "wheel.stage_queued",
                     tug_session_id = %tug_session_id,
                     stage = %request.stage,
-                    arc = request.score.as_deref().unwrap_or(""),
+                    arc = request.course.as_deref().unwrap_or(""),
                 );
                 return Ok(Delivery::Queued);
             }
@@ -490,7 +490,7 @@ pub async fn rotate(
         event = "wheel.stage_sent",
         tug_session_id = %tug_session_id,
         stage = %request.stage,
-        arc = request.score.as_deref().unwrap_or(""),
+        arc = request.course.as_deref().unwrap_or(""),
     );
     Ok(Delivery::Sent)
 }
@@ -499,13 +499,13 @@ pub async fn rotate(
 ///
 /// Exactly one `model_change` frame, carrying the last selector a WebSocket
 /// client sent for this session, or `"default"` when it never sent one — which
-/// `handleModelChange` maps to "no `--model`". A score sends it when the score
+/// `handleModelChange` maps to "no `--model`". A course sends it when the course
 /// ends, **before** its receipt, so the card the user is handed back is already
 /// theirs.
 ///
 /// Without it a rotation's model change is permanent: tugcode records a
 /// selector on its manager and every later spawn reuses it, so a card whose
-/// score ended on the implement model would stay there — including through the
+/// course ended on the implement model would stay there — including through the
 /// user's own `/new`.
 pub async fn hand_back(
     supervisor: &AgentSupervisor,
@@ -591,11 +591,11 @@ mod tests {
     fn request(model: Option<&str>) -> RotationRequest {
         RotationRequest::new(
             TugSessionId::new("sess-stage-live"),
-            "/tugplug:plan-devise a plan for dash/some-brief.md",
+            "/tugplug:dash-devise a plan for dash/some-brief.md",
             "devise",
         )
         .document(Some("dash/some-brief.md".to_string()))
-        .score(Some("some-dash".to_string()))
+        .course(Some("some-dash".to_string()))
         .model(model.map(str::to_owned))
     }
 
@@ -635,7 +635,7 @@ mod tests {
     }
 
     /// The `String` → `Option` change in `document` and `arc` is the one shape
-    /// change the extraction forces. For a score's rotation both are always
+    /// change the extraction forces. For a course's rotation both are always
     /// present, so the emitted object must be byte-identical to what the arc
     /// sent before — asserted rather than assumed.
     #[test]
@@ -647,7 +647,7 @@ mod tests {
         )
         .document(Some("dash/some-brief.md".to_string()))
         .plan(Some("dash/some.md".to_string()))
-        .score(Some("some-dash".to_string()))
+        .course(Some("some-dash".to_string()))
         .steps(Some("4-9".to_string()));
         let (frames, _) = frames_for(&request);
         let stage = &body(&frames[0])["stage"];
@@ -701,7 +701,7 @@ mod tests {
         )
         .document(Some("dash/some-brief.md".to_string()))
         .plan(Some("dash/some.md".to_string()))
-        .score(Some("some-dash".to_string()))
+        .course(Some("some-dash".to_string()))
         .steps(Some("4-9".to_string()));
         rotate(&sup, &request).await.unwrap();
 
@@ -757,7 +757,7 @@ mod tests {
             "a stage with no plan yet names none"
         );
         assert_eq!(
-            command["stage"]["prompt"], "/tugplug:plan-devise a plan for dash/some-brief.md",
+            command["stage"]["prompt"], "/tugplug:dash-devise a plan for dash/some-brief.md",
             "the command carries the prompt for the deck's benefit"
         );
 
@@ -768,7 +768,7 @@ mod tests {
         assert_eq!(prompt["type"], "user_message");
         assert_eq!(
             prompt["content"][0]["text"],
-            "/tugplug:plan-devise a plan for dash/some-brief.md"
+            "/tugplug:dash-devise a plan for dash/some-brief.md"
         );
         assert!(prompt.get("text").is_none());
     }
@@ -805,7 +805,7 @@ mod tests {
     #[tokio::test]
     async fn a_rotation_with_nobody_to_receive_it_returns_its_refusal() {
         // [L31]: the caller must be able to stop with a reason. A silent drop
-        // here would leave a score waiting for a stage that is never going to
+        // here would leave a course waiting for a stage that is never going to
         // start.
         let (sup, _register_rx) = test_minimal_supervisor();
 
@@ -872,7 +872,7 @@ mod tests {
         assert_eq!(
             entry_arc.lock().await.deck_model.as_deref(),
             Some("opus"),
-            "the deck's selector is what the card goes back to when the score ends"
+            "the deck's selector is what the card goes back to when the course ends"
         );
 
         let (input_tx, mut input_rx) = mpsc::channel::<Frame>(8);
@@ -943,7 +943,7 @@ mod tests {
         }
     }
 
-    /// A scoreless rotation onto a named model is a one-stage score: nothing
+    /// A courseless rotation onto a named model is a one-stage course: nothing
     /// else will ever end it, so the wheel ends it itself, one turn later.
     #[tokio::test]
     async fn a_scoreless_rotation_onto_a_model_hands_the_card_back_one_turn_later() {
@@ -964,7 +964,7 @@ mod tests {
         };
 
         ctx.state.park(
-            RotationRequest::new(tug_id.clone(), "/tugplug:plan-review dash/x.md", "review")
+            RotationRequest::new(tug_id.clone(), "/tugplug:dash-review dash/x.md", "review")
                 .model(Some("opus".to_string())),
         );
         on_tick(&ctx, "sess-handback").await;
@@ -983,10 +983,10 @@ mod tests {
         assert!(input_rx.try_recv().is_err());
     }
 
-    /// A rotation that changed no model has nothing to restore, and a scored
-    /// one is ended by its score.
+    /// A rotation that changed no model has nothing to restore, and one on a
+    /// course is ended by that course.
     #[tokio::test]
-    async fn a_rotation_with_no_model_and_a_scored_one_arm_no_hand_back() {
+    async fn a_rotation_with_no_model_and_one_on_a_course_arm_no_hand_back() {
         let (sup, _register_rx) = test_minimal_supervisor();
         let ctx = WheelContext {
             supervisor: Arc::clone(&sup),
@@ -1000,10 +1000,10 @@ mod tests {
                 RotationRequest::new(TugSessionId::new("sess-nomodel"), "hi", "review"),
             ),
             (
-                "sess-scored",
-                RotationRequest::new(TugSessionId::new("sess-scored"), "hi", "review")
+                "sess-on-course",
+                RotationRequest::new(TugSessionId::new("sess-on-course"), "hi", "review")
                     .model(Some("opus".to_string()))
-                    .score(Some("some-dash".to_string())),
+                    .course(Some("some-dash".to_string())),
             ),
         ] {
             let tug_id = TugSessionId::new(name);
@@ -1099,10 +1099,10 @@ mod tests {
         assert_eq!(entry_arc.lock().await.queue.len(), 0);
     }
 
-    /// A card runs at most one score. The check reads the session's
+    /// A card runs at most one course. The check reads the session's
     /// dash binding and that dash's arc record, exactly as the arc runner does.
     #[test]
-    fn a_card_running_a_live_arc_is_scored_and_a_finished_one_is_not() {
+    fn a_card_running_a_live_arc_is_on_a_course_and_a_finished_one_is_not() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
@@ -1115,7 +1115,7 @@ mod tests {
         let ledger = crate::session_ledger::SessionLedger::open_in_memory().unwrap();
         ledger
             .record_spawn(
-                "claude-scored",
+                "claude-on-course",
                 "ws-test",
                 &root.to_string_lossy(),
                 "card-1",
@@ -1125,25 +1125,25 @@ mod tests {
             .unwrap();
 
         // No binding at all: nothing is driving this card.
-        assert!(!score_is_running(&ledger, "claude-scored"));
+        assert!(!course_is_running(&ledger, "claude-on-course"));
 
         ledger
-            .set_dash_binding("claude-scored", Some(("tugdash/demo#1", "demo")))
+            .set_dash_binding("claude-on-course", Some(("tugdash/demo#1", "demo")))
             .unwrap();
-        // Bound, but no arc record — a dash is not a score.
-        assert!(!score_is_running(&ledger, "claude-scored"));
+        // Bound, but no arc record — a dash is not a course.
+        assert!(!course_is_running(&ledger, "claude-on-course"));
 
         tugdash_core::arc::append_arc_start(root, "demo", "dash/demo-brief.md").unwrap();
-        assert!(score_is_running(&ledger, "claude-scored"));
+        assert!(course_is_running(&ledger, "claude-on-course"));
 
         tugdash_core::arc::append_arc_done(root, "demo").unwrap();
         assert!(
-            !score_is_running(&ledger, "claude-scored"),
-            "a finished arc is not a score running"
+            !course_is_running(&ledger, "claude-on-course"),
+            "a finished arc is not a course running"
         );
 
-        // A session nobody knows about is not scored either.
-        assert!(!score_is_running(&ledger, "claude-unknown"));
+        // A session nobody knows about is on no course either.
+        assert!(!course_is_running(&ledger, "claude-unknown"));
     }
 
     /// A card that never had a selector goes back to `"default"`, which

@@ -166,9 +166,9 @@ describe("a stage rotation announces lineage", () => {
 
   test("the stage line echoes the opening prompt the command carried", async () => {
     const m = manager();
-    await rotate(m, "new", { ...STAGE, prompt: "/tugplug:plan-devise dash/some-brief.md" });
+    await rotate(m, "new", { ...STAGE, prompt: "/tugplug:dash-devise dash/some-brief.md" });
     expect(emitted.find((e) => e?.type === "session_stage").prompt).toBe(
-      "/tugplug:plan-devise dash/some-brief.md",
+      "/tugplug:dash-devise dash/some-brief.md",
     );
 
     emitted = [];
@@ -196,7 +196,7 @@ describe("a stage rotation announces lineage", () => {
   });
 });
 
-describe("a rotation with no score behind it", () => {
+describe("a rotation with no course behind it", () => {
   test("the stage line carries the label and omits what the rotation never named", async () => {
     const m = manager();
     m.handleModelChange("opus");
@@ -213,17 +213,17 @@ describe("a rotation with no score behind it", () => {
     expect(types.indexOf("session_stage")).toBeLessThan(types.indexOf("session_init"));
   });
 
-  test("its spawn carries no TUG_DASH_ARC, and a scored one does", async () => {
+  test("its spawn carries no TUG_DASH_ARC, and one on a course does", async () => {
     // Absence is what clears it: the stage skills read `TUG_DASH_ARC` as "a
-    // score is driving you", and a rotation nobody is scoring must not make
+    // course is driving you", and a rotation nobody is scoring must not make
     // them believe one is.
-    const scoreless = manager();
-    await rotate(scoreless, "new", { name: "review" });
+    const courseless = manager();
+    await rotate(courseless, "new", { name: "review" });
     expect(spawnEnvs.at(-1)).not.toHaveProperty("TUG_DASH_ARC");
-    expect(scoreless.currentArc).toBeNull();
+    expect(courseless.currentArc).toBeNull();
 
-    const scored = manager();
-    await rotate(scored, "new", STAGE);
+    const onCourse = manager();
+    await rotate(onCourse, "new", STAGE);
     expect(spawnEnvs.at(-1)?.TUG_DASH_ARC).toBe("some-dash");
   });
 
@@ -280,7 +280,7 @@ describe("a prompt dispatched behind the rotation", () => {
     const rotation: Promise<void> = m.handleSessionCommand("new", STAGE);
     const prompt: Promise<void> = m.handleUserMessage({
       type: "user_message",
-      content: [{ type: "text", text: "/tugplug:plan-devise dash/some-brief.md" }],
+      content: [{ type: "text", text: "/tugplug:dash-devise dash/some-brief.md" }],
     });
     await rotation;
     // The prompt's handler then waits on a turn no fake claude will end;
@@ -291,7 +291,7 @@ describe("a prompt dispatched behind the rotation", () => {
     const fresh = m.claudeProcess;
     expect(fresh.pid).not.toBe(retiring.pid);
     expect(written.map((w) => w.pid)).toEqual([fresh.pid]);
-    expect(written[0]?.text).toContain("/tugplug:plan-devise");
+    expect(written[0]?.text).toContain("/tugplug:dash-devise");
     expect(emitted.some((e) => e?.type === "error")).toBe(false);
   });
 });

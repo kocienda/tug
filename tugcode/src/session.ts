@@ -8184,7 +8184,7 @@ export class SessionManager {
     const parentSessionId = this.resolveClaudeId();
     await this.killAndCleanup();
 
-    // Absent is what *clears* it: `TUG_DASH_ARC` belongs to a score, not to a
+    // Absent is what *clears* it: `TUG_DASH_ARC` belongs to a course, not to a
     // card, so a rotation naming none spawns claude without it.
     this.currentArc = stage?.arc ?? null;
 

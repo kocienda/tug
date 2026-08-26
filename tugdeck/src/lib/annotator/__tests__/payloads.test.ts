@@ -343,10 +343,10 @@ describe("classifyInlineCode — a bare plugin-skill name is a chip", () => {
 
   test("the qualified form a skill may still print is a chip too", () => {
     expect(
-      classifyInlineCode("/tugplug:plan-review plan.md", gate("tugplug:plan-review"), noPaths),
+      classifyInlineCode("/tugplug:dash-review plan.md", gate("tugplug:dash-review"), noPaths),
     ).toEqual({
       kind: "slash-command",
-      name: "tugplug:plan-review",
+      name: "tugplug:dash-review",
       args: "plan.md",
     });
   });

@@ -480,11 +480,11 @@ fn lints_as_plan(source: &str) -> bool {
     }
 }
 
-/// The stage's opening prompt: the score's ask, plus what the documents say
+/// The stage's opening prompt: the course's ask, plus what the documents say
 /// about where to start and what has moved.
 ///
 /// The facts were gathered in `read`'s blocking pass; the wording is the
-/// wheel's, so every score composes the same way. Nothing here is a word a
+/// wheel's, so every course composes the same way. Nothing here is a word a
 /// model wrote.
 fn opening_prompt(reading: &ArcReading, rotation: &Rotation) -> Option<String> {
     let steps = rotation
@@ -573,7 +573,7 @@ async fn rotate(
     let request = RotationRequest::new(arc.session.clone(), prompt, rotation.stage.as_str())
         .document(Some(document))
         .plan(plan_for_stage)
-        .score(Some(arc.dash.clone()))
+        .course(Some(arc.dash.clone()))
         .model(stage_model(&reading.config, rotation.stage))
         .steps(
             rotation
@@ -676,7 +676,7 @@ fn format_arc_stop_receipt(record: &ArcRecord, stage: ArcStage, reason: ArcStopR
 /// A closing card is not a caller at all. It has no card left to paint a
 /// receipt on and no hand-back to give (`wheel::hand_back` refuses a
 /// `Closed` entry by design), so all it does is write its record — see
-/// `dash_api::stop_a_scored_cards_arc_as_closed`.
+/// `dash_api::stop_an_on_course_cards_arc_as_closed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StopDelivery {
     pub hand_back: HandBack,
@@ -1059,7 +1059,7 @@ Some context.
         };
         assert_eq!(
             opening_prompt(&reading, &review).as_deref(),
-            Some("/tugplug:plan-review demo")
+            Some("/tugplug:dash-review demo")
         );
         assert_eq!(
             arc_action(&reading.record, &reading.facts),
@@ -1133,7 +1133,7 @@ Some context.
         .unwrap();
         assert_eq!(
             prompt,
-            "/tugplug:plan-devise a plan for .tug/dashes/demo/brief.md, honoring every [B##] decision it records 🢂 demo"
+            "/tugplug:dash-devise a plan for .tug/dashes/demo/brief.md, honoring every [B##] decision it records 🢂 demo"
         );
     }
 
@@ -1143,7 +1143,7 @@ Some context.
     fn review_and_implement_asks_name_the_dash() {
         assert_eq!(
             wheel::prompt::stage_ask("review", None, "foo", None).as_deref(),
-            Some("/tugplug:plan-review foo")
+            Some("/tugplug:dash-review foo")
         );
         assert_eq!(
             wheel::prompt::stage_ask("implement", None, "foo", Some("2-4")).as_deref(),
@@ -1256,7 +1256,7 @@ Some context.
             },
         )
         .unwrap();
-        assert!(prompt.starts_with("/tugplug:plan-devise a plan for .tug/dashes/demo/brief.md"));
+        assert!(prompt.starts_with("/tugplug:dash-devise a plan for .tug/dashes/demo/brief.md"));
         assert!(prompt.contains("start there: src/a.rs, src/b.ts"));
         assert!(
             !prompt.contains("src/gone.rs"),

@@ -36,7 +36,7 @@ export const DEFAULT_MODEL_SELECTOR = "default";
 /**
  * tugbank domain for the plan each card last reviewed, keyed by card id.
  *
- * Bare `/plan-review` resolves through this first: the gesture's moment is a
+ * Bare `/dash-review` resolves through this first: the gesture's moment is a
  * plan just devised and edited, when the card is usually *not* bound to a dash
  * yet — and when it is, it is frequently bound to a dash implementing a
  * different plan. Card-keyed, so it joins the startup orphan sweep.
@@ -44,4 +44,4 @@ export const DEFAULT_MODEL_SELECTOR = "default";
  * A path, and only a path. There is no companion domain holding a review model:
  * a review runs on whatever the user has selected, and choosing it is their act.
  */
-export const PLAN_REVIEW_LAST_DOMAIN = "dev.plan-review-last";
+export const PLAN_REVIEW_LAST_DOMAIN = "dev.dash-review-last";

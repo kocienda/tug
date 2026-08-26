@@ -2,7 +2,7 @@
  * `SessionChangesDashJoin` — the fold's **report**: the join's evidence.
  *
  * The fronted row's fold opens on three labeled sections — report, rounds,
- * draft — and this is the first. It carries everything the join arc has to
+ * draft — and this is the first. It carries everything the join has to
  * show for itself, and **no act at all** ([P08]): blocked names each
  * blocker's server-written detail beside the act that would clear it;
  * conflicted names the paths; resolved shows what the ladder decided. Every

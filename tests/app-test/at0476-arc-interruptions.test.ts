@@ -272,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         await openCard(app);
 
         // One line again, and for the same reason: the refusal is about a
-        // card running a **live** score, and a tick between the two verbs
+        // card running a **live** course, and a tick between the two verbs
         // would seat a stage or stop the arc, either of which changes the
         // question being asked.
         await shellAndSettle(

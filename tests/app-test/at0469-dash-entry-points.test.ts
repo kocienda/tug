@@ -245,7 +245,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on a dash from a surface that shows
         // says so before the press rather than after.
         expect(affordance.idle).toBeNull();
 
-        // The shade is closed to begin with: no join arc stands on these
+        // The shade is closed to begin with: no join stands on these
         // dashes, so nothing has revealed itself.
         expect(
           await app.evalJS<boolean>(

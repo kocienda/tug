@@ -1,5 +1,5 @@
 ---
-name: plan-review
+name: dash-review
 description: Review a plan and fix what it finds — run the linter, apply the review rubric against the real code, edit the plan in place, and append a Review Record. Replaces the read-only vet pass.
 argument-hint: "[plan-path]"
 disable-model-invocation: true
@@ -9,9 +9,9 @@ disallowed-tools: Task, Write
 
 ## What this is
 
-`plan-review` is the **pre-implementation** pass: read a plan, judge it against the real code, and **fix what you find**. It is not a report. The old `vet` skill was read-only by construction, so the only thing it could do with a finding was hand it back — and the answer was invariably "do the fixups". This does the fixups.
+`dash-review` is the **pre-implementation** pass: read a plan, judge it against the real code, and **fix what you find**. It is not a report. The old `vet` skill was read-only by construction, so the only thing it could do with a finding was hand it back — and the answer was invariably "do the fixups". This does the fixups.
 
-The card runs this automatically after `/tugplug:plan-devise`, on the review model, as a visible turn — under an arc and off one alike, because `plan-devise` ends by asking the wheel to seat this stage rather than by handing the user a chip. You can also invoke it by hand on any plan: one devised before this existed, one edited since, one written by hand.
+The card runs this automatically after `/tugplug:dash-devise`, on the review model, as a visible turn — under an arc and off one alike, because `dash-devise` ends by asking the wheel to seat this stage rather than by handing the user a chip. You can also invoke it by hand on any plan: one devised before this existed, one edited since, one written by hand.
 
 **You are the reviewer, in-thread.** Do not spawn sub-agents (`Task`).
 
@@ -19,7 +19,7 @@ The card runs this automatically after `/tugplug:plan-devise`, on the review mod
 
 ## Input
 
-`/tugplug:plan-review <name-or-path>` — a **dash name** or an explicit path, and the argument's shape decides which: anything carrying a separator, starting with `.`, or ending in `.md` is a path; anything else is a dash, and resolves to its own `plan.md`. Every `tugutil plan` verb takes the argument verbatim, so pass it through rather than resolving it yourself. There is no default and no search: a name is an exact address, not a guess.
+`/tugplug:dash-review <name-or-path>` — a **dash name** or an explicit path, and the argument's shape decides which: anything carrying a separator, starting with `.`, or ending in `.md` is a path; anything else is a dash, and resolves to its own `plan.md`. Every `tugutil plan` verb takes the argument verbatim, so pass it through rather than resolving it yourself. There is no default and no search: a name is an exact address, not a guess.
 
 ## The pass
 
@@ -30,7 +30,7 @@ tugutil plan status <name-or-path> --json
 tugutil plan lint <name-or-path>
 ```
 
-`status` tells you what kind of round this is before you read a line. `rounds: 0` (or `review: "never-reviewed"` with no stamped round) is a first pass — review the whole document. Anything else is a **re-review**, and re-review has its own rules, held in [`tuglaws/plan-review-rubric.md`](../../../tuglaws/plan-review-rubric.md#re-review-what-a-second-round-may-touch): *edits are decisions* and *done rows are frozen*. Read that section before touching a plan that has been reviewed before; do not restate it here. When the rubric is absent, those two rules — *edits are decisions*, *`done` rows are frozen* — are the whole of re-review discipline; hold them as stated and say so.
+`status` tells you what kind of round this is before you read a line. `rounds: 0` (or `review: "never-reviewed"` with no stamped round) is a first pass — review the whole document. Anything else is a **re-review**, and re-review has its own rules, held in [`tuglaws/dash-review-rubric.md`](../../../tuglaws/dash-review-rubric.md#re-review-what-a-second-round-may-touch): *edits are decisions* and *done rows are frozen*. Read that section before touching a plan that has been reviewed before; do not restate it here. When the rubric is absent, those two rules — *edits are decisions*, *`done` rows are frozen* — are the whole of re-review discipline; hold them as stated and say so.
 
 **Orient on what moved.** On a second or later round, read the git diff since the previous round when the plan is tracked and dirty; otherwise read the Review Record and orient on that. Name which one you used in the round's `Oriented on:` line — it tells the next reader how much of the document this round actually looked at.
 
@@ -50,7 +50,7 @@ This is the step that makes the review worth its cost. A finding you could have 
 
 ### 3. Apply the rubric
 
-Read [`tuglaws/plan-review-rubric.md`](../../../tuglaws/plan-review-rubric.md) and work down it: plan quality and coherence, technical choices, strategy and sequencing, holes and pitfalls, test-plan sanity, the tuglaws cross-check (name the specific laws; for tugdeck work verify the State Zone Mapping), the does-this-leave-the-architecture-better test, and the cold-reader test.
+Read [`tuglaws/dash-review-rubric.md`](../../../tuglaws/dash-review-rubric.md) and work down it: plan quality and coherence, technical choices, strategy and sequencing, holes and pitfalls, test-plan sanity, the tuglaws cross-check (name the specific laws; for tugdeck work verify the State Zone Mapping), the does-this-leave-the-architecture-better test, and the cold-reader test.
 
 If the rubric is absent — a project without `tuglaws/` — proceed on the criteria above and **say so** in the Review Record. A missing rubric degrades the review; it does not cancel it.
 

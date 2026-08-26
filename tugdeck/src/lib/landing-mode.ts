@@ -149,7 +149,7 @@ export interface LandingSnapshot {
   /** Draft error detail to surface, or null. */
   draftError: string | null;
   /**
-   * What the join arc is doing, for the composer's status row — or null when
+   * What the join is doing, for the composer's status row — or null when
    * this landing has no arc to report ([P04]).
    *
    * Derived by the mode rather than by the composer, which is what keeps the

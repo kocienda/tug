@@ -7,9 +7,8 @@
  * the role axis (`--tugx-focus-ring` / `--tugx-focus-tint` / `--tugx-focus-fill`,
  * default `action`). The global rules below own the LEAF ring, the cursor-item
  * ring, and the within-mark; per-component CSS adds the behind-tint and native
- * fill and overrides groups to a tint. See `dash/archive/tugplan-focus-language.md`
- * (the `tuglaws/` doc lands with that plan's governance step). The historical
- * prose below still describes the engine attributes correctly.
+ * fill and overrides groups to a tint. The historical prose below still
+ * describes the engine attributes correctly.
  *
  * One ring, on the keyboard-active control — the control the keyboard is
  * currently driving. It replaces the old scatter of per-component `:focus` /

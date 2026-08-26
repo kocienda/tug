@@ -57,7 +57,7 @@ export interface DashSessionFact {
    * The whole wire entry this fact was projected from.
    *
    * Carried so a surface wanting the *detail* — the divergence facts, the
-   * base, the join arc — reads the same object the row surfaces read rather
+   * base, the join — reads the same object the row surfaces read rather
    * than a second projection that could disagree with this one. Reference
    * identity comes from the snapshot, so exposing it costs no stability: a
    * beat that does not move this dash hands back the same entry.

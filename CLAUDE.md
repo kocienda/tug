@@ -10,7 +10,7 @@ Tugtool is a developer tool suite. Its centerpiece is the **Session card** — a
 
 **Exceptions:**
 - Autonomous implementation: when the user explicitly authorizes autonomous sub-step execution (e.g., "go on your own"), commit after each sub-step using the `/tugplug:draft` skill's message style. Report each commit hash and message.
-- The `dash-implement` and `dash-on` skills commit on their **dash worktree** (never on `main`) via `tugutil dash commit`, as part of running a recipe / dash. `main` is only updated by the user's landing gestures.
+- The `dash-implement` and `poke` skills commit on their **dash worktree** (never on `main`) via `tugutil dash commit`, as part of running a recipe / dash. `main` is only updated by the user's landing gestures.
 
 The `/tugplug:draft` skill **never commits** — it authors the session's landing draft via `tugutil draft set`. Landing is the user's act: `/commit` (main lane) and `/dash-join <name>` (dash lane) in the Session card are the landing gestures — `/join` is a retired spelling of the latter, kept as an alias so a typed `/join` still reaches the verb rather than being submitted as a prompt.
 
@@ -23,7 +23,7 @@ The `/tugplug:draft` skill **never commits** — it authors the session's landin
 | `tugcode/` | Claude Code bridge (stream-json IPC); bun-compiled binary |
 | `tugdeck/` | Web frontend (the Session card lives here) |
 | `tugapp/` | Swift macOS app (Tug.app host) |
-| `tugplug/` | Claude Code plugin (agentless skills: dash/plan-devise/plan-review/dash-implement/dash-on/dash-audit/draft). A dash's brief and plan live at `.tug/dashes/<name>/` and are never tracked. |
+| `tugplug/` | Claude Code plugin (agentless skills: dash/dash-devise/dash-review/dash-implement/poke/draft/spike-card). A dash's brief and plan live at `.tug/dashes/<name>/` and are never tracked. |
 | `tuglaws/` | Architecture laws + design decisions — the curated durable doc surface |
 | `tests/` | App-test harness that drives the real Tug.app |
 

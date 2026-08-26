@@ -359,7 +359,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: the dash cockpit lists waiting plans", () 
 
         expect(unread.review).toBe("never-reviewed");
         expect(unread.label).toBe("Review");
-        expect(unread.prompt).toBe(`/tugplug:plan-review ${FRESH}`);
+        expect(unread.prompt).toBe(`/tugplug:dash-review ${FRESH}`);
         expect(unread.facts).toBe("plan · never-reviewed · 2 steps");
         expect(unread.disabled).toBe(false);
 

@@ -1,5 +1,5 @@
 /**
- * dash-join-register — what the join arc says, in one sentence, everywhere.
+ * dash-join-register — what the join says, in one sentence, everywhere.
  *
  * A dash on its way to landing passes through reconciling, ready, question,
  * joining, blocked. Three surfaces show that: the Lens Dashes
@@ -27,7 +27,7 @@
 import type { ToolCallPhase } from "@/lib/code-session-store/tool-call-phase-visual";
 import type { DashJoinStateWire } from "@/lib/changeset-types";
 
-/** What one dash's join arc reads as right now. */
+/** What one dash's join reads as right now. */
 export interface DashJoinRegister {
   /** The lifecycle dot's phase — pulsing, settled, or quiet. */
   phase: ToolCallPhase;
@@ -135,7 +135,7 @@ export const BEAT_WORDS: Record<string, string> = {
  * 6. **running** — the pilot's reconcile or check, from the feed's own `run`
  *    fact or the client's overlay.
  * 7. **verdict** — red, then green.
- * 8. **nothing** — a dash still being worked has no join arc yet, and `null`
+ * 8. **nothing** — a dash still being worked has no join yet, and `null`
  *    is how that is said. A register with nothing to report does not mount.
  */
 export function dashJoinRegister(

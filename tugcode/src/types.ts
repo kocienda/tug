@@ -479,18 +479,18 @@ export interface SessionStage {
   newSessionId: string;
   /**
    * The stage label. `devise` / `review` / `implement` are the arc's three;
-   * any other word is a rotation no score is driving.
+   * any other word is a rotation no course is driving.
    */
   stage: string;
   /** The model selector the rotation set, or empty for the account default. */
   model: string;
   /**
-   * The document the score opened on, repo-relative. Absent on a scoreless
+   * The document the course opened on, repo-relative. Absent on a courseless
    * rotation. The bridge's parser requires only `parentSessionId`,
    * `newSessionId`, and `stage`; every other field is optional there.
    */
   document?: string;
-  /** The dash name the score is keyed by. Absent on a scoreless rotation. */
+  /** The dash name the course is keyed by. Absent on a courseless rotation. */
   arc?: string;
   /**
    * The stage's opening prompt, echoed from the command so the deck opens the

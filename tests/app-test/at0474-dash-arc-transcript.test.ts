@@ -50,11 +50,11 @@ const DIVIDER = '[data-slot="stage-divider"]';
 const USER_ROW = '[data-testid="session-card-transcript-user-body"]';
 const WHEEL_ROW = '.tug-transcript-entry[data-participant="wheel"]';
 const STAGE_PROMPT =
-  "/tugplug:plan-devise a plan for .tug/dashes/foo/brief.md";
+  "/tugplug:dash-devise a plan for .tug/dashes/foo/brief.md";
 /** What the transcript paints as prose once the command becomes a chip. */
 const STAGE_PROMPT_ARGS = "a plan for .tug/dashes/foo/brief.md";
 // Every stage after devise names the dash, never a path.
-const REVIEW_PROMPT = "/tugplug:plan-review foo";
+const REVIEW_PROMPT = "/tugplug:dash-review foo";
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
 const PROMPT = "write the brief";
@@ -182,7 +182,7 @@ describe.skipIf(!SHOULD_RUN)(
               `${WHEEL_ROW} [data-atom-label]`,
             )})||{ getAttribute: () => "" }).getAttribute("data-atom-label")`,
           );
-          expect(chipLabel).toBe("tugplug:plan-devise");
+          expect(chipLabel).toBe("tugplug:dash-devise");
           expect(wheelRow).toContain(STAGE_PROMPT_ARGS);
           expect(wheelRow).toContain("Wheel");
           expect(wheelRow).not.toContain("You");
@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)(
     );
 
     test(
-      "a rotation with no score behind it draws its divider and leaves the transcript alone",
+      "a rotation with no course behind it draws its divider and leaves the transcript alone",
       async () => {
         // The wheel's primitive is not the arc's. A rotation nobody is
         // scoring carries no `arc` and no `document`, and the boundary must
@@ -294,7 +294,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(label).toContain("review");
           expect(label).toContain("opus");
-          // No score opened it on anything, so the divider names nothing it
+          // No course opened it on anything, so the divider names nothing it
           // was not given: the text ends at the model, with no trailing
           // separator and no blank where a document would be.
           expect(label.trim().endsWith("review · opus")).toBe(true);

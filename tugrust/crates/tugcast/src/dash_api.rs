@@ -124,7 +124,7 @@ pub(crate) fn bind(
             project_dir.display()
         ));
     }
-    // **A card runs at most one score.** A bind that displaced a live one left
+    // **A card runs at most one course.** A bind that displaced a live one left
     // the first arc's record reading live forever with no stop and no receipt:
     // the sweep is live-bindings-only, so the displaced arc simply dropped out
     // of it. That interruption has no honest row in any table, so it is
@@ -132,10 +132,10 @@ pub(crate) fn bind(
     //
     // The check reads the session's *current* binding, which is exactly the
     // arc about to be displaced — the one this refusal protects. It cannot
-    // fire on the arc's own binds: `score_is_running` is false with no
+    // fire on the arc's own binds: `course_is_running` is false with no
     // binding, no arc record, or a `done`/`stopped` one, and a bind naming the
     // dash already running is the resume path, which is a no-op here.
-    if crate::wheel::score_is_running(ledger, tug_session_id)
+    if crate::wheel::course_is_running(ledger, tug_session_id)
         && row.dash_name.as_deref() != Some(dash)
     {
         let running = row.dash_name.as_deref().unwrap_or("a dash");
@@ -165,10 +165,10 @@ pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> DashApiOut
     if ledger.get(tug_session_id).ok().flatten().is_none() {
         return DashApiOutcome::UnknownSession;
     }
-    // Unbinding a scored card is the same act a close is, with the same
+    // Unbinding a card on a course is the same act a close is, with the same
     // reason: the arc leaves the sweep either way, and an arc that left with
     // no record says `review` forever while nothing is running.
-    stop_a_scored_cards_arc_as_closed(ledger, tug_session_id);
+    stop_an_on_course_cards_arc_as_closed(ledger, tug_session_id);
     match ledger.set_dash_binding(tug_session_id, None) {
         Ok(_) => DashApiOutcome::Unbound,
         Err(e) => DashApiOutcome::Error(e.to_string()),
@@ -192,7 +192,7 @@ pub(crate) fn unbind(ledger: &SessionLedger, tug_session_id: &str) -> DashApiOut
 ///
 /// Called **before** the binding is released, since the binding is what names
 /// the dash.
-pub(crate) fn stop_a_scored_cards_arc_as_closed(ledger: &SessionLedger, session_id: &str) {
+pub(crate) fn stop_an_on_course_cards_arc_as_closed(ledger: &SessionLedger, session_id: &str) {
     let Ok(Some(row)) = ledger.get(session_id) else {
         return;
     };
@@ -221,7 +221,7 @@ pub(crate) fn stop_a_scored_cards_arc_as_closed(ledger: &SessionLedger, session_
         tracing::warn!(
             dash = %dash,
             error = %e,
-            "could not record that a scored card closed",
+            "could not record that a card on a course closed",
         );
     }
 }
@@ -391,7 +391,7 @@ mod tests {
 
     /// A real ledger with one session bound to a live arc on `alpha`, in a
     /// real project the arc record belongs to.
-    fn scored_card(root: &std::path::Path) -> SessionLedger {
+    fn on_course_card(root: &std::path::Path) -> SessionLedger {
         // A real repo: `ensure_dash_id` mints through git config.
         for args in [
             &["init", "-q"][..],
@@ -446,7 +446,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
 
         let outcome = bind(&ledger, root, "claude-1", "beta");
         match outcome {
@@ -454,7 +454,7 @@ mod tests {
                 assert!(message.contains("alpha"), "{message}");
                 assert!(message.contains("beta"), "{message}");
             }
-            _ => panic!("a live score must refuse a bind naming another dash"),
+            _ => panic!("a live course must refuse a bind naming another dash"),
         }
         assert_eq!(
             bound_dash(&ledger).as_deref(),
@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn unbinding_a_scored_card_stops_the_arc_as_card_closed() {
+    fn unbinding_an_on_course_card_stops_the_arc_as_card_closed() {
         let home = tempdir().unwrap();
         // SAFETY: `#[serial]`; no other thread reads the environment here.
         unsafe {
@@ -473,7 +473,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
         tugdash_core::arc::append_arc_stage(
             root,
             "alpha",
@@ -545,7 +545,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
 
         assert!(matches!(
             unbind(&ledger, "claude-1"),
@@ -567,7 +567,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
         tugdash_core::arc::append_arc_stage(
             root,
             "alpha",
@@ -654,7 +654,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
         tugdash_core::arc::append_arc_stage(
             root,
             "alpha",
@@ -705,7 +705,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
         tugdash_core::arc::append_arc_stage(
             root,
             "alpha",
@@ -738,7 +738,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
 
         match arc_stop(&ledger, root, "claude-1", "alpha") {
             DashApiOutcome::ArcStopped { stage, .. } => {
@@ -759,7 +759,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
 
         match arc_stop(&ledger, root, "claude-1", "beta") {
             DashApiOutcome::Error(message) => {
@@ -804,7 +804,7 @@ mod tests {
                     .set_dash_binding("claude-1", Some(("tugdash/alpha#1", "alpha")))
                     .unwrap();
             } else {
-                let ledger = scored_card(root);
+                let ledger = on_course_card(root);
                 if close == "done" {
                     tugdash_core::arc::append_arc_done(root, "alpha").unwrap();
                 } else {
@@ -843,7 +843,7 @@ mod tests {
         }
         let dir = tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_card(root);
+        let ledger = on_course_card(root);
 
         // The resume path, and `claim_dash` on the dash the card already runs.
         match bind(&ledger, root, "claude-1", "alpha") {
@@ -865,7 +865,7 @@ mod tests {
             }
             let dir = tempdir().unwrap();
             let root = dir.path();
-            let ledger = scored_card(root);
+            let ledger = on_course_card(root);
             if close == "stopped" {
                 tugdash_core::arc::append_arc_stop(
                     root,
@@ -883,7 +883,7 @@ mod tests {
                     bind(&ledger, root, "claude-1", "beta"),
                     DashApiOutcome::Bound { .. }
                 ),
-                "a {close} arc is not a score running",
+                "a {close} arc is not a course running",
             );
             assert_eq!(bound_dash(&ledger).as_deref(), Some("beta"));
         }

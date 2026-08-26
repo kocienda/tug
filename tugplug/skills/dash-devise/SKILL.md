@@ -1,5 +1,5 @@
 ---
-name: plan-devise
+name: dash-devise
 description: Devise an implementation plan in-thread — clarify the idea, write it against the devise skeleton, validate it, and hand it to the review turn — ready for /tugplug:dash-implement
 argument-hint: "[idea] [→ output-path]"
 disable-model-invocation: true
@@ -9,9 +9,9 @@ disallowed-tools: Task
 
 ## What this is
 
-`plan-devise` turns an idea into a concrete, implementable **plan** — a plan document **written by you, the main conversation, directly**. No agent swarm, no clarifier/author/critic/conformance/overviewer hand-offs. You investigate the codebase, ask the few questions that genuinely change the design, write the plan, and validate it. The result is a plan document — written to a path **you specify** — that `/tugplug:dash-implement` can carry to a build.
+`dash-devise` turns an idea into a concrete, implementable **plan** — a plan document **written by you, the main conversation, directly**. No agent swarm, no clarifier/author/critic/conformance/overviewer hand-offs. You investigate the codebase, ask the few questions that genuinely change the design, write the plan, and validate it. The result is a plan document — written to a path **you specify** — that `/tugplug:dash-implement` can carry to a build.
 
-(The skill is named `plan-devise`, not `plan`, to avoid colliding with Claude Code's built-in. The document it produces is a standard tugplan in the devise-skeleton format, so `/tugplug:dash-implement` consumes it unchanged.)
+(The skill is named `dash-devise`, not `plan`, to avoid colliding with Claude Code's built-in. The document it produces is a standard tugplan in the devise-skeleton format, so `/tugplug:dash-implement` consumes it unchanged.)
 
 **You are the author.** Do not spawn sub-agents (`Task`). Do the research and the writing in-thread.
 
@@ -19,7 +19,7 @@ disallowed-tools: Task
 
 ## Input
 
-`/tugplug:plan-devise <idea> [🢂 <name-or-path>]` — a free-text description of what to build, and **which dash the plan belongs to** (or an explicit path).
+`/tugplug:dash-devise <idea> [🢂 <name-or-path>]` — a free-text description of what to build, and **which dash the plan belongs to** (or an explicit path).
 
 ## Where the plan goes
 
@@ -108,5 +108,5 @@ Don't start implementing from the devise skill — authoring and implementing ar
 - **Lint before handing off.** `tugutil plan lint` exit 0 is the bar.
 - **Never review the plan yourself, on any model** — the review is a fresh session's cold read, and never declare a plan ready that nothing has reviewed.
 - **Never print a chip and never name a next command.** The review is the arc's next stage and the runner is reading the documents; the turn ends at the written plan.
-- **Don't auto-implement.** `plan-devise` produces the document; the review turn improves it; `dash-implement` runs it.
+- **Don't auto-implement.** `dash-devise` produces the document; the review turn improves it; `dash-implement` runs it.
 - **Don't auto-enter Plan mode** (`EnterPlanMode`) — just write the plan document.

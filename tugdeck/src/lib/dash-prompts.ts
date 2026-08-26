@@ -82,7 +82,7 @@ export function documentDashNextGesturePrompt(
   if (!hasPlan) return `/tugplug:dash ${name}`;
   return begun || review === "reviewed"
     ? `/tugplug:dash-implement ${name}`
-    : `/tugplug:plan-review ${name}`;
+    : `/tugplug:dash-review ${name}`;
 }
 
 /** What the row's affordance says, given its review state and its ledger. */

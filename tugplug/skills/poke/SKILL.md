@@ -1,6 +1,6 @@
 ---
-name: dash-on
-description: Quick, plan-less, worktree-isolated work — agentless, in-thread, committing per round, stopping for review before merge
+name: poke
+description: A poke — quick, plan-less, review-less work on an isolated worktree, joined back to the base; agentless, in-thread, committing per round, stopping before the join
 argument-hint: "[name] [instruction…]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
@@ -9,9 +9,9 @@ disallowed-tools: Task
 
 ## What this is
 
-`dash-on` is the lightweight path for a quick task — a bug fix, a spike, a small feature, a prototype — that doesn't warrant a full plan. It runs on an isolated dash worktree and **you — the main conversation — do the work directly**. No plan, no steps, no ledger: you execute the user's instruction in-thread, commit each round, and stop before merge.
+A **poke** is the lightweight act — a bug fix, a spike, a small feature, a prototype — that doesn't warrant a plan, a review, or an arc. Underneath it is an ordinary dash: it runs on an isolated dash worktree, rides the `tugutil dash` verbs, and joins back to the base the same way a dash does and **you — the main conversation — do the work directly**. No plan, no steps, no ledger: you execute the user's instruction in-thread, commit each round, and stop before merge.
 
-(If the task is big enough to want a plan with steps, author one with `/tugplug:plan-devise` and run it with `/tugplug:dash-implement` instead.)
+(If the task is big enough to want a plan with steps, author one with `/tugplug:dash-devise` and run it with `/tugplug:dash-implement` instead.)
 
 **Read [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md) before you start.** It is the discipline every dash run works under — the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, the stop-before-join obligation, and no plan numbers in durable artifacts. This skill states the flow; the doctrine states the rules, and it is not repeated here.
 
@@ -19,7 +19,7 @@ disallowed-tools: Task
 
 ## Input grammar
 
-`/tugplug:dash-on <name> <instruction…>` — create the dash `<name>` if new (or continue it), then carry out `<instruction>`.
+`/tugplug:poke <name> <instruction…>` — create the dash `<name>` if new (or continue it), then carry out `<instruction>`.
 
 That is the whole grammar. `<name>` is alphanumeric + hyphens, 2+ chars, and everything after it is the instruction — there are no reserved words, because there are no sub-verbs to collide with. Joining belongs to the `/dash-join` card verb, of which `/join` is the retired spelling, the readouts are `tugutil dash status|show|list`, and discard is a bare CLI call the user makes.
 
@@ -33,7 +33,7 @@ tugutil dash create <name> --description "<first ~100 chars of the instruction>"
 
 Idempotent — returns the existing active dash if `<name>` already exists. **Capture the absolute `worktree` path** and `branch` from the response; that path is the working root for everything that follows. `create` hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` — in Tugtool, `bun install` for the web surfaces — so it arrives ready.
 
-`create` records that this session is working the dash — every time, including the idempotent call that resumes one — so there is no bind to remember. Boundness is what the server reads to decide whether to work the join arc at all — an unbound dash is never reconciled, never checked, and never offered.
+`create` records that this session is working the dash — every time, including the idempotent call that resumes one — so there is no bind to remember. Boundness is what the server reads to decide whether to work the join at all — an unbound dash is never reconciled, never checked, and never offered.
 
 ### Work (in-thread, per round)
 

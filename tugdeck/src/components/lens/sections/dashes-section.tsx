@@ -709,7 +709,7 @@ const DashCell: TugListViewCellRenderer<CockpitRowsDataSource> = ({
         </span>
         {/* And what its JOIN is doing, in the one shared register — the same
             sentence the shade and the composer show, because all three call
-            one derivation. Renders nothing until there is a join arc. */}
+            one derivation. Renders nothing until there is a join. */}
         <DashJoinRow row={row} />
       </span>
     </TugListRow>

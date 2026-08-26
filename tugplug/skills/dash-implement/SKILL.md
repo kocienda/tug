@@ -45,7 +45,7 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
 
    `create` also hydrates the fresh worktree itself, running whatever the project declared in `[tugtool.dash].post_create` — in Tugtool, `bun install` for the web surfaces — so it arrives ready. Never install dependencies by hand; a project that needs none declares none.
 
-   You do not bind the dash to this session, and there is nothing to remember here: `create` and `dash step start` each record the claim themselves, so both starting a plan and resuming one mid-way are covered. That matters because boundness is what the server reads to decide whether to work the join arc at all — an unbound dash is never reconciled, never checked, and never offered — and a rule that load-bearing does not belong in prose a run can skip.
+   You do not bind the dash to this session, and there is nothing to remember here: `create` and `dash step start` each record the claim themselves, so both starting a plan and resuming one mid-way are covered. That matters because boundness is what the server reads to decide whether to work the join at all — an unbound dash is never reconciled, never checked, and never offered — and a rule that load-bearing does not belong in prose a run can skip.
 3. **Check that the plan's review covers the plan.**
 
    ```bash
@@ -56,7 +56,7 @@ If no plan exists yet, start at `/dash`: it sizes the idea, writes the brief, an
 
    On **`stale`** or **`never-reviewed`**, raise an `AskUserQuestion` — never a hard refusal, because the plan is the user's:
 
-   - *"Review now (Recommended)"* — print `` `/tugplug:plan-review <name>` `` as its own backticked chip and **stop**. You do not review inline; the review is its own turn on its own model.
+   - *"Review now (Recommended)"* — print `` `/tugplug:dash-review <name>` `` as its own backticked chip and **stop**. You do not review inline; the review is its own turn on its own model.
    - *"Proceed as-is"* — carry on and say nothing further about it.
 
    The message names which verdict it is, and on `stale` quotes `data.last_round`'s date and model, so the user is deciding against a fact rather than a warning. Implementing a plan nobody reviewed is strictly worse than implementing one whose review predates an edit, so both raise the same gate.
@@ -75,7 +75,7 @@ Walk the resolved steps in dependency order. For each step:
   ```
   This moves the ledger row to `in progress` and records the step in the dash-log, which is what makes the dash read as `implementing (i/N)` in the Lens and the Changes card while you work.
 
-  **`--through <m>` is the last step of the selection you resolved in Setup**, and it is required. It is how the machine can tell a run that finished from a run that stopped early: when step `m` goes `done`, the dash is finished, the join arc arms itself, and the user is offered the join without anybody having to remember to say so. A run that never declared where it ends can only ever look like a run still in progress. Pass the same `m` on every step of the run — re-declaring the same value is a no-op.
+  **`--through <m>` is the last step of the selection you resolved in Setup**, and it is required. It is how the machine can tell a run that finished from a run that stopped early: when step `m` goes `done`, the dash is finished, the join arms itself, and the user is offered the join without anybody having to remember to say so. A run that never declared where it ends can only ever look like a run still in progress. Pass the same `m` on every step of the run — re-declaring the same value is a no-op.
 - Read the step's Tasks / References / Checkpoint.
 - Do the work yourself, in the worktree.
 - Run **that step's checkpoint** before committing. The bar is in the doctrine; the step names the specific commands.
@@ -109,7 +109,7 @@ Pragmatics:
 
 ### 3. Verify the fit, draft the join, offer a build
 
-**The join arc has already armed itself.** When the run's final declared step went `done` — or, on a plan-less dash, when the round committed onto a clean worktree — the server derived that this dash is joinable and started reconciling it with its base. Nothing in this phase is what makes that happen, and nothing you forget to do here can stop it. That is the point: an endgame that depended on a skill remembering a chore was an endgame that went dark the first time a run ended early.
+**The join has already armed itself.** When the run's final declared step went `done` — or, on a plan-less dash, when the round committed onto a clean worktree — the server derived that this dash is joinable and started reconciling it with its base. Nothing in this phase is what makes that happen, and nothing you forget to do here can stop it. That is the point: an endgame that depended on a skill remembering a chore was an endgame that went dark the first time a run ended early.
 
 **First, verify the fit** ([D149]). Every step's checkpoint ran against the dash's own tree — the sandbox it forked from. The tree a join actually lands is the dash *replayed onto the live base*, and nothing has tested that yet:
 
@@ -192,4 +192,4 @@ Everything in [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctr
 
 ## When to reach for something else
 
-This skill holds the plan's context in one conversation, which fits small-to-medium plans well (a dozen steps is healthy). For a very large plan, walk it in batches — `/tugplug:dash-implement <plan> Steps 1-4`, review, then `Steps 5-8` — or author smaller plans. For a quick, plan-less change, use `/tugplug:dash-on` instead.
+This skill holds the plan's context in one conversation, which fits small-to-medium plans well (a dozen steps is healthy). For a very large plan, walk it in batches — `/tugplug:dash-implement <plan> Steps 1-4`, review, then `Steps 5-8` — or author smaller plans. For a quick, plan-less change, use `/tugplug:poke` instead.

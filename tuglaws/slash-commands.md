@@ -67,8 +67,8 @@ card. `enumeratePluginCommands()` (`capabilities.ts`) walks the bundled plugin's
 `skills/*/SKILL.md` and `commands/*.md` and `mergePluginCommands()` folds them
 into the catalog in qualified `<plugin>:<name>` form, dropping claude's bare twin.
 
-**Namespace resolution.** A user types `/plan-devise`; the catalog holds
-`tugplug:plan-devise`. `resolveRemoteCommand()` and `canonicalizeBareCommandLine()`
+**Namespace resolution.** A user types `/dash-devise`; the catalog holds
+`tugplug:dash-devise`. `resolveRemoteCommand()` and `canonicalizeBareCommandLine()`
 (consumed in `tug-prompt-entry.tsx`) resolve bare names against namespaced catalog
 entries so both forms work and neither trips the unknown-command alert.
 

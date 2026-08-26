@@ -13,7 +13,7 @@
  * not reusing `TugChangesList`'s rows.
  *
  * The draft has two grammars and the server decides which one stands: a dash
- * the join arc has armed shows what the join would land, under `lands as`
+ * the join has armed shows what the join would land, under `lands as`
  * ([D152]); one it has not shows the draft plainly. This fixture's dash is
  * join-ready the moment its round lands — one round, no plan, a clean
  * worktree — so the arc arms it with nobody asking ([D147]) and `lands as` is
@@ -473,7 +473,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's dash lane", () => {
         try {
           // Waited for by its **words**, not by its slot. The fold has two
           // grammars for the same maintained draft and which one stands is the
-          // server's call, not the fixture's: a dash the join arc has armed
+          // server's call, not the fixture's: a dash the join has armed
           // shows what the join would land (`lands as`), and one it has not
           // shows the draft plainly. This dash is join-ready — one round, no
           // plan, a clean worktree — so the arc arms it unbidden ([D147]) and

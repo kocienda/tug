@@ -56,7 +56,7 @@ describe("documentDashNextGesturePrompt — the next gesture ladder", () => {
   test("anything short of reviewed wants the review turn", () => {
     for (const review of ["never-reviewed", "stale"]) {
       expect(documentDashNextGesturePrompt(review, "x", false, true)).toBe(
-        "/tugplug:plan-review x",
+        "/tugplug:dash-review x",
       );
       expect(documentDashNextGestureLabel(review, false, true)).toBe("Review");
     }

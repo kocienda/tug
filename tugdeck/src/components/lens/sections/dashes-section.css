@@ -91,7 +91,7 @@
 
 /* What the dash's JOIN is doing, on the metadata line's margin: line 1 is
    who, line 2 is what the dash is doing, line 3 is what its join is doing.
-   Empty until there is a join arc — the register returns null before then, so
+   Empty until there is a join — the register returns null before then, so
    this box collapses rather than reserving a blank row. */
 .lens-dashes-register {
   display: flex;

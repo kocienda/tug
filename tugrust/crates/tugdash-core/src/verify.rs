@@ -1,4 +1,4 @@
-//! The two marks the join arc leaves on a branch — what the pilot last acted
+//! The two marks the join leaves on a branch — what the pilot last acted
 //! on, and what the user last declined.
 //!
 //! # Verification does not live here, because it does not live at the join

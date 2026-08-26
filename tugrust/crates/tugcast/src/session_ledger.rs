@@ -1577,7 +1577,7 @@ impl SessionLedger {
                 -- Stage provenance ([P10]): what a rotation seated this
                 -- session as. Both NULL on a session no rotation seated. They
                 -- live here rather than being reconstructed from a dash arc's
-                -- record, because a rotation need not have a score behind it —
+                -- record, because a rotation need not have a course behind it —
                 -- and its transcript is an invariant either way.
                 stage_label       TEXT,
                 stage_model       TEXT,
@@ -2481,7 +2481,7 @@ impl SessionLedger {
     ///
     /// `stage_label` and `stage_model` record what a rotation seated this
     /// session as. They live on the row rather than being reconstructed from a
-    /// dash arc's record, because a rotation need not have a score behind it:
+    /// dash arc's record, because a rotation need not have a course behind it:
     /// a card rotated by a bare `session rotate` has no arc to read, and
     /// without these columns its earlier sessions would vanish from the
     /// transcript on the next relaunch. Both are NULL on a session no rotation
@@ -4034,7 +4034,7 @@ impl SessionLedger {
     /// edge says *which session this descends from*, and these say *what it was
     /// seated as*. A restore reads both to redraw the transcript's divider, and
     /// reads them from the row rather than from an arc record, so a rotation
-    /// with no score behind it replays exactly as a scored one does.
+    /// with no course behind it replays exactly as one on a course does.
     ///
     /// `model` is `None` for the account default — the same absence the
     /// rotation itself carries, rather than a stand-in word.
@@ -8460,7 +8460,7 @@ mod tests {
     #[test]
     fn what_a_rotation_seated_a_session_as_survives_on_the_row() {
         // The transcript is an invariant of a rotation ([B05]), and a rotation
-        // with no score behind it has no arc record to reconstruct it from —
+        // with no course behind it has no arc record to reconstruct it from —
         // so the two facts the divider needs live on the row.
         let l = fresh();
         for id in ["root", "seated", "untouched"] {

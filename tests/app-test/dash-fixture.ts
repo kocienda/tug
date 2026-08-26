@@ -487,7 +487,7 @@ export function commitRound(
 }
 
 /**
- * Declare a dash `built` — which is what starts the join arc.
+ * Declare a dash `built` — which is what starts the join.
  *
  * The pilot acts on a `built` dash and on nothing else: reconciling it with its
  * base, unprompted. So a
@@ -1019,7 +1019,7 @@ export async function shellAndSettle(
 // The join fixtures' scratch repository
 // ---------------------------------------------------------------------------
 
-/** A scratch repo built for a join arc, and everything needed to tear it down. */
+/** A scratch repo built for a join, and everything needed to tear it down. */
 export interface JoinScratchRepo {
   /** The repository the app opens — the only tree the fixture touches. */
   repo: string;

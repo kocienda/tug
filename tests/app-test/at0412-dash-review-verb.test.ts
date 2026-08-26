@@ -1,7 +1,7 @@
 /**
- * at0412-plan-review-verb.test.ts — `/plan-review` typed in the card.
+ * at0412-dash-review-verb.test.ts — `/dash-review` typed in the card.
  *
- * `/plan-review` is an ordinary turn on whatever model is selected. **Nothing
+ * `/dash-review` is an ordinary turn on whatever model is selected. **Nothing
  * switches the model** — not before the turn, not after it. That is the whole
  * point of the gesture: the moment before clicking the chip is the user's
  * moment to choose a model, and a surface that moved the selection out from
@@ -23,11 +23,11 @@
  * so the test exercises it instead of pressing Escape to route around it.
  *
  * The second gesture is the one the resolution order exists for: a **bare**
- * `/plan-review`, which must land on the plan this card just reviewed. That
+ * `/dash-review`, which must land on the plan this card just reviewed. That
  * value round-trips through the real tugbank, so a resolver that read the wrong
  * domain or never wrote at submit fails here and nowhere else.
  *
- * @covers tugdeck/src/lib/plan-review.ts
+ * @covers tugdeck/src/lib/dash-review-target.ts
  * @covers tugdeck/src/lib/slash-commands.ts
  * @covers tugdeck/src/lib/model-domains.ts
  * @covers tugdeck/src/lib/use-model.ts
@@ -166,7 +166,7 @@ function submittedRow(app: App): Promise<{ chipLabel: string | null; text: strin
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("AT0412: the /plan-review card verb", () => {
+describe.skipIf(!SHOULD_RUN)("AT0412: the /dash-review card verb", () => {
   test(
     "the review runs on the selected model and never moves it; a bare invocation lands on the plan just reviewed",
     async () => {
@@ -177,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)("AT0412: the /plan-review card verb", () => {
         "## A plan {#a-plan}\n\n### Execution Steps {#execution-steps}\n",
       );
 
-      const app = await launchTugApp({ testName: "at0412-plan-review-verb" });
+      const app = await launchTugApp({ testName: "at0412-dash-review-verb" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -215,18 +215,18 @@ describe.skipIf(!SHOULD_RUN)("AT0412: the /plan-review card verb", () => {
         note("at0412 persisted model before", before);
 
         // ── The typed gesture, with an explicit path ─────────────────────
-        await runCommand(app, `/plan-review ${planPath}`);
+        await runCommand(app, `/dash-review ${planPath}`);
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 10000 },
         );
 
         // The turn carries the command ATOM — `submission.text` never holds a
-        // literal "/tugplug:plan-review", so a string assertion would fail on a
+        // literal "/tugplug:dash-review", so a string assertion would fail on a
         // working implementation.
         const explicit = await submittedRow(app);
         note("at0412 explicit submission", JSON.stringify(explicit));
-        expect(explicit.chipLabel).toBe("/tugplug:plan-review");
+        expect(explicit.chipLabel).toBe("/tugplug:dash-review");
         expect(explicit.text).toContain(planPath);
 
         // The card is on Sonnet and STAYS on Sonnet. Asserted while the review
@@ -246,17 +246,17 @@ describe.skipIf(!SHOULD_RUN)("AT0412: the /plan-review card verb", () => {
         expect(await chipText(app)).toContain("Sonnet");
 
         // ── Bare: last-reviewed resolves it, through the real tugbank ────
-        await runCommand(app, "/plan-review");
+        await runCommand(app, "/dash-review");
         await app.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 2`,
           { timeoutMs: 10000 },
         );
         const bare = await submittedRow(app);
         note("at0412 bare submission", JSON.stringify(bare));
-        expect(bare.chipLabel).toBe("/tugplug:plan-review");
+        expect(bare.chipLabel).toBe("/tugplug:dash-review");
         expect(
           bare.text,
-          "a bare /plan-review resolves to the plan this card last reviewed",
+          "a bare /dash-review resolves to the plan this card last reviewed",
         ).toContain(planPath);
         expect(await chipText(app)).toContain("Sonnet");
 

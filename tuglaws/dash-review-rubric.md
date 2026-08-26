@@ -2,7 +2,7 @@
 
 What a reviewer judges when reading an implementation plan, and what a reviewer deliberately does not.
 
-This is doctrine, not skill prose. `/tugplug:plan-review` reads it before reviewing a plan, `/tugplug:dash-audit` applies the same axes to built code, and a human reading a plan by hand can work down it. One copy, three readers.
+This is doctrine, not skill prose. `/tugplug:dash-review` reads it before reviewing a plan, and a human reading a plan by hand can work down it. One copy, two readers.
 
 ## What this rubric does not cover
 

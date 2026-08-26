@@ -76,28 +76,28 @@ describe("stageNoteText", () => {
     expect(stageNoteText("review", "", "")).toBe("review");
   });
 
-  it("names a rotation with no score behind it by its stage and its model", () => {
+  it("names a rotation with no course behind it by its stage and its model", () => {
     // A wheel rotation nobody is scoring carries no document, because
-    // there is no score for it to have opened on. The divider is the label
+    // there is no course for it to have opened on. The divider is the label
     // and the model, and reads as a boundary all the same.
     expect(stageNoteText("review", "opus", "")).toBe("review · opus");
   });
 });
 
-describe("reducer — a rotation with no score behind it", () => {
-  const scoreless = (name: string, model: string): CodeSessionEvent =>
+describe("reducer — a rotation with no course behind it", () => {
+  const courseless = (name: string, model: string): CodeSessionEvent =>
     ({
       type: "session_stage",
       stage: name,
       model,
       document: "",
       arc: "",
-      prompt: "/tugplug:plan-review dash/foo.md",
+      prompt: "/tugplug:dash-review dash/foo.md",
       turnKey: "rot-k1",
     }) as CodeSessionEvent;
 
-  it("folds into a divider and a wheel-origin turn, with no score anywhere in the path", () => {
-    const { state: after, effects } = reduce(fresh(), scoreless("review", "opus"));
+  it("folds into a divider and a wheel-origin turn, with no course anywhere in the path", () => {
+    const { state: after, effects } = reduce(fresh(), courseless("review", "opus"));
 
     const note = effects.find((e) => e.kind === "append-stage-note");
     expect(note).toBeDefined();
@@ -114,7 +114,7 @@ describe("reducer — a stage that carries its prompt", () => {
     const before = fresh();
     const { state: after, effects } = reduce(before, {
       ...stage("devise", "opus", "dash/foo-brief.md"),
-      prompt: "/tugplug:plan-devise dash/foo-brief.md",
+      prompt: "/tugplug:dash-devise dash/foo-brief.md",
       turnKey: "arc-k1",
     } as CodeSessionEvent);
 
@@ -142,8 +142,8 @@ describe("reducer — a stage that carries its prompt", () => {
       {
         kind: "atom",
         type: "command",
-        label: "tugplug:plan-devise",
-        value: "tugplug:plan-devise",
+        label: "tugplug:dash-devise",
+        value: "tugplug:dash-devise",
       },
     ]);
   });
@@ -152,7 +152,7 @@ describe("reducer — a stage that carries its prompt", () => {
     const sent = reduce(fresh(), SEND).state;
     const { state: after, effects } = reduce(sent, {
       ...stage("review", "opus", "dash/foo.md"),
-      prompt: "/tugplug:plan-review dash/foo.md",
+      prompt: "/tugplug:dash-review dash/foo.md",
       turnKey: "arc-k2",
     } as CodeSessionEvent);
     expect(effects.length).toBe(0);
@@ -169,7 +169,7 @@ describe("reducer — a replayed stage marks its opener as the wheel's", () => {
     const replaying = { ...fresh(), phase: "replaying" } as CodeSessionState;
     const divided = reduce(replaying, stage("devise", "opus", "dash/foo-brief.md")).state;
 
-    const opened = reduce(divided, addUser("r1", "/tugplug:plan-devise dash/foo-brief.md")).state;
+    const opened = reduce(divided, addUser("r1", "/tugplug:dash-devise dash/foo-brief.md")).state;
     expect(opened.pendingTurn?.origin).toBe("wheel");
 
     // A follow-up in the same stage is a person typing.

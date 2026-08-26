@@ -3,7 +3,7 @@
  *
  * Two questions share a dash row. "How far through what was asked?" is the
  * declared run — the selection an invocation named, which the task list mirrors
- * and the join arc arms from. "How far through the document?" is the plan. The
+ * and the join arms from. "How far through the document?" is the plan. The
  * numerals answer the first; the ring draws the second and lights the first
  * across it.
  *

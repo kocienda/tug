@@ -1,10 +1,10 @@
 <!-- devise-skeleton v6 -->
 
 <!--
-  This is the format contract for plans authored by `/tugplug:plan-devise` and walked
+  This is the format contract for plans authored by `/tugplug:dash-devise` and walked
   by `/tugplug:dash-implement`. Its mechanical half is checked by `tugutil plan lint`;
-  its judgment half is `/tugplug:plan-review`'s, against
-  `tuglaws/plan-review-rubric.md`.
+  its judgment half is `/tugplug:dash-review`'s, against
+  `tuglaws/dash-review-rubric.md`.
   The devise skill's output is a plan written against this skeleton.
 
   Prefix reservation: plan-local design decisions use `[P01]` (NOT `[D01]`).
@@ -52,7 +52,7 @@
 ### Review Record {#review-record}
 
 <!--
-  One paragraph per review round, appended by `/tugplug:plan-review` — never
+  One paragraph per review round, appended by `/tugplug:dash-review` — never
   rewritten, since the point is the history. It sits here, before the body, so a
   cold reader learns whether this plan has been reviewed and what the review
   found before investing in the rest.
@@ -386,7 +386,7 @@ Table T05, (#op-rename, #fundamental-wall)
 > - If a step is large, split the work into multiple **flat steps** (`Step N`, `Step N+1`, …) with separate commits and checkpoints, each with explicit `**Depends on:**` lines.
 > - End the plan with an **Integration Checkpoint step** that verifies the **fit** — not the work. Its subject is the one tree nothing else in the run ever tested: the dash replayed onto the live base, which is what a join will actually land. Give it an ordinary `**Commit:**` message like any other step: closing a step writes its ledger row, that write dirties the tree, and the round commits it — so the step lands a commit whatever the plan says, and a message reading "no separate commit" describes a state that never occurs.
 >
-> **The run declares where it ends, and that declaration arms the join.** `dash step start <n> --through <m>` names `m` as the last step of the run; when step `m` goes `done`, the dash is finished, the join arc arms itself, and the offer reaches the user without anybody remembering to raise it. A run that never declared its last step can only ever look like a run still in progress. So a plan's step list is also a promise about where the arc ends — which is why folding a step into a neighbour still calls that step's `done` verb rather than quietly dropping it.
+> **The run declares where it ends, and that declaration arms the join.** `dash step start <n> --through <m>` names `m` as the last step of the run; when step `m` goes `done`, the dash is finished, the join arms itself, and the offer reaches the user without anybody remembering to raise it. A run that never declared its last step can only ever look like a run still in progress. So a plan's step list is also a promise about where the arc ends — which is why folding a step into a neighbour still calls that step's `done` verb rather than quietly dropping it.
 >
 > **The Integration Checkpoint is a procedure, and it is not a second sweep.** A checkpoint that passed is spent: every command in the per-step checkpoints already ran, against these bytes, inside the step that changed them. Re-listing them at the end costs minutes and can only re-prove what is already proven — and it proves it about the **sandbox**, frozen at branch time, rather than about the deliverable. So the ending is:
 >

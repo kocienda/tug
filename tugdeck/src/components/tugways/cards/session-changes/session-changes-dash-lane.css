@@ -74,7 +74,7 @@ body {
 
 /* The join register sits under the metadata line, on the same indent: line 1
    is who, line 2 is what the dash is doing, line 3 is what its join is doing.
-   Empty until there is a join arc — the register returns null before then, so
+   Empty until there is a join — the register returns null before then, so
    this box collapses rather than reserving a blank row. */
 .session-changes-dash-register {
   display: flex;
@@ -85,7 +85,7 @@ body {
 /* The register SPANS the block. Shrink-to-fit made the strip a floating pill
    sitting in the middle of a row — a widget that had landed on the block
    rather than the block's own third line — and that, more than its type, is
-   what made the join arc read as a different species from the facts above it.
+   what made the join read as a different species from the facts above it.
    Full width gives it the same left and right edges as the lines it belongs
    to. */
 .session-changes-dash-register > * {

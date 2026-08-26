@@ -1,6 +1,6 @@
 ---
 name: dash
-description: Start or continue dash work from one conversational entry point — size the idea, route to a spike, a quick dash, or the brief/plan arc, and carry the arc through review to implementation
+description: Start or continue dash work from one conversational entry point — size the idea, route to a spike, a poke, or the brief/plan arc, and carry the arc through review to implementation
 argument-hint: "[idea…]"
 disable-model-invocation: true
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, AskUserQuestion
@@ -15,18 +15,18 @@ Everything it routes to already exists as a skill of its own, and each one stays
 
 | Path | Skill | For |
 |---|---|---|
-| Quick dash | `dash-on` | A fix, a small feature, a prototype — work that does not want a plan |
+| Poke | `poke` | A fix, a small feature, a prototype — work that does not want a plan, a review, or an arc |
 | Design spike | `spike-card` | A layout, a treatment, a shape you want to look at before committing to it |
 | Plan arc | a brief, then `tugutil dash run` | Work with enough parts that the order matters — the server rotates devise → review → implement on this card |
 | Brief first | `tuglaws/brief-skeleton.md`, then the plan arc | Work whose *decisions* are the hard part, and want settling before any step is written |
 
-**This skill sequences; it does not restate.** At each hand-off it reads the sibling's own `SKILL.md` and carries out that contract in-thread. The expert skills remain the single source of truth for their own mechanics — an edit to `plan-devise` is picked up here with no second file to keep in step. What `/dash` owns, and no sibling does, is the connective narration: saying where the arc stands at each boundary, so the user never has to hold the sequence in their head.
+**This skill sequences; it does not restate.** At each hand-off it reads the sibling's own `SKILL.md` and carries out that contract in-thread. The expert skills remain the single source of truth for their own mechanics — an edit to `dash-devise` is picked up here with no second file to keep in step. What `/dash` owns, and no sibling does, is the connective narration: saying where the arc stands at each boundary, so the user never has to hold the sequence in their head.
 
-**On the plan route, sequencing means handing off rather than sequencing.** A running model cannot drive its own arc — it cannot end its own turn to start the next stage, and each stage wants a session that has never seen the last one's context. So `/dash` writes the brief, hands the document to `tugutil dash run`, and ends the turn. The server rotates the stages from there, on this same card. Everything below is written for that, because on the plan route there is no other way through: `plan-devise` is a stage of this arc and stops when it is run outside one.
+**On the plan route, sequencing means handing off rather than sequencing.** A running model cannot drive its own arc — it cannot end its own turn to start the next stage, and each stage wants a session that has never seen the last one's context. So `/dash` writes the brief, hands the document to `tugutil dash run`, and ends the turn. The server rotates the stages from there, on this same card. Everything below is written for that, because on the plan route there is no other way through: `dash-devise` is a stage of this arc and stops when it is run outside one.
 
 **You are the orchestrator, in-thread.** Do not spawn sub-agents (`Task`). The plugin is agentless by charter.
 
-**`/dash` itself never creates a worktree, never commits, and never joins.** While a delegated contract runs, that contract's guardrails govern — including `dash-implement`'s and `dash-on`'s sanctioned `tugutil dash create` / `tugutil dash commit`. That holds for an arc too: its implement stage *is* `dash-implement`, run by a session the server started, under exactly those guardrails. The shared discipline is [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), and the stop-before-join obligation is unchanged: landing is the user's act. Handing work to the arc does not hand over the join.
+**`/dash` itself never creates a worktree, never commits, and never joins.** While a delegated contract runs, that contract's guardrails govern — including `dash-implement`'s and `poke`'s sanctioned `tugutil dash create` / `tugutil dash commit`. That holds for an arc too: its implement stage *is* `dash-implement`, run by a session the server started, under exactly those guardrails. The shared discipline is [`tuglaws/dash-work-doctrine.md`](../../../tuglaws/dash-work-doctrine.md), and the stop-before-join obligation is unchanged: landing is the user's act. Handing work to the arc does not hand over the join.
 
 **When the project has no `tuglaws/`,** the doctrine and the skeletons are absent. What survives is what the delegated skills carry inline — one working root, verify before every commit, never commit red, rounds through `tugutil dash commit`, stop before the join — plus `tugutil plan lint`, which ships with the product and is what the plan format actually means. Say so once, at the start, so the user knows which fidelity they are getting; do not reconstruct the missing documents from memory.
 
@@ -87,7 +87,7 @@ Then hand off. Never `tugutil dash run` a dash with no brief and no plan — the
 
 One `AskUserQuestion`, four options, the recommended one first:
 
-- **Quick dash** — `dash-on`. Small and concrete; the work is clear and the plan would be ceremony.
+- **Poke** — `poke`. Small and concrete; the work is clear and a plan, a review, or an arc would be ceremony.
 - **Plan arc** — a brief written here, then handed to the arc, which rotates devise → review → implement on this card. Enough parts that the order matters.
 - **Brief first, then plan** — the decisions are the hard part and want settling before any step is written. Same hand-off; more of the turn spent on the brief.
 - **Design spike** — `spike-card`. Visual or exploratory; the answer is something to look at.
@@ -102,7 +102,7 @@ Two of the four routes are contracts you carry out yourself. Read the sibling's 
 
 | Route | Read |
 |---|---|
-| Quick dash | `../dash-on/SKILL.md` |
+| Poke | `../poke/SKILL.md` |
 | Design spike | `../spike-card/SKILL.md` |
 
 The plan routes are different, and the difference is the whole of this stage: **you do not run the plan arc, you hand it to something that does.**
@@ -129,7 +129,7 @@ A plan is not ready when it is written; it is ready when it has been reviewed. *
 
 The runner rotates devise → review → implement itself, each on a fresh session, each on the model the project declared for it in `[tugtool.dash]` — and the review's model is a declaration, not a habit: a project that wants its reviews on Opus says `review_model = "opus"` there (this repository does), and a review that ran on anything else is a config fact to fix, never something a skill can promise. The review reads the plan **cold**, which is the thing a gate could never buy: an inline review is handed the author's own context, and the reader you actually want is one who has never seen it. So there is no chip to print, nothing to hand back, and no turn boundary to stop at — you handed the document over in stage 4 and the arc is already running.
 
-What the devise stage does when it finishes is `plan-devise` §5's, and it is stated there rather than restated here — one home per rule, because a second copy is how the first one drifted.
+What the devise stage does when it finishes is `dash-devise` §5's, and it is stated there rather than restated here — one home per rule, because a second copy is how the first one drifted.
 
 ### 6. Say what happens next
 
@@ -142,7 +142,7 @@ This is the stage `/dash` owns outright, because nothing else in the arc will sp
 
 **Do not print a `/join <name>` chip**, here or anywhere. The shade summons itself; a chip beside it teaches the user that nothing happens until they type, which is the belief this whole arc exists to retire ([D147], [D152]).
 
-**On the hand-driven path**, continuing has two doors and both are already built: `plan-review` prints the `/tugplug:dash-implement <path>` chip, and a bare `/dash` orients ([stage 1](#1-orient)), finds the reviewed plan, and offers to carry it. Either way, continuing means reading `../dash-implement/SKILL.md` and carrying the plan through that contract — its setup gate, its ledger walk, its per-step checkpoints and rounds, its ending. Nothing about the run changes for having arrived through `/dash`, and its ending is the same one the arc reaches: the fit verified, the join draft written, the arc armed, no chip.
+**On the hand-driven path**, continuing has two doors and both are already built: `dash-review` prints the `/tugplug:dash-implement <path>` chip, and a bare `/dash` orients ([stage 1](#1-orient)), finds the reviewed plan, and offers to carry it. Either way, continuing means reading `../dash-implement/SKILL.md` and carrying the plan through that contract — its setup gate, its ledger walk, its per-step checkpoints and rounds, its ending. Nothing about the run changes for having arrived through `/dash`, and its ending is the same one the arc reaches: the fit verified, the join draft written, the arc armed, no chip.
 
 ## Guardrails
 
@@ -158,4 +158,4 @@ This is the stage `/dash` owns outright, because nothing else in the arc will sp
 
 ## When to reach for something else
 
-Nothing here is exclusive. A user who knows exactly what they want should type it: `/tugplug:dash-on`, `/tugplug:spike-card`, `/tugplug:plan-review`, `/tugplug:dash-implement`. (`/tugplug:plan-devise` is not among them — it is a stage of this arc and stops when it is run outside one.) `/dash` exists so that knowing the roster is not the price of starting — it is the door for people who do not yet know which room they want, and it stops being needed the moment they do.
+Nothing here is exclusive. A user who knows exactly what they want should type it: `/tugplug:poke`, `/tugplug:spike-card`, `/tugplug:dash-review`, `/tugplug:dash-implement`. (`/tugplug:dash-devise` is not among them — it is a stage of this arc and stops when it is run outside one.) `/dash` exists so that knowing the roster is not the price of starting — it is the door for people who do not yet know which room they want, and it stops being needed the moment they do.

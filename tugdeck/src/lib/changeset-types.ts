@@ -259,7 +259,7 @@ export interface DashChangesetEntry {
   /**
    * The join pipeline's entire durable state for this dash.
    *
-   * This is the join arc's single source of truth. The client keeps no durable
+   * This is the join's single source of truth. The client keeps no durable
    * copy of any of it — what remains client-side is the in-flight resolve's
    * progress and the draft message, both genuinely ephemeral. Absent from an
    * older server, which reads as *nothing to say*.

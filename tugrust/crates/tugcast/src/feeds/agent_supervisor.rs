@@ -1020,12 +1020,12 @@ fn replay_lineage(
     // carries it: a rotation's `session_init` records a fresh row, and only
     // `dash bind` / `dash run` ever write a binding — so asking the head alone
     // would find nothing on every arc that has rotated once.
-    // A score, if there is one. There need not be: a rotation with nothing
+    // A course, if there is one. There need not be: a rotation with nothing
     // driving it has no dash binding and no arc record, and its transcript is
-    // just as much an invariant of the rotation as a scored one's ([B05]). So
-    // the score supplies only the two facts that are genuinely its — the arc
+    // just as much an invariant of the rotation as one on a course's ([B05]). So
+    // the course supplies only the two facts that are genuinely its — the arc
     // name and the document it opened on — and the rest comes off the row.
-    let score = chain
+    let course = chain
         .iter()
         .find_map(|id| recorder.dash_name_for(id))
         .and_then(|dash| {
@@ -1035,7 +1035,7 @@ fn replay_lineage(
         .iter()
         .map(|session_id| {
             let recorded = recorder.stage_provenance(session_id);
-            let logged = score
+            let logged = course
                 .as_ref()
                 .and_then(|(_, record)| record.stages.iter().find(|s| &s.session_id == session_id));
             // The row is the answer; the arc record is the fallback for a row
@@ -1056,9 +1056,9 @@ fn replay_lineage(
             if let Some((label, model)) = seated {
                 entry.insert("stage".into(), serde_json::json!(label));
                 entry.insert("model".into(), serde_json::json!(model));
-                // The score's own two facts, and only where a score seated
-                // this entry — a scoreless rotation names neither.
-                if let (Some((dash, record)), Some(_)) = (score.as_ref(), logged) {
+                // The course's own two facts, and only where a course seated
+                // this entry — a courseless rotation names neither.
+                if let (Some((dash, record)), Some(_)) = (course.as_ref(), logged) {
                     entry.insert("arc".into(), serde_json::json!(dash));
                     if let Some(document) = record.plan.as_ref().or(record.document.as_ref()) {
                         entry.insert("document".into(), serde_json::json!(document));
@@ -4384,7 +4384,7 @@ impl AgentSupervisor {
             // when it closes, and an arc that left with no record would say
             // `review` forever with nothing running.
             if let Some(ledger) = self.session_ledger.as_ref() {
-                crate::dash_api::stop_a_scored_cards_arc_as_closed(ledger, &claude_id);
+                crate::dash_api::stop_an_on_course_cards_arc_as_closed(ledger, &claude_id);
             }
             self.sessions_recorder.mark_closed(&claude_id);
         }
@@ -5699,9 +5699,9 @@ impl AgentSupervisor {
     }
 
     /// Record `model → <selector> in <stage>` when the card is running a live
-    /// score's stage.
+    /// course's stage.
     ///
-    /// A no-op for every other card: the note is about a score, and a user
+    /// A no-op for every other card: the note is about a course, and a user
     /// changing models on their own card is not one.
     pub(crate) async fn note_model_switch(&self, session: &str, selector: &str) {
         let Some(ledger) = self.session_ledger.clone() else {
@@ -5740,7 +5740,7 @@ impl AgentSupervisor {
         .await;
     }
 
-    /// The model a card returns to when a score gives it back — the deck's own
+    /// The model a card returns to when a course gives it back — the deck's own
     /// selector, which only a WebSocket client's `model_change` ever writes.
     ///
     /// `None` when the card never chose one, which a caller words as the
@@ -9019,9 +9019,9 @@ mod tests {
         assert!(!turn_ended_in_api_error(other));
     }
 
-    /// A scored card with a live arc, seated in `review`, and the ledger that
+    /// A card on a course with a live arc, seated in `review`, and the ledger that
     /// holds it.
-    fn scored_review_card(
+    fn on_course_review_card(
         root: &std::path::Path,
     ) -> Arc<crate::session_ledger::SessionLedger> {
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
@@ -9055,7 +9055,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn a_model_switch_on_a_scored_card_lands_in_the_dash_log() {
+    async fn a_model_switch_on_an_on_course_card_lands_in_the_dash_log() {
         let home = tempfile::tempdir().unwrap();
         // SAFETY: `#[serial]`; no other thread reads the environment here.
         unsafe {
@@ -9063,7 +9063,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        let ledger = scored_review_card(root);
+        let ledger = on_course_review_card(root);
 
         let (sup, _ledger, _rx) = make_supervisor_for_ledger(Arc::clone(&ledger), None);
         let tug_session_id = TugSessionId::new("claude-1");
@@ -9110,7 +9110,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn a_model_switch_on_an_unscored_card_writes_no_note() {
+    async fn a_model_switch_on_a_courseless_card_writes_no_note() {
         let home = tempfile::tempdir().unwrap();
         // SAFETY: `#[serial]`; no other thread reads the environment here.
         unsafe {
@@ -9139,11 +9139,11 @@ mod tests {
         assert_eq!(
             tugdash_core::arc::read_arc(root, "demo"),
             None,
-            "a card running no score leaves the log alone",
+            "a card running no course leaves the log alone",
         );
 
-        // Bound to a dash whose arc has already stopped is also not a score.
-        let ledger = scored_review_card(root);
+        // Bound to a dash whose arc has already stopped is also not a course.
+        let ledger = on_course_review_card(root);
         tugdash_core::arc::append_arc_stop(
             root,
             "demo",
@@ -9203,7 +9203,7 @@ mod tests {
         )
         .unwrap();
 
-        crate::dash_api::stop_a_scored_cards_arc_as_closed(&ledger, "claude-1");
+        crate::dash_api::stop_an_on_course_cards_arc_as_closed(&ledger, "claude-1");
 
         assert_eq!(
             tugdash_core::arc::read_arc(root, "demo").unwrap().stopped,
@@ -9215,7 +9215,7 @@ mod tests {
         // Twice is once: the second read finds the arc already stopped and
         // leaves the log alone, so a close that races anything else does not
         // stack `arc-stop` lines.
-        crate::dash_api::stop_a_scored_cards_arc_as_closed(&ledger, "claude-1");
+        crate::dash_api::stop_an_on_course_cards_arc_as_closed(&ledger, "claude-1");
         assert_eq!(
             tugdash_core::arc::read_arc(root, "demo").unwrap().stopped,
             Some((
@@ -18117,7 +18117,7 @@ mod tests {
     }
 
     /// The invariant [B05] asks for: a rotation's transcript survives a
-    /// relaunch. With no score behind it there is no dash binding and no arc
+    /// relaunch. With no course behind it there is no dash binding and no arc
     /// record to read, so the lineage has to come off the row or not at all.
     #[test]
     fn a_chain_rotated_with_no_score_behind_it_still_carries_its_lineage() {
@@ -18149,7 +18149,7 @@ mod tests {
         assert_eq!(lineage[1]["model"], "opus");
         assert!(
             lineage[1].get("arc").is_none() && lineage[1].get("document").is_none(),
-            "a rotation with no score names neither"
+            "a rotation with no course names neither"
         );
     }
 

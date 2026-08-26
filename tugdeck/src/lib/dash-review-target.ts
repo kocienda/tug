@@ -1,29 +1,29 @@
 /**
- * plan-review — where a `/plan-review` invocation points, and what this card
+ * dash-review-target — where a `/dash-review` invocation points, and what this card
  * last pointed it at.
  *
  * The review is an **ordinary turn on whatever model is selected**. There is no
- * borrow, no scheduling, and no machine: `/plan-review` submits the skill the
- * same way any other slash command does, and `plan-devise` either reviews the
+ * borrow, no scheduling, and no machine: `/dash-review` submits the skill the
+ * same way any other slash command does, and `dash-devise` either reviews the
  * plan itself (when it is already running on the review model) or stops and
  * hands the user a chip to click. Choosing the model is the user's act, before
  * they click — nothing here changes it in either direction.
  *
  * What survives is the part that was always honest work: resolving a bare
- * `/plan-review` to a plan, and remembering the last one so the next bare
+ * `/dash-review` to a plan, and remembering the last one so the next bare
  * invocation has an answer.
  *
- * @module lib/plan-review
+ * @module lib/dash-review-target
  */
 
 import { PLAN_REVIEW_LAST_DOMAIN } from "@/lib/model-domains";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
 
 /** The skill the review turn invokes. */
-export const REVIEW_PLAN_COMMAND = "tugplug:plan-review";
+export const REVIEW_PLAN_COMMAND = "tugplug:dash-review";
 
 /**
- * Remember the plan this card just reviewed, so a later bare `/plan-review`
+ * Remember the plan this card just reviewed, so a later bare `/dash-review`
  * resolves to it.
  *
  * Optimistic `setLocalValue` + PUT, on `writePersistedModel`'s shape: the next
@@ -44,7 +44,7 @@ export function writeLastReviewedPlan(cardId: string, planPath: string): void {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "string", value: planPath }),
   }).catch((err) => {
-    console.warn(`[plan-review] PUT failed for card ${cardId}:`, err);
+    console.warn(`[dash-review] PUT failed for card ${cardId}:`, err);
   });
 }
 
@@ -71,11 +71,11 @@ export interface PlanReviewTargetInput {
   boundDash: { plan: string } | null;
 }
 
-/** Where a `/plan-review` invocation points, or a refusal. */
+/** Where a `/dash-review` invocation points, or a refusal. */
 export type PlanReviewTarget = { path: string } | { refused: true };
 
 /**
- * Resolve `/plan-review`'s target: explicit argument, else the plan this card
+ * Resolve `/dash-review`'s target: explicit argument, else the plan this card
  * last reviewed, else the bound dash's plan, else refuse.
  *
  * **Last-reviewed beats the bound dash, deliberately.** The gesture's moment is

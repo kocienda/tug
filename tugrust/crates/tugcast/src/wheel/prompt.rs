@@ -1,7 +1,7 @@
-//! What a score hands a stage: a part, not a title.
+//! What a course hands a stage: a part, not a title.
 //!
 //! A stage opens on a prompt, and every character of that prompt is composed
-//! from documents — the ask the score is making, the paths the document's own
+//! from documents — the ask the course is making, the paths the document's own
 //! findings cite, and what git says has moved in those paths since the document
 //! was written. Nothing here is a sentence a model wrote about the work; a
 //! summary would be a claim nobody could check, and it would drift from the
@@ -87,11 +87,11 @@ fn looks_like_a_path(token: &str) -> bool {
         )
 }
 
-/// The ask a score is making of a stage — the first clause of its prompt.
+/// The ask a course is making of a stage — the first clause of its prompt.
 ///
 /// One line per stage, and the wording is the contract: each is a slash
 /// command the stage's skill answers to, with the document it is about. A
-/// stage whose facts are not all in hand has no ask, and the score stops
+/// stage whose facts are not all in hand has no ask, and the course stops
 /// rather than opening on half a sentence.
 pub fn stage_ask(
     stage: &str,
@@ -104,10 +104,10 @@ pub fn stage_ask(
         // stage opens; the *target* is the dash name, so the skill resolves
         // where to write rather than being told and cannot write anywhere else.
         "devise" => Some(format!(
-            "/tugplug:plan-devise a plan for {}, honoring every [B##] decision it records 🢂 {dash}",
+            "/tugplug:dash-devise a plan for {}, honoring every [B##] decision it records 🢂 {dash}",
             document?
         )),
-        "review" => Some(format!("/tugplug:plan-review {dash}")),
+        "review" => Some(format!("/tugplug:dash-review {dash}")),
         "implement" => Some(match steps {
             // No selector on the first implement stage: the whole plan, and
             // `dash-implement`'s own setup declares `--through`.
@@ -122,7 +122,7 @@ pub fn stage_ask(
 ///
 /// Four clauses, each dropped when its fact is absent: the ask, where to
 /// start, what moved in those files since the document was written, and — for
-/// a score that stopped and is resuming — where it stopped and why. A call
+/// a course that stopped and is resuming — where it stopped and why. A call
 /// with only an ask returns exactly that ask, which is what makes this a safe
 /// replacement for a bare one.
 pub fn compose(
@@ -153,7 +153,7 @@ pub fn compose(
 mod tests {
     use super::*;
 
-    const ASK: &str = "/tugplug:plan-review dash/foo.md";
+    const ASK: &str = "/tugplug:dash-review dash/foo.md";
 
     #[test]
     fn an_ask_with_nothing_to_add_is_exactly_the_ask() {

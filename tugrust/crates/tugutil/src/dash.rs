@@ -1343,7 +1343,7 @@ fn run_arc_stop(
 /// **The verbs that start or resume work on a dash call this** — `create` and
 /// `step start` — because a run that resumes an existing plan never creates
 /// one, and leaving the claim to whoever remembered to type `dash bind` is the
-/// same mistake [D147] removed from the join arc's other end. `commit` is
+/// same mistake [D147] removed from the join's other end. `commit` is
 /// deliberately not among them: see the note there. A dash whose worker
 /// nobody recorded shows no worker on its Lens row, on the session masthead or
 /// in the shade, and — since the pilot works only for bound dashes — is never

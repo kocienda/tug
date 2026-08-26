@@ -610,7 +610,7 @@ pub enum ChangesetEntry {
         /// The join pipeline's entire durable state for this dash — blockers,
         /// conflicts, the resolved candidate, and what verification said of it.
         ///
-        /// This is the join arc's single source of truth ([P01]); the client
+        /// This is the join's single source of truth ([P01]); the client
         /// holds no durable copy of any of it. Absent from an older server,
         /// which reads as "nothing to say" and leaves the face where it was.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -664,7 +664,7 @@ pub struct DashFit {
 /// The join pipeline's state for one dash — the single durable source every
 /// client reads ([P01] of the join-pipeline plan).
 ///
-/// Before this block existed, the join arc's truth was assembled at render time
+/// Before this block existed, the join's truth was assembled at render time
 /// from four separate client stores stitched together by string equality, and
 /// every missed stitch rendered as nothing happening at all. The server already
 /// knew each of these facts; publishing what it knows is what makes the

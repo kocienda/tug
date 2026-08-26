@@ -32,13 +32,11 @@ import {
  */
 const PLUGIN_CATALOG = [
   "tugplug:dash",
-  "tugplug:dash-audit",
   "tugplug:dash-implement",
-  "tugplug:dash-on",
+  "tugplug:poke",
   "tugplug:draft",
-  "tugplug:history",
-  "tugplug:plan-devise",
-  "tugplug:plan-review",
+  "tugplug:dash-devise",
+  "tugplug:dash-review",
   "tugplug:spike-card",
 ] as const;
 

@@ -1,5 +1,5 @@
 /**
- * dash-join-register — the one sentence the join arc says, state by state.
+ * dash-join-register — the one sentence the join says, state by state.
  *
  * Three surfaces render this: the Lens Dashes row, the Changes shade's dash
  * row, and the composer's status row. They agree because they all call this
@@ -129,7 +129,7 @@ describe("what the register says", () => {
     expect(gap?.word).toBe("reconciling");
   });
 
-  test("a dash still being worked has no join arc, and mounts nothing", () => {
+  test("a dash still being worked has no join, and mounts nothing", () => {
     expect(reg(null, { stage: "implementing" })).toBeNull();
     expect(reg({ phase: "previewed" }, { stage: "implementing" })).toBeNull();
   });

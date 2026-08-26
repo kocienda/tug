@@ -1,5 +1,5 @@
 /**
- * DashJoinRegister — one dash's join arc, wearing the transcript's own chrome.
+ * DashJoinRegister — one dash's join, wearing the transcript's own chrome.
  *
  * The register says what is happening between a dash reaching `built` and its
  * join landing: reconciling, checking, ready, waiting on a decision, red,
@@ -15,7 +15,7 @@
  * how two surfaces come to disagree; reusing this one means they cannot.
  *
  * **Status, never a control.** Nothing here is pressable. Every act in the
- * join arc lives in Z5 or in the prompt — a register that offered a button
+ * join lives in Z5 or in the prompt — a register that offered a button
  * would be the shade's thicket rebuilt one surface over.
  *
  * Laws: [L02] every value arrives as a prop from the caller's own store read —
@@ -56,7 +56,7 @@ export interface DashJoinRegisterProps extends DashJoinRegisterInput {
  * The register, or nothing at all.
  *
  * Returns `null` when the derivation has nothing to report — a dash still
- * being worked has no join arc yet, and a register that mounted empty would be
+ * being worked has no join yet, and a register that mounted empty would be
  * a row of chrome saying nothing.
  */
 export function DashJoinRegister({

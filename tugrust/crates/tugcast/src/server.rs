@@ -483,7 +483,7 @@ struct DashApiRequest {
     reason: Option<String>,
 }
 
-// (POST /api/plan-review is gone: a review is an ordinary turn the user starts,
+// (POST /api/dash-review is gone: a review is an ordinary turn the user starts,
 // so there is no signal for a skill to fire and nothing for the server to relay.)
 
 /// Handle POST /api/dash. Loopback only, like every tugcast API; the ledger
@@ -832,13 +832,13 @@ async fn session_handler(
                 let session_id = session_id.clone();
                 tokio::task::spawn_blocking(move || {
                     let known = matches!(ledger.get(&session_id), Ok(Some(_)));
-                    let scored =
-                        known && crate::wheel::score_is_running(&ledger, &session_id);
-                    (known, scored)
+                    let on_course =
+                        known && crate::wheel::course_is_running(&ledger, &session_id);
+                    (known, on_course)
                 })
                 .await
             };
-            let (known, scored) = match probe {
+            let (known, on_course) = match probe {
                 Ok(probe) => probe,
                 Err(e) => {
                     return err(
@@ -850,7 +850,7 @@ async fn session_handler(
             if !known {
                 return err(StatusCode::NOT_FOUND, "unknown_session");
             }
-            if scored {
+            if on_course {
                 return err(
                     StatusCode::CONFLICT,
                     crate::wheel::Refusal::ArcRunning.reason(),

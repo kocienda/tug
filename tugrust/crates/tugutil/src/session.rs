@@ -189,7 +189,7 @@ fn run_rotate(
         .and_then(|r| r.as_bool())
         .unwrap_or(false);
     // A rotation naming a model pins the card there until somebody restores the
-    // deck's own selector, and no score's ending will — so the wheel hands
+    // deck's own selector, and no course's ending will — so the wheel hands
     // it back one turn later, and the ask says so.
     let hands_back = model.is_some();
 

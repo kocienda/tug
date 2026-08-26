@@ -185,7 +185,7 @@ export interface ReachabilityRow {
    * Where that control is — the composer, or nowhere, because only time
    * clears it ([P09]).
    *
-   * `"join-face"` was the third arm, and it is gone. Every act in the join arc
+   * `"join-face"` was the third arm, and it is gone. Every act in the join
    * now lives in Z5 or in a summoned prompt, so a refusal pointing at the
    * shade would name a control that is not there: the same 2026-08-18 failure
    * this table was written to make impossible, arrived at from the other

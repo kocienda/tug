@@ -2001,7 +2001,7 @@ fn step_in(
 /// re-enters the step it was on without a hand-edit.
 ///
 /// `through` is the final step of this run's selection, which the log records
-/// so the join arc can tell a finished run from a paused one ([P01]).
+/// so the join can tell a finished run from a paused one ([P01]).
 pub fn step_start(name: &str, step: u32, through: u32) -> Result<StepOutcome, String> {
     let repo_root = find_repo_root().map_err(|e| e.to_string())?;
     migrate_worktrees(&repo_root, &mut Vec::new());
@@ -2184,7 +2184,7 @@ pub fn commit(
     let commit_message = with_dash_trailers(&repo_root, name, &branch, &commit_message);
 
     // Stage and commit, re-attempting past a held `index.lock` (Spec S02) —
-    // the join arc's preflight sweep commits into this same worktree, and
+    // the join's preflight sweep commits into this same worktree, and
     // whichever writer lost the race used to die outright.
     let mut last_error = String::new();
     let mut result: Option<Option<String>> = None;
@@ -2766,7 +2766,7 @@ pub(crate) fn commit_worktree_dirt(worktree: &Path, name: &str) -> Result<(), St
     Err(last_error)
 }
 
-/// The trailer that marks a commit as the join arc's preflight sweep rather
+/// The trailer that marks a commit as the join's preflight sweep rather
 /// than authored work (Spec S03).
 ///
 /// Written at exactly one site — [`commit_worktree_dirt`] — and read as an
@@ -2783,7 +2783,7 @@ pub(crate) struct DashRound {
     pub committed_at: String,
 }
 
-/// A dash's rounds — every commit ahead of its base **except** the join arc's
+/// A dash's rounds — every commit ahead of its base **except** the join's
 /// preflight sweeps (Spec S03). Newest first, as git logs them.
 ///
 /// This is the one reader. `rounds` was four separate `rev-list --count`s
@@ -4553,7 +4553,7 @@ Some context.
     // -----------------------------------------------------------------------
     // index.lock contention (Spec S02)
     //
-    // The race is real and symmetric: the join arc's preflight sweep and a
+    // The race is real and symmetric: the join's preflight sweep and a
     // live `tugutil dash commit` both commit the same worktree's dirt at the
     // same moment, and the loser used to die on `index.lock: File exists`.
     // These hold the lock deterministically and release it from a helper
@@ -4754,7 +4754,7 @@ Some context.
         author_round(&worktree, 1);
         author_round(&worktree, 2);
 
-        // Dirt, then the join arc's preflight sweep over it.
+        // Dirt, then the join's preflight sweep over it.
         fs::write(worktree.join("late.txt"), "uncommitted\n").unwrap();
         commit_worktree_dirt(&worktree, "swept-count").unwrap();
 

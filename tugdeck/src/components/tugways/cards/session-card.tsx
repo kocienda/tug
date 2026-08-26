@@ -71,7 +71,7 @@ import {
   readLastReviewedPlan,
   resolvePlanReviewTarget,
   writeLastReviewedPlan,
-} from "@/lib/plan-review";
+} from "@/lib/dash-review-target";
 import { useUnavailableModelBulletin } from "@/lib/use-unavailable-model-bulletin";
 import { persistModelCatalog } from "@/lib/model-catalog";
 import { useRewindSheet } from "./rewind-sheet";
@@ -3467,7 +3467,7 @@ export function SessionCardBody({
     showSheet: cardPickerSheet.showSheet,
   });
 
-  // The join arc's decision surface is the Changes shade, and this is what
+  // The join's decision surface is the Changes shade, and this is what
   // summons it. Nothing opens it by hand — the feed causes it, on the card of
   // a session bound to that dash and nowhere else.
   //
@@ -4283,14 +4283,14 @@ export function SessionCardBody({
       }
       shellSessionStore.exec(`tugutil dash create ${name}`);
     },
-    // `/plan-review [path]` — review a plan, as an ordinary turn on whatever
+    // `/dash-review [path]` — review a plan, as an ordinary turn on whatever
     // model is selected right now. Nothing here changes the model, and nothing
     // schedules a turn on the user's behalf: the chip is the gesture, and the
     // moment before clicking it is the moment to switch models if they want to.
     //
     // Bare-form resolution is the only cleverness — explicit arg, else the plan
     // this card last reviewed, else the bound dash's recorded plan.
-    "plan-review": (args) => {
+    "dash-review": (args) => {
       const notify = paneBulletinRef.current;
       if (!codeSessionStore.getSnapshot().canSubmit) {
         notify?.caution("Can't review a plan while a turn is in flight");
@@ -4324,7 +4324,7 @@ export function SessionCardBody({
         boundDash: boundPlan === undefined ? null : { plan: boundPlan },
       });
       if ("refused" in target) {
-        notify?.caution("Name the plan — /plan-review <path>");
+        notify?.caution("Name the plan — /dash-review <path>");
         return;
       }
       writeLastReviewedPlan(cardId, target.path);

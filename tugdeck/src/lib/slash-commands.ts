@@ -255,7 +255,7 @@ export const LOCAL_SLASH_COMMANDS = [
     deprecatedFor: "dash-join",
   },
   {
-    name: "plan-review",
+    name: "dash-review",
     description: "Review a plan on the review model — bare resolves to the last one reviewed",
     takesArgs: true,
   },

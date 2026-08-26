@@ -739,7 +739,7 @@ pub enum StepAction {
     Start {
         /// Step number, matching the ledger's `#step-<n>` anchor.
         step: u32,
-        /// The final step of this run's selection. Required: the join arc arms
+        /// The final step of this run's selection. Required: the join arms
         /// from it, so a run that does not say where it ends cannot be told
         /// from one that stopped early.
         #[arg(long)]

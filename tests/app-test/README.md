@@ -203,7 +203,7 @@ Everything a scratch fixture makes carries the `tug-scratch-` prefix — the
 repo, its data root, its stub scripts, and the transcript directory under
 `~/.claude/projects` — and the recipe sweeps that namespace at the start
 of every run, so a test killed before its teardown leaves nothing behind.
-`at0426` is the worked example for a join arc; `at0421` for a plain
+`at0426` is the worked example for a join; `at0421` for a plain
 dash-UI one.
 
 ## Environment variables

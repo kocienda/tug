@@ -26,7 +26,7 @@
 //!
 //! The same probe stats each open project's `dash-log.md` ([P06]). That file
 //! lives under the data dir rather than the workspace, so a log-only write
-//! reaches no watcher at all — and since the join arc now derives its
+//! reaches no watcher at all — and since the join now derives its
 //! readiness from what the log records, an unobserved append would leave a
 //! ready dash dark until something unrelated moved.
 
