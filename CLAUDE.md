@@ -110,12 +110,15 @@ The rest of the verbs:
 tugutil file edit --path src/x.ts --replace 'old' --with 'new' [--count N] [--regex]
 tugutil file edit --patch changes.diff          # or --patch - to read the diff from stdin
 tugutil file probe --patch p.diff -- just app-test at0287-….test.ts   # patch, run, restore
+tugutil file run -- cargo fmt -p tugrev-core    # run a rewriter, receipt what it moved
 ```
 
 - **`rev`** is for the shape the interpreters were reached for: several literal pairs on one file, a count guard per pair, a region between two markers, the same rename across several files, a numeric line-range delete, a block appended, a span cut.
 - **`edit`** remains right for the one-liner — a single substitution, or a unified diff you already have. It prints the same receipt, and a no-match exits non-zero rather than succeeding quietly.
 - **`probe`** is the patch → run → revert cycle in one command: it restores bytes *and* mtime afterwards and records nothing, which is strictly better than doing it by hand (a hand-rolled probe leaves a spurious hint on the file it touched). Use it instead of `git checkout --` to revert, which would also destroy any uncommitted work already on those paths.
+- **`run`** is for the tool that writes files you did not author: a formatter, a linter's `--fix`, a codegen step. `cargo fmt` names none of its files at all, so nothing can read it — `file run` watches the command instead, fingerprints the repo by content before and after, and receipts exactly what moved. A file the command merely touched is never claimed, and the command's own output and exit status pass straight through. Narrow it with `--scope <path>` when you know where the writes land.
 - `sed -i`, `perl -i`, and `ruby -i` are readable **when every file operand is a literal path**. With a glob or a variable they are denied by the PreToolUse gate and steered here — the gate denies only what the grammar proves it cannot resolve.
+- `rustfmt`, `prettier --write`, `eslint --fix`, and `biome` are readable on the same terms. A glob is *not* one: a formatter expands its own, so `'src/**/*.ts'` names a set even though the shell left it alone. Those, a bare directory, and `cargo fmt` are steered at `file run`. A `--check` run writes nothing and is never touched.
 
 If the edit is genuinely *computed* — a replacement each match decides for itself — run the program **read-only** to print the result, then put that output into a `write` or `replace` op. The read is a heredoc the gate never minds; the write is a receipt.
 

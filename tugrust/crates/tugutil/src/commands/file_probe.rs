@@ -234,7 +234,7 @@ fn restore_or_report(restorer: &mut Restorer) -> Result<(), AppError> {
 
 /// Run the command with stdio inherited — its output is its own, passed through
 /// unchanged so the probe composes wherever the shell form it replaces did.
-fn run_child(program: &str, args: &[String]) -> Result<u8, String> {
+pub(super) fn run_child(program: &str, args: &[String]) -> Result<u8, String> {
     let mut child = std::process::Command::new(program)
         .args(args)
         .spawn()

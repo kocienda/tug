@@ -20,11 +20,11 @@ mod resolve;
 
 pub use apply::{FileOutcome, resolve_and_apply};
 pub use diff::unified_diff;
-pub use resolve::{
-    Edit, FileSource, OutcomeKind, ResolveErrors, ResolveFailure, ResolvedFile, resolve,
-};
 pub use parse::{
     Addr, Block, Count, DeleteTarget, Op, OpKind, Program, Range, RegexLit, Side, Text, parse,
+};
+pub use resolve::{
+    Edit, FileSource, OutcomeKind, ResolveErrors, ResolveFailure, ResolvedFile, resolve,
 };
 
 /// Where a program failed to parse: 1-based line and column, as an editor

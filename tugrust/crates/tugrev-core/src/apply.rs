@@ -90,9 +90,7 @@ mod tests {
 
     #[test]
     fn ops_in_any_order_land_the_same_edit() {
-        let before = (1..=10)
-            .map(|n| format!("line {n}\n"))
-            .collect::<String>();
+        let before = (1..=10).map(|n| format!("line {n}\n")).collect::<String>();
         let top_down = content(
             "file a.txt\n  delete 2 .. 3\n  delete 6\n  delete 9 .. 10\n",
             &before,
@@ -116,8 +114,14 @@ mod tests {
 
     #[test]
     fn a_file_without_a_trailing_newline_keeps_that_until_something_appends_past_its_last_line() {
-        assert_eq!(content("file a.txt\n  delete 2\n", "one\ntwo\nthree"), "one\nthree");
-        assert_eq!(content("file a.txt\n  delete 3\n", "one\ntwo\nthree"), "one\ntwo");
+        assert_eq!(
+            content("file a.txt\n  delete 2\n", "one\ntwo\nthree"),
+            "one\nthree"
+        );
+        assert_eq!(
+            content("file a.txt\n  delete 3\n", "one\ntwo\nthree"),
+            "one\ntwo"
+        );
         assert_eq!(
             content("file a.txt\n  append <<\n  four\n  >>\n", "one\ntwo\nthree"),
             "one\ntwo\nthree\nfour\n"
@@ -164,7 +168,10 @@ mod tests {
     #[test]
     fn a_program_whose_result_equals_the_original_says_so_in_its_outcome() {
         let before = "same\n";
-        let outcome = run("file a.txt\n  replace 'same' with 'same'\n", &[("a.txt", before)]);
+        let outcome = run(
+            "file a.txt\n  replace 'same' with 'same'\n",
+            &[("a.txt", before)],
+        );
         assert_eq!(outcome[0].new_content, before);
     }
 
@@ -189,7 +196,10 @@ mod tests {
             "one\nonly\nfour\n"
         );
         assert_eq!(
-            content("file a.txt\n  lines 2 .. 3 replace << >>\n", "one\ntwo\nthree\nfour\n"),
+            content(
+                "file a.txt\n  lines 2 .. 3 replace << >>\n",
+                "one\ntwo\nthree\nfour\n"
+            ),
             "one\nfour\n"
         );
     }

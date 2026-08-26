@@ -83,6 +83,9 @@ pub enum Suggestion {
     /// An interpreter writing a repo file from a program text the grammar
     /// cannot read — the one refusal that comes from looking inside a body.
     Rev,
+    /// A formatter or codegen step rewriting files in place whose write
+    /// targets are not in the command text — `cargo fmt` names none at all.
+    Run,
 }
 
 /// Parse `command` into the file operations it declares, resolving relative
@@ -560,6 +563,37 @@ fn parse_segment(tokens: &[Tok], cwd: &mut Option<PathBuf>) -> SegmentOutcome {
             }));
             finish(ops)
         }
+        _ if is_formatter(&head.text) => match formatter_ops(&head.text, rest, cwd) {
+            Ok(paths) => {
+                ops.extend(paths);
+                finish(ops)
+            }
+            Err(reason) => SegmentOutcome::Refuse(reason, Suggestion::Run),
+        },
+        // `bunx prettier --write …` is how this repo actually runs one, so the
+        // runner is stepped over to reach the verb it is running.
+        "bunx" | "npx" | "pnpx" if rest.first().is_some_and(|w| is_formatter(&w.text)) => {
+            let verb = rest[0].text.clone();
+            match formatter_ops(&verb, &rest[1..], cwd) {
+                Ok(paths) => {
+                    ops.extend(paths);
+                    finish(ops)
+                }
+                Err(reason) => SegmentOutcome::Refuse(reason, Suggestion::Run),
+            }
+        }
+        "cargo" if rest.first().is_some_and(|w| w.text == "fmt") => {
+            if rest.iter().any(|w| w.text == "--check") {
+                finish(ops)
+            } else {
+                SegmentOutcome::Refuse(
+                    "`cargo fmt` rewrites files it discovers from the crate's module tree, so \
+                     the command names none of them"
+                        .to_string(),
+                    Suggestion::Run,
+                )
+            }
+        }
         "sed" | "perl" | "ruby" => match in_place_editor_ops(head.text.as_str(), rest, cwd) {
             Ok(mut edits) => {
                 ops.append(&mut edits);
@@ -753,6 +787,91 @@ fn scan_editor_flag(verb: &str, text: &str) -> EditorFlag {
         }
     }
     EditorFlag::Plain
+}
+
+/// The formatters the grammar knows by name. Each rewrites files in place
+/// without being an `-i` editor, which is the whole reason this set exists.
+fn is_formatter(verb: &str) -> bool {
+    matches!(verb, "rustfmt" | "prettier" | "eslint" | "biome")
+}
+
+/// A formatter's file operands, when it is in a mode that writes.
+///
+/// Formatters are the residue the in-place editors above do not cover: they
+/// rewrite files but are not `-i` editors, so without this arm every one of
+/// them reached the ledger as a bracket hint. Recognising them costs nothing
+/// when the operands are literal — that is a `cmd` proof row like any other.
+///
+/// A write-mode run whose targets the grammar cannot name is refused toward
+/// `tugutil file run`, which watches the command and receipts what moved. A
+/// read-only run (`--check`, `--list-different`, `eslint` without `--fix`)
+/// declares nothing and is left alone.
+fn formatter_ops(
+    verb: &str,
+    words: &[&Word],
+    cwd: &Option<PathBuf>,
+) -> Result<Vec<DeclaredOp>, String> {
+    let writes = match verb {
+        // rustfmt writes by default; only an explicit check/emit mode does not.
+        "rustfmt" => !words
+            .iter()
+            .any(|w| w.text == "--check" || w.text.starts_with("--emit")),
+        "prettier" | "biome" => words.iter().any(|w| w.text == "--write" || w.text == "-w"),
+        "eslint" => words.iter().any(|w| w.text == "--fix"),
+        _ => false,
+    };
+    if !writes {
+        return Ok(Vec::new());
+    }
+
+    let operands: Vec<&&Word> = words
+        .iter()
+        .filter(|w| !w.text.starts_with('-') && !w.text.is_empty())
+        .collect();
+    if operands.is_empty() {
+        return Err(format!(
+            "`{verb}` is rewriting files, but the command names none of them"
+        ));
+    }
+
+    let mut out = Vec::new();
+    for w in operands {
+        if !w.literal {
+            return Err(format!(
+                "`{verb}` rewrites operand `{}`, which is not a literal path",
+                w.text
+            ));
+        }
+        // A formatter expands its own globs, so an operand the *shell* left
+        // alone because it was quoted still names a set rather than a file.
+        // Minting a row for `src/**/*.ts` would name a path that does not
+        // exist while the files actually rewritten got nothing.
+        if w.text.contains(['*', '?', '[', '{']) {
+            return Err(format!(
+                "`{verb}` expands `{}` itself, so the command names a set rather than files",
+                w.text
+            ));
+        }
+        match resolve(cwd, &w.text) {
+            Some(path) if path.is_dir() => {
+                return Err(format!(
+                    "`{verb}` rewrites files under `{}`, which the command does not name",
+                    w.text
+                ));
+            }
+            Some(path) => out.push(DeclaredOp {
+                kind: DeclaredKind::EditInPlace,
+                path,
+            }),
+            None => {
+                return Err(format!(
+                    "`{verb}` rewrites `{}`, which cannot be resolved to a path",
+                    w.text
+                ));
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// The in-place editors — `sed -i`, `perl -i`, `ruby -i` — name the files they
@@ -1762,6 +1881,57 @@ mod tests {
     fn pseudo_devices_and_descriptor_dups_are_not_targets() {
         assert_no_file_ops("cargo build > /dev/null 2>&1");
         assert_no_file_ops("echo hi >&2");
+    }
+
+    #[test]
+    fn a_formatter_in_write_mode_declares_its_literal_operands() {
+        assert_eq!(
+            ops("rustfmt f1.rs f2.rs")
+                .into_iter()
+                .map(|op| op.path)
+                .collect::<Vec<_>>(),
+            vec![PathBuf::from("/repo/f1.rs"), PathBuf::from("/repo/f2.rs")]
+        );
+        assert_eq!(
+            ops("eslint --fix src/a.ts")[0].path,
+            PathBuf::from("/repo/src/a.ts")
+        );
+        // The runner is stepped over to reach the formatter it runs.
+        assert_eq!(
+            ops("bunx prettier --write src/a.ts")[0].path,
+            PathBuf::from("/repo/src/a.ts")
+        );
+    }
+
+    #[test]
+    fn a_formatter_that_does_not_write_declares_nothing() {
+        assert_no_file_ops("rustfmt --check f1.rs");
+        assert_no_file_ops("prettier --check src/a.ts");
+        assert_no_file_ops("eslint src/a.ts");
+        assert_no_file_ops("cargo fmt --check");
+        assert_no_file_ops("cargo fmt -p tugrev-core -- --check");
+        assert_no_file_ops("cargo build");
+    }
+
+    #[test]
+    fn a_write_mode_formatter_the_grammar_cannot_name_steers_at_file_run() {
+        // The command that opened this hole: it rewrites a whole crate and
+        // names not one of its files.
+        for command in [
+            "cargo fmt",
+            "cargo fmt -p tugrev-core",
+            "rustfmt src/*.rs",
+            "bunx prettier --write 'src/**/*.ts'",
+            "rustfmt $FILE",
+            "eslint --fix",
+        ] {
+            match parse_shell_ops(command, &base()) {
+                ParseOutcome::Unparseable { suggest, .. } => {
+                    assert_eq!(suggest, Suggestion::Run, "wrong steer for `{command}`");
+                }
+                other => panic!("expected a refusal for `{command}`, got {other:?}"),
+            }
+        }
     }
 
     #[test]

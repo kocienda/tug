@@ -363,8 +363,8 @@ fn parse_regex(scanner: &mut Scanner) -> Result<RegexLit, ParseError> {
     scanner.skip_spaces();
     let at = scanner.col;
     let (source, flags) = scanner.read_regex()?;
-    let regex = compile(&source, &flags)
-        .map_err(|message| scanner.error_at(line, at + 1, message))?;
+    let regex =
+        compile(&source, &flags).map_err(|message| scanner.error_at(line, at + 1, message))?;
     Ok(RegexLit {
         source,
         flags,
@@ -499,7 +499,12 @@ mod tests {
     }
 
     fn ops(source: &str) -> Vec<Op> {
-        program(source).blocks.into_iter().next().expect("a block").ops
+        program(source)
+            .blocks
+            .into_iter()
+            .next()
+            .expect("a block")
+            .ops
     }
 
     fn failure(source: &str) -> ParseError {
@@ -508,13 +513,14 @@ mod tests {
 
     #[test]
     fn a_file_block_names_one_path_and_a_files_block_names_several() {
-        let p = program(
-            "file a.rs\n  delete 1\nfiles b.rs c.rs\n  replace 'x' with 'y'\n",
-        );
+        let p = program("file a.rs\n  delete 1\nfiles b.rs c.rs\n  replace 'x' with 'y'\n");
         assert_eq!(p.blocks.len(), 2);
         assert_eq!(p.blocks[0].paths, vec!["a.rs".to_string()]);
         assert_eq!(p.blocks[0].line, 1);
-        assert_eq!(p.blocks[1].paths, vec!["b.rs".to_string(), "c.rs".to_string()]);
+        assert_eq!(
+            p.blocks[1].paths,
+            vec!["b.rs".to_string(), "c.rs".to_string()]
+        );
     }
 
     #[test]
@@ -591,10 +597,15 @@ mod tests {
                 indented,
                 body,
             } => {
-                assert!(matches!(anchor, Addr::Literal(l, None) if l == "attachPulseStore(connection);"));
+                assert!(
+                    matches!(anchor, Addr::Literal(l, None) if l == "attachPulseStore(connection);")
+                );
                 assert_eq!(*side, Side::After);
                 assert!(indented);
-                assert_eq!(body, &vec!["".to_string(), "attachLocalModelStore(connection);".into()]);
+                assert_eq!(
+                    body,
+                    &vec!["".to_string(), "attachLocalModelStore(connection);".into()]
+                );
             }
             other => panic!("expected insert, got {other:?}"),
         }
@@ -640,7 +651,11 @@ mod tests {
             "  delete /^### Remaining execution steps/ .. $\n",
         ));
         match &p.blocks[0].ops[0].kind {
-            OpKind::Move { range, side, anchor } => {
+            OpKind::Move {
+                range,
+                side,
+                anchor,
+            } => {
                 assert!(matches!(range.start, Addr::Line(431)));
                 assert!(matches!(range.end, Addr::Line(441)));
                 assert_eq!(*side, Side::Before);
@@ -652,7 +667,9 @@ mod tests {
             OpKind::Delete {
                 target: DeleteTarget::Range(range),
             } => {
-                assert!(matches!(&range.start, Addr::Regex(r, None) if r.source == "^### Remaining execution steps"));
+                assert!(
+                    matches!(&range.start, Addr::Regex(r, None) if r.source == "^### Remaining execution steps")
+                );
                 assert!(matches!(range.end, Addr::Last));
             }
             other => panic!("expected delete, got {other:?}"),
@@ -684,7 +701,9 @@ mod tests {
         match &ops[0].kind {
             OpKind::Replace { scope, .. } => {
                 let scope = scope.as_ref().expect("an `in` scope");
-                assert!(matches!(&scope.start, Addr::Regex(r, None) if r.source == r"^mod tests \{"));
+                assert!(
+                    matches!(&scope.start, Addr::Regex(r, None) if r.source == r"^mod tests \{")
+                );
                 assert!(matches!(scope.end, Addr::Last));
             }
             other => panic!("expected replace, got {other:?}"),
@@ -729,7 +748,9 @@ mod tests {
     #[test]
     fn write_and_lines_replace_and_delete_every_parse() {
         let write = ops("file a.txt\n  write <<\n  whole\n  >>\n");
-        assert!(matches!(&write[0].kind, OpKind::Write { body } if body == &vec!["whole".to_string()]));
+        assert!(
+            matches!(&write[0].kind, OpKind::Write { body } if body == &vec!["whole".to_string()])
+        );
 
         let lines = ops("file a.txt\n  lines 3 until 'end marker' replace << >>\n");
         match &lines[0].kind {
@@ -743,15 +764,31 @@ mod tests {
         let every = ops("file a.txt\n  delete every /^debug!/\n");
         assert!(matches!(
             &every[0].kind,
-            OpKind::Delete { target: DeleteTarget::Every(Addr::Regex(_, None)) }
+            OpKind::Delete {
+                target: DeleteTarget::Every(Addr::Regex(_, None))
+            }
         ));
     }
 
     #[test]
     fn a_match_qualifier_selects_which_hit_an_address_means() {
-        let ops = ops("file a.txt\n  before /^fn go/[3] insert <<\n  x\n  >>\n  after 'tail'[-1] insert << >>\n");
-        assert!(matches!(&ops[0].kind, OpKind::Insert { anchor: Addr::Regex(_, Some(3)), .. }));
-        assert!(matches!(&ops[1].kind, OpKind::Insert { anchor: Addr::Literal(_, Some(-1)), .. }));
+        let ops = ops(
+            "file a.txt\n  before /^fn go/[3] insert <<\n  x\n  >>\n  after 'tail'[-1] insert << >>\n",
+        );
+        assert!(matches!(
+            &ops[0].kind,
+            OpKind::Insert {
+                anchor: Addr::Regex(_, Some(3)),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &ops[1].kind,
+            OpKind::Insert {
+                anchor: Addr::Literal(_, Some(-1)),
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -769,15 +806,39 @@ mod tests {
     #[test]
     fn the_default_guard_is_expect_one_for_both_replace_and_sub() {
         let ops = ops("file a.txt\n  replace 'a' with 'b'\n  sub /a/ 'b'\n");
-        assert!(matches!(&ops[0].kind, OpKind::Replace { count: Count::Expect(1), .. }));
-        assert!(matches!(&ops[1].kind, OpKind::Sub { count: Count::Expect(1), .. }));
+        assert!(matches!(
+            &ops[0].kind,
+            OpKind::Replace {
+                count: Count::Expect(1),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &ops[1].kind,
+            OpKind::Sub {
+                count: Count::Expect(1),
+                ..
+            }
+        ));
     }
 
     #[test]
     fn all_and_an_explicit_expect_parse() {
         let ops = ops("file a.txt\n  replace 'a' with 'b' all\n  sub /a/ 'b' expect 3\n");
-        assert!(matches!(&ops[0].kind, OpKind::Replace { count: Count::All, .. }));
-        assert!(matches!(&ops[1].kind, OpKind::Sub { count: Count::Expect(3), .. }));
+        assert!(matches!(
+            &ops[0].kind,
+            OpKind::Replace {
+                count: Count::All,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &ops[1].kind,
+            OpKind::Sub {
+                count: Count::Expect(3),
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -808,7 +869,11 @@ mod tests {
     fn an_unterminated_string_names_its_opening_quote() {
         let err = failure("file a.txt\n  delete 'no closing quote\n");
         assert_eq!((err.line, err.col), (2, 10));
-        assert!(err.message.contains("unterminated string"), "{}", err.message);
+        assert!(
+            err.message.contains("unterminated string"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]

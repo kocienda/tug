@@ -426,7 +426,11 @@ fn resolve_op(doc: &Doc, op: &Op) -> Result<Vec<Edit>, String> {
                 replacement,
             }])
         }
-        OpKind::Move { range, side, anchor } => {
+        OpKind::Move {
+            range,
+            side,
+            anchor,
+        } => {
             let (first, last) = doc.range_of(range)?;
             let landing = doc.line_of(anchor)?;
             if landing >= first && landing <= last {
@@ -596,8 +600,9 @@ impl<'a> Doc<'a> {
         let mut last = self.line_of(&range.end)?;
         if range.exclusive_end {
             if last == 0 {
-                return Err("the range's `until` end is the first line, so it holds nothing"
-                    .to_string());
+                return Err(
+                    "the range's `until` end is the first line, so it holds nothing".to_string(),
+                );
             }
             last -= 1;
         }
@@ -836,7 +841,11 @@ mod tests {
         assert_eq!(err.failures.len(), 2);
         assert_eq!(err.failures[0].op_line, 2);
         assert_eq!(err.failures[1].op_line, 3);
-        assert!(err.failures[0].message.contains("4 lines"), "{}", err.failures[0].message);
+        assert!(
+            err.failures[0].message.contains("4 lines"),
+            "{}",
+            err.failures[0].message
+        );
     }
 
     #[test]
@@ -844,7 +853,9 @@ mod tests {
         let err = refusal("file a.txt\n  delete 1 .. 2\n  delete 2 .. 3\n", &doc());
         assert_eq!(err.failures[0].op_line, 2);
         assert!(
-            err.failures[0].message.contains("overlaps the one on line 3"),
+            err.failures[0]
+                .message
+                .contains("overlaps the one on line 3"),
             "{}",
             err.failures[0].message
         );
@@ -924,7 +935,10 @@ mod tests {
     #[test]
     fn delete_every_is_the_one_address_that_may_match_many_lines() {
         let repeated = vec![("a.txt", "keep\ndrop\nkeep\ndrop\n")];
-        assert_eq!(only(&repeated, "delete every /^drop/"), vec![(5, 10), (15, 20)]);
+        assert_eq!(
+            only(&repeated, "delete every /^drop/"),
+            vec![(5, 10), (15, 20)]
+        );
 
         let err = refusal("file a.txt\n  delete every /^nothing/\n", &repeated);
         assert!(

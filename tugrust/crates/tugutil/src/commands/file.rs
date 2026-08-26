@@ -40,6 +40,7 @@ pub fn run_file(command: FileCommands) -> Result<(), AppError> {
             paths,
             command,
         } => super::file_probe::run_probe(patch, &paths, &command),
+        FileCommands::Run { scopes, command } => super::file_run::run_run(&scopes, &command),
         FileCommands::Rev { preview, file } => run_rev(preview, file),
         FileCommands::Gate { command, base_dir } => run_gate(&command, base_dir),
     }
@@ -396,6 +397,16 @@ exactly which files changed, so the edit stays attributed:
 
 Preview first with `tugutil file rev --preview`. If the edit is computed, run the program
 read-only to print the result, then put that output in a `write` or `replace` op."#
+        }
+        Suggestion::Run => {
+            r#"Run it through `tugutil file run` instead — it watches the command and reports
+exactly which files it rewrote, so the change stays attributed:
+
+  tugutil file run -- cargo fmt -p tugrev-core
+  tugutil file run --scope tugdeck/src -- bunx prettier --write 'tugdeck/src/**/*.ts'
+
+It fingerprints the repo's files by content before and after, so a file the command
+merely touched is never claimed. The command's own output and exit status pass through."#
         }
     }
 }

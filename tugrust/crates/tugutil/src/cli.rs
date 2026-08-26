@@ -84,6 +84,18 @@ pub enum FileCommands {
         #[arg(last = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// Run a command that rewrites files in place and receipt exactly what it
+    /// moved — the attributable form of `cargo fmt`, `rustfmt`, `prettier
+    /// --write`, `eslint --fix`, and any codegen step whose write targets are
+    /// not in the command text. The inverse of `probe`, which restores.
+    Run {
+        /// Limit the watched universe to these paths (default: the whole repo).
+        #[arg(long = "scope")]
+        scopes: Vec<String>,
+        /// The command to run, after `--`.
+        #[arg(last = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
     /// Run a `.rev` program: a multi-line, multi-file edit that resolves every
     /// address against original bytes before writing anything, and reports
     /// exactly which files moved.

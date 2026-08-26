@@ -49,7 +49,10 @@ impl Scanner {
     }
 
     pub(crate) fn peek(&self) -> Option<char> {
-        self.lines.get(self.line).and_then(|l| l.get(self.col)).copied()
+        self.lines
+            .get(self.line)
+            .and_then(|l| l.get(self.col))
+            .copied()
     }
 
     pub(crate) fn peek_at(&self, ahead: usize) -> Option<char> {
@@ -359,7 +362,10 @@ impl Scanner {
                 return Err(self.error_at(open_line, open_col, "unterminated body — no `>>`"));
             }
             let line = &self.lines[self.line];
-            let leading = line.iter().take_while(|c| **c == ' ' || **c == '\t').count();
+            let leading = line
+                .iter()
+                .take_while(|c| **c == ' ' || **c == '\t')
+                .count();
             let rest: String = line[leading..].iter().collect();
             if rest.starts_with(">>") && terminates(&rest[2..], continues) {
                 self.col = leading + 2;
