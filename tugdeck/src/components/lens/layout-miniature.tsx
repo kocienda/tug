@@ -707,6 +707,7 @@ export function LayoutMiniature({
                 <span
                   key={block.slot}
                   className="layout-mini-block"
+                  data-band={block.slot % 2 === 0 ? "even" : "odd"}
                   style={{ left: `${block.leftPct}%`, width: `${block.widthPct}%` }}
                 />
               );
@@ -742,6 +743,7 @@ export function LayoutMiniature({
                 <span
                   key={`${block.slot}:${m}`}
                   className="layout-mini-block"
+                  data-band={block.slot % 2 === 0 ? "even" : "odd"}
                   data-column-member=""
                   data-column-overflow={overflow ? "" : undefined}
                   style={

@@ -1086,12 +1086,19 @@ describe("the CSS and numeric forms agree", () => {
 });
 
 describe("the space allocator", () => {
-  /** The motivating shape: five-up with cards in slots 1, 3 and 5, all the
-   *  same width. Three cards and two gaps want a band of exactly 2410. */
-  const FIVE_UP_THIRDS = [
+  /** The motivating shape: three cards of one width at an even stride. Three
+   *  cards and two gaps want a band of exactly 2410.
+   *
+   *  Written as a FULL three-up rather than as five-up with slots 0, 2 and 4
+   *  filled, which is how it read while the allocator's chain was the occupied
+   *  slots alone. The two are the same geometry — `travelFraction` gives 0,
+   *  0.5 and 1 either way, so every constant below is unchanged — but they are
+   *  no longer the same INPUT: the chain is now every slot the kind defines,
+   *  so five-up with two holes is a chain of five and wants a band of 4020. */
+  const THREE_UP_RUN = [
     { slot: 0, width: 800 },
+    { slot: 1, width: 800 },
     { slot: 2, width: 800 },
-    { slot: 4, width: 800 },
   ];
   /** The band that tiles the shape above exactly, and the Lens width that
    *  produces it on a canvas of width W: `W - 3·gap - band`. */
@@ -1105,7 +1112,7 @@ describe("the space allocator", () => {
     canvasWidth: number,
     lensWidth: number,
     occupied: readonly { slot: number; width: number }[],
-    kind: "five-up",
+    kind: "three-up",
   ): number[] {
     const span = resolveSpan({ width: canvasWidth, height: 800 }, [
       { side: "right", width: lensWidth },
@@ -1126,13 +1133,13 @@ describe("the space allocator", () => {
     const canvasWidth = 2845;
     const width = allocateOneRail({
       canvasWidth,
-      kind: "five-up",
-      occupied: FIVE_UP_THIRDS,
+      kind: "three-up",
+      occupied: THREE_UP_RUN,
       preferredWidth: 400,
       minWidth: 320,
     });
     expect(width).toBe(lensFor(canvasWidth));
-    for (const seam of seamsAt(canvasWidth, width ?? 0, FIVE_UP_THIRDS, "five-up")) {
+    for (const seam of seamsAt(canvasWidth, width ?? 0, THREE_UP_RUN, "three-up")) {
       expect(seam).toBeCloseTo(GAP, 9);
     }
   });
@@ -1142,11 +1149,11 @@ describe("the space allocator", () => {
     // A deck 20px wider than the exact fit spreads the cards: the Lens takes
     // the surplus.
     const roomy = 2865;
-    expect(seamsAt(roomy, preferredWidth, FIVE_UP_THIRDS, "five-up")[0]).toBeGreaterThan(GAP);
+    expect(seamsAt(roomy, preferredWidth, THREE_UP_RUN, "three-up")[0]).toBeGreaterThan(GAP);
     const grown = allocateOneRail({
       canvasWidth: roomy,
-      kind: "five-up",
-      occupied: FIVE_UP_THIRDS,
+      kind: "three-up",
+      occupied: THREE_UP_RUN,
       preferredWidth,
       minWidth: 320,
     });
@@ -1155,11 +1162,11 @@ describe("the space allocator", () => {
 
     // And 20px narrower overlaps them: the Lens gives the difference back.
     const crowded = 2825;
-    expect(seamsAt(crowded, preferredWidth, FIVE_UP_THIRDS, "five-up")[0]).toBeLessThan(GAP);
+    expect(seamsAt(crowded, preferredWidth, THREE_UP_RUN, "three-up")[0]).toBeLessThan(GAP);
     const shrunk = allocateOneRail({
       canvasWidth: crowded,
-      kind: "five-up",
-      occupied: FIVE_UP_THIRDS,
+      kind: "three-up",
+      occupied: THREE_UP_RUN,
       preferredWidth,
       minWidth: 320,
     });
@@ -1167,29 +1174,34 @@ describe("the space allocator", () => {
     expect(shrunk).toBeLessThan(preferredWidth);
   });
 
-  test("irregular occupancy takes the narrowest rail, not the least-squares fit", () => {
-    // Slots 1, 2 and 5 of five-up: fractions 0, 1/4, 1 with uniform 800s. No
-    // band tiles that at all, so the least-squares fit does not remove the
-    // error, it spreads it — B* = Σa(gap − c)/Σa² = 1305 / 0.625 = 2088, which
-    // puts one pair of cards deep under one another so the next pair can stand
-    // far apart. Sum-of-squares scores an overlap and a gap alike; on screen
-    // they are not remotely the same thing.
+  test("irregular WIDTHS take the narrowest rail, not the least-squares fit", () => {
+    // Irregular OCCUPANCY no longer exists as an input: the chain is every
+    // slot the kind defines, so a hole is a vacancy at the vacancy's extent
+    // and the stride stays even. What can still be irregular is the cards'
+    // own widths, and that is what this reads — a slim card either side of a
+    // wide one, which no band tiles at all.
+    //
+    // So the least-squares fit does not remove the error, it spreads it, and
+    // it lands outside the rail's range entirely. Sum-of-squares scores an
+    // overlap and a gap alike; on screen they are not remotely the same thing.
     const canvasWidth = 2523;
     const input = {
       canvasWidth,
-      kind: "five-up" as const,
+      kind: "three-up" as const,
       occupied: [
         { slot: 0, width: 800 },
-        { slot: 1, width: 800 },
-        { slot: 4, width: 800 },
+        { slot: 1, width: 1230 },
+        { slot: 2, width: 800 },
       ],
       preferredWidth: 400,
       minWidth: 320,
     };
 
     // The closed form still says what it always said, and is still worth
-    // reading — it is just no longer the answer.
-    expect(solveOneRail(input)).toBe(canvasWidth - GAP * 3 - 2088);
+    // reading — it is just no longer the answer, and here it is not even a
+    // width: a negative rail is what "no band tiles this" looks like in the
+    // fit's own arithmetic.
+    expect(solveOneRail(input)).toBe(-332);
 
     // The answer is the narrowest rail the policy allows, because on a deck
     // this crowded every pixel of rail is a pixel of band, and every pixel of
@@ -1197,21 +1209,24 @@ describe("the space allocator", () => {
     // clean picture at any width — so it buys the least bad one instead of
     // sitting at a compromise the browser never paints.
     expect(allocateOneRail(input)).toBe(320);
-    const at320 = seamPicture(
-      {
-        canvasWidth,
-        kind: "five-up",
-        occupied: input.occupied,
-        rails: {
-          right: rail({ preferredWidth: 400, minWidth: 320, greedRank: UNRANKED }),
+    const pictureAt = (right: number) =>
+      seamPicture(
+        {
+          canvasWidth,
+          kind: "three-up",
+          occupied: input.occupied,
+          rails: {
+            right: rail({ preferredWidth: 400, minWidth: 320, greedRank: UNRANKED }),
+          },
+          maxRailWidth: CONTENT_WIDTH_SLIM_PX,
         },
-        maxRailWidth: CONTENT_WIDTH_SLIM_PX,
-      },
-      { right: 320 },
-    );
-    // 453px of occlusion is still a bad deck. It is 25px better than the fit's
-    // answer, and every pixel of that is a card edge the user can see.
-    expect(at320.worstOverlap).toBe(453);
+        { right },
+      );
+    // 321px of occlusion is still a bad deck. It is 40px better than the width
+    // the rail's owner chose, and every pixel of that is a card edge the user
+    // can see.
+    expect(pictureAt(320).worstOverlap).toBe(321);
+    expect(pictureAt(400).worstOverlap).toBe(361);
   });
 
   test("growth is bounded by the slim width, and reaches it", () => {
@@ -1225,8 +1240,8 @@ describe("the space allocator", () => {
     const solve = (canvasWidth: number): number | null =>
       allocateOneRail({
         canvasWidth,
-        kind: "five-up",
-        occupied: FIVE_UP_THIRDS,
+        kind: "three-up",
+        occupied: THREE_UP_RUN,
         preferredWidth: 420,
         minWidth: 320,
         maxRailWidth,
@@ -1247,8 +1262,8 @@ describe("the space allocator", () => {
       lensWidth + GAP * 3 + EXACT_BAND;
     const input = {
       canvasWidth: canvasFor(560),
-      kind: "five-up" as const,
-      occupied: FIVE_UP_THIRDS,
+      kind: "three-up" as const,
+      occupied: THREE_UP_RUN,
       preferredWidth: 420,
       minWidth: 320,
     };
@@ -1268,8 +1283,8 @@ describe("the space allocator", () => {
     expect(
       allocateOneRail({
         canvasWidth: canvasFor(300),
-        kind: "five-up",
-        occupied: FIVE_UP_THIRDS,
+        kind: "three-up",
+        occupied: THREE_UP_RUN,
         preferredWidth: 420,
         minWidth: 320,
       }),
@@ -1286,8 +1301,8 @@ describe("the space allocator", () => {
     expect(
       allocateOneRail({
         canvasWidth: canvasFor(300),
-        kind: "five-up",
-        occupied: FIVE_UP_THIRDS,
+        kind: "three-up",
+        occupied: THREE_UP_RUN,
         preferredWidth: 420,
         minWidth: 700,
       }),
@@ -1300,8 +1315,8 @@ describe("the space allocator", () => {
     expect(
       allocateOneRail({
         canvasWidth: 2735,
-        kind: "five-up",
-        occupied: FIVE_UP_THIRDS,
+        kind: "three-up",
+        occupied: THREE_UP_RUN,
         preferredWidth: 340,
         minWidth: 320,
       }),
@@ -1310,8 +1325,8 @@ describe("the space allocator", () => {
     expect(
       allocateOneRail({
         canvasWidth: 2755,
-        kind: "five-up",
-        occupied: FIVE_UP_THIRDS,
+        kind: "three-up",
+        occupied: THREE_UP_RUN,
         preferredWidth: 340,
         minWidth: 320,
       }),
@@ -1322,7 +1337,7 @@ describe("the space allocator", () => {
     const canvasWidth = 2845;
     const stacked = allocateOneRail({
       canvasWidth,
-      kind: "five-up",
+      kind: "three-up",
       occupied: [
         { slot: 0, width: 800 },
         { slot: 0, width: 640 },
@@ -1339,8 +1354,8 @@ describe("the space allocator", () => {
     const canvasWidth = 2845;
     const shuffled = allocateOneRail({
       canvasWidth,
-      kind: "five-up",
-      occupied: [FIVE_UP_THIRDS[2], FIVE_UP_THIRDS[0], FIVE_UP_THIRDS[1]],
+      kind: "three-up",
+      occupied: [THREE_UP_RUN[2], THREE_UP_RUN[0], THREE_UP_RUN[1]],
       preferredWidth: 400,
       minWidth: 320,
     });
@@ -1350,20 +1365,29 @@ describe("the space allocator", () => {
   test("no seam to solve for still answers, at the chosen width", () => {
     const base = {
       canvasWidth: 2845,
-      kind: "five-up" as const,
+      kind: "three-up" as const,
       preferredWidth: 400,
       minWidth: 320,
     };
-    // One card, no cards, and one-up (whose every slot clamps to the same
-    // anchor) all leave the chain without a pair of neighbours. There is no
+    // An empty deck and one-up (one slot, so one member however many cards
+    // clamp onto it) leave the chain without a pair of neighbours. There is no
     // fit to make, so the rail stands at the width the user chose — which is
     // read from their own durable setting, never from a past answer, so
     // snapping to it can only ever restore their choice.
-    expect(allocateOneRail({ ...base, occupied: [{ slot: 0, width: 800 }] })).toBe(400);
     expect(allocateOneRail({ ...base, occupied: [] })).toBe(400);
     expect(
-      allocateOneRail({ ...base, kind: "one-up", occupied: FIVE_UP_THIRDS }),
+      allocateOneRail({ ...base, kind: "one-up", occupied: THREE_UP_RUN }),
     ).toBe(400);
+    // ONE CARD IN A THREE-UP IS NOT ONE OF THEM, and that is the arrangement
+    // rule stated from the other side: the deck is holding two more places,
+    // the chain is three members wide, and the rails are solved for the deck
+    // the user asked for rather than for the one card standing in it. Which is
+    // the whole point — a card opening into a place the arrangement was
+    // already holding finds the rails already the right width, instead of
+    // resizing both edges of the deck as it lands.
+    expect(allocateOneRail({ ...base, occupied: [{ slot: 0, width: 800 }] })).toBe(
+      allocateOneRail({ ...base, occupied: THREE_UP_RUN }),
+    );
     // The chosen width is still held between the rail's own bounds.
     expect(
       allocateOneRail({ ...base, occupied: [], preferredWidth: 900 }),
@@ -1376,8 +1400,8 @@ describe("the space allocator", () => {
   test("a non-finite input leaves the Lens alone", () => {
     const base = {
       canvasWidth: 2845,
-      kind: "five-up" as const,
-      occupied: FIVE_UP_THIRDS,
+      kind: "three-up" as const,
+      occupied: THREE_UP_RUN,
       preferredWidth: 400,
       minWidth: 320,
     };
@@ -1400,8 +1424,8 @@ describe("the space allocator", () => {
     expect(
       allocateSidebarWidths({
         canvasWidth: 2845,
-        kind: "five-up",
-        occupied: FIVE_UP_THIRDS,
+        kind: "three-up",
+        occupied: THREE_UP_RUN,
         rails: {},
         maxRailWidth: CONTENT_WIDTH_SLIM_PX,
       }),
@@ -1447,16 +1471,21 @@ describe("the total is chosen by the picture it paints", () => {
     expect(picture.worstShortfall).toBe(0);
   });
 
-  test("comfort is held when giving it up would not remove the overlap", () => {
+  test("comfort is spent to REDUCE an overlap it cannot remove", () => {
     // Three 800px cards genuinely do not fit on a 2000–3000px canvas at any
-    // rail total, so there is nothing to buy. The rails sit on their comfort
-    // floors having reduced the occlusion as far as comfort allows, and the
-    // Overview stays readable — cramping it would buy overlap the user still
-    // sees at the cost of a rail they no longer can read.
+    // rail total. The rails go to their hard floors anyway, because every
+    // pixel they give up is a pixel of card the user gets back: at 3000 the
+    // lap closes from 126px to 70px for 112px of Overview measure.
+    //
+    // This is the content-first rule, and it is the one the old tier gate got
+    // wrong. That gate asked whether surrendering comfort reached a better
+    // CLASS of picture — clean, cramped, occluded — and here it does not, so
+    // the rails held their measure and the cards stayed 126px on top of one
+    // another. The cards are the subject; the rails are the frame.
     for (const canvasWidth of [2000, 3000]) {
-      expect(answerAt(canvasWidth)).toEqual({ left: 320, right: 512 });
+      expect(answerAt(canvasWidth)).toEqual({ left: 320, right: 400 });
     }
-    expect(seamPicture(at(3000), answerAt(3000)).worstOverlap).toBe(126);
+    expect(seamPicture(at(3000), answerAt(3000)).worstOverlap).toBe(70);
   });
 
   test("a hopeless deck returns the rails to their preferences", () => {
@@ -1528,12 +1557,17 @@ describe("the total is chosen by the picture it paints", () => {
 });
 
 describe("greed order decides which rail is the wide one", () => {
-  /** The plan's worked example: three-up with 800px cards in slots 0 and 2.
-   *  One 5px seam between them wants a band of exactly 1605, so with two
-   *  rails standing the fit wants a rail TOTAL of `canvas − 1625`. */
+  /** The plan's worked example: a full two-up of 800px cards. One 5px seam
+   *  between them wants a band of exactly 1605, so with two rails standing the
+   *  fit wants a rail TOTAL of `canvas − 1625`.
+   *
+   *  Written as a full two-up rather than as three-up with slots 0 and 2 —
+   *  same travel fractions, same arithmetic, but the chain is now every slot
+   *  the kind defines, so a three-up with a hole in the middle is a chain of
+   *  THREE and wants a band of 2410. */
   const TWO_CARDS = [
     { slot: 0, width: 800 },
-    { slot: 2, width: 800 },
+    { slot: 1, width: 800 },
   ] as const;
   /** The canvas whose fit wants the two rails to total `total`. */
   const canvasFor = (total: number): number => total + GAP * 4 + 1605;
@@ -1552,7 +1586,7 @@ describe("greed order decides which rail is the wide one", () => {
   ) =>
     allocateSidebarWidths({
       canvasWidth,
-      kind: "three-up",
+      kind: "two-up",
       occupied,
       rails: { left, right },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1585,7 +1619,7 @@ describe("greed order decides which rail is the wide one", () => {
     const picture = seamPicture(
       {
         canvasWidth,
-        kind: "three-up",
+        kind: "two-up",
         occupied: TWO_CARDS,
         rails: { left: LENS, right: OVERVIEW },
         maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1668,7 +1702,7 @@ describe("greed order decides which rail is the wide one", () => {
       { side: "right", width: widths?.right ?? 0 },
     ]);
     const rects = TWO_CARDS.map((o) =>
-      imposeRect(resolvePlacement("three-up", o.slot), o.width, span),
+      imposeRect(resolvePlacement("two-up", o.slot), o.width, span),
     );
     const seam =
       rects[1].position.x - (rects[0].position.x + rects[0].size.width);
@@ -1683,7 +1717,7 @@ describe("greed order decides which rail is the wide one", () => {
     const canvasWidth = canvasFor(980);
     const input = {
       canvasWidth,
-      kind: "three-up" as const,
+      kind: "two-up" as const,
       occupied: TWO_CARDS,
       rails: { left: LENS, right: OVERVIEW },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1734,10 +1768,10 @@ describe("the stacking folds a rail is built from", () => {
     // outrank it.
     const widths = allocateSidebarWidths({
       canvasWidth: 880 + GAP * 4 + 1605,
-      kind: "three-up",
+      kind: "two-up",
       occupied: [
         { slot: 0, width: 800 },
-        { slot: 2, width: 800 },
+        { slot: 1, width: 800 },
       ],
       rails: { left: fold([OVERVIEW, JOTS]), right: LENS },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1748,10 +1782,10 @@ describe("the stacking folds a rail is built from", () => {
   test("a stacked rail never falls below any member's floor", () => {
     const widths = allocateSidebarWidths({
       canvasWidth: 700 + GAP * 4 + 1605,
-      kind: "three-up",
+      kind: "two-up",
       occupied: [
         { slot: 0, width: 800 },
-        { slot: 2, width: 800 },
+        { slot: 1, width: 800 },
       ],
       rails: { left: fold([OVERVIEW, JOTS]), right: LENS },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
@@ -1762,10 +1796,10 @@ describe("the stacking folds a rail is built from", () => {
 });
 
 describe("the rails' gap count follows how many of them stand", () => {
-  const FIVE_UP_THIRDS = [
+  const THREE_UP_RUN = [
     { slot: 0, width: 800 },
+    { slot: 1, width: 800 },
     { slot: 2, width: 800 },
-    { slot: 4, width: 800 },
   ] as const;
   const EXACT_BAND = 3 * 800 + 2 * GAP;
 
@@ -1773,8 +1807,8 @@ describe("the rails' gap count follows how many of them stand", () => {
     // One rail, so three gaps — not the four a bilateral deck spends.
     const widths = allocateSidebarWidths({
       canvasWidth: 420 + GAP * 3 + EXACT_BAND,
-      kind: "five-up",
-      occupied: FIVE_UP_THIRDS,
+      kind: "three-up",
+      occupied: THREE_UP_RUN,
       rails: { left: rail({ preferredWidth: 400, minWidth: 320, greedRank: 2 }) },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     });
@@ -1785,8 +1819,8 @@ describe("the rails' gap count follows how many of them stand", () => {
     const twin = rail({ preferredWidth: 400, minWidth: 320, greedRank: 5 });
     const widths = allocateSidebarWidths({
       canvasWidth: 840 + GAP * 4 + EXACT_BAND,
-      kind: "five-up",
-      occupied: FIVE_UP_THIRDS,
+      kind: "three-up",
+      occupied: THREE_UP_RUN,
       rails: { left: twin, right: { ...twin } },
       maxRailWidth: CONTENT_WIDTH_SLIM_PX,
     });

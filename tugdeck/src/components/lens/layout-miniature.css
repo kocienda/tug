@@ -77,8 +77,57 @@
  * where the cards do not lap it is a hairline of the seam they already stand
  * in, and shows as nothing. */
 .layout-mini[data-committed="true"] .layout-mini-block {
-  background-color: var(--tug7-element-global-border-normal-strong-rest);
+  background-color: var(
+    --tugx-layout-mini-card,
+    var(--tug7-element-global-border-normal-strong-rest)
+  );
   border-color: var(--tug7-surface-global-primary-normal-sunken-rest);
+}
+
+/* ---- Fit's banding: what makes a lap legible as a lap ---- */
+
+/* One stroke was not enough, and the reason is arithmetic rather than taste.
+   In fit a card's anchor is a fraction of the band and its width is its own, so
+   three slim cards on a canvas that cannot hold them stand a hundred pixels on
+   top of one another — and each block then shows only its LEFT edge, a narrow
+   vertical strip, with the last card whole. Bounded by hairlines of the ground,
+   a run of those reads as a picket fence: five slivers of one tone that say
+   nothing about which sliver belongs to which card, or that any card is behind
+   any other at all.
+
+   So the cards alternate. Odd slots are drawn a step quieter, and the eye reads
+   the run as bands — this card, then the next, then the next — with each band's
+   width being exactly the part of that card the deck leaves visible. That is
+   the fact the drawing exists to state.
+
+   The quiet tone is MIXED from the two the drawing already uses rather than
+   taken from a third token, which is what keeps it decorative: it can only ever
+   land between the card and the ground it stands on, in either polarity, so it
+   cannot drift into looking like a distinction the reader should be reading —
+   an active card, a selected one, a card of another kind. It is banding, and
+   banding is all it can become.
+
+   Fit only. Flow lays the strip out as a running sum with a real gap between
+   every pair, so nothing laps, every card is whole, and alternating tints there
+   would be a pattern over a picture that had no ambiguity to resolve. */
+.layout-mini[data-layout="fit"] .layout-mini-block[data-band="odd"] {
+  --tugx-layout-mini-card: color-mix(
+    in srgb,
+    var(--tug7-element-global-border-normal-strong-rest) 58%,
+    var(--tug7-surface-global-primary-normal-sunken-rest)
+  );
+}
+
+/* A hollow block is bounded by its own stroke on every side, so a lap already
+   cuts a visible edge and the banding has nothing to add — but the tint is
+   carried on the BORDER there, so the odd blocks take it the same way and the
+   two tenses of the drawing stay one picture. */
+.layout-mini:not([data-committed="true"])[data-layout="fit"]
+  .layout-mini-block[data-band="odd"] {
+  border-color: var(
+    --tugx-layout-mini-card,
+    var(--tug7-element-global-border-normal-strong-rest)
+  );
 }
 
 /* One side's rail. It holds its members rather than being one itself: two

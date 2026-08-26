@@ -99,7 +99,9 @@
 /* The mark itself, at the foot of the part it belongs to. The foot rather than
    the middle because a block's middle is where the card's own content would be
    in the real deck, and because a row of marks along one line reads as one
-   legend for the picture rather than as scattered stickers. */
+   legend for the picture rather than as scattered stickers.
+
+   Centred across the block, except in fit — see below. */
 .layout-places-mark {
   position: absolute;
   inset-block-end: 1px;
@@ -107,6 +109,10 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  /* One inset, read from whichever end the mark is standing at, so the two
+     alignments are one rule with one number rather than two declarations that
+     can drift apart. */
+  padding-inline: 2px;
 
   /* The one thing in the picture that answers a hand. */
   pointer-events: auto;
@@ -130,6 +136,27 @@
   --tugx-column-badge-fill: var(--tug7-element-global-text-normal-default-rest);
   --tugx-column-badge-accent: var(--tug7-element-global-text-normal-default-rest);
   --tugx-column-badge-stroke: var(--tug7-element-global-border-normal-strong-rest);
+}
+
+/* In fit the mark stands at the block's leading edge instead.
+ *
+ * A slot's anchor in fit is a fraction of the band, so a chain wider than the
+ * band laps: card k+1 is drawn over card k's trailing part, and the only part
+ * of card k left showing is a strip at its LEADING edge. A mark centred across
+ * the block therefore lands under the next card — every mark but the last
+ * buried, a row of glyphs half-swallowed by the blocks in front of them, which
+ * is both unreadable and, since the mark is a control, a target the pointer
+ * cannot always reach.
+ *
+ * The leading edge is the one part of a lapped card that is always visible, by
+ * the geometry rather than by luck: the lap always eats the trailing end. So
+ * the marks stand there, and they still land along one line — the same legend
+ * they were before, read from a different end.
+ *
+ * The rails keep the centre. A rail is pinned to its canvas edge and holds its
+ * own width; nothing ever laps it, so nothing is bought by moving its mark. */
+.layout-places[data-layout="fit"] .layout-places-block > .layout-places-mark {
+  justify-content: flex-start;
 }
 
 /* Every mark rests at ONE weight. An earlier cut whispered the marks with

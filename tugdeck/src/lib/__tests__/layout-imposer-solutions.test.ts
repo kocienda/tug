@@ -350,13 +350,38 @@ const SWEEP: readonly number[] = Array.from(
  * The invariants (List L02)
  * ---------------------------------------------------------------------------*/
 
+/**
+ * The chain the allocator scores: EVERY slot the kind defines, the widest pane
+ * standing at it or the vacancy's extent where none does.
+ *
+ * Written out here rather than imported, because an oracle that shared the
+ * production helper would agree with it by construction and check nothing.
+ * The rule it restates is `chainOf`'s: an empty slot holds its share of the
+ * band, so it is a member of the chain like any other.
+ */
+function filledChain(
+  input: AllocatorInput,
+): readonly { slot: number; width: number }[] {
+  const widest = new Map<number, number>();
+  for (const entry of input.occupied) {
+    const held = widest.get(entry.slot);
+    if (held === undefined || entry.width > held) widest.set(entry.slot, entry.width);
+  }
+  const vacancy =
+    input.emptyExtent ?? Math.max(0, ...[...widest.values()], 0);
+  const chain: { slot: number; width: number }[] = [];
+  for (let slot = 0; slot < slotCount(input.kind); slot += 1) {
+    const width = widest.get(slot) ?? vacancy;
+    if (width > 0) chain.push({ slot, width });
+  }
+  return chain;
+}
+
 /** Whether the chain admits an EXACT tiling at the fitted band — every seam
  *  lands on the gap in the linear model, and no card is wider than the band,
  *  so `imposeRect`'s travel clamp does not part company with that model. */
 function chainTilesExactly(input: AllocatorInput, widths: RailWidths): boolean {
-  const chain = [...input.occupied]
-    .sort((a, b) => a.slot - b.slot)
-    .filter((entry, i, all) => i === 0 || all[i - 1].slot !== entry.slot);
+  const chain = filledChain(input);
   if (chain.length < 2) return false;
   const railTotal = (widths.left ?? 0) + (widths.right ?? 0);
   const railCount = sidesOf(input.rails).length;
@@ -379,23 +404,20 @@ function chainTilesExactly(input: AllocatorInput, widths: RailWidths): boolean {
  * Which regime the answer came out of — the unit the per-regime monotonicity
  * invariant runs within ([P16]).
  *
- * The branch half is read from the same two oracle evaluations the crowded
- * invariants use, never from the solver's internals. `comfort` — a total at or
- * above Σ comfortFloor removes the overlap, so the answer comes from the
- * comfort domain. `hard` — only a total below it does, so comfort was spent.
- * `held` — nothing removes the overlap, so comfort is kept and the answer is
- * the best comfort-domain compromise.
+ * The branch half is whether the rails stand under their comfort measure:
+ * `hard` when the answer's total is below Σ comfortFloor, `comfort` when it is
+ * not. There is no third branch, because there are no longer two domains — the
+ * scan runs the rails' whole legal range and comfort is a term inside the key.
  *
- * The second half is whether the answer sits ON its domain's low end or above
+ * The second half is whether the answer sits ON the range's low end or above
  * it. Both halves are boundaries the design deliberately has: the branch flips
- * when spending comfort starts to buy a clean picture, and the pin releases
- * when moving the total stops being able to improve the picture at all — at
- * which point the last term of the key takes over and the rails go back to the
- * widths their owner chose. Neither is a continuous move, and neither can be:
- * grading the spend so the widths slid instead is the licence this allocator
- * deleted.
+ * at the canvas where the picture stops paying for the measure, and the pin
+ * releases when moving the total stops being able to improve the picture at
+ * all — at which point the last term of the key takes over and the rails go
+ * back to the widths their owner chose. Neither is a continuous move, and
+ * neither can be.
  */
-type ComfortBranch = "comfort" | "hard" | "held";
+type ComfortBranch = "comfort" | "hard";
 type Regime = `${ComfortBranch}:${"pinned" | "free"}`;
 
 /** Assert every invariant at one point of the space. */
@@ -502,21 +524,11 @@ function assertInvariants(
   const comfortTotal = bounds.reduce((sum, b) => sum + b.comfortFloor, 0);
   const atHardFloor = pictureAt(input, floorTotal);
   const atComfortFloor = pictureAt(input, comfortTotal);
-  // The TIER of a picture — clean (2), unoccluded but cramped (1), occluded
-  // (0) — is what the comfort rule turns on, so it is what the branch is read
-  // from: comfort is given up exactly when the range below it reaches a higher
-  // tier than the comfort domain can.
-  const tierOf = (p: {
-    worstOverlap: number;
-    worstShortfall: number;
-  }): number => (p.worstOverlap > 0 ? 0 : p.worstShortfall > 0 ? 1 : 2);
-  const comfortTier = tierOf(atComfortFloor);
   const branch: ComfortBranch =
-    comfortTier === 2
-      ? "comfort"
-      : tierOf(atHardFloor) > comfortTier
-        ? "hard"
-        : "held";
+    sides.reduce((sum, side) => sum + (answer[side] as number), 0) <
+    comfortTotal
+      ? "hard"
+      : "comfort";
 
   // 1 — no avoidable overlap.
   if (atHardFloor.worstOverlap === 0) {
@@ -551,17 +563,67 @@ function assertInvariants(
     ).toBeLessThanOrEqual(sides.length);
   }
 
-  // 3 — comfort is spent for a reason: a rail stands below its comfort floor
-  // only when the range below it reaches a better tier of picture than the
-  // comfort domain can.
-  for (const side of sides) {
-    const width = answer[side] as number;
+  // 3 — comfort is spent for a reason, and spent BY THE PIXEL.
+  //
+  //  a) The rails stand below their comfort measure only when the range down
+  //     there reaches a strictly better picture than the whole comfort domain
+  //     can. This used to read "a better TIER", and that is the rule the
+  //     content-first key replaced: a lap closing from 126px to 70px is a
+  //     better picture and not a better tier, and it is exactly the repair a
+  //     deck too small for its cards wants.
+  //  b) It is not spent one pixel further than that buys. Standing wider must
+  //     never read better — so a rail can never be drained for raggedness or
+  //     for nothing.
+  //
+  // Both halves are answered by SCANNING, not by evaluating the floors: the
+  // travel clamp in `imposeRect` pins a card that has run out of room, which
+  // flattens the picture's dependence on the band and, with unequal card
+  // widths, can locally reverse it. A widest-band-is-best shortcut would be
+  // right almost always, and the scan costs nothing here because it runs only
+  // where a rail actually came out under its measure.
+  const pictureKey = (p: {
+    worstOverlap: number;
+    worstShortfall: number;
+  }): readonly number[] => [p.worstOverlap, p.worstShortfall];
+  const better = (a: readonly number[], b: readonly number[]): boolean => {
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) return a[i] < b[i];
+    }
+    return false;
+  };
+  /** The best picture any total in `[lo, hi]` paints; `null` when empty. */
+  const bestPicture = (lo: number, hi: number): readonly number[] | null => {
+    if (hi < lo) return null;
+    let best = pictureKey(pictureAt(input, lo));
+    for (let t = lo + 1; t <= hi; t += 1) {
+      const candidate = pictureKey(pictureAt(input, t));
+      if (better(candidate, best)) best = candidate;
+    }
+    return best;
+  };
+  const chosenTotal = sides.reduce(
+    (sum, side) => sum + (answer[side] as number),
+    0,
+  );
+  if (sides.some((side) => {
     const { comfortFloor } = boundsOf(input.rails[side] as RailPolicy);
-    if (width >= comfortFloor) continue;
+    return (answer[side] as number) < comfortFloor;
+  })) {
+    const below = bestPicture(floorTotal, comfortTotal - 1);
+    const within = bestPicture(comfortTotal, ceilingTotal);
     expect(
-      tierOf(atHardFloor),
-      `${where}: ${side} gave up comfort, so giving it up must have bought a better picture`,
-    ).toBeGreaterThan(comfortTier);
+      below !== null && (within === null || better(below, within)),
+      `${where}: comfort was given up, so giving it up must have bought a better picture`,
+    ).toBe(true);
+    // The rounding residual the solver leaves with the band's travel is at
+    // most a pixel per rail, so a pixel wider is allowed to read the same.
+    expect(
+      better(
+        pictureKey(pictureAt(input, chosenTotal + sides.length + 1)),
+        pictureKey(pictureAt(input, chosenTotal)),
+      ),
+      `${where}: comfort was given up further than the picture paid for`,
+    ).toBe(false);
   }
 
   // 7 (List L03) — comfort never re-inflates a drag. The comfort floor sits at
@@ -679,19 +741,24 @@ describe("the allocator's solution space", () => {
     // space rather than an empty loop.
     expect(points).toBeGreaterThan(50_000);
 
-    // The solver runs on every settled resize, and the scan that chooses its
+    // The solver runs on every settled resize, and the sweep that chooses its
     // total is the one part of it that could get expensive. This is an
     // order-of-magnitude tripwire, not a benchmark — it sits far enough above
-    // the ~2s this takes to be immune to a busy machine and still catch a
-    // stride or a search that grew a factor of ten.
-    expect(performance.now() - started).toBeLessThan(20_000);
-  });
+    // the ~13s this takes to be immune to a busy machine and still catch a
+    // search that grew a factor of ten. One allocate is 0.1ms at its worst,
+    // which is what buys the exhaustive sweep; what this guards is that the
+    // sweep stays over the rails' range and does not acquire a second one.
+    expect(performance.now() - started).toBeLessThan(45_000);
+  }, 60_000);
 
-  test("the coarse-to-fine scan finds what a 1px exhaustive search finds", () => {
-    // The stride is a PERFORMANCE decision. This is what keeps it from being a
-    // correctness gamble: on a representative subset, the total the solver
-    // chose scores exactly as well as the best total a full 1px sweep of the
-    // same domain can find. Scores, not totals — two totals that paint the
+  test("the scan finds what a 1px exhaustive search finds", () => {
+    // The solver's sweep is exhaustive, so this is a check that its KEY is the
+    // one written down rather than a check on its resolution: on a
+    // representative subset, the total the solver chose scores exactly as well
+    // as the best total an independently written 1px sweep of the same range
+    // can find. It caught the search that this replaced — a 16px stride that
+    // stepped over a valley 268px from where it settled. Scores, not totals —
+    // two totals that paint the
     // same picture and sit the same distance from the user's widths are the
     // same answer, and the tie-break between them is arbitrary by design.
     let compared = 0;
@@ -720,21 +787,19 @@ describe("the allocator's solution space", () => {
               0,
             );
 
-            // The comfort rule picks the domain; the scan's job is only to
-            // find the best total INSIDE it, so that is what is cross-checked.
-            // Same tier comparison the solver makes: descend only when the
-            // range below comfort reaches a better tier of picture.
-            const tierAt = (total: number): number => {
-              const p = pictureAt(input, total);
-              return p.worstOverlap > 0 ? 0 : p.worstShortfall > 0 ? 1 : 2;
-            };
-            const domainLow =
-              tierAt(floorTotal) > tierAt(comfortTotal) ? floorTotal : comfortTotal;
+            // There is ONE domain — every width the rails may legally stand
+            // at — and one key over it, so the cross-check is a plain 1px
+            // sweep of `[Σ floor, Σ ceiling]`. Comfort is a TERM in that key
+            // rather than a boundary in front of it, and it sits where the
+            // solver puts it: under the two picture readings the content
+            // cards own, over the raggedness that is a matter of degree.
+            const domainLow = floorTotal;
             const key = (total: number): readonly number[] => {
               const p = pictureAt(input, total);
               return [
                 p.worstOverlap,
                 p.worstShortfall,
+                Math.max(0, comfortTotal - total),
                 p.worstError,
                 Math.abs(total - preferredTotal),
               ];
@@ -752,7 +817,7 @@ describe("the allocator's solution space", () => {
             const where = `${kind}/${occupancy.name}/${fixture.name}@${canvasWidth}`;
             // The rounding residual the solver leaves with the band's travel
             // costs at most one pixel per rail on each picture reading.
-            for (let i = 0; i < 3; i += 1) {
+            for (let i = 0; i < 4; i += 1) {
               expect(
                 scored[i],
                 `${where}: the scan's answer is no worse than exhaustive on term ${i}`,
@@ -764,7 +829,7 @@ describe("the allocator's solution space", () => {
       }
     }
     expect(compared).toBeGreaterThan(1_000);
-  });
+  }, 60_000);
 
   test("the flow scan finds what a 1px exhaustive search finds", () => {
     // The fit cross-check above, run against flow's own objective. Flow scores
@@ -843,7 +908,7 @@ describe("the allocator's solution space", () => {
     // assertion above is doing work rather than agreeing that nothing can be
     // fixed anywhere.
     expect(repaired).toBeGreaterThan(compared / 2);
-  });
+  }, 60_000);
 
   test("flow never leaves a hairline it could have cleared", () => {
     // The claim the whole milestone rests on, stated directly over the

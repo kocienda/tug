@@ -346,6 +346,7 @@ export function LayoutPlaces({
   return (
     <span
       className={ghost ? "layout-places layout-places-ghost" : "layout-places"}
+      data-layout={layout}
       data-testid={
         ghost ? "lens-layouts-places-ghost" : "lens-layouts-places"
       }

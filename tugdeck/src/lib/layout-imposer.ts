@@ -1948,14 +1948,19 @@ export interface AllocatorInput {
    */
   occupied: readonly { slot: number; width: number }[];
   /**
-   * What an unoccupied slot holds open in flow — the deck's content width.
+   * What an unoccupied slot holds open — the deck's content width, or the
+   * widest card standing if the deck would rather match its own cards
+   * ({@link vacancyExtent}).
    *
-   * The flow objective measures where the band's far edge cuts the STRIP, so it
-   * has to read the same strip the deck draws, and the deck draws every slot of
-   * the kind ({@link flowStripPositions}). Absent, the reading falls back to the
-   * occupied run alone, which is a picture nobody sees on a deck with a gap in
-   * its numbering. Unread in fit, where a slot's anchor is a travel fraction and
-   * an empty one has always held its share of the band.
+   * **Read in both modes**, because in both the chain the objective scores is
+   * every slot of the kind rather than the occupied ones ({@link chainOf}). In
+   * flow that was always true: the objective measures where the band's far edge
+   * cuts the STRIP, and the deck draws every slot ({@link flowStripPositions}).
+   * In fit it is the correction described at `chainOf` — an empty slot has
+   * always held its share of the band, and the objective now knows it.
+   *
+   * Absent, the extent is derived from the widest card standing, which is the
+   * same rule {@link vacancyExtent} applies one level up.
    */
   emptyExtent?: number;
   /** The rails standing on the deck's edges, at most one per side. */
@@ -2288,31 +2293,45 @@ function waterFill(
   return outstanding;
 }
 
-/**
- * The coarse stride the total scan takes before rescanning at 1px around the
- * coarse winner.
- *
- * A binary search would be tempting — every seam is non-increasing in the
- * rails' total, so overlap is monotone — but `imposeRect`'s `max(0, band − w)`
- * clamps a pane's travel at zero, which FLATTENS that relationship wherever a
- * pane has run out of room, and with unequal card widths those flat regions do
- * not line up. A scan is robust to that; a binary search would be correct
- * almost always, which is the worst kind of correct.
- *
- * If the exhaustive cross-check in the solutions sweep ever fails, this stride
- * is wrong — not the objective.
- */
-const TOTAL_SCAN_STRIDE_PX = 16;
 
 /**
  * The lexicographic score of a candidate total.
  *
- * **In fit:** occlusion, then cramping, then raggedness, then distance from the
- * widths the user chose. **In flow:** the cut the band's far edge makes, then
- * that same distance. The modes score different things because they can fail in
- * different ways, and each key ends on the same last term — which is what makes
- * every answer unique, and breaks every remaining tie toward leaving the rails
- * where their owner put them.
+ * **In fit:** occlusion, then cramping, then the rails' comfort, then
+ * raggedness, then distance from the widths the user chose. **In flow:** the
+ * cut the band's far edge makes, then comfort, then that same distance. The
+ * modes score different things because they can fail in different ways, and
+ * each key ends on the same last term — which is what makes every answer
+ * unique, and breaks every remaining tie toward leaving the rails where their
+ * owner put them.
+ *
+ * ## The content cards are laid out first
+ *
+ * The picture terms come FIRST, ahead of anything the rails want, and that
+ * ordering is the whole policy: the deck fits or flows its content cards as
+ * well as the canvas allows, and the rails take what is left. Comfort is a
+ * term in the same key rather than a gate in front of it, so it is spent by
+ * the pixel, exactly as far as the picture is bought by spending it — a rail
+ * gives up six pixels to close a six-pixel overlap and no more.
+ *
+ * This used to be a TIER GATE: the search ran in the comfort domain and
+ * descended below it only when doing so reached a strictly better CLASS of
+ * picture — clean over cramped, cramped over occluded. On a deck no total can
+ * repair, that rule kept every rail at its comfort measure and left the cards
+ * lapping further over one another than they had to. Three slim cards on a
+ * 2560px canvas lapped 128px a seam under the gate and 102px without it: the
+ * gate was holding 52px of rail nobody had asked for against 52px of the
+ * user's own cards. "Improve a picture that stays broken" turned out to be
+ * worth doing after all, because the cards are the subject and the rails are
+ * the frame.
+ *
+ * Comfort sits BELOW `worstShortfall` and above `worstError`, and both
+ * placements are load-bearing. Below shortfall, because the total that tiles a
+ * three-up deck of slim cards can land a handful of pixels under the comfort
+ * floors, and a rule that ranked comfort first would paint every interior seam
+ * at 2px instead of 5 to save six pixels of width nobody was reading. Above
+ * raggedness, because raggedness is a matter of degree on a chain that already
+ * reads as arranged, and a rail should not be cramped to shave a pixel off it.
  *
  * A key is only ever compared against another key of its own mode, so the two
  * lengths never meet.
@@ -2328,13 +2347,19 @@ function scoreRailTotal(
   total: number,
   sides: readonly SidebarSide[],
   preferredTotal: number,
+  comfortTotal: number,
 ): readonly number[] {
   const widths: RailWidths = {};
   for (const side of sides) widths[side] = total / sides.length;
   const distance = Math.abs(total - preferredTotal);
+  // How far under their comfort measure this candidate stands the rails, in
+  // pixels, and zero at or above it — a rest state like the picture terms',
+  // so a deck that reads well is decided by the last term alone.
+  const discomfort = Math.max(0, comfortTotal - total);
   if (impositionLayout(input) === "flow") {
     return [
       hairlineOf(sliverOfChain(input, chain, widths).worstSliver),
+      discomfort,
       distance,
     ];
   }
@@ -2342,6 +2367,7 @@ function scoreRailTotal(
   return [
     picture.worstOverlap,
     picture.worstShortfall,
+    discomfort,
     picture.worstError,
     distance,
   ];
@@ -2356,61 +2382,15 @@ function compareScores(a: readonly number[], b: readonly number[]): number {
 }
 
 /**
- * The rail totals worth trying in flow, derived rather than searched for.
- *
- * The band is an affine function of the rails' total —
- * `band = canvasWidth − total − gap × (R + 2)` — so a band worth landing on
- * inverts straight into a total worth trying. Three families qualify, and
- * together they contain every point at which the flow score can change class:
- *
- *  - **Every slot edge.** A band ending on one is a boundary, and scores clean.
- *  - **Every edge ± {@link SLIVER_PX}.** These are where a hairline becomes an
- *    honest slice, which is the other way to leave the defect tier.
- *  - **The strip's own length**, where the chain stops overflowing at all.
- *
- * Out-of-range seeds are harmless: `bestIn` clamps each into its domain before
- * scoring, and a clamped duplicate merely costs one extra evaluation.
- *
- * At most six slots stand in a strip, so this is a couple of dozen numbers.
- */
-function flowSeedTotals(
-  input: AllocatorInput,
-  chain: readonly { slot: number; width: number }[],
-  sides: readonly SidebarSide[],
-): readonly number[] {
-  if (impositionLayout(input) !== "flow") return [];
-  const strip = flowStripPositions(
-    chain,
-    input.emptyExtent === undefined
-      ? undefined
-      : { count: slotCount(input.kind), extent: input.emptyExtent },
-  );
-  const constant =
-    input.canvasWidth - IMPOSITION_GAP_PX * (sides.length + 2);
-  const totalFor = (band: number): number => constant - band;
-  const seeds: number[] = [totalFor(strip.width)];
-  for (const [slot, left] of strip.positions) {
-    const right = left + (strip.extents.get(slot) ?? 0);
-    for (const edge of [left, right]) {
-      seeds.push(totalFor(edge));
-      seeds.push(totalFor(edge - SLIVER_PX));
-      seeds.push(totalFor(edge + SLIVER_PX));
-    }
-  }
-  return seeds.filter((seed) => Number.isFinite(seed));
-}
-
-/**
  * The rails' total, chosen by the picture it paints ({@link seamPicture})
  * rather than by the least-squares fit.
  *
- * Two domains. The search runs first over `[Σ comfortFloor, Σ ceiling]`; it
- * descends into the range below the comfort floors IF AND ONLY IF some total
- * down there reaches a better TIER of picture than anything up here can —
- * clean over cramped, cramped over occluded. Comfort is surrendered to fix a
- * picture, never merely to improve one: on a chain no total can repair,
- * cramping the rails leaves the user a picture they still see is wrong, at the
- * cost of a rail they can no longer read.
+ * ONE domain — `[Σ floor, Σ ceiling]`, every width the rails may legally
+ * stand at — scanned against the one key {@link scoreRailTotal} writes. The
+ * content cards' picture is the first term of that key, so it is settled
+ * before anything the rails prefer is read at all, and the comfort measure is
+ * a term inside it rather than a boundary around it. What the rails want is
+ * the residual, which is the whole of the policy.
  */
 function chooseRailTotal(
   input: AllocatorInput,
@@ -2425,96 +2405,45 @@ function chooseRailTotal(
 ): number {
   const { floorTotal, comfortTotal, ceilingTotal, preferredTotal, sides } = totals;
   const score = (total: number): readonly number[] =>
-    scoreRailTotal(input, chain, total, sides, preferredTotal);
+    scoreRailTotal(input, chain, total, sides, preferredTotal, comfortTotal);
 
-  // The closed-form fit is no longer the answer, but it is still an excellent
-  // guess at where the answer sits, so it joins the coarse candidates.
-  const fitted = solveSidebarWidths(input);
-  // Flow's optima are COMPUTABLE, so they are handed to the scan rather than
-  // searched for. Grading the sliver ({@link hairlineOf}) makes the flow score
-  // spiky where fit's is smooth: wide plateaus that already read well, narrow
-  // hairline valleys, and optima that can be a single pixel wide where the band
-  // lands exactly on a slot edge. A coarse stride walks straight over those —
-  // it chose a total 37px further from the user's rail than one it stepped
-  // past — and the answer is not a finer stride but the fact that nothing here
-  // needs searching: the totals that put the band on a slot's edge, or exactly
-  // on the hairline threshold, follow from the strip's own geometry.
-  const seeds = flowSeedTotals(input, chain, sides);
-
-  const bestIn = (lo: number, hi: number): number => {
+  // EVERY integer total, in one ascending pass. A rail stands between its hard
+  // floor and the shared ceiling, so the range is at most a thousand numbers
+  // and each costs a handful of `imposeRect` evaluations — a few thousand
+  // arithmetic operations, once per commit or per settled resize.
+  //
+  // This used to be a 16px stride with a 1px rescan around the coarse winner,
+  // seeded with the closed-form fit and, in flow, with the totals that put the
+  // band on a slot edge. Every one of those was an apology for the stride, and
+  // the stride was wrong: `imposeRect` clamps a pane's travel at zero, so a
+  // chain of mixed card widths has a picture full of narrow valleys that a
+  // coarse pass steps straight over. On a four-up deck of alternating slim and
+  // wide cards it settled on the range's low end at 816px of lap while a total
+  // 268px away sat at 814px and cost the rails no comfort at all.
+  //
+  // An exact sweep has no such failure mode, and it makes the answer the
+  // objective rather than an approximation of it — which is the property every
+  // invariant in the solutions sweep is written against.
+  const best = (lo: number, hi: number): number => {
     if (hi <= lo) return lo;
-    let best = lo;
-    let bestScore = score(lo);
-    const consider = (candidate: number): void => {
-      if (candidate <= lo || candidate > hi) return;
-      const candidateScore = score(candidate);
-      // Ties keep the SMALLER total, which the ascending sweep already does
-      // and this makes true of the out-of-order candidates too.
-      if (
-        compareScores(candidateScore, bestScore) < 0 ||
-        (compareScores(candidateScore, bestScore) === 0 && candidate < best)
-      ) {
-        best = candidate;
-        bestScore = candidateScore;
+    let chosen = lo;
+    let chosenScore = score(lo);
+    // Ties keep the SMALLER total, which a strict improvement test over an
+    // ascending sweep gives for free.
+    for (let total = lo + 1; total <= hi; total += 1) {
+      const candidate = score(total);
+      if (compareScores(candidate, chosenScore) < 0) {
+        chosen = total;
+        chosenScore = candidate;
       }
-    };
-    for (let t = lo + TOTAL_SCAN_STRIDE_PX; t < hi; t += TOTAL_SCAN_STRIDE_PX) {
-      consider(t);
     }
-    consider(hi);
-    if (fitted !== null) consider(Math.min(Math.max(fitted, lo), hi));
-    for (const seed of seeds) consider(Math.min(Math.max(seed, lo), hi));
-    // Then 1px around the coarse winner, which is where the true optimum sits:
-    // the score is monotone in the total on either side of it up to the stride.
-    const fineLo = Math.max(lo, best - TOTAL_SCAN_STRIDE_PX);
-    const fineHi = Math.min(hi, best + TOTAL_SCAN_STRIDE_PX);
-    for (let t = fineLo; t <= fineHi; t += 1) consider(t);
-    return best;
+    return chosen;
   };
 
-  // How well a total reads, in three tiers: CLEAN (nothing occluded and no
-  // seam under the gap), UNOCCLUDED (nothing on top of anything, but the
-  // rhythm is cramped), and OCCLUDED. Comfort is surrendered if and only if
-  // doing so reaches a HIGHER tier — never to improve the picture within one.
-  //
-  // Both of the lower tiers are the chain failing to read as arranged, and
-  // both are repaired by the same few pixels of rail, which is why the rule
-  // cannot turn on occlusion alone: on a three-up deck of slim cards with the
-  // Overview's rail on one edge, the total that tiles can land a handful of
-  // pixels BELOW the comfort floors. Nothing occludes there, so an
-  // overlap-only rule holds the measure and paints every interior seam at 2px
-  // instead of 5 — cramped rhythm bought for six pixels of width nobody was
-  // reading, in a trap door a few pixels wide that a window resize walks
-  // straight through.
-  //
-  // It cannot turn on cleanliness alone either: where the comfort domain is
-  // occluded and the range below it can only get as far as cramped, giving up
-  // comfort still buys the user their cards back, and a clean-or-nothing rule
-  // would refuse it. Tiers say both of those in one comparison, and keep the
-  // yes/no character that makes the rule testable.
-  //
-  // FLOW has one failure, so it has two tiers: the band's far edge leaves a
-  // HAIRLINE of a card, or it does not — a boundary and an honest slice are
-  // both the clean tier ({@link hairlineOf}). The rule above is unchanged in
-  // shape — comfort is surrendered if and only if doing so reaches a higher
-  // tier — and a shorter ladder does not weaken it, because a flow deck cannot
-  // be cramped or occluded to begin with.
-  const flow = impositionLayout(input) === "flow";
-  const tierOf = (total: number): number => {
-    const key = score(total);
-    if (flow) return key[0] > 0 ? 0 : 1;
-    if (key[0] > 0) return 0;
-    return key[1] > 0 ? 1 : 2;
-  };
-  // The top tier is the mode's own: `clean` is 2 of fit's three, and 1 of
-  // flow's two. Reaching it is the early-out — there is nothing above it to
-  // spend comfort on.
-  const cleanTier = flow ? 1 : 2;
-  const comfortBest = bestIn(comfortTotal, ceilingTotal);
-  const comfortTier = tierOf(comfortBest);
-  if (comfortTier === cleanTier) return comfortBest;
-  const hardBest = bestIn(floorTotal, ceilingTotal);
-  return tierOf(hardBest) > comfortTier ? hardBest : comfortBest;
+  // The comfort floors bound nothing here — they are a term in the key, not a
+  // domain. The sweep runs the rails' whole legal range in one pass and the
+  // ordering inside `scoreRailTotal` decides.
+  return best(floorTotal, ceilingTotal);
 }
 
 /**
@@ -2565,16 +2494,43 @@ export function solveSidebarWidths(input: AllocatorInput): number | null {
 }
 
 /**
- * The occupied slots as the chain actually reads left to right: duplicates
- * folded to the widest pane standing at that slot, ordered by slot. `null`
- * means the INPUT is unusable — a non-finite number somewhere in it — and
- * nothing else.
+ * **Every slot the kind defines**, left to right: the widest pane standing at
+ * that slot, or the extent a vacancy holds open where none does. `null` means
+ * the INPUT is unusable — a non-finite number somewhere in it — and nothing
+ * else.
  *
- * A chain of fewer than two cards is a perfectly good chain with no seam in
- * it, and it is returned as such. Whether that is an answerable question is
- * the caller's to decide: {@link solveSidebarWidths} genuinely has nothing to
- * fit and says so, while {@link allocateSidebarWidths} still owes every
- * standing rail a width.
+ * ## The chain is the arrangement, not the occupancy
+ *
+ * This used to be the OCCUPIED slots alone, and that is the single assumption
+ * behind the worst picture the allocator has ever painted. `pictureOfChain`
+ * scores the seam between consecutive chain members against one imposition
+ * gap; it does not know how many slots apart they are. So a three-up deck with
+ * slots 0 and 2 filled and slot 1 empty handed it a two-member chain pinned to
+ * the two ENDS of the band, and asked it to make those two cards sit 5px
+ * apart. On a 2870px canvas that wants a rail total of 1495 — past the
+ * ceiling — so both rails went to their 675px maximum and the picture was
+ * still 145px out. The deck was in fact CRAMPED by 535px against what the
+ * empty slot holds open, and the allocator spent every pixel of rail it had
+ * widening in the wrong direction.
+ *
+ * The vacancy was never invisible to the rest of the model: `imposeRect`
+ * anchors on `travelFraction`, which divides by the kind's slot COUNT, so an
+ * empty slot has always held its share of the band, and the deck draws a
+ * reserved place there. Only the objective disagreed.
+ *
+ * Filling the chain fixes that at the root, and it is the stronger fix over
+ * teaching `pictureOfChain` how far apart two members are: **the rails no
+ * longer move when a card arrives or leaves.** A three-up deck is solved for
+ * three cards whether one stands in it or three do, so opening a card into
+ * the slot the arrangement was already holding finds the rails already the
+ * right width — where an occupancy-shaped chain would resize both edges of
+ * the deck under the user for a card that landed exactly where its place was.
+ *
+ * A vacancy's width is {@link AllocatorInput.emptyExtent}; absent, it is
+ * derived here the same way {@link vacancyExtent} derives it, from the widest
+ * card standing. A chain of one — one-up — is a perfectly good chain with no
+ * seam in it, and is returned as such; whether that is an answerable question
+ * is the caller's to decide.
  *
  * This is the allocator's ONE validation site — including `greedRank`, which
  * the greed order sorts on and which would make that order nondeterministic
@@ -2602,9 +2558,23 @@ function chainOf(
     const held = widest.get(slot);
     if (held === undefined || entry.width > held) widest.set(slot, entry.width);
   }
-  return [...widest.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([slot, width]) => ({ slot, width }));
+
+  const vacancy =
+    input.emptyExtent !== undefined && Number.isFinite(input.emptyExtent)
+      ? Math.max(0, input.emptyExtent)
+      : vacancyExtent(occupied, 0);
+  const chain: { slot: number; width: number }[] = [];
+  for (let slot = 0; slot < slotCount(kind); slot += 1) {
+    const width = widest.get(slot) ?? vacancy;
+    // A slot with no card and nothing to hold open contributes nothing: a
+    // zero-width member is not a place, and a chain of them would have the
+    // allocator tiling seams between things that are not there. This is the
+    // wholly empty deck — no card standing anywhere and no `emptyExtent` given
+    // — which comes out as an empty chain, and an empty chain is what leaves
+    // every rail at the width its owner chose.
+    if (width > 0) chain.push({ slot, width });
+  }
+  return chain;
 }
 
 /**

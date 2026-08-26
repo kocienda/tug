@@ -665,16 +665,14 @@ describe("the band's far edge", () => {
     expect(sliver(0)).toBe(0);
   });
 
-  test("the objective reads the held-open strip when it is told what it holds", () => {
+  test("the objective reads the held-open strip, at whatever it is told it holds", () => {
     // The objective scores where the band's far edge cuts the strip, so it has
     // to be reading the strip the deck DRAWS. The deck holds every slot of the
-    // kind open (`deckFlowStrip`), and an allocator scoring the occupied run
-    // alone would be spending rail width on a picture nobody sees.
+    // kind open (`deckFlowStrip`), so an empty slot moves every slot after it.
     //
-    // Slots 0 and 2 hold slim cards and slot 1 stands empty at 800. Slot 2's
-    // near edge is therefore at 675 + 5 + 800 + 5 = 1485, not at 680 — so a
-    // band of 1488 cuts three pixels off it, and the same band read against
-    // the occupied run alone finds only a gap.
+    // Slots 0 and 2 hold slim cards; slots 1 and 3 stand empty. TOLD the
+    // vacancy is 800, slot 2's near edge is 675 + 5 + 800 + 5 = 1485, and a
+    // band of 1488 cuts three pixels off it.
     const held: AllocatorInput = {
       ...forBand(1488, [
         { slot: 0, width: CONTENT_WIDTH_SLIM_PX },
@@ -683,8 +681,16 @@ describe("the band's far edge", () => {
       emptyExtent: 800,
     };
     expect(stripPicture(held, railWidths).worstSliver).toBe(3);
-    const { emptyExtent: _dropped, ...run } = held;
-    expect(stripPicture(run, railWidths).worstSliver).toBe(0);
+
+    // Told NOTHING, the slot is still held open — the extent is derived from
+    // the widest card standing, which is `vacancyExtent`'s own rule and the
+    // same one `chainOf` falls back on. So the vacancy is 675 wide, slot 2
+    // starts at 1360, and the same band cuts 128px into it. What must never
+    // happen is the objective reading the occupied run ALONE and finding a
+    // clean gap where the deck draws a card: an allocator scoring that would
+    // spend rail width on a picture nobody sees.
+    const { emptyExtent: _dropped, ...derived } = held;
+    expect(stripPicture(derived, railWidths).worstSliver).toBe(128);
   });
 });
 
