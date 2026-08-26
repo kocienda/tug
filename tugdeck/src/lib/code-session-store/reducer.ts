@@ -160,6 +160,7 @@ import {
   type GoalState,
 } from "./select-goal";
 import { TUG_ATOM_CHAR } from "../tug-atom-img";
+import { mintLeadingCommandAtom } from "../command-atom";
 import { decodePermissionDenials, mergeDenials } from "./denials";
 import { tugDevLogStore } from "../tug-dev-log-store/tug-dev-log-store";
 import {
@@ -4085,11 +4086,16 @@ function handleSessionStage(
     // typed prompt takes — the same pending turn, the same scratch seed —
     // less the frame, which the runner already sent. The divider lands on
     // the committed transcript first, so the new turn reads below it.
+    // The runner composed this prompt, so a leading `/command` in it was
+    // *invoked*, not written about, and gets the command atom the composer
+    // mints for a typed one — see `mintLeadingCommandAtom`. `content` keeps
+    // the raw prompt: it records what the runner already sent.
+    const minted = mintLeadingCommandAtom(event.prompt, [], TUG_ATOM_CHAR);
     const opened = handleSend(state, {
       type: "send",
       origin: "conductor",
-      text: event.prompt,
-      atoms: [],
+      text: minted?.text ?? event.prompt,
+      atoms: minted?.atoms ?? [],
       content: [{ type: "text", text: event.prompt }],
       turnKey: event.turnKey,
     } as SendActionEvent);

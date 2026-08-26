@@ -13,6 +13,7 @@ import {
   chipMark,
   detectCommandEcho,
   hasLeadingCommandAtom,
+  mintLeadingCommandAtom,
   SESSION_CHIP_GEOMETRY,
   SESSION_CHIP_INK_TOKEN,
 } from "../command-atom";
@@ -199,5 +200,59 @@ describe("hasLeadingCommandAtom", () => {
 
   test("false for a non-command atom", () => {
     expect(hasLeadingCommandAtom(C, [file], C)).toBe(false);
+  });
+});
+
+describe("mintLeadingCommandAtom", () => {
+  const K = "￼";
+  const cmd = (name: string) => ({
+    kind: "atom" as const,
+    type: "command" as const,
+    label: name,
+    value: name,
+  });
+  const file = { kind: "atom" as const, type: "file", label: "x.ts", value: "src/x.ts" };
+
+  test("lifts a bare command out of the text, leaving the args as written", () => {
+    expect(
+      mintLeadingCommandAtom("/tugplug:plan-review dash/x.md", [], K),
+    ).toEqual({
+      text: `${K} dash/x.md`,
+      atoms: [cmd("tugplug:plan-review")],
+    });
+  });
+
+  test("keeps every character after the name, newlines and all", () => {
+    const minted = mintLeadingCommandAtom("/dash a.md\n\nstart there: b.md", [], K);
+    expect(minted?.text).toBe(`${K} a.md\n\nstart there: b.md`);
+  });
+
+  test("mints for a bare command with no arguments", () => {
+    expect(mintLeadingCommandAtom("/commit", [], K)).toEqual({
+      text: K,
+      atoms: [cmd("commit")],
+    });
+  });
+
+  test("prepends the atom so existing atoms keep their ordinals", () => {
+    const minted = mintLeadingCommandAtom(`/implement ${K}`, [file], K);
+    expect(minted?.text).toBe(`${K} ${K}`);
+    expect(minted?.atoms).toEqual([cmd("implement"), file]);
+  });
+
+  test("declines when the text already leads with a command atom", () => {
+    expect(mintLeadingCommandAtom(`${K} args`, [cmd("commit")], K)).toBeNull();
+  });
+
+  test("declines on prose, on a path, and on a mid-sentence command", () => {
+    expect(mintLeadingCommandAtom("just some prose", [], K)).toBeNull();
+    expect(mintLeadingCommandAtom("/Users/ken/src", [], K)).toBeNull();
+    expect(mintLeadingCommandAtom("/usr/bin/env", [], K)).toBeNull();
+    expect(mintLeadingCommandAtom("run /commit when done", [], K)).toBeNull();
+  });
+
+  test("declines when the slash leads a word the grammar rejects", () => {
+    expect(mintLeadingCommandAtom("/Commit now", [], K)).toBeNull();
+    expect(mintLeadingCommandAtom("/-bad thing", [], K)).toBeNull();
   });
 });

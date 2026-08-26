@@ -26,6 +26,7 @@ import {
 } from "@/lib/code-session-store/reducer";
 import type { CodeSessionEvent } from "@/lib/code-session-store/events";
 import { stageNoteText } from "@/lib/code-session-store/stages";
+import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import { compactionNoteText } from "@/lib/code-session-store/compaction";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 
@@ -128,9 +129,23 @@ describe("reducer — a stage that carries its prompt", () => {
     expect(after.pendingTurn?.turnKey).toBe("arc-k1");
     // Nobody in the deck typed this: the row says the conductor did.
     expect(after.pendingTurn?.origin).toBe("conductor");
+    // The prompt opens with a command the runner invoked, so it arrives as
+    // a command atom rather than as characters — the same substrate the
+    // composer submits for a typed command, and the same one replay
+    // rebuilds from claude's `<command-name>` echo.
     const opener = after.scratch.get("arc-k1")?.messages[0];
     expect(opener?.kind).toBe("user_message");
-    expect((opener as { text?: string }).text).toBe("/tugplug:plan-devise dash/foo-brief.md");
+    expect((opener as { text?: string }).text).toBe(
+      `${TUG_ATOM_CHAR} dash/foo-brief.md`,
+    );
+    expect((opener as { attachments?: unknown[] }).attachments).toEqual([
+      {
+        kind: "atom",
+        type: "command",
+        label: "tugplug:plan-devise",
+        value: "tugplug:plan-devise",
+      },
+    ]);
   });
 
   it("only annotates when a turn is already open — the prompt is queued behind it by claude", () => {

@@ -38,8 +38,23 @@ export interface ParsedSlashCommand {
  * the grammar alone already excludes the common false positives; the
  * known-command predicate is the strict backstop.
  */
-const SLASH_COMMAND_RE =
-  /^\/([a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?::[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)?)(?:\s+([\s\S]+))?$/;
+const COMMAND_NAME_PATTERN =
+  "[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?::[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?)?";
+
+const SLASH_COMMAND_RE = new RegExp(
+  `^\\/(${COMMAND_NAME_PATTERN})(?:\\s+([\\s\\S]+))?$`,
+);
+
+/**
+ * The same command token, anchored at the very start of a string and
+ * terminated by whitespace or end-of-string. Where {@link SLASH_COMMAND_RE}
+ * asks "is this whole string a command line", this asks "does this string
+ * *open* with a command", which is the question a submitted prompt poses:
+ * the argument remainder may be several paragraphs of prose.
+ */
+const LEADING_SLASH_COMMAND_RE = new RegExp(
+  `^\\/(${COMMAND_NAME_PATTERN})(?=\\s|$)`,
+);
 
 /**
  * The project CLI tools whose transcript command lines are annotated.
@@ -80,4 +95,24 @@ export function parseSlashCommandLine(text: string): ParsedSlashCommand | null {
 export function parseShellCommandLine(text: string): string | null {
   const trimmed = text.trim();
   return SHELL_COMMAND_RE.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Match a slash-command token at the very start of `text`, returning the
+ * bare `name` and the offset just past it — the split point a caller
+ * needs to lift the command out of the prompt and leave the argument
+ * remainder as written.
+ *
+ * Not the same question as {@link parseSlashCommandLine}, which asks
+ * whether the *whole* string is one command line and hands back the args
+ * trimmed. A submitted prompt can open with a command and continue for
+ * paragraphs, and the characters after the name are the author's, so
+ * this returns an offset rather than a re-spelled remainder.
+ */
+export function matchLeadingSlashCommand(
+  text: string,
+): { name: string; end: number } | null {
+  const match = LEADING_SLASH_COMMAND_RE.exec(text);
+  if (match === null) return null;
+  return { name: match[1], end: match[0].length };
 }

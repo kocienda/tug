@@ -30,6 +30,7 @@
 
 import type { ContentBlock } from "@/protocol";
 import { isSessionAtomType } from "@/lib/session-atom-shape";
+import { matchLeadingSlashCommand } from "@/lib/annotator/command-grammar";
 
 /** Strip a single leading slash so the helpers are idempotent on a
  *  value that already carries one (defensive — `value` is canonically
@@ -343,4 +344,75 @@ export function hasLeadingCommandAtom(
     atoms[0].type === "command" &&
     text.startsWith(atomChar)
   );
+}
+
+// ---------------------------------------------------------------------------
+// Minting a command atom for a command that was typed rather than picked
+// ---------------------------------------------------------------------------
+
+/**
+ * The atom this module mints — structurally an `AtomSegment`, declared
+ * here so the module stays free of a `tug-atom-img` cycle (the same
+ * reason {@link hasLeadingCommandAtom} takes `atomChar` as a parameter).
+ */
+export interface CommandAtomSegment {
+  kind: "atom";
+  type: "command";
+  label: string;
+  value: string;
+}
+
+/**
+ * Lift a leading literal `/command` out of a submission's text into the
+ * command atom the `/`-completion would have placed there, returning the
+ * rewritten `(text, atoms)` substrate — or `null` when the text does not
+ * open with a command, or already leads with a command atom.
+ *
+ * **Why a submission needs this at all.** A command that reaches the
+ * transcript as characters is painted as prose, because prose is what it
+ * is: the annotator marks only whole inline `<code>` spans, and nothing
+ * in the substrate says these particular characters were an invocation.
+ * Two submissions arrive that way — a command line typed out instead of
+ * accepted from the completion popup, and the conductor's stage prompt,
+ * which the runner composes as text. Both are *invocations*: somebody ran
+ * a command, they did not write about one, and `entity-presentation.md`'s
+ * rule is that a placed thing renders as an atom.
+ *
+ * Minting at submit also closes a divergence. Replay reconstructs the
+ * command atom out of claude's `<command-name>` echo
+ * (`detectCommandEcho`), so a row that painted as prose live comes back
+ * as a chip after a reload — the same live-vs-restored mismatch
+ * `hasLeadingCommandAtom` exists to prevent on the completion path.
+ *
+ * The atom takes offset 0 and is prepended to `atoms`, so every existing
+ * atom keeps its `U+FFFC` and its ordinal: the command name the splice
+ * removes cannot contain the placeholder (the grammar admits only
+ * lowercase alphanumerics, `_`, `-` and one `:`).
+ *
+ * Distinct from `buildCommandSubmission`, which mints the same substrate
+ * from a `(name, args)` pair for a command the app itself is running: that
+ * one re-spells the arguments (trimmed, single-spaced), which is right when
+ * the app composed them and wrong here, where the remainder is text somebody
+ * submitted and may run for paragraphs.
+ *
+ * There is no known-command gate here, and the callers explain why they
+ * need none: the composer has already dispatched or refused every local,
+ * hidden and unknown name before it submits, and the conductor's prompt
+ * is a command the runner is running. Pure.
+ */
+export function mintLeadingCommandAtom<A extends { kind: "atom"; type: string }>(
+  text: string,
+  atoms: ReadonlyArray<A>,
+  atomChar: string,
+): { text: string; atoms: Array<A | CommandAtomSegment> } | null {
+  if (hasLeadingCommandAtom(text, atoms, atomChar)) return null;
+  const match = matchLeadingSlashCommand(text);
+  if (match === null) return null;
+  const atom: CommandAtomSegment = {
+    kind: "atom",
+    type: "command",
+    label: match.name,
+    value: match.name,
+  };
+  return { text: atomChar + text.slice(match.end), atoms: [atom, ...atoms] };
 }

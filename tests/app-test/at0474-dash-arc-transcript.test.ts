@@ -50,6 +50,8 @@ const DIVIDER = '[data-slot="stage-divider"]';
 const USER_ROW = '[data-testid="session-card-transcript-user-body"]';
 const CONDUCTOR_ROW = '.tug-transcript-entry[data-participant="conductor"]';
 const STAGE_PROMPT = "/tugplug:plan-devise a plan for dash/foo-brief.md";
+/** What the transcript paints as prose once the command becomes a chip. */
+const STAGE_PROMPT_ARGS = "a plan for dash/foo-brief.md";
 const REVIEW_PROMPT = "/tugplug:plan-review dash/foo.md";
 const CODE_OUTPUT_FEED = 0x40; // FeedId.CODE_OUTPUT
 const TUG_SESSION_ID = "test-session-A"; // bindSession default
@@ -169,7 +171,17 @@ describe.skipIf(!SHOULD_RUN)(
           const conductorRow = await app.evalJS<string>(
             `(document.querySelector(${JSON.stringify(CONDUCTOR_ROW)})||{}).textContent || ""`,
           );
-          expect(conductorRow).toContain(STAGE_PROMPT);
+          // The prompt opens with a command the runner invoked, so the row
+          // shows it as the same command chip a typed command gets, not as
+          // characters. The argument remainder stays prose, exactly as
+          // written.
+          const chipLabel = await app.evalJS<string>(
+            `(document.querySelector(${JSON.stringify(
+              `${CONDUCTOR_ROW} [data-atom-label]`,
+            )})||{ getAttribute: () => "" }).getAttribute("data-atom-label")`,
+          );
+          expect(chipLabel).toBe("tugplug:plan-devise");
+          expect(conductorRow).toContain(STAGE_PROMPT_ARGS);
           expect(conductorRow).toContain("Conductor");
           expect(conductorRow).not.toContain("You");
           const label = await app.evalJS<string>(

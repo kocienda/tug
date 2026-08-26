@@ -62,6 +62,7 @@ import type {
   TugTextEditingState,
 } from "@/lib/tug-text-types";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
+import { mintLeadingCommandAtom } from "@/lib/command-atom";
 import type {
   CardSessionMode,
   CodeSessionPhase,
@@ -2974,6 +2975,18 @@ export const TugPromptEntry = React.forwardRef<
     } else if (sendAtoms.length === 0) {
       const canonical = canonicalizeBareCommandLine(submitText, catalogNames);
       if (canonical !== null) wireText = canonical;
+      // A command line typed out rather than accepted from the completion
+      // popup carries no command atom, so the transcript would paint the
+      // invocation as prose until a reload replayed it as a chip. Mint the
+      // atom the popup would have placed, on the canonicalized text so the
+      // chip reads the qualified name claude expands. Every local, hidden
+      // and unknown name was dispatched or refused above, so no
+      // known-command gate is needed here.
+      const minted = mintLeadingCommandAtom(wireText, wireAtoms, TUG_ATOM_CHAR);
+      if (minted !== null) {
+        wireText = minted.text;
+        wireAtoms = minted.atoms;
+      }
     }
 
     codeSessionStore.send(wireText, wireAtoms);
