@@ -1,6 +1,6 @@
 # tugrevs — the edit language
 
-*A small, interpreted language for editing text files from inside a session, executed by `tugutil` so every edit it makes is attributed with proof. Why it exists, the grammar, the transaction semantics, the receipt, and how the gate steers to it. Read this before implementing the interpreter, before adding a verb, or before deciding that a `python3` heredoc is "fine just this once."*
+*A small, interpreted language for editing text files from inside a session, executed by `tugutil` so every edit it makes is attributed with proof. Why it exists, what the session corpus says the model actually does to files, the grammar, the transaction semantics, the receipt, and how the gate steers to it. Read this before implementing the interpreter, before adding a verb, or before deciding that a `python3` heredoc is "fine just this once."*
 
 *Cross-references: `[L##]` → [tuglaws.md](tuglaws.md). Attribution vocabulary (proof rows, hints, buckets, the receipt sentinel) is defined in [tracking-changes.md](tracking-changes.md); this page assumes it.*
 
@@ -26,55 +26,93 @@ REV
 
 ---
 
+## What the corpus says
+
+The language is shaped by evidence, not taste. Every Claude Code session transcript for this checkout and its dash worktrees (613 files, ~140,000 Bash calls as of 2026-08-26) was mined for commands that mutate a repo file through a reader the grammar cannot see. The tally, and what each family was doing:
+
+| Family | Repo-file edits | What the edits actually were |
+|--------|----------------:|------------------------------|
+| `python3` heredoc / `-c` that writes a file | **1,317** | 928 carry a triple-quoted multi-line body. 705 apply a **list of literal (old, new) pairs** to one file — the dominant shape by far. 328 guard each pair with `assert s.count(old) == 1` before substituting. 198 locate a region by `s.index(marker)`; 17 of those cut or replace **the span between two markers**. 42 splice a line array; 9 by numeric range; 28 do an insert that copies the anchor line's indentation. 28 use `re.sub`. 56 loop over several files. 20 rewrite JSON structurally. |
+| `sed -i ''` | **1,080** | 287 `s///g`. **280 delete a numeric line range** (`'835,849d'`), often several ranges in one chain. 270 name multiple files or chain several `sed -i` calls. 99 stack `-e` expressions — a rename campaign in one call. 29 **scope a substitution to a line range** (`'350,900s/railSplit/placeSplit/g'`). 42 use word boundaries (`\b`, or BSD `[[:<:]]`). |
+| `perl -pi -e` | **496** | Almost entirely `s///g` across files: 379 name more than one file. 79 use `-0777` for a substitution that spans lines. |
+| `cat >> file <<'EOF'` | **335** | Append a block to an existing file — a CSS rule, a test `describe`, a notice section. |
+| `cat > file <<'EOF'` | **448** | Create a file whole (occasionally overwrite one). |
+| `awk 'NR…' file > /tmp/x && mv` | 18 | Delete or reorder lines by number, the round trip through `/tmp` hiding the write. |
+| `head -n $((L-1)) file > /tmp && mv` | 9 | Truncate a file at a marker line. |
+| `bun -e` / `node -e` writing | 5 | Multi-line regex deletions with the `gm` flags. |
+
+Three conclusions drive the design:
+
+1. **Literal, multi-pair, per-file substitution with a count guard is the centre of mass.** The model already writes `assert s.count(old) == 1` a quarter of the time on its own. `expect 1` as the default, with every failure reported in one run, is that habit made mandatory and cheap.
+2. **Line numbers and text markers are both first-class addresses, and both scope other ops.** Numeric-range deletes are the second-largest single shape; range-scoped `s///` and "from `mod tests {` to end of file" edits are real; two-marker spans are how the model deletes a whole function or table. The language needs ranges whose ends are numbers *or* text, and a way to run a substitution *inside* one.
+3. **Multi-file and whole-file ops are not edge cases.** Half the `sed`/`perl` calls touch several files with the same expression; append and create together outnumber `perl` entirely. A block that names several files, plus `append`/`create`/`write`, close those leaks outright.
+
+What the corpus does **not** contain in any volume is computed replacement (a callback deciding each substitution — 1 case) or structural JSON editing (20, almost all `/tmp` fixtures or model manifests). Those stay out of the language; see [Out of scope](#out-of-scope) for how they still get attributed.
+
+---
+
 ## Design stance
 
 **Boring on purpose.** tugrevs is a superset of the verbs the model already knows from `ed`, `sed`, and `patch`: `replace`, `sub`, `insert`, `delete`, addresses that are literals, regexes, or line ranges. A bespoke syntax would be generated less reliably, and a malformed program is exactly the moment the model gives up and reaches for python. Every construct here is one the model can write from memory on the first try. Human readability is not a goal, but it falls out of this stance for free and the Changes card is glad of it.
 
 **A program is a transaction.** Every address in the program is resolved against the *original* bytes of every file before a single byte is written. If any op fails to resolve, nothing is written and the run exits non-zero. There is no half-applied multi-file edit, ever. This is the same discipline `tugutil file edit` already holds for the single-substitution case (a no-match exits non-zero with no receipt), extended to a whole program.
 
-**Addresses mean what the model just read.** The model discovers line numbers with `grep -n` and `sed -n 'a,bp'` and then edits. Because resolution happens against original bytes, `lines 5873..5882` in a program refers to the lines the model saw, even if an earlier op in the same program inserted forty lines above them. Ops within a file are applied in address order, bottom-up, so no op shifts another.
+**Addresses mean what the model just read.** The model discovers line numbers with `grep -n` and `sed -n 'a,bp'` and then edits. Because resolution happens against original bytes, `835 .. 849` in a program refers to the lines the model saw, even if an earlier op in the same program inserted forty lines above them. Ops within a file are applied bottom-up by resolved position, so no op shifts another. The `sed -i '835,849d' && sed -i '521,522d' && sed -i '166d'` chain — where the model had to order its deletes top-down by hand to keep the numbers honest — becomes three `delete` lines in any order.
 
-**Silence is the enemy.** A no-match is an error. A regex that matches more times than declared is an error. A file that the program names but leaves byte-identical is not in the receipt. Mirrors [tracking-changes.md](tracking-changes.md#verb-receipts): a silently-successful no-op edit is how a stale substitution hides.
+**Silence is the enemy.** A no-match is an error. A match count the program did not declare is an error. A file that the program names but leaves byte-identical is not in the receipt. Mirrors [tracking-changes.md](tracking-changes.md#verb-receipts): a silently-successful no-op edit is how a stale substitution hides.
 
 ---
 
 ## The language
 
-A program is a sequence of **file blocks**. A file block opens with `file <path>` and holds one or more **ops**, indented by convention (indentation is not significant). Blank lines and `#` comments are ignored outside string and body literals.
+A program is a sequence of **file blocks**. A block opens with `file <path>` — or `files <path> <path> …`, which applies the same ops to each file independently — and holds one or more **ops**. Ops are indented by convention; the indentation of an op line is significant only in that bodies are dedented by it (below). Blank lines and `#` comments are ignored outside string and body literals.
 
 ```
-program   := (file-block)+
-file-block := 'file' path NEWLINE (op NEWLINE)+
-op        := replace | sub | insert | delete | lines | create
+program    := (block)+
+block      := ('file' path | 'files' path+) NEWLINE (op NEWLINE)+
+op         := replace | sub | insert | append | delete | lines | move | create | write
 ```
 
-Paths are relative to the working directory (the checkout or dash worktree the session runs in), or absolute. A path is a literal — no globs, no variables. The same file may open more than one block; the blocks concatenate.
+Paths are relative to the working directory (the checkout or dash worktree the session runs in), or absolute. A path is a literal — no globs, no variables. The same file may open more than one block; the blocks concatenate. In a `files` block, `expect` counts are checked **per file**: `files a.rs b.rs` + `sub /\bnew_frames\b/ 'new_beats' all` requires at least one hit in each.
 
 ### Ops
 
 | Op | Form | Meaning |
 |----|------|---------|
-| `replace` | `replace STR with STR [expect N \| all]` | Literal substring substitution. Default `expect 1`. |
-| `sub` | `sub REGEX REPL [expect N \| all]` | Regex substitution with `$1`-style captures in `REPL`. Default `expect 1`. |
-| `insert` | `before ADDR insert BODY` / `after ADDR insert BODY` | Insert whole lines adjacent to an addressed line. |
-| `delete` | `delete ADDR` / `delete ADDR .. ADDR` | Delete the addressed line, or the inclusive range. |
-| `lines` | `lines ADDR .. ADDR replace BODY` | Replace an inclusive line range with `BODY` (which may be empty: `<< >>`). |
-| `create` | `create BODY` | The file must not exist; it is created with `BODY`. The only op allowed in its block. |
+| `replace` | `replace STR with STR [COUNT] [SCOPE]` | Literal substring substitution. Default `expect 1`. |
+| `sub` | `sub REGEX REPL [COUNT] [SCOPE]` | Regex substitution; `$1`-style captures in `REPL`. Default `expect 1`. |
+| `insert` | `before ADDR insert [indented] BODY` / `after ADDR insert [indented] BODY` | Insert whole lines adjacent to an addressed line. `indented` prefixes each body line with the anchor line's leading whitespace. |
+| `append` | `append BODY` | Insert after the last line. `cat >> file <<'EOF'` as an op. |
+| `delete` | `delete RANGE` / `delete every ADDR` | Delete the lines in the range, or every line the address matches. |
+| `lines` | `lines RANGE replace BODY` | Replace the lines in the range with `BODY` (which may be empty: `<< >>`). |
+| `move` | `move RANGE before ADDR` / `move RANGE after ADDR` | Cut the range and reinsert it at the anchor, resolved against the original file. |
+| `create` | `create BODY` | The file must not exist; it is created with `BODY`. |
+| `write` | `write BODY` | The file's whole content becomes `BODY`, existing or not. `cat > file <<'EOF'` as an op. |
 
-`replace` and `sub` match anywhere in the file, across line boundaries — a `STR` may contain `\n`. The line-addressed ops (`insert`, `delete`, `lines`) work on whole lines.
+`create` and `write` must be the only op in their block. `replace` and `sub` match anywhere in the file, across line boundaries — a `STR` may contain `\n` and a regex may match `\n` — which is what `perl -0777` was being used for. The line-addressed ops (`insert`, `delete`, `lines`, `move`) work on whole lines.
 
-### Addresses
+### COUNT — the guard
+
+`expect N` declares that a `replace` or `sub` must match exactly N times in its scope; `all` declares one-or-more. The default is `expect 1`. This is the guard that makes computed edits safe: the model has just read the file and knows how many hits it expects, and the interpreter refuses to proceed if the file disagrees. A regex the model believed was specific and was not is caught here, not in the diff review.
+
+### SCOPE — substitution inside a range
+
+`in RANGE` restricts a `replace` or `sub` to the lines of the range: `sub /\bprojectDir\b/ 'sentDir' all in 270 .. 440`, or `replace 'state.record(' with 'state.record_now(' all in /^mod tests \{/ .. $`. Without `in`, the scope is the whole file. The count guard applies within the scope.
+
+### Addresses and ranges
 
 An `ADDR` is one of:
 
 | Form | Resolves to |
 |------|-------------|
 | `N` | Line N, 1-based, as `grep -n` prints it. |
-| `/REGEX/` | The single line matching the regex. Multiple matches is an error unless qualified with `[K]` — `/REGEX/[3]` is the third match, `/REGEX/[-1]` the last. |
+| `/REGEX/` | The single line matching the regex. Multiple matches is an error unless qualified: `/REGEX/[3]` is the third match, `/REGEX/[-1]` the last. |
 | `'STR'` | The single line containing the literal. Same `[K]` qualifier. |
 | `$` | The last line of the file. |
 
-A range `A .. B` is inclusive at both ends and must be non-empty and ordered. Ranges resolve both ends independently against the original file; a range whose end precedes its start is an error.
+A `RANGE` is `ADDR .. ADDR` (inclusive at both ends) or `ADDR until ADDR` (inclusive start, **exclusive** end). `until` is the two-marker span the model writes as `s[s.index(A):s.index(B)]`: `delete 'const density = await app.evalJS' until '// ── 1. One baseline per bar'` removes the first block and leaves the second's heading in place. Both ends resolve independently against the original file; an end that precedes its start is an error. A bare `ADDR` where a `RANGE` is expected is the one-line range.
+
+`delete every ADDR` is the `sed '/pattern/d'` shape: it deletes each matching line and is the one place an address may match many times without a qualifier.
 
 ### Literals
 
@@ -82,18 +120,66 @@ A range `A .. B` is inclusive at both ends and must be non-empty and ordered. Ra
 |------|-------|
 | `'…'` | Single-quoted string. The only escapes are `\'`, `\\`, `\n`, `\t`. Everything else is literal — no shell interpolation is possible because the program arrives in a quoted heredoc. |
 | `"…"` | Double-quoted string, identical escapes. Offered so a literal containing `'` need no escaping. |
-| `/…/` | Regex, Rust `regex` crate syntax. `\/` escapes a slash. Flags after the closing slash: `i`, `m`, `s`. |
-| `<<` … `>>` | A **body**: the lines between the `<<` line and the `>>` line, verbatim. The body's own indentation is normalized by stripping the common leading whitespace of its non-blank lines, so a program can indent its bodies for readability without that indentation landing in the file. |
+| `/…/` | Regex, Rust `regex` crate syntax. `\/` escapes a slash. `^` and `$` are **line** anchors (multi-line mode is on, as in `sed` and `perl -p`); `\A` and `\z` anchor the file. `\b` is the word boundary — BSD sed's `[[:<:]]`/`[[:>:]]` have no place here. Flags after the closing slash: `i`, `s` (dot matches newline). |
+| `<<` … `>>` | A **body**: the lines between the `<<` line and the `>>` line. Each body line is dedented by exactly the indentation of the op line that opened it; what remains is literal, so relative indentation inside the body is preserved. |
 
-The body normalization is the one piece of cleverness in the language, and it exists because the model will indent bodies under their ops, and the alternative — `<<-` / `<<` pairs as in the shell — is a distinction the model gets wrong.
+The body rule is the only deliberate cleverness in the language. The model indents ops under their `file` line and bodies under their ops; stripping the op's own indentation lets it write the body as it will appear in the file, offset by a constant, and the constant is one it can see. Bodies are never trimmed of blank lines, so an appended CSS rule keeps its leading blank line.
 
 ### Regex replacement
 
 `sub`'s `REPL` uses `$1`, `${name}`, and `$$` for a literal dollar, per the `regex` crate's `Regex::replace` expansion. `REPL` is a quoted string literal; `sub /foo_(\w+)/ 'bar_$1' all` renames every `foo_` prefix.
 
-### Count guards
+### Worked forms from the corpus
 
-`expect N` declares that a `replace` or `sub` must match exactly N times; `all` declares one-or-more. The default is `expect 1`. This is the guard that makes computed edits safe: the model has just read the file and knows how many hits it expects, and the interpreter refuses to proceed if the file disagrees. A regex the model believed was specific and was not is caught here, not in the diff review.
+```
+# the rename campaign (sed -i '' -e … -e … file / perl -pi across files)
+files tugrust/crates/tugdash-core/src/ops.rs tugrust/crates/tugdash-core/src/replay.rs
+  replace 'ReleaseOutcome' with 'DiscardOutcome' all
+  sub /\brelease_in\b/ 'discard_in' all
+  sub /\bfn release_/ 'fn discard_' all
+
+# the multi-pair edit with guards (python3 heredoc with s.count(a) == 1)
+file tugdeck/src/main.tsx
+  replace 'import { attachPulseStore } from "./lib/pulse-store";' with <<
+    import { attachPulseStore } from "./lib/pulse-store";
+    import { attachLocalModelStore } from "./lib/local-model-store";
+  >>
+  after 'attachPulseStore(connection);' insert indented <<
+
+    attachLocalModelStore(connection);
+  >>
+
+# the numeric deletes (sed -i '' '835,849d' && '521,522d' && '166d')
+file tugdeck/src/components/lens/sections/layouts-section.tsx
+  delete 835 .. 849
+  delete 521 .. 522
+  delete 166
+
+# the block swap (python line-array splice), and the truncate-at-marker (head -n | mv)
+file roadmap/local-model-bringup.md
+  move 431 .. 441 before 415
+file roadmap/animation-tuneup.md
+  delete /^### Remaining execution steps/ .. $
+
+# the scoped rename (sed -i '' '350,900s/railSplit/placeSplit/g')
+file tugdeck/src/components/chrome/tug-pane.tsx
+  replace 'railSplit' with 'placeSplit' all in 350 .. 900
+
+# the append (cat >> file <<'EOF') and the new file (cat > file <<'EOF')
+file tugdeck/src/components/tugways/cards/gallery-motion-bench.css
+  append <<
+
+    .gmb-escaped {
+      position: fixed;
+    }
+  >>
+file tests/model-eval/verbs.txt
+  create <<
+    add audit author
+  >>
+```
+
+A `STR` may be a body: `replace '…' with << … >>` is how a one-line anchor grows into a multi-line block without escaping newlines.
 
 ---
 
@@ -102,23 +188,34 @@ The body normalization is the one piece of cleverness in the language, and it ex
 The interpreter runs in four phases, and the phase boundary is the contract.
 
 1. **Parse.** The whole program is parsed before any file is opened. A syntax error names its line and column and aborts the run with nothing read.
-2. **Read.** Every file named by a block is read once. A missing file is an error (except under `create`, where an *existing* file is the error). Non-UTF-8 content is an error; tugrevs does not edit binaries.
-3. **Resolve.** Every address, literal, and regex in every op is resolved against the original bytes of its file. Every failure across the whole program is collected — not just the first — and reported together with the op's source line, so one run tells the model everything that was stale. Any failure aborts with nothing written.
-4. **Apply and write.** Ops within a file are applied bottom-up by resolved position, so no op shifts another. Each file is written atomically (write-temp-and-rename in the file's directory, preserving mode). A file whose result is byte-identical to its original is not written and not receipted.
+2. **Read.** Every file named by a block is read once. A missing file is an error (except under `create`, where an *existing* file is the error, and `write`, which accepts either). Non-UTF-8 content is an error; tugrevs does not edit binaries.
+3. **Resolve.** Every address, literal, and regex in every op is resolved against the original bytes of its file. Every failure across the whole program is collected — not just the first — and reported together with the op's source line and the actual match count, so one run tells the model everything that was stale. Any failure aborts with nothing written.
+4. **Apply and write.** Ops within a file are applied bottom-up by resolved position, so no op shifts another; a `move` is a delete at its source and an insert at its anchor, both positioned against the original. Each file is written atomically (write-temp-and-rename in the file's directory, preserving mode). A file whose result is byte-identical to its original is not written and not receipted.
 
 Line endings are detected per file (`\n`, `\r\n`) and preserved; bodies are joined with the file's own ending. A file with no trailing newline stays that way unless an op appends past its last line, in which case one is added — the same rule `patch` follows.
 
-**Overlap is an error.** Two ops whose resolved spans intersect in the same file are refused at resolve time. Adjacency is fine; overlap means the model's mental model of the file has diverged from its bytes.
+**Overlap is an error.** Two ops whose resolved spans intersect in the same file are refused at resolve time — including a `move` whose anchor lies inside its own range. Adjacency is fine; overlap means the model's mental model of the file has diverged from its bytes.
 
 ---
 
 ## Preview and the receipt
 
-`tugrevs --preview` runs phases 1–3, then prints the unified diff the program *would* produce and exits 0 without writing. This is the model's dry run and it should be the reflex before any program with `all`, a regex, or more than a couple of files. Preview emits no receipt and touches no mtime — the same guarantee [`file probe`](tracking-changes.md#verb-receipts) holds, for the same reason: nothing changed, so the ledger must not say otherwise.
+`tugrevs --preview` runs phases 1–3, then prints the unified diff the program *would* produce and exits 0 without writing. This is the model's dry run and it should be the reflex before any program with `all`, a regex, a `files` block, or a `move`. Preview emits no receipt and touches no mtime — the same guarantee [`file probe`](tracking-changes.md#verb-receipts) holds, for the same reason: nothing changed, so the ledger must not say otherwise.
 
-A successful apply prints the unified diff of what it did, then a single `TUG-FILE-RECEIPT` line naming every file whose bytes moved (`modified`, or `created` for a `create` block), in the same format `tugutil file edit` emits so the relay's existing scan mints the same proof-class `cmd` rows and hunk ids. There is nothing new for the relay to learn. Forgery remains a non-risk for the reason given in tracking-changes: rows are relay-local, so a session can only attribute files to itself.
+A successful apply prints the unified diff of what it did, then a single `TUG-FILE-RECEIPT` line naming every file whose bytes moved (`modified`, or `created` for a `create` or a `write` of a file that did not exist), in the same format `tugutil file edit` emits so the relay's existing scan mints the same proof-class `cmd` rows and hunk ids. There is nothing new for the relay to learn. Forgery remains a non-risk for the reason given in tracking-changes: rows are relay-local, so a session can only attribute files to itself.
 
 Exit status: `0` applied (or previewed); `2` parse error; `3` resolve failure (nothing written); `4` I/O failure during write, in which case the output names exactly which files were written before the failure, because at that point the transaction guarantee is the write-per-file atomicity, not the program.
+
+---
+
+## Out of scope
+
+Two shapes the corpus contains are deliberately not in the language, because a language that can express them is python:
+
+- **Computed replacement** — a callback deciding each substitution from what it matched (the corpus has one: counting `linear(` occurrences to emit that many `linear` keywords).
+- **Structural JSON editing** — load, mutate a key, dump.
+
+The attributable path for both is *compute, then write the result as a rev*: run the interpreter read-only, printing the new content or the `(old, new)` pairs it computed, and put that output into a `write`, `lines … replace`, or `replace` op. The read-only run is a heredoc the gate never minds; the write is a receipt. The gate steer below says exactly this when it fires on a heredoc it cannot see through.
 
 ---
 
@@ -138,11 +235,11 @@ Exit status: `0` applied (or previewed); `2` parse error; `3` resolve failure (n
 
 A verb the model doesn't reach for attributes nothing. Three levers, all cheap, all part of shipping this:
 
-1. **The gate steers the heredoc interpreters.** Today `gate-file-ops.sh` never denies a `python3` heredoc, because the grammar cannot judge one and most are read-only analysis. That stays true for a bare `python3 script.py`. But a heredoc-fed or `-c`-fed interpreter (`python3 -`, `python3 -c`, `perl -e`, `ruby -e`, `awk` with a program text) whose command text **or stripped body** names a path under the checkout with a write-shaped call (`open(…, "w")`, `write_text`, `Path(…).write`, `print >`, awk `>` redirection) is denied with a one-line steer: *"write this as a rev — `tugrevs <<'REV' … REV`"* — and a two-op example in the denial message, because the model copies the shape it is shown. This adds a third `Suggestion` variant (`Rev`) beside `Lifecycle` and `Edit`. The gate still fails open, and a heredoc that names no repo path still passes: this is a steer, not a wall.
-2. **`CLAUDE.md` shows the shape.** The editing section leads with a rev example — a multi-file, multi-op one, since that is the case where python wins today — and names `tugrevs` before `file edit`. `file edit` remains the right tool for the one-liner.
-3. **The heredoc reader is fast to be right.** Resolve-phase errors report *every* stale address in one run with the op's source line, so the round trip to a correct program is one step, not a python retry.
+1. **The gate steers the heredoc interpreters.** Today `gate-file-ops.sh` never denies a `python3` heredoc, because the grammar cannot judge one and most are read-only analysis. That stays true for a bare `python3 script.py`. But a heredoc-fed or `-c`-fed interpreter (`python3 -`, `python3 -c`, `perl -e`, `ruby -e`, `bun -e`, `node -e`, `awk` with a program text) whose command text **or stripped body** names a path under the checkout with a write-shaped call (`open(…, "w")`, `write_text`, `.write(`, `Bun.write`, `writeFileSync`, awk `>` redirection) is denied with a one-line steer — *"write this as a rev — `tugrevs <<'REV' … REV`"* — and a two-op example in the denial message, because the model copies the shape it is shown. The same steer covers the two `/tmp` round trips the corpus shows (`awk … > /tmp/x && mv /tmp/x file`, `head -n … > /tmp/x && mv`), which the grammar *can* read but which would otherwise mint only a `mv` row for the destination. This adds a third `Suggestion` variant (`Rev`) beside `Lifecycle` and `Edit`. The gate still fails open, and a heredoc that names no repo path still passes: this is a steer, not a wall.
+2. **`CLAUDE.md` shows the shape.** The editing section leads with a rev example — the multi-pair, multi-file one, since that is the case where python wins today — and names `tugrevs` before `file edit`. `file edit` remains the right tool for the one-liner.
+3. **The heredoc reader is fast to be right.** Resolve-phase errors report *every* stale address in one run with the op's source line and the actual count, so the round trip to a correct program is one step, not a python retry.
 
-Whether the levers worked is measurable: the size of the UNATTRIBUTED bucket over sessions, which the Changes card already shows. That number is the feature's acceptance test.
+Whether the levers worked is measurable two ways: the size of the UNATTRIBUTED bucket over sessions, which the Changes card already shows, and the mining query above re-run against new transcripts — the 1,317 / 1,080 / 496 / 335 / 448 counts should stop growing. Those numbers are the feature's acceptance test.
 
 ---
 
@@ -150,9 +247,11 @@ Whether the levers worked is measurable: the size of the UNATTRIBUTED bucket ove
 
 - A program either applies entirely or writes nothing. The only exception is an I/O failure mid-write, which is reported file-by-file.
 - Every address resolves against original bytes; ops never observe each other.
-- `expect 1` is the default; a match count the program did not declare is an error.
+- `expect 1` is the default; a match count the program did not declare is an error. In a `files` block the guard holds per file.
 - Overlapping spans in one file are refused.
+- Bodies are dedented by their op line's indentation and otherwise verbatim.
+- `^`/`$` in a regex are line anchors.
 - A byte-identical result is neither written nor receipted.
 - `--preview` writes nothing, touches no mtime, emits no receipt.
 - The receipt format is `tugutil file edit`'s; the relay learns nothing new.
-- The grammar grows by verbs the model already knows. A construct that needs explaining in this page before the model can write it does not belong in the language.
+- The grammar grows by verbs the model already knows, justified by the corpus. A construct that needs explaining in this page before the model can write it does not belong in the language.
