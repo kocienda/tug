@@ -1,0 +1,1 @@
+The python truncate at a marker — command lifted verbatim from `2a9e3e93-b709-4827-aac9-5cfd2fbceef2.jsonl`; `tugdeck/src/components/tugways/keybinding-map.ts` is `tugdeck/src/components/tugways/keybinding-map.ts` at `2d28be623`. Captured on macOS (BSD sed/awk).

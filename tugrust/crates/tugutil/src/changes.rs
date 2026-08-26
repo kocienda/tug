@@ -25,6 +25,10 @@ pub enum AppError {
     Exit1(String),
     Exit2(String),
     Exit3(String),
+    /// A rev whose write failed partway (Spec S04) — the one case where the
+    /// program's all-or-nothing guarantee gives way to per-file atomicity, so
+    /// the error names the files that did move.
+    Exit4(String),
     /// A child process's exit status, propagated verbatim and silently — the
     /// child has already said whatever it had to say.
     ExitStatus(u8),
@@ -71,6 +75,10 @@ pub fn finish(result: Result<(), AppError>) -> ExitCode {
         Err(AppError::Exit3(msg)) => {
             eprintln!("error: {msg}");
             ExitCode::from(3)
+        }
+        Err(AppError::Exit4(msg)) => {
+            eprintln!("error: {msg}");
+            ExitCode::from(4)
         }
         Err(AppError::ExitStatus(code)) => ExitCode::from(code),
     }

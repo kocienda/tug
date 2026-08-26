@@ -82,9 +82,29 @@ Never point the `sqlite3` CLI (or any non-Tug SQLite build) at the live database
 
 ## Editing repo files from the shell
 
-`Edit`/`MultiEdit`/`Write` name their file in the tool input, so the change is attributed with certainty. A shell command is only attributed when the grammar in `tugchanges-core::shell_ops` can read which files it names — and **a `python3` heredoc that writes a repo file cannot be read at all.** Heredoc bodies are stripped before parsing (a body is data, not commands), so nothing inside one is evidence of anything. The file lands in the Changes card's `UNATTRIBUTED — NO SESSION CLAIMS THESE` bucket with at best a `likely` hint, and somebody has to press `CLAIM ALL` to repair it by hand. Same for `python3 -c`.
+`Edit`/`MultiEdit`/`Write` name their file in the tool input, so the change is attributed with certainty, and for a single-file edit they stay the first choice. This section is about the residue — the edit that does not fit them, and reaches for the shell instead.
 
-So when an edit does not fit `Edit`/`MultiEdit`, reach for the verbs rather than a scripting language:
+A shell command is only attributed when the grammar in `tugchanges-core::shell_ops` can read which files it names — and **a `python3` heredoc that writes a repo file cannot be read at all.** Heredoc bodies are stripped before parsing (a body is data, not commands), so nothing inside one is evidence of anything. Same for `python3 -c`, `perl -e`, `bun -e`. **The PreToolUse gate now denies those**: an interpreter handed its program inline whose text carries both a write-shaped call and a repo path is refused, and the refusal shows you the rev to write instead. A heredoc that only reads, or that writes under `/tmp` or `target/`, passes untouched.
+
+So write the multi-line edit as a **rev** — a small program `tugutil` executes itself, which prints the same `TUG-FILE-RECEIPT` an `Edit` would have earned:
+
+```bash
+tugutil file rev <<'REV'
+files tugdeck/src/lib/pulse-store.ts tugdeck/src/lib/local-model-store.ts
+  replace 'PulseFrame' with 'LocalModelFrame' all
+  sub /\bpulse_(\w+)/ 'local_model_$1' all
+file tugdeck/src/main.tsx
+  replace 'attachPulseStore(connection);' with 'attachLocalModelStore(connection);'
+  after 'import { attachPulseStore } from "./lib/pulse-store";' insert <<
+  import { attachLocalModelStore } from "./lib/local-model-store";
+  >>
+  delete 166 .. 178
+REV
+```
+
+Every address resolves against the file's **original** bytes before anything is written, so `delete 166 .. 178` means the lines you just read in `grep -n` however many lines another op inserts above them, ops go in any order, and a program that cannot resolve writes nothing and reports *every* stale address at once. `replace` and `sub` default to `expect 1` — say `all` for a rename campaign. Preview with `tugutil file rev --preview`, which touches no bytes and no mtime and emits no receipt. `tugrev` is the same verb under its own name. The language is specified in [tuglaws/tugrev.md](tuglaws/tugrev.md).
+
+The rest of the verbs:
 
 ```bash
 tugutil file edit --path src/x.ts --replace 'old' --with 'new' [--count N] [--regex]
@@ -92,9 +112,12 @@ tugutil file edit --patch changes.diff          # or --patch - to read the diff 
 tugutil file probe --patch p.diff -- just app-test at0287-….test.ts   # patch, run, restore
 ```
 
-- **`edit`** performs the substitution or applies the diff itself and prints a `TUG-FILE-RECEIPT` naming exactly the files whose bytes moved, which the relay turns into proof-class rows. A no-match exits non-zero rather than succeeding quietly.
+- **`rev`** is for the shape the interpreters were reached for: several literal pairs on one file, a count guard per pair, a region between two markers, the same rename across several files, a numeric line-range delete, a block appended, a span cut.
+- **`edit`** remains right for the one-liner — a single substitution, or a unified diff you already have. It prints the same receipt, and a no-match exits non-zero rather than succeeding quietly.
 - **`probe`** is the patch → run → revert cycle in one command: it restores bytes *and* mtime afterwards and records nothing, which is strictly better than doing it by hand (a hand-rolled probe leaves a spurious hint on the file it touched). Use it instead of `git checkout --` to revert, which would also destroy any uncommitted work already on those paths.
 - `sed -i`, `perl -i`, and `ruby -i` are readable **when every file operand is a literal path**. With a glob or a variable they are denied by the PreToolUse gate and steered here — the gate denies only what the grammar proves it cannot resolve.
+
+If the edit is genuinely *computed* — a replacement each match decides for itself — run the program **read-only** to print the result, then put that output into a `write` or `replace` op. The read is a heredoc the gate never minds; the write is a receipt.
 
 ## Tugdeck — Theme Token Files
 

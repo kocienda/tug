@@ -1,0 +1,1 @@
+perl -pi -e 's/^(\s+opening: Some\("pinned"\.to_string\(\)\),)$/$1\n            current_ask: Some("pinned".to_string()),/; s/^(\s+opening: Some\("the goal"\.to_string\(\)\),)$/$1\n            current_ask: Some("the goal".to_string()),/' crates/tugcast/src/feeds/session_overview.rs

@@ -1,0 +1,32 @@
+file tests/model-eval/verbs.txt
+  create <<
+  # Verbs a session headline may open with, in the plain command form.
+  #
+  # A closed list on purpose: a headline opening with a word that is not here
+  # scores as a miss so a human reads it. When the model earns a good verb that
+  # is missing, add it — that is how this file is meant to grow.
+  add audit author
+  bind build bundle
+  cache chase check clip close compose cover cut
+  debug derive detect diagnose draft drive drop dump
+  emit enforce expand explain explore extend
+  fetch filter find fix flush fold format
+  gate generate
+  handle harden hunt
+  implement improve index inject insert inspect install instrument
+  land link load log
+  map measure merge migrate mount move
+  normalize
+  open
+  parse patch persist pin plan port probe profile prune publish push
+  query queue
+  raise read rebuild record reduce refactor rename render repair replace
+  reset resolve restore resume retry rewrite route
+  salvage sample save scan scope score seal seed send serve set setup ship
+  show silence simplify skip solve sort spawn split stabilize start stop
+  store stream strip summarize sweep switch sync
+  teach test throttle tighten trace track trigger trim tune
+  unify update
+  validate verify vet
+  walk watch wire wrap write
+  >>

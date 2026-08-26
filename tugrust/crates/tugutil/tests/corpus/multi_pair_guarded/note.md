@@ -1,0 +1,1 @@
+The python multi-pair edit with s.count() guards — command lifted verbatim from `4eb21996-9a77-4528-a854-53081ec7bc66.jsonl`; `tugrust/crates/tugcast/src/feeds/session_overview.rs` is `tugrust/crates/tugcast/src/feeds/session_overview.rs` at `c67b6a584`. Captured on macOS (BSD sed/awk).

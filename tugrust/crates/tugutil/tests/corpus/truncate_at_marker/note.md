@@ -1,0 +1,1 @@
+The head → /tmp → mv truncate — command lifted verbatim from `55f08379-3361-4752-9ada-e0a6a73156ab.jsonl`; `crates/tugdash-core/src/replay.rs` is `tugrust/crates/tugdash-core/src/replay.rs` at `a2928f60c`. Captured on macOS (BSD sed/awk).

@@ -1,0 +1,1 @@
+The python insert located by a marker — command lifted verbatim from `05a515d7-080c-4dcb-b5ce-735725774f5e.jsonl`; `crates/tugcast/src/feeds/session_overview.rs` is `tugrust/crates/tugcast/src/feeds/session_overview.rs` at `40dc9cc0c`. Captured on macOS (BSD sed/awk).

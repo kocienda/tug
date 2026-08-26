@@ -1,0 +1,1 @@
+The sed numeric-range delete chain, hand-ordered top-down so the numbers stayed honest — command lifted verbatim from `316d892c-750d-4725-9eeb-e044bc06b281.jsonl`; `tests/app-test/at0418-join-outcomes.test.ts` is `tests/app-test/at0418-join-outcomes.test.ts` at `ad5c3d3f5`. Captured on macOS (BSD sed/awk).

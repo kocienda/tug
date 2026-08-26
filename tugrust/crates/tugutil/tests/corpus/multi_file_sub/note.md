@@ -1,0 +1,1 @@
+The multi-file sed s///g with a capture group — command lifted verbatim from `ad752236-8b7a-46c7-a090-68f788430d37.jsonl`; `tugrust/crates/tugcast/src/shell_ledger.rs` is `tugrust/crates/tugcast/src/shell_ledger.rs` at `23ce86ac0`. Captured on macOS (BSD sed/awk).

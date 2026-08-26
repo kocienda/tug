@@ -15,83 +15,11 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tugchanges_core::shell_ops::{ParseOutcome, Suggestion, parse_shell_ops};
+use tugutil::receipt::{Receipt, current_hunk_ids, hunks_this_edit_produced};
+use tugutil::rev::RevError;
 
 use crate::changes::AppError;
 use crate::cli::FileCommands;
-
-/// The stdout marker the relay scans every successful Bash result for.
-const RECEIPT_PREFIX: &str = "TUG-FILE-RECEIPT: ";
-
-#[derive(Debug, Clone, Serialize)]
-struct ReceiptOp {
-    op: &'static str,
-    path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    orig_path: Option<String>,
-    /// The hunks this edit is responsible for, by their [P06] id (Spec S05) —
-    /// the sub-file half of the verb's testimony. Additive: a receipt without
-    /// it mints a span-less row, which claims the whole file exactly as
-    /// before. Omitted when the verb has nothing to say about regions (a
-    /// delete, a rename, a file outside any repo).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    hunks: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Default)]
-struct Receipt {
-    ops: Vec<ReceiptOp>,
-}
-
-impl Receipt {
-    fn deleted(&mut self, path: &Path) {
-        self.ops.push(ReceiptOp {
-            op: "deleted",
-            path: path.to_string_lossy().into_owned(),
-            orig_path: None,
-            hunks: Vec::new(),
-        });
-    }
-
-    fn renamed(&mut self, from: &Path, to: &Path) {
-        self.ops.push(ReceiptOp {
-            op: "renamed",
-            path: to.to_string_lossy().into_owned(),
-            orig_path: Some(from.to_string_lossy().into_owned()),
-            hunks: Vec::new(),
-        });
-    }
-
-    /// A modification, naming the regions it produced (Spec S05) where the
-    /// verb can read them.
-    fn modified(&mut self, path: &Path, hunks: Vec<String>) {
-        self.ops.push(ReceiptOp {
-            op: "modified",
-            path: path.to_string_lossy().into_owned(),
-            orig_path: None,
-            hunks,
-        });
-    }
-
-    fn created(&mut self, path: &Path) {
-        self.ops.push(ReceiptOp {
-            op: "created",
-            path: path.to_string_lossy().into_owned(),
-            orig_path: None,
-            hunks: Vec::new(),
-        });
-    }
-
-    /// Emit the receipt — one line, always, even when the run failed partway:
-    /// the ops it names did happen, and the relay reads receipts only from
-    /// successful results anyway.
-    fn emit(&self) {
-        if self.ops.is_empty() {
-            return;
-        }
-        let json = serde_json::to_string(self).unwrap_or_else(|_| "{\"ops\":[]}".to_string());
-        println!("{RECEIPT_PREFIX}{json}");
-    }
-}
 
 pub fn run_file(command: FileCommands) -> Result<(), AppError> {
     match command {
@@ -112,6 +40,7 @@ pub fn run_file(command: FileCommands) -> Result<(), AppError> {
             paths,
             command,
         } => super::file_probe::run_probe(patch, &paths, &command),
+        FileCommands::Rev { preview, file } => run_rev(preview, file),
         FileCommands::Gate { command, base_dir } => run_gate(&command, base_dir),
     }
 }
@@ -306,30 +235,29 @@ fn edit_by_patch(source: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// One file's current diff hunks by [P06] id, empty when the path is in no
-/// repo, is untracked, or git refuses — an unreadable diff costs the receipt
-/// its regions, never its file.
-fn current_hunk_ids(target: &Path) -> Vec<String> {
-    let Some(dir) = target.parent() else {
-        return Vec::new();
-    };
-    tugchanges_core::hunks::file_hunks(dir, &target.to_string_lossy())
-        .map(|hunks| hunks.into_iter().map(|h| h.id).collect())
-        .unwrap_or_default()
+// ---------------------------------------------------------------------------
+// rev
+// ---------------------------------------------------------------------------
+
+/// Run a `.rev` program — the multi-line, multi-file shape the interpreters
+/// were reached for. The verb is the language's entry point; `tugrev` is the
+/// same function under the spelling a heredoc reads best.
+fn run_rev(preview: bool, file: Option<String>) -> Result<(), AppError> {
+    tugutil::rev::read_program(file.as_deref())
+        .and_then(|program| tugutil::rev::run(&program, preview))
+        .map_err(rev_failure)
 }
 
-/// The ids present in the file's diff *now* that were not there before the
-/// edit — the regions this edit is responsible for.
-///
-/// The difference, not the whole current diff: a file the session merely
-/// touched one region of must not testify to regions someone else wrote. A
-/// hunk this edit rewrote gets a new id (identity is content), so it lands
-/// here correctly, and a hunk it did not touch keeps its old id and does not.
-fn hunks_this_edit_produced(target: &Path, before: &[String]) -> Vec<String> {
-    current_hunk_ids(target)
-        .into_iter()
-        .filter(|id| !before.contains(id))
-        .collect()
+/// The rev's exit-code contract, carried onto the CLI's: 2 parse, 3 resolve,
+/// 4 a write that failed partway.
+fn rev_failure(err: RevError) -> AppError {
+    let message = err.message().to_string();
+    match err.exit_code() {
+        2 => AppError::Exit2(message),
+        3 => AppError::Exit3(message),
+        4 => AppError::Exit4(message),
+        _ => AppError::Exit1(message),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +382,20 @@ fn steering(suggest: Suggestion) -> &'static str {
             "Use `tugutil file edit` instead — it performs the edit itself and reports exactly \
              which files changed, so the change stays attributed. For a patch-run-revert cycle, \
              `tugutil file probe` does the whole thing and records nothing."
+        }
+        // The model copies the shape it is shown, so the steer shows one.
+        Suggestion::Rev => {
+            r#"Write it as a rev instead — `tugutil file rev` applies the program itself and reports
+exactly which files changed, so the edit stays attributed:
+
+  tugutil file rev <<'REV'
+  file tugdeck/src/main.tsx
+    replace 'attachPulseStore(connection);' with 'attachLocalModelStore(connection);'
+    delete 166
+  REV
+
+Preview first with `tugutil file rev --preview`. If the edit is computed, run the program
+read-only to print the result, then put that output in a `write` or `replace` op."#
         }
     }
 }
@@ -838,10 +780,28 @@ mod tests {
         assert_eq!(decide("perl -i -pe 's/a/b/' src/x.ts"), "allow");
         assert_eq!(decide("perl -i -pe 's/a/b/' src/*.ts"), "deny");
         assert_eq!(decide("sed -i '' 's/a/b/' src/*.ts"), "deny");
-        // A python heredoc is never denied — it cannot be judged without
-        // parsing Python, and two thirds of them are read-only analysis.
+        // The rev steer needs a checkout to judge a path against, and `/repo`
+        // is not one — so it fails open here, which is the direction a broken
+        // steer must always fail in.
         assert_eq!(
-            decide("python3 - <<'PY'\nopen('x','w').write('y')\nPY"),
+            decide("python3 - <<'PY'\nopen('src/x.ts','w').write('y')\nPY"),
+            "allow"
+        );
+
+        // Given a real checkout, the same heredoc is denied and a read-only one
+        // is not.
+        let checkout = tempfile::tempdir().expect("temp");
+        std::fs::write(checkout.path().join(".git"), "gitdir: elsewhere").expect("write .git");
+        let decide_in = |command: &str| match parse_shell_ops(command, checkout.path()) {
+            ParseOutcome::Unparseable { .. } => "deny",
+            _ => "allow",
+        };
+        assert_eq!(
+            decide_in("python3 - <<'PY'\nopen('src/x.ts','w').write('y')\nPY"),
+            "deny"
+        );
+        assert_eq!(
+            decide_in("python3 - <<'PY'\nprint(open('src/x.ts').read())\nPY"),
             "allow"
         );
     }
@@ -865,6 +825,22 @@ mod tests {
         let lifecycle = reason("rm -rf apptest-*");
         assert!(lifecycle.contains("tugutil file rm|mv|cp"), "{lifecycle}");
         assert!(!lifecycle.contains("tugutil file edit"), "{lifecycle}");
+
+        // An interpreter writing a repo file points at the rev, and shows the
+        // shape rather than describing it — the model copies what it is shown.
+        let checkout = tempfile::tempdir().expect("temp");
+        std::fs::write(checkout.path().join(".git"), "gitdir: elsewhere").expect("write .git");
+        let rev = match parse_shell_ops(
+            "python3 - <<'PY'\nopen('src/x.ts','w').write('y')\nPY",
+            checkout.path(),
+        ) {
+            ParseOutcome::Unparseable { suggest, .. } => steering(suggest).to_string(),
+            other => panic!("expected a refusal, got {other:?}"),
+        };
+        assert!(rev.contains("tugutil file rev"), "{rev}");
+        assert!(rev.contains("--preview"), "{rev}");
+        assert!(rev.contains("file tugdeck/src/main.tsx"), "{rev}");
+        assert!(!rev.contains("rm|mv|cp"), "{rev}");
     }
 
     // ── stage ([P13]) ──────────────────────────────────────────────────────

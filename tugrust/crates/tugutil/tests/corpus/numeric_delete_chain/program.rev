@@ -1,0 +1,3 @@
+file tests/app-test/at0418-join-outcomes.test.ts
+  delete 115 .. 164
+  delete 109 .. 111

@@ -1,0 +1,1 @@
+The python line-array splice by numeric range — command lifted verbatim from `210e6a4f-d991-48db-8366-cd71bc8d4ffc.jsonl`; `tugrust/crates/tugcast/src/feeds/changeset.rs` is `tugrust/crates/tugcast/src/feeds/changeset.rs` at `a2928f60c`. Captured on macOS (BSD sed/awk).

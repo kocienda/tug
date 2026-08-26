@@ -1,0 +1,1 @@
+The cat >> append of a CSS block — command lifted verbatim from `50b4c7a0-2c3c-4832-b38c-531f3d522978.jsonl`; `components/tugways/tug-slot-layout.css` is `tugdeck/src/components/tugways/tug-slot-layout.css` at `4ea67b471`. Captured on macOS (BSD sed/awk).

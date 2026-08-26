@@ -1,0 +1,2 @@
+file tugdeck/src/components/tugways/tug-pane.css
+  replace '.tug-pane-title-bar-controls .tug-button' with '.tug-pane-title-bar-controls .tug-button:not(.tug-slot)' all in 660 .. 712

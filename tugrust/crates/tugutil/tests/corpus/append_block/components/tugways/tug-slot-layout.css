@@ -1,0 +1,101 @@
+/* @tug-pairings: none — layout only. Every color in a slot layout belongs to
+   the slots it composes ([L20]); this file sets nothing but the run. */
+
+.tug-slot-layout {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.tug-slot-layout-size-sm {
+  gap: var(--tugx-slot-layout-gap-sm, 3px);
+}
+
+.tug-slot-layout-size-md {
+  gap: var(--tugx-slot-layout-gap-md, 4px);
+}
+
+/* A disabled arrangement dims once, as a whole, rather than each slot dimming
+   against its neighbours — so the slots inside drop their own dimming and
+   the run reads as one greyed control. */
+.tug-slot-layout[data-disabled="true"] {
+  opacity: var(--tugx-control-disabled-opacity);
+}
+
+.tug-slot-layout[data-disabled="true"] .tug-slot {
+  opacity: 1;
+}
+
+/* ── The scaled form ──────────────────────────────────────────────────────
+   The arrangement drawn as a MAP rather than as a run: the layout is a box of
+   its own, and each slot is placed inside it at the fraction the caller gave.
+
+   The slots keep everything else — their border, their radius, their digit,
+   their three state paints — so a map and a run are legibly the same
+   vocabulary at two scales. What they give up is the token WIDTH, which is a
+   chip's answer and not a segment's; the height stays, so a scaled layout is
+   as tall as the run it is a map of.
+
+   No gap: the places are already separated by the real gaps between them,
+   drawn to the same scale as everything else. */
+
+.tug-slot-layout[data-scaled="true"] {
+  display: block;
+  position: relative;
+  inline-size: 100%;
+  gap: 0;
+}
+
+.tug-slot-layout[data-scaled="true"].tug-slot-layout-size-sm {
+  block-size: var(--tugx-slot-height-sm, 19px);
+}
+
+.tug-slot-layout[data-scaled="true"].tug-slot-layout-size-md {
+  block-size: var(--tugx-slot-height-md, 26px);
+}
+
+.tug-slot-layout[data-scaled="true"] .tug-slot {
+  position: absolute;
+  inset-block: 0;
+  /* `left` and `width` arrive inline, as percentages of this box. */
+  block-size: auto;
+  inline-size: auto;
+  /* A segment can be narrower than its digit — a card at the far end of a long
+     strip draws a few pixels wide — and a digit that spilled would paint over
+     its neighbours. */
+  overflow: clip;
+}
+
+/* ── The windowed form ────────────────────────────────────────────────────
+   The arrangement drawn as a SLICE: a fixed number of chips naming real
+   slots, whatever the run's own length. Nothing here to style — every drawn
+   position is a chip, so the rules above are the whole drawing. What the
+   window changes is which slots a run names, which is arithmetic rather than
+   a look.
+
+   An overhang was drawn here once, as a dashed stub holding the position a
+   window reached past the end of the run, so the lit chip would land at one
+   offset down a column of rows. It read as damage rather than as an edge. */
+
+/* ── The run, seated in a popup ───────────────────────────────────────────
+   Both surfaces that open the whole arrangement as a bubble — a card's own
+   slot badge and a Lens row's windowed run — put this class on the run
+   inside it, because they are the same surface reached from two places: a
+   reader who learns the gesture on one meets the same target on the other.
+
+   Two things, and both are corrections. `TugPopover` ships a bubble with no
+   padding, since most of its consumers are lists that pad their own rows, so
+   a run handed straight to it sits flush against the border with the 8px
+   radius biting the corner chips. And the chips take one step up from the
+   primitive's `sm` default, which is a READOUT's size: right for a badge in a
+   title bar, too small for the thing you opened the badge to press. One more
+   pixel between them than a row's run carries, too — at rest those read as
+   one arrangement, but here each is a separate target. */
+
+.tug-slot-layout-popup {
+  padding: var(--tug-space-sm);
+  --tugx-slot-width-sm: 18px;
+  --tugx-slot-height-sm: 22px;
+  --tugx-slot-font-size-sm: 11px;
+  --tugx-slot-layout-gap-sm: 4px;
+}

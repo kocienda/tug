@@ -1,0 +1,1 @@
+The stacked -e rename campaign in one call — command lifted verbatim from `3738fe1f-e179-46e8-abfb-33db19b4e600.jsonl`; `tugdeck/src/layout-tree.ts` is `tugdeck/src/layout-tree.ts` at `68e7d5a27`. Captured on macOS (BSD sed/awk).

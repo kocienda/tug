@@ -1,0 +1,1282 @@
+
+/* ============================================================================
+   Component Token Definitions
+   ========================================================================= */
+
+/* @tug-pairings {
+ *   --tug7-element-global-border-normal-default-rest       | --tug7-surface-global-primary-normal-default-rest          | informational | .tug-pane-chrome (border)
+ *   --tug7-element-card-text-normal-title-active           | --tug7-surface-card-primary-normal-titlebar-active         | content       | .tug-pane[data-focused="true"] .tug-pane-title (color)
+ *   --tug7-element-card-text-normal-title-inactive         | --tug7-surface-card-primary-normal-titlebar-inactive       | content       | .tug-pane-title (color)
+ *   --tug7-element-card-icon-normal-title-active           | --tug7-surface-card-primary-normal-titlebar-active         | control       | .tug-pane[data-focused="true"] .tug-pane-icon (color)
+ *   --tug7-element-card-icon-normal-title-inactive         | --tug7-surface-card-primary-normal-titlebar-inactive       | control       | .tug-pane:not([data-focused="true"]) .tug-pane-icon (color)
+ *   --tug7-element-card-control-normal-plain-rest          | --tug7-surface-card-primary-normal-titlebar-active         | control       | .tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button (color)
+ *   --tug7-element-card-control-normal-plain-hover         | --tug7-surface-card-control-normal-plain-hover             | control       | .tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:hover (color)
+ *   --tug7-element-card-control-normal-muted-rest          | --tug7-surface-card-primary-normal-titlebar-inactive       | control       | .tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button (color)
+ *   --tug7-element-card-control-normal-muted-hover         | --tug7-surface-card-control-normal-muted-hover             | control       | .tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:hover (color)
+ *   --tug7-element-selection-text-normal-plain-rest        | --tug7-surface-selection-primary-normal-plain-rest         | content       | ::highlight(card-selection) (color)
+ *   --tug7-element-global-text-normal-muted-rest           | --tug7-surface-global-primary-normal-default-rest          | informational | .tug-pane-loading (color)
+ * } */
+
+/**
+ * @tug-pairings
+ * | Element                                          | Surface                                          | Role         | Context                              |
+ * |--------------------------------------------------|--------------------------------------------------|--------------|--------------------------------------|
+ * | --tugx-pane-border                               | --tug7-surface-global-primary-normal-default-rest | informational | .tug-pane-chrome (border)                    |
+ * | --tugx-pane-title-fg-active                      | --tug7-surface-card-primary-normal-titlebar-active | content      | .tug-pane[data-focused="true"] .tug-pane-title (color) |
+ * | --tugx-pane-title-fg-inactive                    | --tug7-surface-card-primary-normal-titlebar-inactive | content      | .tug-pane-title (color)               |
+ * | --tugx-pane-title-bar-icon-active                | --tug7-surface-card-primary-normal-titlebar-active | control      | .tug-pane[data-focused="true"] .tug-pane-icon (color) |
+ * | --tugx-pane-title-bar-icon-inactive              | --tug7-surface-card-primary-normal-titlebar-inactive | control      | .tug-pane:not([data-focused="true"]) .tug-pane-icon (color) |
+ * | --tugx-pane-control-on-fg-rest                   | --tug7-surface-card-primary-normal-titlebar-active | control      | .tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button (color) |
+ * | --tugx-pane-control-on-fg-hover                  | --tug7-surface-card-control-normal-plain-hover   | control      | .tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:hover (color) |
+ * | --tugx-pane-control-off-fg-rest                  | --tug7-surface-card-primary-normal-titlebar-inactive | control      | .tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button (color) |
+ * | --tugx-pane-control-off-fg-hover                 | --tug7-surface-card-control-normal-muted-hover   | control      | .tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:hover (color) |
+ * | --tug7-element-selection-text-normal-plain-rest  | --tug7-surface-selection-primary-normal-plain-rest | content      | ::highlight(card-selection) (color)  |
+ * | --tug7-element-global-text-normal-muted-rest     | --tug7-surface-global-primary-normal-default-rest | informational | .tug-pane-loading (color)             |
+ * | --tugx-pane-scrim-bg                             | (card surface)                                    | overlay       | .tug-pane-scrim (background-color)    |
+ */
+
+
+/* @tug-effects {
+ *   --tug7-effect-card-desat-normal-dim-inactive     | desaturation overlay color
+ *   --tug7-effect-card-desat-normal-amount-inactive   | desaturation intensity (0-1)
+ *   --tug7-effect-card-wash-normal-dim-inactive       | wash overlay color
+ *   --tug7-effect-card-wash-normal-blend-inactive     | wash blend mode
+ *   --tug7-effect-card-desat-normal-amount-bullseye   | desaturation intensity while another pane stands in bullseye
+ *   --tug7-effect-card-wash-normal-dim-bullseye       | wash overlay color while another pane stands in bullseye
+ * } */
+
+body {
+  /* --- Pane frame (.tug-pane-chrome outer chrome) --- */
+  --tugx-pane-bg: var(--tug7-surface-global-primary-normal-content-rest);
+  --tugx-pane-border: var(--tug7-element-card-border-normal-frame-rest, var(--tug7-element-global-border-normal-default-rest));
+  --tugx-pane-shadow-active: 0 1px 4px var(--tug7-element-global-shadow-normal-md-rest);
+  --tugx-pane-shadow-inactive: 0 1px 4px var(--tug7-element-global-shadow-normal-xs-rest);
+  --tugx-pane-dim-overlay: var(--tug7-surface-overlay-primary-normal-highlight-rest);
+
+  /* --- Pane title bar --- */
+  --tugx-pane-title-bar-bg-active: var(--tug7-surface-card-primary-normal-titlebar-active);
+  --tugx-pane-title-bar-bg-inactive: var(--tug7-surface-card-primary-normal-titlebar-inactive);
+  --tugx-pane-title-bar-divider: var(--tug7-element-global-divider-normal-default-rest);
+
+  /* --- Pane title bar — title text --- */
+  --tugx-pane-title-fg-active: var(--tug7-element-card-text-normal-title-active);
+  --tugx-pane-title-fg-inactive: var(--tug7-element-card-text-normal-title-inactive);
+
+  /* --- Pane title bar — left icon --- */
+  --tugx-pane-title-bar-icon-active: var(--tug7-element-card-icon-normal-title-active);
+  --tugx-pane-title-bar-icon-inactive: var(--tug7-element-card-icon-normal-title-inactive);
+  --tugx-pane-title-bar-icon-hover: var(--tug7-element-card-icon-normal-title-hover);
+
+  /* --- Pane title bar — control buttons (focused pane) --- */
+  --tugx-pane-control-on-fg-rest: var(--tug7-element-card-control-normal-plain-rest);
+  --tugx-pane-control-on-fg-hover: var(--tug7-element-card-control-normal-plain-hover);
+  --tugx-pane-control-on-fg-active: var(--tug7-element-card-control-normal-plain-active);
+  --tugx-pane-control-on-bg-rest: var(--tug7-surface-card-control-normal-plain-rest);
+  --tugx-pane-control-on-bg-hover: var(--tug7-surface-card-control-normal-plain-hover);
+  --tugx-pane-control-on-bg-active: var(--tug7-surface-card-control-normal-plain-active);
+  --tugx-pane-control-on-border-rest: var(--tug7-element-card-border-normal-plain-rest);
+  --tugx-pane-control-on-border-hover: var(--tug7-element-card-border-normal-plain-hover);
+  --tugx-pane-control-on-border-active: var(--tug7-element-card-border-normal-plain-active);
+
+  /* --- Pane title bar — control buttons (unfocused pane) --- */
+  --tugx-pane-control-off-fg-rest: var(--tug7-element-card-control-normal-muted-rest);
+  --tugx-pane-control-off-fg-hover: var(--tug7-element-card-control-normal-muted-hover);
+  --tugx-pane-control-off-fg-active: var(--tug7-element-card-control-normal-muted-active);
+  --tugx-pane-control-off-bg-rest: var(--tug7-surface-card-control-normal-muted-rest);
+  --tugx-pane-control-off-bg-hover: var(--tug7-surface-card-control-normal-muted-hover);
+  --tugx-pane-control-off-bg-active: var(--tug7-surface-card-control-normal-muted-active);
+  --tugx-pane-control-off-border-rest: var(--tug7-element-card-border-normal-muted-rest);
+  --tugx-pane-control-off-border-hover: var(--tug7-element-card-border-normal-muted-hover);
+  --tugx-pane-control-off-border-active: var(--tug7-element-card-border-normal-muted-active);
+
+  /* --- Pane inactive content overlay (two layers; ::before/::after on .tug-pane-chrome) --- */
+  --tugx-pane-content-dim-desat-color: var(--tug7-effect-card-desat-normal-dim-inactive);
+  --tugx-pane-content-dim-desat-amount: var(--tug7-effect-card-desat-normal-amount-inactive);
+  --tugx-pane-content-dim-wash-color: var(--tug7-effect-card-wash-normal-dim-inactive);
+  --tugx-pane-content-dim-wash-blend: var(--tug7-effect-card-wash-normal-blend-inactive);
+
+  /* --- The same two layers, deepened, while one pane stands in bullseye ---
+     Bullseye recedes every other surface by taking the dim the deck already
+     has further, rather than by laying a scrim over the deck. That is what
+     keeps it NON-MODAL: these layers carry `pointer-events: none`, so
+     clicking another pane still lands — and clicking another pane is one of
+     bullseye's exit doors. The blend mode is deliberately NOT re-declared:
+     the recede is a matter of degree, not of a different effect. */
+  --tugx-pane-content-dim-desat-amount-bullseye: var(--tug7-effect-card-desat-normal-amount-bullseye);
+  --tugx-pane-content-dim-wash-color-bullseye: var(--tug7-effect-card-wash-normal-dim-bullseye);
+
+  /* --- Pane scrim (built-in modal scrim layer inside .tug-pane-chrome) --- */
+  --tugx-pane-scrim-bg: var(--tug7-surface-overlay-primary-normal-dim-rest);
+
+  /* --- Pane accessory / findbar (aliases for chrome that uses these surfaces) --- */
+  --tugx-pane-accessory-bg: var(--tug7-surface-global-primary-normal-sunken-rest);
+  --tugx-pane-accessory-border: var(--tug7-element-global-border-normal-default-rest);
+  --tugx-pane-findbar-bg: var(--tug7-surface-field-primary-normal-plain-focus);
+  --tugx-pane-findbar-border: var(--tug7-element-global-border-normal-default-rest);
+  --tugx-pane-findbar-match: var(--tug7-surface-card-primary-normal-findmatch-rest);
+  --tugx-pane-findbar-match-active: var(--tug7-surface-card-primary-normal-findmatch-active);
+}
+
+/* ============================================================================
+   Window chrome root (.tug-pane-chrome)
+   ========================================================================= */
+
+/* ============================================================================
+   Settling into a new arrangement
+   ----------------------------------------------------------------------------
+   Changing the imposition — the Lens's side, the N-up kind, the pin — moves
+   every derived frame at once, and the frames CROSS to their new places rather
+   than cutting, so the arrangement reads as one thing rearranging itself
+   instead of several things teleporting.
+
+   None of that motion is here, and that is the point. Transitioning `left` and
+   `top` means re-running layout for every moving frame on every frame of the
+   motion; the crossing is instead FLIP, driven from `deck-canvas.tsx` — the new
+   geometry is committed in one layout pass and each moved frame is tweened by a
+   transform that starts at the inverse of the move and ends at nothing. A
+   transform tween in the accelerated form costs one compositing walk at each
+   end and nothing in between (`lib/pane-flip.ts` holds the rules that keep it
+   there).
+
+   `deck-canvas.tsx` still marks the frames' container with
+   `data-imposer-settling` for the duration of the gesture, but nothing here is
+   gated on it — it marks the window, it no longer drives it.
+
+   One knob survives: `--tugx-imposer-settle-duration`, from
+   `IMPOSITION_SETTLE_MS`, written onto the container and read back resolved, so
+   an override there retimes the tween and the window together. The curve is no
+   longer a knob — it rides in the tween's keyframe offsets, because a sampled
+   `linear()` easing is exactly what stops WebKit accelerating an effect. Retune
+   it by changing the spring in `lib/pane-flip.ts`.
+
+   `layout-imposer.ts` still emits every horizontal pin as `left`, including the
+   ones measured from the right edge, so that a frame's resting geometry is one
+   property rather than two that swap. That is now about the frame's place, not
+   about interpolating between places.
+   ========================================================================= */
+
+/* The pinned Lens's side, as a number: 0 on the left edge, 1 on the right. The
+   registration stays because the expression that reads it — `imposeLensStyle`
+   in `lib/layout-imposer.ts` — needs it typed as a number to compute with. It
+   no longer transitions: the Lens crosses by the same FLIP tween as every other
+   frame. */
+@property --tugx-lens-rail {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+
+.tug-pane-chrome {
+  position: relative;
+  /* Establish a stacking context so the scrim, the inactive-dim
+     pseudo layers (::before/::after at z-index 10/11), and any other
+     chrome-internal positioned descendants are confined to chrome's
+     paint layer. Without this, those z-indexed children would
+     participate in the frame's stacking context and could paint above
+     the sheet clip portaled into the frame (z-index: 2). [D18, D19] */
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  /* `border-box` so `width`/`height: 100%` resolve to the frame's
+   * border-box, INCLUDING the 1px border. Under the default content-box,
+   * `height: 100%` sizes the content area and the 1px border is added on
+   * top, so the chrome paints 2px taller/wider than the frame and its
+   * bottom border + rounded corner protrude past the frame's own. */
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  background-color: var(--tugx-pane-bg);
+  border: 1px solid var(--tugx-pane-border);
+  border-radius: var(--tug-radius-md);
+  /* `overflow: clip` clips painting against the rounded border-radius
+   * without forming a scrolling block-container. `overflow: hidden`
+   * would form one and would trap `position: sticky` descendants
+   * inside the pane (the pane doesn't actually scroll, so sticky in
+   * such a descendant would never activate). This is a latent
+   * constraint: while no current feature pins against a scroll-port
+   * above `.tug-list-view`, anything in the future that
+   * wanted to (a session-wide notification ribbon, a cross-entry
+   * find bar, etc.) would be silently trapped. `clip` keeps the
+   * visual behavior identical — the rounded-corner clip, the
+   * accessory-banner clip, the pane-overlay clip — while removing
+   * the scroll-container trap. */
+  overflow: clip;
+  box-shadow: var(--tugx-pane-shadow-inactive);
+}
+
+/* ============================================================================
+   Body wrapper -- holds accessory + content below the title bar [D07]
+   ========================================================================= */
+
+/*
+ * .tug-pane-body wraps the accessory slot and content area.
+ * When expanded: flex:1 fills remaining height after the title bar.
+ * When collapsed: height:0 with overflow:hidden collapses the body while the
+ * React subtrees stay MOUNTED. Terminal sessions, scroll positions, and form
+ * state are preserved. [D07, Rule 4 — appearance via CSS, not React state]
+ */
+.tug-pane-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  /* `overflow: clip` (not `hidden`) — same reasoning as
+   * `.tug-pane-chrome` above. The body wraps the accessory + content
+   * region; the content's own scrollport (e.g. `.tug-list-view`)
+   * still scrolls inside this box. We just don't want this wrapper
+   * to ITSELF form a scrolling block-container that would trap
+   * sticky descendants. */
+  overflow: clip;
+}
+
+/* ============================================================================
+   Occluded pane — paint suspended, everything else preserved
+   ========================================================================= */
+
+/*
+ * `data-occluded="true"` is written by `pane-occlusion-controller.ts` on a
+ * pane whose frame is fully covered by an opaque pane above it in z-order.
+ * `visibility: hidden` releases the pane's graphics tile backing while
+ * keeping layout, scroll positions, editor state, and running animations
+ * intact — nothing unmounts, nothing re-measures ([L06], [L23]).
+ *
+ * The subtree selector (not just the frame) is required: `visibility`
+ * inherits, but a descendant rule that sets `visibility: visible` explicitly
+ * (the jump-to-bottom button, hover-revealed row controls, checkbox icons)
+ * wins over inheritance and would leave that element painting alone above
+ * the hidden pane. `!important` outranks the higher-specificity reveal
+ * rules those components use.
+ */
+.tug-pane[data-occluded="true"],
+.tug-pane[data-occluded="true"] * {
+  visibility: hidden !important;
+}
+
+/* ---- Card shadow: active when focused ---- */
+.tug-pane[data-focused="true"] .tug-pane-chrome {
+  box-shadow: var(--tugx-pane-shadow-active);
+}
+
+/* ============================================================================
+   Pane title bar
+   ========================================================================= */
+
+/* The chrome tier this pane wears, published for every in-pane surface that
+   seats below the title bar. It follows the ACTIVE card: a pane whose
+   frontmost tab publishes a masthead sidecar wears the masthead's height,
+   and any other tab puts it back. The masthead and the tab bar STACK — the
+   tab row stays `--tug-chrome-height` whatever this says, so a multi-tab
+   Session pane's chrome is 72 + 36. */
+.tug-pane {
+  --tugx-pane-chrome-height: var(--tug-chrome-height);
+}
+
+.tug-pane[data-masthead="true"] {
+  --tugx-pane-chrome-height: var(--tug-masthead-height);
+}
+
+/* The rail tier's height, published at the same scope and for the same reason:
+   the scrim, the sheet clip, and the pane banner all seat below the bar, and a
+   rail's bar is shorter than a card's. `TugPane` stamps the role from the
+   active card's `layoutRole`, so this is a pane fact the way the masthead's is.
+   The rail's ink, stripes, and label stay keyed on the BAR's own attribute —
+   they style the bar, not the pane. */
+.tug-pane[data-role="sidebar"] {
+  --tugx-pane-chrome-height: var(--tug-rail-chrome-height, 32px);
+}
+
+.tug-pane-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--tugx-pane-chrome-height, var(--tug-chrome-height));
+  min-height: var(--tugx-pane-chrome-height, var(--tug-chrome-height));
+  padding: 0 var(--tug-space-md);
+  background-color: var(--tugx-pane-title-bar-bg-inactive);
+  border-bottom: 1px solid var(--tugx-pane-title-bar-divider);
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* The masthead tier. The bar keeps its role — drag surface, controls host —
+   and gives its title region to the card family's masthead. No block padding:
+   the bar's `height` is a content-box height, so padding here would make the
+   tier taller than the token says it is; the masthead centers itself inside
+   the tier instead. Controls align to the LEAD line rather than to the tier's
+   center, so the close box sits beside the callsign it belongs to instead of
+   floating beside the description. */
+.tug-pane-title-bar[data-masthead="true"] {
+  align-items: flex-start;
+}
+
+.tug-pane-title-bar[data-masthead="true"] .tug-pane-title-bar-controls {
+  margin-block-start: 4px;
+}
+
+/* ============================================================================
+   The rail tier — a sidebar pane's title bar
+   ========================================================================= */
+
+/**
+ * A rail is not a card in the slot band, and the layout imposer has always
+ * known it: a sidebar pane pins to a deck edge, takes its width from the
+ * allocator rather than a preset, and insets the band the content cards live
+ * in. Until now its chrome said none of that — Lens wore the same tinted
+ * title band as a Diff.
+ *
+ * So the deck's three chrome tiers are three looks:
+ *
+ *   72px masthead, tinted band  → a document card saying its own name
+ *   36px title bar, tinted band → a utility card wearing its type's name
+ *   32px label, flush ground    → a rail, which is a tool and not a document
+ *
+ * What every rail shares: a FLUSH ground instead of the tinted title band, so
+ * the rail reads as one panel rather than a card with a lid, with the hairline
+ * divider doing the work the tint used to. The ground does not change with
+ * focus — that is the whole of what flush means, and a rail that lit up would
+ * be a card with a lid again; the label carries focus instead.
+ *
+ * What a rail wears, settled by review: RACING STRIPES — three hairlines
+ * flanking a centered glyph and an uppercase tracked label. A bare label on an
+ * empty bar read as unfinished rather than as quiet; a sentence-case name read
+ * as a card title; a single rule filling the run read as a divider that lost
+ * its way. Three thin stripes read as livery, which is what a tool's bar
+ * should say next to a document's.
+ *
+ * ── Ink: the GLOBAL family, never the card-titlebar family ──
+ * Everything in this bar paints from `--tug7-element-global-*`, because a rail
+ * has given up the tinted title band and its ground is the pane's own content
+ * surface. The card-titlebar tokens (`--tugx-pane-title-fg-*`,
+ * `--tugx-pane-title-bar-icon-*`) are authored against that TINT, which is a
+ * saturated near-dark in the light themes — so in `harmony` the title ink is
+ * `blue l:980`, near-white, and the first pass painted a near-white label,
+ * glyph, and stripes onto a near-white rail. The bar was legible in the dark
+ * themes and all but invisible in the light ones. A surface change is a token
+ * FAMILY change; carrying the old family across is the whole of that bug.
+ *
+ * ── The recede: one mechanism, not two ──
+ * An unfocused pane is already dimmed deck-wide by the two blend layers on
+ * `.tug-pane-chrome` (saturation kill + lightness wash), and those cover the
+ * title bar along with everything else. So the rail's own focus step is
+ * deliberately SMALL — one notch of the global ladder per element — and the
+ * deck's existing recede does the rest. A rail that also dimmed itself hard
+ * would compound with that wash and disappear on an inactive card, which is
+ * the failure the stripes are least able to survive: they are 1px, and 1px has
+ * no contrast left to give away twice.
+ *
+ * The three inks are published as knobs so the two states are stated once, as
+ * a pair, rather than restated at each of the four places they are drawn.
+ *
+ * The height is a knob with its default at the point of use — a theme retuning
+ * the tier declares `--tug-rail-chrome-height` — and it is declared on the PANE,
+ * beside the masthead's, so the scrim, the sheet clip, and the banner seat below
+ * a 32px bar. The pane cannot learn the role from the bar (`:has()` does not
+ * invalidate on a descendant attribute change in WebKit), so `TugPane` stamps
+ * `data-role` on both from the active card's `layoutRole`.
+ */
+.tug-pane-title-bar[data-role="sidebar"] {
+  padding-inline: var(--tug-space-sm);
+  /* The bar's own `space-between` distributes its children, which pushed the
+     name to the bar's center — halfway to the close box and nowhere near the
+     glyph it belongs to. The stripe bands do the centering here instead. */
+  justify-content: flex-start;
+
+  /* The FOCUSED pair is the base, and the recede is the override — the
+     opposite polarity to the rest of this file, on purpose.
+     `.tug-pane[data-focused="true"] …` is a DESCENDANT selector, so it matches
+     a rail nested anywhere under any focused pane, not just one whose own pane
+     is focused. That is not hypothetical: the gallery mounts pane frames inside
+     a pane, and every rail in the fixture took the focused ink no matter what
+     its own frame said. Keying the recede off the pane's own
+     `:not([data-focused="true"])` cannot make that mistake — the nearest
+     unfocused ancestor is the one that wins, which is the answer we want.
+
+     `strong` reads as more contrast in BOTH directions (lighter than `default`
+     on a dark ground, darker on a light one), which is the property that lets
+     one rule serve all six themes. */
+  --tugx-rail-stripe-ink: var(--tug7-element-global-border-normal-strong-rest);
+  --tugx-rail-label-ink: var(--tug7-element-global-text-normal-default-rest);
+  --tugx-rail-icon-ink: var(--tug7-element-global-icon-normal-active-rest);
+}
+
+/* The recede: one notch down the same ladder, each. */
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar[data-role="sidebar"] {
+  --tugx-rail-stripe-ink: var(--tug7-element-global-border-normal-default-rest);
+  --tugx-rail-label-ink: var(--tug7-element-global-text-normal-muted-rest);
+  --tugx-rail-icon-ink: var(--tug7-element-global-icon-normal-muted-rest);
+}
+
+/* `order` so the bar's `::after` stripe band — a pseudo-element, and therefore
+   the LAST flex item in document order — lays out between the label and the
+   controls rather than past them. */
+.tug-pane-title-bar[data-role="sidebar"] .tug-pane-title-bar-controls {
+  margin-inline-start: auto;
+  order: 1;
+}
+
+/* Both states are stated because the focused title-bar rule below outranks a
+   single attribute selector. */
+/* @tug-renders-on: --tugx-pane-bg */
+.tug-pane .tug-pane-title-bar[data-role="sidebar"],
+.tug-pane[data-focused="true"] .tug-pane-title-bar[data-role="sidebar"] {
+  background-color: var(--tugx-pane-bg);
+}
+
+/* The name: content-width rather than stretched, so the stripe bands are
+   measured from the WORD's end and the reading centers on the word rather than
+   on a box that swallowed the bar. Uppercase and tracked — the voice Lens
+   already speaks in its own section bands, brought up into the chrome so the
+   bar and the bands below it read as one column. */
+/* @tug-renders-on: --tugx-pane-bg */
+.tug-pane-title-bar[data-role="sidebar"] .tug-pane-title {
+  flex: 0 1 auto;
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tugx-rail-label-ink);
+}
+
+/* Stated at the focused rule's own weight, not left to inherit: the deck's
+   `.tug-pane[data-focused="true"] .tug-pane-title` and `… .tug-pane-icon` rules
+   carry (0,3,0) and sit LATER in this file, so a plainer selector here loses
+   the tie on source order and the bar takes the card-titlebar ink back — which
+   is exactly the near-white-on-near-white failure in the light themes. */
+/* @tug-renders-on: --tugx-pane-bg */
+.tug-pane[data-focused="true"] .tug-pane-title-bar[data-role="sidebar"] .tug-pane-title {
+  color: var(--tugx-rail-label-ink);
+}
+
+/* The glyph — a tool wears its mark. Both selectors for the same reason the
+   label states its focused weight twice: the deck's `.tug-pane-icon` rule sits
+   later in this file and would otherwise win the tie. */
+/* @tug-renders-on: --tugx-pane-bg */
+.tug-pane .tug-pane-title-bar[data-role="sidebar"] .tug-pane-icon,
+.tug-pane[data-focused="true"] .tug-pane-title-bar[data-role="sidebar"] .tug-pane-icon {
+  display: inline-flex;
+  color: var(--tugx-rail-icon-ink);
+}
+
+/* ── The racing stripes ───────────────────────────────────────────────────
+   A band before the glyph and a band after the label, both flex-growing at
+   `flex-basis: 0` so the two resolve to the SAME width whatever the label's
+   length — the reading lands optically centered rather than wherever the
+   leftover happened to fall.
+
+   Three hairlines on a 3px pitch, drawn as one gradient so the set is one
+   shape with one height and one center. Thin deliberately: at 2px they read as
+   rules with a slot between them, which is furniture; at 1px on an even pitch
+   they read as livery. The band's 7px is its own arithmetic — three 1px lines
+   and two 2px gaps — so the middle stripe lands on the band's exact center. */
+/* @tug-renders-on: --tugx-pane-bg */
+.tug-pane-title-bar[data-role="sidebar"]::before,
+.tug-pane-title-bar[data-role="sidebar"]::after {
+  content: "";
+  flex: 1 1 0;
+  align-self: center;
+  min-inline-size: var(--tug-space-md);
+  block-size: 7px;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--tugx-rail-stripe-ink) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.tug-pane-title-bar[data-role="sidebar"]::before {
+  margin-inline-end: var(--tug-space-sm);
+}
+
+/* The trailing band stops short of the CONTROLS as well as starting clear of
+   the label — the close box is a pressable object with its own hover fill, and
+   a texture running into its edge reads as the button's own furniture. More
+   air on that side than on the label's, because the button's box is bigger
+   than its glyph and the gap the eye measures is to the glyph. */
+.tug-pane-title-bar[data-role="sidebar"]::after {
+  margin-inline-start: var(--tug-space-sm);
+  margin-inline-end: var(--tug-space-md);
+}
+
+/* When a tab bar sits directly below, drop the title-bar divider so the title
+   bar and tab bar read as one continuous chrome. The tab bar carries its own
+   bottom divider against the content. Single-tab cards (no tab bar, content
+   directly below) keep the divider. */
+.tug-pane-title-bar:has(+ .tug-pane-body .tug-tab-bar) {
+  border-bottom-color: transparent;
+}
+
+/* Prevent selection highlight from appearing in the title bar even when a
+   content-area selection range spans through it (WebKit renders ::selection
+   in user-select: none regions that fall within an active range). */
+.tug-pane-title-bar ::selection {
+  background: transparent;
+  color: inherit;
+}
+.tug-pane-title-bar::selection {
+  background: transparent;
+  color: inherit;
+}
+
+/*
+ * When the pane is focused (active), the title bar background switches to the
+ * active color. `pane-focus-controller.ts` writes data-focused="true" on the
+ * active pane's container div (and "false" on all others) in response to
+ * store activation events; absent attribute is treated as unfocused via the
+ * `:not([data-focused="true"])` selectors below.
+ */
+.tug-pane[data-focused="true"] .tug-pane-title-bar {
+  background-color: var(--tugx-pane-title-bar-bg-active);
+}
+
+.tug-pane-title-bar:active {
+  cursor: grabbing;
+}
+
+/* One-shot activation flash ([P04]): a Lens Sessions row click fronts the
+   bound card and pulses an accent ring around its border. The class is added
+   on dispatch (on the pane root) and removed on `animationend` (see
+   `flashPaneBorder` in action-dispatch.ts). The ring is an OUTSET box-shadow
+   hugging the bordered `.tug-pane-chrome` — an inset ring would paint under the
+   chrome's own children (title bar + body fill the box edge-to-edge and cover
+   it), so it must sit outside the box where nothing paints over it. The base
+   active shadow rides alongside so the pane keeps its drop shadow through the
+   flash. The accent holds for most of the animation, then fades, so it reads
+   clearly. Appearance only ([L06]).
+
+   `--tugx-card-flash-duration` is THE knob for how long a card flash lasts —
+   the one place to tune it. Its default lives in the `var()` fallback below
+   rather than in a declaration, so a caller can override it from any ancestor.
+   Nothing else hard-codes this length: `flashPaneBorder` reads the animation's
+   computed duration off the element for its backstop timer, so the timer
+   follows the token instead of shadowing it. */
+@keyframes tug-pane-border-flash {
+  0% {
+    box-shadow:
+      0 0 0 2px var(--tug7-element-global-border-normal-accent-rest),
+      var(--tugx-pane-shadow-active);
+  }
+  70% {
+    box-shadow:
+      0 0 0 2px var(--tug7-element-global-border-normal-accent-rest),
+      var(--tugx-pane-shadow-active);
+  }
+  100% {
+    box-shadow:
+      0 0 0 2px transparent,
+      var(--tugx-pane-shadow-active);
+  }
+}
+.tug-pane-flash .tug-pane-chrome {
+  animation: tug-pane-border-flash var(--tugx-card-flash-duration, 1750ms) ease-out;
+}
+
+/* ============================================================================
+   Title bar title
+   ========================================================================= */
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+.tug-pane-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tug-font-size-sm);
+  font-weight: var(--tug-font-weight-medium);
+  color: var(--tugx-pane-title-fg-inactive);
+  pointer-events: none;
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
+.tug-pane[data-focused="true"] .tug-pane-title {
+  color: var(--tugx-pane-title-fg-active);
+}
+
+/* ============================================================================
+   Title bar icon
+   ========================================================================= */
+
+.tug-pane-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tug-icon-size-md);
+  height: var(--tug-icon-size-md);
+  flex-shrink: 0;
+  margin-right: var(--tug-space-sm);
+}
+
+/* Lucide SVGs inside the icon container inherit size from the container */
+.tug-pane-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
+.tug-pane[data-focused="true"] .tug-pane-icon {
+  color: var(--tugx-pane-title-bar-icon-active);
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+.tug-pane:not([data-focused="true"]) .tug-pane-icon {
+  color: var(--tugx-pane-title-bar-icon-inactive);
+}
+
+/* ============================================================================
+   Pane title bar — control cluster
+   ========================================================================= */
+
+/*
+ * Groups the collapse, menu, and close buttons on the right side of the
+ * title bar. CardTitleBar renders .tug-button ghost icon buttons inside
+ * this container (tokens: `--tugx-pane-control-on-*` / `--tugx-pane-control-off-*`).
+ */
+.tug-pane-title-bar-controls {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: var(--tug-space-xs);
+}
+
+/*
+ * The box a title-bar control's tooltip hangs from.
+ *
+ * A tooltip needs an element it can measure and attach listeners to, and the
+ * controls it names cannot BE that element: three of them are popup-menu
+ * triggers already claimed by Radix's `asChild` slot, and the close box runs
+ * its own pointer-capture protocol that a second pointer primitive breaks. So
+ * the bubble anchors this span and the control sits inside it.
+ *
+ * `display: contents` would be the usual way to keep a wrapper out of the
+ * layout, and it is exactly wrong here — a contents box has no rect, which is
+ * the one thing a tooltip anchor must have. `inline-flex` gives it a rect that
+ * is the control's own: as a flex item of the cluster it shrink-wraps the
+ * single button inside it, so the row measures the same with the span as
+ * without.
+ */
+.tug-pane-title-bar-tooltip-anchor {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ── The cluster's palette ────────────────────────────────────────────────
+   Every control in this row is a ghost icon `TugButton`, and the row addresses
+   them together so a hand-rolled one cannot arrive wearing a flat global muted
+   token beside full-strength neighbours.
+
+   There is no exception. The slot badge used to be one — a bare `TugSlot`
+   control, excluded here by `:not(.tug-slot)` so the cluster could not flatten
+   its outline — and buying the chip's own paint that way cost it the row's
+   behaviour: it answered the pointer in the slot vocabulary's accent family
+   while every control beside it answered with the row's hover box. The chip is
+   the badge button's ICON now, so it takes the row's paint through
+   `currentColor` and keeps its outline by drawing it, which is what lets these
+   selectors address the whole row without qualification. [L20] */
+
+/* Pane title bar control buttons — focused pane (plain role) */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button {
+  color: var(--tugx-pane-control-on-fg-rest);
+  background-color: var(--tugx-pane-control-on-bg-rest);
+  border-color: var(--tugx-pane-control-on-border-rest);
+}
+
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) {
+  color: var(--tugx-pane-control-on-fg-hover);
+  background-color: var(--tugx-pane-control-on-bg-hover);
+  border-color: var(--tugx-pane-control-on-border-hover);
+}
+
+.tug-pane[data-focused="true"] .tug-pane-title-bar-controls .tug-button:active:not(:disabled) {
+  color: var(--tugx-pane-control-on-fg-active);
+  background-color: var(--tugx-pane-control-on-bg-active);
+  border-color: var(--tugx-pane-control-on-border-active);
+}
+
+/* Pane title bar control buttons — unfocused pane (muted role) */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button {
+  color: var(--tugx-pane-control-off-fg-rest);
+  background-color: var(--tugx-pane-control-off-bg-rest);
+  border-color: var(--tugx-pane-control-off-border-rest);
+}
+
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) {
+  color: var(--tugx-pane-control-off-fg-hover);
+  background-color: var(--tugx-pane-control-off-bg-hover);
+  border-color: var(--tugx-pane-control-off-border-hover);
+}
+
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-controls .tug-button:active:not(:disabled) {
+  color: var(--tugx-pane-control-off-fg-active);
+  background-color: var(--tugx-pane-control-off-bg-active);
+  border-color: var(--tugx-pane-control-off-border-active);
+}
+
+.tug-pane-title-bar-controls .tug-button svg {
+  color: inherit;
+}
+
+/*
+ * Where a masthead's own chrome affordance mounts — today the Session card's
+ * telemetry widget, portaled in by the masthead that owns it.
+ *
+ * `display: contents`, so the host is a MOUNT POINT and not a box: whatever is
+ * portaled in becomes a member of the cluster's own row, laid out and centered
+ * exactly like the pane's controls beside it, and an empty host on a pane with
+ * no accessory generates nothing at all.
+ *
+ * Its POSITION in the cluster is the point of it. The widget used to be
+ * absolutely positioned against the cluster's outer edge, which put it ahead of
+ * the stack badge; here it falls after the badge and before the rest, which is
+ * the order the cluster wants — where you are, then what you can do.
+ */
+.tug-pane-title-bar-accessory {
+  display: contents;
+}
+
+/*
+ * Slot-stack badge — the depth of the stack this pane stands in, and the
+ * trigger for the picker that switches between them. It LEADS the cluster; see
+ * the mount order in `tug-pane.tsx`.
+ *
+ * It is the one control in this cluster that is not square: its icon-only
+ * neighbours sit their 14px glyph in a 28px box (7px a side, `padding: 0`),
+ * while the stock `sm` inline padding is a full 1rem. Left at that, the badge
+ * stood 9px further from the chevron than the chevron stands from the close
+ * box, and the cluster read as two groups rather than one row. Matching the
+ * neighbours' optical inset is what evens it out, so the value is derived from
+ * their box rather than typed as a number.
+ *
+ * The count is the only content here whose width follows its value, so the
+ * digits are tabular — 1 and 2 occupy the same column and a raise cannot jog
+ * the cluster. Nothing is reserved for a second digit: a ten-deep slot is rare
+ * enough that permanently parking its width beside every badge would just
+ * restore the gap this rule exists to close.
+ */
+/* `.tug-button-size-sm` sets the inline padding through the `padding`
+   shorthand and ties with a bare class on specificity, so the override is
+   compounded onto `.tug-button` to win outright rather than by load order. */
+.tug-button.tug-pane-title-bar-stack-badge {
+  padding-inline: calc(
+    (var(--tug-button-sm-height) - var(--tug-button-sm-icon-size)) / 2
+  );
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+
+  /* The badge inside it is re-paired to this row, exactly as the slot chip
+     beside it is — and by the shortest possible route: `currentColor` is the
+     button's own ink, so the badge simply IS the cluster's ink and needs no
+     rule of its own for any of the states the cluster already has. Rest,
+     hover, pressed, menu-open, focused pane, background pane: the ghost
+     buttons' colour rules move the badge with them, and a badge that cannot
+     be told apart from its neighbours is precisely the point — the chip and
+     the badge are one coordinate, not a readout with a mark laid over it.
+
+     What that buys, beyond the state coverage, is that the accent leaves. The
+     badge used to light its top slice in the action colour, which said *live*
+     about the most inert fact the deck has: where a card is sitting. The slot
+     chip beside it settled the same argument the same way — accent under the
+     pointer, and nowhere at rest.
+
+     The knockout is the one thing `currentColor` cannot supply, because it is
+     the colour of the GROUND rather than of the ink: a knockout that is not
+     the colour of what it stands on is a halo. It comes in a pair, since the
+     focused pane's title bar is a different fill. */
+  --tugx-column-badge-fg: currentcolor;
+  --tugx-column-badge-knockout: var(--tugx-pane-title-bar-bg-inactive);
+
+  /* One step down from the run's 18×22, matching the slot chip beside it,
+     which came down for the same reason: these two are glyphs in a row of
+     14px ones, and at the run's size the pair read as two controls wearing
+     bigger boxes than their neighbours. The glyph's own elements are drawn
+     off these, so the run scales with the box rather than rattling in it. */
+  --tugx-column-badge-width: 16px;
+  --tugx-column-badge-height: 20px;
+}
+
+.tug-pane[data-focused="true"] .tug-button.tug-pane-title-bar-stack-badge {
+  --tugx-column-badge-knockout: var(--tugx-pane-title-bar-bg-active);
+}
+
+/*
+ * While its menu is open the badge stays lit, the way a macOS menu-bar title
+ * holds its highlight for as long as the menu is down — the control that
+ * opened the surface keeps saying so. Radix stamps `data-state="open"` on the
+ * trigger, so this covers every door into the picker: the badge click, the
+ * Cmd-click on the title bar, and ⌘R.
+ *
+ * The pose is the pressed one the button already owns, not a new colour: a
+ * menu being down is a control being held. These sit after the :hover/:active
+ * rules above and tie with them on specificity, so source order is what keeps
+ * an open badge lit while the pointer wanders off it.
+ */
+.tug-pane[data-focused="true"]
+  .tug-pane-title-bar-controls
+  .tug-button.tug-pane-title-bar-stack-badge[data-state="open"] {
+  color: var(--tugx-pane-control-on-fg-active);
+  background-color: var(--tugx-pane-control-on-bg-active);
+  border-color: var(--tugx-pane-control-on-border-active);
+}
+
+.tug-pane:not([data-focused="true"])
+  .tug-pane-title-bar-controls
+  .tug-button.tug-pane-title-bar-stack-badge[data-state="open"] {
+  color: var(--tugx-pane-control-off-fg-active);
+  background-color: var(--tugx-pane-control-off-bg-active);
+  border-color: var(--tugx-pane-control-off-border-active);
+}
+
+/*
+ * The target button, lit while its pane holds the bullseye — the same pressed
+ * pose the stack badge wears while its menu is down, and for the same reason:
+ * a control that put the deck in a posture keeps saying so, so the second
+ * press reads as the exit it is. `data-on` is stamped by the title bar from
+ * the derived posture, never from a local toggle, so the button and the
+ * geometry cannot disagree.
+ *
+ * The rollup's MARK joins the selector on the same terms. It wears `data-on`
+ * when a control BEHIND it holds a posture — today only bullseye — so a card
+ * sitting in bullseye says so from the row's resting state, with the hidden ⊙
+ * still hidden and the cluster's geometry untouched. It takes the colour only:
+ * the mark is not a button and must not grow a button's filled box.
+ */
+.tug-pane[data-focused="true"]
+  .tug-pane-title-bar-controls
+  .tug-button.tug-pane-title-bar-bullseye-button[data-on] {
+  color: var(--tugx-pane-control-on-fg-active);
+  background-color: var(--tugx-pane-control-on-bg-active);
+  border-color: var(--tugx-pane-control-on-border-active);
+}
+
+.tug-pane:not([data-focused="true"])
+  .tug-pane-title-bar-controls
+  .tug-button.tug-pane-title-bar-bullseye-button[data-on] {
+  color: var(--tugx-pane-control-off-fg-active);
+  background-color: var(--tugx-pane-control-off-bg-active);
+  border-color: var(--tugx-pane-control-off-border-active);
+}
+
+/*
+ * THE ROLLUP — every verb the pane offers, held behind one `⋯`.
+ *
+ * The row REPLACES the mark rather than growing beside it. Both are anchored
+ * to the same trailing edge — the row absolutely, `inset-inline-end: 0` — so
+ * the row unfurls leftward from the exact spot the `⋯` occupies, and the mark
+ * fades out as the row fades in. One control's worth of space, showing one
+ * thing at a time.
+ *
+ * That the row is an OVERLAY is the whole reason a hover can drive it.
+ * `.tug-pane-title-bar` is `space-between` with a `flex-shrink: 0` cluster, so
+ * a row that grew in the flow would widen the cluster, steal the title's box,
+ * and re-truncate the card's name on every pass of the pointer. As an overlay
+ * it moves nothing at all — the badges and the close box behind it hold their
+ * pixel, and `--tugx-pane-controls-width` (measured off the cluster, which an
+ * absolutely-positioned child does not contribute to) never flinches, so the
+ * masthead's lower lines keep the inset they were already taking.
+ *
+ * It paints the bar's own ground so the unfurl reads as the control row simply
+ * extending, rather than as a panel arriving. On a card whose title runs long
+ * the row covers its tail; that is the intended trade — the title is legible
+ * at rest, which is when it is being read.
+ */
+.tug-pane-title-bar-rollup {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  /* Air between the verbs and the place pair — the two registers of the
+   * cluster, which want a seam rather than an even run of controls.
+   *
+   * On the WRAPPER, which is the only place it can go. The mark and the row
+   * are both anchored to this box's trailing edge, so a margin here moves the
+   * two of them together and the centre-on-centre swap survives. The same
+   * value written on the mark alone would shift the mark off the row's
+   * trailing member and reintroduce the hop. */
+  margin-inline-end: var(--tugx-pane-rollup-gap, var(--tug-space-sm));
+}
+
+/*
+ * The mark: a glyph in one icon button's footprint, so the row it stands for
+ * displaces exactly itself. Sized from the same tokens `TugButton`'s `sm` icon
+ * subtype uses rather than by eye — the mark and the buttons that replace it
+ * have to agree on the box or the swap steps sideways.
+ */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+.tug-pane-title-bar-rollup-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: var(--tugx-pane-rollup-mark-size, 28px);
+  block-size: var(--tugx-pane-rollup-mark-size, 28px);
+  color: var(--tugx-pane-control-off-fg-rest);
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
+.tug-pane[data-focused="true"] .tug-pane-title-bar-rollup-mark {
+  color: var(--tugx-pane-control-on-fg-rest);
+}
+
+.tug-pane-title-bar-rollup-mark svg {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+
+/* Lit while a verb behind it holds a posture. Colour only — see above. */
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-active */
+.tug-pane[data-focused="true"] .tug-pane-title-bar-rollup-mark[data-on] {
+  color: var(--tugx-pane-control-on-fg-active);
+}
+
+/* @tug-renders-on: --tug7-surface-card-primary-normal-titlebar-inactive */
+.tug-pane:not([data-focused="true"]) .tug-pane-title-bar-rollup-mark[data-on] {
+  color: var(--tugx-pane-control-off-fg-active);
+}
+
+.tug-pane-title-bar-rollup-row {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  display: flex;
+  align-items: center;
+  flex: none;
+  /* Leading padding only. The trailing side must be ZERO, and that is a
+   * geometry contract rather than a taste call: the row's last member is the
+   * bullseye target, whose box has to land on the mark's box so its centre dot
+   * lands on the ellipsis's middle dot. Two pixels of padding here moved the
+   * whole swap sideways by two pixels, and the eye reads that as a hop. */
+  padding-inline-start: var(--tug-space-2xs);
+  padding-inline-end: 0;
+  border-radius: var(--tug-radius-sm);
+  background-color: var(--tugx-pane-title-bar-bg-inactive);
+  /* Above the bar's own text and above the mark it covers. */
+  z-index: 1;
+  /* Hidden by opacity, not by `display`, so the row keeps a box: the buttons
+   * keep their measured widths and the unfurl has no layout pass to do.
+   * `pointer-events: none` is what makes a hidden row unclickable — opacity
+   * alone would leave a row of invisible buttons sitting over the title. */
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tug-pane[data-focused="true"] .tug-pane-title-bar-rollup-row {
+  background-color: var(--tugx-pane-title-bar-bg-active);
+}
+
+/*
+ * The reveal, in three clauses, and every one of them is appearance the CSS
+ * owns outright ([L06]). The mark goes out under the same three, so the two
+ * are never both on screen.
+ *
+ * `:hover` is on the BAR: a whole title bar is a target the hand cannot miss,
+ * where an 18px glyph is one the hand has to aim at. It is also the only
+ * opener — the mark is a mark, not a button, because the row covers the mark's
+ * own spot and a control whose second press cannot reach it is worse than no
+ * control at all.
+ *
+ * `[data-held]` is React's half: a menu opened from inside the row is
+ * standing. Not a nicety — a `TugPopupMenu` portals its rows outside the card,
+ * so the pointer travelling to one leaves the bar and ends the hover, and
+ * without the hold the row would collapse out from under an open menu.
+ *
+ * `:focus-within` is the keyboard's, for the walk that arrives without a
+ * pointer and would otherwise be tabbing through invisible buttons.
+ */
+.tug-pane-title-bar[data-pointer-within] .tug-pane-title-bar-rollup-row,
+.tug-pane-title-bar-rollup[data-held] .tug-pane-title-bar-rollup-row,
+.tug-pane-title-bar-rollup-row:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The focus clause reaches the mark by SIBLING combinator, never `:has()`.
+ * The mark follows the row in the DOM precisely so `~` can address it, and
+ * WebKit's `:has()` does not reliably invalidate on a descendant's state
+ * change — the mark would linger under a keyboard walk. */
+.tug-pane-title-bar[data-pointer-within] .tug-pane-title-bar-rollup-mark,
+.tug-pane-title-bar-rollup[data-held] .tug-pane-title-bar-rollup-mark,
+.tug-pane-title-bar-rollup-row:focus-within ~ .tug-pane-title-bar-rollup-mark {
+  opacity: 0;
+}
+
+/*
+ * The icon follows the title-bar button's theme-aware text color in every
+ * state. The shared ghost-action svg rules in tug-button.css pin the icon to
+ * --tug7-element-control-icon-ghost-action-{hover,active} on interaction, which
+ * outranks the rest-state inherit above (and reads dark on light themes), so
+ * re-assert inherit at a higher specificity for the interactive states.
+ */
+.tug-pane .tug-pane-title-bar-controls .tug-button:hover:not(:disabled) svg,
+.tug-pane .tug-pane-title-bar-controls .tug-button:active:not(:disabled) svg {
+  color: inherit;
+}
+
+/* ============================================================================
+   Accessory slot
+   ========================================================================= */
+
+/*
+ * Collapses to 0 when null (height:0, overflow:hidden applied via inline style
+ * in the component). When an accessory is present it sizes to fit content.
+ */
+.tug-pane-accessory {
+  flex-shrink: 0;
+  background-color: var(--tugx-pane-bg);
+  border-bottom: 1px solid var(--tugx-pane-border);
+}
+
+.tug-pane-accessory:empty {
+  border-bottom: none;
+}
+
+/* ============================================================================
+   Content area (flex-grow, overflow auto)
+   ========================================================================= */
+
+.tug-pane-content {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  background-color: var(--tugx-pane-bg);
+  /* The pane content area is the surface nearly every card is painted on, so
+     it publishes it: a container inside a card that marks keyboard focus with
+     a wash lifts off THIS, and a selected list row lays its selection over it.
+     Single writer, many readers — see the contract note in `tug-list-row.css`.
+     A card that paints its own surface over this one publishes that in turn. */
+  --tugx-ambient-surface: var(--tugx-pane-bg);
+  min-height: 0; /* needed for flex children to allow scroll */
+  /* Explicitly none — do not rely on inheritance from body through
+     intermediate elements. Individual content components opt in to
+     user-select: text in their own CSS. Card chrome stays non-selectable. */
+  user-select: none;
+  -webkit-user-select: none;
+  /* Arrow cursor on chrome. Selectable components (text inputs, markdown
+     view) override to cursor: text in their own CSS. */
+  cursor: default;
+  overscroll-behavior: contain;
+}
+
+/* Layer 1: partial saturation reduction — desaturates colored content.
+   Opacity controls the strength: 0 = no effect, 1 = full desaturation.
+   Positioned on .tug-pane-chrome (not .tug-pane-content) so the overlay covers the
+   full pane chrome bounds and does not scroll with content. */
+.tug-pane:not([data-focused="true"]) .tug-pane-chrome::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--tugx-pane-content-dim-desat-color);
+  mix-blend-mode: saturation;
+  opacity: var(--tugx-pane-content-dim-desat-amount);
+  pointer-events: none;
+  z-index: 10;
+  /* Fades with the settle rather than cutting, so the recede arrives with the
+     motion it belongs to. One knob times both: the duration is the same
+     `--tugx-imposer-settle-duration` `deck-canvas.tsx` writes onto the frames
+     container, with the default riding as a `var()` fallback here at the point
+     of use — the container carries no value until the first arrangement
+     gesture. */
+  transition: opacity
+    var(--tugx-imposer-settle-duration, 300ms) ease-out;
+}
+
+/* Layer 2: lightness wash — dims achromatic content when the pane is unfocused */
+.tug-pane:not([data-focused="true"]) .tug-pane-chrome::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--tugx-pane-content-dim-wash-color);
+  mix-blend-mode: var(--tugx-pane-content-dim-wash-blend);
+  pointer-events: none;
+  z-index: 11;
+  transition: background-color
+    var(--tugx-imposer-settle-duration, 300ms) ease-out;
+}
+
+/* ----------------------------------------------------------------------------
+   The recede, while one pane stands in bullseye.
+
+   `data-bullseye` on the frames container is the selector hook; the dim itself
+   is these same two layers at deeper values. The per-pane half of the selector
+   is `:not([data-focused="true"])`, which already means exactly "every pane but
+   the bullseyed one" — the bullseyed pane is ALWAYS the focused pane, because
+   the posture is derived from the first responder. So no new per-pane bit is
+   needed, and nothing here can disagree with the geometry.
+
+   Only the two values change. NOTHING lands on `.tug-pane` itself — no
+   `filter`, no `transform`, no `backdrop-filter`, no `contain`, no
+   `will-change`. Any of those would make every receded frame a containing
+   block for its `position: fixed` descendants, and `TugSheet` portals into the
+   frame while completion popups, alerts, and banners position from viewport
+   coordinates. These two layers are safe because they are pseudo-elements
+   confined by `.tug-pane-chrome`'s own `isolation: isolate`, and they already
+   carry `pointer-events: none`.
+   -------------------------------------------------------------------------- */
+[data-bullseye] .tug-pane:not([data-focused="true"]) .tug-pane-chrome::before {
+  opacity: var(--tugx-pane-content-dim-desat-amount-bullseye);
+}
+
+[data-bullseye] .tug-pane:not([data-focused="true"]) .tug-pane-chrome::after {
+  background-color: var(--tugx-pane-content-dim-wash-color-bullseye);
+}
+
+/* ============================================================================
+   Pane scrim — built-in modal scrim layer [D18]
+   ========================================================================= */
+
+/*
+ * Every pane carries a permanent scrim element inside its chrome
+ * (rendered by `TugPane`, sibling of the title bar and body). Modal-
+ * class consumers (sheets, future pane-modal surfaces) request the
+ * scrim via `useTugPaneScrim()`; the registry sets `data-scrim="on"`
+ * on the chrome and the rule below fades it in.
+ *
+ * Coverage: starts below the title bar so the title bar remains
+ * interactive while a pane-modal surface is up — drag, close, and
+ * collapse all stay live. The body area is the dead zone.
+ *
+ * Z-index: 12 places the scrim ABOVE the inactive-dim pseudo layers
+ * (::before z=10, ::after z=11) so a sheet opened on an unfocused
+ * pane still presents its scrim above the dim. The chrome's
+ * `isolation: isolate` confines this z-index to the chrome's stacking
+ * context, so the scrim never paints above the sheet clip portaled
+ * into the frame at z-index 2.
+ *
+ * @tug-renders-on: --tugx-pane-scrim-bg
+ */
+.tug-pane-scrim {
+  position: absolute;
+  /* Seats below the whole title-bar tier: at 36 it would dim the masthead's
+     bottom half — telemetry widget included — whenever a sheet is up. */
+  top: var(--tugx-pane-chrome-height, var(--tug-chrome-height));
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 12;
+  background-color: var(--tugx-pane-scrim-bg);
+  /* Pointer-events gate: at rest the scrim is invisible AND
+     non-interactive, so the tab bar, accessory, content, and any
+     in-card controls below the title bar still receive clicks. The
+     `[data-scrim="on"]` selector below flips the scrim into a
+     visual + pointer dead zone when a pane-modal surface raises it. */
+  pointer-events: none;
+  opacity: 0;
+  /* Transition declared in the rest state so both fade-in (0 → 1)
+     and fade-out (1 → 0) animate in lockstep with the sheet panel's
+     enter/exit transitions (same duration token). [L06] */
+  transition: opacity var(--tug-motion-duration-moderate) ease;
+}
+
+.tug-pane-chrome[data-scrim="on"] .tug-pane-scrim {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/*
+ * Active selection uses native ::selection. No suppression needed — the
+ * browser paints it directly. Selection color tokens are applied here so
+ * all card content uses the same selection appearance.
+ */
+.tug-pane-content ::selection {
+  background-color: var(--tug7-surface-selection-primary-normal-plain-rest);
+  color: var(--tug7-element-selection-text-normal-plain-rest);
+}
+
+/*
+ * Inactive (dimmed) card selection via CSS Custom Highlight API.
+ *
+ * When a card loses focus, SelectionGuard clones its Range into the
+ * "inactive-selection" highlight. When the card regains focus, the Range
+ * is restored to the browser Selection and removed from the highlight.
+ */
+::highlight(inactive-selection) {
+  background-color: var(--tug7-surface-selection-primary-normal-plain-inactive);
+  color: inherit;
+}
+
+[data-tug-select="none"] {
+  user-select: none;
+}
+
+[data-tug-select="all"] {
+  user-select: all;
+}
+
+/* ============================================================================
+   Loading placeholder (feeds not yet wired)
+   ========================================================================= */
+
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-pane-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  font-size: var(--tug-font-size-sm);
+}
+
+/* ============================================================================
+   Place seam — the boundary between two split members, of a rail or a column
+   ========================================================================= */
+
+/* The hit strip is wider than the gap it sits in (a 5px drag target is under
+   every pointing-comfort floor the deck holds), so the element itself is
+   transparent and the hairline is drawn by a centred pseudo-element. Pressing
+   anywhere in the strip starts the drag; only the hairline is visible. */
+/* @tug-renders-on: --tug7-surface-global-primary-normal-default-rest */
+.tug-place-seam {
+  background: transparent;
+  /* The drag is a pointer gesture the browser must not also read as a scroll:
+     the strip overhangs each neighbour by about 2.5px, and a vertical pan
+     starting there would fight the seam for the same motion. */
+  touch-action: none;
+}
+
+.tug-place-seam::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: var(--tugx-pane-border);
+  opacity: 0;
+  transition: opacity var(--tugx-rail-seam-reveal-duration, 120ms) ease;
+}
+
+/* The seam states itself on approach and while it is being dragged — a
+   boundary the pointer is over is a boundary the pointer can move. */
+.tug-place-seam:hover::before,
+.tug-place-seam[data-gesture]::before {
+  opacity: 1;
+}
+
+/* The mark a closing pane leaves behind.
+ *
+ * React unmounts a closing frame inside the commit, so the frame cannot be
+ * animated out — by the time there is an animation to run, there is no element
+ * to run it on. The canvas plants one of these at the departing frame's last
+ * rect instead and fades it, so a close reads as the card leaving rather than
+ * the card having never been there.
+ *
+ * It is deliberately a plain tile rather than a clone of the pane: it carries
+ * the chrome's ground, border, and radius and nothing else. A live clone would
+ * duplicate ids, re-run the card's effects, and pay for a subtree that is on
+ * its way out — all to be visible for a fraction of a second, at an opacity
+ * that never shows what is inside it.
+ *
+ * Inert in every sense: it takes no pointer events, and the canvas removes it
+ * when the fade lands. Motion is TugAnimator's ([L13]), so nothing here
+ * animates. */
+.tug-pane-exit-ghost {
+  position: fixed;
+  z-index: var(--tugx-pane-exit-ghost-z, 1);
+  pointer-events: none;
+  box-sizing: border-box;
+  background-color: var(--tugx-pane-bg);
+  border: 1px solid var(--tugx-pane-border);
+  border-radius: var(--tug-radius-md);
+}

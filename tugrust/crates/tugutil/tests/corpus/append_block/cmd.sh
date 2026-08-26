@@ -1,0 +1,41 @@
+cat >> components/tugways/tug-slot-layout.css <<'EOF'
+
+/* ── The windowed form ────────────────────────────────────────────────────
+   The arrangement drawn as a SLICE: a fixed number of positions with the
+   centre one in the middle, whatever the run's own length. Everything about a
+   chip is unchanged — this form differs from a plain run only in how many
+   chips there are and which slots they name.
+
+   The stub is what a position holds where the arrangement has run out. It
+   takes a chip's exact box, from the same knobs a chip takes it from, so the
+   centre lands at one offset down a column of rows: a window that let its
+   overhang collapse would slide the answer left or right by a chip at either
+   end of the run, which is the one thing a column of runs is read for.
+
+   Drawn as a dashed outline rather than as a faint chip. A chip means a place
+   a card can stand, and there is no place here — a quiet chip would be a
+   fourth slot state nobody can press, and pressing it is exactly what a reader
+   would try. */
+
+.tug-slot-layout-stub {
+  flex: none;
+  box-sizing: border-box;
+  border: 1px dashed
+    var(
+      --tugx-slot-layout-stub-border,
+      var(--tug7-element-global-border-normal-default-rest)
+    );
+  border-radius: var(--tugx-slot-radius, 2px);
+  opacity: var(--tugx-slot-layout-stub-opacity, 0.55);
+}
+
+.tug-slot-layout-size-sm .tug-slot-layout-stub {
+  inline-size: var(--tugx-slot-width-sm, 15px);
+  block-size: var(--tugx-slot-height-sm, 19px);
+}
+
+.tug-slot-layout-size-md .tug-slot-layout-stub {
+  inline-size: var(--tugx-slot-width-md, 20px);
+  block-size: var(--tugx-slot-height-md, 26px);
+}
+EOF

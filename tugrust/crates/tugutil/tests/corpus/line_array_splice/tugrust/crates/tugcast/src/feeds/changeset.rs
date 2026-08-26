@@ -1,0 +1,4745 @@
+//! Changeset composition — the workspace-scoped, owner-grouped view of a
+//! checkout's dirty state.
+//!
+//! `compose_snapshot` is the pure building block: each call joins `git
+//! status` against the attribution ledger (`file_events` grouped by owning
+//! session), derives dash entries from `refs/heads/tugdash/`, and partitions
+//! dirty files into owned / shared / unattributed buckets. The account-global
+//! `ChangesetAllFeed` (`feeds::changeset_all`) calls it once per open project
+//! and delivers the aggregate; `ChangesetBumper` pings that feed's global
+//! recompute signal after each file-event write.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use tugcast_core::types::{
+    ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DashStep, OrphanedFile,
+    DocumentDashEntry, SharedOwner, UnattributedFile,
+};
+
+use super::attribution::{parse_worktree_states, repo_root_for};
+use super::git::{fetch_git_status, fetch_head_message, parse_porcelain_v2};
+use super::workspace_registry::WorkspaceRegistry;
+use crate::path_resolver::{CanonicalPath, same_file};
+use crate::session_ledger::{
+    FileEventKey, FileEventRewrite, ProjectFileEvent, SessionLedger, SessionRow, SessionState,
+};
+
+/// Fires the account-global changeset recompute after a file-event write.
+///
+/// Held by the relay loop (one per session); `bump` pings the process-global
+/// `ChangesetAllFeed` recompute signal via the registry. Cheap to clone. A
+/// disconnected bumper (test harnesses without a registry) makes every `bump`
+/// a no-op.
+#[derive(Clone, Default)]
+pub struct ChangesetBumper {
+    registry: Option<Arc<WorkspaceRegistry>>,
+}
+
+impl ChangesetBumper {
+    pub fn new(registry: Arc<WorkspaceRegistry>) -> Self {
+        Self {
+            registry: Some(registry),
+        }
+    }
+
+    /// A bumper with no registry — every `bump` is a no-op. Test
+    /// harnesses drive relays without a workspace registry.
+    #[cfg(test)]
+    pub fn disconnected() -> Self {
+        Self::default()
+    }
+
+    /// Ping the account-global `ChangesetAllFeed` after a write in
+    /// `project_dir`. The aggregate spans every open project, so any
+    /// registered write triggers one recompute; `project_dir` no longer
+    /// scopes the bump (the per-workspace feed was retired). Notifications
+    /// coalesce (a permit, not a queue), so bursts cost one recompute.
+    pub fn bump(&self, _project_dir: &Path) {
+        if let Some(registry) = &self.registry {
+            registry.changeset_all_bump().notify_one();
+        }
+    }
+}
+
+/// Whether a porcelain-v2 XY status is a structural op — a delete, rename, or
+/// new-untracked file. These are the ops the sole-holder bracket promotion
+/// claims: you don't hand-save a deletion, so a lone bracket sweep over one is
+/// the session's own shell work. A plain content modify (`.M`/`M.`) is not
+/// structural — that's the ambiguous case attribution stays conservative on.
+/// How many contended-path diffs the contention pass runs at once.
+///
+/// Each is a `git diff` subprocess. Contention is normally zero paths, so
+/// this only matters in the workspace R09 warns about — many dirty paths that
+/// genuinely contend — where running them one after another would put the
+/// whole file's worth of subprocess latency on every recompute.
+const CONTENTION_DIFF_CONCURRENCY: usize = 8;
+
+fn status_is_structural(status: &str) -> bool {
+    status == "??" || status.chars().any(|c| matches!(c, 'A' | 'D' | 'R'))
+}
+
+/// Per-owner aggregation while folding event rows into the snapshot.
+struct OwnerAgg {
+    display_name: String,
+    live: bool,
+    /// repo-relative path → file row; `BTreeMap` for deterministic output
+    /// order (diff-suppression compares whole snapshots).
+    files: BTreeMap<String, ChangesetFile>,
+}
+
+/// Compose one `ChangesetSnapshot` for the checkout containing
+/// `project_dir` (`workspace_key` left empty for the caller to fill).
+/// `None` when the dir is not inside a git working tree or `git status`
+/// fails — the feed skips the cycle, like GitFeed.
+pub(crate) async fn compose_snapshot(
+    project_dir: &Path,
+    ledger: Option<&SessionLedger>,
+) -> Option<ChangesetSnapshot> {
+    let repo_root = repo_root_for(project_dir).await?;
+    // Loop-invariant across every row this compose resolves, and resolving it
+    // takes the resolver's global memo lock — so it is resolved once, here.
+    let canonical_root = CanonicalPath::from_raw(&repo_root);
+    let status_output = fetch_git_status(&repo_root).await?;
+
+    let header = parse_porcelain_v2(&status_output);
+    let head_message = fetch_head_message(&repo_root).await;
+    // One `rev-parse` replaces up to one `git log` per dirty path on every
+    // recompute — see `live_cut_cache`.
+    let head_oid = git_stdout(&repo_root, &["rev-parse", "HEAD"])
+        .await
+        .map(|out| out.trim().to_owned())
+        .filter(|oid| !oid.is_empty());
+
+    // Dirty working-tree files: repo-relative path → porcelain-v2 XY
+    // status ("??" for untracked, matching the familiar v1 rendering).
+    let dirty: BTreeMap<String, String> = parse_worktree_states(&status_output)
+        .into_iter()
+        .map(|(path, status)| {
+            let status = if status == "?" {
+                "??".to_owned()
+            } else {
+                status
+            };
+            (path, status)
+        })
+        .collect();
+
+    // Fold attribution events into per-owner buckets. Events are
+    // oldest-first, so the latest event for a path wins op/origin (same rule
+    // as `tugutil changes`). Events whose file is no longer dirty
+    // (committed / reverted) drop out, and so do **spent** events — rows at
+    // or before the last commit that touched their path (the row-liveness
+    // rule, [D112]): a commit spends the rows it absorbs, so a fossil row
+    // can never re-claim a file someone re-dirties later.
+    // The `file_events` bucket key is canonical (the relay writes it through the
+    // gateway), so query the canonical spelling of `project_dir`. Legacy rows
+    // written before canonicalization carry the raw spelling; union them in
+    // (when it differs) so pre-upgrade attribution still scopes in until the
+    // backfill converts them.
+    // A read error must never masquerade as "no events" — that renders as
+    // "no session claims these" while the truth is "the ledger is
+    // damaged". Note the error (latches the degraded tripwire on
+    // corruption) and log it at warn.
+    let read_events = |ledger: &crate::session_ledger::SessionLedger, project: &str| {
+        ledger.file_events_for_project(project).unwrap_or_else(|err| {
+            crate::ledger_integrity::health::note_error("changes", &err);
+            tracing::warn!(project, error = %err, "file_events read failed; claims unavailable this cycle");
+            Vec::new()
+        })
+    };
+    let mut events = match ledger {
+        Some(ledger) => {
+            let raw = project_dir.to_string_lossy();
+            let canonical = CanonicalPath::from_raw(project_dir);
+            let mut events = read_events(ledger, canonical.as_str());
+            if canonical.as_str() != raw {
+                events.extend(read_events(ledger, &raw));
+            }
+            events
+        }
+        None => Vec::new(),
+    };
+
+    // Opportunistic lazy sweep of this project's absolute rows, once per project
+    // per process: those that resolve into the repo are collapsed to canonical
+    // project_dir + repo-relative file_path; those that resolve outside it are
+    // deleted. An out-of-repo row can never match the fold below (which is keyed
+    // on git's repo-relative dirty paths), so it is not a row this project has
+    // any use for — it only costs a full resolution attempt every recompute.
+    // Correctness never depends on the rewrite half — the bridge already
+    // reconciles legacy rows at read time. The sweep runs only for open projects
+    // (never a boot walk), preserving the no-TCC-prompt-on-boot property.
+    if let Some(ledger) = ledger {
+        let canonical = CanonicalPath::from_raw(project_dir);
+        let swept = backfill_marker()
+            .lock()
+            .expect("backfill marker mutex")
+            .contains(canonical.as_str());
+        if !swept {
+            let mut rewrites: Vec<FileEventRewrite> = Vec::new();
+            let mut purges: Vec<FileEventKey> = Vec::new();
+            for pfe in &events {
+                if !pfe.event.file_path.starts_with('/') {
+                    continue;
+                }
+                let rel = repo_relative(&canonical_root, &repo_root, &pfe.event.file_path);
+                // Still absolute means both of `repo_relative`'s tests came back
+                // negative: the canonicalized path is not under the canonical
+                // root by prefix, AND no ancestor of it is the same live
+                // directory as the root. A path that merely fails to
+                // canonicalize (an in-repo file already deleted from disk) still
+                // strips, so "unresolvable" is never read as "outside".
+                if rel.starts_with('/') {
+                    purges.push(FileEventKey {
+                        tug_session_id: pfe.event.tug_session_id.clone(),
+                        tool_use_id: pfe.event.tool_use_id.clone(),
+                        file_path: pfe.event.file_path.clone(),
+                    });
+                } else {
+                    rewrites.push(FileEventRewrite {
+                        tug_session_id: pfe.event.tug_session_id.clone(),
+                        tool_use_id: pfe.event.tool_use_id.clone(),
+                        old_file_path: pfe.event.file_path.clone(),
+                        new_file_path: rel,
+                    });
+                }
+            }
+            // Mark the project swept only once the writes land: a forwarded
+            // write held for retry must not cost this process its one attempt.
+            let mut settled = true;
+            if !rewrites.is_empty() {
+                settled &= ledger
+                    .backfill_file_events_repo_relative(canonical.as_str(), &rewrites)
+                    .is_ok();
+            }
+            if !purges.is_empty() {
+                match ledger.purge_file_events_out_of_repo(canonical.as_str(), &purges) {
+                    Ok(deleted) => tracing::debug!(
+                        project = canonical.as_str(),
+                        deleted,
+                        "purged file_events rows naming files outside the repo"
+                    ),
+                    Err(err) => {
+                        tracing::warn!(project = canonical.as_str(), error = %err, "out-of-repo purge failed; retrying next compose");
+                        settled = false;
+                    }
+                }
+                // Purged rows are gone from the ledger; drop them from this
+                // compose too, so they don't cost one last resolution each.
+                let dropped: HashSet<(&str, &str, &str)> = purges
+                    .iter()
+                    .map(|k| {
+                        (
+                            k.tug_session_id.as_str(),
+                            k.tool_use_id.as_str(),
+                            k.file_path.as_str(),
+                        )
+                    })
+                    .collect();
+                events.retain(|pfe| {
+                    !dropped.contains(&(
+                        pfe.event.tug_session_id.as_str(),
+                        pfe.event.tool_use_id.as_str(),
+                        pfe.event.file_path.as_str(),
+                    ))
+                });
+            }
+            if settled {
+                backfill_marker()
+                    .lock()
+                    .expect("backfill marker mutex")
+                    .insert(canonical.as_str().to_owned());
+            }
+        }
+    }
+    let mut owners: BTreeMap<String, OwnerAgg> = BTreeMap::new();
+    // Per-path liveness cut, computed once per dirty path with events.
+    let mut live_cuts: HashMap<String, i64> = HashMap::new();
+    // Per repo-relative path, the owners with a live **proof** row
+    // (`exact`/`replay` — the tool input named the file), the genuine authors
+    // ([D112]). A `bash`/`turn` row is a whole-tree-delta *claim*
+    // (contaminated by concurrent saves, build churn, and the user's own
+    // hand-saves), so it never makes a session an owner.
+    let mut proof_owners: HashMap<String, HashSet<String>> = HashMap::new();
+    for pfe in &events {
+        let rel = repo_relative(&canonical_root, &repo_root, &pfe.event.file_path);
+        let Some(git_status) = dirty.get(&rel) else {
+            continue;
+        };
+        let min_live = match live_cuts.get(&rel) {
+            Some(cut) => *cut,
+            None => {
+                let cut =
+                    cached_min_live_at_ms(&canonical_root, &repo_root, &rel, head_oid.as_deref())
+                        .await;
+                live_cuts.insert(rel.clone(), cut);
+                cut
+            }
+        };
+        if pfe.event.at < min_live {
+            continue;
+        }
+        if super::attribution::origin_is_proof(&pfe.event.origin) {
+            proof_owners
+                .entry(rel.clone())
+                .or_default()
+                .insert(pfe.event.tug_session_id.clone());
+        }
+        let owner = owners
+            .entry(pfe.event.tug_session_id.clone())
+            .or_insert_with(|| OwnerAgg {
+                display_name: session_display_name(pfe),
+                live: pfe.owner_live,
+                files: BTreeMap::new(),
+            });
+        let file = owner
+            .files
+            .entry(rel.clone())
+            .or_insert_with(|| ChangesetFile {
+                path: rel.clone(),
+                git_status: git_status.clone(),
+                op: pfe.event.op.clone(),
+                origin: pfe.event.origin.clone(),
+                shared: false,
+                last_touched: pfe.event.at,
+                own_hunks: Vec::new(),
+                contested_hunks: Vec::new(),
+                shared_with: Vec::new(),
+            });
+        // Provenance display follows proof rows: a later bracket sweep never
+        // overwrites the op/origin a proof row established.
+        if super::attribution::origin_is_proof(&pfe.event.origin)
+            || !super::attribution::origin_is_proof(&file.origin)
+        {
+            file.op = pfe.event.op.clone();
+            file.origin = pfe.event.origin.clone();
+        }
+        file.last_touched = file.last_touched.max(pfe.event.at);
+    }
+
+    // Resolve ownership per path with **proof** rows the leading evidence
+    // ([D112]) — correlation never decides on its own, with one promotion:
+    //
+    // - Some session proof-owns the path → strip it from every owner that
+    //   only bracket-grabbed it (their contamination); mark `shared` iff more
+    //   than one session proof-owns it (genuine same-file contention).
+    // - No proof owner, one bracket holder, structural op → promote it. A
+    //   delete / rename / new-untracked file is the session's own shell work
+    //   (`git rm`, `mv`, a heredoc `>`), never an incidental editor hand-save
+    //   caught in the window — you don't hand-save a deletion. The sole
+    //   holder claims it.
+    // - No proof owner, otherwise → strip the path from every bracket holder:
+    //   the same delta that sweeps up another session's save sweeps up the
+    //   user's own hand-save during the command, and the user's editor has no
+    //   session to claim it back. A plain content modify is exactly that
+    //   ambiguous case; the path falls to `unattributed` below.
+    let all_paths: HashSet<String> = owners
+        .values()
+        .flat_map(|agg| agg.files.keys().cloned())
+        .collect();
+    // Bracket hints ([P13]): the correlation-only holders stripped below are
+    // recorded per path instead of dropped silently — they surface on the
+    // unattributed rows as `hinted_by` provenance (a hint for the
+    // disposition decision, never an attribution).
+    let mut bracket_hints: HashMap<String, Vec<String>> = HashMap::new();
+    // Paths with two or more proof owners, resolved after this loop — the
+    // verdict needs a `git diff`, and this loop must stay string-only.
+    let mut contended_paths: Vec<(String, HashSet<String>)> = Vec::new();
+    for path in &all_paths {
+        let proof_ids = proof_owners.get(path);
+        let holders: Vec<String> = owners
+            .iter()
+            .filter(|(_, agg)| agg.files.contains_key(path))
+            .map(|(id, _)| id.clone())
+            .collect();
+        // Sole-holder structural promotion: keep the file on its one bracket
+        // holder rather than stripping it to unattributed.
+        let promoted_holder: Option<&String> = (proof_ids.is_none()
+            && holders.len() == 1
+            && owners
+                .get(&holders[0])
+                .and_then(|agg| agg.files.get(path))
+                .is_some_and(|f| status_is_structural(&f.git_status)))
+        .then(|| &holders[0]);
+        for id in &holders {
+            if promoted_holder == Some(id) {
+                continue;
+            }
+            if !proof_ids.is_some_and(|ids| ids.contains(id)) {
+                if let Some(agg) = owners.get_mut(id) {
+                    if agg.files.remove(path).is_some() {
+                        bracket_hints
+                            .entry(path.clone())
+                            .or_default()
+                            .push(id.clone());
+                    }
+                }
+            }
+        }
+        if let Some(proof_ids) = proof_ids {
+            if proof_ids.len() > 1 {
+                contended_paths.push((path.clone(), proof_ids.clone()));
+            }
+        }
+    }
+    // Hunk-aware contention ([P12], [P14]) for the paths that actually have
+    // two or more proof owners — normally none, and bounded by the dirty set
+    // when not (Risk R09). Everything before this point is string work; this
+    // is the only place the composition spends a `git diff`, and it spends it
+    // only where a file-level SHARED would otherwise have been asserted.
+    //
+    // The diffs run concurrently, bounded by `CONTENTION_DIFF_CONCURRENCY`:
+    // each one is a subprocess, and a workspace where many paths genuinely
+    // contend would otherwise pay for them end to end.
+    //
+    // A closed session's evidence that no longer places is a ghost, and this
+    // is where it stops warning ([P03]). The set is the ids the owner
+    // aggregation positively resolved as not-live; a proof id missing from
+    // `owners` entirely would read as live, which over-warns rather than
+    // retiring something real.
+    let dead_ids: HashSet<String> = owners
+        .iter()
+        .filter(|(_, agg)| !agg.live)
+        .map(|(id, _)| id.clone())
+        .collect();
+    let mut verdicts = Vec::with_capacity(contended_paths.len());
+    for batch in contended_paths.chunks(CONTENTION_DIFF_CONCURRENCY) {
+        verdicts.extend(
+            futures::future::join_all(batch.iter().map(|(path, proof_ids)| {
+                // Present in `live_cuts` by construction: a path only becomes
+                // contended through rows that already passed its cut.
+                let min_live = live_cuts.get(path).copied().unwrap_or(i64::MIN);
+                debug_assert!(
+                    proof_ids.iter().all(|id| owners.contains_key(id)),
+                    "a contended path's proof owners come from the owner aggregation itself; \
+                     an id missing from it would silently take the live default"
+                );
+                contention_verdict(&repo_root, path, proof_ids, &dead_ids, min_live, ledger)
+            }))
+            .await,
+        );
+    }
+    for ((path, proof_ids), verdict) in contended_paths.iter().zip(verdicts) {
+        // Who each owner is sharing with: the *other* proof owners whose
+        // claim survived retirement, named so the badge carries its own
+        // evidence ([P06]). Built once per path, from the owner aggregation
+        // the ids came from.
+        // With no verdict to be had, nobody retired: every proof owner is
+        // still claiming the file, which is exactly what the file-level
+        // SHARED is saying.
+        let mut survivors: Vec<SharedOwner> = proof_ids
+            .iter()
+            .filter(|id| {
+                verdict.as_ref().is_none_or(|(verdict, _)| {
+                    !verdict.claims.get(*id).is_some_and(|c| c.claims_nothing())
+                })
+            })
+            .filter_map(|id| {
+                owners.get(id).map(|agg| SharedOwner {
+                    id: id.clone(),
+                    name: agg.display_name.clone(),
+                    live: agg.live,
+                })
+            })
+            .collect();
+        survivors.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+        for id in proof_ids {
+            let Some(file) = owners.get_mut(id).and_then(|agg| agg.files.get_mut(path)) else {
+                continue;
+            };
+            match &verdict {
+                Some((verdict, hunks)) => {
+                    file.shared = verdict.shared;
+                    file.own_hunks = verdict.hunks_of(id, hunks);
+                    file.contested_hunks = verdict
+                        .contested
+                        .iter()
+                        .filter(|hid| file.own_hunks.contains(hid))
+                        .cloned()
+                        .collect();
+                }
+                // No verdict to be had (no spans, no readable diff): the
+                // file-level answer stands, which is what it always was.
+                None => file.shared = true,
+            }
+            if file.shared {
+                file.shared_with = survivors
+                    .iter()
+                    .filter(|owner| &owner.id != id)
+                    .cloned()
+                    .collect();
+            }
+        }
+    }
+    // Orphan lift ([D120]): a file owned only by non-live ("dead") sessions is
+    // invisible — a closed session keeps its proof rows, but no live card
+    // surfaces another session's entry. Lift such files into the `orphaned`
+    // bucket so a live session can reclaim them. A file any live session
+    // proof-owns stays in that live entry (it is not orphaned), so a file
+    // qualifies only when EVERY owner holding it is dead.
+    let live_paths: HashSet<String> = owners
+        .values()
+        .filter(|agg| agg.live)
+        .flat_map(|agg| agg.files.keys().cloned())
+        .collect();
+    // Keyed by path so two dead co-owners of one file yield a single orphan
+    // (the most-recently-touched owner wins the provenance).
+    let mut orphaned_by_path: BTreeMap<String, OrphanedFile> = BTreeMap::new();
+    for (owner_id, agg) in owners.iter_mut() {
+        if agg.live {
+            continue;
+        }
+        let orphan_paths: Vec<String> = agg
+            .files
+            .keys()
+            .filter(|path| !live_paths.contains(*path))
+            .cloned()
+            .collect();
+        for path in orphan_paths {
+            let Some(file) = agg.files.remove(&path) else {
+                continue;
+            };
+            let candidate = OrphanedFile {
+                path: file.path,
+                git_status: file.git_status,
+                op: file.op,
+                origin: file.origin,
+                prior_owner_name: agg.display_name.clone(),
+                prior_owner_id: owner_id.clone(),
+                last_touched: file.last_touched,
+            };
+            orphaned_by_path
+                .entry(path)
+                .and_modify(|existing| {
+                    if candidate.last_touched > existing.last_touched {
+                        *existing = candidate.clone();
+                    }
+                })
+                .or_insert(candidate);
+        }
+    }
+    let orphaned: Vec<OrphanedFile> = orphaned_by_path.into_values().collect();
+
+    // An owner left with no files (its only claims were stripped bracket
+    // grabs, or all its files were lifted to `orphaned`) drops out here;
+    // fileless live sessions are re-injected by `apply_session_rows`, so the
+    // card still lists every open session.
+    owners.retain(|_, agg| !agg.files.is_empty());
+
+    // Orphaned paths are owned (by a dead session), just lifted out of their
+    // owner's entry above — so they must NOT also fall into `unattributed`.
+    let orphaned_paths: HashSet<&str> = orphaned.iter().map(|f| f.path.as_str()).collect();
+
+    // Unattributed: dirty files no owner claims (and not an orphan), each
+    // carrying the bracket holders that saw it change ([P13]).
+    let unattributed: Vec<UnattributedFile> = dirty
+        .iter()
+        .filter(|(path, _)| {
+            !owners.values().any(|agg| agg.files.contains_key(*path))
+                && !orphaned_paths.contains(path.as_str())
+        })
+        .map(|(path, git_status)| {
+            let mut hinted_by = bracket_hints.get(path).cloned().unwrap_or_default();
+            hinted_by.sort();
+            hinted_by.dedup();
+            UnattributedFile {
+                path: path.clone(),
+                git_status: git_status.clone(),
+                hinted_by,
+            }
+        })
+        .collect();
+
+    let mut changesets: Vec<ChangesetEntry> = owners
+        .into_iter()
+        .map(|(owner_id, agg)| ChangesetEntry::Session {
+            owner_id,
+            display_name: agg.display_name,
+            live: agg.live,
+            files: agg.files.into_values().collect(),
+            draft: None,
+        })
+        .collect();
+    changesets.extend(dash_entries(&repo_root, ledger).await);
+
+    // Attach maintained drafts (Spec S10) to eligible entries: a session
+    // entry with files, a dash with rounds or worktree dirt. The dash gate
+    // keeps a stale draft off an entry that has since gone clean; fileless
+    // live sessions are injected later by `apply_session_rows` and pick up
+    // their drafts in `attach_live_session_drafts`.
+    if let Some(ledger) = ledger {
+        // Spec S05 spelling contract: writers store `project_dir` canonical;
+        // query the canonical spelling and union the raw one when it differs
+        // (the same legacy-tolerant pattern as the file_events read above),
+        // so a draft written under either spelling still attaches.
+        let drafts = {
+            let raw = project_dir.to_string_lossy();
+            let canonical = CanonicalPath::from_raw(project_dir);
+            let mut drafts = ledger
+                .changeset_drafts_for_project(canonical.as_str())
+                .unwrap_or_default();
+            if canonical.as_str() != raw {
+                drafts.extend(
+                    ledger
+                        .changeset_drafts_for_project(&raw)
+                        .unwrap_or_default(),
+                );
+            }
+            drafts
+        };
+        // First writer wins in the map, so a canonical-spelling row
+        // shadows any raw-spelling duplicate on the same owner key.
+        let mut by_owner: HashMap<(&str, &str), &crate::session_ledger::ChangesetDraftRow> =
+            HashMap::new();
+        for d in &drafts {
+            by_owner
+                .entry((d.owner_kind.as_str(), d.owner_id.as_str()))
+                .or_insert(d);
+        }
+        // A dash's rows migrate onto a second axis too — from the bare branch
+        // ref to `tugdash/<name>#<tugid>` ([P03]) — and writers reach the new
+        // key before every reader does. So index dash rows by their legacy
+        // form as well, preferring an id-qualified row when both exist, and
+        // probe it when the exact key misses. Without this the maintained
+        // draft would vanish from the Changes card for the whole window
+        // between the writers moving and the entries following.
+        let mut dash_by_legacy: HashMap<&str, &crate::session_ledger::ChangesetDraftRow> =
+            HashMap::new();
+        for d in drafts.iter().filter(|d| d.owner_kind == "dash") {
+            let legacy = tugdash_core::ops::legacy_owner_key(&d.owner_id);
+            match dash_by_legacy.entry(legacy) {
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(d);
+                }
+                std::collections::hash_map::Entry::Occupied(mut slot) => {
+                    if slot.get().owner_id == legacy && d.owner_id != legacy {
+                        slot.insert(d);
+                    }
+                }
+            }
+        }
+        for entry in &mut changesets {
+            match entry {
+                ChangesetEntry::Session {
+                    owner_id,
+                    files,
+                    draft,
+                    ..
+                } if !files.is_empty() => {
+                    *draft = by_owner
+                        .get(&("session", owner_id.as_str()))
+                        .map(|row| draft_from_row(row));
+                }
+                ChangesetEntry::Dash {
+                    owner_id,
+                    rounds,
+                    worktree_dirty,
+                    draft,
+                    stage,
+                    ..
+                } if *rounds > 0 || *worktree_dirty => {
+                    *draft = by_owner
+                        .get(&("dash", owner_id.as_str()))
+                        .or_else(|| {
+                            dash_by_legacy.get(tugdash_core::ops::legacy_owner_key(owner_id))
+                        })
+                        .map(|row| draft_from_row(row));
+                    // `dash_detail_entries_in` derives its stage without draft
+                    // visibility; this overlay is the caller that can see one,
+                    // so it discharges the recompute `derive_stage`'s
+                    // precedence assigns it — a draft outranks mere activity,
+                    // and nothing else ([P03]).
+                    if draft.is_some()
+                        && matches!(stage.as_deref(), Some("working") | Some("created"))
+                    {
+                        *stage = Some("draft-ready".to_owned());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Some(ChangesetSnapshot {
+        workspace_key: String::new(),
+        branch: header.branch,
+        ahead: header.ahead,
+        behind: header.behind,
+        head_sha: header.head_sha,
+        head_message,
+        changesets,
+        unattributed,
+        orphaned,
+    })
+}
+
+/// Join a workspace's ledger session rows into a composed snapshot.
+///
+/// Two effects, both keyed by `session_id`:
+///
+/// - every **live** session gains an entry — fileless when it owns no dirty
+///   files — so the card can list every open session, clean or not;
+/// - every session entry with a matching ledger row takes its
+///   `display_name` from [`session_row_title`] (the identity grammar:
+///   `<name> : <project>/<callsign>`, with the legacy tagless fallbacks
+///   name → prompt snippet → id prefix) and its `live` flag from the row's
+///   state.
+///
+/// Entries re-sort to (sessions by id, dashes by ref) so injection order
+/// never perturbs diff-suppression.
+pub(crate) fn apply_session_rows(snapshot: &mut ChangesetSnapshot, rows: &[SessionRow]) {
+    let by_id: HashMap<&str, &SessionRow> = rows
+        .iter()
+        .map(|row| (row.session_id.as_str(), row))
+        .collect();
+
+    let mut present: HashSet<String> = HashSet::new();
+    for entry in &mut snapshot.changesets {
+        if let ChangesetEntry::Session {
+            owner_id,
+            display_name,
+            live,
+            ..
+        } = entry
+        {
+            present.insert(owner_id.clone());
+            if let Some(row) = by_id.get(owner_id.as_str()) {
+                *display_name = session_row_title(row);
+                *live = row.state == SessionState::Live;
+            }
+        }
+    }
+
+    for row in rows {
+        if row.state != SessionState::Live || present.contains(&row.session_id) {
+            continue;
+        }
+        snapshot.changesets.push(ChangesetEntry::Session {
+            owner_id: row.session_id.clone(),
+            display_name: session_row_title(row),
+            live: true,
+            files: Vec::new(),
+            draft: None,
+        });
+    }
+
+    snapshot
+        .changesets
+        .sort_by(|a, b| entry_sort_key(a).cmp(&entry_sort_key(b)));
+}
+
+/// Attach persisted session drafts to live entries still carrying none.
+///
+/// [`compose_snapshot`] attaches drafts only to entries that own files, and
+/// [`apply_session_rows`] injects fileless live sessions after that pass —
+/// so a live session whose changes are attributed elsewhere (a dash
+/// worktree run) or that has gone clean would read `draft: None` despite a
+/// persisted row. A live entry always reads its row back; rows are keyed by
+/// the workspace key, the same single-spelling lookup the unattributed
+/// bucket uses (Spec S05).
+pub(crate) fn attach_live_session_drafts(
+    snapshot: &mut ChangesetSnapshot,
+    ledger: &crate::session_ledger::SessionLedger,
+) {
+    let workspace_key = snapshot.workspace_key.clone();
+    for entry in &mut snapshot.changesets {
+        if let ChangesetEntry::Session {
+            owner_id,
+            live,
+            draft,
+            ..
+        } = entry
+            && *live
+            && draft.is_none()
+        {
+            *draft = ledger
+                .changeset_draft("session", owner_id, &workspace_key)
+                .ok()
+                .flatten()
+                .as_ref()
+                .map(draft_from_row);
+        }
+    }
+}
+
+/// Deterministic entry order: sessions (by id) before dashes (by ref).
+/// The hunk-aware read of one contended path ([P12], [P14]), or `None` when
+/// there is nothing to refine with — no live spans among the owners, or no
+/// readable hunks. The caller falls back to file-level SHARED there, which is
+/// the answer this whole pass exists to narrow and must never widen past.
+///
+/// The hunks come from the **async** diff spelling ([P16] flags), not from
+/// `tugchanges_core::file_hunks`: that is `std::process::Command`, and this
+/// runs on a tokio runtime thread. Both spellings carry `HUNK_DIFF_FLAGS`, so
+/// the ids agree by Spec S06's contract — which is what lets the deck's
+/// checkboxes and this verdict speak about the same hunks.
+async fn contention_verdict(
+    repo_root: &Path,
+    path: &str,
+    proof_ids: &HashSet<String>,
+    dead_ids: &HashSet<String>,
+    min_live: i64,
+    ledger: Option<&SessionLedger>,
+) -> Option<(
+    tugchanges_core::ContentionVerdict,
+    Vec<tugchanges_core::Hunk>,
+)> {
+    let ledger = ledger?;
+    let canonical_root = CanonicalPath::from_raw(repo_root);
+    let spans = ledger
+        .file_event_spans_for_paths(canonical_root.as_str(), &[path.to_owned()])
+        .unwrap_or_else(|err| {
+            crate::ledger_integrity::health::note_error("changes", &err);
+            tracing::warn!(path, error = %err, "span read failed; contention stays file-level");
+            Vec::new()
+        });
+    let mut by_session: HashMap<&str, Vec<tugchanges_core::Anchor>> = HashMap::new();
+    for row in &spans {
+        if !proof_ids.contains(&row.tug_session_id) {
+            continue;
+        }
+        // The same row-liveness cut the owner buckets applied: a spent span
+        // is evidence about committed content, not about this dirty file.
+        if row.at < min_live {
+            continue;
+        }
+        by_session
+            .entry(row.tug_session_id.as_str())
+            .or_default()
+            .push(tugchanges_core::Anchor::from_span(
+                &row.span.kind,
+                &row.span.anchor,
+            ));
+    }
+    if by_session.is_empty() {
+        return None;
+    }
+    let diff = super::git::fetch_git_diff(repo_root, &[path.to_owned()]).await?;
+    let hunks = tugchanges_core::parse_hunks(&diff);
+    if hunks.is_empty() {
+        return None;
+    }
+    let owners: Vec<tugchanges_core::OwnerAnchors> = proof_ids
+        .iter()
+        .map(|id| tugchanges_core::OwnerAnchors {
+            session: id.clone(),
+            anchors: by_session.get(id.as_str()).cloned().unwrap_or_default(),
+            // Dead is the retirement-eligible state, so only an id the owner
+            // aggregation positively resolved as not-live reads dead ([P03]).
+            live: !dead_ids.contains(id),
+        })
+        .collect();
+    // The strong test a `WholeFile` anchor answers: are the file's bytes still
+    // exactly the ones that write produced. Unreadable answers nothing, which
+    // widens.
+    let current_file_hash = std::fs::read(repo_root.join(path))
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .map(|text| tugchanges_core::content_hash(&text));
+    let verdict =
+        tugchanges_core::classify_contention(&hunks, &owners, current_file_hash.as_deref());
+    Some((verdict, hunks))
+}
+
+fn entry_sort_key(entry: &ChangesetEntry) -> (u8, &str) {
+    match entry {
+        ChangesetEntry::Session { owner_id, .. } => (0, owner_id.as_str()),
+        ChangesetEntry::Dash { owner_id, .. } => (1, owner_id.as_str()),
+    }
+}
+
+/// Session row title: the user's `/rename` name when set, else the
+/// session's callsign `tag`, else a one-line snippet of the last user
+/// prompt, else the first 8 chars of the session id.
+///
+/// Only a **user-set** name outranks the callsign — an auto `aiTitle`
+/// (`name_user_set = false`) does not front, so a tagged session reads as
+/// its callsign rather than as a machine-written title.
+fn session_row_title(row: &SessionRow) -> String {
+    // The identity grammar (Spec S05, amended): a tagged row is
+    // `<project>/<callsign>`, led by ` : ` and the user's name when one
+    // exists. The project leaf is how a reader places a session among
+    // sessions from many projects; a row with no project degrades to the
+    // bare callsign.
+    if let Some(tag) = &row.tag {
+        let tag = tag.trim();
+        if !tag.is_empty() {
+            let leaf = project_leaf_name(&row.project_dir);
+            let line = if leaf.is_empty() {
+                tag.to_owned()
+            } else {
+                format!("{leaf}/{tag}")
+            };
+            if row.name_user_set {
+                if let Some(name) = &row.name {
+                    let name = name.trim();
+                    if !name.is_empty() {
+                        return format!("{name} : {line}");
+                    }
+                }
+            }
+            return line;
+        }
+    }
+    if row.name_user_set {
+        if let Some(name) = &row.name {
+            let trimmed = name.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_owned();
+            }
+        }
+    }
+    if let Some(prompt) = &row.last_user_prompt {
+        let snippet = snippet_for_display(prompt, 64);
+        if !snippet.is_empty() {
+            return snippet;
+        }
+    }
+    row.session_id.chars().take(8).collect()
+}
+
+/// The trailing path component of a project dir — the project's leaf-name
+/// identity, mirroring the deck's `projectLeafName`. Trailing slashes are
+/// ignored; an empty or slash-only dir yields the trimmed input.
+fn project_leaf_name(dir: &str) -> String {
+    let trimmed = dir.trim_end_matches('/');
+    let leaf = trimmed.rsplit('/').next().unwrap_or("");
+    if leaf.is_empty() {
+        trimmed.to_owned()
+    } else {
+        leaf.to_owned()
+    }
+}
+
+/// Collapse whitespace runs to single spaces and truncate to `max` chars
+/// with an ellipsis — mirrors the picker's `truncateForDisplay`.
+fn snippet_for_display(s: &str, max: usize) -> String {
+    let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = flat.chars();
+    let head: String = chars.by_ref().take(max).collect();
+    if chars.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
+    }
+}
+
+/// Owner display name, on the same identity grammar as [`session_row_title`]:
+/// `<name> : <project>/<callsign>` for a named tagged row,
+/// `<project>/<callsign>` for a bare one, else the user-set `name`, else the
+/// first 8 chars of the session id.
+///
+/// The id hash stays the exact `id[..8]` form for a tagless legacy row —
+/// the client's hash-equality sniff still recognizes it.
+fn session_display_name(pfe: &ProjectFileEvent) -> String {
+    if let Some(tag) = &pfe.owner_tag {
+        if !tag.is_empty() {
+            let leaf = project_leaf_name(&pfe.event.project_dir);
+            let line = if leaf.is_empty() {
+                tag.clone()
+            } else {
+                format!("{leaf}/{tag}")
+            };
+            if pfe.owner_name_user_set {
+                if let Some(name) = &pfe.owner_name {
+                    if !name.is_empty() {
+                        return format!("{name} : {line}");
+                    }
+                }
+            }
+            return line;
+        }
+    }
+    if pfe.owner_name_user_set {
+        if let Some(name) = &pfe.owner_name {
+            if !name.is_empty() {
+                return name.clone();
+            }
+        }
+    }
+    let id = &pfe.event.tug_session_id;
+    id.chars().take(8).collect()
+}
+
+/// Project a persisted draft row onto its wire shape (Spec S10).
+pub(crate) fn draft_from_row(row: &crate::session_ledger::ChangesetDraftRow) -> ChangesetDraft {
+    ChangesetDraft {
+        fingerprint: row.fingerprint.clone(),
+        message: row.message.clone(),
+        updated_at: row.updated_at,
+        edited: row.edited,
+        // The selection projects opaquely — every key the client wrote comes
+        // back, including ones no Rust type names. A selection that fails to
+        // parse (hand-mangled row) reads as no overrides rather than
+        // poisoning the snapshot.
+        selection: row
+            .selection
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()),
+    }
+}
+
+/// Canonical project dirs whose legacy `file_events` rows have already been
+/// backfilled this process — the once-per-project guard for the opportunistic
+/// lazy backfill in [`compose_snapshot`].
+fn backfill_marker() -> &'static Mutex<HashSet<String>> {
+    static MARKER: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    MARKER.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Project a recorded `file_path` to the repo-relative key `git status`
+/// speaks, reconciling every storage form ([#l01-bridge-cases]):
+///
+/// - **Already relative** (new capture-time rows) — returned unchanged.
+/// - **Absolute** (legacy rows) — both `repo_root` and `file_path` are routed
+///   through the canonical gateway and stripped, so a firmlink/synthetic
+///   spelling of the repo root collapses to the file's space before the strip.
+/// - **Residual mismatch** — walk `file_path`'s ancestors for one that is the
+///   same live directory as `repo_root` (`same_file`) and strip that; failing
+///   all of it, return the input (falls to unattributed, never a wrong match).
+///
+/// The canonical root is passed in rather than derived: it is the same for
+/// every row of a compose, and resolving it takes a global memo lock.
+fn repo_relative(canonical_root: &CanonicalPath, repo_root: &Path, file_path: &str) -> String {
+    // New capture-time rows are already repo-relative.
+    if !file_path.starts_with('/') {
+        return file_path.to_owned();
+    }
+
+    // Legacy absolute row: canonicalize both sides, then strip. The firmlink
+    // split (repo_root and file_path spelled differently) collapses here.
+    let canonical_file = CanonicalPath::from_raw(Path::new(file_path));
+    if let Ok(rel) = canonical_file
+        .as_path()
+        .strip_prefix(canonical_root.as_path())
+    {
+        return rel.to_string_lossy().into_owned();
+    }
+
+    // Residual mismatch: find the ancestor of `file_path` that is the same live
+    // directory as `repo_root` by `(dev, ino)`, then strip lexically.
+    let file = Path::new(file_path);
+    for ancestor in file.ancestors() {
+        if same_file(ancestor, repo_root) {
+            if let Ok(rel) = file.strip_prefix(ancestor) {
+                return rel.to_string_lossy().into_owned();
+            }
+        }
+    }
+    file_path.to_owned()
+}
+
+/// Liveness cuts that survive between composes, keyed `(canonical_root, rel)`
+/// → `(head_oid, cut_ms)`. The cut is derived from the last commit that touched
+/// the path, so it can only change when a commit lands — which moves HEAD.
+/// Holding the oid alongside the value makes that the invalidation: any commit,
+/// merge, or reset mismatches and re-derives. Between commits an editing
+/// session recomputes far more often than it commits, and every one of those
+/// recomputes was re-running `git log` per dirty path.
+///
+/// Growth is one entry per path *ever* dirtied in this process's lifetime —
+/// bounded in practice by the repo's file count.
+type LiveCutCache = Mutex<HashMap<(String, String), (String, i64)>>;
+
+fn live_cut_cache() -> &'static LiveCutCache {
+    static CACHE: OnceLock<LiveCutCache> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The liveness cut for `rel`, through [`live_cut_cache`] when `head_oid` is
+/// known. `None` (an unborn or unreadable HEAD) bypasses the cache entirely —
+/// never wrong, just uncached.
+async fn cached_min_live_at_ms(
+    canonical_root: &CanonicalPath,
+    repo_root: &Path,
+    rel: &str,
+    head_oid: Option<&str>,
+) -> i64 {
+    let Some(head_oid) = head_oid else {
+        return min_live_at_ms(repo_root, rel).await;
+    };
+    let key = (canonical_root.as_str().to_owned(), rel.to_owned());
+    if let Some((oid, cut)) = live_cut_cache().lock().expect("live cut cache").get(&key)
+        && oid == head_oid
+    {
+        return *cut;
+    }
+    let cut = min_live_at_ms(repo_root, rel).await;
+    live_cut_cache()
+        .lock()
+        .expect("live cut cache")
+        .insert(key, (head_oid.to_owned(), cut));
+    cut
+}
+
+/// The row-liveness cut for `rel` (epoch ms): a ledger row is live iff
+/// `at >= min_live_at_ms`. Derived from the last commit that touched the path
+/// (`git log -1 --format=%ct -- <rel>`), the whole commit second treated as
+/// spent so ties break toward spent (the file degrades to unattributed —
+/// visible, never falsely claimed). A path with no commit history (a
+/// new/untracked file) returns 0: nothing was ever absorbed, every row is
+/// live. Mirrors tugchanges-core's rule of the same name ([D112]).
+async fn min_live_at_ms(repo_root: &Path, rel: &str) -> i64 {
+    match git_stdout(repo_root, &["log", "-1", "--format=%ct", "--", rel]).await {
+        Some(out) => match out.trim().parse::<i64>() {
+            Ok(commit_secs) => (commit_secs + 1) * 1000,
+            Err(_) => 0,
+        },
+        None => 0,
+    }
+}
+
+/// One `base...branch` name-status row as a changeset file row.
+///
+/// The letter is the whole status for every case but a rename or copy, where
+/// git appends a similarity score (`R100`); the entry carries the letter.
+fn dash_file_row(file: tugdash_core::DashDetailFile) -> ChangesetFile {
+    let letter = file.status.chars().next().unwrap_or('M');
+    let op = match letter {
+        'A' => "created",
+        'D' => "deleted",
+        'R' => "renamed",
+        _ => "modified",
+    };
+    ChangesetFile {
+        path: file.path,
+        git_status: letter.to_string(),
+        op: op.to_owned(),
+        origin: "dash".to_owned(),
+        shared: false,
+        last_touched: 0,
+        own_hunks: Vec::new(),
+        contested_hunks: Vec::new(),
+        shared_with: Vec::new(),
+    }
+}
+
+/// What a dash's recorded plan says about itself: its review state and its
+/// ledger, from **one** parse.
+///
+/// Both readings come from the same document and the same read, so they are
+/// taken together rather than by two functions that could be given two
+/// different paths, or run against two different bytes on either side of a
+/// write. A dash whose fraction says `2/5` and whose step list holds six rows
+/// is the failure this shape removes.
+///
+/// `worktree_abs` is the dash worktree's absolute path as
+/// `dash_detail_entries_in` resolved it, and `plan_path` is relative to that
+/// worktree. **Nothing else joins in** — composing from the caller's repo root
+/// would be the bug the absolute path exists to remove, and because every
+/// failure here is silent, that bug would not raise: it would show up as a mark
+/// that never appears.
+///
+/// Every failure path is `(None, empty)` deliberately ([P03]): a plan that
+/// cannot be read has not been shown to be stale and has not been shown to have
+/// no steps, and an unreadable plan is a normal state rather than an incident.
+fn dash_plan_reading(abs: &Path) -> (Option<String>, Vec<DashStep>) {
+    let Ok(source) = std::fs::read_to_string(abs)
+        .inspect_err(|e| tracing::debug!(path = %abs.display(), error = %e, "dash plan unreadable"))
+    else {
+        return (None, Vec::new());
+    };
+    let Ok(doc) = tugutil_core::plan::parse(&source) else {
+        return (None, Vec::new());
+    };
+    // The ledger, not the step headings: the ledger is what the step verbs
+    // rewrite, so it is the only half of the document that moves as a run
+    // walks — and `step_current` is counted against it too.
+    let steps = doc
+        .ledger_rows
+        .iter()
+        .map(|row| DashStep {
+            title: row.title.clone(),
+            status: row.status.clone(),
+        })
+        .collect();
+    let review = tugutil_core::plan::review_state(&doc, &source)
+        .as_str()
+        .to_string();
+    (Some(review), steps)
+}
+
+/// Derive one dash entry per `refs/heads/tugdash/` branch.
+///
+/// The composition lives in `tugdash_core::dash_detail_entries_in` — the same
+/// code `tugutil dash list|status` reads — so the CLI and the Changes card can
+/// no longer disagree about a dash's base, worktree, or round count. This maps
+/// that shared detail onto the wire type and adds the one thing only tugcast
+/// knows: which live sessions are mated to each dash ([P08]).
+///
+/// tugdash-core is synchronous (git subprocesses), so the whole walk runs on
+/// the blocking pool in one hop — the same discipline `do_changeset_join`
+/// uses. `bound_sessions` comes from **one** ledger query for the repo, fanned
+/// out across entries; never a query per dash.
+/// Whether this compose must hide `repo_root`'s dashes: an app-test instance
+/// composing the checkout under test.
+///
+/// The `--source-tree` bootstrap makes the checkout a workspace in every
+/// instance, so without this an app-test's aggregate would list whatever
+/// dashes the *developer* has out — and any assertion about the dash
+/// population (a picker's rows, the Unbound section's presence) would be an
+/// assertion about whoever runs the suite. A dash is for implementing a plan,
+/// not for running a test: every fixture dash lives in a scratch repository,
+/// so the checkout's dash entries are noise here by construction. Session
+/// entries are untouched — the changes-attribution tests really do compose
+/// the checkout's dirt.
+fn dashes_hidden_for(repo_root: &Path) -> bool {
+    let is_apptest =
+        tugcore::instance::instance_id().is_some_and(|id| tugcore::ports::is_apptest_id(&id));
+    if !is_apptest {
+        return false;
+    }
+    // The app-test recipe always pins the universe to the checkout it runs
+    // from, so "is this the checkout?" has one spelling.
+    let Ok(universe) = std::env::var(tugutil_core::REPO_UNIVERSE_ENV) else {
+        return false;
+    };
+    if universe.trim().is_empty() {
+        return false;
+    }
+    // `watch_path`, not `canonicalize`: the two must converge across macOS
+    // firmlinks (`/u/...` vs `/System/Volumes/Data/...`), which canonicalize
+    // alone does not resolve — the same reason the workspace registry keys
+    // entries through PathResolver.
+    let universe = crate::path_resolver::PathResolver::new(PathBuf::from(universe.trim()))
+        .watch_path()
+        .to_path_buf();
+    let root = crate::path_resolver::PathResolver::new(repo_root.to_path_buf())
+        .watch_path()
+        .to_path_buf();
+    root == universe
+}
+
+/// The engine's `DashDocuments` as the wire's — the same four fields, one
+/// crate boundary apart.
+fn dash_documents(documents: tugdash_core::DashDocuments) -> tugcast_core::types::DashDocuments {
+    tugcast_core::types::DashDocuments {
+        brief: documents.brief,
+        brief_title: documents.brief_title,
+        plan: documents.plan,
+        plan_title: documents.plan_title,
+    }
+}
+
+/// The dashes that exist only as documents — a `.tug/dashes/<name>/` with no
+/// `tugdash/<name>` branch ([P04]).
+///
+/// This is what makes the planning phase visible as in-flight rather than the
+/// dash appearing only once a branch is cut. A name with a branch is left to
+/// `dash_entries`, so a dash is one row before and after `create` rather than
+/// two.
+pub(crate) async fn document_dash_entries(
+    project_dir: &Path,
+    ledger: Option<&crate::session_ledger::SessionLedger>,
+) -> Vec<DocumentDashEntry> {
+    let Some(root) = repo_root_for(project_dir).await else {
+        return Vec::new();
+    };
+    // The same argument `dash_entries` makes: an app-test's aggregate must not
+    // list the dashes the developer happens to be carrying in the checkout
+    // under test.
+    if dashes_hidden_for(&root) {
+        return Vec::new();
+    }
+    let bound_by_dash = ledger
+        .and_then(|l| l.bound_sessions_by_dash().ok())
+        .unwrap_or_default();
+
+    tokio::task::spawn_blocking(move || document_dash_entries_in(&root, &bound_by_dash))
+        .await
+        .unwrap_or_default()
+}
+
+/// The synchronous body of [`document_dash_entries`], split out so the scan is
+/// testable without a runtime hop.
+fn document_dash_entries_in(
+    root: &Path,
+    bound_by_dash: &std::collections::HashMap<String, Vec<String>>,
+) -> Vec<DocumentDashEntry> {
+    tugdash_core::document_dashes(root)
+        .into_iter()
+        .filter(|name| !tugdash_core::ops::branch_exists(root, &format!("tugdash/{name}")))
+        .map(|name| {
+            let documents = tugdash_core::DashDocuments::read(root, &name);
+            let (review, steps) = documents
+                .plan
+                .as_deref()
+                .map(|plan| dash_plan_reading(Path::new(plan)))
+                .unwrap_or((None, Vec::new()));
+            let owner_id = tugdash_core::ops::dash_owner_key(root, &name);
+            DocumentDashEntry {
+                bound_sessions: bound_by_dash.get(&owner_id).cloned().unwrap_or_default(),
+                owner_id,
+                step_total: steps.len() as u32,
+                steps_done: steps.iter().filter(|s| s.status == "done").count() as u32,
+                steps_begun: steps.iter().filter(|s| s.status != "pending").count() as u32,
+                review,
+                arc: tugdash_core::read_arc(root, &name).map(|record| {
+                    tugcast_core::types::DashArcState {
+                        stage: record.current_stage().map(|s| s.as_str().to_owned()),
+                        stopped: record.stopped.as_ref().map(|(_, why)| why.clone()),
+                        stopped_stage: record
+                            .stopped
+                            .as_ref()
+                            .map(|(stage, _)| stage.as_str().to_owned()),
+                        done: record.done,
+                    }
+                }),
+                documents: dash_documents(documents),
+                display_name: name,
+            }
+        })
+        .collect()
+}
+
+async fn dash_entries(
+    repo_root: &Path,
+    ledger: Option<&crate::session_ledger::SessionLedger>,
+) -> Vec<ChangesetEntry> {
+    if dashes_hidden_for(repo_root) {
+        return Vec::new();
+    }
+    let bound_by_dash = ledger
+        .and_then(|l| l.bound_sessions_by_dash().ok())
+        .unwrap_or_default();
+
+    let root = repo_root.to_path_buf();
+    // One blocking hop for everything synchronous: the git walk *and* the plan
+    // read each dash's review state needs. A second `spawn_blocking` would be a
+    // second scheduling round trip for a file read that costs less than one of
+    // the git subprocesses already in here ([P04]).
+    let Ok(details) = tokio::task::spawn_blocking(move || {
+        let details = tugdash_core::dash_detail_entries_in(&root);
+        // Which branch the base checkout has out is a property of the
+        // repository, not of a dash, so it is read once for the whole recompute
+        // and handed to each dash's composition rather than re-read per dash.
+        let current_branch = tugdash_core::ops::current_branch(&root).unwrap_or_default();
+        let live: Vec<String> = details.iter().map(|d| d.owner_key.clone()).collect();
+        crate::feeds::join_board::sweep(&live);
+        // The same idea one level down: a workshop is a real checkout on disk,
+        // and one whose dash is gone is a leak nothing else collects ([P07]).
+        let live_names: Vec<String> = details.iter().map(|d| d.name.clone()).collect();
+        crate::feeds::join_board::sweep_workshops(&root, &live_names);
+        details
+            .into_iter()
+            .map(|detail| {
+                let (review, steps) = detail
+                    .documents
+                    .plan
+                    .as_deref()
+                    .map(|plan| dash_plan_reading(Path::new(plan)))
+                    .unwrap_or((None, Vec::new()));
+                let join =
+                    crate::feeds::join_board::join_state_for(&root, &detail, &current_branch);
+                (detail, review, steps, join)
+            })
+            .collect::<Vec<_>>()
+    })
+    .await
+    else {
+        return Vec::new();
+    };
+
+    // What the machine should do about each dash before anybody is asked to
+    // look at it ([P01]). Decided here rather than inside the blocking hop
+    // because boundness lives in `bound_by_dash`, which is already composed on
+    // this side — and the predicate is pure and cheap, so deciding it here
+    // costs nothing and saves cloning the map into the closure. Dispatched from
+    // the async side for the same reason the frame is: a ladder that runs for
+    // minutes must never hold a recompute (Spec S06).
+    for (detail, _, _, join) in &details {
+        let bound = bound_by_dash
+            .get(&detail.owner_key)
+            .is_some_and(|sessions| !sessions.is_empty());
+        if let Some(action) = crate::feeds::join_pilot::pilot_action(detail.join_ready, bound, join)
+        {
+            crate::feeds::join_pilot::dispatch(repo_root, &detail.name, action);
+        }
+    }
+
+    details
+        .into_iter()
+        .map(|(detail, review, steps, join)| ChangesetEntry::Dash {
+            join: Some(join),
+            bound_sessions: bound_by_dash
+                .get(&detail.owner_key)
+                .cloned()
+                .unwrap_or_default(),
+            // Whether an *attempt* to replay conflicted is knowledge only the
+            // engine that attempted it has; the library composes everything
+            // else. Empty when no engine is running, which is the truth then.
+            replay_conflict_paths: crate::feeds::base_motion::conflict_paths_for(&detail.owner_key),
+            owner_id: detail.owner_key,
+            display_name: detail.name,
+            branch: Some(detail.branch),
+            stage: Some(detail.stage),
+            step_current: detail.step_current,
+            step_total: detail.step_total,
+            run_position: detail.run_position,
+            run_length: detail.run_length,
+            step_title: detail.step_title,
+            last_activity: detail.last_activity,
+            arc: detail
+                .arc
+                .map(|arc| tugcast_core::types::DashArcState {
+                    stage: arc.stage,
+                    stopped: arc.stopped,
+                    stopped_stage: arc.stopped_stage,
+                    done: arc.done,
+                }),
+            documents: dash_documents(detail.documents),
+            review,
+            steps,
+            base: detail.base,
+            rounds: detail.rounds,
+            worktree: detail.worktree_abs,
+            worktree_dirty: detail.worktree_dirty,
+            files: detail.files.into_iter().map(dash_file_row).collect(),
+            round_subjects: detail.round_subjects,
+            draft: None,
+            base_ahead: detail.base_ahead,
+            base_overlap: detail.base_overlap,
+            last_replay: detail.last_replay,
+            fit: detail.fit.map(|f| tugcast_core::types::DashFit {
+                head: f.head,
+                base: f.base,
+                current: f.current,
+            }),
+        })
+        .collect()
+}
+
+/// Commit exactly `files` (repo-relative) in `repo_dir` with `message`
+/// ([P15]), routed through `tugchanges_core::commit` ([P06]).
+///
+/// The staging-by-construction contract is unchanged — `tugchanges_core::commit`
+/// with an explicit `--paths` set runs `git add -- <files…>` then
+/// `git commit -m <message> -- <files…>`, committing **only** those paths and
+/// refusing an empty list / blank message with the same error strings. The
+/// sync library is driven off the async feed via `spawn_blocking`, the same
+/// pattern tugcast uses for `tugdash-core` ([P02]).
+///
+/// Returns the structured [`tugchanges_core::CommitReceipt`]; the card path takes
+/// `.sha` and the raw `.numstat` for the wire frame it already scrapes ([Q01]).
+pub(crate) async fn run_changeset_commit(
+    repo_dir: &Path,
+    files: &[String],
+    message: &str,
+    hunks: Option<std::collections::BTreeMap<String, Vec<String>>>,
+) -> Result<tugchanges_core::CommitReceipt, String> {
+    let project = repo_dir.to_path_buf();
+    let files = files.to_vec();
+    let message = message.to_string();
+    tokio::task::spawn_blocking(move || {
+        // Explicit `--paths` bypasses bucketing, so this can never hit the
+        // [P03] refusal; map any `CommitError` back to the card's `String` error.
+        tugchanges_core::commit(tugchanges_core::CommitOptions {
+            session: None,
+            project: Some(project),
+            message,
+            paths: Some(files),
+            hunks,
+            ..Default::default()
+        })
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("commit task panicked: {e}"))?
+}
+
+/// The `files:` line both landing receipts carry — the per-file stats as
+/// compact JSON, which the deck's receipt blocks parse back into their
+/// expandable row list.
+///
+/// A local Serialize struct fixes the key order (declaration order) so the
+/// durable string is stable and readable; `serde_json::json!` would sort the
+/// keys alphabetically. One writer for the one line format, so the commit and
+/// join receipts cannot drift apart in their bytes.
+pub(crate) fn receipt_files_line(files: &[tugchanges_core::FileStat]) -> String {
+    #[derive(serde::Serialize)]
+    struct ReceiptFile<'a> {
+        path: &'a str,
+        status: &'a str,
+        added: u32,
+        removed: u32,
+    }
+    let entries: Vec<ReceiptFile> = files
+        .iter()
+        .map(|f| ReceiptFile {
+            path: &f.path,
+            status: &f.status,
+            added: f.added.unwrap_or(0),
+            removed: f.deleted.unwrap_or(0),
+        })
+        .collect();
+    let files_json = serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string());
+    format!("files: {files_json}")
+}
+
+/// The standard post-commit summary (Spec S02), formatted server-side so the
+/// live ink row and the row restored from the shell ledger are byte-identical.
+///
+/// ```text
+/// committed <sha[0..10]> · <N> file(s) · +<added> −<removed>
+/// files: [{"path":"…","status":"modified","added":16,"removed":1}, …]
+/// <full message>
+/// ```
+///
+/// Line 0 is the fixed machine header; line 1 is a `files:` line carrying the
+/// committed files' per-file stats as compact JSON (the receipt's expandable
+/// freeze-dried file list); the whole commit message follows verbatim, so the
+/// receipt can show up to three of its lines. `<N>` / `added` / `removed` are
+/// derived from the same file set (a binary file's absent count is 0).
+pub(crate) fn format_commit_summary(
+    sha: &str,
+    message: &str,
+    files: &[tugchanges_core::FileStat],
+) -> String {
+    let short = &sha[..sha.len().min(10)];
+    let message = message.trim();
+    let count = files.len();
+    let added: u64 = files.iter().map(|f| f.added.unwrap_or(0) as u64).sum();
+    let removed: u64 = files.iter().map(|f| f.deleted.unwrap_or(0) as u64).sum();
+    let files_line = receipt_files_line(files);
+    format!("committed {short} · {count} file(s) · +{added} −{removed}\n{files_line}\n{message}")
+}
+
+/// The `/dash-join` receipt's durable summary (Spec S01).
+///
+/// Built like [`format_commit_summary`] and for the same reason: the header is
+/// fixed so the deck's parser can claim it, `·` is U+00B7, and the message is
+/// the one the join actually landed with — trimmed, never truncated, so the
+/// receipt is the squash message rather than a description of it.
+///
+/// ```text
+/// joined <sha[0..10]> · <dash> → <base> · <N> round(s)
+/// fit: verified <head[0..10]> onto <base[0..10]>
+/// files: [{"path":"…","status":"modified","added":16,"removed":1}, …]
+/// <full message>
+/// ```
+///
+/// The `files:` line is **omitted entirely** when `files` is empty, which is
+/// also the shape every receipt written before the line existed carries. One
+/// degradation, not two: the deck decides by the `files: ` prefix, so a legacy
+/// row and a join with no readable file list take the same path.
+///
+/// The `fit:` line takes exactly that path, for exactly that reason: it sits
+/// between the header and `files:`, is omitted when the dash carried no fit
+/// fact, and is claimed by its own prefix rather than by its position.
+pub(crate) fn format_join_summary(
+    sha: &str,
+    dash: &str,
+    base: &str,
+    rounds: u32,
+    message: &str,
+    files: &[tugchanges_core::FileStat],
+    fit: Option<&tugdash_core::dash::FitFact>,
+) -> String {
+    let short = &sha[..sha.len().min(10)];
+    let message = message.trim();
+    let header = format!("joined {short} · {dash} → {base} · {rounds} round(s)");
+    let mut lines = vec![header];
+    if let Some(fit) = fit {
+        let word = if fit.current { "verified" } else { "stale" };
+        let head = &fit.head[..fit.head.len().min(10)];
+        let onto = &fit.base[..fit.base.len().min(10)];
+        lines.push(format!("fit: {word} {head} onto {onto}"));
+    }
+    if !files.is_empty() {
+        lines.push(receipt_files_line(files));
+    }
+    lines.push(message.to_string());
+    lines.join("\n")
+}
+
+/// The per-file stats for a landing commit — the receipt's file list.
+///
+/// Read with the **same flags the row expansion fetches with** — the
+/// `diff-tree --no-commit-id --root -M` of [`super::git::build_commit_diff_snapshot`],
+/// which `git-diff-store.ts` documents as its `commit` flavor: "one commit
+/// against its first parent". Every flag is load-bearing for that parity:
+/// `-M` makes a rename one row here and one row there rather than two here and
+/// one there, `--root` covers a root commit by diffing it against the empty
+/// tree, and `core.quotepath=false` keeps a non-ASCII path spelled the same in
+/// the list as in the fetch behind it. Matching them makes the summary's list
+/// and the rows it expands into the same object by construction.
+///
+/// `-r` is explicit because `diff-tree` does not recurse by default: `-p` and
+/// `--numstat` imply it, but `--name-status` does not, so without it the
+/// status read reports top-level directories (`M  tugrust`) and every file
+/// falls through to the "modified" default — a created or deleted file in a
+/// join would be labelled wrong.
+///
+/// Either read failing yields an empty vec, which omits the `files:` line
+/// rather than asserting a commit changed nothing.
+pub(crate) async fn landing_file_stats(dir: &Path, sha: &str) -> Vec<tugchanges_core::FileStat> {
+    let numstat = git_stdout(
+        dir,
+        &[
+            "-c",
+            "core.quotepath=false",
+            "diff-tree",
+            "--no-commit-id",
+            "--root",
+            "-r",
+            "-M",
+            "--numstat",
+            sha,
+        ],
+    )
+    .await;
+    let name_status = git_stdout(
+        dir,
+        &[
+            "-c",
+            "core.quotepath=false",
+            "diff-tree",
+            "--no-commit-id",
+            "--root",
+            "-r",
+            "-M",
+            "--name-status",
+            sha,
+        ],
+    )
+    .await;
+    match (numstat, name_status) {
+        (Some(numstat), Some(name_status)) => tugchanges_core::file_stats(&numstat, &name_status),
+        _ => Vec::new(),
+    }
+}
+
+/// The `/dash-discard` receipt's durable summary (Spec S02).
+///
+/// A discard has no commit to name, so its identity is the dash and the size
+/// of what it destroyed; the body is the round subjects the discard preflight
+/// showed, which makes the receipt a record of exactly what the confirm took.
+/// A clean dash renders the header line alone.
+///
+/// `files` is the dash's **range** diff (`base...branch`), which is what
+/// `DashDetail.files` holds — the files the dash touched, committed or not.
+/// The word is plain `file(s)` for that reason: calling them dirty would name
+/// a worktree state most of them are not in.
+pub(crate) fn format_discard_summary(
+    dash: &str,
+    rounds: u32,
+    files: u32,
+    round_subjects: &[String],
+    documents_kept: Option<&str>,
+) -> String {
+    // The verb leads and the count follows it bare. The header used to read
+    // `released … · discarded N round(s)`, which said the act twice once the
+    // verb itself became `discarded`.
+    let mut header = format!("discarded {dash} · {rounds} round(s)");
+    if files > 0 {
+        header.push_str(&format!(", {files} file(s)"));
+    }
+    let mut lines: Vec<String> = round_subjects.to_vec();
+    // The documents are not the work, and they outlive the dash: a discarded
+    // dash's brief and plan are the only trace of decisions the user may want
+    // back, so the receipt says they are still there ([P11]).
+    if documents_kept.is_some() {
+        lines.push(format!("Its documents stay at .tug/dashes/{dash}/."));
+    }
+    if lines.is_empty() {
+        return header;
+    }
+    format!("{header}\n{}", lines.join("\n"))
+}
+
+/// Run a git command at `dir`, returning trimmed stdout on success, `None`
+/// on any failure.
+async fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {
+    let output = tokio::process::Command::new("git")
+        // Same scrub as the engine's `git_output` — a per-process context
+        // override must never skew a diff this side reads ([P06]).
+        .env_remove("GIT_DIFF_OPTS")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .await
+        .ok()?;
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_ledger::FileEventRow;
+    use std::path::PathBuf;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// A real repo with one commit; canonicalized so event project_dir
+    /// strings match what `repo_root_for` resolves.
+    fn init_repo() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().canonicalize().expect("canonicalize");
+        git(&root, &["init", "-q", "-b", "main"]);
+        git(&root, &["config", "user.email", "t@t"]);
+        git(&root, &["config", "user.name", "t"]);
+        std::fs::write(root.join("committed.txt"), "base\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "base commit"]);
+        (dir, root)
+    }
+
+    fn event(session: &str, tool_use: &str, path: &Path, project: &Path) -> FileEventRow {
+        FileEventRow {
+            tug_session_id: session.to_owned(),
+            tool_use_id: tool_use.to_owned(),
+            file_path: path.to_string_lossy().into_owned(),
+            tool_name: "Write".to_owned(),
+            op: "write".to_owned(),
+            origin: "exact".to_owned(),
+            ambiguous: false,
+            parent_tool_use_id: None,
+            project_dir: project.to_string_lossy().into_owned(),
+            at: 1_700_000_000_000,
+        }
+    }
+
+    /// Spans as the relay actually writes them: from an `Edit`'s own
+    /// `old_string`/`new_string`, context lines and all. A fixture that mints
+    /// an anchor from the *added* text instead tests a shape production never
+    /// produces — which is how hunk-aware SHARED shipped green and placed
+    /// nothing in the field.
+    fn edit_spans_for(
+        path: &Path,
+        old_string: &str,
+        new_string: &str,
+    ) -> Vec<crate::session_ledger::FileEventSpan> {
+        super::super::attribution::spans_for_tool_input(
+            "Edit",
+            &serde_json::json!({
+                "file_path": path.to_string_lossy(),
+                "old_string": old_string,
+                "new_string": new_string,
+            }),
+        )
+    }
+
+    /// The feed's half of M03: two sessions in one file, each with anchors
+    /// placing it in a different hunk, compose as co-owners without SHARED —
+    /// and each carries its own hunks on the wire for the picker's default
+    /// election. The verdict and its ids come from the async diff spelling,
+    /// so this also exercises Spec S06's agreement from the feed side.
+    ///
+    /// The spans come through `spans_for_tool_input`, so an `own_hunks` that
+    /// is a strict subset here is the same shape the badge renders from.
+    #[tokio::test]
+    async fn compose_reads_disjoint_regions_of_one_file_as_uncontended() {
+        let (_dir, root) = init_repo();
+        let original: String = (1..=60).map(|n| format!("line{n:03}\n")).collect();
+        std::fs::write(root.join("both.txt"), &original).unwrap();
+        git(&root, &["add", "both.txt"]);
+        git(&root, &["commit", "-q", "-m", "long file"]);
+        let edited = original
+            .replace("line005\n", "TOP-EDIT\n")
+            .replace("line050\n", "BOTTOM-EDIT\n");
+        std::fs::write(root.join("both.txt"), &edited).unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for (i, (session, old, new)) in [
+            (
+                "sess-alpha",
+                "line004\nline005\nline006",
+                "line004\nTOP-EDIT\nline006",
+            ),
+            (
+                "sess-beta",
+                "line049\nline050\nline051",
+                "line049\nBOTTOM-EDIT\nline051",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            ledger
+                .record_spawn(session, "ws", &root.to_string_lossy(), "card", 0, None)
+                .unwrap();
+            let mut row = event(session, &format!("tu-{i}"), &root.join("both.txt"), &root);
+            // The file is tracked, so the row must post-date its commit.
+            row.at = 9_000_000_000_000;
+            let spans = edit_spans_for(&root.join("both.txt"), old, new);
+            ledger.record_file_event_with_spans(&row, &spans).unwrap();
+        }
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let files: Vec<&ChangesetFile> = snapshot
+            .changesets
+            .iter()
+            .filter_map(|entry| match entry {
+                ChangesetEntry::Session { files, .. } => files.first(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(files.len(), 2, "both sessions own the file");
+        for file in &files {
+            assert_eq!(file.path, "both.txt");
+            assert!(!file.shared, "disjoint regions do not contend");
+            assert_eq!(file.own_hunks.len(), 1, "one region each");
+            assert!(file.contested_hunks.is_empty());
+        }
+        assert_ne!(
+            files[0].own_hunks, files[1].own_hunks,
+            "and the regions are different ones"
+        );
+    }
+
+    /// The same file, the same region: still SHARED, and the wire says which
+    /// hunk the contention is in.
+    #[tokio::test]
+    async fn compose_still_shares_a_file_two_sessions_edited_in_one_region() {
+        let (_dir, root) = init_repo();
+        let original: String = (1..=60).map(|n| format!("line{n:03}\n")).collect();
+        std::fs::write(root.join("both.txt"), &original).unwrap();
+        git(&root, &["add", "both.txt"]);
+        git(&root, &["commit", "-q", "-m", "long file"]);
+        std::fs::write(
+            root.join("both.txt"),
+            original.replace("line005\n", "TOP-EDIT\n"),
+        )
+        .unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for (i, session) in ["sess-alpha", "sess-beta"].into_iter().enumerate() {
+            ledger
+                .record_spawn(session, "ws", &root.to_string_lossy(), "card", 0, None)
+                .unwrap();
+            let mut row = event(session, &format!("tu-{i}"), &root.join("both.txt"), &root);
+            row.at = 9_000_000_000_000;
+            let spans = edit_spans_for(
+                &root.join("both.txt"),
+                "line004\nline005\nline006",
+                "line004\nTOP-EDIT\nline006",
+            );
+            ledger.record_file_event_with_spans(&row, &spans).unwrap();
+        }
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        for entry in &snapshot.changesets {
+            let ChangesetEntry::Session { files, .. } = entry else {
+                continue;
+            };
+            assert!(files[0].shared, "one region, two owners");
+            assert_eq!(files[0].contested_hunks, files[0].own_hunks);
+        }
+    }
+
+    /// One session's evidence half places and half does not — the common
+    /// field case. The badge widens (SHARED for both owners) while the
+    /// election stays narrow: the half-placed owner carries only the hunk it
+    /// can prove, so landing it cannot sweep up the co-owner's region.
+    #[tokio::test]
+    async fn compose_widens_shared_without_widening_the_election() {
+        let (_dir, root) = init_repo();
+        let original: String = (1..=60).map(|n| format!("line{n:03}\n")).collect();
+        std::fs::write(root.join("both.txt"), &original).unwrap();
+        git(&root, &["add", "both.txt"]);
+        git(&root, &["commit", "-q", "-m", "long file"]);
+        let edited = original
+            .replace("line005\n", "TOP-EDIT\n")
+            .replace("line050\n", "BOTTOM-EDIT\n");
+        std::fs::write(root.join("both.txt"), &edited).unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for (i, (session, old, new)) in [
+            (
+                "sess-alpha",
+                "line004\nline005\nline006",
+                "line004\nTOP-EDIT\nline006",
+            ),
+            (
+                "sess-beta",
+                "line049\nline050\nline051",
+                "line049\nBOTTOM-EDIT\nline051",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            ledger
+                .record_spawn(session, "ws", &root.to_string_lossy(), "card", 0, None)
+                .unwrap();
+            let mut row = event(session, &format!("tu-{i}"), &root.join("both.txt"), &root);
+            row.at = 9_000_000_000_000;
+            let mut spans = edit_spans_for(&root.join("both.txt"), old, new);
+            if session == "sess-alpha" {
+                // A second edit whose text a later write overwrote — nothing
+                // in the current diff carries it, so it places nowhere.
+                let mut gone = edit_spans_for(
+                    &root.join("both.txt"),
+                    "line029\nline030\nline031",
+                    "line029\nSINCE-OVERWRITTEN\nline031",
+                );
+                gone[0].seq = 1;
+                spans.append(&mut gone);
+            }
+            ledger.record_file_event_with_spans(&row, &spans).unwrap();
+        }
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let mut seen = 0;
+        for entry in &snapshot.changesets {
+            let ChangesetEntry::Session {
+                owner_id, files, ..
+            } = entry
+            else {
+                continue;
+            };
+            let file = &files[0];
+            assert!(file.shared, "{owner_id}: unplaceable evidence still warns");
+            assert_eq!(
+                file.own_hunks.len(),
+                1,
+                "{owner_id}: elects only what its evidence reached"
+            );
+            seen += 1;
+        }
+        assert_eq!(seen, 2, "both sessions own the file");
+    }
+
+    /// Seed one long tracked file edited in two places, and give each session
+    /// an `Edit`'s worth of spans for the region named. Returns the repo.
+    async fn compose_two_owners(
+        placements: [(&str, &str, &str); 2],
+    ) -> (tempfile::TempDir, PathBuf, SessionLedger) {
+        let (dir, root) = init_repo();
+        let original: String = (1..=60).map(|n| format!("line{n:03}\n")).collect();
+        std::fs::write(root.join("both.txt"), &original).unwrap();
+        git(&root, &["add", "both.txt"]);
+        git(&root, &["commit", "-q", "-m", "long file"]);
+        let edited = original
+            .replace("line005\n", "TOP-EDIT\n")
+            .replace("line050\n", "BOTTOM-EDIT\n");
+        std::fs::write(root.join("both.txt"), &edited).unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for (i, (session, old, new)) in placements.into_iter().enumerate() {
+            ledger
+                .record_spawn(session, "ws", &root.to_string_lossy(), "card", 0, None)
+                .unwrap();
+            let mut row = event(session, &format!("tu-{i}"), &root.join("both.txt"), &root);
+            row.at = 9_000_000_000_000;
+            let spans = edit_spans_for(&root.join("both.txt"), old, new);
+            ledger.record_file_event_with_spans(&row, &spans).unwrap();
+        }
+        (dir, root, ledger)
+    }
+
+    /// The file's row as each session sees it, by owner id.
+    fn files_by_owner(snapshot: &ChangesetSnapshot) -> BTreeMap<String, ChangesetFile> {
+        snapshot
+            .changesets
+            .iter()
+            .filter_map(|entry| match entry {
+                ChangesetEntry::Session {
+                    owner_id, files, ..
+                } => files.first().map(|f| (owner_id.clone(), f.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Placements for the retirement cases: alpha's edit is right there in the
+    /// current diff, beta's names text nothing in the file carries.
+    const ALPHA_PLACES_BETA_DOES_NOT: [(&str, &str, &str); 2] = [
+        (
+            "sess-alpha",
+            "line004\nline005\nline006",
+            "line004\nTOP-EDIT\nline006",
+        ),
+        (
+            "sess-beta",
+            "line029\nline030\nline031",
+            "line029\nSINCE-OVERWRITTEN\nline031",
+        ),
+    ];
+
+    /// The plan's headline, end to end through compose: a closed session whose
+    /// content is gone stops making a live session's file SHARED.
+    #[tokio::test]
+    async fn compose_retires_a_dead_owner_whose_evidence_places_nowhere() {
+        let (_dir, root, ledger) = compose_two_owners(ALPHA_PLACES_BETA_DOES_NOT).await;
+        ledger.mark_closed("sess-beta").unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let files = files_by_owner(&snapshot);
+        let alpha = &files["sess-alpha"];
+        assert!(!alpha.shared, "the ghost co-owner stopped warning");
+        assert!(alpha.shared_with.is_empty());
+        assert!(alpha.contested_hunks.is_empty());
+    }
+
+    /// The live floor, same fixture: while beta is running its unplaceable
+    /// evidence still widens, exactly as before this plan.
+    #[tokio::test]
+    async fn compose_keeps_sharing_while_the_same_owner_is_live() {
+        let (_dir, root, ledger) = compose_two_owners(ALPHA_PLACES_BETA_DOES_NOT).await;
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let files = files_by_owner(&snapshot);
+        let alpha = &files["sess-alpha"];
+        assert!(alpha.shared, "a live session may be mid-work");
+        assert_eq!(
+            alpha
+                .shared_with
+                .iter()
+                .map(|o| (o.id.as_str(), o.live))
+                .collect::<Vec<_>>(),
+            vec![("sess-beta", true)],
+            "and the badge says who with"
+        );
+    }
+
+    /// Death alone retires nothing: a closed session whose content is still in
+    /// the tree keeps contending, and the badge names it as closed — which is
+    /// what makes the row recognizable, and releasable by hand.
+    #[tokio::test]
+    async fn compose_names_a_dead_owner_that_still_places() {
+        let (_dir, root, ledger) = compose_two_owners([
+            (
+                "sess-alpha",
+                "line004\nline005\nline006",
+                "line004\nTOP-EDIT\nline006",
+            ),
+            (
+                "sess-beta",
+                "line004\nline005\nline006",
+                "line004\nTOP-EDIT\nline006",
+            ),
+        ])
+        .await;
+        ledger.mark_closed("sess-beta").unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let files = files_by_owner(&snapshot);
+        let alpha = &files["sess-alpha"];
+        assert!(alpha.shared, "the content is right there");
+        assert_eq!(
+            alpha
+                .shared_with
+                .iter()
+                .map(|o| (o.id.as_str(), o.live))
+                .collect::<Vec<_>>(),
+            vec![("sess-beta", false)]
+        );
+    }
+
+    /// Absence of an answer is not death. An owner the liveness resolution
+    /// never reached is missing from `dead_ids`, and the verdict must read it
+    /// as live — the over-warning direction. Asserted at the verdict rather
+    /// than through compose, where the owner aggregation the ids come from
+    /// makes the gap unconstructible (and `debug_assert`ed for that reason).
+    #[tokio::test]
+    async fn an_unresolved_owner_reads_as_live() {
+        let (_dir, root, ledger) = compose_two_owners(ALPHA_PLACES_BETA_DOES_NOT).await;
+        let proof_ids: HashSet<String> = ["sess-alpha", "sess-beta"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+
+        let (unresolved, _) = contention_verdict(
+            &root,
+            "both.txt",
+            &proof_ids,
+            &HashSet::new(),
+            i64::MIN,
+            Some(&ledger),
+        )
+        .await
+        .expect("a verdict");
+        assert!(unresolved.shared, "an unresolved owner widens");
+
+        let (resolved_dead, _) = contention_verdict(
+            &root,
+            "both.txt",
+            &proof_ids,
+            &["sess-beta".to_owned()].into_iter().collect(),
+            i64::MIN,
+            Some(&ledger),
+        )
+        .await
+        .expect("a verdict");
+        assert!(
+            !resolved_dead.shared,
+            "only a positively-resolved death retires"
+        );
+    }
+
+    /// Risk R09's bound, structurally: a dirty set nobody contends spends no
+    /// diffs at all. Asserted through the wire rather than a clock — every
+    /// file coming back with no hunk ids is only possible if the contention
+    /// pass never ran for any of them.
+    #[tokio::test]
+    async fn compose_runs_no_contention_pass_when_nothing_contends() {
+        let (_dir, root) = init_repo();
+        for i in 0..25 {
+            std::fs::write(root.join(format!("f{i:02}.txt")), "x").unwrap();
+        }
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess-alpha", "ws", &root.to_string_lossy(), "card", 0, None)
+            .unwrap();
+        for i in 0..25 {
+            ledger
+                .record_file_event(&event(
+                    "sess-alpha",
+                    &format!("tu-{i}"),
+                    &root.join(format!("f{i:02}.txt")),
+                    &root,
+                ))
+                .unwrap();
+        }
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let ChangesetEntry::Session { files, .. } = &snapshot.changesets[0] else {
+            panic!("expected session entry");
+        };
+        assert_eq!(files.len(), 25);
+        assert!(
+            files
+                .iter()
+                .all(|f| !f.shared && f.own_hunks.is_empty() && f.contested_hunks.is_empty()),
+            "a sole owner is never contended, and never costs a diff"
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_partitions_owned_shared_and_unattributed() {
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("owned.txt"), "x").unwrap();
+        std::fs::write(root.join("both.txt"), "x").unwrap();
+        std::fs::write(root.join("hand-edit.txt"), "x").unwrap();
+        // tainted.txt is tracked and then content-modified: a plain modify is
+        // the ambiguous op the sole-holder promotion must NOT claim (the same
+        // delta could be the user's hand-save of a tracked file). Structural
+        // ops are covered by `compose_promotes_sole_holder_structural_op`.
+        std::fs::write(root.join("tainted.txt"), "base\n").unwrap();
+        git(&root, &["add", "tainted.txt"]);
+        git(&root, &["commit", "-q", "--amend", "--no-edit"]);
+        std::fs::write(root.join("tainted.txt"), "modified\n").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "sess-alpha",
+                "ws",
+                &root.to_string_lossy(),
+                "card-1",
+                0,
+                None,
+            )
+            .unwrap();
+        ledger.rename("sess-alpha", Some("alpha work")).unwrap();
+
+        ledger
+            .record_file_event(&event("sess-alpha", "tu-1", &root.join("owned.txt"), &root))
+            .unwrap();
+        ledger
+            .record_file_event(&event("sess-alpha", "tu-2", &root.join("both.txt"), &root))
+            .unwrap();
+        ledger
+            .record_file_event(&event("sess-beta", "tu-3", &root.join("both.txt"), &root))
+            .unwrap();
+        // A bracket-only claim (also poisoned with the legacy ambiguous=1
+        // column, which is ignored outright): correlation never decides, so
+        // the file falls to `unattributed` — never auto-claimed by the
+        // bracket's own session.
+        let mut tainted = event("sess-alpha", "tu-4", &root.join("tainted.txt"), &root);
+        tainted.origin = "bash".to_owned();
+        tainted.ambiguous = true;
+        // tainted.txt is tracked, so its event must post-date the base commit
+        // to stay live (the row-liveness cut is the last commit time).
+        tainted.at = 9_000_000_000_000;
+        ledger.record_file_event(&tainted).unwrap();
+        // An event whose file was since committed/reverted must drop out.
+        ledger
+            .record_file_event(&event(
+                "sess-alpha",
+                "tu-5",
+                &root.join("committed.txt"),
+                &root,
+            ))
+            .unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+
+        assert_eq!(snapshot.branch, "main");
+        assert_eq!(snapshot.head_message, "base commit");
+        assert_eq!(snapshot.changesets.len(), 2);
+
+        let ChangesetEntry::Session {
+            owner_id,
+            display_name,
+            live,
+            files,
+            ..
+        } = &snapshot.changesets[0]
+        else {
+            panic!("expected session entry");
+        };
+        assert_eq!(owner_id, "sess-alpha");
+        assert_eq!(display_name, "alpha work");
+        assert!(live);
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["both.txt", "owned.txt"],
+            "a bracket-only claim never attributes — tainted.txt is not alpha's"
+        );
+        assert!(files[0].shared, "both.txt has two owners");
+        assert!(!files[1].shared);
+        assert_eq!(files[0].git_status, "??");
+
+        let ChangesetEntry::Session {
+            owner_id,
+            display_name,
+            live,
+            files,
+            ..
+        } = &snapshot.changesets[1]
+        else {
+            panic!("expected session entry");
+        };
+        assert_eq!(owner_id, "sess-beta");
+        // No sessions row for sess-beta: display falls back to the id
+        // prefix and the entry reads not-live.
+        assert_eq!(display_name, "sess-bet");
+        assert!(!live);
+        assert!(files[0].shared);
+
+        let unattributed: Vec<&str> = snapshot
+            .unattributed
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(unattributed, ["hand-edit.txt", "tainted.txt"]);
+
+        // Bracket hints ([P13]): the stripped correlation-only holder is
+        // recorded as `hinted_by` on the bracket-swept path; a plain hand
+        // edit no bracket saw carries none.
+        let hand_edit = &snapshot.unattributed[0];
+        assert!(
+            hand_edit.hinted_by.is_empty(),
+            "no bracket saw hand-edit.txt"
+        );
+        let tainted = &snapshot.unattributed[1];
+        assert_eq!(
+            tainted.hinted_by,
+            vec!["sess-alpha".to_string()],
+            "the bracket holder surfaces as a hint, never an attribution"
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_lifts_dead_only_owned_files_into_orphaned() {
+        // A file proof-owned solely by a closed session is an orphan ([D120]):
+        // the closed session keeps its rows, but no live card surfaces another
+        // session's entry, so it must lift into the `orphaned` bucket. A file a
+        // live session co-owns is NOT orphaned — it stays in the live entry.
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("orphan.txt"), "x").unwrap();
+        std::fs::write(root.join("shared.txt"), "x").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for s in ["sess-dead", "sess-live"] {
+            ledger
+                .record_spawn(s, "ws", &root.to_string_lossy(), "card", 0, None)
+                .unwrap();
+        }
+        ledger.rename("sess-dead", Some("ghost work")).unwrap();
+        // sess-dead proof-owns both files; sess-live proof-owns only shared.txt.
+        ledger
+            .record_file_event(&event("sess-dead", "tu-1", &root.join("orphan.txt"), &root))
+            .unwrap();
+        ledger
+            .record_file_event(&event("sess-dead", "tu-2", &root.join("shared.txt"), &root))
+            .unwrap();
+        ledger
+            .record_file_event(&event("sess-live", "tu-3", &root.join("shared.txt"), &root))
+            .unwrap();
+        // Close sess-dead → non-live. sess-live stays live.
+        ledger.mark_closed("sess-dead").unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+
+        // orphan.txt lifts out (dead's only exclusive file); shared.txt stays
+        // owned (a live session holds it), so it is NOT orphaned.
+        let orphaned: Vec<&str> = snapshot.orphaned.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(orphaned, ["orphan.txt"], "dead-only file is an orphan");
+        assert_eq!(snapshot.orphaned[0].prior_owner_id, "sess-dead");
+        assert_eq!(snapshot.orphaned[0].prior_owner_name, "ghost work");
+        assert_eq!(snapshot.orphaned[0].origin, "exact");
+
+        // sess-dead has no surviving entry (its only exclusive file was lifted;
+        // shared.txt stays but under the live owner too — dead keeps its shared
+        // copy). The live session keeps shared.txt.
+        let live_entry = snapshot.changesets.iter().find_map(|e| match e {
+            ChangesetEntry::Session {
+                owner_id, files, ..
+            } if owner_id == "sess-live" => Some(files),
+            _ => None,
+        });
+        let live_files: Vec<&str> = live_entry
+            .expect("live session entry")
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert!(live_files.contains(&"shared.txt"));
+        // orphan.txt is not in the unattributed bucket — it is owned, just dead.
+        assert!(
+            !snapshot.unattributed.iter().any(|f| f.path == "orphan.txt"),
+            "an orphan is owned (by a dead session), never unattributed"
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_promotes_sole_holder_structural_op() {
+        // The screenshot case: the session's shell deleted a tracked file
+        // (`git rm` / `rm`), so only a bracket saw it — no Edit/Write proof
+        // row. A delete has no editor hand-save story, so a sole bracket
+        // holder claims it. A structural op with two bracket holders stays
+        // ambiguous.
+        let (_dir, root) = init_repo();
+        // committed.txt exists in base; delete it → worktree delete (`.D`).
+        std::fs::remove_file(root.join("committed.txt")).unwrap();
+        // contested.txt: a new untracked file two sessions' brackets both saw
+        // — the sole-holder guard keeps it unattributed.
+        std::fs::write(root.join("contested.txt"), "x").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for s in ["sess-alpha", "sess-beta"] {
+            ledger
+                .record_spawn(s, "ws", &root.to_string_lossy(), "card", 0, None)
+                .unwrap();
+        }
+        ledger.rename("sess-alpha", Some("alpha work")).unwrap();
+
+        let mut del = event("sess-alpha", "tu-del", &root.join("committed.txt"), &root);
+        del.origin = "bash".to_owned();
+        del.op = "deleted".to_owned();
+        // committed.txt is tracked; its event must post-date the base commit
+        // to stay live (the row-liveness cut is the last commit time).
+        del.at = 9_000_000_000_000;
+        ledger.record_file_event(&del).unwrap();
+        for (s, tu) in [("sess-alpha", "tu-c1"), ("sess-beta", "tu-c2")] {
+            let mut grab = event(s, tu, &root.join("contested.txt"), &root);
+            grab.origin = "bash".to_owned();
+            ledger.record_file_event(&grab).unwrap();
+        }
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+
+        // committed.txt is claimed by its sole bracket holder.
+        let alpha = snapshot
+            .changesets
+            .iter()
+            .find_map(|e| match e {
+                ChangesetEntry::Session {
+                    owner_id, files, ..
+                } if owner_id == "sess-alpha" => Some(files),
+                _ => None,
+            })
+            .expect("sess-alpha entry");
+        let alpha_paths: Vec<&str> = alpha.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            alpha_paths,
+            ["committed.txt"],
+            "a sole-holder delete is promoted to attribution"
+        );
+        assert!(alpha[0].git_status.contains('D'));
+
+        // contested.txt has two bracket holders — still ambiguous.
+        let unattributed: Vec<&str> = snapshot
+            .unattributed
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(
+            unattributed,
+            ["contested.txt"],
+            "a structural op with two holders stays unattributed"
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_bracket_grab_does_not_steal_or_share_an_exact_owners_file() {
+        // The pinned regression (meek-sheep), in the card's compose: sess-a
+        // exact-edited a.txt; sess-b's Bash/turn bracket swept it up (a
+        // contaminated whole-tree delta). The file must appear under sess-a
+        // alone, NOT shared, and must not appear under sess-b at all.
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for s in ["sess-a", "sess-b"] {
+            ledger
+                .record_spawn(s, "ws", &root.to_string_lossy(), "card", 0, None)
+                .unwrap();
+        }
+        // sess-a: the real exact edit. sess-b: a bracket grab of the same file.
+        ledger
+            .record_file_event(&event("sess-a", "tu-a", &root.join("a.txt"), &root))
+            .unwrap();
+        let mut grab = event("sess-b", "tu-b", &root.join("a.txt"), &root);
+        grab.origin = "bash".to_owned();
+        ledger.record_file_event(&grab).unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let sessions: Vec<(&str, Vec<&str>, bool)> = snapshot
+            .changesets
+            .iter()
+            .filter_map(|e| match e {
+                ChangesetEntry::Session {
+                    owner_id, files, ..
+                } => Some((
+                    owner_id.as_str(),
+                    files.iter().map(|f| f.path.as_str()).collect(),
+                    files.iter().any(|f| f.shared),
+                )),
+                _ => None,
+            })
+            .collect();
+        // Exactly one session owns a.txt — sess-a — and it is not shared.
+        let a = sessions
+            .iter()
+            .find(|(id, _, _)| *id == "sess-a")
+            .expect("sess-a present");
+        assert_eq!(a.1, ["a.txt"]);
+        assert!(
+            !a.2,
+            "sess-a's file is not shared by a foreign bracket grab"
+        );
+        assert!(
+            !sessions
+                .iter()
+                .any(|(id, files, _)| *id == "sess-b" && !files.is_empty()),
+            "sess-b's bracket grab does not claim a.txt: {sessions:?}"
+        );
+        assert!(
+            snapshot.unattributed.is_empty(),
+            "a.txt is owned, not unattributed: {:?}",
+            snapshot.unattributed
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_spent_rows_never_reclaim_a_redirtied_file() {
+        // Row liveness ([D112]): a session's row for committed.txt predates the
+        // repo's commit (at = 1, epoch ~0), the commit absorbed that work, and
+        // now someone re-dirties the file. The fossil row must not resurrect a
+        // session entry — the file surfaces as unattributed, visible.
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("committed.txt"), "re-dirtied\n").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess", "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .unwrap();
+        let mut ev = event("sess", "tu-1", &root.join("committed.txt"), &root);
+        ev.at = 1;
+        ledger.record_file_event(&ev).unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        assert!(
+            snapshot
+                .changesets
+                .iter()
+                .all(|e| !matches!(e, ChangesetEntry::Session { files, .. } if !files.is_empty())),
+            "no session entry claims the re-dirtied file"
+        );
+        let unattributed: Vec<&str> = snapshot
+            .unattributed
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
+        assert_eq!(unattributed, ["committed.txt"]);
+    }
+
+    /// The liveness cut survives between composes keyed by HEAD, so a commit
+    /// landing between them must re-derive it: the row that was live before
+    /// the commit is spent after it, and the file falls to unattributed. A
+    /// cache that outlived the commit would keep claiming the file.
+    #[tokio::test]
+    async fn a_commit_between_composes_invalidates_the_cached_liveness_cut() {
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("committed.txt"), "edited\n").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess", "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .unwrap();
+        let mut ev = event("sess", "tu-1", &root.join("committed.txt"), &root);
+        // Past the fixture commit's cut, which rounds up to the next second.
+        ev.at = crate::session_ledger::now_millis() + 2_000;
+        ledger.record_file_event(&ev).unwrap();
+
+        let owned = |snapshot: &ChangesetSnapshot| {
+            snapshot
+                .changesets
+                .iter()
+                .any(|e| matches!(e, ChangesetEntry::Session { files, .. } if !files.is_empty()))
+        };
+
+        let first = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        assert!(owned(&first), "the row postdates the fixture's commit");
+
+        // The commit absorbs that work; re-dirtying the file must not let the
+        // now-fossil row reclaim it. The cut rounds up to the next whole
+        // second, so the commit has to land past the row's stamp.
+        tokio::time::sleep(std::time::Duration::from_millis(2_100)).await;
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "absorb the edit"]);
+        std::fs::write(root.join("committed.txt"), "re-dirtied\n").unwrap();
+
+        let second = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        assert!(!owned(&second), "the commit spent the row");
+        assert_eq!(
+            second
+                .unattributed
+                .iter()
+                .map(|f| f.path.as_str())
+                .collect::<Vec<_>>(),
+            ["committed.txt"]
+        );
+    }
+
+    /// A document carrying everything `plan::parse` requires and one round with
+    /// no stamp yet — the state a review is in just before it stamps.
+    const UNSTAMPED_PLAN: &str = r#"## A Minimal Plan {#minimal-plan}
+
+### Plan Metadata {#plan-metadata}
+
+| Field | Value |
+|---|---|
+| Owner | Someone |
+
+### Review Record {#review-record}
+
+**Round 1 — 2026-08-14, opus.** Lint: 0 errors, 0 warnings.
+
+### Phase Overview {#phase-overview}
+
+Some context.
+
+### Execution Steps {#execution-steps}
+
+#### Step Status Ledger {#step-status-ledger}
+
+| Step | Title | Status | Commit |
+|---|---|---|---|
+| #step-1 | The only step | pending | — |
+
+#### Step 1: The only step {#step-1}
+
+**Commit:** `thing(scope): do it`
+
+**References:** [P01] the decision, (#phase-overview)
+
+**Tasks:**
+- [ ] Do the thing.
+
+**Tests:**
+- [ ] Unit: the thing works.
+
+**Checkpoint:**
+- [ ] `cargo nextest run`
+
+### Deliverables and Checkpoints {#deliverables}
+
+**Deliverable:** the thing.
+"#;
+
+    /// Write `UNSTAMPED_PLAN` into `dir/plan.md`, stamped or not.
+    fn write_plan(dir: &Path, stamped: bool) {
+        let source = if stamped {
+            tugutil_core::plan::set_review_stamp(UNSTAMPED_PLAN).expect("stampable")
+        } else {
+            UNSTAMPED_PLAN.to_string()
+        };
+        std::fs::write(dir.join("plan.md"), source).unwrap();
+    }
+
+    /// Write a plan into a dash's own documents home, with one ledger row per
+    /// entry of `statuses` so the scan's progress counting has something to
+    /// count.
+    fn write_dash_plan(root: &Path, name: &str, statuses: &[&str], stamped: bool) {
+        let mut ledger = String::new();
+        let mut steps = String::new();
+        for (i, status) in statuses.iter().enumerate() {
+            let n = i + 1;
+            ledger.push_str(&format!("| #step-{n} | Step {n} | {status} | — |\n"));
+            steps.push_str(&format!(
+                "#### Step {n}: Step {n} {{#step-{n}}}\n\n\
+                 **Commit:** `thing(scope): do it`\n\n\
+                 **References:** (#phase-overview)\n\n\
+                 **Tasks:**\n- [ ] Do the thing.\n\n\
+                 **Tests:**\n- [ ] Unit: the thing works.\n\n\
+                 **Checkpoint:**\n- [ ] `cargo nextest run`\n\n"
+            ));
+        }
+        let source = UNSTAMPED_PLAN
+            .replace("| #step-1 | The only step | pending | — |\n", &ledger)
+            .replace(
+                "#### Step 1: The only step {#step-1}\n\n\
+                 **Commit:** `thing(scope): do it`\n\n\
+                 **References:** [P01] the decision, (#phase-overview)\n\n\
+                 **Tasks:**\n- [ ] Do the thing.\n\n\
+                 **Tests:**\n- [ ] Unit: the thing works.\n\n\
+                 **Checkpoint:**\n- [ ] `cargo nextest run`\n\n",
+                &steps,
+            );
+        let source = if stamped {
+            tugutil_core::plan::set_review_stamp(&source).expect("stampable")
+        } else {
+            source
+        };
+        let dir = root.join(".tug").join("dashes").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("plan.md"), source).unwrap();
+    }
+
+    fn write_dash_brief(root: &Path, name: &str, title: &str) {
+        let dir = root.join(".tug").join("dashes").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("brief.md"), format!("# {title}\n\nProse.\n")).unwrap();
+    }
+
+    fn document_entries(root: &Path) -> Vec<DocumentDashEntry> {
+        document_dash_entries_in(root, &std::collections::HashMap::new())
+    }
+
+    /// The planning phase in flight: a dash exists the moment it has a
+    /// document, and stops being a *document-only* dash the moment it has a
+    /// branch — one row throughout, never two ([P04]).
+    #[test]
+    fn a_document_only_dash_is_listed_until_its_branch_exists() {
+        let (_dir, root) = init_repo();
+        write_dash_brief(&root, "foo", "The foo brief");
+
+        let entries = document_entries(&root);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].display_name, "foo");
+        assert_eq!(
+            entries[0].documents.brief.as_deref(),
+            Some(&*root.join(".tug/dashes/foo/brief.md").to_string_lossy())
+        );
+        assert_eq!(entries[0].documents.brief_title.as_deref(), Some("The foo brief"));
+        assert!(entries[0].documents.plan.is_none());
+        assert_eq!(entries[0].review, None);
+        assert_eq!(entries[0].step_total, 0);
+
+        // Cutting the branch moves the dash to the live list rather than
+        // adding a second row.
+        git(&root, &["branch", "tugdash/foo"]);
+        assert!(document_entries(&root).is_empty());
+    }
+
+    /// A document-only dash reads its plan's review state and ledger the same
+    /// way a live dash does — the facts a next-gesture is chosen from.
+    #[test]
+    fn document_dash_entries_read_review_and_steps() {
+        let (_dir, root) = init_repo();
+        write_dash_plan(&root, "reviewed-dash", &["done", "in progress", "pending"], true);
+        write_dash_plan(&root, "fresh-dash", &["pending"], false);
+
+        let entries = document_entries(&root);
+        let by_name: std::collections::HashMap<&str, &DocumentDashEntry> = entries
+            .iter()
+            .map(|e| (e.display_name.as_str(), e))
+            .collect();
+
+        let reviewed = by_name["reviewed-dash"];
+        assert_eq!(reviewed.review.as_deref(), Some("reviewed"));
+        assert_eq!(reviewed.step_total, 3);
+        // Two facts, two fields: one row finished, two opened.
+        assert_eq!((reviewed.steps_done, reviewed.steps_begun), (1, 2));
+
+        let fresh = by_name["fresh-dash"];
+        assert_eq!(fresh.review.as_deref(), Some("never-reviewed"));
+        assert_eq!((fresh.steps_done, fresh.steps_begun), (0, 0));
+
+        // Sorted by name, so the list is stable across recomputes.
+        assert_eq!(
+            entries.iter().map(|e| e.display_name.as_str()).collect::<Vec<_>>(),
+            vec!["fresh-dash", "reviewed-dash"]
+        );
+    }
+
+    /// A live dash carries the same documents on its own entry, absolute.
+    #[test]
+    fn dash_entries_carry_absolute_document_paths() {
+        let (_dir, root) = init_repo();
+        write_dash_brief(&root, "live", "The live brief");
+        write_dash_plan(&root, "live", &["done", "pending"], true);
+
+        let documents = tugdash_core::DashDocuments::read(&root, "live");
+        let wire = dash_documents(documents);
+        assert_eq!(
+            wire.plan.as_deref(),
+            Some(&*root.join(".tug/dashes/live/plan.md").to_string_lossy())
+        );
+        assert!(wire.plan.as_deref().unwrap().starts_with('/'));
+        assert_eq!(wire.brief_title.as_deref(), Some("The live brief"));
+
+        let (review, steps) = dash_plan_reading(Path::new(wire.plan.as_deref().unwrap()));
+        assert_eq!(review.as_deref(), Some("reviewed"));
+        assert_eq!(steps.len(), 2);
+    }
+
+    #[test]
+    fn dash_plan_reading_reads_reviewed_for_a_stamped_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        write_plan(dir.path(), true);
+        assert_eq!(
+            dash_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
+            Some("reviewed")
+        );
+    }
+
+    #[test]
+    fn dash_plan_reading_reads_stale_after_the_document_moves() {
+        let dir = tempfile::tempdir().unwrap();
+        write_plan(dir.path(), true);
+        let path = dir.path().join("plan.md");
+        let moved = format!(
+            "{}\nOne more line.\n",
+            std::fs::read_to_string(&path).unwrap()
+        );
+        std::fs::write(&path, moved).unwrap();
+        assert_eq!(
+            dash_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
+            Some("stale")
+        );
+    }
+
+    #[test]
+    fn dash_plan_reading_reads_never_reviewed_without_a_stamp() {
+        let dir = tempfile::tempdir().unwrap();
+        write_plan(dir.path(), false);
+        assert_eq!(
+            dash_plan_reading(&dir.path().join("plan.md")).0.as_deref(),
+            Some("never-reviewed")
+        );
+    }
+
+    /// The other half of the reading: the ledger, which is the only source a
+    /// surface has for what a dash's walk *is*. Counted off `ledger_rows`
+    /// rather than the step headings, for the reason the plan-doc scan counts
+    /// off them — the ledger is what the step verbs rewrite.
+    #[test]
+    fn dash_plan_reading_carries_the_ledger_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        write_plan(dir.path(), true);
+        let (_, steps) = dash_plan_reading(&dir.path().join("plan.md"));
+        assert_eq!(
+            steps,
+            vec![DashStep {
+                title: "The only step".to_string(),
+                status: "pending".to_string(),
+            }]
+        );
+    }
+
+    /// Both failures read as *nothing to say*, not as an accusation: a plan
+    /// nobody can read has not been shown to be unreviewed, and has not been
+    /// shown to have no steps.
+    #[test]
+    fn dash_plan_reading_is_absent_for_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (review, steps) = dash_plan_reading(&dir.path().join("plan.md"));
+        assert!(review.is_none());
+        assert!(steps.is_empty());
+    }
+
+    #[test]
+    fn dash_plan_reading_is_absent_for_a_document_that_is_not_a_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("plan.md"), "# Notes\n\nJust prose.\n").unwrap();
+        assert!(dash_plan_reading(&dir.path().join("plan.md")).0.is_none());
+    }
+
+    /// The composition asked from a *linked worktree* — the shape a card whose
+    /// project directory is itself a worktree produces, which is every dash's
+    /// own debug build. The plan lives in the dash's worktree, and the only
+    /// path that finds it is the absolute one the detail carries; composing
+    /// from the caller's root here would return `None`, which is indisting-
+    /// uishable from a dash with no plan.
+    /// The recompute is what starts the pilot ([P01]) — nobody presses.
+    ///
+    /// This is the seam the two halves meet at: the predicate and the dispatch
+    /// both run on the async side, over state already in hand, so the changeset
+    /// frame goes out without waiting on a ladder that may run for minutes. A
+    /// ready dash bound to a live session wants reconciling; one still
+    /// implementing wants nothing, and neither does one nobody is looking at
+    /// ([P08]).
+    #[tokio::test]
+    async fn a_ready_bound_dash_is_piloted_off_the_recompute_with_no_press() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Counting(Arc<AtomicUsize>);
+
+        #[async_trait::async_trait]
+        impl crate::feeds::join_pilot::PilotRunner for Counting {
+            async fn reconcile(
+                &self,
+                _project_dir: &str,
+                _dash: &str,
+                occupancy: crate::feeds::join_occupancy::JoinOccupancy,
+            ) {
+                drop(occupancy);
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        // The dash-log lives under the data dir; nextest runs one process per
+        // test, so redirecting it here cannot reach another test.
+        let data = tempfile::tempdir().unwrap();
+        // SAFETY: single-threaded setup, and this process runs one test.
+        unsafe {
+            std::env::set_var("TUG_DATA_DIR", data.path());
+        }
+
+        let runs = Arc::new(AtomicUsize::new(0));
+        crate::feeds::join_pilot::register_runner(Box::new(Counting(Arc::clone(&runs))));
+
+        let (_dir, root) = init_repo();
+        git(&root, &["branch", "tugdash/pending"]);
+        git(&root, &["config", "branch.tugdash/pending.tugbase", "main"]);
+        git(&root, &["branch", "tugdash/finished"]);
+        git(
+            &root,
+            &["config", "branch.tugdash/finished.tugbase", "main"],
+        );
+        // A round on the dash branch: a dash with nothing to join carries an
+        // `empty` blocker, and a blocked dash is one the pilot leaves alone.
+        git(&root, &["switch", "-q", "tugdash/finished"]);
+        std::fs::write(root.join("round.txt"), "r1\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "r1"]);
+        git(&root, &["switch", "-q", "main"]);
+        // Nothing declares this dash finished: a landed round on a plan-less
+        // dash with a clean worktree is the arming fact ([P02]).
+
+        // Nobody is bound to it yet, so the pilot leaves it alone — the ask it
+        // would be preparing has no card to raise on ([P08]).
+        let entries = dash_entries(&root, None).await;
+        assert_eq!(entries.len(), 2, "both dashes compose");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            0,
+            "an unbound dash is never piloted, ready or not"
+        );
+
+        let owner_key = tugdash_core::ops::ensure_dash_id(&root, "finished").unwrap();
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "sess-1",
+                &root.to_string_lossy(),
+                &root.to_string_lossy(),
+                "card-1",
+                crate::session_ledger::now_millis(),
+                None,
+            )
+            .unwrap();
+        ledger
+            .set_dash_binding("sess-1", Some((&owner_key, "finished")))
+            .unwrap();
+
+        let entries = dash_entries(&root, Some(&ledger)).await;
+        assert_eq!(entries.len(), 2, "both dashes compose");
+
+        // The dispatch is a spawned task, so give it its scheduling turn. It is
+        // deliberately *not* awaited by the recompute — that is the property
+        // under test as much as the run itself.
+        for _ in 0..200 {
+            if runs.load(Ordering::SeqCst) > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "exactly the ready dash is piloted, and exactly once"
+        );
+        assert!(
+            tugdash_core::verify::read_pilot_mark(&root, "finished").is_some(),
+            "the pair it acted on is claimed"
+        );
+        assert!(
+            tugdash_core::verify::read_pilot_mark(&root, "pending").is_none(),
+            "a dash still implementing is never touched"
+        );
+
+        // A second recompute over unmoved heads adds nothing: the mark holds.
+        let _ = dash_entries(&root, Some(&ledger)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            1,
+            "an unchanged head pair does not re-kick"
+        );
+    }
+
+    #[tokio::test]
+    async fn dash_entries_read_review_state_from_a_linked_worktree() {
+        let (_dir, root) = init_repo();
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                ".tug/worktrees/demo",
+                "tugdash/demo",
+            ],
+        );
+        let documents = root.join(".tug/dashes/demo");
+        std::fs::create_dir_all(&documents).unwrap();
+        write_plan(&documents, true);
+
+        // A second, unrelated worktree stands in for the card's project dir.
+        git(&root, &["branch", "sidecar"]);
+        git(
+            &root,
+            &["worktree", "add", "-q", ".tug/worktrees/sidecar", "sidecar"],
+        );
+        let asked_from = root.join(".tug/worktrees/sidecar");
+
+        let entries = dash_entries(&asked_from, None).await;
+        let ChangesetEntry::Dash { review, .. } = entries
+            .iter()
+            .find(|e| matches!(e, ChangesetEntry::Dash { display_name, .. } if display_name == "demo"))
+            .expect("the dash is visible from a sibling worktree")
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            review.as_deref(),
+            Some("reviewed"),
+            "the plan is found from a worktree-hosted caller"
+        );
+    }
+
+    /// An app-test instance never composes dash entries for the checkout
+    /// under test. The `--source-tree` bootstrap makes the checkout a
+    /// workspace in every instance, so without the gate an app-test's
+    /// aggregate would list the *developer's* dashes — and any test
+    /// assertion about the dash population would be an assertion about
+    /// whoever runs the suite. Scratch repos outside the universe are
+    /// untouched, which is where every fixture dash lives.
+    ///
+    /// Env-mutating, safe under nextest's process-per-test model — the same
+    /// regime `tugdash_core::ops`'s universe tests run under.
+    #[tokio::test]
+    async fn an_apptest_instance_hides_the_universe_checkouts_dashes() {
+        let (_dir, root) = init_repo();
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+
+        // Visible before the gate applies.
+        assert!(
+            !dash_entries(&root, None).await.is_empty(),
+            "the dash composes in an ordinary instance"
+        );
+
+        // SAFETY: one process per test under nextest — the same regime
+        // `tugdash_core::ops`'s universe tests run under.
+        unsafe {
+            std::env::set_var("TUG_INSTANCE_ID", "apptest-0000");
+            std::env::set_var(tugutil_core::REPO_UNIVERSE_ENV, &root);
+        }
+        assert!(
+            dash_entries(&root, None).await.is_empty(),
+            "the universe checkout's dashes are hidden from an app-test instance"
+        );
+
+        // A scratch repo outside the universe still composes its dashes.
+        let (_dir2, scratch) = init_repo();
+        git(&scratch, &["branch", "tugdash/fixture"]);
+        git(
+            &scratch,
+            &["config", "branch.tugdash/fixture.tugbase", "main"],
+        );
+        assert!(
+            !dash_entries(&scratch, None).await.is_empty(),
+            "a fixture repo outside the universe is untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_derives_dash_entries_from_tugdash_refs() {
+        let (_dir, root) = init_repo();
+        git(&root, &["branch", "tugdash/demo"]);
+        git(&root, &["config", "branch.tugdash/demo.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugdash/demo"]);
+        std::fs::write(root.join("dash-work.txt"), "round\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "dash round"]);
+        git(&root, &["switch", "-q", "main"]);
+
+        // A creation id, and a live session mated to the dash under it.
+        let owner_key = tugdash_core::ops::ensure_dash_id(&root, "demo").unwrap();
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(
+                "sess-1",
+                &root.to_string_lossy(),
+                &root.to_string_lossy(),
+                "card-1",
+                crate::session_ledger::now_millis(),
+                None,
+            )
+            .unwrap();
+        ledger
+            .set_dash_binding("sess-1", Some((&owner_key, "demo")))
+            .unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let dash = snapshot
+            .changesets
+            .iter()
+            .find(|e| matches!(e, ChangesetEntry::Dash { .. }))
+            .expect("a dash entry");
+        let ChangesetEntry::Dash {
+            owner_id,
+            display_name,
+            branch,
+            stage,
+            bound_sessions,
+            base,
+            rounds,
+            worktree,
+            worktree_dirty,
+            files,
+            ..
+        } = dash
+        else {
+            panic!("expected dash entry");
+        };
+        // The identity is the owner key; the ref is its own field ([P09]).
+        assert_eq!(owner_id, &owner_key);
+        assert!(owner_id.starts_with("tugdash/demo#"));
+        assert_eq!(branch.as_deref(), Some("tugdash/demo"));
+        // A plan-less dash with a landed round and nothing uncommitted is
+        // offerable, and says so ([P02]).
+        assert_eq!(stage.as_deref(), Some("ready"));
+        assert_eq!(bound_sessions, &vec!["sess-1".to_string()]);
+        assert_eq!(display_name, "demo");
+        assert_eq!(base, "main");
+        assert_eq!(*rounds, 1);
+        // Absolute — the receiver composes nothing. (This fixture's dash has no
+        // checked-out worktree, so the path names where it would be.)
+        assert!(
+            worktree.starts_with('/') && worktree.ends_with(".tug/worktrees/demo"),
+            "the worktree rides the wire absolute: {worktree}"
+        );
+        assert!(!worktree_dirty);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "dash-work.txt");
+        assert_eq!(files[0].git_status, "A");
+        assert_eq!(files[0].op, "created");
+        assert_eq!(files[0].origin, "dash");
+    }
+
+    /// A dash created by an older build has no `tugid`, so it composes under
+    /// its legacy branch-ref identity — and its legacy-keyed draft still
+    /// attaches ([P02], [P03], Risk R01).
+    #[tokio::test]
+    async fn compose_carries_an_id_less_dash_under_its_legacy_identity() {
+        let (_dir, root) = init_repo();
+        git(&root, &["branch", "tugdash/old"]);
+        git(&root, &["config", "branch.tugdash/old.tugbase", "main"]);
+        git(&root, &["switch", "-q", "tugdash/old"]);
+        std::fs::write(root.join("old-work.txt"), "round\n").unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-q", "-m", "old round"]);
+        git(&root, &["switch", "-q", "main"]);
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .upsert_changeset_draft(&crate::session_ledger::ChangesetDraftRow {
+                owner_kind: "dash".to_string(),
+                owner_id: "tugdash/old".to_string(),
+                project_dir: CanonicalPath::from_raw(&root).as_str().to_string(),
+                fingerprint: "fp".to_string(),
+                message: "Land the old work".to_string(),
+                updated_at: 1,
+                edited: true,
+                selection: None,
+            })
+            .unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let ChangesetEntry::Dash {
+            owner_id, draft, ..
+        } = snapshot
+            .changesets
+            .iter()
+            .find(|e| matches!(e, ChangesetEntry::Dash { .. }))
+            .expect("a dash entry")
+        else {
+            panic!("expected dash entry");
+        };
+        assert_eq!(
+            owner_id, "tugdash/old",
+            "no id on file, so no id in the key"
+        );
+        assert_eq!(
+            draft.as_ref().map(|d| d.message.as_str()),
+            Some("Land the old work"),
+            "the legacy-keyed draft still attaches"
+        );
+        // Composing is a read path and must not have minted one ([P02]).
+        assert_eq!(
+            tugdash_core::ops::dash_owner_key(&root, "old"),
+            "tugdash/old",
+            "compose stayed read-only on git config"
+        );
+    }
+
+    /// Dash entries sort by `owner_id`, and `#` (0x23) sorts below every
+    /// character valid in a dash name — so `demo` still precedes `demo2` once
+    /// both carry ids ([P09]). Asserted rather than assumed.
+    #[test]
+    fn entry_sort_key_orders_id_keyed_dashes_by_name() {
+        let dash = |owner_id: &str, name: &str| ChangesetEntry::Dash {
+            owner_id: owner_id.to_owned(),
+            display_name: name.to_owned(),
+            branch: Some(format!("tugdash/{name}")),
+            stage: None,
+            bound_sessions: Vec::new(),
+            step_current: None,
+            step_total: None,
+            run_position: None,
+            run_length: None,
+            step_title: None,
+            last_activity: None,
+            documents: Default::default(),
+            review: None,
+            steps: Vec::new(),
+            base: "main".to_owned(),
+            rounds: 0,
+            worktree: String::new(),
+            worktree_dirty: false,
+            files: Vec::new(),
+            round_subjects: Vec::new(),
+            draft: None,
+            base_ahead: 0,
+            base_overlap: Vec::new(),
+            last_replay: None,
+            fit: None,
+            replay_conflict_paths: Vec::new(),
+            join: None,
+            arc: None,
+        };
+        let demo = dash("tugdash/demo#1723500000000-a1b2c3", "demo");
+        let demo2 = dash("tugdash/demo2#1723500000001-d4e5f6", "demo2");
+        assert!(
+            entry_sort_key(&demo) < entry_sort_key(&demo2),
+            "`#` sorts below the `2` that distinguishes the names"
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_skips_non_repo_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        // Guard against the tempdir living under a real repo.
+        if repo_root_for(dir.path()).await.is_none() {
+            assert!(compose_snapshot(dir.path(), None).await.is_none());
+        }
+    }
+
+    /// A tagless row; a `name` given here is a user-set `/rename`. Tests
+    /// wanting a callsign or an auto `aiTitle` override `tag` /
+    /// `name_user_set` with struct-update syntax.
+    fn session_row(
+        id: &str,
+        name: Option<&str>,
+        prompt: Option<&str>,
+        state: SessionState,
+    ) -> SessionRow {
+        SessionRow {
+            session_id: id.to_owned(),
+            workspace_key: "ws".to_owned(),
+            project_dir: "/proj".to_owned(),
+            created_at: 0,
+            last_used_at: 0,
+            turn_count: 0,
+            last_user_prompt: prompt.map(str::to_owned),
+            state,
+            card_id: Some("card-1".to_owned()),
+            name: name.map(str::to_owned),
+            name_user_set: name.is_some(),
+            tag: None,
+            synopsis: None,
+            private: false,
+            dash_id: None,
+            dash_name: None,
+        }
+    }
+
+    #[test]
+    fn apply_session_rows_injects_fileless_live_sessions_and_retitles() {
+        let mut snapshot = ChangesetSnapshot {
+            workspace_key: "ws".to_owned(),
+            branch: "main".to_owned(),
+            ahead: 0,
+            behind: 0,
+            head_sha: String::new(),
+            head_message: String::new(),
+            changesets: vec![
+                ChangesetEntry::Dash {
+                    owner_id: "tugdash/demo".to_owned(),
+                    display_name: "demo".to_owned(),
+                    branch: Some("tugdash/demo".to_owned()),
+                    stage: Some("working".to_owned()),
+                    bound_sessions: Vec::new(),
+                    step_current: None,
+                    step_total: None,
+                    run_position: None,
+                    run_length: None,
+                    step_title: None,
+                    last_activity: None,
+                    documents: Default::default(),
+                    review: None,
+                    steps: Vec::new(),
+                    base: "main".to_owned(),
+                    rounds: 1,
+                    worktree: "/repo/.tug/worktrees/demo".to_owned(),
+                    worktree_dirty: false,
+                    files: Vec::new(),
+                    round_subjects: Vec::new(),
+                    draft: None,
+                    base_ahead: 0,
+                    base_overlap: Vec::new(),
+                    last_replay: None,
+            fit: None,
+                    replay_conflict_paths: Vec::new(),
+                    join: None,
+                    arc: None,
+                },
+                ChangesetEntry::Session {
+                    owner_id: "sess-writer".to_owned(),
+                    display_name: "sess-wri".to_owned(),
+                    live: false,
+                    files: Vec::new(),
+                    draft: None,
+                },
+            ],
+            unattributed: Vec::new(),
+            orphaned: Vec::new(),
+        };
+
+        let long_prompt = "word ".repeat(20); // 100 chars flat → truncates
+        let rows = vec![
+            session_row(
+                "sess-writer",
+                None,
+                Some("fix   the\nparser bug"),
+                SessionState::Live,
+            ),
+            session_row("sess-clean", Some("polish pass"), None, SessionState::Live),
+            session_row("sess-long", None, Some(&long_prompt), SessionState::Live),
+            session_row("sess-closed", None, None, SessionState::Closed),
+        ];
+        apply_session_rows(&mut snapshot, &rows);
+
+        // Live rows all have entries (fileless when injected); the closed row
+        // without files does not. Sessions sort by id ahead of the dash.
+        let owners: Vec<&str> = snapshot
+            .changesets
+            .iter()
+            .map(|e| match e {
+                ChangesetEntry::Session { owner_id, .. } => owner_id.as_str(),
+                ChangesetEntry::Dash { owner_id, .. } => owner_id.as_str(),
+            })
+            .collect();
+        assert_eq!(
+            owners,
+            ["sess-clean", "sess-long", "sess-writer", "tugdash/demo"]
+        );
+
+        let ChangesetEntry::Session {
+            display_name,
+            live,
+            files,
+            ..
+        } = &snapshot.changesets[0]
+        else {
+            panic!("expected session entry");
+        };
+        assert_eq!(display_name, "polish pass");
+        assert!(live);
+        assert!(files.is_empty());
+
+        let ChangesetEntry::Session { display_name, .. } = &snapshot.changesets[1] else {
+            panic!("expected session entry");
+        };
+        assert_eq!(display_name.chars().count(), 65, "64 chars + ellipsis");
+        assert!(display_name.ends_with('…'));
+
+        let ChangesetEntry::Session {
+            display_name, live, ..
+        } = &snapshot.changesets[2]
+        else {
+            panic!("expected session entry");
+        };
+        assert_eq!(display_name, "fix the parser bug");
+        assert!(*live, "row state overrides the event-derived flag");
+    }
+
+    /// The relaunch case: a live session with a persisted draft but zero
+    /// attributed files (its changes ride a dash worktree, or it has gone
+    /// clean) still reads its draft back on the aggregate.
+    #[test]
+    fn attach_live_session_drafts_reaches_fileless_live_entries() {
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        for (owner_id, message) in [
+            ("sess-live", "the typed commit message"),
+            ("sess-dead", "a dead session's leftovers"),
+        ] {
+            ledger
+                .upsert_changeset_draft(&crate::session_ledger::ChangesetDraftRow {
+                    owner_kind: "session".to_owned(),
+                    owner_id: owner_id.to_owned(),
+                    project_dir: "ws".to_owned(),
+                    fingerprint: String::new(),
+                    message: message.to_owned(),
+                    updated_at: 42,
+                    edited: true,
+                    selection: None,
+                })
+                .unwrap();
+        }
+
+        let mut snapshot = ChangesetSnapshot {
+            workspace_key: "ws".to_owned(),
+            branch: "main".to_owned(),
+            ahead: 0,
+            behind: 0,
+            head_sha: String::new(),
+            head_message: String::new(),
+            changesets: vec![
+                ChangesetEntry::Session {
+                    owner_id: "sess-live".to_owned(),
+                    display_name: "live".to_owned(),
+                    live: true,
+                    files: Vec::new(),
+                    draft: None,
+                },
+                ChangesetEntry::Session {
+                    owner_id: "sess-dead".to_owned(),
+                    display_name: "dead".to_owned(),
+                    live: false,
+                    files: Vec::new(),
+                    draft: None,
+                },
+            ],
+            unattributed: Vec::new(),
+            orphaned: Vec::new(),
+        };
+        attach_live_session_drafts(&mut snapshot, &ledger);
+
+        let ChangesetEntry::Session { draft, .. } = &snapshot.changesets[0] else {
+            panic!("expected session entry");
+        };
+        let draft = draft.as_ref().expect("live entry reads its row back");
+        assert_eq!(draft.message, "the typed commit message");
+        assert!(draft.edited);
+
+        let ChangesetEntry::Session { draft, .. } = &snapshot.changesets[1] else {
+            panic!("expected session entry");
+        };
+        assert!(draft.is_none(), "a dead fileless entry attaches nothing");
+    }
+
+    #[test]
+    fn session_row_title_prefers_a_user_name_then_the_callsign() {
+        let base = session_row(
+            "sess-aaaaaaaa",
+            None,
+            Some("fix the parser"),
+            SessionState::Live,
+        );
+
+        // A tagged row speaks the identity line — `<project>/<callsign>` —
+        // not the prompt snippet.
+        let tagged = SessionRow {
+            tag: Some("stocky-pixie".to_owned()),
+            ..base.clone()
+        };
+        assert_eq!(session_row_title(&tagged), "proj/stocky-pixie");
+
+        // A user-set name leads, and the identity line stays beside it.
+        let renamed = SessionRow {
+            name: Some("the parser work".to_owned()),
+            name_user_set: true,
+            ..tagged.clone()
+        };
+        assert_eq!(
+            session_row_title(&renamed),
+            "the parser work : proj/stocky-pixie"
+        );
+
+        // An auto `aiTitle` does not front — the identity line wins.
+        let auto_titled = SessionRow {
+            name: Some("Parser bug investigation".to_owned()),
+            name_user_set: false,
+            ..tagged.clone()
+        };
+        assert_eq!(session_row_title(&auto_titled), "proj/stocky-pixie");
+
+        // No project dir → the bare callsign, never a stray slash.
+        let projectless = SessionRow {
+            project_dir: String::new(),
+            ..tagged
+        };
+        assert_eq!(session_row_title(&projectless), "stocky-pixie");
+    }
+
+    #[test]
+    fn session_row_title_keeps_the_legacy_tagless_fallbacks() {
+        let with_prompt = session_row(
+            "sess-aaaaaaaa",
+            None,
+            Some("fix  the\nparser"),
+            SessionState::Live,
+        );
+        assert_eq!(session_row_title(&with_prompt), "fix the parser");
+
+        let bare = session_row("sess-aaaaaaaa", None, None, SessionState::Live);
+        assert_eq!(session_row_title(&bare), "sess-aaa", "exactly id[..8]");
+
+        // An auto title on a tagless row falls through to the prompt.
+        let auto_titled = SessionRow {
+            name: Some("Parser bug investigation".to_owned()),
+            name_user_set: false,
+            ..with_prompt
+        };
+        assert_eq!(session_row_title(&auto_titled), "fix the parser");
+    }
+
+    fn project_file_event(
+        session_id: &str,
+        owner_name: Option<&str>,
+        owner_name_user_set: bool,
+        owner_tag: Option<&str>,
+    ) -> ProjectFileEvent {
+        ProjectFileEvent {
+            event: FileEventRow {
+                tug_session_id: session_id.to_owned(),
+                tool_use_id: "tu-1".to_owned(),
+                file_path: "a.txt".to_owned(),
+                tool_name: "Edit".to_owned(),
+                op: "modified".to_owned(),
+                origin: "proof".to_owned(),
+                ambiguous: false,
+                parent_tool_use_id: None,
+                project_dir: "/proj".to_owned(),
+                at: 0,
+            },
+            owner_name: owner_name.map(str::to_owned),
+            owner_name_user_set,
+            owner_tag: owner_tag.map(str::to_owned),
+            owner_live: true,
+        }
+    }
+
+    #[test]
+    fn session_display_name_speaks_the_callsign_before_the_hash() {
+        let tagged = project_file_event("sess-aaaaaaaa", None, false, Some("stocky-pixie"));
+        assert_eq!(session_display_name(&tagged), "proj/stocky-pixie");
+
+        let renamed = project_file_event(
+            "sess-aaaaaaaa",
+            Some("the parser work"),
+            true,
+            Some("stocky-pixie"),
+        );
+        assert_eq!(
+            session_display_name(&renamed),
+            "the parser work : proj/stocky-pixie"
+        );
+
+        let auto_titled = project_file_event(
+            "sess-aaaaaaaa",
+            Some("Parser bug investigation"),
+            false,
+            Some("stocky-pixie"),
+        );
+        assert_eq!(session_display_name(&auto_titled), "proj/stocky-pixie");
+
+        // A legacy tagless row still degrades to exactly id[..8] — the
+        // client's hash-equality sniff depends on that form.
+        let legacy = project_file_event("sess-aaaaaaaa", None, false, None);
+        assert_eq!(session_display_name(&legacy), "sess-aaa");
+    }
+
+    #[tokio::test]
+    async fn run_changeset_commit_commits_exactly_the_listed_files() {
+        let (_temp, repo) = init_repo();
+        // Three dirty paths — one listed, one pre-staged into the index,
+        // one untracked. The commit must take only the listed file and
+        // leave everything else exactly as it was.
+        std::fs::write(repo.join("a.txt"), "changed-a\n").unwrap();
+        std::fs::write(repo.join("b.txt"), "b\n").unwrap();
+        git(&repo, &["add", "b.txt"]);
+        std::fs::write(repo.join("c.txt"), "c\n").unwrap();
+
+        let receipt = run_changeset_commit(&repo, &["a.txt".to_string()], "commit a", None)
+            .await
+            .expect("commit succeeds");
+
+        assert_eq!(receipt.sha.len(), 40, "full HEAD sha");
+        let receipt_paths: Vec<&str> = receipt
+            .numstat
+            .lines()
+            .filter_map(|l| l.split('\t').nth(2))
+            .collect();
+        assert_eq!(
+            receipt_paths,
+            ["a.txt"],
+            "numstat lists only the listed file"
+        );
+
+        // b.txt stays staged-but-uncommitted; c.txt stays untracked.
+        let status = git_stdout(&repo, &["status", "--porcelain"])
+            .await
+            .expect("status");
+        assert!(
+            status.contains("A  b.txt"),
+            "pre-staged file untouched: {status}"
+        );
+        assert!(
+            status.contains("?? c.txt"),
+            "untracked file untouched: {status}"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_changeset_commit_stages_untracked_selections() {
+        let (_temp, repo) = init_repo();
+        std::fs::write(repo.join("fresh.txt"), "fresh\n").unwrap();
+        let receipt = run_changeset_commit(&repo, &["fresh.txt".to_string()], "add fresh", None)
+            .await
+            .expect("untracked selection commits");
+        assert!(receipt.numstat.contains("fresh.txt"));
+    }
+
+    #[tokio::test]
+    async fn run_changeset_commit_lands_the_session_trailer_pair() {
+        let (_temp, repo) = init_repo();
+        std::fs::write(repo.join("a.txt"), "changed\n").unwrap();
+        // The deck path enriches the message with the citation + machine-id
+        // pair before committing (do_changeset_commit → append_trailers).
+        // Mirror that here.
+        const FULL_ID: &str = "f6e43925-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
+        let pair: [(&str, &str); 2] = [
+            ("Tug-Session", "stocky-pixie (f6e43925)"),
+            ("Tug-Session-Id", FULL_ID),
+        ];
+        let message = tugchanges_core::append_trailers("commit a", &pair);
+        run_changeset_commit(&repo, &["a.txt".to_string()], &message, None)
+            .await
+            .expect("commit succeeds");
+        let read = |key: &'static str| {
+            let repo = repo.clone();
+            async move {
+                git_stdout(
+                    &repo,
+                    &[
+                        "log",
+                        "-1",
+                        &format!("--format=%(trailers:key={key},valueonly)"),
+                    ],
+                )
+                .await
+                .expect("git log reads the trailer")
+                .trim()
+                .to_owned()
+            }
+        };
+        assert_eq!(read("Tug-Session").await, "stocky-pixie (f6e43925)");
+        assert_eq!(read("Tug-Session-Id").await, FULL_ID);
+        // A second append over the already-trailered message is a no-op —
+        // both keys, so a re-draft never doubles either line.
+        assert_eq!(tugchanges_core::append_trailers(&message, &pair), message);
+    }
+
+    #[tokio::test]
+    async fn run_changeset_commit_refuses_empty_list_and_blank_message() {
+        let (_temp, repo) = init_repo();
+        assert!(run_changeset_commit(&repo, &[], "msg", None).await.is_err());
+        std::fs::write(repo.join("a.txt"), "changed\n").unwrap();
+        assert!(
+            run_changeset_commit(&repo, &["a.txt".to_string()], "   ", None)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn run_changeset_commit_forwards_a_hunk_election() {
+        let (_temp, repo) = init_repo();
+        let original: String = (1..=60).map(|n| format!("line{n}\n")).collect();
+        std::fs::write(repo.join("f.txt"), &original).unwrap();
+        git(&repo, &["add", "f.txt"]);
+        git(&repo, &["commit", "-q", "-m", "seed"]);
+        let edited = original
+            .replace("line2\n", "line2\nINSERTED-A\n")
+            .replace("line30\n", "CHANGED-B\n");
+        std::fs::write(repo.join("f.txt"), &edited).unwrap();
+
+        let diff = git_stdout(
+            &repo,
+            &["diff", "--no-color", "--no-ext-diff", "--", "f.txt"],
+        )
+        .await
+        .expect("diff");
+        let ids: Vec<String> = tugchanges_core::parse_hunks(&diff)
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(ids.len(), 2, "diff was: {diff}");
+
+        let mut election = std::collections::BTreeMap::new();
+        election.insert("f.txt".to_string(), vec![ids[1].clone()]);
+        run_changeset_commit(
+            &repo,
+            &["f.txt".to_string()],
+            "land the second hunk",
+            Some(election),
+        )
+        .await
+        .expect("partial commit succeeds");
+
+        let shown = git_stdout(&repo, &["show", "--no-color", "HEAD"])
+            .await
+            .expect("show");
+        assert!(shown.contains("+CHANGED-B"), "commit was: {shown}");
+        assert!(!shown.contains("INSERTED-A"), "commit was: {shown}");
+    }
+
+    #[tokio::test]
+    async fn run_changeset_commit_error_carries_git_stderr() {
+        let (_temp, repo) = init_repo();
+        let err = run_changeset_commit(&repo, &["no-such-file.txt".to_string()], "msg", None)
+            .await
+            .expect_err("missing pathspec fails");
+        assert!(
+            err.contains("no-such-file.txt"),
+            "stderr detail names the bad path: {err}"
+        );
+    }
+
+    fn file_stat(
+        path: &str,
+        status: &str,
+        added: Option<u32>,
+        deleted: Option<u32>,
+    ) -> tugchanges_core::FileStat {
+        tugchanges_core::FileStat {
+            path: path.to_string(),
+            status: status.to_string(),
+            added,
+            deleted,
+        }
+    }
+
+    #[test]
+    fn format_commit_summary_single_file() {
+        let s = format_commit_summary(
+            "0123456789abcdef",
+            "Fix the thing",
+            &[file_stat("src/a.rs", "modified", Some(3), Some(1))],
+        );
+        assert_eq!(
+            s,
+            "committed 0123456789 · 1 file(s) · +3 −1\n\
+             files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":3,\"removed\":1}]\n\
+             Fix the thing"
+        );
+    }
+
+    #[test]
+    fn format_commit_summary_keeps_the_full_multi_line_message() {
+        let s = format_commit_summary(
+            "abcdef0123456789",
+            "Subject line\n\nA longer body paragraph.",
+            &[
+                file_stat("src/a.rs", "modified", Some(10), Some(2)),
+                file_stat("src/b.rs", "created", Some(4), Some(0)),
+            ],
+        );
+        assert_eq!(
+            s,
+            "committed abcdef0123 · 2 file(s) · +14 −2\n\
+             files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":10,\"removed\":2},\
+             {\"path\":\"src/b.rs\",\"status\":\"created\",\"added\":4,\"removed\":0}]\n\
+             Subject line\n\nA longer body paragraph."
+        );
+    }
+
+    #[test]
+    fn format_commit_summary_counts_binary_absent_columns_as_zero() {
+        // A binary file reports no ± counts (`None`); it counts toward the file
+        // total but adds 0 to the ± sums and serializes as 0.
+        let s = format_commit_summary(
+            "ffffffffffffffff",
+            "Add an image",
+            &[
+                file_stat("assets/logo.png", "created", None, None),
+                file_stat("src/a.rs", "modified", Some(5), Some(3)),
+            ],
+        );
+        assert_eq!(
+            s,
+            "committed ffffffffff · 2 file(s) · +5 −3\n\
+             files: [{\"path\":\"assets/logo.png\",\"status\":\"created\",\"added\":0,\"removed\":0},\
+             {\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":5,\"removed\":3}]\n\
+             Add an image"
+        );
+    }
+
+    #[test]
+    fn format_join_summary_names_the_dash_the_base_and_the_rounds() {
+        let s = format_join_summary(
+            "0123456789abcdef",
+            "join-lane",
+            "main",
+            5,
+            "tugdash(join-lane): land the join surface",
+            &[],
+            None,
+        );
+        assert_eq!(
+            s,
+            "joined 0123456789 · join-lane → main · 5 round(s)\n\
+             tugdash(join-lane): land the join surface"
+        );
+    }
+
+    /// Over a real repository, because the bug this pins is one only git can
+    /// show: `diff-tree` does not recurse by default. `--numstat` implies it
+    /// and `--name-status` does not, so without an explicit `-r` the status
+    /// read returns `M<TAB>src` for a whole directory, no path in it matches,
+    /// and every file silently takes the "modified" default — a created file
+    /// in a nested directory would be labelled modified in a durable receipt.
+    #[tokio::test]
+    async fn landing_file_stats_reads_nested_paths_and_their_real_statuses() {
+        let (_temp, repo) = init_repo();
+        std::fs::create_dir_all(repo.join("src/deep")).unwrap();
+        std::fs::write(repo.join("src/deep/created.txt"), "new\n").unwrap();
+        std::fs::write(repo.join("committed.txt"), "base\nmore\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-q", "-m", "second"]);
+        let sha = git_stdout(&repo, &["rev-parse", "HEAD"])
+            .await
+            .expect("HEAD resolves");
+        let stats = landing_file_stats(&repo, &sha).await;
+        let by_path: std::collections::HashMap<&str, &tugchanges_core::FileStat> =
+            stats.iter().map(|f| (f.path.as_str(), f)).collect();
+        // The nested path arrives whole, not as its top directory.
+        let created = by_path
+            .get("src/deep/created.txt")
+            .expect("the nested file is listed by its full path");
+        assert_eq!(created.status, "created");
+        assert_eq!(created.added, Some(1));
+        let modified = by_path
+            .get("committed.txt")
+            .expect("the touched file is listed");
+        assert_eq!(modified.status, "modified");
+    }
+
+    /// The v2 shape, and the literal the deck's tests copy verbatim — the same
+    /// pinning discipline the commit receipt already runs on.
+    #[test]
+    fn format_join_summary_carries_the_files_line() {
+        let s = format_join_summary(
+            "0123456789abcdef",
+            "join-lane",
+            "main",
+            5,
+            "tugdash(join-lane): land the join surface",
+            &[
+                file_stat("src/a.rs", "modified", Some(16), Some(1)),
+                file_stat("src/b.rs", "created", Some(4), Some(0)),
+            ],
+            None,
+        );
+        assert_eq!(
+            s,
+            "joined 0123456789 · join-lane → main · 5 round(s)\n\
+             files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":16,\"removed\":1},\
+             {\"path\":\"src/b.rs\",\"status\":\"created\",\"added\":4,\"removed\":0}]\n\
+             tugdash(join-lane): land the join surface"
+        );
+    }
+
+    /// An empty file list omits the line entirely rather than writing an empty
+    /// array — which is byte-for-byte the shape every receipt written before
+    /// the line existed carries, so legacy and no-list are one code path.
+    #[test]
+    fn format_join_summary_omits_the_files_line_when_there_are_none() {
+        let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject line", &[], None);
+        assert_eq!(
+            s,
+            "joined abc1234567 · d → trunk · 1 round(s)\nSubject line"
+        );
+        assert!(!s.contains("files:"));
+    }
+
+    /// The fit line's position is the contract: between the header and
+    /// `files:`, claimed by its prefix rather than by an index.
+    #[test]
+    fn format_join_summary_carries_the_fit_between_the_header_and_the_files() {
+        let fit = tugdash_core::dash::FitFact {
+            head: "3f0a1c9e2b7d4f6a".to_string(),
+            base: "91c4de70f2a3b5c7".to_string(),
+            current: true,
+        };
+        let s = format_join_summary(
+            "0123456789abcdef",
+            "join-lane",
+            "main",
+            5,
+            "tugdash(join-lane): land the join surface",
+            &[file_stat("src/a.rs", "modified", Some(16), Some(1))],
+            Some(&fit),
+        );
+        assert_eq!(
+            s,
+            "joined 0123456789 · join-lane → main · 5 round(s)\n\
+             fit: verified 3f0a1c9e2b onto 91c4de70f2\n\
+             files: [{\"path\":\"src/a.rs\",\"status\":\"modified\",\"added\":16,\"removed\":1}]\n\
+             tugdash(join-lane): land the join surface"
+        );
+    }
+
+    /// A stale fit says `stale` and still names the pair — a receipt that
+    /// showed a head without the base it was verified onto would name no tree.
+    #[test]
+    fn format_join_summary_says_stale_and_still_names_the_pair() {
+        let fit = tugdash_core::dash::FitFact {
+            head: "3f0a1c9e2b7d4f6a".to_string(),
+            base: "91c4de70f2a3b5c7".to_string(),
+            current: false,
+        };
+        let s = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
+        assert_eq!(
+            s,
+            "joined abc1234567 · d → trunk · 1 round(s)\n\
+             fit: stale 3f0a1c9e2b onto 91c4de70f2\n\
+             Subject"
+        );
+    }
+
+    /// Both optional lines, in every combination — the four shapes the deck's
+    /// cursor has to survive, pinned on the server that writes them.
+    #[test]
+    fn format_join_summary_is_parse_stable_across_every_optional_line() {
+        let fit = tugdash_core::dash::FitFact {
+            head: "3f0a1c9e2b7d4f6a".to_string(),
+            base: "91c4de70f2a3b5c7".to_string(),
+            current: true,
+        };
+        let files = [file_stat("src/a.rs", "modified", Some(1), Some(0))];
+
+        // Fit, no files.
+        let fit_only =
+            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], Some(&fit));
+        assert_eq!(fit_only.lines().nth(1), Some("fit: verified 3f0a1c9e2b onto 91c4de70f2"));
+        assert_eq!(fit_only.lines().nth(2), Some("Subject"));
+        assert!(!fit_only.contains("files:"));
+
+        // Files, no fit — the pre-fit shape, with `files:` still at index 1.
+        let files_only =
+            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &files, None);
+        assert!(files_only.lines().nth(1).is_some_and(|l| l.starts_with("files: ")));
+        assert!(!files_only.contains("fit:"));
+
+        // Both.
+        let both =
+            format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &files, Some(&fit));
+        assert!(both.lines().nth(1).is_some_and(|l| l.starts_with("fit: ")));
+        assert!(both.lines().nth(2).is_some_and(|l| l.starts_with("files: ")));
+        assert_eq!(both.lines().nth(3), Some("Subject"));
+
+        // Neither.
+        let neither = format_join_summary("abc1234567def", "d", "trunk", 1, "Subject", &[], None);
+        assert_eq!(neither.lines().nth(1), Some("Subject"));
+    }    #[test]
+    fn format_join_summary_keeps_the_full_multi_line_message() {
+        let s = format_join_summary(
+            "abcdef0123456789",
+            "d",
+            "trunk",
+            1,
+            "  Subject line\n\nA longer body paragraph.\n",
+            &[],
+            None,
+        );
+        assert_eq!(
+            s,
+            "joined abcdef0123 · d → trunk · 1 round(s)\n\
+             Subject line\n\nA longer body paragraph."
+        );
+    }
+
+    #[test]
+    fn format_discard_summary_lists_the_round_subjects() {
+        let s = format_discard_summary(
+            "spike",
+            2,
+            3,
+            &["first round".to_string(), "second round".to_string()],
+            None,
+        );
+        assert_eq!(
+            s,
+            "discarded spike · 2 round(s), 3 file(s)\n\
+             first round\nsecond round"
+        );
+    }
+
+    #[test]
+    fn format_discard_summary_of_a_clean_dash_is_one_line() {
+        assert_eq!(
+            format_discard_summary("spike", 0, 0, &[], None),
+            "discarded spike · 0 round(s)"
+        );
+    }
+
+    /// A discarded dash's documents outlive it, and the receipt says so — the
+    /// one thing a discard keeps rather than destroys.
+    #[test]
+    fn format_discard_summary_says_the_documents_stay() {
+        assert_eq!(
+            format_discard_summary("spike", 0, 0, &[], Some("/repo/.tug/dashes/spike")),
+            "discarded spike · 0 round(s)\n\
+             Its documents stay at .tug/dashes/spike/."
+        );
+    }
+
+    #[test]
+    fn dash_file_rows_map_letters_and_renames() {
+        // The parse now lives in tugdash-core (shared with the CLI); what this
+        // layer owns is the letter → op mapping and the score-stripped status.
+        let files: Vec<ChangesetFile> = [
+            ("added.txt", "A"),
+            ("changed.txt", "M"),
+            ("gone.txt", "D"),
+            ("new.txt", "R100"),
+        ]
+        .into_iter()
+        .map(|(path, status)| {
+            dash_file_row(tugdash_core::DashDetailFile {
+                path: path.to_owned(),
+                status: status.to_owned(),
+            })
+        })
+        .collect();
+        let got: Vec<(&str, &str, &str)> = files
+            .iter()
+            .map(|f| (f.path.as_str(), f.git_status.as_str(), f.op.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("added.txt", "A", "created"),
+                ("changed.txt", "M", "modified"),
+                ("gone.txt", "D", "deleted"),
+                ("new.txt", "R", "renamed"),
+            ]
+        );
+    }
+
+    /// Two sessions open one project via two different spellings (real path and
+    /// a symlink to it). The relay canonicalizes `project_dir` at write, so both
+    /// land in one canonical `file_events` bucket and compose attributes both —
+    /// closing the multi-spelling dedup gap.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn two_spellings_one_project_attribute_to_one_bucket() {
+        let (_dir, root) = init_repo();
+        let link_home = tempfile::tempdir().unwrap();
+        let link = link_home.path().join("link");
+        std::os::unix::fs::symlink(&root, &link).unwrap();
+
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+        std::fs::write(root.join("b.txt"), "x").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess-a", "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .unwrap();
+        ledger
+            .record_spawn("sess-b", "ws", &link.to_string_lossy(), "card-2", 0, None)
+            .unwrap();
+
+        // Each session's write canonicalizes its own spelling; both resolve to
+        // the same canonical bucket.
+        let pd_a = CanonicalPath::from_raw(&root);
+        let pd_b = CanonicalPath::from_raw(&link);
+        assert_eq!(
+            pd_a.as_str(),
+            pd_b.as_str(),
+            "both spellings canonicalize alike"
+        );
+        ledger
+            .record_file_event(&event(
+                "sess-a",
+                "tu-1",
+                &root.join("a.txt"),
+                pd_a.as_path(),
+            ))
+            .unwrap();
+        ledger
+            .record_file_event(&event(
+                "sess-b",
+                "tu-2",
+                &root.join("b.txt"),
+                pd_b.as_path(),
+            ))
+            .unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let owners: Vec<&str> = snapshot
+            .changesets
+            .iter()
+            .filter_map(|e| match e {
+                ChangesetEntry::Session { owner_id, .. } => Some(owner_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            owners.contains(&"sess-a"),
+            "session A attributed: {owners:?}"
+        );
+        assert!(
+            owners.contains(&"sess-b"),
+            "session B (other spelling) attributed: {owners:?}"
+        );
+        assert!(
+            snapshot.unattributed.is_empty(),
+            "no file falls to unattributed: {:?}",
+            snapshot.unattributed
+        );
+    }
+
+    /// `sessions.project_dir` stays the raw typed path so the picker's
+    /// `list_for_project_dir` (raw-path lookup) keeps working — only
+    /// `file_events.project_dir` is canonicalized ([P05]).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn sessions_project_dir_stays_raw() {
+        let (_dir, root) = init_repo();
+        let link_home = tempfile::tempdir().unwrap();
+        let link = link_home.path().join("link");
+        std::os::unix::fs::symlink(&root, &link).unwrap();
+        let raw = link.to_string_lossy().to_string();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess-a", "ws", &raw, "card-1", 0, None)
+            .unwrap();
+
+        let rows = ledger.list_for_project_dir(&raw).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "picker finds the session by its raw typed path"
+        );
+        assert_eq!(
+            rows[0].project_dir, raw,
+            "sessions.project_dir stays the raw spelling"
+        );
+    }
+
+    /// The `ee31685b` shape: a legacy absolute `file_path` under one spelling of
+    /// a directory, `project_dir` under another (a symlink standing in for the
+    /// `/u` firmlink). The reconciler bridge collapses both to the same
+    /// repo-relative key, so the file is attributed — not Unattributed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn firmlink_split_row_is_attributed() {
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("lens-frame.md"), "edit").unwrap();
+        let link_home = tempfile::tempdir().unwrap();
+        let link = link_home.path().join("link");
+        std::os::unix::fs::symlink(&root, &link).unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess", "ws", &link.to_string_lossy(), "card-1", 0, None)
+            .unwrap();
+        // Legacy row: absolute file_path under the real path, project_dir the
+        // symlink spelling — the two disagree, exactly the live bug.
+        ledger
+            .record_file_event(&event("sess", "tu-1", &root.join("lens-frame.md"), &link))
+            .unwrap();
+
+        // Compose against the symlink spelling (repo_root_for returns it verbatim).
+        let snapshot = compose_snapshot(&link, Some(&ledger)).await.expect("repo");
+        let owners: Vec<&str> = snapshot
+            .changesets
+            .iter()
+            .filter_map(|e| match e {
+                ChangesetEntry::Session {
+                    owner_id, files, ..
+                } if !files.is_empty() => Some(owner_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            owners,
+            ["sess"],
+            "the split row is attributed to its session"
+        );
+        assert!(
+            snapshot.unattributed.is_empty(),
+            "nothing falls to unattributed: {:?}",
+            snapshot.unattributed
+        );
+    }
+
+    /// A deleted file has no inode, but both sides speak git's repo-relative
+    /// language, so a new capture-time (repo-relative) row reconciles against
+    /// git's `D` entry.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn deleted_file_reconciles_repo_relative() {
+        let (_dir, root) = init_repo();
+        std::fs::remove_file(root.join("committed.txt")).unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        let pd = CanonicalPath::from_raw(&root);
+        ledger
+            .record_spawn("sess", "ws", pd.as_str(), "card-1", 0, None)
+            .unwrap();
+        // New capture-time form: repo-relative file_path, op deleted. The
+        // deletion postdates the repo's init commit, so the row is live.
+        let mut ev = event("sess", "tu-1", Path::new("committed.txt"), pd.as_path());
+        ev.op = "deleted".to_owned();
+        ev.at = crate::session_ledger::now_millis() + 2_000;
+        ledger.record_file_event(&ev).unwrap();
+
+        let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let owned: Vec<&str> = snapshot
+            .changesets
+            .iter()
+            .flat_map(|e| match e {
+                ChangesetEntry::Session { files, .. } => {
+                    files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>()
+                }
+                _ => Vec::new(),
+            })
+            .collect();
+        assert_eq!(
+            owned,
+            ["committed.txt"],
+            "the deleted file reconciles via its repo-relative key"
+        );
+        assert!(snapshot.unattributed.is_empty());
+    }
+
+    /// Unit coverage of the bridge decision table: relative passes through,
+    /// absolute strips, and a firmlink-split (repo_root via a symlink) collapses
+    /// through the gateway before the strip.
+    #[cfg(unix)]
+    #[test]
+    fn bridge_passes_through_relative_and_strips_absolute() {
+        let any = Path::new("/any/repo");
+        assert_eq!(
+            repo_relative(&CanonicalPath::from_raw(any), any, "dash/x.md"),
+            "dash/x.md"
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+        assert_eq!(
+            repo_relative(
+                &CanonicalPath::from_raw(&root),
+                &root,
+                root.join("a.txt").to_str().unwrap()
+            ),
+            "a.txt"
+        );
+
+        let link_home = tempfile::tempdir().unwrap();
+        let link = link_home.path().join("link");
+        std::os::unix::fs::symlink(&root, &link).unwrap();
+        assert_eq!(
+            repo_relative(
+                &CanonicalPath::from_raw(&link),
+                &link,
+                root.join("a.txt").to_str().unwrap()
+            ),
+            "a.txt",
+            "firmlink-split repo_root collapses through the gateway"
+        );
+    }
+
+    /// A first compose converts a project's legacy absolute rows to canonical
+    /// project_dir + repo-relative file_path; a second compose (marker set)
+    /// does no further writes.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn backfill_converts_absolute_rows_only_once() {
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess", "ws", &root.to_string_lossy(), "card", 0, None)
+            .unwrap();
+        // Legacy-shaped row: absolute file_path.
+        ledger
+            .record_file_event(&event("sess", "tu-1", &root.join("a.txt"), &root))
+            .unwrap();
+
+        compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let rows = ledger.file_events_for_session("sess").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].file_path, "a.txt", "row converted to repo-relative");
+        let canonical = CanonicalPath::from_raw(&root);
+        assert_eq!(
+            rows[0].project_dir,
+            canonical.as_str(),
+            "row project_dir canonicalized"
+        );
+
+        let before = ledger.file_events_for_session("sess").unwrap();
+        compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+        let after = ledger.file_events_for_session("sess").unwrap();
+        assert_eq!(before, after, "second compose does no extra writes");
+    }
+
+    /// A first compose deletes the rows naming files outside the repo and
+    /// converts the ones naming files inside it, leaving `file_events` holding
+    /// only paths a changeset can show.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn sweep_purges_out_of_repo_rows_and_keeps_in_repo_ones() {
+        let (_dir, root) = init_repo();
+        std::fs::write(root.join("a.txt"), "x").unwrap();
+        let away = tempfile::tempdir().unwrap();
+        let away_file = away.path().canonicalize().unwrap().join("note.md");
+        std::fs::write(&away_file, "x").unwrap();
+
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess", "ws", &root.to_string_lossy(), "card", 0, None)
+            .unwrap();
+        ledger
+            .record_file_event(&event("sess", "tu-1", &root.join("a.txt"), &root))
+            .unwrap();
+        ledger
+            .record_file_event(&event("sess", "tu-2", &away_file, &root))
+            .unwrap();
+
+        compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+
+        let rows = ledger.file_events_for_session("sess").unwrap();
+        assert_eq!(rows.len(), 1, "the out-of-repo row is gone: {rows:?}");
+        assert_eq!(rows[0].file_path, "a.txt");
+    }
+
+    /// An in-repo file already deleted from disk cannot canonicalize, but it is
+    /// still in the repo — the sweep must rewrite it, never purge it.
+    /// "Unresolvable" is not "outside".
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn sweep_keeps_a_row_for_a_deleted_in_repo_file() {
+        let (_dir, root) = init_repo();
+        let gone = root.join("src/gone.txt");
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn("sess", "ws", &root.to_string_lossy(), "card", 0, None)
+            .unwrap();
+        ledger
+            .record_file_event(&event("sess", "tu-1", &gone, &root))
+            .unwrap();
+
+        compose_snapshot(&root, Some(&ledger)).await.expect("repo");
+
+        let rows = ledger.file_events_for_session("sess").unwrap();
+        assert_eq!(rows.len(), 1, "the row survives: {rows:?}");
+        assert_eq!(rows[0].file_path, "src/gone.txt", "rewritten, not purged");
+    }
+
+    /// The backfill runs only for the project compose actually touches; a
+    /// project never composed keeps its legacy rows (proving no boot walk).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn backfill_never_touches_unopened_projects() {
+        let (_dir_x, root_x) = init_repo();
+        let (_dir_y, root_y) = init_repo();
+        std::fs::write(root_y.join("y.txt"), "y").unwrap();
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        // X has a legacy absolute row but is never composed.
+        ledger
+            .record_spawn("sess-x", "ws", &root_x.to_string_lossy(), "card-x", 0, None)
+            .unwrap();
+        ledger
+            .record_file_event(&event("sess-x", "tu-x", &root_x.join("x.txt"), &root_x))
+            .unwrap();
+        let x_before = ledger.file_events_for_session("sess-x").unwrap();
+
+        // Compose only Y.
+        compose_snapshot(&root_y, Some(&ledger))
+            .await
+            .expect("repo");
+
+        let x_after = ledger.file_events_for_session("sess-x").unwrap();
+        assert_eq!(x_before, x_after, "unopened project X's rows are untouched");
+        assert!(
+            x_after[0].file_path.starts_with('/'),
+            "X's row stays absolute — no boot walk"
+        );
+    }
+
+    fn draft_row(selection: Option<&str>) -> crate::session_ledger::ChangesetDraftRow {
+        crate::session_ledger::ChangesetDraftRow {
+            owner_kind: "session".to_string(),
+            owner_id: "sess-1".to_string(),
+            project_dir: "/tmp/p".to_string(),
+            fingerprint: "fp".to_string(),
+            message: "Do the thing".to_string(),
+            updated_at: 7,
+            edited: false,
+            selection: selection.map(str::to_string),
+        }
+    }
+
+    /// The outbound projection is opaque: whatever the client stored in the
+    /// selection column reaches it again unchanged. Narrowing this to a
+    /// struct is how the hunk elections were dropped between the ledger and
+    /// the deck — serde discards the fields the struct does not name.
+    #[test]
+    fn draft_projection_preserves_unnamed_selection_keys() {
+        let stored = r#"{"include":["a.rs"],"exclude":[],"hunks":{"f.txt":["abc123","def456"]}}"#;
+        let draft = draft_from_row(&draft_row(Some(stored)));
+        let selection = draft.selection.expect("selection projects");
+
+        assert_eq!(selection["include"], serde_json::json!(["a.rs"]));
+        assert_eq!(
+            selection["hunks"],
+            serde_json::json!({"f.txt": ["abc123", "def456"]}),
+            "a key no Rust type names must survive the projection"
+        );
+    }
+
+    /// A hand-mangled selection reads as no overrides rather than poisoning
+    /// the snapshot.
+    #[test]
+    fn draft_projection_drops_a_malformed_selection() {
+        assert!(
+            draft_from_row(&draft_row(Some("{not json")))
+                .selection
+                .is_none()
+        );
+        assert!(draft_from_row(&draft_row(None)).selection.is_none());
+    }
+}
+
+/// The M02A checklist, walked against the real machinery rather than by hand.
+///
+/// Every step here runs the product path: a real git repo, a real
+/// `SessionLedger` holding a live session and a proof row, the real
+/// [`compose_snapshot`], the real draft round trip through the ledger, and the
+/// real landing engine. What it does **not** drive is the rendering — the
+/// checkbox, the badge text, and the disabled control are React, and are
+/// covered by the `reconcileHunkElection` unit table and by at0333.
+///
+/// The point of walking it here is that every M02A defect lived on this side
+/// of the boundary: the projection that dropped the election, the two diff
+/// spellings that could disagree about an id, the landing that had to refuse
+/// drift. A checklist item a machine can hold is not a hand-verification item.
+#[cfg(test)]
+mod m02a_verification {
+    use super::*;
+    use crate::session_ledger::{ChangesetDraftRow, FileEventRow};
+    use std::path::Path;
+
+    const SESSION: &str = "hv-session";
+    const FILE: &str = "wide.txt";
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// 120 committed lines, then edits at 20 and 90 — far enough apart that
+    /// git emits two hunks rather than merging them.
+    fn dirty_two_hunks(root: &Path) {
+        let dirty: String = (1..=120)
+            .map(|n| match n {
+                20 | 90 => format!("line {n} CHANGED\n"),
+                _ => format!("line {n}\n"),
+            })
+            .collect();
+        std::fs::write(root.join(FILE), dirty).unwrap();
+    }
+
+    fn seed_repo() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git(&root, &["init", "-q", "-b", "main"]);
+        git(&root, &["config", "user.email", "t@t.test"]);
+        git(&root, &["config", "user.name", "t"]);
+        let base: String = (1..=120).map(|n| format!("line {n}\n")).collect();
+        std::fs::write(root.join(FILE), base).unwrap();
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-q", "-m", "init"]);
+        dirty_two_hunks(&root);
+        (dir, root)
+    }
+
+    /// A live session that proof-owns the dirty file — the shape a real
+    /// session-entry row is composed from.
+    fn seed_ledger(root: &Path) -> SessionLedger {
+        let ledger = SessionLedger::open_in_memory().unwrap();
+        ledger
+            .record_spawn(SESSION, "ws", &root.to_string_lossy(), "card-1", 0, None)
+            .unwrap();
+        ledger
+            .record_file_event(&FileEventRow {
+                tug_session_id: SESSION.to_owned(),
+                tool_use_id: "tu-1".to_owned(),
+                file_path: root.join(FILE).to_string_lossy().into_owned(),
+                tool_name: "Edit".to_owned(),
+                op: "write".to_owned(),
+                origin: "exact".to_owned(),
+                ambiguous: false,
+                parent_tool_use_id: None,
+                project_dir: root.to_string_lossy().into_owned(),
+                // Past the row-liveness cut (the file's last commit).
+                at: 9_000_000_000_000,
+            })
+            .unwrap();
+        ledger
+    }
+
+    /// The hunk ids the deck's checkboxes are keyed by — read the way the deck
+    /// reads them, off the wire.
+    async fn wire_hunk_ids(root: &Path) -> Vec<String> {
+        let diff = super::super::git::fetch_git_diff_with_untracked(root, &[])
+            .await
+            .expect("wire diff");
+        super::super::git::parse_git_diff(&diff)
+            .into_iter()
+            .find(|f| f.path == FILE)
+            .expect("the dirty file is on the wire")
+            .hunks
+    }
+
+    fn write_election(ledger: &SessionLedger, root: &Path, ids: &[&str]) {
+        let selection = serde_json::json!({
+            "include": [],
+            "exclude": [],
+            "hunks": { FILE: ids },
+        });
+        ledger
+            .upsert_changeset_draft(&ChangesetDraftRow {
+                owner_kind: "session".to_owned(),
+                owner_id: SESSION.to_owned(),
+                project_dir: root.to_string_lossy().into_owned(),
+                fingerprint: "fp".to_owned(),
+                message: "Land part of the file".to_owned(),
+                updated_at: 1,
+                edited: false,
+                selection: Some(selection.to_string()),
+            })
+            .unwrap();
+    }
+
+    /// The composed session entry for our seeded session.
+    async fn session_entry(root: &Path, ledger: &SessionLedger) -> ChangesetEntry {
+        compose_snapshot(root, Some(ledger))
+            .await
+            .expect("repo composes")
+            .changesets
+            .into_iter()
+            .find(|e| matches!(e, ChangesetEntry::Session { owner_id, .. } if owner_id == SESSION))
+            .expect("the live session owns a dirty file, so it has an entry")
+    }
+
+    fn head_patch(root: &Path) -> String {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["show", "--no-color", "HEAD"])
+            .output()
+            .expect("git show");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    /// **HV1 + HV2** — the election settles, survives the round trip through
+    /// the ledger, and the row can count it.
+    ///
+    /// This is the F1 defect's exact path. Before the projection was made
+    /// opaque, the `hunks` key was written to the ledger and then dropped by
+    /// the typed struct on the way back out, so the checkbox snapped back and
+    /// the badge never appeared. `elected`/`total` here are the two numbers
+    /// the `N of M hunks` badge renders.
+    #[tokio::test]
+    async fn hv1_hv2_the_election_settles_and_the_row_can_count_it() {
+        let (_dir, root) = seed_repo();
+        let ledger = seed_ledger(&root);
+        let ids = wire_hunk_ids(&root).await;
+        assert_eq!(ids.len(), 2, "two well-separated edits, two hunks");
+
+        write_election(&ledger, &root, &[&ids[0]]);
+
+        let ChangesetEntry::Session { files, draft, .. } = session_entry(&root, &ledger).await
+        else {
+            panic!("session entry");
+        };
+        assert!(
+            files.iter().any(|f| f.path == FILE),
+            "the session owns the dirty file"
+        );
+
+        let selection = draft
+            .expect("an entry with files carries its draft")
+            .selection
+            .expect("the draft carries the selection");
+        assert_eq!(
+            selection["hunks"][FILE],
+            serde_json::json!([ids[0]]),
+            "the election survives the projection — the F1 defect verbatim"
+        );
+
+        // What the badge renders: elected ∩ current = 1, total = 2.
+        let elected = selection["hunks"][FILE]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|id| ids.iter().any(|cur| cur == id.as_str().unwrap()))
+            .count();
+        assert_eq!((elected, ids.len()), (1, 2), "the row reads `1 of 2 hunks`");
+    }
+
+    /// **HV4 + HV6** — a partial landing takes only the elected hunk and
+    /// leaves the rest dirty; an unelected file still lands whole.
+    #[tokio::test]
+    async fn hv4_hv6_partial_lands_alone_and_whole_file_still_lands_whole() {
+        let (_dir, root) = seed_repo();
+        let _ledger = seed_ledger(&root);
+        let ids = wire_hunk_ids(&root).await;
+
+        // HV4: land the first hunk only.
+        let mut hunks = std::collections::BTreeMap::new();
+        hunks.insert(FILE.to_string(), vec![ids[0].clone()]);
+        tugchanges_core::commit(tugchanges_core::CommitOptions {
+            project: Some(root.clone()),
+            message: "land the first hunk".to_string(),
+            paths: Some(vec![FILE.to_string()]),
+            hunks: Some(hunks),
+            ..Default::default()
+        })
+        .expect("the partial landing succeeds");
+
+        let shown = head_patch(&root);
+        assert!(
+            shown.contains("line 20 CHANGED"),
+            "the elected hunk landed: {shown}"
+        );
+        assert!(
+            !shown.contains("line 90 CHANGED"),
+            "the unelected hunk did NOT land: {shown}"
+        );
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&status.stdout).contains(FILE),
+            "the remainder is still dirty"
+        );
+
+        // HV6: no election now — the remainder lands whole.
+        tugchanges_core::commit(tugchanges_core::CommitOptions {
+            project: Some(root.clone()),
+            message: "land the rest".to_string(),
+            paths: Some(vec![FILE.to_string()]),
+            ..Default::default()
+        })
+        .expect("the whole-file landing succeeds");
+        assert!(
+            head_patch(&root).contains("line 90 CHANGED"),
+            "the remainder landed whole"
+        );
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["status", "--porcelain"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+            "the tree is clean"
+        );
+    }
+
+    /// **HV5 + HV8** — an election whose content has moved is refused by name,
+    /// and the refusal stages nothing.
+    ///
+    /// HV8's display half (the row reading `stale election` rather than a
+    /// silent whole-file landing) is the `reconcileHunkElection` table's job;
+    /// what matters here is that the condition it warns about is real — the
+    /// landing genuinely refuses rather than quietly taking the whole file.
+    #[tokio::test]
+    async fn hv5_hv8_drift_refuses_by_name_and_stages_nothing() {
+        let (_dir, root) = seed_repo();
+        let _ledger = seed_ledger(&root);
+        let ids = wire_hunk_ids(&root).await;
+
+        // Elect the first hunk, then edit that hunk's own content out from
+        // under the election.
+        let drifted: String = (1..=120)
+            .map(|n| match n {
+                20 => "line 20 CHANGED AGAIN\n".to_string(),
+                90 => "line 90 CHANGED\n".to_string(),
+                _ => format!("line {n}\n"),
+            })
+            .collect();
+        std::fs::write(root.join(FILE), drifted).unwrap();
+
+        let mut hunks = std::collections::BTreeMap::new();
+        hunks.insert(FILE.to_string(), vec![ids[0].clone()]);
+        let err = tugchanges_core::commit(tugchanges_core::CommitOptions {
+            project: Some(root.clone()),
+            message: "land a hunk that moved".to_string(),
+            paths: Some(vec![FILE.to_string()]),
+            hunks: Some(hunks),
+            ..Default::default()
+        })
+        .expect_err("the elected hunk is no longer in the file");
+
+        match &err {
+            tugchanges_core::CommitError::HunkDrift { path, ids: named } => {
+                assert_eq!(path, FILE, "the refusal names the path");
+                assert_eq!(named, &vec![ids[0].clone()], "and the drifted id");
+            }
+            other => panic!("expected a typed drift refusal, got {other:?}"),
+        }
+        assert!(
+            err.to_string().starts_with("hunk drift:"),
+            "the refusal reads as drift: {err}"
+        );
+
+        let staged = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["diff", "--cached", "--name-only"])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&staged.stdout).trim().is_empty(),
+            "a refused landing leaves nothing staged"
+        );
+    }
+
+    /// **HV3's premise** — an election that selects nothing is refused, which
+    /// is what makes the disabled last checkbox correct rather than arbitrary.
+    ///
+    /// The control refuses to let the user uncheck the sole remaining hunk.
+    /// That guard is only honest if the state it prevents is genuinely
+    /// unreachable-by-design, so this pins the engine end of it: a file in the
+    /// landing set with an empty election is an error, not a whole-file
+    /// disposition.
+    #[tokio::test]
+    async fn hv3_an_election_that_selects_nothing_is_refused() {
+        let (_dir, root) = seed_repo();
+        let mut hunks = std::collections::BTreeMap::new();
+        hunks.insert(FILE.to_string(), Vec::new());
+
+        let err = tugchanges_core::commit(tugchanges_core::CommitOptions {
+            project: Some(root.clone()),
+            message: "land nothing".to_string(),
+            paths: Some(vec![FILE.to_string()]),
+            hunks: Some(hunks),
+            ..Default::default()
+        })
+        .expect_err("an empty election is not a disposition");
+        assert!(
+            err.to_string().contains("selects no hunks"),
+            "the refusal says why: {err}"
+        );
+    }
+
+    /// **HV7's mechanism** — the id a collapsed band is keyed by survives a
+    /// hunk appearing above it.
+    ///
+    /// at0333 drives the DOM half on a real row (the band stays folded and the
+    /// diff body is the same node). This pins the half that makes that
+    /// meaningful: the id is content-derived, so inserting a hunk above does
+    /// not move it — if ids shifted with position, surviving the mount would
+    /// still land the fold on the wrong band.
+    #[tokio::test]
+    async fn hv7_a_hunk_appearing_above_does_not_move_the_ids_below_it() {
+        let (_dir, root) = seed_repo();
+        let before = wire_hunk_ids(&root).await;
+        assert_eq!(before.len(), 2);
+
+        // A third edit between the two, far enough from both to be its own
+        // hunk — the "a hunk appears above the collapsed one" transition.
+        let three: String = (1..=120)
+            .map(|n| match n {
+                20 | 55 | 90 => format!("line {n} CHANGED\n"),
+                _ => format!("line {n}\n"),
+            })
+            .collect();
+        std::fs::write(root.join(FILE), three).unwrap();
+
+        let after = wire_hunk_ids(&root).await;
+        assert_eq!(after.len(), 3, "the new edit is its own hunk");
+        assert_eq!(
+            (after[0].clone(), after[2].clone()),
+            (before[0].clone(), before[1].clone()),
+            "the original hunks keep their ids — the `@@` header is not hashed, \
+             so a hunk appearing between them cannot move either one"
+        );
+    }
+}

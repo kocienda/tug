@@ -1,0 +1,1 @@
+The python two-marker span cut — command lifted verbatim from `c992c30d-08b2-4808-89b9-f761014b0b7e.jsonl`; `tugapp/Sources/MainWindow.swift` is `tugapp/Sources/MainWindow.swift` at `f3a8b98c8`. Captured on macOS (BSD sed/awk).

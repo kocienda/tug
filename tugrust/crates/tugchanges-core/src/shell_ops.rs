@@ -9,7 +9,9 @@
 //! refuses rather than guesses. The failure direction is always "stays a
 //! bracket hint", never a wrong proof row.
 //!
-//! Pure functions only — no filesystem, no git, no canonicalization. Operands
+//! Pure functions only on the proof path — no filesystem, no git, no
+//! canonicalization. (The steer walks for a `.git` entry, which is one
+//! `exists` check and can only ever deny.) Operands
 //! are resolved lexically against `base_dir` (plus any leading literal `cd`);
 //! consumers that join against canonical-space keys canonicalize at the join.
 //!
@@ -78,12 +80,25 @@ pub enum Suggestion {
     Lifecycle,
     /// An in-place editor rewriting file contents.
     Edit,
+    /// An interpreter writing a repo file from a program text the grammar
+    /// cannot read — the one refusal that comes from looking inside a body.
+    Rev,
 }
 
 /// Parse `command` into the file operations it declares, resolving relative
 /// operands against `base_dir`.
 pub fn parse_shell_ops(command: &str, base_dir: &Path) -> ParseOutcome {
-    let stripped = strip_heredoc_bodies(command);
+    let (stripped, heredocs) = split_heredoc_bodies(command);
+    // The steer runs before any op is collected, so a refusal outranks what
+    // the line would otherwise mint — notably the `mv` row a `/tmp` round trip
+    // produces, which names the destination but nothing about where the
+    // content came from.
+    if let Some(reason) = rev_steer(&stripped, &heredocs, base_dir) {
+        return ParseOutcome::Unparseable {
+            reason,
+            suggest: Suggestion::Rev,
+        };
+    }
     let tokens = tokenize(&stripped);
     let mut cwd: Option<PathBuf> = Some(base_dir.to_path_buf());
     let mut ops: Vec<DeclaredOp> = Vec::new();
@@ -113,19 +128,41 @@ pub fn parse_shell_ops(command: &str, base_dir: &Path) -> ParseOutcome {
 /// the text — a body is data, and `rm` inside one deletes nothing. The `<<WORD`
 /// operator itself stays on its line so the command around it (notably the
 /// `cat > path <<'EOF'` idiom's redirect target) still parses.
-fn strip_heredoc_bodies(command: &str) -> String {
+/// A heredoc body, keyed by the delimiter word that opened it — the only join
+/// key there is: stripping is line-based and segmenting is token-based, and
+/// `tokenize` collapses `<` and `<<` into one token, so position cannot say
+/// which segment opened which body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Heredoc {
+    delimiter: String,
+    body: String,
+}
+
+/// The stripped text, and the bodies it removed. The proof path takes `.0`
+/// and never sees the rest: keeping the two apart is a type-level fact rather
+/// than a convention, so no code on that side can read a body by accident.
+fn split_heredoc_bodies(command: &str) -> (String, Vec<Heredoc>) {
     let mut out: Vec<&str> = Vec::new();
     let mut pending: Vec<String> = Vec::new();
     let mut active: Option<String> = None;
+    let mut body = String::new();
+    let mut bodies: Vec<Heredoc> = Vec::new();
 
     for line in command.lines() {
         if let Some(delim) = &active {
             if line.trim_end() == delim.as_str() || line.trim() == delim.as_str() {
+                bodies.push(Heredoc {
+                    delimiter: delim.clone(),
+                    body: std::mem::take(&mut body),
+                });
                 active = if pending.is_empty() {
                     None
                 } else {
                     Some(pending.remove(0))
                 };
+            } else {
+                body.push_str(line);
+                body.push('\n');
             }
             continue;
         }
@@ -135,7 +172,11 @@ fn strip_heredoc_bodies(command: &str) -> String {
             active = Some(pending.remove(0));
         }
     }
-    out.join("\n")
+    // An unterminated heredoc still opened a body worth reading.
+    if let Some(delimiter) = active {
+        bodies.push(Heredoc { delimiter, body });
+    }
+    (out.join("\n"), bodies)
 }
 
 /// The heredoc delimiters a single line opens, in order. Quote-aware so a `<<`
@@ -898,6 +939,299 @@ fn lexical_normalize(path: &Path) -> PathBuf {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The rev steer
+// ---------------------------------------------------------------------------
+
+/// Interpreters the steer watches, when their program text arrives **inline** —
+/// a heredoc body, a `-c`/`-e` argument, or (for `awk`) the program operand.
+/// A head invoked with a script *file* is never considered: the program is not
+/// in the command at all, so there is nothing to read and nothing to steer.
+const WATCHED_INTERPRETERS: [&str; 8] = [
+    "python", "python3", "perl", "ruby", "bun", "node", "deno", "awk",
+];
+
+/// Call shapes that write. `open(` is judged separately, on its mode argument.
+const WRITE_CALLS: [&str; 8] = [
+    "write_text(",
+    ".write(",
+    "writelines(",
+    "Bun.write(",
+    "writeFileSync(",
+    "fs.writeFile",
+    "File.write",
+    "IO.write",
+];
+
+/// Prefixes a path may sit under and still be none of the ledger's business:
+/// scratch space, generated output, and the untracked dash documents.
+const EXCLUDED_PREFIXES: [&str; 3] = ["/tmp", "/var/folders", "/private/var/folders"];
+const EXCLUDED_COMPONENTS: [&str; 5] = ["target", "node_modules", ".git", ".tug", "dist"];
+
+/// Whether a command writes a repo file from a program the grammar cannot read.
+///
+/// This is the one place a heredoc body is looked at, and it can only ever
+/// produce a **denial with a suggestion** — nothing scanned here mints a row,
+/// so the soundness axioms the proof path holds are untouched. Two independent
+/// signals are required, a write-shaped call *and* a repo-shaped path literal,
+/// because either alone is ordinary read-only analysis.
+fn rev_steer(stripped: &str, heredocs: &[Heredoc], base_dir: &Path) -> Option<String> {
+    let root = checkout_root(base_dir)?;
+    let tokens = tokenize(stripped);
+    let mut unclaimed: Vec<&Heredoc> = heredocs.iter().collect();
+    let mut temp_writes: Vec<String> = Vec::new();
+
+    for segment in split_segments(&tokens) {
+        let words: Vec<&Word> = segment
+            .iter()
+            .filter_map(|t| match t {
+                Tok::Word(w) => Some(w),
+                _ => None,
+            })
+            .collect();
+        let head = words
+            .first()
+            .map(|w| basename(&w.text))
+            .unwrap_or_default();
+
+        // A body belongs to the segment that opened it, joined by its
+        // delimiter word: `tokenize` collapses `<` and `<<` into one `Tok::In`,
+        // so position cannot say which segment opened what.
+        let mut mine: Vec<String> = Vec::new();
+        for (i, tok) in segment.iter().enumerate() {
+            if !matches!(tok, Tok::In) {
+                continue;
+            }
+            let Some(Tok::Word(delim)) = segment.get(i + 1) else {
+                continue;
+            };
+            if let Some(at) = unclaimed.iter().position(|h| h.delimiter == delim.text) {
+                mine.push(unclaimed.remove(at).body.clone());
+            }
+        }
+
+        let watched = WATCHED_INTERPRETERS.contains(&head.as_str());
+        if watched {
+            if let Some(inline) = inline_program(&head, &words) {
+                mine.push(inline);
+            }
+            for program in &mine {
+                if writes_shaped(program, &head) {
+                    if let Some(path) = quoted_pieces(program)
+                        .into_iter()
+                        .find(|literal| is_repo_shaped(literal, base_dir, &root))
+                    {
+                        return Some(format!(
+                            "this {head} writes `{path}` from a program the change ledger cannot read, \
+                             so the edit would land unattributed"
+                        ));
+                    }
+                }
+            }
+        }
+
+        // The `/tmp` round trip is the one shape whose evidence spans segments:
+        // an interpreter (or `head`) writing a temp file, and a later `mv`
+        // moving it onto a repo path. The `mv` row that shape mints today names
+        // the destination but says nothing true about where the content came
+        // from.
+        if watched || head == "head" {
+            temp_writes.extend(redirect_targets(&segment).into_iter().filter(|t| is_temp(t)));
+        }
+        if head == "mv" {
+            let operands: Vec<&str> = words
+                .iter()
+                .skip(1)
+                .filter(|w| w.literal && !w.text.starts_with('-'))
+                .map(|w| w.text.as_str())
+                .collect();
+            if let (Some(source), Some(destination)) = (operands.first(), operands.last()) {
+                if operands.len() >= 2
+                    && temp_writes.iter().any(|t| t == source)
+                    && is_repo_shaped(destination, base_dir, &root)
+                {
+                    return Some(format!(
+                        "this stages `{destination}` through a temp file written by a program the change \
+                         ledger cannot read, so only the move would be attributed and not the content"
+                    ));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// The program text a watched head carries inline: a `-c`/`-e` argument, or
+/// `awk`'s first non-flag operand.
+fn inline_program(head: &str, words: &[&Word]) -> Option<String> {
+    let mut rest = words.iter().skip(1).peekable();
+    let mut operands: Vec<&Word> = Vec::new();
+    while let Some(word) = rest.next() {
+        if word.text == "-c" || word.text == "-e" {
+            return rest.next().map(|w| w.text.clone());
+        }
+        if let Some(inline) = word.text.strip_prefix("-e") {
+            if !inline.is_empty() {
+                return Some(inline.to_string());
+            }
+        }
+        if !word.text.starts_with('-') {
+            operands.push(word);
+        }
+    }
+    // `awk 'program' file` — the program is the first operand, and a `-f`
+    // script file would have been a flag.
+    if head == "awk" {
+        return operands.first().map(|w| w.text.clone());
+    }
+    None
+}
+
+/// Whether a program text writes anything. `awk`'s writes are redirections
+/// inside the program rather than calls.
+fn writes_shaped(program: &str, head: &str) -> bool {
+    // A program that only prints is not writing a file, however it spells it.
+    let text = program
+        .replace("stdout.write(", "")
+        .replace("stderr.write(", "");
+    if WRITE_CALLS.iter().any(|call| text.contains(call)) {
+        return true;
+    }
+    if head == "awk" && (text.contains('>') || text.contains(">>")) {
+        return true;
+    }
+    opens_for_writing(&text)
+}
+
+/// `open(…, "w")` and its relatives — judged on the mode argument, so a
+/// read-only `open(path)` passes.
+fn opens_for_writing(text: &str) -> bool {
+    let mut from = 0;
+    while let Some(at) = text[from..].find("open(") {
+        let start = from + at + "open(".len();
+        let window = &text[start..text.len().min(start + 200)];
+        let end = window.find(')').unwrap_or(window.len());
+        for mode in quoted_pieces(&window[..end]) {
+            if mode.len() <= 3 && (mode.contains('w') || mode.contains('a')) {
+                return true;
+            }
+        }
+        from = start;
+    }
+    false
+}
+
+/// A path literal is repo-shaped when it is a literal (no expansion), resolves
+/// under the checkout, and is not somewhere the ledger has no business.
+fn is_repo_shaped(literal: &str, base_dir: &Path, root: &Path) -> bool {
+    if literal.is_empty() || literal.chars().any(|c| matches!(c, '$' | '`' | '*' | '?' | '~')) {
+        return false;
+    }
+    if literal.contains(char::is_whitespace) {
+        return false;
+    }
+    // Something a person would recognise as a path: a separator, or a name
+    // with an extension. Otherwise every short string in a program resolves
+    // under the checkout and means nothing.
+    let has_extension = literal
+        .rsplit_once('.')
+        .is_some_and(|(stem, ext)| {
+            !stem.is_empty()
+                && (1..=6).contains(&ext.len())
+                && ext.chars().all(|c| c.is_ascii_alphanumeric())
+        });
+    if !literal.contains('/') && !has_extension {
+        return false;
+    }
+    if EXCLUDED_PREFIXES.iter().any(|p| literal.starts_with(p)) {
+        return false;
+    }
+
+    let Some(resolved) = resolve(&Some(base_dir.to_path_buf()), literal) else {
+        return false;
+    };
+    // The scratch prefixes are judged on the literal alone, above. A path that
+    // resolves *inside* the checkout is the checkout's, wherever the checkout
+    // itself happens to sit, and anything that lands outside it is refused by
+    // the root test below.
+    // Excluded components are judged against the path *inside* the checkout:
+    // a dash worktree lives under `.tug/worktrees/`, so judging the absolute
+    // path would make the steer dead in every dash — which is exactly where
+    // the edits are.
+    let Ok(inside) = resolved.strip_prefix(root) else {
+        return false;
+    };
+    if inside.components().any(|c| {
+        EXCLUDED_COMPONENTS.contains(&c.as_os_str().to_string_lossy().as_ref())
+    }) {
+        return false;
+    }
+    true
+}
+
+/// The checkout `base_dir` sits in, by walking its ancestors for a `.git`
+/// entry. `exists`, not `is_dir`: a linked worktree's `.git` is a file.
+///
+/// This is the module's one filesystem touch, and it is the steer's, never the
+/// proof path's — `git rev-parse` would be a subprocess per command on the
+/// relay's hot path.
+fn checkout_root(base_dir: &Path) -> Option<PathBuf> {
+    let mut here = Some(base_dir);
+    while let Some(dir) = here {
+        if dir.join(".git").exists() {
+            return Some(dir.to_path_buf());
+        }
+        here = dir.parent();
+    }
+    None
+}
+
+fn is_temp(path: &str) -> bool {
+    EXCLUDED_PREFIXES.iter().any(|p| path.starts_with(p))
+}
+
+fn basename(text: &str) -> String {
+    text.rsplit('/').next().unwrap_or(text).to_string()
+}
+
+/// The literal targets this segment redirects into.
+fn redirect_targets(segment: &[Tok]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (i, tok) in segment.iter().enumerate() {
+        if matches!(tok, Tok::Out { .. }) {
+            if let Some(Tok::Word(target)) = segment.get(i + 1) {
+                if target.literal {
+                    out.push(target.text.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Every single- or double-quoted run in a text, which is where a program's
+/// path literals live.
+fn quoted_pieces(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\'' || c == '"' {
+            let mut piece = String::new();
+            i += 1;
+            while i < chars.len() && chars[i] != c {
+                piece.push(chars[i]);
+                i += 1;
+            }
+            out.push(piece);
+        }
+        i += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1116,6 +1450,183 @@ mod tests {
         assert_eq!(
             ops("echo hi >> log.txt")[0].path,
             PathBuf::from("/repo/log.txt")
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // The rev steer
+    // -----------------------------------------------------------------------
+
+    /// A real checkout: the steer's ancestor walk needs a `.git` entry to find,
+    /// and its absence is what makes the steer fail open everywhere else in
+    /// this module's tests.
+    fn checkout() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("temp");
+        std::fs::write(dir.path().join(".git"), "gitdir: elsewhere").expect("write .git");
+        dir
+    }
+
+    fn steered(root: &Path, command: &str) -> Option<String> {
+        match parse_shell_ops(command, root) {
+            ParseOutcome::Unparseable {
+                reason,
+                suggest: Suggestion::Rev,
+            } => Some(reason),
+            _ => None,
+        }
+    }
+
+    fn assert_steered(root: &Path, command: &str) {
+        assert!(
+            steered(root, command).is_some(),
+            "`{command}` should have been steered at a rev, got {:?}",
+            parse_shell_ops(command, root)
+        );
+    }
+
+    fn assert_not_steered(root: &Path, command: &str) {
+        assert!(
+            steered(root, command).is_none(),
+            "`{command}` should have passed the steer"
+        );
+    }
+
+    #[test]
+    fn an_interpreter_that_writes_a_repo_file_is_steered_at_a_rev() {
+        let dir = checkout();
+        let reason = steered(
+            dir.path(),
+            "python3 - <<'EOF'\nimport pathlib\np = pathlib.Path('tugdeck/src/main.tsx')\np.write_text('x')\nEOF",
+        )
+        .expect("steered");
+        assert!(reason.contains("tugdeck/src/main.tsx"), "{reason}");
+        assert!(reason.contains("cannot read"), "{reason}");
+    }
+
+    #[test]
+    fn every_watched_interpreter_is_scanned() {
+        let dir = checkout();
+        for head in WATCHED_INTERPRETERS {
+            let body = if head == "awk" {
+                format!("{head} '{{ print > \"src/out.ts\" }}' src/in.ts")
+            } else {
+                format!("{head} - <<'EOF'\nwriteFileSync('src/out.ts', body)\nEOF")
+            };
+            assert_steered(dir.path(), &body);
+        }
+    }
+
+    #[test]
+    fn a_body_that_only_reads_passes() {
+        let dir = checkout();
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nimport pathlib\nprint(pathlib.Path('tugdeck/src/main.tsx').read_text())\nEOF",
+        );
+        // Printing to stdout is not writing a file, however it is spelled.
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nimport sys\nsys.stdout.write(open('tugdeck/src/main.tsx').read())\nEOF",
+        );
+    }
+
+    #[test]
+    fn a_body_that_writes_only_scratch_or_generated_paths_passes() {
+        let dir = checkout();
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nopen('/tmp/scratch.json','w').write(payload)\nEOF",
+        );
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nopen('target/report.txt','w').write(payload)\nEOF",
+        );
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nopen('.tug/dashes/x/plan.md','w').write(payload)\nEOF",
+        );
+    }
+
+    #[test]
+    fn an_interpreter_running_a_script_file_is_never_steered() {
+        let dir = checkout();
+        assert_not_steered(dir.path(), "python3 tools/analyze.py");
+        assert_not_steered(dir.path(), "python3 tools/analyze.py tugdeck/src/main.tsx");
+    }
+
+    #[test]
+    fn a_path_the_body_computes_is_not_a_path_the_steer_can_read() {
+        let dir = checkout();
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nimport os\nopen(os.environ['TARGET'],'w').write(payload)\nEOF",
+        );
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nopen('$OUT/main.tsx','w').write(payload)\nEOF",
+        );
+    }
+
+    #[test]
+    fn the_tmp_round_trip_is_steered_and_a_bare_move_is_not() {
+        let dir = checkout();
+        assert_steered(
+            dir.path(),
+            "awk 'NR<10' src/main.tsx > /tmp/x.tsx && mv /tmp/x.tsx src/main.tsx",
+        );
+        assert_steered(
+            dir.path(),
+            "head -524 src/replay.rs > /tmp/head.rs && mv /tmp/head.rs src/replay.rs",
+        );
+
+        // No interpreter wrote the temp file in this line, so the move is
+        // ordinary and still declares itself.
+        match parse_shell_ops("mv /tmp/x.tsx src/main.tsx", dir.path()) {
+            ParseOutcome::Ops(ops) => assert!(
+                ops.iter().any(|op| op.path.ends_with("src/main.tsx")),
+                "{ops:?}"
+            ),
+            other => panic!("expected ops, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_rev_is_never_steered_at_itself() {
+        let dir = checkout();
+        assert_not_steered(
+            dir.path(),
+            "tugutil file rev <<'REV'\nfile tugdeck/src/main.tsx\n  delete 166\nREV",
+        );
+        assert_not_steered(
+            dir.path(),
+            "tugrev <<'REV'\nfile tugdeck/src/main.tsx\n  delete 166\nREV",
+        );
+    }
+
+    #[test]
+    fn each_heredoc_is_scanned_against_the_head_that_opened_it() {
+        let dir = checkout();
+        // The writing body belongs to `cat`, which is not an interpreter, and
+        // the interpreter's own body only reads. Joining by delimiter is what
+        // keeps the two apart; joining by position would not.
+        assert_not_steered(
+            dir.path(),
+            "cat > /tmp/a <<'A'\nopen('src/main.tsx','w')\nA\npython3 - <<'B'\nprint(open('src/main.tsx').read())\nB",
+        );
+        // And the same two bodies with the writing one under the interpreter
+        // is caught.
+        assert_steered(
+            dir.path(),
+            "cat > /tmp/a <<'A'\nnothing here\nA\npython3 - <<'B'\nopen('src/main.tsx','w').write(x)\nB",
+        );
+    }
+
+    #[test]
+    fn the_steer_fails_open_outside_a_checkout() {
+        let dir = tempfile::tempdir().expect("temp");
+        assert_not_steered(
+            dir.path(),
+            "python3 - <<'EOF'\nopen('src/main.tsx','w').write(x)\nEOF",
         );
     }
 

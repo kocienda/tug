@@ -1,0 +1,5 @@
+file tugapp/Sources/MainWindow.swift
+  delete '    /// Hand a local-model answer back to the web layer.' until '    private func escapeForJS(_ str: String) -> String {'
+  delete '        case "localModel":' until '        case "clipboardRead":'
+  delete every '        contentController.add(self, name: "localModel")'
+  delete every '        contentController.removeScriptMessageHandler(forName: "localModel")'

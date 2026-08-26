@@ -1,0 +1,1 @@
+The range-scoped s/// — command lifted verbatim from `50b4c7a0-2c3c-4832-b38c-531f3d522978.jsonl`; `tugdeck/src/components/tugways/tug-pane.css` is `tugdeck/src/components/tugways/tug-pane.css` at `7154dc386`. Captured on macOS (BSD sed/awk).

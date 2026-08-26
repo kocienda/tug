@@ -1,0 +1,15 @@
+[package]
+name = "tugrev-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Core library for the .rev edit language (lexer, parser, resolver, applier, diff)"
+
+[lib]
+name = "tugrev_core"
+path = "src/lib.rs"
+
+[dependencies]
+regex.workspace = true
+similar.workspace = true

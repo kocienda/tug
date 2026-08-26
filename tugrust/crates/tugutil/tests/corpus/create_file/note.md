@@ -1,0 +1,1 @@
+The cat > create of a whole file — command lifted verbatim from a session transcript. The target does not exist beforehand, so there is nothing to pin; `tests/model-eval/README.md` is that path at `698ed3910` and is present only so the directory the create writes into exists, as it did in the session. Captured on macOS (BSD sed/awk).

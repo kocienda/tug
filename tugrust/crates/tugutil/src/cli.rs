@@ -84,6 +84,16 @@ pub enum FileCommands {
         #[arg(last = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// Run a `.rev` program: a multi-line, multi-file edit that resolves every
+    /// address against original bytes before writing anything, and reports
+    /// exactly which files moved.
+    Rev {
+        /// Print the diff the program would produce and write nothing.
+        #[arg(long)]
+        preview: bool,
+        /// The program to run (default: stdin, or `-`).
+        file: Option<String>,
+    },
     /// Decide whether a Bash command's file operations are readable — the
     /// PreToolUse hook's allow/deny, printed as JSON. Always exits 0.
     Gate {

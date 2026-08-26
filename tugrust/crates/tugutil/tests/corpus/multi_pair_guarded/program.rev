@@ -1,0 +1,5 @@
+file tugrust/crates/tugcast/src/feeds/session_overview.rs
+  replace 'let mut h = start(Some("Building the workspace."), true, true, true);' with 'let mut h = start(Some("Harden the watch loop."), true, true, true);'
+  replace 'assert_eq!(overview["text"], "Building the workspace");' with 'assert_eq!(overview["text"], "Harden the watch loop");'
+  replace 'start_cadenced(Some("Running commands."), true, true, true, cadence)' with 'start_cadenced(Some("Harden the watch loop."), true, true, true, cadence)'
+  replace 'let mut h = start(Some("Building again."), true, true, true);' with 'let mut h = start(Some("Harden the watch loop."), true, true, true);'

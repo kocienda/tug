@@ -1,0 +1,849 @@
+//! The `.rev` grammar: file blocks and the nine ops.
+//!
+//! The parser reads the whole program before returning, so a syntax error
+//! aborts with nothing read — phase 1 of the four-phase model, where the phase
+//! boundary is the contract.
+
+use crate::ParseError;
+use crate::lex::Scanner;
+
+/// A parsed program: file blocks in source order.
+#[derive(Debug, Clone)]
+pub struct Program {
+    pub blocks: Vec<Block>,
+}
+
+/// One `file` / `files` block and the ops it holds.
+#[derive(Debug, Clone)]
+pub struct Block {
+    /// Every path the block names. A `file` block names one.
+    pub paths: Vec<String>,
+    pub ops: Vec<Op>,
+    /// 1-based source line of the block's header.
+    pub line: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Op {
+    /// 1-based source line the op was written on — what a resolve failure
+    /// points the model at.
+    pub line: usize,
+    pub kind: OpKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum OpKind {
+    Replace {
+        find: Text,
+        with: Text,
+        count: Count,
+        scope: Option<Range>,
+    },
+    Sub {
+        pattern: RegexLit,
+        repl: String,
+        count: Count,
+        scope: Option<Range>,
+    },
+    Insert {
+        anchor: Addr,
+        side: Side,
+        indented: bool,
+        body: Vec<String>,
+    },
+    Append {
+        body: Vec<String>,
+    },
+    Delete {
+        target: DeleteTarget,
+    },
+    Lines {
+        range: Range,
+        body: Vec<String>,
+    },
+    Move {
+        range: Range,
+        side: Side,
+        anchor: Addr,
+    },
+    Create {
+        body: Vec<String>,
+    },
+    Write {
+        body: Vec<String>,
+    },
+}
+
+impl OpKind {
+    /// The op's spelling, for an error that has to name it.
+    pub fn word(&self) -> &'static str {
+        match self {
+            OpKind::Replace { .. } => "replace",
+            OpKind::Sub { .. } => "sub",
+            OpKind::Insert { .. } => "insert",
+            OpKind::Append { .. } => "append",
+            OpKind::Delete { .. } => "delete",
+            OpKind::Lines { .. } => "lines",
+            OpKind::Move { .. } => "move",
+            OpKind::Create { .. } => "create",
+            OpKind::Write { .. } => "write",
+        }
+    }
+}
+
+/// A `replace`'s operand: a quoted literal, or a body whose lines join with
+/// the target file's own line ending.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Text {
+    Str(String),
+    Body(Vec<String>),
+}
+
+/// The guard. `expect 1` is the default for both `replace` and `sub`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Count {
+    Expect(usize),
+    All,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Before,
+    After,
+}
+
+#[derive(Debug, Clone)]
+pub struct RegexLit {
+    /// The pattern as written, for an error message that quotes it back.
+    pub source: String,
+    pub flags: String,
+    pub regex: regex::Regex,
+}
+
+#[derive(Debug, Clone)]
+pub enum Addr {
+    /// Line N, 1-based, as `grep -n` prints it.
+    Line(usize),
+    /// The line matching the regex, optionally qualified: `[3]` the third
+    /// match, `[-1]` the last.
+    Regex(RegexLit, Option<i64>),
+    /// The line containing the literal, same qualifier.
+    Literal(String, Option<i64>),
+    /// The file's last line.
+    Last,
+}
+
+#[derive(Debug, Clone)]
+pub struct Range {
+    pub start: Addr,
+    pub end: Addr,
+    /// `until` excludes its end line; `..` includes it.
+    pub exclusive_end: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum DeleteTarget {
+    Range(Range),
+    Every(Addr),
+}
+
+/// Parse a whole program. Phase 1: nothing is opened, nothing is read.
+pub fn parse(source: &str) -> Result<Program, ParseError> {
+    let mut scanner = Scanner::new(source);
+    let mut blocks: Vec<Block> = Vec::new();
+
+    while let Some(indent) = scanner.next_content_line() {
+        match scanner.peek_word().as_deref() {
+            Some("file") | Some("files") => {
+                let block = parse_block_header(&mut scanner)?;
+                blocks.push(block);
+            }
+            Some(_) => {
+                let op = parse_op(&mut scanner, indent)?;
+                match blocks.last_mut() {
+                    Some(block) => block.ops.push(op),
+                    None => {
+                        return Err(scanner.error_at(
+                            op.line,
+                            1,
+                            "an op must sit inside a `file` or `files` block",
+                        ));
+                    }
+                }
+            }
+            None => unreachable!("next_content_line positions on a word"),
+        }
+    }
+
+    let program = Program { blocks };
+    validate(&program, &scanner)?;
+    Ok(program)
+}
+
+fn parse_block_header(scanner: &mut Scanner) -> Result<Block, ParseError> {
+    let line = scanner.line + 1;
+    let word = scanner.read_word().unwrap_or_default();
+    let mut paths = Vec::new();
+    while !scanner.at_line_end() {
+        let at = scanner.col;
+        let path = scanner.read_word().unwrap_or_default();
+        if path.starts_with('\'') || path.starts_with('"') {
+            return Err(scanner.error_at(
+                line,
+                at + 1,
+                "a path is written bare — no quotes, no globs, no variables",
+            ));
+        }
+        paths.push(path);
+    }
+    if paths.is_empty() {
+        return Err(scanner.error_at(line, 1, format!("`{word}` names no path")));
+    }
+    if word == "file" && paths.len() > 1 {
+        return Err(scanner.error_at(
+            line,
+            1,
+            "`file` takes one path — use `files` to apply the same ops to several",
+        ));
+    }
+    scanner.finish_line()?;
+    Ok(Block {
+        paths,
+        ops: Vec::new(),
+        line,
+    })
+}
+
+fn parse_op(scanner: &mut Scanner, indent: usize) -> Result<Op, ParseError> {
+    let line = scanner.line + 1;
+    let at = scanner.col;
+    let word = scanner.read_word().unwrap_or_default();
+
+    let kind = match word.as_str() {
+        "replace" => {
+            let find = parse_text(scanner, indent)?;
+            scanner.expect_word("with")?;
+            let with = parse_text(scanner, indent)?;
+            let count = parse_count(scanner)?;
+            let scope = parse_scope(scanner)?;
+            OpKind::Replace {
+                find,
+                with,
+                count,
+                scope,
+            }
+        }
+        "sub" => {
+            let pattern = parse_regex(scanner)?;
+            let repl = scanner.read_quoted()?;
+            let count = parse_count(scanner)?;
+            let scope = parse_scope(scanner)?;
+            OpKind::Sub {
+                pattern,
+                repl,
+                count,
+                scope,
+            }
+        }
+        "before" | "after" => {
+            let side = if word == "before" {
+                Side::Before
+            } else {
+                Side::After
+            };
+            let anchor = parse_addr(scanner)?;
+            scanner.expect_word("insert")?;
+            let indented = if scanner.peek_word().as_deref() == Some("indented") {
+                scanner.read_word();
+                true
+            } else {
+                false
+            };
+            let body = parse_body(scanner, indent)?;
+            OpKind::Insert {
+                anchor,
+                side,
+                indented,
+                body,
+            }
+        }
+        "append" => OpKind::Append {
+            body: parse_body(scanner, indent)?,
+        },
+        "delete" => {
+            if scanner.peek_word().as_deref() == Some("every") {
+                scanner.read_word();
+                OpKind::Delete {
+                    target: DeleteTarget::Every(parse_addr(scanner)?),
+                }
+            } else {
+                OpKind::Delete {
+                    target: DeleteTarget::Range(parse_range(scanner)?),
+                }
+            }
+        }
+        "lines" => {
+            let range = parse_range(scanner)?;
+            scanner.expect_word("replace")?;
+            let body = parse_body(scanner, indent)?;
+            OpKind::Lines { range, body }
+        }
+        "move" => {
+            let range = parse_range(scanner)?;
+            let at = scanner.col;
+            let side = match scanner.read_word().as_deref() {
+                Some("before") => Side::Before,
+                Some("after") => Side::After,
+                _ => {
+                    return Err(scanner.error_at(
+                        line,
+                        at + 1,
+                        "expected `before` or `after` naming where the range lands",
+                    ));
+                }
+            };
+            let anchor = parse_addr(scanner)?;
+            OpKind::Move {
+                range,
+                side,
+                anchor,
+            }
+        }
+        "create" => OpKind::Create {
+            body: parse_body(scanner, indent)?,
+        },
+        "write" => OpKind::Write {
+            body: parse_body(scanner, indent)?,
+        },
+        other => {
+            return Err(scanner.error_at(line, at + 1, format!("unknown op `{other}`")));
+        }
+    };
+
+    scanner.finish_line()?;
+    Ok(Op { line, kind })
+}
+
+fn parse_text(scanner: &mut Scanner, indent: usize) -> Result<Text, ParseError> {
+    scanner.skip_spaces();
+    match scanner.peek() {
+        Some('\'') | Some('"') => Ok(Text::Str(scanner.read_quoted()?)),
+        Some('<') => Ok(Text::Body(parse_body(scanner, indent)?)),
+        _ => Err(scanner.error("expected a quoted string or a `<<` body")),
+    }
+}
+
+fn parse_body(scanner: &mut Scanner, indent: usize) -> Result<Vec<String>, ParseError> {
+    scanner.skip_spaces();
+    if !(scanner.peek() == Some('<') && scanner.peek_at(1) == Some('<')) {
+        return Err(scanner.error("expected a `<<` body"));
+    }
+    scanner.col += 2;
+    scanner.read_body(indent)
+}
+
+fn parse_regex(scanner: &mut Scanner) -> Result<RegexLit, ParseError> {
+    let line = scanner.line + 1;
+    scanner.skip_spaces();
+    let at = scanner.col;
+    let (source, flags) = scanner.read_regex()?;
+    let regex = compile(&source, &flags)
+        .map_err(|message| scanner.error_at(line, at + 1, message))?;
+    Ok(RegexLit {
+        source,
+        flags,
+        regex,
+    })
+}
+
+/// `^` and `$` are line anchors, as they are in `sed` and `perl -p`; `\A` and
+/// `\z` anchor the file.
+fn compile(source: &str, flags: &str) -> Result<regex::Regex, String> {
+    let mut prefix = String::from("(?m");
+    if flags.contains('i') {
+        prefix.push('i');
+    }
+    if flags.contains('s') {
+        prefix.push('s');
+    }
+    prefix.push(')');
+    regex::Regex::new(&format!("{prefix}{source}")).map_err(|e| format!("invalid regex: {e}"))
+}
+
+fn parse_count(scanner: &mut Scanner) -> Result<Count, ParseError> {
+    match scanner.peek_word().as_deref() {
+        Some("expect") => {
+            scanner.read_word();
+            Ok(Count::Expect(scanner.read_number()?))
+        }
+        Some("all") => {
+            scanner.read_word();
+            Ok(Count::All)
+        }
+        _ => Ok(Count::Expect(1)),
+    }
+}
+
+fn parse_scope(scanner: &mut Scanner) -> Result<Option<Range>, ParseError> {
+    if scanner.peek_word().as_deref() != Some("in") {
+        return Ok(None);
+    }
+    scanner.read_word();
+    Ok(Some(parse_range(scanner)?))
+}
+
+fn parse_addr(scanner: &mut Scanner) -> Result<Addr, ParseError> {
+    scanner.skip_spaces();
+    match scanner.peek() {
+        Some('$') => {
+            scanner.col += 1;
+            Ok(Addr::Last)
+        }
+        Some('/') => {
+            let pattern = parse_regex(scanner)?;
+            let qualifier = scanner.read_qualifier()?;
+            Ok(Addr::Regex(pattern, qualifier))
+        }
+        Some('\'') | Some('"') => {
+            let literal = scanner.read_quoted()?;
+            let qualifier = scanner.read_qualifier()?;
+            Ok(Addr::Literal(literal, qualifier))
+        }
+        Some(c) if c.is_ascii_digit() => {
+            let at = scanner.col;
+            let n = scanner.read_number()?;
+            if n == 0 {
+                return Err(scanner.error_at(
+                    scanner.line + 1,
+                    at + 1,
+                    "line numbers are 1-based, as `grep -n` prints them",
+                ));
+            }
+            Ok(Addr::Line(n))
+        }
+        _ => Err(scanner.error("expected an address: a line number, /regex/, 'literal', or $")),
+    }
+}
+
+fn parse_range(scanner: &mut Scanner) -> Result<Range, ParseError> {
+    let start = parse_addr(scanner)?;
+    scanner.skip_spaces();
+    let exclusive_end = if scanner.peek() == Some('.') && scanner.peek_at(1) == Some('.') {
+        scanner.col += 2;
+        false
+    } else if scanner.peek_word().as_deref() == Some("until") {
+        scanner.read_word();
+        true
+    } else {
+        // A bare address where a range is expected is the one-line range.
+        return Ok(Range {
+            end: start.clone(),
+            start,
+            exclusive_end: false,
+        });
+    };
+    let end = parse_addr(scanner)?;
+    Ok(Range {
+        start,
+        end,
+        exclusive_end,
+    })
+}
+
+/// The rules a well-formed program must satisfy that the grammar alone cannot
+/// state.
+fn validate(program: &Program, scanner: &Scanner) -> Result<(), ParseError> {
+    for block in &program.blocks {
+        if block.ops.is_empty() {
+            return Err(scanner.error_at(block.line, 1, "this block has no ops"));
+        }
+        for op in &block.ops {
+            let whole_file = matches!(op.kind, OpKind::Create { .. } | OpKind::Write { .. });
+            if whole_file && block.ops.len() > 1 {
+                return Err(scanner.error_at(
+                    op.line,
+                    1,
+                    format!(
+                        "`{}` writes the whole file, so it must be the only op in its block",
+                        op.kind.word()
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn program(source: &str) -> Program {
+        parse(source).expect("program parses")
+    }
+
+    fn ops(source: &str) -> Vec<Op> {
+        program(source).blocks.into_iter().next().expect("a block").ops
+    }
+
+    fn failure(source: &str) -> ParseError {
+        parse(source).expect_err("program is refused")
+    }
+
+    #[test]
+    fn a_file_block_names_one_path_and_a_files_block_names_several() {
+        let p = program(
+            "file a.rs\n  delete 1\nfiles b.rs c.rs\n  replace 'x' with 'y'\n",
+        );
+        assert_eq!(p.blocks.len(), 2);
+        assert_eq!(p.blocks[0].paths, vec!["a.rs".to_string()]);
+        assert_eq!(p.blocks[0].line, 1);
+        assert_eq!(p.blocks[1].paths, vec!["b.rs".to_string(), "c.rs".to_string()]);
+    }
+
+    #[test]
+    fn the_rename_campaign_parses() {
+        let ops = ops(concat!(
+            "files tugrust/crates/tugdash-core/src/ops.rs tugrust/crates/tugdash-core/src/replay.rs\n",
+            "  replace 'ReleaseOutcome' with 'DiscardOutcome' all\n",
+            r"  sub /\brelease_in\b/ 'discard_in' all",
+            "\n",
+            r"  sub /\bfn release_/ 'fn discard_' all",
+            "\n",
+        ));
+        assert_eq!(ops.len(), 3);
+        match &ops[0].kind {
+            OpKind::Replace {
+                find,
+                with,
+                count,
+                scope,
+            } => {
+                assert_eq!(find, &Text::Str("ReleaseOutcome".into()));
+                assert_eq!(with, &Text::Str("DiscardOutcome".into()));
+                assert_eq!(*count, Count::All);
+                assert!(scope.is_none());
+            }
+            other => panic!("expected replace, got {other:?}"),
+        }
+        match &ops[1].kind {
+            OpKind::Sub {
+                pattern,
+                repl,
+                count,
+                ..
+            } => {
+                assert_eq!(pattern.source, r"\brelease_in\b");
+                assert_eq!(repl, "discard_in");
+                assert_eq!(*count, Count::All);
+            }
+            other => panic!("expected sub, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_multi_pair_edit_with_a_body_replacement_parses() {
+        let ops = ops(concat!(
+            "file tugdeck/src/main.tsx\n",
+            "  replace 'import { attachPulseStore } from \"./lib/pulse-store\";' with <<\n",
+            "  import { attachPulseStore } from \"./lib/pulse-store\";\n",
+            "  import { attachLocalModelStore } from \"./lib/local-model-store\";\n",
+            "  >>\n",
+            "  after 'attachPulseStore(connection);' insert indented <<\n",
+            "\n",
+            "  attachLocalModelStore(connection);\n",
+            "  >>\n",
+        ));
+        assert_eq!(ops.len(), 2);
+        match &ops[0].kind {
+            OpKind::Replace { with, count, .. } => {
+                assert_eq!(
+                    with,
+                    &Text::Body(vec![
+                        "import { attachPulseStore } from \"./lib/pulse-store\";".into(),
+                        "import { attachLocalModelStore } from \"./lib/local-model-store\";".into(),
+                    ])
+                );
+                assert_eq!(*count, Count::Expect(1));
+            }
+            other => panic!("expected replace, got {other:?}"),
+        }
+        match &ops[1].kind {
+            OpKind::Insert {
+                anchor,
+                side,
+                indented,
+                body,
+            } => {
+                assert!(matches!(anchor, Addr::Literal(l, None) if l == "attachPulseStore(connection);"));
+                assert_eq!(*side, Side::After);
+                assert!(indented);
+                assert_eq!(body, &vec!["".to_string(), "attachLocalModelStore(connection);".into()]);
+            }
+            other => panic!("expected insert, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_numeric_deletes_parse_in_any_order() {
+        let ops = ops(concat!(
+            "file tugdeck/src/components/lens/sections/layouts-section.tsx\n",
+            "  delete 835 .. 849\n",
+            "  delete 521 .. 522\n",
+            "  delete 166\n",
+        ));
+        assert_eq!(ops.len(), 3);
+        match &ops[0].kind {
+            OpKind::Delete {
+                target: DeleteTarget::Range(range),
+            } => {
+                assert!(matches!(range.start, Addr::Line(835)));
+                assert!(matches!(range.end, Addr::Line(849)));
+                assert!(!range.exclusive_end);
+            }
+            other => panic!("expected delete, got {other:?}"),
+        }
+        // A bare address where a range is expected is the one-line range.
+        match &ops[2].kind {
+            OpKind::Delete {
+                target: DeleteTarget::Range(range),
+            } => {
+                assert!(matches!(range.start, Addr::Line(166)));
+                assert!(matches!(range.end, Addr::Line(166)));
+            }
+            other => panic!("expected delete, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_block_swap_and_the_truncate_at_marker_parse() {
+        let p = program(concat!(
+            "file roadmap/local-model-bringup.md\n",
+            "  move 431 .. 441 before 415\n",
+            "file roadmap/animation-tuneup.md\n",
+            "  delete /^### Remaining execution steps/ .. $\n",
+        ));
+        match &p.blocks[0].ops[0].kind {
+            OpKind::Move { range, side, anchor } => {
+                assert!(matches!(range.start, Addr::Line(431)));
+                assert!(matches!(range.end, Addr::Line(441)));
+                assert_eq!(*side, Side::Before);
+                assert!(matches!(anchor, Addr::Line(415)));
+            }
+            other => panic!("expected move, got {other:?}"),
+        }
+        match &p.blocks[1].ops[0].kind {
+            OpKind::Delete {
+                target: DeleteTarget::Range(range),
+            } => {
+                assert!(matches!(&range.start, Addr::Regex(r, None) if r.source == "^### Remaining execution steps"));
+                assert!(matches!(range.end, Addr::Last));
+            }
+            other => panic!("expected delete, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_scoped_rename_parses_its_in_range() {
+        let ops = ops(concat!(
+            "file tugdeck/src/components/chrome/tug-pane.tsx\n",
+            "  replace 'railSplit' with 'placeSplit' all in 350 .. 900\n",
+        ));
+        match &ops[0].kind {
+            OpKind::Replace { count, scope, .. } => {
+                assert_eq!(*count, Count::All);
+                let scope = scope.as_ref().expect("an `in` scope");
+                assert!(matches!(scope.start, Addr::Line(350)));
+                assert!(matches!(scope.end, Addr::Line(900)));
+            }
+            other => panic!("expected replace, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_scope_may_run_from_a_marker_to_the_end_of_the_file() {
+        let ops = ops(
+            "file a.rs\n  replace 'state.record(' with 'state.record_now(' all in /^mod tests \\{/ .. $\n",
+        );
+        match &ops[0].kind {
+            OpKind::Replace { scope, .. } => {
+                let scope = scope.as_ref().expect("an `in` scope");
+                assert!(matches!(&scope.start, Addr::Regex(r, None) if r.source == r"^mod tests \{"));
+                assert!(matches!(scope.end, Addr::Last));
+            }
+            other => panic!("expected replace, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn append_and_create_carry_their_bodies() {
+        let p = program(concat!(
+            "file gallery-motion-bench.css\n",
+            "  append <<\n",
+            "\n",
+            "  .gmb-escaped {\n",
+            "    position: fixed;\n",
+            "  }\n",
+            "  >>\n",
+            "file tests/model-eval/verbs.txt\n",
+            "  create <<\n",
+            "  add audit author\n",
+            "  >>\n",
+        ));
+        match &p.blocks[0].ops[0].kind {
+            OpKind::Append { body } => {
+                assert_eq!(
+                    body,
+                    &vec![
+                        "".to_string(),
+                        ".gmb-escaped {".into(),
+                        "  position: fixed;".into(),
+                        "}".into(),
+                    ]
+                );
+            }
+            other => panic!("expected append, got {other:?}"),
+        }
+        match &p.blocks[1].ops[0].kind {
+            OpKind::Create { body } => assert_eq!(body, &vec!["add audit author".to_string()]),
+            other => panic!("expected create, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn write_and_lines_replace_and_delete_every_parse() {
+        let write = ops("file a.txt\n  write <<\n  whole\n  >>\n");
+        assert!(matches!(&write[0].kind, OpKind::Write { body } if body == &vec!["whole".to_string()]));
+
+        let lines = ops("file a.txt\n  lines 3 until 'end marker' replace << >>\n");
+        match &lines[0].kind {
+            OpKind::Lines { range, body } => {
+                assert!(range.exclusive_end);
+                assert!(body.is_empty());
+            }
+            other => panic!("expected lines, got {other:?}"),
+        }
+
+        let every = ops("file a.txt\n  delete every /^debug!/\n");
+        assert!(matches!(
+            &every[0].kind,
+            OpKind::Delete { target: DeleteTarget::Every(Addr::Regex(_, None)) }
+        ));
+    }
+
+    #[test]
+    fn a_match_qualifier_selects_which_hit_an_address_means() {
+        let ops = ops("file a.txt\n  before /^fn go/[3] insert <<\n  x\n  >>\n  after 'tail'[-1] insert << >>\n");
+        assert!(matches!(&ops[0].kind, OpKind::Insert { anchor: Addr::Regex(_, Some(3)), .. }));
+        assert!(matches!(&ops[1].kind, OpKind::Insert { anchor: Addr::Literal(_, Some(-1)), .. }));
+    }
+
+    #[test]
+    fn a_body_is_dedented_by_its_op_lines_indentation_and_no_further() {
+        let ops = ops("file a.txt\n  append <<\n\n    kept two\n      kept four\n  >>\n");
+        match &ops[0].kind {
+            OpKind::Append { body } => assert_eq!(
+                body,
+                &vec!["".to_string(), "  kept two".into(), "    kept four".into()]
+            ),
+            other => panic!("expected append, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_default_guard_is_expect_one_for_both_replace_and_sub() {
+        let ops = ops("file a.txt\n  replace 'a' with 'b'\n  sub /a/ 'b'\n");
+        assert!(matches!(&ops[0].kind, OpKind::Replace { count: Count::Expect(1), .. }));
+        assert!(matches!(&ops[1].kind, OpKind::Sub { count: Count::Expect(1), .. }));
+    }
+
+    #[test]
+    fn all_and_an_explicit_expect_parse() {
+        let ops = ops("file a.txt\n  replace 'a' with 'b' all\n  sub /a/ 'b' expect 3\n");
+        assert!(matches!(&ops[0].kind, OpKind::Replace { count: Count::All, .. }));
+        assert!(matches!(&ops[1].kind, OpKind::Sub { count: Count::Expect(3), .. }));
+    }
+
+    #[test]
+    fn comments_and_blank_lines_are_ignored_outside_bodies() {
+        let ops = ops("# leading\nfile a.txt\n\n  # a note\n  delete 4  # trailing\n");
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].line, 5);
+    }
+
+    #[test]
+    fn a_whole_file_op_beside_another_op_is_refused_at_its_line() {
+        let err = failure("file a.txt\n  delete 1\n  write <<\n  x\n  >>\n");
+        assert_eq!(err.line, 3);
+        assert!(err.message.contains("only op"), "{}", err.message);
+
+        let err = failure("file a.txt\n  create <<\n  x\n  >>\n  delete 1\n");
+        assert_eq!(err.line, 2);
+    }
+
+    #[test]
+    fn an_unterminated_body_names_the_line_that_opened_it() {
+        let err = failure("file a.txt\n  append <<\n  x\n");
+        assert_eq!(err.line, 2);
+        assert!(err.message.contains("no `>>`"), "{}", err.message);
+    }
+
+    #[test]
+    fn an_unterminated_string_names_its_opening_quote() {
+        let err = failure("file a.txt\n  delete 'no closing quote\n");
+        assert_eq!((err.line, err.col), (2, 10));
+        assert!(err.message.contains("unterminated string"), "{}", err.message);
+    }
+
+    #[test]
+    fn an_unknown_op_names_itself_at_its_column() {
+        let err = failure("file a.txt\n  frobnicate 3\n");
+        assert_eq!((err.line, err.col), (2, 3));
+        assert!(err.message.contains("frobnicate"), "{}", err.message);
+    }
+
+    #[test]
+    fn an_invalid_regex_is_a_parse_error_rather_than_a_late_surprise() {
+        let err = failure("file a.txt\n  sub /a(/ 'b'\n");
+        assert_eq!(err.line, 2);
+        assert!(err.message.contains("invalid regex"), "{}", err.message);
+    }
+
+    #[test]
+    fn an_op_outside_any_block_is_refused() {
+        let err = failure("  delete 1\n");
+        assert_eq!(err.line, 1);
+        assert!(err.message.contains("`file`"), "{}", err.message);
+    }
+
+    #[test]
+    fn a_block_with_no_ops_is_refused_at_its_header() {
+        let err = failure("file a.txt\nfile b.txt\n  delete 1\n");
+        assert_eq!(err.line, 1);
+        assert!(err.message.contains("no ops"), "{}", err.message);
+    }
+
+    #[test]
+    fn the_only_string_escapes_are_the_five_and_every_other_backslash_is_literal() {
+        let ops = ops("file a.txt\n  replace 'a\\nb\\\\c\\d' with \"it's \\\"quoted\\\"\"\n");
+        match &ops[0].kind {
+            OpKind::Replace { find, with, .. } => {
+                assert_eq!(find, &Text::Str("a\nb\\c\\d".into()));
+                assert_eq!(with, &Text::Str("it's \"quoted\"".into()));
+            }
+            other => panic!("expected replace, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_regex_carries_its_flags_and_anchors_lines_by_default() {
+        let ops = ops("file a.txt\n  sub /^ab$/i 'x' all\n");
+        match &ops[0].kind {
+            OpKind::Sub { pattern, .. } => {
+                assert_eq!(pattern.flags, "i");
+                assert!(pattern.regex.is_match("zz\nAB\nyy"));
+            }
+            other => panic!("expected sub, got {other:?}"),
+        }
+    }
+}

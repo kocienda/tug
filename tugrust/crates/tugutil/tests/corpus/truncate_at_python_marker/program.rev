@@ -1,0 +1,2 @@
+file tugdeck/src/components/tugways/keybinding-map.ts
+  delete '// ---- Keybindings ----' .. $

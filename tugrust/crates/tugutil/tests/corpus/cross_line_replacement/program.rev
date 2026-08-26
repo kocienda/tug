@@ -1,0 +1,3 @@
+file crates/tugcast/src/feeds/session_overview.rs
+  sub /^(\s+opening: Some\("pinned"\.to_string\(\)\),)$/ '$1\n            current_ask: Some("pinned".to_string()),' all
+  sub /^(\s+opening: Some\("the goal"\.to_string\(\)\),)$/ '$1\n            current_ask: Some("the goal".to_string()),' all

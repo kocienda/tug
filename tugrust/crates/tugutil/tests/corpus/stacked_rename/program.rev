@@ -1,0 +1,7 @@
+file tugdeck/src/layout-tree.ts
+  replace '  const lensCardIds = new Set<string>();' with <<
+    /** Which sidebar card type each sidebar card id belongs to. */
+    const sidebarComponentByCardId = new Map<string, string>();
+  >>
+  replace ' *   6. At most one pane hosts the Lens card, and that pane carries no' with ' *   6. At most one pane hosts each sidebar card type, and that pane carries no'
+  replace " *      `slot` — the Lens is the imposition's fixed end, not a link in" with " *      `slot` — a sidebar card is the imposition's fixed end, not a link in"
