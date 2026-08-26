@@ -1,32 +1,38 @@
 /**
  * FlowStrip — the deck's arrangement drawn to scale, as the plan's legend.
  *
- * In flow the deck is longer than the band it is seen through, so a reader
- * needs two facts the cards themselves cannot state: what the arrangement IS,
- * and which part of it is on screen right now. This is that instrument, and it
- * draws the arrangement to scale — each slot at its own place in the strip and
- * at its own width, so a wide card reads wide and the run of them reads as the
- * deck, seen small.
+ * The plan above draws the deck small: a block per place, at the width that
+ * place actually stands at. This is the row of numbers under it. Every segment
+ * lands directly beneath the block that is the same card, because both
+ * drawings take their geometry from the same `miniatureGeometry` call — the
+ * strip does not derive a second set of rects, it consumes the drawing's own
+ * `blocks`. The reader's eye runs down from a block to its number.
  *
- * **It stands under the Layout section's plan, at the plan's own geometry.**
- * That is the whole of why it looks the way it does. It used to float in the
- * canvas's bottom band, centred, with a ceiling on its width and a hard floor
- * of clearance either side so it could not reach the corner the host paints its
- * build stamps into — four constants of pure corner politics, an instrument
- * parked eight hundred pixels from the picture it annotates, and a bracket of
- * its own re-drawing a window the plan was already drawing. Under the plan it
- * needs none of that: it takes the drawing's width, insets by the drawing's own
- * rails, and every segment lands directly beneath the block that is the same
- * card in the picture above. The reader's eye runs down from a block to its
- * number.
+ * **It stands whenever the plan does — under fit as much as under flow.** A
+ * control that looks identical in two arrangements and takes a press in only
+ * one of them is a broken control, so the strip is one instrument with one
+ * gesture in both, and what the gesture DOES is what the arrangement makes of
+ * it:
+ *
+ * - **Under fit** every place is on screen already. There is nowhere to
+ *   travel, so going to a place means raising the card standing there — the
+ *   same act as clicking the card itself.
+ * - **Under flow** the deck runs past the band, so going to a place means
+ *   bringing the band to it: the segment's slot is centred, and a scrub across
+ *   the segments pages the deck under the hand.
+ *
+ * The strip does not decide between those. It reports the slot the gesture
+ * named and, when there is somewhere to travel, where the band would have to
+ * stand to be at it; `null` for that second number is the strip saying "there
+ * is no travel here", which is the whole of the difference and is a fact about
+ * the layout rather than a mode the strip is in.
  *
  * So the strip carries what the picture cannot, and nothing else:
  *
  * - **The NUMBERS.** The plan draws blocks; only the strip says which place is
  *   which, in the same numbered chip the Lens's Cards row arranges places with
  *   and the masthead badge names one with.
- * - **The PRESS.** Clicking a segment centres its slot; a scrub across them
- *   pages the deck under the hand.
+ * - **The PRESS.**
  * - **Which card the reader is IN**, in the accent — a live selection, which is
  *   what the accent is for.
  *
@@ -41,13 +47,15 @@
  * answers that without being read at all. Continuous, so a segment half inside
  * the band is half veiled — the truth a per-slot threshold could not tell.
  *
- * **It always stands while the layout is flow, and overflow changes its
- * register rather than its existence** ([P10]). A strip that fits its band is
+ * **Overflow changes the strip's register rather than its existence** ([P10]),
+ * and so does the layout. A fit strip, and a flow strip that fits its band, are
  * drawn quiet: every place is on screen, so there is no position to state and
  * the veils compute to nothing without anything deciding they should. A strip
  * that overflows raises its ink a step. No element appears or disappears across
- * that boundary — a component that materialised when the strip grew would read
- * as a new thing arriving rather than as the same instrument speaking up.
+ * either boundary — a component that materialised when the deck went to flow
+ * would read as a new thing arriving rather than as the same instrument
+ * speaking up, and it would reflow the panel under the very control that was
+ * just pressed to get there.
  *
  * Two halves, two zones:
  *
@@ -69,13 +77,15 @@
  *   The element registration is also what inherits the drag gate the channel
  *   stamps on every registered element.
  *
- * Two gestures move the strip and there is one path for both. Clicking a
- * segment CENTERS its slot in the band. And a SCRUB — a pointer down on the
- * strip, dragged across it — centers each segment it crosses as a preview and
- * commits exactly once, at release. Each crossed segment is a whole-slot move
- * under the user's own finger, which is what a paging control does; there is no
- * animator in a preview path ([L13]) and none is wanted. The canvas wheel is
- * the deck's third gesture and is untouched here.
+ * Under flow two gestures move the strip and there is one path for both.
+ * Clicking a segment CENTERS its slot in the band. And a SCRUB — a pointer
+ * down on the strip, dragged across it — centers each segment it crosses as a
+ * preview and commits exactly once, at release. Each crossed segment is a
+ * whole-slot move under the user's own finger, which is what a paging control
+ * does; there is no animator in a preview path ([L13]) and none is wanted. The
+ * canvas wheel is the deck's third gesture and is untouched here. Under fit
+ * there is no scrub, because there is nothing for a drag to page: the strip is
+ * already showing the whole deck.
  *
  * Both gestures CENTER rather than reveal, and they must agree: pointing at a
  * segment names a place, and a rule that moved the least would answer the same
@@ -98,7 +108,7 @@
  * @module components/lens/flow-strip
  */
 
-import React, { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import React, { useCallback, useLayoutEffect, useRef } from "react";
 
 import { gaugeProperties, registerGauge } from "@/lib/imposer-gauges";
 import {
@@ -115,33 +125,36 @@ import "./flow-strip.css";
 const FLOW_OFFSET_PROPERTY = gaugeProperties("flow-offset")[0];
 
 /**
- * Each slot's place in the strip, as fractions of it — which is what a
- * percentage of the drawn strip means, so the map needs no measurement of
- * itself and stays true through a resize. Every slot the kind defines has a
- * place, an empty one included — the strip holds its room — so the only slot
- * without an entry is one the strip has never heard of.
+ * The live half of a flow deck: the strip the band slides over, how wide the
+ * band is, and where it stood at the last commit. `null` under fit, where the
+ * band is the whole deck and there is no window to place.
  */
-export function flowSlotSpans(
-  count: number,
-  strip: FlowStripModel,
-): ({ left: number; width: number } | undefined)[] {
-  return Array.from({ length: count }, (_, slot) => {
-    const left = strip.positions.get(slot);
-    const extent = strip.extents.get(slot);
-    if (left === undefined || extent === undefined || strip.width <= 0) {
-      return undefined;
-    }
-    return { left: left / strip.width, width: extent / strip.width };
-  });
+export interface FlowStripTravel {
+  /** The deck's one strip — `deckFlowStrip(state)`. */
+  strip: FlowStripModel;
+  /** The band the strip is seen through, in px — `store.getFlowBandWidth()`. */
+  band: number;
+  /** Where the band stands in the strip, in px — the COMMITTED offset. Live
+   *  motion arrives on the gauge channel instead; this is the fallback the
+   *  channel composes against. */
+  offset: number;
 }
 
 export interface FlowStripProps {
   /** How many slots the imposition kind defines — `slotCount(kind)`. */
   count: number;
-  /** The deck's one strip — `deckFlowStrip(state)`. */
-  strip: FlowStripModel;
-  /** The band the strip is seen through, in px — `store.getFlowBandWidth()`. */
-  band: number;
+  /**
+   * Each segment's place in the field, as fractions of it — the plan's own
+   * `blocks`, straight out of `miniatureGeometry`.
+   *
+   * They are not re-derived here and must not be. The drawing above scales its
+   * flow blocks to fit the field and gives each one a seam off its right edge
+   * so a run of them reads as separate cards rather than one bar; a segment
+   * computed honestly from the strip would be wider than the block above it at
+   * every right edge, which is the one thing standing the two drawings on top
+   * of each other was for.
+   */
+  spans: readonly ({ left: number; width: number } | undefined)[];
   /**
    * What each side's rail takes of the plan's width, in percent — the same
    * `flex-basis` the drawing's own rail takes, from `miniatureGeometry`. The
@@ -151,21 +164,6 @@ export interface FlowStripProps {
    */
   rails?: Partial<Record<SidebarSide, number>>;
   /**
-   * The seam each segment gives up off its own right edge, as a fraction of
-   * the drawn strip — `miniatureGeometry`'s `flow.seamPct`, in the strip's own
-   * units.
-   *
-   * It is a legibility device rather than a measurement, and it belongs to the
-   * PLAN: at the strip's scale the deck's real 5px gap is a third of a pixel,
-   * so a run of segments drawn honestly reads as one bar. The drawing above
-   * already exaggerates that gap so its blocks read as separate cards, and the
-   * strip takes the same exaggeration for the same reason — and because it
-   * must: a segment wider than the block above it puts the two drawings out of
-   * register at every right edge, which is the one thing standing them on top
-   * of each other was for.
-   */
-  seam?: number;
-  /**
    * Per-slot look, indexed by slot, in `TugSlotLayout`'s own vocabulary.
    *
    * This is where the reader's card is marked, and it is the one place on the
@@ -174,29 +172,30 @@ export interface FlowStripProps {
    * selection, which is precisely what the accent is for.
    */
   states?: readonly TugSlotState[];
-  /** Where the band stands in the strip, in px — the COMMITTED offset. Live
-   *  motion arrives on the gauge channel instead; this is the fallback the
-   *  channel composes against. */
-  offset: number;
+  /** Flow's live half, or `null` under fit. */
+  travel: FlowStripTravel | null;
   /** Draw the strip at `offset` without committing it — the per-frame half of
-   *  a scrub. */
+   *  a scrub. Only ever called while `travel` is non-null. */
   onPreview: (offset: number) => void;
-  /** Where the gesture left the strip, and which slot it NAMED getting there.
-   *  One store write, at the end. The slot is what the deck rings — a gesture
-   *  that points at a place gets the same answer the chord gets. */
-  onCommit: (offset: number, slot: number) => void;
+  /**
+   * Go to the slot the gesture named.
+   *
+   * `center` is where the band would have to stand to be at it, or `null` when
+   * there is nowhere to travel — which is fit, and is the caller's cue that
+   * going there means raising the card rather than moving the deck. The strip
+   * states both facts and decides neither.
+   */
+  onGoTo: (slot: number, center: number | null) => void;
 }
 
 export function FlowStrip({
   count,
-  strip,
-  band,
+  spans,
   rails,
-  seam = 0,
   states,
-  offset,
+  travel,
   onPreview,
-  onCommit,
+  onGoTo,
 }: FlowStripProps): React.JSX.Element {
   const root = useRef<HTMLDivElement | null>(null);
   const layout = useRef<TugSlotLayoutHandle | null>(null);
@@ -206,7 +205,7 @@ export function FlowStrip({
    * registered once for the component's life cannot close over props that
    * change every commit ([L07]).
    */
-  const live = useRef({ strip, band, offset });
+  const live = useRef(travel);
 
   /**
    * The scrub, while one is happening: the pointer, the segment the hand went
@@ -231,9 +230,10 @@ export function FlowStrip({
 
   /** Where the strip stands with `slot` in the middle of the band, clamped the
    *  way the store would clamp it — so a previewed frame never shows a position
-   *  the commit would refuse. `null` for a slot the strip has no place for at
-   *  all, which is a slot outside the kind rather than an empty one: an empty
-   *  slot holds its room, so it has a middle like any other.
+   *  the commit would refuse. `null` when there is no travel to be had at all
+   *  (fit), and for a slot the strip has no place for, which is a slot outside
+   *  the kind rather than an empty one: an empty slot holds its room, so it has
+   *  a middle like any other.
    *
    *  Centering, not revealing. Pointing at a segment names a place, and the
    *  answer to a named place must not depend on where the band already stands —
@@ -241,14 +241,15 @@ export function FlowStrip({
    *  where it is, so the same click would move the deck or not depending on
    *  history the reader cannot see. The clamp still pins the two ends flush. */
   const centerOffsetFor = useCallback((slot: number): number | null => {
-    const { strip: s, band: b } = live.current;
-    const stripLeft = s.positions.get(slot);
+    const now = live.current;
+    if (now === null) return null;
+    const stripLeft = now.strip.positions.get(slot);
     if (stripLeft === undefined) return null;
     return flowCenterOffset({
       stripLeft,
-      extent: s.extents.get(slot) ?? 0,
-      stripWidth: s.width,
-      band: b,
+      extent: now.strip.extents.get(slot) ?? 0,
+      stripWidth: now.strip.width,
+      band: now.band,
     });
   }, []);
 
@@ -256,7 +257,7 @@ export function FlowStrip({
   // gesture handlers below — which are bound once and cannot close over props
   // that change every commit ([L07]).
   useLayoutEffect(() => {
-    live.current = { strip, band, offset };
+    live.current = travel;
   });
 
   // [L03] — the registration is a subscription, so it is made in a layout
@@ -271,26 +272,21 @@ export function FlowStrip({
     return registerGauge("flow-offset", el);
   }, []);
 
-  const spans = useMemo(
-    () =>
-      flowSlotSpans(count, strip).map((span) =>
-        span === undefined
-          ? undefined
-          : { left: span.left, width: Math.max(span.width - seam, 0) },
-      ),
-    [count, strip, seam],
-  );
-
-  const overflow = strip.width > band;
+  const overflow = travel !== null && travel.strip.width > travel.band;
   /**
    * How much of the strip the band shows — as a fraction of the drawn strip,
    * and the factor that turns a gauge reading into a place on it. The channel
    * publishes the offset as a fraction of the BAND and this draws the STRIP, so
    * this one number is the conversion between them. Clamped at 1 so a strip
-   * inside its band veils nothing rather than veiling a negative width.
+   * inside its band — and a fit strip, which is its band — veils nothing rather
+   * than veiling a negative width.
    */
-  const bandShare = strip.width > 0 ? Math.min(1, band / strip.width) : 1;
-  const committedFraction = band > 0 ? offset / band : 0;
+  const bandShare =
+    travel !== null && travel.strip.width > 0
+      ? Math.min(1, travel.band / travel.strip.width)
+      : 1;
+  const committedFraction =
+    travel !== null && travel.band > 0 ? travel.offset / travel.band : 0;
 
   /** Which segment a client x is over, or the nearest one when the hand has run
    *  off either end — a scrub that leaves the strip keeps scrubbing, which is
@@ -314,6 +310,9 @@ export function FlowStrip({
     // outlive the gesture that asked for it.
     swallowClick.current = false;
     if (event.button !== 0) return;
+    // No scrub under fit: a drag pages the deck, and a fit deck has no pages.
+    // The click still lands, so a press is a press in both arrangements.
+    if (live.current === null) return;
     const row = layout.current?.element;
     if (row === null || row === undefined) return;
     // Every drawn segment, in slot order. A segment the strip gives no span is
@@ -371,20 +370,19 @@ export function FlowStrip({
     // is where the deck stands now — and the click the release is about to fire
     // must not commit a second answer on top of it.
     swallowClick.current = true;
-    onCommit(gesture.offset, gesture.slot);
+    onGoTo(gesture.slot, gesture.offset);
   };
 
-  /** Clicking a segment centers its slot in the band — the same arithmetic the
-   *  Center Card chords commit, so the pointer and the keyboard cannot disagree
-   *  about where a named place belongs. */
+  /** Pressing a segment goes to its slot. Where that is depends on the layout
+   *  and the strip does not decide it — the center is passed when there is one,
+   *  which is the same arithmetic the Center Card chords commit, so the
+   *  pointer and the keyboard cannot disagree about where a named place is. */
   const onSelectSlot = (slot: number): void => {
     if (swallowClick.current) {
       swallowClick.current = false;
       return;
     }
-    const next = centerOffsetFor(slot);
-    if (next === null) return;
-    onCommit(next, slot);
+    onGoTo(slot, centerOffsetFor(slot));
   };
 
   return (
@@ -392,6 +390,7 @@ export function FlowStrip({
       ref={root}
       className="flow-strip"
       data-testid="flow-strip"
+      data-travel={travel === null ? "false" : "true"}
       data-overflow={overflow ? "true" : "false"}
       style={
         {
@@ -433,8 +432,9 @@ export function FlowStrip({
             plan's own window says the same fact one row up as a bracket; this
             says it as a difference in brightness, which is what a glance can
             read. Both rectangles are driven by the same two numbers, so a strip
-            inside its band computes them to zero width and the veil is absent
-            without anything deciding it should be ([P10]). */}
+            inside its band — and a fit strip, which is its band — computes them
+            to zero width and the veil is absent without anything deciding it
+            should be ([P10]). */}
         <div className="flow-strip-veil flow-strip-veil-leading" aria-hidden="true" />
         <div className="flow-strip-veil flow-strip-veil-trailing" aria-hidden="true" />
       </div>

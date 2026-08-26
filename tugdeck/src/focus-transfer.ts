@@ -1127,3 +1127,30 @@ export function reactivateCurrentFocusDestination(
     }
   }
 }
+
+/**
+ * Raise a card: front it in its pane, reorder the panes so it comes forward,
+ * and hand it the responder chain — the whole of what a click on a card does,
+ * for a caller that has only the card's id.
+ *
+ * `store.activateCard` alone flips the responder and leaves the pane buried;
+ * the raise is the mutation committed INSIDE `transferFocusForActivation`, so
+ * the will/didDeactivate + will/didActivate transition fires and the incoming
+ * card is visible before the resolver reads its DOM. Every caller that means
+ * "go to this card" comes here rather than assembling that pair again.
+ */
+export function raiseCard(
+  store: IDeckManagerStore,
+  cardId: string,
+  modality?: FocusModality,
+): void {
+  transferFocusForActivation({
+    outgoingCardId: store.getFirstResponderCardId(),
+    incomingCardId: cardId,
+    store,
+    commitMutation: () => {
+      store.activateCard(cardId);
+    },
+    modality,
+  });
+}

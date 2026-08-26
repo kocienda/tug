@@ -111,6 +111,8 @@ import type {
 } from "@/components/lens/layout-miniature";
 import { LayoutPlaces } from "@/components/lens/layout-places";
 import { FlowStrip } from "@/components/lens/flow-strip";
+import type { FlowStripTravel } from "@/components/lens/flow-strip";
+import { raiseCard } from "@/focus-transfer";
 import { miniatureGeometry } from "@/components/lens/layout-miniature";
 import { flashSlot } from "@/lib/flash-pane-border";
 import type { TugSlotState } from "@/components/tugways/tug-slot";
@@ -143,7 +145,6 @@ import {
   type ImpositionKind,
   type ColumnMode,
   type ImpositionLayout,
-  type FlowStrip as FlowStripModel,
   type RailMode,
   type SidebarSide,
 } from "@/lib/layout-imposer";
@@ -453,12 +454,15 @@ function useCommittedColumnOffsets(): Readonly<
 }
 
 /**
- * Everything the {@link FlowStrip} under the plan needs, or `null` when there
- * is no strip to draw — fit, or a deck with no band to measure against.
+ * Everything the {@link FlowStrip} under the plan needs, or `null` when the
+ * deck has no numbered places at all — a free deck, whose plan draws one block
+ * and has nothing to number.
  *
- * The strip comes from `deckFlowStrip`, the deck's ONE resolution of it
- * ([P09]) — the same call {@link useCommittedFlow} makes for the picture — so
- * the numbers and the picture cannot part company.
+ * The strip stands under fit as much as under flow; what the layout decides is
+ * whether there is anywhere to TRAVEL, which is `travel` and nothing else. It
+ * comes from `deckFlowStrip`, the deck's ONE resolution of it ([P09]) — the
+ * same call {@link useCommittedFlow} makes for the picture — so the numbers and
+ * the picture cannot part company.
  *
  * `states` is where the reader's own card is marked, and it is the one place
  * on the strip the accent is spent. `activePaneId` is the reading of "in"
@@ -483,12 +487,10 @@ function useCommittedColumnOffsets(): Readonly<
  * A deck with no slotted pane at all marks nothing, which is the honest
  * picture: there is no card in the arrangement to be in.
  */
-function useFlowInstrument(): {
+function useStripInstrument(): {
   count: number;
-  strip: FlowStripModel;
-  band: number;
-  offset: number;
   states: readonly TugSlotState[] | undefined;
+  travel: FlowStripTravel | null;
 } | null {
   const deck = useDeck();
   const store = getDeckStore();
@@ -496,11 +498,18 @@ function useFlowInstrument(): {
     if (deck === null || store === null) return null;
     const kind = deck.imposition.kind;
     if (kind === undefined) return null;
-    const strip = deckFlowStrip(deck);
-    if (strip === null) return null;
-    const band = store.getFlowBandWidth();
-    if (band === null || band <= 0) return null;
     const count = slotCount(kind);
+    // Flow's half, and only flow's: `deckFlowStrip` is null under fit by
+    // construction ([P09]), and a fit deck's band is the whole of it. Absent
+    // here is what tells the strip there is nowhere to travel — it is not asked
+    // which layout is on, because "is there travel" is the fact the gestures
+    // actually turn on and the layout is only how it came to be true.
+    const strip = deckFlowStrip(deck);
+    const band = store.getFlowBandWidth();
+    const travel =
+      strip === null || band === null || band <= 0
+        ? null
+        : { strip, band, offset: deck.flowOffset ?? 0 };
     const active = deck.panes.find((p) => p.id === deck.activePaneId);
     const standing =
       active?.slot !== undefined
@@ -512,9 +521,7 @@ function useFlowInstrument(): {
         : clampSlot(kind, standing.slot);
     return {
       count,
-      strip,
-      band,
-      offset: deck.flowOffset ?? 0,
+      travel,
       states:
         marked === undefined
           ? undefined
@@ -663,12 +670,14 @@ function LayoutsSectionBody({
   const committedFlow = useCommittedFlow();
   // The numbered strip that stands under the plan — the deck's arrangement as
   // something you can read a place off and press.
-  const flowInstrument = useFlowInstrument();
-  // The room the plan's rails take, so the strip's field is the plan's field
-  // and a segment lands under the block that is the same card. The same
-  // arithmetic the drawing consumes, asked once more rather than approximated
-  // — a second derivation would be off by the padding and the gap at every
-  // size, which is the drift `miniatureGeometry` exists to make impossible.
+  const stripInstrument = useStripInstrument();
+  // The plan's own geometry, handed to the strip whole: the room the rails
+  // take, and where every block stands in what is left. The strip replicates
+  // the drawing's flex row and places its segments at the drawing's own rects,
+  // so a segment lands under the block that is the same card — by construction
+  // rather than by two derivations agreeing. A second derivation would be off
+  // by the padding, the gap, the flow scale and the seam at every size, which
+  // is the drift `miniatureGeometry` exists to make impossible.
   const stripGeometry = useMemo(() => {
     const geometry = miniatureGeometry({
       kind,
@@ -689,7 +698,21 @@ function LayoutsSectionBody({
       const rail = geometry.rails[side];
       if (rail !== undefined) basis[side] = rail.basisPct;
     }
-    return { basis, seam: geometry.flow.seamPct / 100 };
+    // Indexed by slot, because the strip draws one segment per place the kind
+    // defines and the drawing's blocks carry their own slot. A place the
+    // drawing does not draw gets no span and the segment stands undrawn.
+    const spans: ({ left: number; width: number } | undefined)[] = Array.from(
+      { length: slotCount(kind) },
+      () => undefined,
+    );
+    for (const block of geometry.blocks) {
+      if (block.slot < 0 || block.slot >= spans.length) continue;
+      spans[block.slot] = {
+        left: block.leftPct / 100,
+        width: block.widthPct / 100,
+      };
+    }
+    return { basis, spans };
   }, [kind, rails, contentWidth, layout, committedFlow]);
 
   // The strip's two writes, and the only place this section touches the deck
@@ -702,13 +725,31 @@ function LayoutsSectionBody({
     getDeckStore()?.previewFlowOffset(offset);
   }, []);
 
-  // The slot the gesture NAMED is what the deck rings — a gesture that points
-  // at a place gets the same answer the Center Card chord gets.
-  const commitFlow = useCallback((offset: number, named: number): void => {
+  // Go to slot N — one verb, two arrangements, and the arrangement decides
+  // what going there is rather than whether the press does anything.
+  //
+  // With a `center` the deck TRAVELS: the place may be off the band, so the
+  // band comes to it. Without one there is nowhere to travel — every place is
+  // already on screen — so going to it is the raise: the card standing there
+  // comes forward and takes the responder chain, exactly as a click on the
+  // card itself would. An empty place raises nothing and that is not a
+  // failure; the ring below still answers.
+  //
+  // And the arrival is ANSWERED either way. The slot the gesture NAMED is what
+  // the deck rings — the pane's ring if a card stands there, the vacancy
+  // badge's if the place is held open — which is the same answer the Center
+  // Card chord gives, so a place named by hand and a place named by chord
+  // reply in the same voice.
+  const goToSlot = useCallback((slot: number, center: number | null): void => {
     const store = getDeckStore();
     if (store === null) return;
-    store.setFlowOffset(offset);
-    flashSlot(store, named);
+    if (center !== null) {
+      store.setFlowOffset(center);
+    } else {
+      const pane = store.getSnapshot().panes.find((p) => p.slot === slot);
+      if (pane !== undefined) raiseCard(store, pane.activeCardId);
+    }
+    flashSlot(store, slot);
   }, []);
   const committedColumnOffsets = useCommittedColumnOffsets();
   // The arrangeable places, for the overlay that draws them on the picture:
@@ -1191,24 +1232,23 @@ function LayoutsSectionBody({
       {/* The strip: the plan's legend, at the plan's own geometry. The
           picture above draws which places there are and which of them the
           band is over; only this says WHICH place is which, and only this
-          takes a press that moves the deck. It stands beside the figure
-          rather than inside it because the places overlay is anchored to the
-          figure's bottom edge, and a sibling inside it would put the marks on
-          the numbers.
+          takes a press. It stands beside the figure rather than inside it
+          because the places overlay is anchored to the figure's bottom edge,
+          and a sibling inside it would put the marks on the numbers.
 
-          Mounted whenever there is a strip and a band to report on, and never
-          in fit, where there is no strip to stand in. */}
-      {flowInstrument !== null ? (
+          Mounted whenever the plan has numbered places to legend — under fit
+          as much as under flow, so the panel does not reflow under the very
+          control that was pressed to change the layout. What the layout
+          changes is what a press DOES, which is `travel`. */}
+      {stripInstrument !== null ? (
         <FlowStrip
-          count={flowInstrument.count}
-          strip={flowInstrument.strip}
-          band={flowInstrument.band}
+          count={stripInstrument.count}
+          spans={stripGeometry.spans}
           rails={stripGeometry.basis}
-          seam={stripGeometry.seam}
-          states={flowInstrument.states}
-          offset={flowInstrument.offset}
+          states={stripInstrument.states}
+          travel={stripInstrument.travel}
           onPreview={previewFlow}
-          onCommit={commitFlow}
+          onGoTo={goToSlot}
         />
       ) : null}
       </div>

@@ -25,7 +25,7 @@ import type { DeckManager } from "./deck-manager";
 import type { ResponderChainManager } from "./components/tugways/responder-chain";
 import { FeedId } from "./protocol";
 import { BASE_THEME_NAME } from "./theme-constants";
-import { transferFocusForActivation } from "./focus-transfer";
+import { raiseCard } from "./focus-transfer";
 import { toggleSidebarCard } from "./sidebar-toggle";
 import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
@@ -888,12 +888,7 @@ export function initActionDispatch(
       console.warn(`focus-session-card: no pane holds card "${cardId}"`);
       return;
     }
-    transferFocusForActivation({
-      outgoingCardId: deckManager.getFirstResponderCardId(),
-      incomingCardId: cardId,
-      store: deckManager,
-      commitMutation: () => deckManager.activateCard(cardId),
-    });
+    raiseCard(deckManager, cardId);
     flashPaneBorder(pane.id);
   });
 

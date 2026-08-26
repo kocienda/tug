@@ -66,11 +66,12 @@
 /**
  * The quiet register, and the whole of the difference between the two.
  *
- * A strip that fits its band has nowhere else to be, so the drawing is a
- * statement of what there is rather than of where you are: it steps back. When
- * the strip overflows it comes forward, and the veils — which compute to zero
- * width while it fits — have something to say. No element mounts or unmounts on
- * that boundary ([P10]); only how loudly the same elements speak.
+ * A strip that fits its band has nowhere else to be — a fit deck always, a flow
+ * deck that happens to be short enough — so the drawing is a statement of what
+ * there is rather than of where you are: it steps back. When the strip
+ * overflows it comes forward, and the veils — which compute to zero width while
+ * it fits — have something to say. No element mounts or unmounts on either
+ * boundary ([P10]); only how loudly the same elements speak.
  */
 .flow-strip[data-overflow="false"] .flow-strip-map {
   opacity: 0.8;

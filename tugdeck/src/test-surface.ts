@@ -43,7 +43,7 @@ import { labFlags } from "./lib/lab-flags";
 import { listViewProbeForScroller } from "./components/tugways/tug-list-view";
 import { smartScrollForElement } from "./lib/smart-scroll";
 import { getDeckStore } from "./lib/deck-store-registry";
-import { transferFocusForActivation } from "./focus-transfer";
+import { raiseCard, transferFocusForActivation } from "./focus-transfer";
 import { getFocusManager } from "./components/tugways/focus-manager";
 import { currentGesture } from "./gesture-interpreter";
 import {
@@ -2716,12 +2716,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // flip the responder and leave the pane buried.
       const store = getDeckStore();
       if (store === null) return;
-      transferFocusForActivation({
-        outgoingCardId: store.getFirstResponderCardId(),
-        incomingCardId: cardId,
-        store,
-        commitMutation: () => store.activateCard(cardId),
-      });
+      raiseCard(store, cardId);
     },
 
     armCutDetector(): void {
