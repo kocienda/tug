@@ -1244,6 +1244,7 @@ async fn main() {
             shell: shell_ledger.as_deref(),
             refs: refs_ledger.as_deref(),
         };
+        ink_adoption::return_rotation_ink(&ledger, ink);
         ink_adoption::adopt_by_lineage(&ledger, ink);
     }
 

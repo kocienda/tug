@@ -42,9 +42,10 @@ pub mod prompt;
 /// - **Invariants** — the card, the tug session id, the transcript and its
 ///   durable ink, the lineage chain, and the user's own model to return to.
 ///   None of them is a field, so nothing a caller writes can address them. The
-///   transcript, the ink, and the lineage follow from the identity transfer in
-///   `agent_bridge.rs` (`inherit_fork_identity` + `set_fork_provenance(…,
-///   None)`), which the conductor never calls and cannot parameterize; the
+///   rotated session keeps its callsign, its name, and its ink — a rotation is
+///   not a fork — and the lineage follows from the provenance edge
+///   `agent_bridge.rs` writes (`set_fork_provenance(…, None)`), which the
+///   conductor never calls and cannot parameterize; the
 ///   model to return to is `LedgerEntry::deck_model`, which only a WebSocket
 ///   client's own `model_change` ever writes.
 /// - **Parameters** — the model, the effort, the prompt, the stage label, the

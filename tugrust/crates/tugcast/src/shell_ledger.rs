@@ -297,6 +297,30 @@ impl ShellLedger {
         Ok(moved)
     }
 
+    /// Move every exchange from `from` onto `to` that settled before
+    /// `before_ms`, preserving `seq`. Returns the number of rows moved.
+    ///
+    /// The ink return pass uses this to give an arc stage's parent back the
+    /// rows the retired rotation transfer moved: a row keyed under the stage
+    /// that settled before the stage existed was the parent's.
+    pub fn rekey_session_settled_before(
+        &self,
+        from: &str,
+        to: &str,
+        before_ms: i64,
+    ) -> Result<usize, ShellLedgerError> {
+        if from == to {
+            return Ok(0);
+        }
+        let conn = self.db.lock().expect("shell ledger mutex");
+        let moved = conn.execute(
+            "UPDATE shell_exchanges SET tug_session_id = ?2
+             WHERE tug_session_id = ?1 AND settled_at_ms < ?3",
+            params![from, to, before_ms],
+        )?;
+        Ok(moved)
+    }
+
     /// Recover shell rows orphaned by the pre-F1 fresh-spawn bug ([P07]).
     ///
     /// Before F1, a shell-only session (no JSONL, `turn_count == 0`) was

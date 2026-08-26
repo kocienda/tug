@@ -186,6 +186,27 @@ impl RefsLedger {
     ///
     /// Idempotent: `from == to` is a no-op, and afterwards `from` holds
     /// nothing. Returns how many rows left `from` (0 or 1).
+    pub fn rekey_session_settled_before(
+        &self,
+        from: &str,
+        to: &str,
+        before_ms: i64,
+    ) -> Result<usize, RefsLedgerError> {
+        let settled: Option<i64> = {
+            let conn = self.db.lock().expect("refs ledger mutex");
+            conn.query_row(
+                "SELECT settled_at_ms FROM refs_runs WHERE tug_session_id = ?1",
+                params![from],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+        };
+        match settled {
+            Some(settled) if settled < before_ms => self.rekey_session(from, to),
+            _ => Ok(0),
+        }
+    }
+
     pub fn rekey_session(&self, from: &str, to: &str) -> Result<usize, RefsLedgerError> {
         if from == to {
             return Ok(0);

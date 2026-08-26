@@ -235,7 +235,8 @@ pub struct PendingFork {
     /// fork then spawns as a root session and mints a fresh pair.
     pub tag: Option<String>,
     /// The `/rename` the fork inherited with the callsign, or `None` when
-    /// the parent had none. Written through [`SessionLedger::rename`] after
+    /// the parent had none — and always `None` for a stage rotation, which
+    /// inherits nothing. Written through [`SessionLedger::rename`] after
     /// the spawn record exists.
     pub user_name: Option<String>,
     /// The session this fork was rewind-forked from, or — for an arc stage —

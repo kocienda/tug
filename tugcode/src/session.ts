@@ -8198,6 +8198,10 @@ export class SessionManager {
     // via --session-id so downstream persistence and routing have a
     // stable identifier from spawn time forward.
     this.sessionId = crypto.randomUUID();
+    // The fresh session is what every later resolve names: a respawn resumes
+    // it, and the next rotation announces it — not the session it replaced —
+    // as the parent.
+    this.resumeSessionId = this.sessionId;
     this.claudeProcess = this.spawnClaude(this.sessionId, "session-id");
     this.startStdoutDrain(this.claudeProcess);
     if (stage) {

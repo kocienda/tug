@@ -95,6 +95,61 @@ impl InkStores<'_> {
     }
 }
 
+/// Give an arc stage's parent back the ink a rotation took from it. Returns
+/// the number of stages that had rows to return.
+///
+/// A rotation once ran the rewind-fork ink transfer, moving every row keyed
+/// under the rotated session onto the stage. The stage's `created_at` is the
+/// line: a row under a stage that settled before the stage existed was the
+/// parent's, and goes back; the stage's own rows stay. Idempotent, and runs
+/// ahead of [`adopt_by_lineage`] so the returned rows are on their head
+/// before the edge sweep reads anything.
+pub fn return_rotation_ink(sessions: &SessionLedger, ink: InkStores<'_>) -> usize {
+    let stages = match sessions.rotation_children() {
+        Ok(stages) => stages,
+        Err(err) => {
+            warn!(error = %err, "ink return: cannot read rotation edges");
+            return 0;
+        }
+    };
+    let mut returned = 0;
+    for (stage, parent, created_at) in stages {
+        let shell = match ink.shell {
+            Some(ledger) => match ledger.rekey_session_settled_before(&stage, &parent, created_at)
+            {
+                Ok(moved) => moved,
+                Err(err) => {
+                    warn!(from = %stage, to = %parent, error = %err, "ink return: shell re-key failed");
+                    0
+                }
+            },
+            None => 0,
+        };
+        let refs = match ink.refs {
+            Some(ledger) => match ledger.rekey_session_settled_before(&stage, &parent, created_at)
+            {
+                Ok(moved) => moved,
+                Err(err) => {
+                    warn!(from = %stage, to = %parent, error = %err, "ink return: refs re-key failed");
+                    0
+                }
+            },
+            None => 0,
+        };
+        if shell > 0 || refs > 0 {
+            info!(
+                from = %stage,
+                to = %parent,
+                shell,
+                refs,
+                "ink return: rows a rotation moved are back on the session that wrote them"
+            );
+            returned += 1;
+        }
+    }
+    returned
+}
+
 /// Re-key every ink row sitting under a superseded session id onto its
 /// lineage head. Returns the number of session ids adopted.
 ///
@@ -391,6 +446,51 @@ mod tests {
     /// would otherwise pull the same rows onto whichever session the card
     /// currently holds. This fixture satisfies both — provenance says `fork`,
     /// the card heuristic says `stranger` — and the rows must land on `fork`.
+    #[test]
+    fn a_rotation_gives_back_the_ink_it_took_and_keeps_its_own() {
+        let sessions = SessionLedger::open_in_memory().unwrap();
+        sessions
+            .record_spawn("parent", "ws", "/proj", "card-1", 1, Some("juicy-roach"))
+            .unwrap();
+        sessions
+            .record_spawn("stage", "ws", "/proj", "card-1", 10, Some("azure-heron"))
+            .unwrap();
+        sessions
+            .set_fork_provenance("stage", "parent", None)
+            .unwrap();
+        sessions
+            .set_stage_provenance("stage", "devise", None)
+            .unwrap();
+
+        let shell = ShellLedger::open_in_memory().unwrap();
+        // Rows the retired transfer moved: written by the parent, settled
+        // before the stage existed, keyed under the stage.
+        shell.record_exchange(&shell_row("stage", "/commit")).unwrap();
+        // The stage's own row.
+        let mut own = shell_row("stage", "/dash-join");
+        own.settled_at_ms = 20;
+        shell.record_exchange(&own).unwrap();
+
+        let ink = InkStores {
+            shell: Some(&shell),
+            refs: None,
+        };
+        assert_eq!(return_rotation_ink(&sessions, ink), 1);
+        let owners = |session: &str| {
+            shell
+                .list_exchanges_since(session, None)
+                .unwrap()
+                .into_iter()
+                .map(|row| row.command)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(owners("parent"), vec!["/commit".to_string()]);
+        assert_eq!(owners("stage"), vec!["/dash-join".to_string()]);
+        // And the edge sweep that follows leaves both where they are.
+        assert_eq!(adopt_by_lineage(&sessions, ink), 0);
+        assert_eq!(return_rotation_ink(&sessions, ink), 0);
+    }
+
     #[test]
     fn provenance_outranks_the_card_heuristic() {
         let sessions = SessionLedger::open_in_memory().unwrap();

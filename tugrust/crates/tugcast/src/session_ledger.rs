@@ -2140,6 +2140,9 @@ impl SessionLedger {
         // After the collapse, because it repairs what an earlier build's
         // collapse left behind and must not race the one running now.
         Self::migrate_release_superseded_fork_names(conn)?;
+        // After both, because it repoints `minted_tags` rows the collapse may
+        // have just repointed and reads the provenance columns as settled.
+        Self::migrate_return_rotation_identity(conn)?;
         // After the batch, because it needs the FTS tables to exist.
         Self::backfill_search_tokens(conn, facts_fts_dropped, posts_fts_dropped)?;
         let changes_write_ok = Self::bootstrap_changes_schema(conn, may_write_changes)?;
@@ -2691,6 +2694,122 @@ impl SessionLedger {
                        AND head.name_user_set = 1
                        AND head.name = sessions.name
                )",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// Return the identity an arc stage rotation took from the session it
+    /// rotated.
+    ///
+    /// A rotation is not a fork: it copies nothing and the rotated session
+    /// goes on being used, so the rewind-fork transfer that once ran on a
+    /// `session_stage` announcement moved a callsign and a `/rename` off a
+    /// working session and onto a one-turn stage. The evidence survives in
+    /// the rows: a stage (`stage_label` set, `fork_point` NULL) wearing a tag
+    /// that `minted_tags` records as minted *before* the stage existed can
+    /// only have been handed that tag. The parent takes the tag and the
+    /// user-set name back — the tag stays spent, it just resolves to the
+    /// session the citations meant — and the stage rerolls a fresh pair so it
+    /// keeps a callsign of its own. Whatever tag the parent rerolled onto in
+    /// the meantime stays spent in `minted_tags`, pointing at the parent.
+    ///
+    /// Also clears every `external_scan_cache.tag` that `minted_tags` records
+    /// as belonging to a different session: the cache keeps whatever spelling
+    /// it saw at scan time, and a transferred spelling left three rows
+    /// remembering one tag, which the citation resolver reads as ambiguous.
+    ///
+    /// Idempotent: once returned, the stage wears a tag minted at its own
+    /// creation and the query finds nothing.
+    fn migrate_return_rotation_identity(conn: &Connection) -> Result<(), LedgerError> {
+        let cols = Self::table_columns(conn, "sessions")?;
+        if !cols.iter().any(|(n, _)| n == "stage_label") {
+            return Ok(());
+        }
+        let taken: Vec<(String, String, String, i64, Option<String>, bool)> = {
+            let mut stmt = conn.prepare(
+                "SELECT s.session_id, s.forked_from_session_id, s.tag, s.created_at,
+                        s.name, s.name_user_set
+                 FROM sessions s JOIN minted_tags m ON m.tag = s.tag
+                 WHERE s.stage_label IS NOT NULL
+                   AND s.fork_point IS NULL
+                   AND s.forked_from_session_id IS NOT NULL
+                   AND m.minted_at < s.created_at",
+            )?;
+            stmt.query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get::<_, i64>(5)? != 0,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+        };
+        for (stage, parent, tag, created_at, name, name_user_set) in taken {
+            let parent_exists: bool = conn.query_row(
+                "SELECT COUNT(*) FROM sessions WHERE session_id = ?1",
+                params![parent],
+                |row| row.get::<_, i64>(0),
+            )? != 0;
+            if !parent_exists {
+                continue;
+            }
+            // The stage lets go first so the live-row unique index admits
+            // the parent wearing it again.
+            conn.execute(
+                "UPDATE sessions SET tag = NULL WHERE session_id = ?1",
+                params![stage],
+            )?;
+            conn.execute(
+                "UPDATE sessions SET tag = ?2 WHERE session_id = ?1",
+                params![parent, tag],
+            )?;
+            conn.execute(
+                "UPDATE minted_tags SET session_id = ?2 WHERE tag = ?1",
+                params![tag, parent],
+            )?;
+            if name_user_set {
+                conn.execute(
+                    "UPDATE sessions SET name = NULL, name_user_set = 0 WHERE session_id = ?1",
+                    params![stage],
+                )?;
+                conn.execute(
+                    "UPDATE sessions SET name = ?2, name_user_set = 1 WHERE session_id = ?1",
+                    params![parent, name],
+                )?;
+            }
+            let mut attempt = 0;
+            let mut candidate = roll_tag(roll_seed(&stage, created_at, attempt));
+            loop {
+                match claim_tag(conn, &candidate, &stage, created_at)? {
+                    TagClaim::Claimed => break,
+                    TagClaim::TakenByOther => {
+                        candidate = reroll_or_fail(&candidate, &stage, created_at, &mut attempt)?;
+                    }
+                }
+            }
+            conn.execute(
+                "UPDATE sessions SET tag = ?2 WHERE session_id = ?1",
+                params![stage, candidate],
+            )?;
+            tracing::info!(
+                stage = %stage,
+                parent = %parent,
+                returned = %tag,
+                fresh = %candidate,
+                "rotation identity returned to the session it was taken from"
+            );
+        }
+        conn.execute(
+            "UPDATE external_scan_cache SET tag = NULL
+             WHERE tag IS NOT NULL AND EXISTS (
+                 SELECT 1 FROM minted_tags m
+                 WHERE m.tag = external_scan_cache.tag
+                   AND m.session_id != external_scan_cache.session_id
+             )",
             [],
         )?;
         Ok(())
@@ -3939,6 +4058,27 @@ impl SessionLedger {
         Ok(())
     }
 
+    /// Every session an arc stage rotation seated, with the session it
+    /// rotated and the moment it was created: `(stage, parent, created_at)`.
+    ///
+    /// A rotation edge is a `forked_from_session_id` with no `fork_point` and
+    /// a `stage_label`. The ink return pass reads this to give back rows the
+    /// retired rotation transfer moved: anything keyed under a stage that
+    /// settled before the stage existed was written by its parent.
+    pub fn rotation_children(&self) -> Result<Vec<(String, String, i64)>, LedgerError> {
+        let conn = self.db.lock().expect("ledger mutex");
+        let mut stmt = conn.prepare(
+            "SELECT session_id, forked_from_session_id, created_at FROM sessions
+             WHERE stage_label IS NOT NULL
+               AND fork_point IS NULL
+               AND forked_from_session_id IS NOT NULL",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// What a rotation seated `session_id` as, or `None` if no rotation did.
     ///
     /// Total: an unknown session, a row written before the migration, and a
@@ -3981,6 +4121,12 @@ impl SessionLedger {
     /// callsign already moved on to an earlier branch — the child wearing a
     /// tag is the continuation and wins; two tagless children tie-break on
     /// the newer `last_used_at`.
+    ///
+    /// Only a rewind-fork edge — one carrying a `fork_point` — is followed. An
+    /// arc stage rotation records its parent with a `NULL` `fork_point`: it
+    /// copies nothing and supersedes nothing, so the parent stays the head of
+    /// its own line and the stage is a separate session that happens to
+    /// descend from it.
     pub fn resolve_to_lineage_head(&self, session_id: &str) -> String {
         /// Chains are linear and short in practice; the cap is a guard
         /// against a corrupt edge set, not a real depth.
@@ -3994,7 +4140,7 @@ impl SessionLedger {
             let child: Option<String> = match conn
                 .query_row(
                     "SELECT session_id FROM sessions
-                     WHERE forked_from_session_id = ?1
+                     WHERE forked_from_session_id = ?1 AND fork_point IS NOT NULL
                      ORDER BY (tag IS NULL) ASC, last_used_at DESC
                      LIMIT 1",
                     params![current],
@@ -7431,6 +7577,14 @@ fn roll_seed(session_id: &str, now: i64, attempt: u32) -> u64 {
     hash ^ (now as u64).rotate_left(17) ^ (u64::from(attempt) << 40)
 }
 
+/// A fresh `adjective-noun` candidate for a session that has no callsign to
+/// carry in — an arc stage rotation, which is a new session rather than the
+/// continuation of the one it rotated. `record_spawn` claims it and rerolls
+/// on a collision like any other candidate.
+pub fn roll_fresh_tag(session_id: &str, now: i64) -> String {
+    roll_tag(roll_seed(session_id, now, 0))
+}
+
 /// How many fresh word pairs a single claim will try before giving up. With
 /// 524,288 combinations, reaching this bound means something other than luck
 /// is wrong.
@@ -8808,6 +8962,117 @@ mod tests {
             "f-1",
             "the tagged child is the continuation, even though the sibling is newer"
         );
+    }
+
+    #[test]
+    fn a_rotation_edge_never_moves_the_head() {
+        let l = fresh();
+        l.record_spawn(
+            "root",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(1),
+            Some("stocky-pixie"),
+        )
+        .unwrap();
+        l.record_spawn(
+            "stage",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            Some("azure-heron"),
+        )
+        .unwrap();
+        l.set_fork_provenance("stage", "root", None).unwrap();
+        l.set_stage_provenance("stage", "devise", None).unwrap();
+        assert_eq!(
+            l.resolve_to_lineage_head("root"),
+            "root",
+            "a stage copies nothing and supersedes nothing"
+        );
+        assert_eq!(
+            l.rotation_children().unwrap(),
+            vec![("stage".to_string(), "root".to_string(), millis(0))]
+        );
+    }
+
+    #[test]
+    fn a_rotation_that_took_its_parents_identity_gives_it_back_on_open() {
+        let l = fresh();
+        let born = millis(9);
+        l.record_spawn("parent", WS_A, "/proj", "card-1", born, Some("juicy-roach"))
+            .unwrap();
+        l.rename("parent", Some("dash+join-xp")).unwrap();
+        // The retired rotation path: the rewind transfer, then the stage's
+        // spawn under the handed-down callsign, then the provenance a stage
+        // writes.
+        let rotated = millis(1);
+        let inherited = l
+            .inherit_fork_identity("parent", "stage", rotated)
+            .unwrap();
+        l.record_spawn(
+            "stage",
+            WS_A,
+            "/proj",
+            "card-1",
+            rotated,
+            inherited.tag.as_deref(),
+        )
+        .unwrap();
+        l.set_fork_provenance("stage", "parent", None).unwrap();
+        l.set_stage_provenance("stage", "devise", None).unwrap();
+        l.rename("stage", inherited.user_name.as_deref()).unwrap();
+        // The parent is resumed later and rerolls onto a fresh pair, exactly
+        // as `record_spawn` does for a row whose tag moved on.
+        l.record_spawn(
+            "parent",
+            WS_A,
+            "/proj",
+            "card-1",
+            millis(0),
+            Some("juicy-roach"),
+        )
+        .unwrap();
+        let rerolled = l.get("parent").unwrap().unwrap().tag.unwrap();
+        assert_ne!(rerolled, "juicy-roach");
+        assert_eq!(l.get("stage").unwrap().unwrap().tag.as_deref(), Some("juicy-roach"));
+
+        {
+            let conn = l.db.lock().unwrap();
+            SessionLedger::migrate_return_rotation_identity(&conn).unwrap();
+        }
+        let parent = l.get("parent").unwrap().unwrap();
+        let stage = l.get("stage").unwrap().unwrap();
+        assert_eq!(parent.tag.as_deref(), Some("juicy-roach"));
+        assert_eq!(parent.name.as_deref(), Some("dash+join-xp"));
+        assert!(parent.name_user_set);
+        assert!(stage.name.is_none() && !stage.name_user_set);
+        let fresh_tag = stage.tag.clone().expect("the stage keeps a callsign of its own");
+        assert_ne!(fresh_tag, "juicy-roach");
+        assert_ne!(fresh_tag, rerolled);
+        let owner = |tag: &str| -> String {
+            l.db.lock()
+                .unwrap()
+                .query_row(
+                    "SELECT session_id FROM minted_tags WHERE tag = ?1",
+                    params![tag],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(owner("juicy-roach"), "parent");
+        assert_eq!(owner(&rerolled), "parent", "the rerolled spelling stays spent");
+        assert_eq!(owner(&fresh_tag), "stage");
+
+        // Idempotent: a second open changes nothing.
+        {
+            let conn = l.db.lock().unwrap();
+            SessionLedger::migrate_return_rotation_identity(&conn).unwrap();
+        }
+        assert_eq!(l.get("stage").unwrap().unwrap().tag.as_deref(), Some(fresh_tag.as_str()));
+        assert_eq!(l.get("parent").unwrap().unwrap().tag.as_deref(), Some("juicy-roach"));
     }
 
     #[test]

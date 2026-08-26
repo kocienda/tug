@@ -1594,11 +1594,13 @@ pub async fn relay_session_io(
                             }
                         }
 
-                        // A stage rotation is the same identity transfer with
-                        // no branch point: the arc's stages are one line of
-                        // work wearing one callsign, so ink written in any
-                        // stage resolves to the same head. Nothing is copied,
-                        // hence `fork_point: None` ([P03]).
+                        // A stage rotation is not a fork. It copies nothing,
+                        // and the session it rotates goes on being used, so
+                        // nothing transfers: the stage mints its own callsign,
+                        // keeps its parent's name and ink where they are, and
+                        // records where it came from with no branch point —
+                        // `fork_point: None` is what tells a rotation edge
+                        // from a rewind edge ([P03]).
                         if line.contains("\"type\":\"session_stage\"") {
                             // The `arc-stage` line is written here rather than
                             // by the runner that dispatched the rotation,
@@ -1628,57 +1630,35 @@ pub async fn relay_session_io(
                                     }
                                 }
                             }
-                            if let (Some(ledger), Some(stage)) = (session_ledger, announcement) {
+                            if let (Some(_), Some(stage)) = (session_ledger, announcement) {
                                 let now = crate::session_ledger::now_millis();
-                                match ledger.inherit_fork_identity(
-                                    &stage.parent_session_id,
+                                let tag = crate::session_ledger::roll_fresh_tag(
                                     &stage.new_session_id,
                                     now,
-                                ) {
-                                    Ok(inherited) => {
-                                        match inherited.tag.as_deref() {
-                                            Some(tag) => info!(
-                                                session = %tug_session_id,
-                                                parent = %stage.parent_session_id,
-                                                stage = %stage.stage,
-                                                tag = %tag,
-                                                "stage inherited its parent's callsign"
-                                            ),
-                                            None => info!(
-                                                session = %tug_session_id,
-                                                parent = %stage.parent_session_id,
-                                                stage = %stage.stage,
-                                                "stage parent has no callsign to hand \
-                                                 down; the stage spawns as a root"
-                                            ),
-                                        }
-                                        let mut entry = ledger_entry.lock().await;
-                                        entry.pending_fork = Some((
-                                            stage.new_session_id.clone(),
-                                            crate::feeds::agent_supervisor::PendingFork {
-                                                tag: inherited.tag,
-                                                user_name: inherited.user_name,
-                                                parent_session_id: stage
-                                                    .parent_session_id
-                                                    .clone(),
-                                                fork_point: None,
-                                                // Recorded from the same
-                                                // announcement the identity
-                                                // transfer reads, so the
-                                                // restore can redraw this
-                                                // divider without an arc
-                                                // record to consult ([P10]).
-                                                stage_label: Some(stage.stage.clone()),
-                                                stage_model: stage.model.clone(),
-                                            },
-                                        ));
-                                    }
-                                    Err(err) => warn!(
-                                        session = %tug_session_id,
-                                        error = %err,
-                                        "stage identity transfer failed"
-                                    ),
-                                }
+                                );
+                                info!(
+                                    session = %tug_session_id,
+                                    parent = %stage.parent_session_id,
+                                    stage = %stage.stage,
+                                    tag = %tag,
+                                    "stage spawns with its own callsign"
+                                );
+                                let mut entry = ledger_entry.lock().await;
+                                entry.pending_fork = Some((
+                                    stage.new_session_id.clone(),
+                                    crate::feeds::agent_supervisor::PendingFork {
+                                        tag: Some(tag),
+                                        user_name: None,
+                                        parent_session_id: stage.parent_session_id.clone(),
+                                        fork_point: None,
+                                        // Recorded from the announcement so
+                                        // the restore can redraw this divider
+                                        // without an arc record to consult
+                                        // ([P10]).
+                                        stage_label: Some(stage.stage.clone()),
+                                        stage_model: stage.model.clone(),
+                                    },
+                                ));
                             }
                         }
 
@@ -1865,8 +1845,13 @@ pub async fn relay_session_io(
                                 // rather than at the fork announcement so the
                                 // provenance edge already exists: a write
                                 // racing this transfer resolves through the
-                                // edge and lands on the fork anyway.
-                                ink_ledgers.transfer(&fork.parent_session_id, record_id);
+                                // edge and lands on the fork anyway. Only a
+                                // rewind-fork continues the conversation; a
+                                // rotation has no branch point and leaves the
+                                // parent's ink where the parent wrote it.
+                                if fork.fork_point.is_some() {
+                                    ink_ledgers.transfer(&fork.parent_session_id, record_id);
+                                }
                                 if let Some(name) = fork.user_name.as_deref() {
                                     if let Err(err) = ledger.rename(record_id, Some(name)) {
                                         warn!(
@@ -3794,9 +3779,9 @@ mod tests {
 
     /// Drive an arc stage rotation through the real relay: tugcode announces
     /// the stage, then the stage session's `session_init` consumes the staged
-    /// identity. The mirror of [`drive_fork`], and deliberately built from the
-    /// same parts — the whole claim of [P03] is that a stage travels the fork's
-    /// path with no branch point.
+    /// identity. The mirror of [`drive_fork`], built from the same parts so the
+    /// two can be compared: a stage records a provenance edge with no branch
+    /// point and takes nothing from its parent.
     async fn drive_stage(
         parent: &str,
         stage_session: &str,
@@ -3835,24 +3820,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_stage_becomes_the_lineage_head_of_the_conversation() {
-        // The arc's whole point: every stage is one line of work, so the
-        // ledger must resolve the conversation's id forward to the newest
-        // stage. That edge is what keeps the ink, the callsign, and the
-        // Sessions list reading the arc as one thing rather than three.
+    async fn a_stage_leaves_the_conversation_as_its_own_head() {
+        // A rotation is not a fork: the conversation goes on being used
+        // after the arc, so its id must keep resolving to itself, and the
+        // stage descends from it with no branch point.
         let (sessions, _) = drive_stage("conversation", "stage-1", "devise", |_, _| {}).await;
         assert_eq!(
             sessions.resolve_to_lineage_head("conversation"),
-            "stage-1",
-            "the conversation resolves forward to the stage it rotated into"
+            "conversation",
+            "the conversation is not superseded by the stage it rotated into"
+        );
+        assert_eq!(
+            sessions.rotation_children().unwrap().len(),
+            1,
+            "the rotation edge is recorded, with no fork point"
         );
     }
 
     #[tokio::test]
-    async fn a_stage_carries_the_conversations_durable_ink_across() {
-        // Ink written before the rotation must restore into the same scroll:
-        // `resolve_ink_session` resolves to the lineage head, and the stage is
-        // now that head.
+    async fn a_stage_leaves_the_conversations_durable_ink_where_it_was() {
+        // Receipts written before the rotation belong to the session that
+        // wrote them, which is the session the user returns to.
         let (_sessions, ink) = drive_stage("p-ink-stage", "s-ink-stage", "implement", |shell, _| {
             shell
                 .record_exchange(&shell_row("p-ink-stage", "/commit"))
@@ -3862,8 +3850,8 @@ mod tests {
 
         assert_eq!(
             ink.shell.expect("shell ledger").session_ids_with_rows().unwrap(),
-            std::collections::HashSet::from(["s-ink-stage".to_string()]),
-            "the conversation's receipts moved to the arc's current head"
+            std::collections::HashSet::from(["p-ink-stage".to_string()]),
+            "the conversation's receipts stay with the conversation"
         );
     }
 
